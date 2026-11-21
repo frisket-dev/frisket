@@ -5,7 +5,7 @@ are signed in / an admin / on a browser session, reading the instance's branding
 for the pre-auth sign-in page, and editing a display name are all IDENTITY
 concerns. None of them reads commerce state: the pre-sign-in `/api/instance`
 path in particular no longer touches a funding store — the branding it serves
-(display_name / welcome_message / support_contact) lives on the open `orgs`
+(display_name / welcome_message / support_contact) lives on the open `organizations`
 table (frisket.team.schema), so it is an identity read
 (the public package boundary).
 
@@ -83,7 +83,9 @@ class IdentitySessionService:
         if user.get("auth") == "pat":
             raise SessionForbidden("admin routes require a browser session")
         if self._is_organization_owner is not None:
-            allowed = self._is_organization_owner(int(user["id"]), int(user["org_id"]))
+            allowed = self._is_organization_owner(
+                int(user["id"]), int(user["organization_id"])
+            )
         else:
             allowed = user["email"] in self._admin_emails()
         if not allowed:
@@ -128,7 +130,7 @@ class IdentitySessionService:
     def organization_identity(self, user: dict[str, Any]) -> dict[str, Any]:
         """The signed-in user's own organization identity, for `/api/me`."""
         with self._uow_factory() as uow:
-            identity = uow.auth.identity_for_organization(int(user["org_id"]))
+            identity = uow.auth.identity_for_organization(int(user["organization_id"]))
         if identity is None:
             identity = {
                 "display_name": None,

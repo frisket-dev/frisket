@@ -461,8 +461,6 @@ def projected_job_refs(
     out: dict[str, Any] = {}
     for key in ADMIN_JOB_REF_KEYS:
         value = payload.get(key)
-        if key == "organization_id" and (value is None or value == ""):
-            value = payload.get("org_id")
         if value is None or value == "":
             continue
         out[key] = _projected_ref_value(
@@ -480,8 +478,7 @@ def overlay_job_ref_fields(
     sanitize_value: ValueSanitizer = _identity,
 ) -> None:
     for key in ADMIN_JOB_REF_KEYS:
-        attr = "org_id" if key == "organization_id" else key
-        value = getattr(job, attr, None)
+        value = getattr(job, key, None)
         if value is not None and value != "":
             refs[key] = _projected_ref_value(
                 key,

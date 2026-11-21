@@ -781,7 +781,7 @@ class PdfPacketCommitter:
             PDF_SPLIT_APPLY_KIND,
             statuses=("queued", "running"),
             project_id=project_id,
-            storage_org_id=getattr(
+            storage_organization_id=getattr(
                 self._workspace, "queue_storage_organization_id", None
             ),
             dedupe_key=dedupe_key,

@@ -422,13 +422,13 @@ def find_project_run_job(
     project_id: str,
     run_id: int,
     *,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> Job | None:
     """Best-effort recovery path for server restarts or old run mappings."""
     return queue.get_project_run_job(
         project_id,
         run_id,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
     )
 
 
@@ -494,15 +494,15 @@ def _project_run_job(
     run_jobs: MutableMapping[tuple[str, int], int],
     project_id: str,
     run_id: int,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> tuple[int | None, Job | None]:
     key = (project_id, run_id)
     job_id = run_jobs.get(key)
     job = queue.get(job_id) if job_id is not None else None
     if (
         job is not None
-        and storage_org_id is not None
-        and job.storage_org_id != storage_org_id
+        and storage_organization_id is not None
+        and job.storage_organization_id != storage_organization_id
     ):
         job = None
     if job is None:
@@ -510,7 +510,7 @@ def _project_run_job(
             queue,
             project_id,
             run_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
         )
         if job is not None:
             job_id = job.id
@@ -592,7 +592,7 @@ def reconcile_project_run_status(
     stale_run_grace_seconds: float,
     worker_liveness_window_seconds: float = 90.0,
     queue_timeout_seconds: float | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> ProjectRunStatus:
     key = (project_id, run_id)
     progress = active_runs.get(key)
@@ -608,7 +608,7 @@ def reconcile_project_run_status(
             run_jobs=run_jobs,
             project_id=project_id,
             run_id=run_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
         )
         queue_payload = (
             job_queue_payload(job, now=now)
@@ -786,7 +786,7 @@ def action_run_status_payload(
     stale_run_grace_seconds: float,
     worker_liveness_window_seconds: float = 90.0,
     queue_timeout_seconds: float | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> dict[str, Any]:
     payload = action_contract.run_status(project_id, project, run_id)
     row = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -804,7 +804,7 @@ def action_run_status_payload(
         stale_run_grace_seconds=stale_run_grace_seconds,
         worker_liveness_window_seconds=worker_liveness_window_seconds,
         queue_timeout_seconds=queue_timeout_seconds,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
     )
     public_status = project_run_status_payload(
         status, run_id=run_id, now=now, project=project
@@ -822,7 +822,7 @@ def cancel_project_run(
     run_jobs: MutableMapping[tuple[str, int], int],
     project_id: str,
     run_id: int,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> ProjectRunCancelResult:
     key = (project_id, run_id)
     run_store = RunResultStore(project)
@@ -836,7 +836,7 @@ def cancel_project_run(
         run_jobs=run_jobs,
         project_id=project_id,
         run_id=run_id,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
     )
 
     initial_status = str(row["status"])

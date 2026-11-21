@@ -118,7 +118,6 @@ def _probe_image(tag: str) -> dict[str, object]:
         "jid=q.enqueue('echo',{'packaged':True}); w=Worker(q,worker_id='packaged'); "
         "w.record_liveness(force=True); hb=q.list_worker_heartbeats()[0]; "
         "print(json.dumps({'code_version':code_version(),"
-        "'enqueue_code_version':q.get(jid).code_version,"
         "'worker_version':w.worker_version,"
         "'heartbeat_worker_version':hb.worker_version,"
         "'git_present':Path('/app/.git').exists()})); q.close(); tmp.cleanup()"
@@ -162,7 +161,6 @@ def test_published_image_bakes_immutable_non_unknown_source_identity() -> None:
     probe_b = _probe_image(image_b)
     identity_fields = (
         "code_version",
-        "enqueue_code_version",
         "worker_version",
         "heartbeat_worker_version",
     )

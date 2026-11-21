@@ -13,7 +13,6 @@ import threading
 import pytest
 
 import frisket.engine.jobs.runs as run_jobs
-import frisket.engine.jobs.worker as worker_module
 from frisket.execution.purchases import PurchaseAdmission
 from frisket.engine.jobs import queue as queue_module
 import frisket.engine.runner.map_runner as map_runner_module
@@ -622,13 +621,10 @@ class TestConcurrencyAndRecovery:
 
         with controlled_time() as t:
             queue = t.queue(tmp_path / "q.db")
-            monkeypatch.setattr(queue_module, "code_version", lambda: "commit-A")
             jid = queue.enqueue(ECHO_KIND, {"x": 1}, max_attempts=3)
             dead = queue.claim("dead-worker", lease_seconds=0.01)
             assert dead.id == jid
             t.advance_seconds(1)
-            monkeypatch.setattr(queue_module, "code_version", lambda: "commit-B")
-            monkeypatch.setattr(worker_module, "code_version", lambda: "commit-B")
             w = t.worker(queue, default_registry(), worker_id="survivor")
             assert w.run_once()  # recover_expired + claim + execute
             job = queue.get(jid)
@@ -639,8 +635,6 @@ class TestConcurrencyAndRecovery:
                 "job_final_attempt": False,
             }  # worker injects job_id + attempt finality
             assert job.attempts == 2  # the dead claim counted
-            assert job.code_version == "commit-A"
-            assert job.claimed_code_version == "commit-B"
 
     def test_run_forever_drain_and_stop(self, queue):
         from deterministic_time import controlled_time
@@ -810,9 +804,9 @@ class TestCli:
         )
         project.close()
         queue = SqliteJobQueue(tmp_path / "missing-principal.queue.db")
-        queue_payload_extra = {"storage_org_id": 1}
+        queue_payload_extra = {"storage_organization_id": 1}
         if trusted_organization_id is not None:
-            queue_payload_extra["org_id"] = trusted_organization_id
+            queue_payload_extra["organization_id"] = trusted_organization_id
         _workspace, run_id, job_id = enqueue_regex_project_run(
             project_root,
             queue,

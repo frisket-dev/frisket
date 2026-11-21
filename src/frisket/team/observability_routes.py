@@ -26,7 +26,7 @@ from frisket.team.schema import (
     DEFAULT_DIAGNOSTIC_REPORT_RETENTION_DAYS,
     DEFAULT_DIAGNOSTIC_REPORT_RETENTION_MAX_ROWS,
     client_errors,
-    orgs,
+    organizations,
     pending_invites,
     projects,
     record_audit,
@@ -248,7 +248,7 @@ def register_observability_routes(
     app: FastAPI,
     *,
     engine: sa.Engine,
-    org_id: int,
+    organization_id: int,
     require_user: Callable[..., dict[str, Any]],
 ) -> None:
     """Register S2-D routes; coordinator wires this registrar into the app."""
@@ -281,7 +281,7 @@ def register_observability_routes(
         )
         report_filter = (
             client_errors.c.source == "diagnostic_report",
-            client_errors.c.org_id == org_id,
+            client_errors.c.organization_id == organization_id,
         )
         cx.execute(
             client_errors.delete().where(
@@ -322,7 +322,7 @@ def register_observability_routes(
             totals = {
                 "organizations": int(
                     cx.execute(
-                        sa.select(sa.func.count()).select_from(orgs)
+                        sa.select(sa.func.count()).select_from(organizations)
                     ).scalar_one()
                 ),
                 "users": int(
@@ -334,14 +334,14 @@ def register_observability_routes(
                     cx.execute(
                         sa.select(sa.func.count())
                         .select_from(projects)
-                        .where(projects.c.org_id == org_id)
+                        .where(projects.c.organization_id == organization_id)
                     ).scalar_one()
                 ),
                 "pending_invites": int(
                     cx.execute(
                         sa.select(sa.func.count())
                         .select_from(pending_invites)
-                        .where(pending_invites.c.org_id == org_id)
+                        .where(pending_invites.c.organization_id == organization_id)
                     ).scalar_one()
                 ),
             }
@@ -375,7 +375,7 @@ def register_observability_routes(
         with engine.begin() as cx:
             result = cx.execute(
                 client_errors.insert().values(
-                    org_id=org_id,
+                    organization_id=organization_id,
                     user_id=int(actor["id"]),
                     source="diagnostic_report",
                     message=message,
@@ -388,7 +388,7 @@ def register_observability_routes(
             record_audit(
                 cx,
                 user_id=int(actor["id"]),
-                org_id=org_id,
+                organization_id=organization_id,
                 action="diagnostic_report_created",
                 detail=str(report_id),
             )

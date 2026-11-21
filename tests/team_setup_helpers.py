@@ -51,7 +51,7 @@ def seed_member_invite(app: Any, email: str) -> None:
         connection.execute(
             pending_invites.insert().values(
                 email=email.lower(),
-                org_id=app.state.team_organization_id,
+                organization_id=app.state.team_organization_id,
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
             )
         )
@@ -68,7 +68,7 @@ def sign_in_with_magic_link(
 
     auth = IdentityAuthService(
         lambda: TeamUnitOfWork(
-            app.state.control_engine, org_id=app.state.team_organization_id
+            app.state.control_engine, organization_id=app.state.team_organization_id
         )
     )
     token = auth.create_magic_link(email)

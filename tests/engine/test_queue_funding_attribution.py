@@ -33,7 +33,7 @@ def test_funding_organization_id_stays_injectable_queue_metadata() -> None:
         execution_composition_for=lambda _project, _router, _context: None,  # type: ignore[arg-type]
         active_runs={},
         run_jobs={},
-        queue_payload_extra={"org_id": 91},
+        queue_payload_extra={"organization_id": 91},
         logger=logging.getLogger("test.queue_funding_attribution"),
     )
     request = SimpleNamespace(entry=SimpleNamespace(payload_codecs=()))
@@ -63,7 +63,7 @@ def test_actual_hosted_enqueue_producers_persist_storage_identity(
         monkeypatch=monkeypatch,
         storage_root=tmp_path,
         project_id="actual-producers",
-        storage_org_id=23,
+        storage_organization_id=23,
     )
 
 
@@ -72,7 +72,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
     monkeypatch: pytest.MonkeyPatch,
     storage_root: Path,
     project_id: str,
-    storage_org_id: int,
+    storage_organization_id: int,
 ) -> None:
     from frisket.engine.jobs import (
         embeddings,
@@ -86,11 +86,11 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
 
     class RecordingQueue:
         def find_job_by_refs(self, _kind, **kwargs):
-            assert kwargs.get("storage_org_id") == storage_org_id
+            assert kwargs.get("storage_organization_id") == storage_organization_id
             return None
 
         def enqueue(self, kind, payload, **_kwargs):
-            assert payload.get("storage_org_id") == storage_org_id, (
+            assert payload.get("storage_organization_id") == storage_organization_id, (
                 f"actual {kind} producer omitted first-class storage identity"
             )
             enqueued.append((str(kind), dict(payload)))
@@ -109,7 +109,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         project=project,
         project_id=project_id,
         workspace_root=storage_root,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
         index_id="index-801",
         trigger_ref={"source_run_id": 801},
     )
@@ -129,7 +129,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         project=project,
         project_id=project_id,
         workspace_root=storage_root,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
         feed={"config": {"download_enclosures": "queued"}},
         sheet_id=802,
         row_ids=[803],
@@ -160,7 +160,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         queue,
         workspace_root=storage_root,
         project_id=project_id,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
         request_id=804,
     )
 
@@ -181,7 +181,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
             queue,
             workspace_root=storage_root,
             project_id=project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
         )
         == 1
     )
@@ -204,7 +204,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
     assert feeds.enqueue_due_feed_polls(
         workspace_root=storage_root,
         queue=queue,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
         now=datetime(2026, 7, 10, tzinfo=UTC),
     )
 
@@ -235,7 +235,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
             "row_ids": [808],
         }
         payload_extra = dict(kwargs.get("payload_extra") or {})
-        assert payload_extra.get("storage_org_id") == storage_org_id
+        assert payload_extra.get("storage_organization_id") == storage_organization_id
         launch_payloads.append(payload_extra)
         return SimpleNamespace(job_id=9807)
 
@@ -254,7 +254,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         project=project,
         project_id=project_id,
         workspace_root=storage_root,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
         sheet_id=807,
         row_ids=[808],
         trigger_ref={"source_run_id": 807},

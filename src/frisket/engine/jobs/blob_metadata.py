@@ -82,9 +82,13 @@ def register_blob_metadata_handler(
                 }
                 claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
                 if isinstance(claimed, ProjectStorageKey):
-                    continuation["storage_org_id"] = claimed.storage_organization_id
+                    continuation["storage_organization_id"] = (
+                        claimed.storage_organization_id
+                    )
                 if isinstance(context.trusted_job_organization_id, int):
-                    continuation["org_id"] = context.trusted_job_organization_id
+                    continuation["organization_id"] = (
+                        context.trusted_job_organization_id
+                    )
                 queue.enqueue(BLOB_METADATA_KIND, continuation)
             return {"project_id": project_id, "updated": updated, "failed": failed}
         finally:

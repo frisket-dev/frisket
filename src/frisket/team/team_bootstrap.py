@@ -11,7 +11,7 @@ from filelock import FileLock
 
 from frisket.engine.jobs.queue_schema import queue_table_names
 from frisket.team.bootstrap import PreSplitSchemaError, SCHEMA_VERSION, schema_marker
-from frisket.team.schema import metadata, orgs
+from frisket.team.schema import metadata, organizations
 
 
 def _queue_tables() -> set[str]:
@@ -96,14 +96,18 @@ def initialize_team_schema_and_organization(
 
         tables = set(sa.inspect(cx).get_table_names())
         _validate_existing_tables(cx, tables)
-        rows = cx.execute(sa.select(orgs.c.id).order_by(orgs.c.id)).scalars().all()
+        rows = (
+            cx.execute(sa.select(organizations.c.id).order_by(organizations.c.id))
+            .scalars()
+            .all()
+        )
         if rows and rows != [1]:
             raise PreSplitSchemaError(
                 "team organization singleton is invalid; drop and reseed"
             )
         if not rows:
             cx.execute(
-                orgs.insert().values(
+                organizations.insert().values(
                     id=1,
                     name=organization_name,
                     display_name=organization_name,

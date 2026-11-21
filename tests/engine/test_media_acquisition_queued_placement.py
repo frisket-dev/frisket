@@ -149,7 +149,7 @@ def test_media_download_queued_launch_returns_before_yt_dlp_runs(
     [pending] = SearchPreparationStore(
         client.app.state.workspace.queue,
         workspace_root=str(client.app.state.workspace.root),
-    ).list_active_page(storage_org_id=None)
+    ).list_active_page(storage_organization_id=None)
     assert pending.materialization_job_id == result.job_id
     assert pending.sheet_id == sheet_id
     assert pending.row_ids == tuple(project.visible_row_ids(sheet_id))
@@ -296,7 +296,7 @@ def test_media_fetch_url_queued_launch_returns_before_download_and_worker_finali
     [pending] = SearchPreparationStore(
         client.app.state.workspace.queue,
         workspace_root=str(client.app.state.workspace.root),
-    ).list_active_page(storage_org_id=None)
+    ).list_active_page(storage_organization_id=None)
     assert pending.materialization_job_id == result.job_id
     assert pending.sheet_id == sheet_id
     assert pending.row_ids == tuple(project.visible_row_ids(sheet_id))

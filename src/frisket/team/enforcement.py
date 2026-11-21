@@ -350,7 +350,7 @@ class _Enforcer:
                 project_ctx = self._project_access.resolve_project_for_user_id(
                     int(user["id"]),
                     project_id,
-                    preferred_organization_id=int(user["org_id"]),
+                    preferred_organization_id=int(user["organization_id"]),
                     scope_organization_id=_pat_scope(user),
                 )
             except ValueError as exc:
@@ -376,7 +376,7 @@ class _Enforcer:
                 and user["email"] in self._admin_emails()
             )
             if not admin_break_glass and not self._project_access.can_on_project(
-                int(project_ctx["org_id"]),
+                int(project_ctx["organization_id"]),
                 project_id,
                 int(user["id"]),
                 evaluation.required_project_role,
@@ -445,7 +445,7 @@ class _Enforcer:
 
         if self._organization_role is not None:
             role = self._organization_role(
-                int(policy.user["id"]), int(policy.user["org_id"])
+                int(policy.user["id"]), int(policy.user["organization_id"])
             )
             if role in ("owner", "admin"):
                 return
@@ -475,7 +475,7 @@ class _Enforcer:
 
 
 def _pat_scope(user: Mapping[str, Any]) -> int | None:
-    return int(user["org_id"]) if user.get("auth") == "pat" else None
+    return int(user["organization_id"]) if user.get("auth") == "pat" else None
 
 
 def _body_peek(body: bytes, *, strict: bool = False) -> dict[str, Any]:
@@ -616,10 +616,10 @@ def protect_core_app(
     * ``app`` — the core app from :func:`frisket.server.app.create_app`.
     * ``resolve_user`` — ``Request -> actor dict | None``. Cookie/Bearer parsing
       is the port's business; the actor dict carries ``id``, ``email``,
-      ``org_id`` and ``auth == "pat"`` for token actors.
+      ``organization_id`` and ``auth == "pat"`` for token actors.
     * ``admin_emails`` — ``() -> set[str]``; an empty set means no admin.
     * ``project_access`` — the project identity + role-ladder port.
-    * ``organization_role`` — optional ``(user_id, org_id) -> role``; without it the
+    * ``organization_role`` — optional ``(user_id, organization_id) -> role``; without it the
       organization-wide usage view is restricted to server admins.
     * ``deny_code_execution`` — optional deployment policy; without it a team
       server (which runs its own workers) allows code recipes.

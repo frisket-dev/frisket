@@ -2,7 +2,7 @@
 
 The incident: a user of organization B POSTed ``/api/diagnostic-bundle`` and got back
 organization A's queue jobs, project slugs included. A downstream composition's
-per-tenant filter read ``org_id`` alone and treated its absence as "matches
+per-tenant filter read ``organization_id`` alone and treated its absence as "matches
 everyone" (fail open). That is fixed downstream. The base-side root cause is
 why unattributable jobs existed at all: attribution was something each
 enqueue author had to remember to put in a hand-built payload dict, and
@@ -10,12 +10,12 @@ enqueue author had to remember to put in a hand-built payload dict, and
 
 The two identities are deliberately NOT merged, because on a hosted tenant
 sub-app they diverge (a downstream composition's tenant-app builder passes
-``{"org_id": funding_account_id, "storage_org_id": storage_org_id}``):
+``{"organization_id": funding_account_id, "storage_organization_id": storage_organization_id}``):
 
-* ``storage_org_id`` -- the DATA OWNER, the organization whose directory the bundle
+* ``storage_organization_id`` -- the DATA OWNER, the organization whose directory the bundle
   lives in. This is what makes a ``project_id`` sensitive, so it is the
   tenancy label, and it is REQUIRED.
-* ``org_id`` -- the FUNDING account, who pays and whose BYOK keys resolve.
+* ``organization_id`` -- the FUNDING account, who pays and whose BYOK keys resolve.
   Engine-minted background work has no funding account in scope, so it is
   OPTIONAL -- but a claimed value must be well formed.
 
@@ -63,7 +63,7 @@ def _row(queue, job_id):
 
 def test_hosted_job_with_no_owner_at_all_is_refused(tmp_path):
     """THE REPRODUCTION. Before the fence this enqueued happily and persisted a
-    row with org_id NULL, storage_org_id NULL, project_id NULL -- a job no
+    row with organization_id NULL, storage_organization_id NULL, project_id NULL -- a job no
     per-tenant surface can attribute, which is exactly what a filter has to
     guess about (and guessed wrong, in the incident's direction)."""
     queue = _hosted(tmp_path)
@@ -81,8 +81,9 @@ def test_hosted_project_job_without_storage_identity_is_refused(tmp_path):
     queue = _hosted(tmp_path)
     with pytest.raises(ValueError) as excinfo:
         queue.enqueue(PROJECT_RUN_KIND, {"project_id": "victim"})
-    assert "hosted project jobs require first-class storage_org_id identity" in str(
-        excinfo.value
+    assert (
+        "hosted project jobs require first-class storage_organization_id identity"
+        in str(excinfo.value)
     )
 
 
@@ -92,7 +93,9 @@ def test_hosted_project_job_with_malformed_storage_identity_is_refused(tmp_path,
     normalize into tenant 1."""
     queue = _hosted(tmp_path)
     with pytest.raises(ValueError):
-        queue.enqueue(PROJECT_RUN_KIND, {"project_id": "victim", "storage_org_id": bad})
+        queue.enqueue(
+            PROJECT_RUN_KIND, {"project_id": "victim", "storage_organization_id": bad}
+        )
 
 
 def test_a_job_cannot_be_both_server_scoped_and_project_scoped(tmp_path):
@@ -104,7 +107,7 @@ def test_a_job_cannot_be_both_server_scoped_and_project_scoped(tmp_path):
             PROJECT_RUN_KIND,
             {
                 "project_id": "victim",
-                "storage_org_id": 7,
+                "storage_organization_id": 7,
                 SERVER_SCOPED_JOB_PAYLOAD_KEY: True,
             },
         )
@@ -113,7 +116,7 @@ def test_a_job_cannot_be_both_server_scoped_and_project_scoped(tmp_path):
 
 @pytest.mark.parametrize("bad", [True, "abc", 0, -3, 1.5, []])
 def test_hosted_job_claiming_a_malformed_funding_identity_is_refused(tmp_path, bad):
-    """org_id is optional, but a claimed one is validated at the MINT site.
+    """organization_id is optional, but a claimed one is validated at the MINT site.
     It used to be validated only at claim time, so a malformed funding identity
     was accepted here and terminal-failed a claim later, losing the work in
     between with nothing to point at."""
@@ -121,9 +124,13 @@ def test_hosted_job_claiming_a_malformed_funding_identity_is_refused(tmp_path, b
     with pytest.raises(ValueError) as excinfo:
         queue.enqueue(
             PROJECT_RUN_KIND,
-            {"project_id": "proj", "storage_org_id": 7, "org_id": bad},
+            {
+                "project_id": "proj",
+                "storage_organization_id": 7,
+                "organization_id": bad,
+            },
         )
-    assert "org_id" in str(excinfo.value)
+    assert "organization_id" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------
@@ -145,14 +152,14 @@ def test_server_scoped_job_is_expressible_on_the_hosted_queue(tmp_path):
         },
     )
     row = _row(queue, job_id)
-    assert row.project_id is None and row.storage_org_id is None
+    assert row.project_id is None and row.storage_organization_id is None
     assert json.loads(row.payload)[SERVER_SCOPED_JOB_PAYLOAD_KEY] is True
 
 
 def test_engine_site_shape_storage_label_without_funding_account_is_accepted(tmp_path):
     """The shape every engine-minted background job emits (source polls, alert
-    evaluations, digests, deliveries): a storage label and no org_id. Requiring
-    org_id here would force the engine to invent a funding account it does not
+    evaluations, digests, deliveries): a storage label and no organization_id. Requiring
+    organization_id here would force the engine to invent a funding account it does not
     know -- and cloud attributes these by their storage label, which is why its
     filter accepts both spellings."""
     queue = _hosted(tmp_path)
@@ -160,14 +167,14 @@ def test_engine_site_shape_storage_label_without_funding_account_is_accepted(tmp
         FEED_POLL_KIND,
         {
             "project_id": "news",
-            "storage_org_id": 23,
+            "storage_organization_id": 23,
             "source_id": 1,
             "workspace_root": str(tmp_path),
         },
     )
     row = _row(queue, job_id)
-    assert row.storage_org_id == 23
-    assert row.org_id is None
+    assert row.storage_organization_id == 23
+    assert row.organization_id is None
 
 
 def test_organization_scoped_non_project_job_is_accepted_without_the_marker(tmp_path):
@@ -175,23 +182,24 @@ def test_organization_scoped_non_project_job_is_accepted_without_the_marker(tmp_
     not need to declare itself server-scoped."""
     queue = _hosted(tmp_path)
     job_id = queue.enqueue(
-        MODEL_PULL_KIND, {"pull_id": 1, "storage_org_id": 5, "workspace_root": "/w"}
+        MODEL_PULL_KIND,
+        {"pull_id": 1, "storage_organization_id": 5, "workspace_root": "/w"},
     )
-    assert _row(queue, job_id).storage_org_id == 5
+    assert _row(queue, job_id).storage_organization_id == 5
 
 
 def test_funding_account_may_differ_from_the_data_owner(tmp_path):
-    """The hosted tenant sub-app's real shape: org_id is the funding account,
-    storage_org_id is the data owner, and they are NOT the same organization. A fence
+    """The hosted tenant sub-app's real shape: organization_id is the funding account,
+    storage_organization_id is the data owner, and they are NOT the same organization. A fence
     that required them to agree would break hosted dispatch outright."""
     queue = _hosted(tmp_path)
     job_id = queue.enqueue(
         PROJECT_RUN_KIND,
-        {"project_id": "proj", "storage_org_id": 23, "org_id": 91},
+        {"project_id": "proj", "storage_organization_id": 23, "organization_id": 91},
     )
     row = _row(queue, job_id)
-    assert row.storage_org_id == 23
-    assert row.org_id == "91"
+    assert row.storage_organization_id == 23
+    assert row.organization_id == "91"
 
 
 # --------------------------------------------------------------------------
@@ -213,7 +221,7 @@ def test_local_and_team_enqueue_the_same_jobs_with_no_organization_at_all(
     tmp_path, payload
 ):
     """Local single-user has no organization concept; the self-hosted team server is
-    single-organization and passes only ``{"org_id": org_id}`` as an audit field, with
+    single-organization and passes only ``{"organization_id": organization_id}`` as an audit field, with
     no storage identity and no claimed ProjectStorageKey. BOTH declare
     hosted=False (team/app.py is explicit about it), so the attribution
     requirement is structurally out of reach for them."""
@@ -222,12 +230,14 @@ def test_local_and_team_enqueue_the_same_jobs_with_no_organization_at_all(
 
 
 def test_team_audit_organization_id_still_enqueues_without_a_storage_identity(tmp_path):
-    """team/app.py spreads queue_payload_extra={"org_id": org_id} and nothing
+    """team/app.py spreads queue_payload_extra={"organization_id": organization_id} and nothing
     else. On its hosted=False queue that stays a pure audit field."""
     queue = _local(tmp_path, "team.db")
-    job_id = queue.enqueue(PROJECT_RUN_KIND, {"project_id": "proj", "org_id": 4})
+    job_id = queue.enqueue(
+        PROJECT_RUN_KIND, {"project_id": "proj", "organization_id": 4}
+    )
     row = _row(queue, job_id)
-    assert row.org_id == "4" and row.storage_org_id is None
+    assert row.organization_id == "4" and row.storage_organization_id is None
 
 
 # --------------------------------------------------------------------------

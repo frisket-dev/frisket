@@ -31,7 +31,7 @@ from frisket.team.schema import (
     DEFAULT_DIAGNOSTIC_REPORT_RETENTION_MAX_ROWS,
     client_errors,
     memberships,
-    orgs,
+    organizations,
     oauth_connections,
     pending_invites,
     project_invites,
@@ -327,7 +327,7 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
     assert revoke.status_code == 200, revoke.text
     with app.state.control_engine.connect() as cx:
         organization_count = cx.execute(
-            sa.select(sa.func.count()).select_from(orgs)
+            sa.select(sa.func.count()).select_from(organizations)
         ).scalar_one()
         removed = cx.execute(
             sa.select(pending_invites.c.email).where(
@@ -375,7 +375,7 @@ def test_admin_invite_delivers_usable_magic_link_into_the_single_organization(
     assert member.cookies.get("frisket_session")
     with app.state.control_engine.connect() as cx:
         organization_count = cx.execute(
-            sa.select(sa.func.count()).select_from(orgs)
+            sa.select(sa.func.count()).select_from(organizations)
         ).scalar_one()
         member_count = cx.execute(
             sa.select(sa.func.count())
@@ -470,7 +470,7 @@ def test_project_invite_acceptance_is_open_single_use_and_project_scoped(
             )
         ).scalar_one_or_none()
         organization_count = cx.execute(
-            sa.select(sa.func.count()).select_from(orgs)
+            sa.select(sa.func.count()).select_from(organizations)
         ).scalar_one()
     assert organization_membership is None, (
         "project invite must not grant whole-org membership"
@@ -866,7 +866,7 @@ def test_diagnostic_report_retention_enforces_age_and_row_bounds(
     now = datetime.now(UTC)
     recent_rows = [
         {
-            "org_id": app.state.team_organization_id,
+            "organization_id": app.state.team_organization_id,
             "user_id": None,
             "source": "diagnostic_report",
             "severity": "info",
@@ -879,7 +879,7 @@ def test_diagnostic_report_retention_enforces_age_and_row_bounds(
     ]
     expired_rows = [
         {
-            "org_id": app.state.team_organization_id,
+            "organization_id": app.state.team_organization_id,
             "user_id": None,
             "source": "diagnostic_report",
             "severity": "info",

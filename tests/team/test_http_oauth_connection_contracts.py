@@ -158,7 +158,7 @@ def test_oauth_connection_list_keeps_organization_member_bytes_and_browser_only_
         secret_box=TeamSecretBox(config),
     )
     service.connect_google_account(
-        org_id=app.state.team_organization_id,
+        organization_id=app.state.team_organization_id,
         user_id=1,
         external_subject="subject-1",
         refresh_token="refresh-secret-never-public",

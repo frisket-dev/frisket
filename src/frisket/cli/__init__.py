@@ -48,7 +48,7 @@ DEFAULT_LOCAL_PORT = 7331
 
 def _cloud_project_roots() -> list[SchedulerRoot]:
     """Per-organization roots under the multi-tenant hosted layout,
-    ``FRISKET_DATA_DIR/projects/<org_id>/*.frisket``.
+    ``FRISKET_DATA_DIR/projects/<organization_id>/*.frisket``.
 
     Only directories whose name is a valid positive storage-organization id are
     accepted. This is not just cosmetic: ``_feed_scheduler_roots`` treats
@@ -70,9 +70,9 @@ def _cloud_project_roots() -> list[SchedulerRoot]:
     for p in sorted(projects.iterdir()):
         if not p.is_dir():
             continue
-        org_id = _storage_organization_id_for_scheduler_root(p)
-        if org_id is not None:
-            roots.append((p, org_id))
+        organization_id = _storage_organization_id_for_scheduler_root(p)
+        if organization_id is not None:
+            roots.append((p, organization_id))
     return roots
 
 
@@ -80,7 +80,7 @@ def _flat_data_dir_scheduler_root() -> list[SchedulerRoot]:
     """Fallback scheduler root for the open team-server composition.
 
     ``_cloud_project_roots`` assumes the multi-tenant layout,
-    ``FRISKET_DATA_DIR/projects/<org_id>/*.frisket`` (one subdirectory per
+    ``FRISKET_DATA_DIR/projects/<organization_id>/*.frisket`` (one subdirectory per
     organization). The open team server (``frisket.team.app.create_team_app``) is
     single-organization and passes ``config.data_dir`` straight through as its
     Workspace root, so bundles land directly at
@@ -215,13 +215,13 @@ def _sweep(
     the scheduler never kills the worker."""
     enqueue = _load(sweep.enqueue)
     total = 0
-    for root, storage_org_id in roots:
+    for root, storage_organization_id in roots:
         try:
             total += sweep.count(
                 enqueue(
                     queue=queue,
                     workspace_root=root,
-                    storage_org_id=storage_org_id,
+                    storage_organization_id=storage_organization_id,
                     project_opener=project_opener,
                 )
             )
@@ -297,11 +297,13 @@ def _write_model_pull_finished_audit(
     detail = f"{row.id}:{row.model_ref}:{row.status}"
     if row.correlation_id:
         detail = f"{detail}:{row.correlation_id}"
-    organization_id_raw = payload.get("org_id")
+    organization_id_raw = payload.get("organization_id")
     try:
-        org_id = int(organization_id_raw) if organization_id_raw is not None else None
+        organization_id = (
+            int(organization_id_raw) if organization_id_raw is not None else None
+        )
     except (TypeError, ValueError):
-        org_id = None
+        organization_id = None
     try:
         import sqlalchemy as sa
 
@@ -312,7 +314,7 @@ def _write_model_pull_finished_audit(
             cx.execute(
                 audit_log.insert().values(
                     user_id=None,
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="model_pull_finished",
                     detail=detail,
                 )

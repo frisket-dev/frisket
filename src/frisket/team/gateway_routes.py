@@ -28,14 +28,14 @@ from frisket.server.routes.models_gateway import ModelsGatewayAPIRoute
 from frisket.server.services.models_gateway import ModelsGatewayService
 from frisket.team.control_plane import control_plane_engine
 from frisket.team.db import atomic_upsert, locked_transaction
-from frisket.team.schema import org_env_vars
+from frisket.team.schema import organization_env_vars
 from frisket.security.secrets import key_hint
 
 
 def resolve_team_models_gateway(
     engine: sa.Engine,
     *,
-    org_id: int,
+    organization_id: int,
     decrypt: Callable[[str], str],
     env: Mapping[str, str] | None = None,
 ) -> ModelsGatewayConnection | None:
@@ -46,9 +46,11 @@ def resolve_team_models_gateway(
         return environment
     with engine.connect() as connection:
         rows = connection.execute(
-            sa.select(org_env_vars.c.name, org_env_vars.c.encrypted).where(
-                org_env_vars.c.org_id == org_id,
-                org_env_vars.c.name.in_(
+            sa.select(
+                organization_env_vars.c.name, organization_env_vars.c.encrypted
+            ).where(
+                organization_env_vars.c.organization_id == organization_id,
+                organization_env_vars.c.name.in_(
                     (MODELS_GATEWAY_URL_ENV, MODELS_GATEWAY_TOKEN_ENV)
                 ),
             )
@@ -76,13 +78,13 @@ class TeamModelsGatewayStore:
         self,
         engine: sa.Engine,
         *,
-        org_id: int,
+        organization_id: int,
         encrypt: Callable[[str], str],
         decrypt: Callable[[str], str],
         env: Mapping[str, str] | None = None,
     ) -> None:
         self.engine = engine
-        self.org_id = org_id
+        self.organization_id = organization_id
         self._encrypt = encrypt
         self._decrypt = decrypt
         self._env = env
@@ -90,7 +92,7 @@ class TeamModelsGatewayStore:
     def resolve(self) -> ModelsGatewayConnection | None:
         return resolve_team_models_gateway(
             self.engine,
-            org_id=self.org_id,
+            organization_id=self.organization_id,
             decrypt=self._decrypt,
             env=self._env,
         )
@@ -107,7 +109,7 @@ class TeamModelsGatewayStore:
         }
         with locked_transaction(
             self.engine,
-            lock_scope=("org-models-gateway", self.org_id),
+            lock_scope=("organization-models-gateway", self.organization_id),
         ) as database:
             for name, value in values.items():
                 stored = {
@@ -116,13 +118,13 @@ class TeamModelsGatewayStore:
                 }
                 atomic_upsert(
                     database,
-                    table=org_env_vars,
+                    table=organization_env_vars,
                     values={
-                        "org_id": self.org_id,
+                        "organization_id": self.organization_id,
                         "name": name,
                         **stored,
                     },
-                    conflict_columns=("org_id", "name"),
+                    conflict_columns=("organization_id", "name"),
                     update_values=stored,
                 )
         return connection
@@ -135,14 +137,14 @@ class TeamOrganizationModelsGatewayPort:
         self._decrypt = decrypt
 
     def models_gateway_connection(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> ModelsGatewayConnection | None:
         if not control_database_url:
             return resolve_models_gateway_env()
         engine = control_plane_engine(control_database_url)
         return resolve_team_models_gateway(
             engine,
-            org_id=org_id,
+            organization_id=organization_id,
             decrypt=self._decrypt,
         )
 
@@ -150,7 +152,7 @@ class TeamOrganizationModelsGatewayPort:
 def team_models_gateway_service(
     engine: sa.Engine,
     *,
-    org_id: int,
+    organization_id: int,
     encrypt: Callable[[str], str],
     decrypt: Callable[[str], str],
     env: Mapping[str, str] | None = None,
@@ -158,14 +160,14 @@ def team_models_gateway_service(
 ) -> ModelsGatewayService:
     store = TeamModelsGatewayStore(
         engine,
-        org_id=org_id,
+        organization_id=organization_id,
         encrypt=encrypt,
         decrypt=decrypt,
         env=env,
     )
     return ModelsGatewayService(
         authority="organization",
-        receipt_scope=f"organization:{org_id}",
+        receipt_scope=f"organization:{organization_id}",
         resolve_connection=store.resolve,
         save_connection=store.save,
         transport=transport,

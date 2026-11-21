@@ -80,14 +80,14 @@ def _ensure_operator_actor(cx: sa.Connection) -> int:
 
 
 def _mint_in_transaction(
-    cx: sa.Connection, *, org_id: int, label: str | None
+    cx: sa.Connection, *, organization_id: int, label: str | None
 ) -> tuple[str, int]:
     raw = OPERATOR_TOKEN_PREFIX + secrets.token_urlsafe(32)
     actor_id = _ensure_operator_actor(cx)
     token_id = inserted_id(
         cx.execute(
             operator_tokens.insert().values(
-                org_id=org_id,
+                organization_id=organization_id,
                 label=(label or "").strip() or None,
                 token_hash=_digest(raw),
                 created_at=datetime.now(UTC),
@@ -97,7 +97,7 @@ def _mint_in_transaction(
     record_audit(
         cx,
         user_id=actor_id,
-        org_id=org_id,
+        organization_id=organization_id,
         action="operator_token_minted",
         detail=f"{token_id}:{(label or '').strip()}",
     )
@@ -105,22 +105,24 @@ def _mint_in_transaction(
 
 
 def mint_operator_token(
-    engine: sa.Engine, *, org_id: int, label: str | None = None
+    engine: sa.Engine, *, organization_id: int, label: str | None = None
 ) -> tuple[str, int]:
     """Mint a token, returning ``(raw, token_id)``. The raw value is never
     persisted; this return is the one chance to show it."""
     if label is not None and len(label) > 200:
         raise OperatorTokenError("label must be 200 characters or fewer")
-    with locked_transaction(engine, lock_scope=("operator-token", org_id)) as cx:
-        return _mint_in_transaction(cx, org_id=org_id, label=label)
+    with locked_transaction(
+        engine, lock_scope=("operator-token", organization_id)
+    ) as cx:
+        return _mint_in_transaction(cx, organization_id=organization_id, label=label)
 
 
 class OperatorTokenService:
     """Bearer authentication and rotation over the ``operator_tokens`` table."""
 
-    def __init__(self, engine: sa.Engine, *, org_id: int):
+    def __init__(self, engine: sa.Engine, *, organization_id: int):
         self._engine = engine
-        self._organization_id = org_id
+        self._organization_id = organization_id
 
     def authenticate(self, authorization: str) -> dict[str, Any] | None:
         """Resolve ``Authorization: Bearer <raw>`` to an operator actor.
@@ -141,7 +143,7 @@ class OperatorTokenService:
                     operator_tokens.c.label,
                     operator_tokens.c.token_hash,
                 ).where(
-                    operator_tokens.c.org_id == self._organization_id,
+                    operator_tokens.c.organization_id == self._organization_id,
                     operator_tokens.c.revoked_at.is_(None),
                 )
             ).all()
@@ -164,7 +166,7 @@ class OperatorTokenService:
             "id": actor_id,
             "email": OPERATOR_ACTOR_EMAIL,
             "name": OPERATOR_ACTOR_NAME,
-            "org_id": self._organization_id,
+            "organization_id": self._organization_id,
             "auth": "operator",
             "operator_token_id": int(match.id),
             "operator_label": match.label,
@@ -179,14 +181,14 @@ class OperatorTokenService:
             row = cx.execute(
                 sa.select(operator_tokens.c.id, operator_tokens.c.label).where(
                     operator_tokens.c.id == token_id,
-                    operator_tokens.c.org_id == self._organization_id,
+                    operator_tokens.c.organization_id == self._organization_id,
                     operator_tokens.c.revoked_at.is_(None),
                 )
             ).first()
             if row is None:
                 raise OperatorTokenError("operator token is no longer active")
             raw, new_id = _mint_in_transaction(
-                cx, org_id=self._organization_id, label=row.label
+                cx, organization_id=self._organization_id, label=row.label
             )
             cx.execute(
                 operator_tokens.update()
@@ -197,7 +199,7 @@ class OperatorTokenService:
             record_audit(
                 cx,
                 user_id=actor_id,
-                org_id=self._organization_id,
+                organization_id=self._organization_id,
                 action="operator_token_rotated",
                 detail=f"{token_id}->{new_id}",
             )

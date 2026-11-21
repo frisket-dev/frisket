@@ -595,7 +595,7 @@ def register_production_handlers(
         ),
         delivery_runtime_factory=notification_delivery_runtime_factory,
         queue=queue,
-        storage_org_id=workspace_root_storage_organization_id,
+        storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     notification_digest_registration = register_notification_digest_handlers(
@@ -643,7 +643,9 @@ def register_production_handlers(
                 trusted_payload = dict(payload)
                 # Identity comes from the claimed row, never a parsed directory name.
                 trusted_payload["project_id"] = claimed.project_slug
-                trusted_payload["storage_org_id"] = claimed.storage_organization_id
+                trusted_payload["storage_organization_id"] = (
+                    claimed.storage_organization_id
+                )
                 trusted_payload["workspace_root"] = str(project_root)
                 return handler(trusted_payload, context)
 
@@ -837,7 +839,6 @@ class Worker:
         job = self.queue.claim(
             self.worker_id,
             lease_seconds=self.lease_seconds,
-            worker_version=self.worker_version,
         )
         if job is None:
             return False
@@ -877,29 +878,6 @@ class Worker:
                     "max_attempts": job.max_attempts,
                 },
             )
-            if job.code_version is not None and job.code_version != self.worker_version:
-                # Keep release/worktree differences visible without changing
-                # queue control flow. WARNING (not DEBUG) makes the diagnostic
-                # available in production logs with DEBUG disabled.
-                LOG.warning(
-                    "worker_version_mismatch: job %s enqueued by code_version=%r,"
-                    " claimed by worker_version=%r (worker_id=%s, kind=%s)."
-                    " A different release or worktree shares this queue;"
-                    " this is diagnostic only.",
-                    job.id,
-                    job.code_version,
-                    self.worker_version,
-                    self.worker_id,
-                    job.kind,
-                    extra={
-                        "event": "worker_version_mismatch",
-                        "job_id": job.id,
-                        "job_kind": job.kind,
-                        "worker_id": self.worker_id,
-                        "enqueued_code_version": job.code_version,
-                        "worker_code_version": self.worker_version,
-                    },
-                )
             handler = self.registry.get(job.kind)
             if handler is None:
                 # a config error, not a transient one — never retry
@@ -920,32 +898,36 @@ class Worker:
                     exc_info=False,
                 )
                 return
-            # The credential-owning organization is the first-class queue column org_id,
-            # written at enqueue and immutable in the row — the SAME trust
-            # boundary the storage columns select the physical project from.
-            # The mutable JSON payload["org_id"] a forged/stale/mis-migrated
-            # body carries must never resolve another tenant's BYOK keys against
-            # this organization's project. Reconcile the two here (the seam that already
-            # overrides project_id/storage_org_id from claimed columns): a
+            # The credential-owning organization is the first-class queue column
+            # organization_id, written at enqueue and immutable in the row —
+            # the SAME trust boundary the storage columns select the physical
+            # project from. The mutable JSON payload["organization_id"] a
+            # forged/stale/mis-migrated body carries must never resolve another
+            # tenant's BYOK keys against this organization's project. Reconcile
+            # the two here (the seam that already overrides
+            # project_id/storage_organization_id from claimed columns): a
             # divergence or a malformed identity fails closed rather than run
             # organization A's data with organization B's credentials/billing.
             #
-            # TRUST INVARIANT: job.org_id is itself only as
+            # TRUST INVARIANT: job.organization_id is itself only as
             # trusted as the ENQUEUE producer — server/action_enqueue.py spreads
             # the authenticated, server-controlled ``ctx.queue_payload_extra``
-            # (which carries {org_id, storage_org_id}) LAST into the payload, so
-            # both the column and the payload copy reflect the authenticated organization
-            # at enqueue. This reconciliation therefore closes the DURABLE-
-            # PAYLOAD-TAMPER vector (a stored payload forged/mutated/mis-migrated
-            # after enqueue while the column stays valid). It does NOT substitute
-            # for enqueue-time authz: a caller who bypasses action_enqueue and
-            # calls queue.enqueue directly with a forged organization in BOTH is an
-            # enqueue-boundary concern, not the worker's — queue.enqueue is an
-            # internal API, no production path reaches it caller-controlled.
+            # (which carries {organization_id, storage_organization_id}) LAST
+            # into the payload, so both the column and the payload copy reflect
+            # the authenticated organization at enqueue. This reconciliation
+            # therefore closes the DURABLE-PAYLOAD-TAMPER vector (a stored
+            # payload forged/mutated/mis-migrated after enqueue while the column
+            # stays valid). It does NOT substitute for enqueue-time authz: a
+            # caller who bypasses action_enqueue and calls queue.enqueue
+            # directly with a forged organization in BOTH is an enqueue-boundary
+            # concern, not the worker's — queue.enqueue is an internal API, no
+            # production path reaches it caller-controlled.
             try:
-                trusted_organization_id = _normalize_queue_organization_id(job.org_id)
+                trusted_organization_id = _normalize_queue_organization_id(
+                    job.organization_id
+                )
                 payload_organization_id = _normalize_queue_organization_id(
-                    (job.payload or {}).get("org_id")
+                    (job.payload or {}).get("organization_id")
                 )
             except (TypeError, ValueError) as exc:
                 safe = safe_error(
@@ -970,8 +952,9 @@ class Worker:
                 safe = safe_error(
                     "organization_identity_mismatch",
                     f"refusing job {job.id}; the durable "
-                    f"payload names org_id={payload_organization_id!r} but the trusted "
-                    f"queue column names org_id={trusted_organization_id!r}. Credentials "
+                    f"payload names organization_id={payload_organization_id!r} "
+                    f"but the trusted queue column names "
+                    f"organization_id={trusted_organization_id!r}. Credentials "
                     "resolve from the trusted column, never the payload — failing "
                     "closed rather than run one tenant's project with another "
                     "tenant's keys (worker-credential-org-trust-divergence-v1).",
@@ -1012,13 +995,13 @@ class Worker:
                 handler_payload["job_final_attempt"] = job.attempts >= job.max_attempts
                 # Credentials resolve from the trusted queue column, never the
                 # mutable JSON body. payload/column agreement was enforced
-                # above; normalize the
-                # handler's org_id to the trusted column value so the credential
-                # seam (jobs/runs.resolve_run_keys) can never read a forged one.
+                # above; normalize the handler's organization_id to the trusted
+                # column value so the credential seam
+                # (jobs/runs.resolve_run_keys) can never read a forged one.
                 if trusted_organization_id is None:
-                    handler_payload.pop("org_id", None)
+                    handler_payload.pop("organization_id", None)
                 else:
-                    handler_payload["org_id"] = trusted_organization_id
+                    handler_payload["organization_id"] = trusted_organization_id
                 storage_key = job.project_storage_key
                 if storage_key is None:
                     handler_payload.pop(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY, None)
@@ -1029,7 +1012,7 @@ class Worker:
                         storage_key
                     )
                     handler_payload["project_id"] = storage_key.project_slug
-                    handler_payload["storage_org_id"] = (
+                    handler_payload["storage_organization_id"] = (
                         storage_key.storage_organization_id
                     )
                 from frisket.execution.handler_lineage import record_handler_lineage

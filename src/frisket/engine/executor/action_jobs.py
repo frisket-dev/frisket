@@ -980,7 +980,7 @@ def launch_queued_action_job(
     envelope: ActionJobEnvelope,
     queue: Any,
     job_kind: str,
-    org_id: str | None = None,
+    organization_id: str | None = None,
     max_attempts: int = 1,
     payload_extra: Mapping[str, Any] | None = None,
     project: Any | None = None,
@@ -1008,8 +1008,8 @@ def launch_queued_action_job(
         and "dedupe_key" not in (payload_extra or {})
     ):
         authoritative_payload["dedupe_key"] = envelope.receipt_id
-    if org_id is not None:
-        authoritative_payload["org_id"] = org_id
+    if organization_id is not None:
+        authoritative_payload["organization_id"] = organization_id
     payload = merge_queue_payload(authoritative_payload, payload_extra)
     job_id = queue.enqueue(job_kind, payload, max_attempts=max_attempts)
     if project is not None:

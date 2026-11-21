@@ -94,7 +94,7 @@ def test_pdf_import_bridge_publishes_search_preparation(
             == []
         )
         pending = preparation.store.for_receipt(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id=pid,
             receipt_id=receipt["id"],
             include_pending=True,
@@ -128,7 +128,7 @@ def test_pdf_import_bridge_publishes_search_preparation(
         preparation.recover()
         assert preparation.batch_for_receipt(pid, receipt["id"]) == pending.id
         recovered = preparation.store.get(
-            pending.id, project_id=pid, storage_org_id=None
+            pending.id, project_id=pid, storage_organization_id=None
         )
         assert {
             (item["row_id"], item["column_id"]) for item in recovered.plan["items"]

@@ -793,7 +793,7 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
         {
             CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
             "project_id": "payload-attacker",
-            "storage_org_id": 23,
+            "storage_organization_id": 23,
             "workspace_root": str(tmp_path / "payload-root"),
             "source_id": sid,
         },

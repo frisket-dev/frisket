@@ -20,7 +20,7 @@ from frisket.team.db import locked_transaction
 from frisket.team.schema import (
     PASSWORD_RESET_PREFIX,
     memberships,
-    orgs,
+    organizations,
     password_resets,
     record_audit,
     sessions,
@@ -83,14 +83,14 @@ def _identity_fields(
     return workspace, name, clean_email
 
 
-def owner_count(engine: sa.Engine, *, org_id: int) -> int:
+def owner_count(engine: sa.Engine, *, organization_id: int) -> int:
     with engine.connect() as cx:
         return int(
             cx.execute(
                 sa.select(sa.func.count())
                 .select_from(memberships)
                 .where(
-                    memberships.c.org_id == org_id,
+                    memberships.c.organization_id == organization_id,
                     memberships.c.role == "owner",
                 )
             ).scalar_one()
@@ -100,7 +100,7 @@ def owner_count(engine: sa.Engine, *, org_id: int) -> int:
 def claim_first_owner(
     engine: sa.Engine,
     *,
-    org_id: int,
+    organization_id: int,
     claim_token: str,
     expected_claim_token: str | None,
     workspace_name: str,
@@ -120,13 +120,13 @@ def claim_first_owner(
         email=email,
     )
     password_hash = hash_password(password)
-    with locked_transaction(engine, lock_scope=("first-owner", org_id)) as cx:
+    with locked_transaction(engine, lock_scope=("first-owner", organization_id)) as cx:
         count = int(
             cx.execute(
                 sa.select(sa.func.count())
                 .select_from(memberships)
                 .where(
-                    memberships.c.org_id == org_id,
+                    memberships.c.organization_id == organization_id,
                     memberships.c.role == "owner",
                 )
             ).scalar_one()
@@ -144,20 +144,20 @@ def claim_first_owner(
                     email=clean_email,
                     name=name,
                     password_hash=password_hash,
-                    default_org_id=org_id,
+                    default_organization_id=organization_id,
                 )
             )
         )
         cx.execute(
             memberships.insert().values(
                 user_id=user_id,
-                org_id=org_id,
+                organization_id=organization_id,
                 role="owner",
             )
         )
         cx.execute(
-            orgs.update()
-            .where(orgs.c.id == org_id)
+            organizations.update()
+            .where(organizations.c.id == organization_id)
             .values(name=workspace, display_name=workspace)
         )
         now = datetime.now(UTC)
@@ -173,7 +173,7 @@ def claim_first_owner(
         record_audit(
             cx,
             user_id=user_id,
-            org_id=org_id,
+            organization_id=organization_id,
             action="first_owner_claimed",
             detail=clean_email,
         )
@@ -181,7 +181,7 @@ def claim_first_owner(
         "id": user_id,
         "email": clean_email,
         "name": name,
-        "org_id": org_id,
+        "organization_id": organization_id,
         "session": session,
     }
 
@@ -196,7 +196,7 @@ class ResetTokenInvalid(SetupError):
 def create_password_reset(
     engine: sa.Engine,
     *,
-    org_id: int,
+    organization_id: int,
     email: str,
     actor_user_id: int,
     now: datetime | None = None,
@@ -237,7 +237,7 @@ def create_password_reset(
         record_audit(
             cx,
             user_id=actor_user_id,
-            org_id=org_id,
+            organization_id=organization_id,
             action="password_reset_link_created",
             detail=clean_email,
         )
@@ -265,7 +265,7 @@ def password_reset_is_live(engine: sa.Engine, token: str) -> bool:
 
 
 def redeem_password_reset(
-    engine: sa.Engine, *, org_id: int, token: str, password: str
+    engine: sa.Engine, *, organization_id: int, token: str, password: str
 ) -> str:
     """Set a new password through a live reset token; returns the email.
 
@@ -297,7 +297,7 @@ def redeem_password_reset(
         record_audit(
             cx,
             user_id=row.user_id,
-            org_id=org_id,
+            organization_id=organization_id,
             action="password_reset_completed",
             detail=str(row.email),
         )
@@ -308,7 +308,7 @@ def reset_sole_owner_password(engine: sa.Engine, *, password: str) -> str:
     password_hash = hash_password(password)
     with locked_transaction(engine, lock_scope=("sole-owner-reset",)) as cx:
         rows = cx.execute(
-            sa.select(users.c.id, users.c.email, memberships.c.org_id)
+            sa.select(users.c.id, users.c.email, memberships.c.organization_id)
             .join(memberships, memberships.c.user_id == users.c.id)
             .where(memberships.c.role == "owner")
         ).all()
@@ -322,6 +322,9 @@ def reset_sole_owner_password(engine: sa.Engine, *, password: str) -> str:
         )
         cx.execute(sessions.delete().where(sessions.c.user_id == row.id))
         record_audit(
-            cx, user_id=row.id, org_id=row.org_id, action="sole_owner_password_reset"
+            cx,
+            user_id=row.id,
+            organization_id=row.organization_id,
+            action="sole_owner_password_reset",
         )
     return str(row.email)

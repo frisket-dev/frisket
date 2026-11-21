@@ -51,7 +51,7 @@ class _LiveJob:
     id = 71
     status = "running"
     payload: dict[str, object] = {}
-    storage_org_id = None
+    storage_organization_id = None
 
     def __init__(self, *, receipt_id: str, action_kind: str) -> None:
         self.receipt_id = receipt_id

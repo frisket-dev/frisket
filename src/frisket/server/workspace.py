@@ -284,9 +284,9 @@ class Workspace:
             require_storage_identity=require_storage_identity,
             # Declared storage posture, not path inference: an external managed
             # composition constructs this Workspace with
-            # queue_payload_extra["storage_org_id"]
+            # queue_payload_extra["storage_organization_id"]
             # equal to the organization whose directory self.root IS
-            # (FRISKET_DATA_DIR/projects/<org_id>). Declaring it here lets a
+            # (FRISKET_DATA_DIR/projects/<organization_id>). Declaring it here lets a
             # claimed ProjectStorageKey resolve against this organization-scoped root
             # without re-appending the organization id (double-nesting), while claims
             # for other orgs fail closed. Local workspaces have no
@@ -466,7 +466,7 @@ class Workspace:
 
     @property
     def queue_storage_organization_id(self) -> int | None:
-        value = self.queue_payload_extra.get("storage_org_id")
+        value = self.queue_payload_extra.get("storage_organization_id")
         try:
             return None if value is None else int(value)
         except (TypeError, ValueError):

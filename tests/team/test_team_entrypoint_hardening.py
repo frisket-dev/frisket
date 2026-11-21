@@ -28,9 +28,9 @@ from frisket.team.schema import (
     client_errors,
     memberships,
     oidc_identities,
-    org_env_vars,
-    org_keys,
-    orgs,
+    organization_env_vars,
+    organization_keys,
+    organizations,
     project_creation_intents,
     project_invites,
     project_roles,
@@ -253,34 +253,40 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
         owner_id = cx.execute(
             users.insert().values(
                 email="owner@example.com",
-                default_org_id=1,
+                default_organization_id=1,
             )
         ).inserted_primary_key[0]
         cx.execute(
-            memberships.insert().values(user_id=owner_id, org_id=1, role="owner")
+            memberships.insert().values(
+                user_id=owner_id, organization_id=1, role="owner"
+            )
         )
         cx.execute(
             projects.insert().values(
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug=project_id,
                 name="Org fence proof",
                 sensitive=False,
                 network="inherit",
             )
         )
-        cx.execute(orgs.insert().values(id=2, name="Other org"))
+        cx.execute(organizations.insert().values(id=2, name="Other org"))
         user_id = cx.execute(
             users.insert().values(
                 email="other-org@example.com",
-                default_org_id=2,
+                default_organization_id=2,
             )
         ).inserted_primary_key[0]
         # This membership is essential: resolve_token already joins through it.
-        cx.execute(memberships.insert().values(user_id=user_id, org_id=2, role="owner"))
+        cx.execute(
+            memberships.insert().values(
+                user_id=user_id, organization_id=2, role="owner"
+            )
+        )
         cx.execute(
             api_tokens.insert().values(
-                org_id=2,
+                organization_id=2,
                 user_id=user_id,
                 name="cross-org",
                 token_hash=hashlib.sha256(token.encode()).hexdigest(),
@@ -398,7 +404,7 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
     with app.state.control_engine.begin() as cx:
         cx.execute(
             api_tokens.insert().values(
-                org_id=1,
+                organization_id=1,
                 user_id=owner_id,
                 name="in-scope",
                 token_hash=hashlib.sha256(in_scope_token.encode()).hexdigest(),
@@ -425,23 +431,23 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
     app.state.workspace.create("Dual-member invite target", project_id=target_project)
     token = "frisket_pat_dual_member_org_two"
     with app.state.control_engine.begin() as cx:
-        cx.execute(orgs.insert().values(id=2, name="Other org"))
+        cx.execute(organizations.insert().values(id=2, name="Other org"))
         user_id = cx.execute(
             users.insert().values(
                 email="dual-member@example.com",
-                default_org_id=2,
+                default_organization_id=2,
             )
         ).inserted_primary_key[0]
         cx.execute(
             memberships.insert(),
             (
-                {"user_id": user_id, "org_id": 1, "role": "member"},
-                {"user_id": user_id, "org_id": 2, "role": "member"},
+                {"user_id": user_id, "organization_id": 1, "role": "member"},
+                {"user_id": user_id, "organization_id": 2, "role": "member"},
             ),
         )
         cx.execute(
             api_tokens.insert().values(
-                org_id=2,
+                organization_id=2,
                 user_id=user_id,
                 name="dual-member-org-two",
                 token_hash=hashlib.sha256(token.encode()).hexdigest(),
@@ -450,8 +456,8 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
         )
         cx.execute(
             projects.insert().values(
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug=target_project,
                 name="Dual-member invite target",
                 sensitive=False,
@@ -460,7 +466,7 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
         )
         cx.execute(
             project_roles.insert().values(
-                org_id=1,
+                organization_id=1,
                 slug=target_project,
                 user_id=user_id,
                 role="editor",
@@ -590,12 +596,14 @@ def test_secret_upsert_delete_validation_and_diagnostic_redaction(
     assert feed["schema_version"] == "frisket.admin_errors.v1"
     with app.state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(org_keys)).scalar_one()
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organization_keys)
+            ).scalar_one()
             == 1
         )
         assert (
             cx.execute(
-                sa.select(sa.func.count()).select_from(org_env_vars)
+                sa.select(sa.func.count()).select_from(organization_env_vars)
             ).scalar_one()
             == 0
         )
@@ -822,7 +830,10 @@ def test_concurrent_cold_boot_converges_to_one_organization(tmp_path: Path) -> N
         apps = list(pool.map(lambda _index: boot(), range(2)))
     with apps[0].state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(orgs)).scalar_one() == 1
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organizations)
+            ).scalar_one()
+            == 1
         )
 
 
@@ -883,7 +894,10 @@ def test_independent_process_boots_converge_to_one_organization(tmp_path: Path) 
     engine = sa.create_engine(url)
     with engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(orgs)).scalar_one() == 1
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organizations)
+            ).scalar_one()
+            == 1
         )
 
 
@@ -898,7 +912,7 @@ def test_marker_version_is_exact_and_project_intent_recovers(tmp_path: Path) -> 
         cx.execute(
             project_creation_intents.insert().values(
                 slug="recover-me-123",
-                org_id=1,
+                organization_id=1,
                 creator_user_id=user_id,
                 name="Recovered",
             )

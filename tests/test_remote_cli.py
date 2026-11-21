@@ -80,7 +80,9 @@ def live_server(tmp_path_factory) -> Any:
         )
     )
     claim_server(app, origin=base, workspace_name="Ops Desk")
-    raw, _ = mint_operator_token(app.state.control_engine, org_id=1, label="laptop")
+    raw, _ = mint_operator_token(
+        app.state.control_engine, organization_id=1, label="laptop"
+    )
     recorder = _RequestRecorder(app)
     server = uvicorn.Server(
         uvicorn.Config(recorder, host="127.0.0.1", port=port, log_level="error")
@@ -260,7 +262,7 @@ def test_token_rotate_updates_the_store(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.delenv("FRISKET_SERVER", raising=False)
     rotating_raw, _ = mint_operator_token(
-        live_server["app"].state.control_engine, org_id=1, label="rotating"
+        live_server["app"].state.control_engine, organization_id=1, label="rotating"
     )
     assert (
         remote_command(

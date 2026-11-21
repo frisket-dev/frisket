@@ -17,9 +17,9 @@ class _GatewayPort:
         self.calls = []
 
     def models_gateway_connection(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> ModelsGatewayConnection | None:
-        self.calls.append((org_id, control_database_url))
+        self.calls.append((organization_id, control_database_url))
         return ModelsGatewayConnection(
             origin="https://org-models.example.test",
             token="org-gateway-token",
@@ -53,7 +53,7 @@ def test_queued_gateway_uses_trusted_organization_port_with_env_unset(
     assert target.base_url == connection.origin
     assert target.token == connection.token
 
-    payload = {"org_id": 47, "action_kind": "transcribe"}
+    payload = {"organization_id": 47, "action_kind": "transcribe"}
     assert "token" not in repr(payload)
     assert connection.token not in repr(payload)
 

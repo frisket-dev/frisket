@@ -180,7 +180,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         "watch.evaluate",
         {
             "project_id": "alerts",
-            "storage_org_id": 9,
+            "storage_organization_id": 9,
             "dedupe_key": "watch:1:eval:a_b%:next",
         },
     )
@@ -188,7 +188,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         queue.find_job_by_refs(
             "watch.evaluate",
             project_id="alerts",
-            storage_org_id=9,
+            storage_organization_id=9,
             dedupe_key_prefix="watch:1:eval:a_b%:",
         )
         is not None
@@ -197,7 +197,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         queue.find_job_by_refs(
             "watch.evaluate",
             project_id="alerts",
-            storage_org_id=8,
+            storage_organization_id=8,
             dedupe_key_prefix="watch:1:eval:",
         )
         is None
@@ -206,7 +206,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         queue.find_job_by_refs(
             "watch.evaluate",
             project_id="alerts",
-            storage_org_id=9,
+            storage_organization_id=9,
             dedupe_key_prefix="watch:1:eval:a_b_:",
         )
         is None
@@ -259,7 +259,7 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
         queue.find_job_by_refs(
             "watch.evaluate",
             project_id="alerts",
-            storage_org_id=84,
+            storage_organization_id=84,
             dedupe_key_prefix=f"watch:{alert}:eval:",
         )
         is not None
@@ -379,7 +379,7 @@ def test_one_broken_project_does_not_stop_other_scheduled_alerts(
     result = enqueue_due_alert_evaluations(
         workspace_root=p.path.parent,
         queue=queue,
-        storage_org_id=23 if scoped else None,
+        storage_organization_id=23 if scoped else None,
         project_opener=scoped_opener if scoped else None,
     )
     assert opened == ["a-broken", "alerts"]

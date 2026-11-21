@@ -39,7 +39,7 @@ def enqueue_due_notification_digests(
     *,
     workspace_root: str | Path,
     project_id: str | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     now: datetime | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> int:
@@ -67,7 +67,7 @@ def enqueue_due_notification_digests(
                 NOTIFICATION_DIGEST_KIND,
                 statuses=("queued", "running"),
                 project_id=slug,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key=dedupe_key,
             )
             if existing is not None:
@@ -78,8 +78,8 @@ def enqueue_due_notification_digests(
                     "workspace_root": str(workspace),
                     "project_id": slug,
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                     "route_id": int(route["id"]),
@@ -93,7 +93,7 @@ def enqueue_due_notification_digests(
         project_bundle_paths(
             workspace, project_id=project_id, require_slug=project_opener is not None
         ),
-        bundle_opener(Project, project_opener, storage_org_id),
+        bundle_opener(Project, project_opener, storage_organization_id),
         visit,
         failure_event="notification_digest_project_schedule_failed",
     )
@@ -119,8 +119,8 @@ def register_notification_digest_handlers(
             )
             handler_project_id = str(payload["project_id"])
             handler_storage_organization_id = (
-                int(payload["storage_org_id"])
-                if payload.get("storage_org_id") is not None
+                int(payload["storage_organization_id"])
+                if payload.get("storage_organization_id") is not None
                 else None
             )
         else:
@@ -145,7 +145,7 @@ def register_notification_digest_handlers(
         return compose_notification_digest_job(
             workspace_root=handler_workspace_root,
             project_id=handler_project_id,
-            storage_org_id=handler_storage_organization_id,
+            storage_organization_id=handler_storage_organization_id,
             route_id=int(payload["route_id"]),
             window=_window_from_payload(payload),
             queue=queue,
@@ -163,7 +163,7 @@ def compose_notification_digest_job(
     *,
     workspace_root: str | Path,
     project_id: str,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     route_id: int,
     window: NotificationDigestWindow,
     queue: JobQueue | None = None,
@@ -176,7 +176,7 @@ def compose_notification_digest_job(
         else project_opener(
             ProjectStorageKey(
                 storage_organization_id=require_opener_storage_organization_id(
-                    storage_org_id
+                    storage_organization_id
                 ),
                 project_slug=project_id,
             ),
@@ -194,7 +194,7 @@ def compose_notification_digest_job(
             queue,
             workspace_root=workspace_root,
             project_id=project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             request_id=int(request_id),
             # The nested delivery enqueue reopens the project; hand it the SAME
             # opener rather than letting it fall back to a direct open.

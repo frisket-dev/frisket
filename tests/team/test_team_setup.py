@@ -126,8 +126,8 @@ def test_empty_workspace_name_defaults_to_workspace_instead_of_blocking(
     assert response.status_code == 303
     with app.state.control_engine.connect() as connection:
         name = connection.execute(
-            sa.text("select name from orgs where id = :org_id"),
-            {"org_id": app.state.team_organization_id},
+            sa.text("select name from organizations where id = :organization_id"),
+            {"organization_id": app.state.team_organization_id},
         ).scalar_one()
     assert name == "workspace"
 
@@ -228,7 +228,7 @@ def test_competing_claims_create_exactly_one_owner_and_close_every_process(
         try:
             claim_first_owner(
                 app.state.control_engine,
-                org_id=app.state.team_organization_id,
+                organization_id=app.state.team_organization_id,
                 claim_token=token,
                 expected_claim_token=token,
                 workspace_name="Investigations",
@@ -426,12 +426,14 @@ def test_callback_refuses_to_switch_a_signed_in_owner_to_a_different_invitee(
     # An invited (redeemable) second identity, so the link stays genuinely
     # usable by the real invitee after the owner's click is refused.
     with app.state.control_engine.connect() as connection:
-        org_id = connection.execute(sa.select(memberships.c.org_id)).scalar_one()
+        organization_id = connection.execute(
+            sa.select(memberships.c.organization_id)
+        ).scalar_one()
     with app.state.control_engine.begin() as connection:
         connection.execute(
             pending_invites.insert().values(
                 email="invitee@example.test",
-                org_id=org_id,
+                organization_id=organization_id,
                 role="member",
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
             )
@@ -462,12 +464,14 @@ def test_callback_reinvites_a_removed_existing_identity_and_claims_before_grant(
     assert _claim(owner, app) == 303
     email = "returning@example.test"
     with app.state.control_engine.connect() as connection:
-        org_id = int(connection.execute(sa.select(memberships.c.org_id)).scalar_one())
+        organization_id = int(
+            connection.execute(sa.select(memberships.c.organization_id)).scalar_one()
+        )
     with app.state.control_engine.begin() as connection:
         connection.execute(
             pending_invites.insert().values(
                 email=email,
-                org_id=org_id,
+                organization_id=organization_id,
                 role="member",
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
             )
@@ -484,7 +488,7 @@ def test_callback_reinvites_a_removed_existing_identity_and_claims_before_grant(
         connection.execute(
             memberships.delete().where(
                 memberships.c.user_id == user_id,
-                memberships.c.org_id == org_id,
+                memberships.c.organization_id == organization_id,
             )
         )
         connection.execute(
@@ -496,7 +500,7 @@ def test_callback_reinvites_a_removed_existing_identity_and_claims_before_grant(
         connection.execute(
             pending_invites.insert().values(
                 email=email,
-                org_id=org_id,
+                organization_id=organization_id,
                 role="member",
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
             )
@@ -514,7 +518,7 @@ def test_callback_reinvites_a_removed_existing_identity_and_claims_before_grant(
             connection.execute(
                 sa.select(memberships.c.role).where(
                     memberships.c.user_id == user_id,
-                    memberships.c.org_id == org_id,
+                    memberships.c.organization_id == organization_id,
                 )
             ).scalar_one()
             == "member"
@@ -540,12 +544,14 @@ def test_callback_does_not_grant_membership_from_a_nonlive_invite(
     visitor = TestClient(app)
     token = _magic_token(visitor, app, email)
     with app.state.control_engine.connect() as connection:
-        org_id = int(connection.execute(sa.select(memberships.c.org_id)).scalar_one())
+        organization_id = int(
+            connection.execute(sa.select(memberships.c.organization_id)).scalar_one()
+        )
     with app.state.control_engine.begin() as connection:
         connection.execute(
             pending_invites.insert().values(
                 email=email,
-                org_id=org_id,
+                organization_id=organization_id,
                 role="member",
                 expires_at=datetime.now(UTC)
                 + (timedelta(hours=1) if state == "revoked" else -timedelta(hours=1)),

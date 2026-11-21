@@ -13,7 +13,7 @@ def _create(
     retry_terminal: bool = False,
 ):
     return store.create(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id="project",
         trigger_receipt_id=receipt,
         sheet_id=7,
@@ -39,7 +39,7 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
         decided = store.decide(
             batch.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             plan_hash=batch.plan_hash,
             decision="prepare",
             selected_setup_refs=["engine-setup:rapidocr.local@1"],
@@ -54,7 +54,7 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
             store.decide(
                 batch.id,
                 project_id="project",
-                storage_org_id=None,
+                storage_organization_id=None,
                 plan_hash="sha256:stale",
                 decision="prepare",
                 selected_setup_refs=[],
@@ -63,7 +63,7 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
             store.decide(
                 batch.id,
                 project_id="project",
-                storage_org_id=None,
+                storage_organization_id=None,
                 plan_hash=batch.plan_hash,
                 decision="not_now",
                 selected_setup_refs=[],
@@ -71,7 +71,7 @@ def test_import_receipt_is_idempotent_and_consent_is_exact(tmp_path) -> None:
         replayed = store.decide(
             batch.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             plan_hash=batch.plan_hash,
             decision="prepare",
             selected_setup_refs=["engine-setup:rapidocr.local@1"],
@@ -88,17 +88,19 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         pending = store.create_pending_import(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             receipt_id="receipt-pending",
             import_ref="import-pending",
         )
         assert pending.sheet_id is None
         assert pending.plan is None
-        assert store.list_recent(project_id="project", storage_org_id=None) == []
+        assert (
+            store.list_recent(project_id="project", storage_organization_id=None) == []
+        )
         assert (
             store.for_receipt(
-                storage_org_id=None,
+                storage_organization_id=None,
                 project_id="project",
                 receipt_id="receipt-pending",
             )
@@ -107,7 +109,7 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
         hydrated = store.hydrate_pending_plan(
             pending.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             sheet_id=7,
             plan={"groups": [], "models": [], "items": []},
         )
@@ -116,7 +118,7 @@ def test_pending_import_is_internal_until_atomically_hydrated(tmp_path) -> None:
         assert hydrated.plan == {"groups": [], "models": [], "items": []}
         assert (
             store.for_receipt(
-                storage_org_id=None,
+                storage_organization_id=None,
                 project_id="project",
                 receipt_id="receipt-pending",
             ).id
@@ -133,7 +135,7 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         pending = store.create_pending_materialization(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             job_id=41,
             sheet_id=7,
@@ -143,7 +145,7 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         assert pending.row_ids == (3,)
         assert pending.plan is None
         later = store.create_pending_materialization(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             job_id=42,
             sheet_id=7,
@@ -152,18 +154,20 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         assert (
             store.pending_materialization(
                 project_id="project",
-                storage_org_id=None,
+                storage_organization_id=None,
                 job_id=42,
                 sheet_id=7,
                 row_ids=[3],
             ).id
             == later.id
         )
-        assert store.list_recent(project_id="project", storage_org_id=None) == []
+        assert (
+            store.list_recent(project_id="project", storage_organization_id=None) == []
+        )
         assert (
             store.pending_materialization(
                 project_id="project",
-                storage_org_id=None,
+                storage_organization_id=None,
                 job_id=41,
                 sheet_id=7,
                 row_ids=[3],
@@ -174,7 +178,7 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         hydrated = store.hydrate_pending_plan(
             pending.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             sheet_id=7,
             plan={"groups": [], "models": [], "items": []},
         )
@@ -182,7 +186,7 @@ def test_pending_materialization_is_internal_until_exact_job_is_hydrated(
         assert (
             store.pending_materialization(
                 project_id="project",
-                storage_org_id=None,
+                storage_organization_id=None,
                 job_id=41,
                 sheet_id=7,
                 row_ids=[3],
@@ -221,7 +225,7 @@ def test_stop_is_durable_without_changing_completed_children(tmp_path) -> None:
         )
         store.bind_child(child.id, job_id=4, receipt_id="native-receipt")
         stopped = store.request_stop(
-            batch.id, project_id="project", storage_org_id=None
+            batch.id, project_id="project", storage_organization_id=None
         )
         assert stopped.stop_requested_at is not None
         assert stopped.settled_at is not None
@@ -230,7 +234,7 @@ def test_stop_is_durable_without_changing_completed_children(tmp_path) -> None:
             store.decide(
                 batch.id,
                 project_id="project",
-                storage_org_id=None,
+                storage_organization_id=None,
                 plan_hash=batch.plan_hash,
                 decision="not_now",
                 selected_setup_refs=[],
@@ -247,7 +251,7 @@ def test_stop_racing_action_enqueue_refuses_late_child_binding(tmp_path) -> None
         child = store.reserve_child(
             batch.id, child_key="native:row-2", kind="native_pdf"
         )
-        store.request_stop(batch.id, project_id="project", storage_org_id=None)
+        store.request_stop(batch.id, project_id="project", storage_organization_id=None)
 
         assert not store.bind_child(child.id, job_id=4, receipt_id="native-receipt")
         [unbound] = store.children(batch.id)
@@ -266,15 +270,15 @@ def test_not_now_stays_active_until_eligible_children_are_coordinated(tmp_path) 
         decided = store.decide(
             batch.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             plan_hash=batch.plan_hash,
             decision="not_now",
             selected_setup_refs=[],
         )
         assert decided.settled_at is None
-        assert [row.id for row in store.list_active_page(storage_org_id=None)] == [
-            batch.id
-        ]
+        assert [
+            row.id for row in store.list_active_page(storage_organization_id=None)
+        ] == [batch.id]
     finally:
         queue.close()
 
@@ -284,24 +288,24 @@ def test_active_scan_retires_settled_intent_and_decision_reopens_it(tmp_path) ->
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         batch = _create(store, receipt=None)
-        assert [row.id for row in store.list_active_page(storage_org_id=None)] == [
-            batch.id
-        ]
-        store.mark_settled(batch.id, project_id="project", storage_org_id=None)
-        assert store.list_active_page(storage_org_id=None) == []
+        assert [
+            row.id for row in store.list_active_page(storage_organization_id=None)
+        ] == [batch.id]
+        store.mark_settled(batch.id, project_id="project", storage_organization_id=None)
+        assert store.list_active_page(storage_organization_id=None) == []
 
         reopened = store.decide(
             batch.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             plan_hash=batch.plan_hash,
             decision="prepare",
             selected_setup_refs=[],
         )
         assert reopened.settled_at is None
-        assert [row.id for row in store.list_active_page(storage_org_id=None)] == [
-            batch.id
-        ]
+        assert [
+            row.id for row in store.list_active_page(storage_organization_id=None)
+        ] == [batch.id]
     finally:
         queue.close()
 
@@ -314,7 +318,7 @@ def test_explicit_retry_reuses_active_attempt_but_replaces_stopped_attempt(
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         first = _create(store, receipt=None)
         assert _create(store, receipt=None).id == first.id
-        store.request_stop(first.id, project_id="project", storage_org_id=None)
+        store.request_stop(first.id, project_id="project", storage_organization_id=None)
 
         retry = _create(store, receipt=None, retry_terminal=True)
         assert retry.id != first.id
@@ -328,7 +332,7 @@ def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tm
     try:
         store = SearchPreparationStore(queue, workspace_root="/workspace")
         pending = store.create_pending_import(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             receipt_id="receipt-cycle",
             import_ref="session-cycle",
@@ -341,7 +345,7 @@ def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tm
             "retrieval_revision": 1,
         }
         captured = store.reserve_automatic_plan(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             pending=pending,
             receipt_id="receipt-cycle",
@@ -352,9 +356,11 @@ def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tm
         assert captured.settled_at is None
         assert captured.captured_sources == (source,)
         assert captured.source_cutoff == 14
-        store.mark_settled(captured.id, project_id="project", storage_org_id=None)
+        store.mark_settled(
+            captured.id, project_id="project", storage_organization_id=None
+        )
         duplicate = store.reserve_automatic_plan(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             pending=pending,
             receipt_id="receipt-cycle",
@@ -367,11 +373,15 @@ def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tm
         assert duplicate.source_cutoff == 14
         assert duplicate.settled_at is not None
         settled = store.create_pending_import(
-            storage_org_id=None, project_id="project", receipt_id="receipt-settled"
+            storage_organization_id=None,
+            project_id="project",
+            receipt_id="receipt-settled",
         )
-        store.mark_settled(settled.id, project_id="project", storage_org_id=None)
+        store.mark_settled(
+            settled.id, project_id="project", storage_organization_id=None
+        )
         terminal = store.reserve_automatic_plan(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             pending=settled,
             receipt_id="receipt-settled",
@@ -384,18 +394,22 @@ def test_automatic_scope_first_capture_wins_without_reviving_terminal_intents(tm
         refused = store.hydrate_pending_plan(
             captured.id,
             project_id="project",
-            storage_org_id=None,
+            storage_organization_id=None,
             sheet_id=7,
             plan={"groups": [], "models": [], "items": []},
         )
         assert refused.plan is None
         assert refused.settled_at is not None
         stopped = store.create_pending_import(
-            storage_org_id=None, project_id="project", receipt_id="receipt-stopped"
+            storage_organization_id=None,
+            project_id="project",
+            receipt_id="receipt-stopped",
         )
-        store.request_stop(stopped.id, project_id="project", storage_org_id=None)
+        store.request_stop(
+            stopped.id, project_id="project", storage_organization_id=None
+        )
         unchanged = store.reserve_automatic_plan(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id="project",
             pending=stopped,
             receipt_id="receipt-stopped",

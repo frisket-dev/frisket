@@ -47,9 +47,9 @@ from frisket.team.schema import (
     audit_log,
     client_errors,
     memberships,
-    org_env_vars,
-    org_keys,
-    orgs,
+    organization_env_vars,
+    organization_keys,
+    organizations,
     project_roles,
     users,
 )
@@ -192,15 +192,18 @@ def test_magic_link_and_generic_oidc_users_join_the_same_single_organization(
 
     with app.state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(orgs)).scalar_one() == 1
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organizations)
+            ).scalar_one()
+            == 1
         )
         joined = cx.execute(
-            sa.select(users.c.email, memberships.c.org_id)
+            sa.select(users.c.email, memberships.c.organization_id)
             .select_from(users.join(memberships, users.c.id == memberships.c.user_id))
             .order_by(users.c.email)
         ).all()
     assert [row.email for row in joined] == ["oidc@example.com", "owner@example.com"]
-    assert len({row.org_id for row in joined}) == 1
+    assert len({row.organization_id for row in joined}) == 1
     assert magic_me.json()["instance"]["display_name"] == "Investigations Desk"
     assert oidc_me.json()["instance"]["display_name"] == "Investigations Desk"
 
@@ -373,12 +376,14 @@ def test_open_admin_diagnostics_and_organization_secret_management_work_over_htt
 
     with app.state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(org_keys)).scalar_one()
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organization_keys)
+            ).scalar_one()
             == 1
         )
         assert (
             cx.execute(
-                sa.select(sa.func.count()).select_from(org_env_vars)
+                sa.select(sa.func.count()).select_from(organization_env_vars)
             ).scalar_one()
             == 1
         )
@@ -598,7 +603,7 @@ class _FakePostgresEngine:
 
 
 def test_postgres_lock_is_scoped_and_atomic_upsert_is_dialect_safe() -> None:
-    scopes = [("org-membership", 7), ("project-membership", 7, "case-123")]
+    scopes = [("organization-membership", 7), ("project-membership", 7, "case-123")]
     lock_params: list[Any] = []
     for scope in scopes:
         engine = _FakePostgresEngine()
@@ -624,8 +629,8 @@ def test_postgres_lock_is_scoped_and_atomic_upsert_is_dialect_safe() -> None:
     atomic_upsert(
         cx,
         table=memberships,
-        values={"user_id": 9, "org_id": 7, "role": "member"},
-        conflict_columns=("user_id", "org_id"),
+        values={"user_id": 9, "organization_id": 7, "role": "member"},
+        conflict_columns=("user_id", "organization_id"),
         update_values={"role": "member"},
     )
     sql = " ".join(str(cx.executed[-1][0]).upper().split())
@@ -683,7 +688,7 @@ def test_organization_and_project_owner_mutations_request_scoped_database_locks(
         ).status_code
         == 200
     )
-    assert organization_scopes == [("org-membership", 1)]
+    assert organization_scopes == [("organization-membership", 1)]
     assert any(
         scope and "project" in repr(scope).lower() and pid in repr(scope)
         for scope in project_scopes
@@ -704,7 +709,7 @@ def test_partial_project_bundle_recovery_is_complete_and_concurrency_safe(
         cx.execute(
             sa.text(
                 "INSERT INTO project_creation_intents "
-                "(slug, org_id, creator_user_id, name) "
+                "(slug, organization_id, creator_user_id, name) "
                 "VALUES (:slug, 1, :user_id, 'Recovered')"
             ),
             {"slug": slug, "user_id": user_id},
@@ -992,7 +997,7 @@ def _seed_corrupt_intent(app: Any, *, slug: str, user_id: int) -> Path:
         cx.execute(
             sa.text(
                 "INSERT INTO project_creation_intents "
-                "(slug, org_id, creator_user_id, name) "
+                "(slug, organization_id, creator_user_id, name) "
                 "VALUES (:slug, 1, :user_id, 'Recovered')"
             ),
             {"slug": slug, "user_id": user_id},
@@ -1124,12 +1129,12 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
             if (
                 not organization_revoked
                 and lock_scope
-                and "org-key" in repr(lock_scope)
+                and "organization-key" in repr(lock_scope)
             ):
                 cx.execute(
                     memberships.update()
                     .where(
-                        memberships.c.org_id == 1,
+                        memberships.c.organization_id == 1,
                         memberships.c.user_id == organization_owner_id,
                     )
                     .values(role="member")
@@ -1147,7 +1152,9 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
     assert organization_revoked is True
     with organization_app.state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(org_keys)).scalar_one()
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organization_keys)
+            ).scalar_one()
             == 0
         )
 
@@ -1185,11 +1192,11 @@ def test_membership_admin_rechecks_stale_browser_owner_inside_shared_lock(
         nonlocal revoked
         scopes.append(lock_scope)
         with original_lock(engine, lock_scope=lock_scope) as cx:
-            if not revoked and lock_scope == ("org-membership", 1):
+            if not revoked and lock_scope == ("organization-membership", 1):
                 cx.execute(
                     memberships.update()
                     .where(
-                        memberships.c.org_id == 1,
+                        memberships.c.organization_id == 1,
                         memberships.c.user_id == ids["owner@example.com"],
                     )
                     .values(role="member")
@@ -1214,12 +1221,12 @@ def test_membership_admin_rechecks_stale_browser_owner_inside_shared_lock(
         )
 
     assert response.status_code == 403, response.text
-    assert scopes == [("org-membership", 1)]
+    assert scopes == [("organization-membership", 1)]
     with app.state.control_engine.connect() as cx:
         assert (
             cx.execute(
                 sa.select(memberships.c.role).where(
-                    memberships.c.org_id == 1,
+                    memberships.c.organization_id == 1,
                     memberships.c.user_id == ids["target@example.com"],
                 )
             ).scalar_one()
@@ -1255,7 +1262,7 @@ def test_project_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
             ):
                 cx.execute(
                     project_roles.delete().where(
-                        project_roles.c.org_id == 1,
+                        project_roles.c.organization_id == 1,
                         project_roles.c.slug == pid,
                         project_roles.c.user_id == ids["alice@example.com"],
                     )

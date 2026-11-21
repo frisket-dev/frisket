@@ -63,7 +63,7 @@ def _seed_pre_ledger_queue(postgres, *jobs: tuple[int, str, str]) -> None:
     finally:
         engine.dispose()
     execute(postgres.queue_url, f"DROP INDEX {STORAGE_RECONCILIATION_INDEX}")
-    execute(postgres.queue_url, "ALTER TABLE jobs DROP COLUMN storage_org_id")
+    execute(postgres.queue_url, "ALTER TABLE jobs DROP COLUMN storage_organization_id")
     now = datetime(2026, 7, 1, tzinfo=UTC)
     for job_id, kind, status in jobs:
         execute(

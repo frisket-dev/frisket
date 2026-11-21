@@ -95,7 +95,10 @@ def test_api_token_create_list_and_revoke_are_truthful(tmp_path: Path) -> None:
             "revoked": False,
         }
     ]
-    assert not ({"token", "token_hash", "org_id", "revoked_at"} & set(listed.json()[0]))
+    assert not (
+        {"token", "token_hash", "org_id", "organization_id", "revoked_at"}
+        & set(listed.json()[0])
+    )
     assert payload["token"] not in listed.text
 
     used_at = datetime(2026, 8, 11, 12, 30, tzinfo=UTC)

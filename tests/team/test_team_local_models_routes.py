@@ -352,7 +352,7 @@ def test_pull_happy_path_enqueues_and_audits(tmp_path, monkeypatch) -> None:
     job = workspace.queue.get(row.job_id)
     assert job is not None
     assert job.kind == "model.pull"
-    assert job.org_id == str(app.state.team_organization_id)
+    assert job.organization_id == str(app.state.team_organization_id)
 
     assert "model_pull_requested" in _audit_actions(app)
     with app.state.control_engine.connect() as cx:
@@ -749,7 +749,9 @@ def test_cancel_scoped_wrong_organization_job_is_not_cancelled(
 
     assert (
         workspace.queue.cancel_scoped(
-            other_organization_job_id, org_id="not-this-org", kind="model.pull"
+            other_organization_job_id,
+            organization_id="not-this-org",
+            kind="model.pull",
         )
         is False
     )
@@ -863,7 +865,7 @@ def test_organization_artifact_pull_opus_mt_skips_daemon_and_audits(
     row = store.get(workspace.queue.engine, pull["id"])
     job = workspace.queue.get(row.job_id)
     assert job.kind == "model.pull"
-    assert job.org_id == str(app.state.team_organization_id)
+    assert job.organization_id == str(app.state.team_organization_id)
     assert "model_pull_requested" in _audit_actions(app)
 
 

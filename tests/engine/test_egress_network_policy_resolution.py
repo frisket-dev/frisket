@@ -1,8 +1,10 @@
 """Effective network-policy resolution:
 ``project mode -> organization default -> on``. The local edition never writes an
-org_default, so a bare project resolves from its own mode alone."""
+organization_default, so a bare project resolves from its own mode alone."""
 
 from __future__ import annotations
+
+import json
 from contextlib import closing
 
 import pytest
@@ -11,7 +13,7 @@ from frisket.engine.store import Project
 
 
 def test_unconfigured_default_is_on(project) -> None:
-    assert project.network_policy() == {"mode": "inherit", "org_default": None}
+    assert project.network_policy() == {"mode": "inherit", "organization_default": None}
     assert project.effective_network_policy() == "on"
 
 
@@ -40,9 +42,9 @@ def test_project_off_overrides_organization_on(project) -> None:
 
 
 def test_local_edition_resolves_from_project_alone(project) -> None:
-    # No organization row anywhere: org_default stays None and inherit means on.
+    # No organization row anywhere: organization_default stays None and inherit means on.
     project.set_network_policy(mode="inherit")
-    assert project.network_policy()["org_default"] is None
+    assert project.network_policy()["organization_default"] is None
     assert project.effective_network_policy() == "on"
 
 
@@ -73,3 +75,22 @@ def test_corrupt_meta_self_heals_to_default(project) -> None:
     project.db.commit()
     assert project.network_policy()["mode"] == "inherit"
     assert project.effective_network_policy() == "on"
+
+
+def test_legacy_org_default_reads_and_rewrites_canonically(project) -> None:
+    project.db.execute(
+        "INSERT INTO meta (key, value) VALUES ('network_policy', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (json.dumps({"mode": "inherit", "org_default": "off"}),),
+    )
+    project.db.commit()
+    assert project.network_policy() == {
+        "mode": "inherit",
+        "organization_default": "off",
+    }
+    assert project.effective_network_policy() == "off"
+
+    project.set_network_policy(mode="inherit")
+    raw = json.loads(project.get_meta("network_policy"))
+    assert raw == {"mode": "inherit", "organization_default": "off"}
+    assert "org_default" not in raw

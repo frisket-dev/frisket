@@ -673,7 +673,7 @@ def register_model_pull_handler(
                 raise ModelPullTerminalError(
                     "queued model pull endpoint does not match its durable provenance"
                 )
-            if payload.get("org_id") is not None:
+            if payload.get("organization_id") is not None:
                 env_config, _notes = resolve_env_local_endpoint()
                 configs = (env_config,) if env_config is not None else ()
             else:

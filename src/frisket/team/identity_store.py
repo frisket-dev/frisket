@@ -1,4 +1,4 @@
-"""Open identity persistence: users, orgs, sessions, magic links, invites.
+"""Open identity persistence: users, organizations, sessions, magic links, invites.
 
 This is the OPEN half of what used to be a single hosted auth store. It knows
 how to sign someone in — issue and redeem a magic link, ensure the user and
@@ -32,7 +32,7 @@ from frisket.team.auth_challenges import AuthChallengeStore
 from frisket.team.schema import (
     memberships,
     oidc_identities,
-    orgs,
+    organizations,
     pending_invites,
     project_roles,
     projects,
@@ -54,7 +54,7 @@ class IdentityStore:
 
     def _create_organization(self, name: str) -> int:
         """Create an identity organization. Editions override to attach their own state."""
-        return inserted_id(self.cx.execute(orgs.insert().values(name=name)))
+        return inserted_id(self.cx.execute(organizations.insert().values(name=name)))
 
     @staticmethod
     def _email(email: str) -> str:
@@ -115,21 +115,22 @@ class IdentityStore:
 
     def has_project_access_for_email(self, email: str) -> bool:
         rows = self.cx.execute(
-            sa.select(project_roles.c.org_id, project_roles.c.slug)
+            sa.select(project_roles.c.organization_id, project_roles.c.slug)
             .select_from(
                 project_roles.join(users, users.c.id == project_roles.c.user_id)
             )
             .where(users.c.email == self._email(email))
         ).fetchall()
         return any(
-            self.project_exists(org_id=row.org_id, slug=row.slug) for row in rows
+            self.project_exists(organization_id=row.organization_id, slug=row.slug)
+            for row in rows
         )
 
-    def project_exists(self, *, org_id: int, slug: str) -> bool:
+    def project_exists(self, *, organization_id: int, slug: str) -> bool:
         return (
             self.cx.execute(
                 sa.select(projects.c.id).where(
-                    projects.c.org_id == org_id,
+                    projects.c.organization_id == organization_id,
                     projects.c.slug == slug,
                 )
             ).scalar_one_or_none()
@@ -152,7 +153,7 @@ class IdentityStore:
                 pending_invites.c.email == clean_email,
                 pending_invites.c.expires_at >= now,
             )
-            .returning(pending_invites.c.org_id, pending_invites.c.role)
+            .returning(pending_invites.c.organization_id, pending_invites.c.role)
         ).first()
         if invite is not None:
             if row is None:
@@ -166,28 +167,28 @@ class IdentityStore:
             else:
                 user_id = int(row.id)
                 new = False
-            org_id = int(invite.org_id)
+            organization_id = int(invite.organization_id)
             self.cx.execute(
                 memberships.insert().values(
                     user_id=user_id,
-                    org_id=org_id,
+                    organization_id=organization_id,
                     role=str(invite.role or "member"),
                 )
             )
             self.cx.execute(
                 users.update()
                 .where(users.c.id == user_id)
-                .values(default_org_id=org_id)
+                .values(default_organization_id=organization_id)
             )
             record_audit(
                 self.cx,
                 user_id=user_id,
-                org_id=org_id,
+                organization_id=organization_id,
                 action="joined_via_invite",
                 detail=clean_email,
             )
             row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
-            return self.user_payload(row, new=new, org_id=org_id)
+            return self.user_payload(row, new=new, organization_id=organization_id)
         if row is None:
             user_id = inserted_id(
                 self.cx.execute(users.insert().values(email=clean_email))
@@ -199,28 +200,28 @@ class IdentityStore:
                 self.cx.execute(users.delete().where(users.c.id == user_id))
                 raise PermissionError("account admission requires an invite")
             else:
-                org_id = self._create_organization(clean_email.split("@")[0])
+                organization_id = self._create_organization(clean_email.split("@")[0])
                 self.cx.execute(
                     memberships.insert().values(
                         user_id=user_id,
-                        org_id=org_id,
+                        organization_id=organization_id,
                         role="owner",
                     )
                 )
                 self.cx.execute(
                     users.update()
                     .where(users.c.id == user_id)
-                    .values(default_org_id=org_id)
+                    .values(default_organization_id=organization_id)
                 )
                 record_audit(
                     self.cx,
                     user_id=user_id,
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="signup",
                     detail=clean_email,
                 )
             row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
-            return self.user_payload(row, new=True, org_id=org_id)
+            return self.user_payload(row, new=True, organization_id=organization_id)
         return self.user_payload(row, new=False)
 
     def create_session(
@@ -305,17 +306,17 @@ class IdentityStore:
         if expires < now:
             return None
         payload = self.user_payload(row, new=False)
-        return payload if payload["org_id"] is not None else None
+        return payload if payload["organization_id"] is not None else None
 
     def user_payload(
         self,
         row: Any,
         *,
         new: bool,
-        org_id: int | None = None,
+        organization_id: int | None = None,
     ) -> dict[str, Any]:
         """The open identity payload. Editions override to add their own fields."""
-        effective_organization_id = org_id
+        effective_organization_id = organization_id
         if effective_organization_id is None:
             effective_organization_id = self._default_organization_id_for_user(
                 int(row.id)
@@ -327,7 +328,7 @@ class IdentityStore:
             "allowance_usd": (
                 None if row.allowance_usd is None else str(row.allowance_usd)
             ),
-            "org_id": effective_organization_id,
+            "organization_id": effective_organization_id,
             "new": new,
         }
 
@@ -351,14 +352,14 @@ class IdentityStore:
         row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
         return None if row is None else self.user_payload(row, new=False)
 
-    def identity_for_organization(self, org_id: int) -> dict[str, Any] | None:
+    def identity_for_organization(self, organization_id: int) -> dict[str, Any] | None:
         """The organization's own branding, for `/api/me`."""
         row = self.cx.execute(
             sa.select(
-                orgs.c.display_name,
-                orgs.c.welcome_message,
-                orgs.c.support_contact,
-            ).where(orgs.c.id == org_id)
+                organizations.c.display_name,
+                organizations.c.welcome_message,
+                organizations.c.support_contact,
+            ).where(organizations.c.id == organization_id)
         ).first()
         if row is None:
             return None
@@ -378,11 +379,11 @@ class IdentityStore:
         """
         row = self.cx.execute(
             sa.select(
-                orgs.c.display_name,
-                orgs.c.welcome_message,
-                orgs.c.support_contact,
+                organizations.c.display_name,
+                organizations.c.welcome_message,
+                organizations.c.support_contact,
             )
-            .order_by(orgs.c.id)
+            .order_by(organizations.c.id)
             .limit(1)
         ).first()
         if row is None:
@@ -398,51 +399,51 @@ class IdentityStore:
         }
 
     def _default_organization_id_for_user(self, user_id: int) -> int | None:
-        default_org_id = self.cx.execute(
-            sa.select(users.c.default_org_id).where(users.c.id == user_id)
+        default_organization_id = self.cx.execute(
+            sa.select(users.c.default_organization_id).where(users.c.id == user_id)
         ).scalar_one_or_none()
-        if default_org_id is not None:
+        if default_organization_id is not None:
             still_member = self.cx.execute(
-                sa.select(memberships.c.org_id).where(
+                sa.select(memberships.c.organization_id).where(
                     memberships.c.user_id == user_id,
-                    memberships.c.org_id == default_org_id,
+                    memberships.c.organization_id == default_organization_id,
                 )
             ).scalar_one_or_none()
             if still_member is not None:
-                return int(default_org_id)
+                return int(default_organization_id)
         owner_organization_id = self.cx.execute(
-            sa.select(memberships.c.org_id)
+            sa.select(memberships.c.organization_id)
             .where(memberships.c.user_id == user_id, memberships.c.role == "owner")
-            .order_by(memberships.c.org_id)
+            .order_by(memberships.c.organization_id)
             .limit(1)
         ).scalar_one_or_none()
         if owner_organization_id is not None:
             return int(owner_organization_id)
-        org_id = self.cx.execute(
-            sa.select(memberships.c.org_id)
+        organization_id = self.cx.execute(
+            sa.select(memberships.c.organization_id)
             .where(memberships.c.user_id == user_id)
-            .order_by(memberships.c.org_id)
+            .order_by(memberships.c.organization_id)
             .limit(1)
         ).scalar_one_or_none()
-        if org_id is not None:
-            return int(org_id)
+        if organization_id is not None:
+            return int(organization_id)
         # A project-only collaborator intentionally has no memberships row.
         # Resolve their session to the deterministic first live project organization so
         # identity/profile paths retain their normal organization-scoped shape, while
         # project_roles remains the only authorization grant.
         project_organization_id = self.cx.execute(
-            sa.select(project_roles.c.org_id)
+            sa.select(project_roles.c.organization_id)
             .select_from(
                 project_roles.join(
                     projects,
                     sa.and_(
-                        projects.c.org_id == project_roles.c.org_id,
+                        projects.c.organization_id == project_roles.c.organization_id,
                         projects.c.slug == project_roles.c.slug,
                     ),
                 )
             )
             .where(project_roles.c.user_id == user_id)
-            .order_by(project_roles.c.org_id, project_roles.c.slug)
+            .order_by(project_roles.c.organization_id, project_roles.c.slug)
             .limit(1)
         ).scalar_one_or_none()
         return None if project_organization_id is None else int(project_organization_id)
