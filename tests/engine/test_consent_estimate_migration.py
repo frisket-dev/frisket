@@ -6,7 +6,7 @@ from contextlib import closing
 import json
 
 from frisket.engine.store import Project
-from frisket.engine.store.execution_routes import RouteStore
+from frisket.engine.store.execution_routes import ConsentRegistry, RouteStore
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.upgrades.project.edit_precedence_migration import COPY_PRECEDENCE_TO_DIGEST
 
@@ -43,11 +43,9 @@ def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None
             "INSERT INTO consents (id, subject_kind, subject_id, "
             "action_identity_hash, promise_set_hash, standing_policy, "
             "actor, granted_at, policy_params_json, grant_basis, quote_json) "
-            "VALUES (?,?,?,NULL,NULL,?,?,?,?,NULL,NULL)",
+            "VALUES (?,NULL,NULL,NULL,NULL,?,?,?,?,NULL,NULL)",
             (
                 "consent_standing_1",
-                "receipt",
-                "rcpt_1",
                 "auto_below_threshold",
                 "actor-1",
                 "2026-11-21T00:00:00Z",
@@ -79,7 +77,8 @@ def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None
         assert run_consents[0].id == "consent_rated_1"
         assert run_consents[0].estimate_json == estimate_payload
 
-        receipt_consents = RouteStore.for_receipt(reopened, "rcpt_1").consents()
-        assert len(receipt_consents) == 1
-        assert receipt_consents[0].id == "consent_standing_1"
-        assert receipt_consents[0].estimate_json is None
+        standing_consents = ConsentRegistry(reopened).standing_consents()
+        migrated_standing = next(
+            row for row in standing_consents if row.id == "consent_standing_1"
+        )
+        assert migrated_standing.estimate_json is None

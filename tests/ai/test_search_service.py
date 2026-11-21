@@ -67,7 +67,7 @@ async def test_exa_missing_reported_cost_settles_against_captured_estimate() -> 
     assert result.usage.provider_reported_cost_usd is None
     assert result.usage.provider_cost_usd == 0.007
     assert result.usage.cost_source == "configured_catalog"
-    assert result.usage.quote is estimate
+    assert result.usage.estimate is estimate
 
 
 @pytest.mark.asyncio
@@ -112,8 +112,8 @@ async def test_tavily_basic_search_keeps_credits_separate_from_dollars() -> None
     assert result.results[0].excerpt == "An excerpt"
     assert result.usage.provider_reported_cost_usd is None
     assert result.usage.provider_cost_usd == 0.008
-    assert result.usage.quote is not None
-    assert result.usage.quote.pricing_key == "tavily.search.credit"
+    assert result.usage.estimate is not None
+    assert result.usage.estimate.pricing_key == "tavily.search.credit"
     assert [(unit.name, unit.quantity) for unit in result.usage.units] == [
         ("credits", 1)
     ]

@@ -403,7 +403,7 @@ def test_a_truncated_estimate_blob_refuses_instead_of_escaping(
     """A corrupt blob is the modeled refusal, not a raw decode error.
 
     ``RouteStore.consents()`` is called by the dispatch fence BEFORE its
-    normalizing try block, so a ``estimate_json`` decoded eagerly in the store
+    normalizing try block, so an ``estimate_json`` decoded eagerly in the store
     would raise ``JSONDecodeError`` straight out of admission and become a
     generic job retry — a paid run left flapping instead of a durable
     "re-confirm this". The column is therefore handed back as raw text and
