@@ -28,7 +28,7 @@ from frisket.ai.llm.remediation import RemediatedError
 from frisket.team.app import TeamConfig, create_team_app
 from frisket.team.diagnostics import (
     BOOT_FAILURE_CATALOG,
-    HOSTED_WORKER_WRONG_MODE,
+    CLOUD_WORKER_WRONG_MODE,
     MAGIC_LINK_SMTP_LOGIN_FAILED,
     MAGIC_LINK_SMTP_UNREACHABLE,
     PEP668_NO_PIP,
@@ -48,7 +48,7 @@ from tests.team_setup_helpers import claim_server
     [
         PEP668_NO_PIP,
         PYICU_TOOLCHAIN_MISSING,
-        HOSTED_WORKER_WRONG_MODE,
+        CLOUD_WORKER_WRONG_MODE,
         MAGIC_LINK_SMTP_UNREACHABLE,
         MAGIC_LINK_SMTP_LOGIN_FAILED,
         PLAIN_HTTP_BASE_URL_REJECTED,
@@ -71,8 +71,8 @@ def test_pyicu_entry_routes_to_the_entities_extra_probe() -> None:
     assert entry["route"] == "Settings → Diagnostics → entities extra"
 
 
-def test_hosted_worker_entry_names_the_fix() -> None:
-    entry = BOOT_FAILURE_CATALOG[HOSTED_WORKER_WRONG_MODE]
+def test_cloud_worker_entry_names_the_fix() -> None:
+    entry = BOOT_FAILURE_CATALOG[CLOUD_WORKER_WRONG_MODE]
     assert "frisket worker" in entry["todo"]
 
 

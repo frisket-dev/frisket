@@ -411,13 +411,13 @@ def _run_worker(argv: list[str], *, cloud: bool) -> int:
     control-plane locator for handlers that need it."""
     import signal
 
-    command_name = "hosted-worker" if cloud else "worker"
+    command_name = "cloud-worker" if cloud else "worker"
     if cloud and any(
         value == "--database-url" or value.startswith("--database-url=")
         for value in argv
     ):
         print(
-            "frisket hosted-worker: run-queue locator is environment-only",
+            "frisket cloud-worker: run-queue locator is environment-only",
             file=sys.stderr,
         )
         return 2
@@ -684,7 +684,7 @@ def _subcommands() -> dict[str, tuple[str, str]]:
             "provision and migrate the Postgres run queue",
         ),
         "worker": ("frisket.cli:worker", "run the background worker by itself"),
-        "hosted-worker": (
+        "cloud-worker": (
             "frisket.cli:cloud_worker",
             "run the Cloud worker with code execution disabled",
         ),

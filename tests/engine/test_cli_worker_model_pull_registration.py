@@ -1,9 +1,9 @@
 """``frisket worker``: the plain local
 worker command path is the other real local-tier registration site besides
-``Workspace`` -- ``cli.py``'s ``_run_worker(hosted=False)`` branch is the
+``Workspace`` -- ``cli.py``'s ``_run_worker(cloud=False)`` branch is the
 process ``frisket serve`` auto-spawns and the one a bare
 ``frisket worker <workspace>`` invocation runs. It must register
-``model.pull``; the ``hosted=True`` branch (``register_cloud_handlers``,
+``model.pull``; the ``cloud=True`` branch (``register_cloud_handlers``,
 an external managed edition) must never see this call at all.
 """
 
@@ -31,7 +31,7 @@ def test_local_worker_command_registers_model_pull(tmp_path, monkeypatch) -> Non
     assert len(calls) == 1
 
 
-def test_hosted_worker_command_never_calls_model_pull_registration(
+def test_cloud_worker_command_never_calls_model_pull_registration(
     tmp_path, monkeypatch
 ) -> None:
     calls: list[dict] = []

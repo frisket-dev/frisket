@@ -1,7 +1,7 @@
 """Team worker capability gating: a team deployment's worker runs via ``frisket worker
---database-url ...`` (the SAME ``_run_worker(hosted=False)`` branch a plain
+--database-url ...`` (the SAME ``_run_worker(cloud=False)`` branch a plain
 local checkout uses, distinguished only by whether a run-queue database URL
-was given) -- never ``frisket hosted-worker`` (that CLI branch is an
+was given) -- never ``frisket cloud-worker`` (that CLI branch is an
 external managed composition and must never see ``model.pull`` at all, pinned
 separately by ``test_cli_worker_model_pull_registration.py``).
 
