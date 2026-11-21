@@ -228,6 +228,7 @@ def test_replay_parity_every_rerun_leaves_a_results_row(fx):
     # ANY re-run flavor (dispositions #4). A re-run that short-circuits without
     # writing results would silently kill surfacing and must not exist.
     fresh = {rid: f"gen-{i}" for i, rid in enumerate(fx.row_ids)}
+    assert fresh
     run_id = fx.run_with_results(fresh)
     for rid in fx.row_ids:
         row = fx.project.db.execute(
@@ -238,3 +239,4 @@ def test_replay_parity_every_rerun_leaves_a_results_row(fx):
             "each produced cell of a re-run has a comparable results row so the "
             "pending derivation is uniform across re-run flavors (dispositions #4)"
         )
+        assert row["value"] == fresh[rid]

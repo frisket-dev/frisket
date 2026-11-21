@@ -275,6 +275,7 @@ def test_dead_transcribe_spelling_never_resolves():
     from frisket.execution.resolver import Refusal, ResolutionRequest, resolve
 
     provider = StaticExecutionTargetProvider()
+    assert TRANSCRIBE_DEAD_ENGINE_REPLACEMENTS
     for spelling in TRANSCRIBE_DEAD_ENGINE_REPLACEMENTS:
         assert spelling not in ENGINE_ALIASES
         result = resolve(

@@ -458,16 +458,19 @@ class TestGatedCapabilityClosure:
             for capability, reason in self.EXTERNAL_CAPABILITY_DISPOSITION.items()
             if reason.startswith("NOT gated")
         }
+        checked = 0
         for entry in root_action_catalog().actions:
             kind = entry.kind
             declared = set(entry.required_capabilities or ())
             if declared & ungated and not (declared & {"unsafe:local_code"}):
                 if kind in self.EXPECTED_GATED_KINDS:
                     continue
+                checked += 1
                 assert gated_capability_phrase(kind) is None, (
                     f"{kind} declares only capabilities documented as NOT "
                     "gated, but the guards refuse it"
                 )
+        assert checked > 0
 
 
 class TestMcpBackendCodeActionGuard:
@@ -638,9 +641,11 @@ class TestBackfillGuardCodeAction:
 
     def test_backfill_guard_rejects_live_code_ids(self, monkeypatch):
         monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
-        assert self._guard()({"action_kind": "map.mcp_extract"}) is not None
-        assert self._guard()({"action_kind": "map.python"}) is not None
-        assert self._guard()({"action_kind": "research.answer"}) is not None
+        for kind in ("map.mcp_extract", "map.python", "research.answer"):
+            err = self._guard()({"action_kind": kind})
+            assert err is not None, kind
+            assert err.code == "code_action_disabled"
+            assert kind in err.message or "trusted/local" in err.message
 
     def test_backfill_guard_allows_benign_recipe(self, monkeypatch):
         monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")

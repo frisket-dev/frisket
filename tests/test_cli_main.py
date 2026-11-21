@@ -44,7 +44,9 @@ def test_help_lists_every_registered_subcommand():
     import frisket.cli as cli
 
     usage = cli._usage()
-    for name in cli._subcommands():
+    subcommands = list(cli._subcommands())
+    assert subcommands
+    for name in subcommands:
         assert f"frisket {name}" in usage, name
 
 

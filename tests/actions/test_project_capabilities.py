@@ -139,7 +139,9 @@ def test_every_project_action_has_exactly_one_host_owner() -> None:
         lambda terminal: terminal.capabilities == (FindScanner,),
         lambda terminal: terminal.capabilities == (RetainedResultPublisher,),
     )
-    for registered, terminal in _project_actions():
+    actions = list(_project_actions())
+    assert actions
+    for registered, terminal in actions:
         assert sum(supports(terminal) for supports in predicates) == 1, (
             registered.action_id
         )

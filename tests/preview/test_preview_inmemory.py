@@ -393,6 +393,8 @@ def test_preview_empty_row_ids_rejected_via_route(make_project) -> None:
         ),
     )
     assert isinstance(plan, ActionError)
+    assert plan.code == "invalid_action_request"
+    assert "row" in plan.message.lower()
 
 
 # --------------------------------------------------------------------------- #

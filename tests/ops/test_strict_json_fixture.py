@@ -35,9 +35,9 @@ CASES = _load_cases()
 
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
 def test_strict_json_loads_matches_fixture(case: dict) -> None:
+    assert case["expect"] in {"accept", "reject"}
     if case["expect"] == "accept":
         strict_json_loads(case["input"])  # must not raise
     else:
-        assert case["expect"] == "reject"
         with pytest.raises((ValueError, json.JSONDecodeError)):
             strict_json_loads(case["input"])

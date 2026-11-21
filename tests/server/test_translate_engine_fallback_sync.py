@@ -63,7 +63,9 @@ def test_fallback_language_declarations_match_backend() -> None:
     # rule19: two-sources: hand-kept web fallback catalog diffed against the Python engine roster
     text = TS.read_text()
     consts = _declared_consts(text)
-    for engine_id, const_name in _fallback_entries(text):
+    entries = list(_fallback_entries(text))
+    assert entries
+    for engine_id, const_name in entries:
         backend = TRANSLATE_ENGINE_LANGUAGE[engine_id]
         frontend = consts[const_name]
         assert frontend["mode"] == backend.mode, engine_id

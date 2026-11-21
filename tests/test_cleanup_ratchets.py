@@ -392,6 +392,7 @@ def test_native_select_failures_catches_unescaped_select_in_non_allowlisted_file
 
 
 def test_native_select_escapes_are_present_and_live():
+    assert web_hygiene.NATIVE_SELECT_ESCAPES
     for rel, reason in web_hygiene.NATIVE_SELECT_ESCAPES.items():
         path = web_hygiene.WEB / rel
         assert path.is_file(), f"Stale NATIVE_SELECT_ESCAPES entry: {rel}"

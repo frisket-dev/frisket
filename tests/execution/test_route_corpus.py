@@ -80,6 +80,7 @@ def test_gen1_sets_evaluate_at_their_recorded_facts():
             "credential_source": "org_byok",
         },
     }
+    assert GEN1_FIXTURES
     for path in GEN1_FIXTURES:
         ps = PromiseSet.from_json(path.read_text())
         ev = evaluate_set(ps.promises, bindings[path.stem])
@@ -117,6 +118,7 @@ def test_registry_tables_match_their_pins():
     forever, identically. The fixture is the pin; the live registry must
     match it exactly."""
     pins = json.loads((CORPUS / "registry_tables_gen1.json").read_text())
+    assert pins["order"]
     for ref, expected in pins["order"].items():
         table = REGISTRY.order_table(ref)
         assert table is not None, f"pinned order table {ref} vanished"
@@ -182,6 +184,7 @@ def test_promise_set_identity_is_singular():
     )
     from frisket.execution.resolve_for_action import consented_set_hash
 
+    assert GEN1_FIXTURES
     for path in GEN1_FIXTURES:
         doc = json.loads(path.read_text())
         ps = PromiseSet.from_json(path.read_text())
@@ -198,9 +201,11 @@ def test_promise_fingerprint_domain_is_singular():
     )
     from frisket.execution.promises import promise_row_fingerprint
 
+    assert GEN1_FIXTURES
     for path in GEN1_FIXTURES:
         doc = json.loads(path.read_text())
         ps = PromiseSet.from_json(path.read_text())
+        assert ps.promises
         for promise, row in zip(ps.promises, doc["promises"], strict=True):
             assert promise_row_fingerprint(promise.to_row()) == (
                 store_promise_fingerprint(row)
@@ -210,6 +215,7 @@ def test_promise_fingerprint_domain_is_singular():
 def test_gen1_rows_redecode_identically_via_from_row():
     """Row-level reader: Promise.from_row over raw fixture rows equals the
     document reader's output (no second decode path drifting)."""
+    assert GEN1_FIXTURES
     for path in GEN1_FIXTURES:
         doc = json.loads(path.read_text())
         ps = PromiseSet.from_json(path.read_text())

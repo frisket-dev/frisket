@@ -396,10 +396,13 @@ def test_switch_seam_holds_no_queue_schema_or_claim_internals(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_cli_apply_inspect_entrypoint_exists(tmp_path):
+def test_cli_apply_inspect_entrypoint_exists(tmp_path, monkeypatch, capsys):
     module = _api()
     fn = module.managed_runtime_cli
     assert callable(fn), "a CLI apply/inspect entrypoint must exist"
-    # An inspect invocation returns an exit code (0 = healthy report), never crashes.
+    monkeypatch.setenv("FRISKET_RUNTIME_CACHE_DIR", str(tmp_path / "runtimes"))
+    # An inspect invocation returns exit code 0 and prints a healthy report.
     rc = fn(["inspect"])
-    assert isinstance(rc, int)
+    assert rc == 0
+    assert "managed runtimes: none installed" in capsys.readouterr().out
+    assert fn(["unknown-subcommand"]) == 2

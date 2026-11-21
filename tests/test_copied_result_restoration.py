@@ -57,6 +57,7 @@ def test_reapplied_grid_exposes_retained_result_through_response_contract(work):
         row_id: {"run_id": original.run_id, "row_id": row_id, "column_id": source}
         for row_id in rows
     }
+    assert response.rows
     for row in response.rows:
         ref = row.meta[str(target)].current_value_ref
         assert ref.column_id == target

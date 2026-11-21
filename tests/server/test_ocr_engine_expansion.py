@@ -467,7 +467,9 @@ def test_ops_engine_roster_equals_the_contract_symbolic_set():
 
 
 def test_every_ops_declared_ocr_engine_validates_through_the_params_model():
-    for engine in sorted(_ops_declared_engines()):
+    engines = sorted(_ops_declared_engines())
+    assert engines
+    for engine in engines:
         params = OcrParams.model_validate({"source": "page", "engine": engine})
         assert params.engine.root == engine
 
@@ -476,7 +478,9 @@ def test_every_catalog_advertised_ocr_engine_validates_through_the_params_model(
     """The picker renders the catalog roster, so every advertised id — local,
     sidecar, hosted, and remote provider/model — must clear contract
     validation rather than bounce with invalid_ocr_engine."""
-    for entry in _ocr_engines():
+    entries = _ocr_engines()
+    assert entries
+    for entry in entries:
         params = OcrParams.model_validate({"source": "page", "engine": entry["id"]})
         assert params.engine.root == entry["id"]
 
@@ -489,8 +493,8 @@ def test_catalog_roster_carries_every_listed_table_engine_with_its_label():
     from frisket.contracts.actions.schemas._engines import OCR_ENGINE_TABLE
 
     by_id = {e["id"]: e for e in _ocr_engines()}
-    for decl in OCR_ENGINE_TABLE:
-        if not decl.listed:
-            continue
+    listed = [decl for decl in OCR_ENGINE_TABLE if decl.listed]
+    assert listed
+    for decl in listed:
         assert decl.id in by_id, f"table engine {decl.id!r} missing from catalog"
         assert by_id[decl.id]["label"] == decl.label

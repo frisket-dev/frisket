@@ -63,7 +63,9 @@ def test_every_roster_engine_has_static_target_support(capability) -> None:
     # Every roster engine must appear on at least one static target unless it
     # carries a ``resolves_to`` rewrite onto a provider/model id.
     supported = {support.engine for _target, support in _rows(capability)}
-    for entry in _roster(capability):
+    roster = list(_roster(capability))
+    assert roster
+    for entry in roster:
         if entry.resolves_to is not None:
             assert "/" in entry.resolves_to, (
                 f"engine {entry.id!r} resolves to no provider/model id: "
@@ -101,7 +103,11 @@ def test_engine_level_transport_is_among_served_transports() -> None:
     served: dict[str, set[str]] = {}
     for _target, support in _rows("transcribe"):
         served.setdefault(support.engine, set()).add(support.transport)
-    for entry in TRANSCRIBE_ENGINE_TABLE:
-        if entry.resolves_to is not None or entry.transcription is None:
-            continue
+    checked = [
+        entry
+        for entry in TRANSCRIBE_ENGINE_TABLE
+        if entry.resolves_to is None and entry.transcription is not None
+    ]
+    assert checked
+    for entry in checked:
         assert entry.transcription.transport in served[entry.id], entry.id

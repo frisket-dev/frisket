@@ -344,7 +344,9 @@ def test_type_only_selector_has_the_same_parity(tmp_path):
     pid, sheet_id, column_id, _rows = _seed(client)
     body = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
 
-    for entity_type in {item["type"] for item in body["items"]}:
+    entity_types = {item["type"] for item in body["items"]}
+    assert entity_types
+    for entity_type in entity_types:
         section = _preview(
             client,
             pid,
@@ -370,6 +372,7 @@ def test_every_selector_round_trips_as_an_entity_eq_filter(tmp_path):
     client = _client(tmp_path)
     pid, sheet_id, column_id, _rows = _seed(client)
     body = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
+    assert body["items"]
     for item in body["items"]:
         for payload in (
             _payload(item),

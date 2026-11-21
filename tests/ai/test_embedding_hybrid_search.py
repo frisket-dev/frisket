@@ -338,9 +338,15 @@ def test_hybrid_preserves_fts_boolean_syntax(env):
         _VEC.pop("drone OR tractor", None)
 
     tractor = _row(project, sheet, cols, "tractor")
-    tractor_hit = next(hit for hit in result.hits if hit.row_id == tractor)
-    assert tractor_hit.vector_rank is not None
-    assert tractor_hit.keyword_rank is not None
+    drone = _row(project, sheet, cols, "drone bee colony")
+    hits_by_row = {hit.row_id: hit for hit in result.hits}
+    assert tractor in hits_by_row
+    assert drone in hits_by_row
+    tractor_hit = hits_by_row[tractor]
+    drone_hit = hits_by_row[drone]
+    assert tractor_hit.vector_rank is not None and tractor_hit.vector_rank >= 1
+    assert tractor_hit.keyword_rank is not None and tractor_hit.keyword_rank >= 1
+    assert drone_hit.keyword_rank is not None and drone_hit.keyword_rank >= 1
 
 
 def test_hybrid_keyword_channel_searches_whole_sheet(env):

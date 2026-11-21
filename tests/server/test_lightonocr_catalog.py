@@ -45,10 +45,15 @@ def test_both_sizes_surface_for_ocr_compare_and_markdown(available):
 def test_missing_gateway_keeps_lighton_unavailable():
     hints = project_action_catalog_launcher_hints({"configured": False, "engines": []})
     for action in ("media.ocr", "media.to_markdown"):
-        for entry in hints[action]["engines"]:
-            if entry["id"].startswith("lightonocr-"):
-                assert entry["available"] is False
-                assert entry["error"]
+        matches = [
+            entry
+            for entry in hints[action]["engines"]
+            if entry["id"].startswith("lightonocr-")
+        ]
+        assert matches, f"no lightonocr entries advertised for {action}"
+        for entry in matches:
+            assert entry["available"] is False
+            assert entry["error"]
 
 
 @pytest.mark.parametrize("engine", ["lightonocr-3-0.8b", "lightonocr-3-4b"])

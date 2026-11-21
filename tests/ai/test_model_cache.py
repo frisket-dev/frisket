@@ -184,6 +184,7 @@ def test_concurrent_hf_sibling_promotes_do_not_collide(tmp_path):
         ]
         for thread in threads:
             thread.join()
+    assert len(refs) == 6
     for ref in refs:
         assert (
             model_cache.hf_install_path(ref, root=tmp_path).read_bytes()

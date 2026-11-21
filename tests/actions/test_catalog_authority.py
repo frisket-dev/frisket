@@ -109,6 +109,7 @@ def test_runtime_binding_cannot_reenable_builtin_old_envelope(runtime_registry) 
         WorkbenchPluginActivationError,
     )
 
+    assert ACTION_REGISTRY.action_ids
     for kind in ACTION_REGISTRY.action_ids:
         runtime_registry.register_runtime_binding(
             "actions",

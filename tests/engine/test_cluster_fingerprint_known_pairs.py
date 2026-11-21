@@ -21,12 +21,14 @@ from frisket.ops.cluster_fingerprint import fingerprint, ngram_fingerprint
 
 
 def test_claimed_collision_groups_share_one_fingerprint_key():
+    assert FINGERPRINT_COLLIDING_GROUPS
     for group in FINGERPRINT_COLLIDING_GROUPS:
         keys = {fingerprint(value) for value in group}
         assert len(keys) == 1, f"{group} does not collide: keys={keys}"
 
 
 def test_claimed_non_colliding_pairs_have_different_fingerprint_keys():
+    assert FINGERPRINT_NON_COLLIDING_PAIRS
     for a, b in FINGERPRINT_NON_COLLIDING_PAIRS:
         assert fingerprint(a) != fingerprint(b), (
             f"{a!r} and {b!r} were claimed non-colliding but share a "
@@ -35,6 +37,7 @@ def test_claimed_non_colliding_pairs_have_different_fingerprint_keys():
 
 
 def test_ngram_pairs_need_ngram_not_token_fingerprint():
+    assert NGRAM_COLLIDING_NOT_TOKEN_PAIRS
     for a, b in NGRAM_COLLIDING_NOT_TOKEN_PAIRS:
         assert fingerprint(a) != fingerprint(b), (
             f"{a!r}/{b!r} were claimed to need the n-gram method, but the "

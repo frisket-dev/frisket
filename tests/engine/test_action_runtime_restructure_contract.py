@@ -51,6 +51,7 @@ def test_outliers_are_named_and_principled() -> None:
 
 
 def test_every_spec_is_an_action_execution_spec() -> None:
+    assert EXECUTION_REGISTRY
     for kind, spec in EXECUTION_REGISTRY.items():
         assert isinstance(spec, ActionExecutionSpec)
         assert spec.kind == kind
@@ -97,6 +98,7 @@ def test_run_backed_actions_guarantee_run_bound_provider_effect_facts() -> None:
 
 
 def test_execution_spec_params_model_matches_catalog_object() -> None:
+    assert EXECUTION_REGISTRY
     for kind, spec in EXECUTION_REGISTRY.items():
         assert kind in NEW_ACTION_IDS, f"{kind}: not a typed action"
         expected = ACTION_REGISTRY.get(kind).definition.run.params_model

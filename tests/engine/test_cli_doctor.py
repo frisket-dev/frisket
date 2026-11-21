@@ -510,62 +510,61 @@ def test_engines_report_summary_reflects_provisioned_state(monkeypatch):
     monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: False)
     monkeypatch.setattr(diagnostics, "_rapidocr_default_bootstrap_ready", lambda: True)
     report = diagnostics.engines_report()
-    if report["installed"]:
-        assert report["provisioned"] == []
-        expected_setup = [
-            name for name in report["installed"] if name in ("ocr", "parakeet")
-        ]
-        expected_offline = [
-            name for name in report["installed"] if name == "faster_whisper"
-        ]
-        expected_fetches = [
-            name
-            for name in report["installed"]
-            if name not in ("ocr", "parakeet", "faster_whisper")
-        ]
-        assert report["setup_required"] == expected_setup
-        assert report["offline_unavailable"] == expected_offline
-        assert report["fetches_on_first_use"] == expected_fetches
-        assert "(provisioned)" not in report["summary"]
-        assert all(
-            (
-                "spacy (model not yet downloaded)" in report["summary"]
-                if name == "spacy"
-                else f"{name} (fetches on first use)" in report["summary"]
-            )
-            for name in expected_fetches
+    assert report["installed"]
+    assert report["provisioned"] == []
+    expected_setup = [
+        name for name in report["installed"] if name in ("ocr", "parakeet")
+    ]
+    expected_offline = [
+        name for name in report["installed"] if name == "faster_whisper"
+    ]
+    expected_fetches = [
+        name
+        for name in report["installed"]
+        if name not in ("ocr", "parakeet", "faster_whisper")
+    ]
+    assert report["setup_required"] == expected_setup
+    assert report["offline_unavailable"] == expected_offline
+    assert report["fetches_on_first_use"] == expected_fetches
+    assert "(provisioned)" not in report["summary"]
+    assert all(
+        (
+            "spacy (model not yet downloaded)" in report["summary"]
+            if name == "spacy"
+            else f"{name} (fetches on first use)" in report["summary"]
         )
-        if expected_offline:
-            if "faster_whisper" in expected_offline:
-                assert (
-                    "faster_whisper (not provisioned; pre-populated HF cache required)"
-                    in report["summary"]
-                )
-        # Each installed engine gets the cache/provisioning mechanism it
-        # actually uses; there is no one generic Hugging Face remedy.
-        if "parakeet" in report["installed"]:
-            assert "engine-setup:parakeet-tdt.local-onnx@1" in report["remediation"]
-        if "faster_whisper" in report["installed"]:
-            assert "HF_HUB_CACHE" in report["remediation"]
-            assert "no-network worker sandbox" in report["remediation"]
-        if "ocr" in report["installed"]:
-            assert "engine-setup:rapidocr.local@1" in report["remediation"]
-            assert (
-                "Explicit-language OCR requires its own complete cached"
-                in report["remediation"]
-            )
-        if "embeddings" in report["installed"]:
-            assert "FASTEMBED_CACHE_PATH" in report["remediation"]
+        for name in expected_fetches
+    )
+    if "faster_whisper" in expected_offline:
+        assert (
+            "faster_whisper (not provisioned; pre-populated HF cache required)"
+            in report["summary"]
+        )
+    # Each installed engine gets the cache/provisioning mechanism it
+    # actually uses; there is no one generic Hugging Face remedy.
+    if "parakeet" in report["installed"]:
+        assert "engine-setup:parakeet-tdt.local-onnx@1" in report["remediation"]
+    if "faster_whisper" in report["installed"]:
+        assert "HF_HUB_CACHE" in report["remediation"]
+        assert "no-network worker sandbox" in report["remediation"]
+    if "ocr" in report["installed"]:
+        assert "engine-setup:rapidocr.local@1" in report["remediation"]
+        assert (
+            "Explicit-language OCR requires its own complete cached"
+            in report["remediation"]
+        )
+    if "embeddings" in report["installed"]:
+        assert "FASTEMBED_CACHE_PATH" in report["remediation"]
 
     monkeypatch.setattr(diagnostics, "_engine_provisioned", lambda name: True)
     report = diagnostics.engines_report()
-    if report["installed"]:
-        assert report["fetches_on_first_use"] == []
-        assert report["setup_required"] == []
-        assert report["offline_unavailable"] == []
-        assert report["provisioned"] == report["installed"]
-        assert "(fetches on first use)" not in report["summary"]
-        assert report["remediation"] is None
+    assert report["installed"]
+    assert report["fetches_on_first_use"] == []
+    assert report["setup_required"] == []
+    assert report["offline_unavailable"] == []
+    assert report["provisioned"] == report["installed"]
+    assert "(fetches on first use)" not in report["summary"]
+    assert report["remediation"] is None
 
 
 def test_engines_report_includes_runtime_plan_when_rapidocr_is_installed(monkeypatch):
