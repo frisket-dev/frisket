@@ -764,20 +764,25 @@ class _PreparedRefresh:
     cloud_unpriceable: bool
 
     def wire_estimate(self) -> dict[str, Any]:
+        from frisket.contracts.http.action_estimate_validation import ActionEstimate
+
         payload: dict[str, Any] = {
-            "rows": int(self.estimate["rows"]),
-            "cost": self.estimate["cost"],
-            "cost_source": str(self.estimate["cost_source"]),
-            "billed_cost": self.estimate["billed_cost"],
-            "policy_id": str(self.estimate["policy_id"]),
-            "requires_confirmation": self.requires_confirmation,
-            "promise_set_hash": (
-                None if self.cloud_unpriceable else self.confirmation_hash
-            ),
+            key: value
+            for key, value in self.estimate.items()
+            if key in ActionEstimate.model_fields
         }
-        for key in ("engine", "remote_capability", "avg_input_tokens"):
-            if self.estimate.get(key) is not None:
-                payload[key] = self.estimate[key]
+        payload.update(
+            {
+                "rows": int(self.estimate["rows"]),
+                "cost_source": str(self.estimate["cost_source"]),
+                "billed_cost": self.estimate["billed_cost"],
+                "policy_id": str(self.estimate["policy_id"]),
+                "requires_confirmation": self.requires_confirmation,
+                "promise_set_hash": (
+                    None if self.cloud_unpriceable else self.confirmation_hash
+                ),
+            }
+        )
         return payload
 
 
@@ -869,23 +874,11 @@ def _build_refresh_estimate(
 def _manual_refresh_exceeds_allowance(
     estimate: Mapping[str, Any], *, threshold_usd: Decimal
 ) -> tuple[float | None, bool]:
-    """Compare a rated remote refresh estimate against the standing allowance.
-
-    Preserves precision for sub-micro positive provider costs when threshold_usd
-    is 0 so an always-ask allowance never admits paid remote egress silently.
-    """
+    """Compare a rated remote refresh estimate against the standing allowance."""
     price = estimated_usd(estimate)
     if price is None:
         return None, True
-    effective_price = Decimal(str(price))
-    raw_cost = estimate.get("cost")
-    if (
-        not isinstance(raw_cost, bool)
-        and isinstance(raw_cost, (int, float))
-        and math.isfinite(raw_cost)
-    ):
-        effective_price = max(effective_price, Decimal(str(raw_cost)))
-    return price, effective_price > threshold_usd
+    return price, Decimal(str(price)) > threshold_usd
 
 
 def _refresh_confirmation_token(
