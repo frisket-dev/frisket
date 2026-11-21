@@ -29,7 +29,7 @@ from frisket.ops.integrations.opendocrouter import parse_document
 from frisket.ops.markdown_plain import markdown_to_plain_text
 from frisket.ops.media_metadata import image_dimensions
 from frisket.ops.ocr_engines_remote import halt_unless_consented_credential
-from frisket.sdk.ops._hosted_accounting import persist_hosted_accepted_accounting
+from frisket.sdk.ops._remote_accounting import persist_remote_accepted_accounting
 
 
 async def parse_with_context(
@@ -68,7 +68,7 @@ async def parse_with_context(
     def record(accounting):
         nonlocal accepted
         if not accepted:
-            persist_hosted_accepted_accounting(ctx, accounting)
+            persist_remote_accepted_accounting(ctx, accounting)
             accepted = True
         if on_accounting:
             on_accounting(accounting)
@@ -102,7 +102,7 @@ async def parse_with_context(
                 exc.provider_job_accepted or exc.post_egress_ambiguous
             ) and exc.accounting:
                 try:
-                    persist_hosted_accepted_accounting(ctx, exc.accounting)
+                    persist_remote_accepted_accounting(ctx, exc.accounting)
                 except Exception as persistence_error:
                     # Keep the accepted-effect marker even when the ledger cannot
                     # be written: an ordinary row failure could be resubmitted.

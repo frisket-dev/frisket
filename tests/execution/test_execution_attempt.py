@@ -240,7 +240,7 @@ def _mint(project, run_id, *, scope=(7, 11)):
 
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-test",
             funding=PlatformMetered(),
         ),
@@ -1078,7 +1078,7 @@ def test_edition_run_context_lands_on_its_column_not_in_params(project, consente
     assert "edition_run_context" not in json.loads(row["params"])
 
     # Idempotent: an already-attached context is never overwritten.
-    attach_run_edition_run_context(project, run_id, {"edition": "hosted"})
+    attach_run_edition_run_context(project, run_id, {"edition": "cloud"})
     assert json.loads(
         project.db.execute(
             "SELECT edition_run_context FROM runs WHERE id=?", (run_id,)

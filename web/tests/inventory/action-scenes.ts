@@ -19,11 +19,11 @@ export async function captureInspectionScenes(page: Page, shot: Shot) {
   await openProject(page, pid, sid);
   const overflowTrigger = page.getByTestId('toolbar-overflow-button');
   await overflowTrigger.click();
-  await page.getByTestId('open-saved-views-submenu').hover();
-  await expect(page.getByTestId('saved-views-overflow-menu')).toBeVisible();
+  await page.getByTestId('open-views-submenu').hover();
+  await expect(page.getByTestId('views-overflow-menu')).toBeVisible();
   await overflowTrigger.focus();
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('saved-views-overflow-menu')).toHaveCount(0);
+  await expect(page.getByTestId('views-overflow-menu')).toHaveCount(0);
   await expect(page.getByTestId('toolbar-overflow-menu')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('toolbar-overflow-menu')).toHaveCount(0);

@@ -495,7 +495,7 @@ def test_team_app_pull_enqueues_into_the_configured_run_queue_database_not_the_c
     ``config.database_url`` (the control-plane locator,
     ``FRISKET_TEAM_DATABASE_URL``) UNCONDITIONALLY -- but the compose worker
     (docker-compose.yml's ``worker`` service) and ``frisket worker``/
-    ``frisket hosted-worker`` (cli.py's ``_run_worker``) both resolve their
+    ``frisket cloud-worker`` (cli.py's ``_run_worker``) both resolve their
     run-queue Postgres locator from a SEPARATE
     ``FRISKET_RUN_QUEUE_DATABASE_URL``. Whenever a real deployment configures
     distinct control/queue databases (the compose topology every wired-up

@@ -328,9 +328,9 @@ interface SheetGridProps {
   activeFilter?: GridFilterSpec | null;
   activeSort?: GridSortSpec | null;
   columnOrder?: string[] | null;
-  /** Lens-view: page EXACTLY these row ids in ranked order. */
+  /** Ranked view: page EXACTLY these row ids in ranked order. */
   viewRowIds?: number[] | null;
-  /** Per-row {distance, score} for the lens view, keyed by row id — rendered as
+  /** Per-row {distance, score} for the ranked view, keyed by row id — rendered as
    *  trailing result columns so the ranking metric is VISIBLE in the grid. */
   viewScores?: Record<string, { distance: number | null; score: number | null }> | null;
   /** In-memory action preview: the sampled generated columns. Brand-new outputs
@@ -401,11 +401,11 @@ interface SheetGridProps {
 const NEW_COLUMNS_GRACE_MS = 2500;
 
 const CHILD_CHIP_COL = '__child_chip';
-// Lens-view result columns: the ranking metric, surfaced as real grid
+// Ranked view result columns: the ranking metric, surfaced as real grid
 // columns so distance/score are VISIBLE in the grid (not raw vectors, not
-// only the sidebar). Appended only while a lens view is active.
-const VIEW_DISTANCE_COL = '__lens_distance';
-const VIEW_SCORE_COL = '__lens_score';
+// only the sidebar). Appended only while a ranked view is active.
+const VIEW_DISTANCE_COL = '__view_distance';
+const VIEW_SCORE_COL = '__view_score';
 // Trailing virtual columns for an in-memory action preview: a brand-new sampled
 // output that doesn't overwrite an existing column is shown as an appended
 // preview column (id prefixed so it never collides with a real column name).
@@ -558,7 +558,7 @@ function useColumnModel(
         width: colWidths[CHILD_CHIP_COL] ?? 130,
       });
     }
-    // Lens-view result columns: the per-row ranking metric, made VISIBLE in the
+    // Ranked view result columns: the per-row ranking metric, made VISIBLE in the
     // grid as real trailing columns (distance then score).
     if (viewActive) {
       cols.push({

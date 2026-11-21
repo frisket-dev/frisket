@@ -971,9 +971,9 @@ def create_team_app(
     # self-host worker polls (`frisket worker --database-url ...` /
     # FRISKET_RUN_QUEUE_DATABASE_URL), or every enqueued job (OCR,
     # transcribe, action runs, digests, alerts, model pulls) sits forever
-    # unclaimed. `hosted=False` always: the open team server -- single organization,
+    # unclaimed. `cloud=False` always: the open team server -- single organization,
     # workspace root IS the storage directory, no claimed ProjectStorageKey
-    # routing -- is never the multi-tenant hosted posture an external
+    # routing -- is never the multi-tenant Cloud posture an external
     # composition provides, even when its run-queue happens to be Postgres.
     # `config.run_queue_database_url`
     # is guaranteed non-None here (the unconditional check at the top of
@@ -1035,7 +1035,7 @@ def create_team_app(
 
     core = create_app(
         config.data_dir,
-        queue=open_queue(database_url=config.run_queue_database_url, hosted=False),
+        queue=open_queue(database_url=config.run_queue_database_url, cloud=False),
         control_database_url=config.database_url,
         queue_payload_extra={"org_id": org_id},
         executor_deps_factory=_team_executor_deps_factory,

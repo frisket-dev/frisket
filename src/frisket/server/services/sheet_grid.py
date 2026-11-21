@@ -144,7 +144,7 @@ class SheetGridService:
                 ordered_ids = _visible_ranked_row_ids(
                     project, sheet_id, explicit_row_ids
                 )
-                # Lens views provide their own ranked row order. The grid keeps that
+                # Ranked views provide their own row order. The grid keeps that
                 # exact order and intentionally ignores filter/sort scope here.
                 window_ids = ordered_ids[offset : offset + limit]
                 return _sheet_data_payload(
@@ -609,7 +609,7 @@ def _visible_ranked_row_ids(
     sheet_id: int,
     row_ids: list[int],
 ) -> list[int]:
-    """Keep a saved ranked lens order while dropping invisible or removed rows."""
+    """Keep a ranked view order while dropping invisible or removed rows."""
     if not row_ids:
         return []
     placeholders = ",".join("?" * len(row_ids))

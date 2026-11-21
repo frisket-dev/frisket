@@ -57,17 +57,17 @@ class RunTerminalization:
         self._storage_organization_id = workspace_root_storage_organization_id
         self._project_opener = project_opener
 
-    def __call__(self, event: str, job: Job, *, hosted: bool) -> None:
-        self._terminalize_action_run_job(job, hosted=hosted, reason=event)
+    def __call__(self, event: str, job: Job, *, cloud: bool) -> None:
+        self._terminalize_action_run_job(job, cloud=cloud, reason=event)
 
     # ---------- routing ----------
 
     def _trusted_job_project_path(
-        self, job: Job, *, hosted: bool
+        self, job: Job, *, cloud: bool
     ) -> tuple[str, Path, ProjectStorageKey | None] | None:
         """Resolve a durable project for retry/terminalization (or ``None``
         to leave the row untouched — fail closed)."""
-        if hosted:
+        if cloud:
             storage_key = job.project_storage_key
             if storage_key is None:
                 return None
@@ -101,12 +101,12 @@ class RunTerminalization:
     # ---------- terminal receipts ----------
 
     def _terminalize_action_run_job(
-        self, job: Job, *, hosted: bool, reason: str
+        self, job: Job, *, cloud: bool, reason: str
     ) -> None:
         if job.kind != ACTION_RUN_KIND:
             return
         payload = job.payload if isinstance(job.payload, Mapping) else {}
-        trusted_project = self._trusted_job_project_path(job, hosted=hosted)
+        trusted_project = self._trusted_job_project_path(job, cloud=cloud)
         if trusted_project is None:
             return
         project_id, project_path, storage_key = trusted_project

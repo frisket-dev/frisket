@@ -544,7 +544,7 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
         EngineDeclaration(
             id=f"{provider}/{entry['id']}",
             label=str(entry["label"]),
-            tier="local" if provider == "ollama" else "hosted",
+            tier="local" if provider == "ollama" else "remote",
             provider=provider,
             billable=provider != "ollama",
         )
@@ -947,7 +947,7 @@ def _open_edition_facts(target: ExecutionTarget, engine_id: str) -> RouteRowFact
 def _cloud_edition_facts(
     target: ExecutionTarget, engine_id: str, composition: CompositionFacts
 ) -> RouteRowFacts:
-    """The sibling of :func:`_open_edition_facts` for edition="hosted",
+    """The sibling of :func:`_open_edition_facts` for edition="cloud",
     replacing the ``ValueError`` tripwire that used to stand where
     this branch belongs.
 
@@ -993,7 +993,7 @@ def _edition_facts(
         )
     if composition.edition == "open":
         return _open_edition_facts(target, engine_id)
-    if composition.edition == "hosted":
+    if composition.edition == "cloud":
         return _cloud_edition_facts(target, engine_id, composition)
     raise ValueError(f"unknown composition edition {composition.edition!r}")
 

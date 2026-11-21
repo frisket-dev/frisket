@@ -1,4 +1,4 @@
-"""Alert checks observe the same saved View membership as the workspace."""
+"""Alert checks observe the same View membership as the workspace."""
 
 from __future__ import annotations
 

@@ -527,7 +527,7 @@ describe('classify source binding', () => {
     const dialog = await openActionSelector();
     fireEvent.change(within(dialog).getByRole('searchbox', { name: /^Search / }), { target: { value: 'retired_engine' } });
     const option = within(dialog).getByRole('button', { name: /retired_engine/i });
-    expect(option).not.toHaveTextContent(/local|sidecar|hosted/i);
+    expect(option).not.toHaveTextContent(/local|sidecar|remote/i);
     await userEvent.click(option);
     expect(within(dialog).getByText('Saved choice is not offered')).toBeVisible();
     expect(selectorTrigger()).toHaveTextContent('retired_engine');

@@ -1,7 +1,7 @@
 """Strict shared View shape, binding validation and paginated real HTTP reads."""
 
 import pytest
-from frisket.contracts.http.views_lenses import SavedView, SavedViewResolved
+from frisket.contracts.http.views import View, ViewResolved
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 
 
@@ -36,7 +36,7 @@ def test_http_crud_resolves_shared_selection_and_presentation(view_api):
     )
     assert response.status_code == 200, response.text
     view = response.json()
-    SavedView.model_validate(view)
+    View.model_validate(view)
     assert view["name"] == "High"
     assert view["unavailable_reason"] is None
     assert client.get(prefix).json() == [view]
@@ -47,7 +47,7 @@ def test_http_crud_resolves_shared_selection_and_presentation(view_api):
     )
     assert resolved.status_code == 200, resolved.text
     payload = resolved.json()
-    SavedViewResolved.model_validate(payload)
+    ViewResolved.model_validate(payload)
     assert payload["total"] == 2
     assert [row["row_id"] for row in payload["refs"]] == rows[1:2]
     assert (

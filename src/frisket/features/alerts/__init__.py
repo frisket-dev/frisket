@@ -1,1 +1,1 @@
-"""Saved-view alert evaluation and scheduling."""
+"""View alert evaluation and scheduling."""

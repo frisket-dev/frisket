@@ -96,8 +96,7 @@ def test_artifact_model_fact_follows_selected_typed_engine(engine, llm):
     ]
 
 
-def test_artifact_preserves_registered_plugin_path():
-    from helpers import install_action_program, remove_action_program
+def test_artifact_preserves_registered_plugin_path(monkeypatch):
     from frisket.ops.base import ActionProgram
 
     class PluginProgram(ActionProgram):
@@ -114,20 +113,17 @@ def test_artifact_preserves_registered_plugin_path():
             return spec["input_columns"]
 
     kind = "artifact_test.plugin"
-    install_action_program(
-        PluginProgram(name="artifact_test", version="plugin-v3", llm=False),
-        action_kind=kind,
-        plugin="artifact_test",
+    program = PluginProgram(name="artifact_test", version="plugin-v3", llm=False)
+    monkeypatch.setattr(
+        "frisket.authoring.action_registry.get_action_program",
+        lambda action_kind: program if action_kind == kind else None,
     )
-    try:
-        artifact = build_action_artifact(
-            name="Plugin", spec={"action_kind": kind, "input_columns": ["story"]}
-        )
-        assert artifact["action"]["version"] == "plugin-v3"
-        assert _checks(artifact)["spec.sources"]["source_columns"] == ["story"]
-        assert validate_action_artifact(artifact) == artifact
-    finally:
-        remove_action_program(kind)
+    artifact = build_action_artifact(
+        name="Plugin", spec={"action_kind": kind, "input_columns": ["story"]}
+    )
+    assert artifact["action"]["version"] == "plugin-v3"
+    assert _checks(artifact)["spec.sources"]["source_columns"] == ["story"]
+    assert validate_action_artifact(artifact) == artifact
 
 
 def test_deterministic_typed_artifact_uses_declared_logical_output():

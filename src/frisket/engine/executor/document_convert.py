@@ -147,7 +147,7 @@ def _engine_tier(engine: str) -> str:
     if engine in SIDECAR_ENGINES:
         return "sidecar"
     if engine == DATALAB_ENGINE or engine.startswith("opendocrouter/"):
-        return "hosted"
+        return "remote"
     return "local"
 
 
@@ -195,7 +195,7 @@ class AdmittedDocumentConverter:
         self._called_rows: set[int] = set()
         # Per-row provider accounting (datalab) surfaced to the host writer via
         # the same channel geocode/ocr use; datalab's accepted-job fact is ALSO
-        # persisted immediately (persist_hosted_accepted_accounting) so it is
+        # persisted immediately (persist_remote_accepted_accounting) so it is
         # durable independent of this envelope.
         self.accounting_by_row: dict[int, dict[str, Any]] = {}
         # Per-row PRIVATE read-facts, keyed by row_id. The host's existing
@@ -210,7 +210,7 @@ class AdmittedDocumentConverter:
         #   {
         #     "kind": "document_convert_read",  # row_file_call discriminator
         #     "engine": str,                    # canonical engine id that ran
-        #     "tier": "local"|"sidecar"|"hosted",
+        #     "tier": "local"|"sidecar"|"remote",
         #     "external": bool,                 # True only for datalab (egress)
         #     "ocr_used": list[bool],           # per-page (sidecar); [] else
         #     "produced_markdown": bool,        # False for a blank output
@@ -358,13 +358,13 @@ class _BoundDocumentConverter:
         read["column_id"] = column_id
         read["source_column"] = source.name
         cloud_route = self._is_cloud_route()
-        tier = "hosted" if cloud_route else _engine_tier(engine)
+        tier = "remote" if cloud_route else _engine_tier(engine)
         owner.calls_by_row.setdefault(self._row_id, []).append(
             {
                 "kind": "document_convert_read",
                 "engine": engine,
                 "tier": tier,
-                "external": cloud_route or tier == "hosted",
+                "external": cloud_route or tier == "remote",
                 "ocr_used": list(ocr_used),
                 "produced_markdown": bool(markdown),
                 "document_read": read,
@@ -742,12 +742,12 @@ class _BoundDocumentConverter:
 
         def persist_accepted(accounting: dict[str, Any]) -> None:
             nonlocal accepted_accounting
-            from frisket.sdk.ops._hosted_accounting import (
-                persist_hosted_accepted_accounting,
+            from frisket.sdk.ops._remote_accounting import (
+                persist_remote_accepted_accounting,
             )
 
             accepted_accounting = accounting
-            persist_hosted_accepted_accounting(ctx, accounting)
+            persist_remote_accepted_accounting(ctx, accounting)
 
         payload = path.read_bytes()
         from hashlib import sha256

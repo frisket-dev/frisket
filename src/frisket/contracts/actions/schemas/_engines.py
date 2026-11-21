@@ -21,7 +21,7 @@ Tier vocabulary (three visible tiers):
 - ``local``   — runs in this process/box (sandboxed worker or system binary);
 - ``sidecar`` — the operator's frisket-models service, which MAY be another
   machine: never labelled "local";
-- ``hosted``  — leaves the operator's infrastructure (provider API,
+- ``remote``  — leaves the operator's infrastructure (provider API,
   vendor pay-per-call).
 
 ``ner`` keeps its existing pinned roster (it never drifted); it is not
@@ -40,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-EngineTier = Literal["local", "sidecar", "hosted"]
+EngineTier = Literal["local", "sidecar", "remote"]
 TranscriptionTransport = Literal[
     "local",
     "remote",
@@ -232,7 +232,7 @@ def opendocrouter_engines() -> tuple[EngineDeclaration, ...]:
         EngineDeclaration(
             id=model.engine,
             label=f"{model.name} · OpenDocRouter",
-            tier="hosted",
+            tier="remote",
             provider="opendocrouter",
             billable=True,
             ocr_geometry=True,
@@ -336,7 +336,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
         label="Datalab OCR (pay-per-call)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
-        tier="hosted",
+        tier="remote",
         provider="datalab",
         # Its old ``not_comparable`` reason ("bills per page; run it through
         # the cost-gated media.ocr action instead of the free-form compare")
@@ -456,7 +456,7 @@ TRANSCRIBE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="openrouter/microsoft/mai-transcribe-2",
         label="Microsoft MAI-Transcribe 2 (OpenRouter)",
-        tier="hosted",
+        tier="remote",
         provider="openrouter",
         billable=True,
         transcription=TranscriptionEngineCapabilities(
@@ -590,14 +590,14 @@ CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="openai-decisions",
         label="OpenAI Decisions",
-        tier="hosted",
+        tier="remote",
         provider="openai",
         billable=True,
     ),
     EngineDeclaration(
         id="clef",
         label="Clef (Cloudflare)",
-        tier="hosted",
+        tier="remote",
         provider="cloudflare",
         billable=True,
     ),
@@ -639,7 +639,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="datalab",
         label="Datalab Marker (PDF, Office documents, and images only)",
-        tier="hosted",
+        tier="remote",
         provider="datalab",
         billable=True,
     ),
@@ -662,14 +662,14 @@ TRANSLATE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="deepl",
         label="DeepL API translation (pay-per-character)",
-        tier="hosted",
+        tier="remote",
         provider="deepl",
         billable=True,
     ),
     EngineDeclaration(
         id="google_translate",
         label="Google Cloud Translation v2 (pay-per-character)",
-        tier="hosted",
+        tier="remote",
         provider="google",
         billable=True,
     ),
@@ -699,14 +699,14 @@ GEOCODE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="opencage",
         label="OpenCage geocoder (pay-per-row)",
-        tier="hosted",
+        tier="remote",
         provider="opencage",
         billable=True,
     ),
     EngineDeclaration(
         id="nominatim",
         label="Nominatim geocoder (rate-limited)",
-        tier="hosted",
+        tier="remote",
         provider="nominatim",
         # This request leaves the box, but Nominatim's public API is not a
         # priced engine.  ``tier`` carries the egress fact independently from
@@ -724,7 +724,7 @@ CENSUS_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="us_census_acs",
         label="US Census ACS 5-year enrichment",
-        tier="hosted",
+        tier="remote",
         provider="us_census_acs",
         billable=False,
     ),

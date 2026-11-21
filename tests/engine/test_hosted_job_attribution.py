@@ -44,11 +44,11 @@ FEED_POLL_KIND = "source.poll"
 
 
 def _hosted(tmp_path, name="hosted.db"):
-    return SqliteJobQueue(tmp_path / name, hosted=True)
+    return SqliteJobQueue(tmp_path / name, cloud=True)
 
 
 def _local(tmp_path, name="local.db"):
-    return SqliteJobQueue(tmp_path / name, hosted=False)
+    return SqliteJobQueue(tmp_path / name, cloud=False)
 
 
 def _row(queue, job_id):

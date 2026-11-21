@@ -1,4 +1,4 @@
-import { toWireJsonObject } from '../api/viewsLenses';
+import { toWireJsonObject } from '../api/views';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MAX_VIEW_ROWS,

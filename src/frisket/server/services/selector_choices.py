@@ -1230,7 +1230,7 @@ class SelectorChoiceService:
             policy_forbidden = (
                 outcome is None
                 and _network_off(project)
-                and engine.get("tier") == "hosted"
+                and engine.get("tier") == "remote"
             )
             status = "ready" if available else "unavailable"
             blocker = (
