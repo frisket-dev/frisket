@@ -1,5 +1,5 @@
 {
- "src/frisket/server/routes/action_preview_support.py::register_action_preview_run_routes.v1_action_compare_preview_quote: return JSONResponse(status_code=)": 1,
+ "src/frisket/server/routes/action_preview_support.py::register_action_preview_run_routes.v1_action_compare_preview_estimate: return JSONResponse(status_code=)": 1,
  "src/frisket/server/routes/action_preview_support.py::register_action_preview_run_routes.v1_action_compare_preview_start: return JSONResponse(status_code=)": 1,
  "src/frisket/server/routes/action_preview_support.py::register_action_preview_run_routes.v1_action_preview_start: return JSONResponse(status_code=)": 1,
  "src/frisket/server/routes/action_preview_support.py::register_action_preview_run_routes.v1_action_preview_status: return JSONResponse(status_code=)": 1,

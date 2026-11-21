@@ -82,7 +82,7 @@ def test_local_mcp_backfill_uses_the_workspace_search_provider(
                 provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
                 units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 

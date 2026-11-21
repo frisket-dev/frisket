@@ -134,7 +134,7 @@ def test_web_search_backfill_reuses_configured_search_provider(
                 provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
                 units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 

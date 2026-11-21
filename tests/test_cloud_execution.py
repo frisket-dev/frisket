@@ -33,7 +33,8 @@ from frisket.cloud_execution import (
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilityRoute,
-    CloudExecutionQuote,
+    CloudEstimateChallenge,
+    CloudExecutionEstimate,
     CloudExecutionAccounting,
     CloudErrorResponse,
     CloudLLMOptionSupport,
@@ -45,7 +46,6 @@ from frisket.contracts.http.cloud_connection import (
     CloudOCROptions,
     CloudOCRResult,
     CloudOCRUsage,
-    CloudQuoteChallenge,
     CloudSessionResponse,
     CloudTokenPrice,
     CloudUser,
@@ -347,11 +347,11 @@ def _store(tmp_path) -> CloudConnectionStore:
     return store
 
 
-def _estimate(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
-    return CloudQuoteChallenge(
+def _estimate(*, charge_micro: int | None = 25_000) -> CloudEstimateChallenge:
+    return CloudEstimateChallenge(
         error="needs_confirmation",
         confirmation="quote-confirmation",
-        quote=CloudExecutionQuote(
+        estimate=CloudExecutionEstimate(
             account_id=41,
             route_revision="route-1",
             lane="frisket_credits",
@@ -367,14 +367,14 @@ def _estimate(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
 def _account_key_estimate(
     *,
     provider_cost_micro: int | None,
-) -> CloudQuoteChallenge:
-    estimate = _estimate(charge_micro=0).quote.model_copy(
+) -> CloudEstimateChallenge:
+    estimate = _estimate(charge_micro=0).estimate.model_copy(
         update={"lane": "account_key", "provider_cost_micro": provider_cost_micro}
     )
-    return CloudQuoteChallenge(
+    return CloudEstimateChallenge(
         error="needs_confirmation",
         confirmation="account-key-confirmation",
-        quote=estimate,
+        estimate=estimate,
     )
 
 

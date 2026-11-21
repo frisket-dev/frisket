@@ -121,7 +121,7 @@ it('keeps a missing target sheet as a repair and requires a deliberate target co
 });
 
 it('uses the host estimate and submits unchanged intent without manufacturing consent', async () => {
-  const estimateAction = vi.fn(async () => ({ cost: 0.02, quoted_usd: 0.02, rows: 2, llm: true }));
+  const estimateAction = vi.fn(async () => ({ cost: 0.02, rows: 2, llm: true }));
   const view = renderJoinForm({ initialDraft: saved, selectedRowIds: ['101', '102'],
     hasExactRowScopeInitializer: true, estimateAction }, 'join.semantic');
   await ready(); await waitFor(() => expect(estimateAction).toHaveBeenCalled());

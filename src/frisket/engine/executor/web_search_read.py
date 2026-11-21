@@ -114,7 +114,7 @@ class AdmittedWebSearcher:
                     credential_source=self._service.credential_source,
                     prepared={"query": query, "max_results": max_results},
                     estimated_cost_usd=estimate.estimated_cost_usd,
-                    quote=estimate,
+                    estimate=estimate,
                     context=self._ctx,
                 ),
                 policy=policy_for_context(self._ctx),

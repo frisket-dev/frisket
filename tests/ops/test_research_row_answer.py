@@ -189,7 +189,7 @@ async def test_domain_loop_preserves_paid_search_usage_and_citations():
             "provider_cost_usd": 0.008,
             "cost_source": "configured_catalog",
             "units": {"credits": 1},
-            "quote": None,
+            "estimate": None,
         }
     ]
 

@@ -177,8 +177,8 @@ export function createActionComparisonApi(
     estimatePreview(
       request: ActionComparisonPreviewRequest,
       options: RequestOptions = {},
-    ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }> {
-      return httpContract('tenant.v1_action_compare_preview_quote.post', {
+    ): Promise<{ schema_version: 'frisket.action_compare_estimate.v1'; estimate: RunEstimate }> {
+      return httpContract('tenant.v1_action_compare_preview_estimate.post', {
         pathParams: { pid: projectId },
         body: {
           action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key },

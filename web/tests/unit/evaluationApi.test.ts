@@ -32,7 +32,7 @@ it('rejects project scopes before making an evaluation request', async () => {
   expect(fetch).not.toHaveBeenCalled();
 });
 it('normalizes quote null optionals while retaining billed price and confirmation', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => json({ schema_version: 'frisket.action_compare_quote.v1',
+  vi.stubGlobal('fetch', vi.fn(async () => json({ schema_version: 'frisket.action_compare_estimate.v1',
     estimate: { rows: 1, cost: .01, cost_source: 'pricing_data', billed_cost: 10000, policy_id: 'p', pricing_key: null,
       requires_confirmation: true, promise_set_hash: 'exact' } })));
   const api = createActionComparisonApi('project');
