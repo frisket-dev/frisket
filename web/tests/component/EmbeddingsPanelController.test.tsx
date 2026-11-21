@@ -28,6 +28,10 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
+function submitEvent(): FormEvent<HTMLFormElement> {
+  return { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
+}
+
 const sheet = sheetMeta([{ id: '11', name: 'bio', type: 'text' }], {
   id: '7',
   name: 'People',
@@ -80,7 +84,7 @@ describe('useEmbeddingsPanelController project retirement', () => {
     act(() => result.current.selectModel('local', 'tiny'));
     expect(result.current.createReady).toBe(true);
 
-    const event = { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
+    const event = submitEvent();
     let submission!: Promise<void>;
     act(() => {
       submission = result.current.submitCreate(event);
@@ -152,7 +156,7 @@ describe('useEmbeddingsPanelController current scope', () => {
       await result.current.openCreate();
     });
     act(() => result.current.selectModel('local', 'tiny'));
-    const event = { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
+    const event = submitEvent();
     await act(async () => {
       await result.current.submitCreate(event);
     });
@@ -283,6 +287,177 @@ describe('useEmbeddingsPanelController current scope', () => {
       'Remote embedding refresh with an unknown price is not allowed on Cloud.',
     );
     expect(result.current.busyId).toBeNull();
+  });
+
+  it('prompts via requestCostConfirmation and echoes the token when create needs a dimension probe', async () => {
+    const estimate = {
+      cost: null,
+      billed_cost: null,
+      policy_id: 'frisket.pricing.identity.v1',
+      rows: 1,
+      promise_set_hash: '1'.repeat(64),
+    };
+    const createEmbeddingIndex = vi.fn()
+      .mockRejectedValueOnce(new ConfirmationRequiredError(estimate, 'Confirm remote embedding dimension probe.'))
+      .mockResolvedValueOnce('idx-probed');
+    const requestCostConfirmation = vi.fn().mockResolvedValue(true);
+    const port = apiPort({
+      embeddingProviderCatalog: vi.fn().mockResolvedValue([{
+        providerId: 'openrouter',
+        providerKind: 'platform_api',
+        modelId: 'custom/model',
+        label: 'OpenRouter custom',
+        modalities: ['text'],
+        dimensions: null,
+        local: false,
+        available: true,
+        disabledReason: null,
+        egress: 'remote',
+        recommended: false,
+        sizeGb: null,
+        maxInputTokens: null,
+        modalityCompatible: true,
+        dimensionDiscoveryRequired: true,
+      }]),
+      createEmbeddingIndex,
+    });
+    const { result } = renderHook(() =>
+      useEmbeddingsPanelController({ apiPort: port, sheet, requestCostConfirmation }),
+    );
+
+    await waitFor(() => expect(port.embeddingIndexes).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.openCreate();
+    });
+    act(() => {
+      result.current.selectModel('openrouter', 'custom/model');
+      result.current.setAllowRemote(true);
+    });
+    const event = submitEvent();
+    await act(async () => {
+      await result.current.submitCreate(event);
+    });
+
+    expect(requestCostConfirmation).toHaveBeenCalledWith(estimate, 'Confirm remote embedding dimension probe.');
+    expect(createEmbeddingIndex).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      provider: 'openrouter',
+      model: 'custom/model',
+      allowRemote: true,
+    }));
+    expect(createEmbeddingIndex).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      provider: 'openrouter',
+      model: 'custom/model',
+      allowRemote: true,
+    }), { confirmation: '1'.repeat(64) });
+    await waitFor(() => {
+      expect(port.refreshEmbeddingIndex).toHaveBeenCalledWith('idx-probed', 'full');
+    });
+    expect(result.current.adding).toBe(false);
+    expect(result.current.creating).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('aborts create cleanly without error when the user cancels the probe confirmation modal', async () => {
+    const estimate = {
+      cost: null,
+      billed_cost: null,
+      policy_id: 'frisket.pricing.identity.v1',
+      rows: 1,
+      promise_set_hash: '2'.repeat(64),
+    };
+    const createEmbeddingIndex = vi.fn()
+      .mockRejectedValueOnce(new ConfirmationRequiredError(estimate, 'Estimated cost is unknown.'));
+    const requestCostConfirmation = vi.fn().mockResolvedValue(false);
+    const port = apiPort({ createEmbeddingIndex });
+    const { result } = renderHook(() =>
+      useEmbeddingsPanelController({ apiPort: port, sheet, requestCostConfirmation }),
+    );
+
+    await waitFor(() => expect(port.embeddingIndexes).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.openCreate();
+    });
+    act(() => result.current.selectModel('local', 'tiny'));
+    const event = submitEvent();
+    await act(async () => {
+      await result.current.submitCreate(event);
+    });
+
+    expect(requestCostConfirmation).toHaveBeenCalledTimes(1);
+    expect(createEmbeddingIndex).toHaveBeenCalledTimes(1);
+    expect(port.refreshEmbeddingIndex).not.toHaveBeenCalled();
+    expect(result.current.adding).toBe(true);
+    expect(result.current.creating).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('does not confirm create when unmounted while the probe cost gate modal is open', async () => {
+    const gate = deferred<boolean>();
+    const estimate = {
+      cost: null,
+      billed_cost: null,
+      policy_id: 'frisket.pricing.identity.v1',
+      rows: 1,
+      promise_set_hash: '3'.repeat(64),
+    };
+    const createEmbeddingIndex = vi.fn()
+      .mockRejectedValueOnce(new ConfirmationRequiredError(estimate, 'Confirm probe.'));
+    const requestCostConfirmation = vi.fn(() => gate.promise);
+    const port = apiPort({ createEmbeddingIndex });
+    const { result, unmount } = renderHook(() =>
+      useEmbeddingsPanelController({ apiPort: port, sheet, requestCostConfirmation }),
+    );
+
+    await waitFor(() => expect(port.embeddingIndexes).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.openCreate();
+    });
+    act(() => result.current.selectModel('local', 'tiny'));
+    const event = submitEvent();
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.submitCreate(event);
+    });
+    await waitFor(() => expect(requestCostConfirmation).toHaveBeenCalledTimes(1));
+
+    unmount();
+    gate.resolve(true);
+    await pending;
+
+    expect(createEmbeddingIndex).toHaveBeenCalledTimes(1);
+    expect(port.refreshEmbeddingIndex).not.toHaveBeenCalled();
+  });
+
+  it('surfaces Cloud unpriceable_model create refusal as an error without opening the modal', async () => {
+    const createEmbeddingIndex = vi.fn().mockRejectedValueOnce(
+      new ApiError(
+        400,
+        'Remote embedding dimension probe with an unknown price is not allowed on Cloud.',
+        'unpriceable_model',
+      ),
+    );
+    const requestCostConfirmation = vi.fn();
+    const port = apiPort({ createEmbeddingIndex });
+    const { result } = renderHook(() =>
+      useEmbeddingsPanelController({ apiPort: port, sheet, requestCostConfirmation }),
+    );
+
+    await waitFor(() => expect(port.embeddingIndexes).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.openCreate();
+    });
+    act(() => result.current.selectModel('local', 'tiny'));
+    const event = submitEvent();
+    await act(async () => {
+      await result.current.submitCreate(event);
+    });
+
+    expect(requestCostConfirmation).not.toHaveBeenCalled();
+    expect(port.refreshEmbeddingIndex).not.toHaveBeenCalled();
+    expect(result.current.error).toBe(
+      'Remote embedding dimension probe with an unknown price is not allowed on Cloud.',
+    );
+    expect(result.current.creating).toBe(false);
   });
 });
 
