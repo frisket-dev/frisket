@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
 
 def _seed_project(
-    tmp_path: Path,
+    client: TestClient,
 ) -> tuple[TestClient, str, int, dict[str, int], list[int], int, int]:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Cell provenance"}).json()[
         "id"
     ]
@@ -106,9 +102,9 @@ def _seed_project(
     )
 
 
-def test_sheet_data_exposes_typed_current_value_refs(tmp_path: Path) -> None:
+def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None:
     client, project_id, sheet_id, columns, row_ids, run_id, edit_op_id = _seed_project(
-        tmp_path
+        client
     )
 
     response = client.get(

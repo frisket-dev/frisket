@@ -8,21 +8,19 @@ workspace, same-ref deduplication, and cancellation.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import model_pull_store as store
 from frisket.server import provider_config
-from frisket.server.app import create_app
+from helpers import make_client
 
 
 def _client(tmp_path):
-    root = tmp_path / "ws"
     endpoint = provider_config.create_local_endpoint(
-        root,
+        tmp_path / "ws",
         name="Ollama test server",
         url="http://127.0.0.1:11434",
     )
-    client = TestClient(create_app(root))
+    client = make_client(tmp_path)
     client.local_endpoint_id = endpoint.endpoint_id
     return client
 

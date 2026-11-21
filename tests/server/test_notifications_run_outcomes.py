@@ -18,7 +18,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.notifications.run_outcomes import emit_run_outcome_notification
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.search_index import drain_index
-from frisket.server.app import create_app
+from helpers import make_client as _client
 from http_test_helpers import (
     drain_queue,
     post_canonical_run_spec_as_v1_action,
@@ -32,10 +32,6 @@ CSV = (
     "Budget hearing,The council discussed budget oversight.\n"
     "Bridge repair,The bridge repair vote was tabled.\n"
 )
-
-
-def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "ws"))
 
 
 def _project(client: TestClient) -> tuple[str, int]:
