@@ -65,11 +65,11 @@ describe("organization provider generated HTTP port", () => {
     expect(
       requests.map((request) => [request.input, request.init?.method]),
     ).toEqual([
-      ["/api/org/provider-catalog", "GET"],
-      ["/api/org/keys", "GET"],
-      ["/api/org/keys", "POST"],
-      ["/api/org/keys/validate", "POST"],
-      ["/api/org/keys/open%2Fai", "DELETE"],
+      ["/api/organization/provider-catalog", "GET"],
+      ["/api/organization/keys", "GET"],
+      ["/api/organization/keys", "POST"],
+      ["/api/organization/keys/validate", "POST"],
+      ["/api/organization/keys/open%2Fai", "DELETE"],
     ]);
     expect(requests.map((request) => request.init?.body ?? null)).toEqual([
       null,

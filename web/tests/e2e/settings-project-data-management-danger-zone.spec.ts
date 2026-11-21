@@ -60,7 +60,7 @@ test('Project General owns identity/delete and Data Management owns exports rete
       body: JSON.stringify({
         schemaVersion: 'frisket.project_network_policy.v1',
         mode: 'inherit',
-        org_default: null,
+        organization_default: null,
         effective: 'on',
       }),
     });

@@ -306,10 +306,10 @@ def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
     # Local GET/PATCH retain the materialized (possibly null) organization default.
     initial = client.get(f"/api/projects/{pid}/network")
     assert initial.status_code == 200, initial.text
-    assert initial.json()["org_default"] is None
+    assert initial.json()["organization_default"] is None
     updated = client.patch(f"/api/projects/{pid}/network", json={"mode": "off"})
     assert updated.status_code == 200, updated.text
-    assert updated.json()["org_default"] is None
+    assert updated.json()["organization_default"] is None
 
     # This comes directly from the existing SQLite select and the Settings UI
     # already reads `plugin_id`; project-config must not silently camel-case it.
@@ -338,13 +338,13 @@ def test_team_network_twin_and_validate_optionality(tmp_path) -> None:
     )
     browser = claim_server(app)
     pid = browser.post("/api/projects", json={"name": "Team Config"}).json()["id"]
-    browser.patch("/api/org/network", json={"network_default": "off"})
+    browser.patch("/api/organization/network", json={"network_default": "off"})
     response = browser.patch(f"/api/projects/{pid}/network", json={"mode": "inherit"})
     assert response.status_code == 200, response.text
     assert response.json() == {
         "schemaVersion": "frisket.project_network_policy.v1",
         "mode": "inherit",
-        "org_default": "off",
+        "organization_default": "off",
         "effective": "off",
     }
 

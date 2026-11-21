@@ -31,9 +31,9 @@ class RouteTruth:
 
 
 ROUTES = {
-    "list_org_local_endpoints": RouteTruth(
+    "list_organization_local_endpoints": RouteTruth(
         "GET",
-        "/api/org/local-endpoints",
+        "/api/organization/local-endpoints",
         200,
         "LocalEndpointCatalog",
         None,
@@ -41,45 +41,45 @@ ROUTES = {
         True,
         response_module="frisket.contracts.http.local_providers",
     ),
-    "post_org_models_pull": RouteTruth(
+    "post_organization_models_pull": RouteTruth(
         "POST",
-        "/api/org/models/pull",
+        "/api/organization/models/pull",
         202,
         "TeamModelPullStartResponse",
         "TeamArtifactPullRequest",
         frozenset({400, 401, 403, 409, 422, 500, 503}),
         True,
     ),
-    "setup_org_model_engine": RouteTruth(
+    "setup_organization_model_engine": RouteTruth(
         "POST",
-        "/api/org/models/setup",
+        "/api/organization/models/setup",
         202,
         "TeamModelPullStartResponse",
         "TeamEngineSetupRequest",
         frozenset({400, 401, 403, 409, 422, 500, 503}),
         True,
     ),
-    "list_org_model_pulls": RouteTruth(
+    "list_organization_model_pulls": RouteTruth(
         "GET",
-        "/api/org/models/pulls",
+        "/api/organization/models/pulls",
         200,
         "TeamModelPullListResponse",
         None,
         frozenset({401, 403, 500}),
         True,
     ),
-    "get_org_model_pull": RouteTruth(
+    "get_organization_model_pull": RouteTruth(
         "GET",
-        "/api/org/models/pulls/{pull_id}",
+        "/api/organization/models/pulls/{pull_id}",
         200,
         "TeamModelPull",
         None,
         frozenset({401, 403, 404, 422, 500}),
         True,
     ),
-    "cancel_org_model_pull": RouteTruth(
+    "cancel_organization_model_pull": RouteTruth(
         "POST",
-        "/api/org/models/pulls/{pull_id}/cancel",
+        "/api/organization/models/pulls/{pull_id}/cancel",
         202,
         "TeamModelPull",
         None,
@@ -91,9 +91,9 @@ ROUTES = {
 # Gateway controls share the Team-local model contribution but own their DTOs
 # and focused route tests in test_team_models_gateway_routes.py.
 GATEWAY_ROUTES = {
-    "get_org_models_gateway": "GET",
-    "validate_org_models_gateway": "POST",
-    "set_org_models_gateway": "PUT",
+    "get_organization_models_gateway": "GET",
+    "validate_organization_models_gateway": "POST",
+    "set_organization_models_gateway": "PUT",
 }
 
 OPERATION_IDS = frozenset(
@@ -215,7 +215,9 @@ def test_team_local_model_routes_have_exact_typed_wire_truth(
     )
     assert response_model.__name__ == truth.response_model
     assert issubclass(response_model, WireModel)
-    assert route.response_model_exclude_unset is (name == "list_org_local_endpoints")
+    assert route.response_model_exclude_unset is (
+        name == "list_organization_local_endpoints"
+    )
     assert set(route.responses) == set(truth.errors)
     error_model = _model_or_red(
         next(iter(route.responses.values()), {}).get("model"),

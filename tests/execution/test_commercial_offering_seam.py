@@ -83,7 +83,7 @@ def _platform_composition(*offers: CommercialOffering) -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(
             edition="cloud",
-            org_id="org-test",
+            organization_id="org-test",
             funding=PlatformMetered(),
         ),
         provider=_Provider(),
@@ -329,7 +329,7 @@ def test_funding_and_credential_posture_cannot_disagree() -> None:
         ExecutionComposition(
             facts=CompositionFacts(
                 edition="cloud",
-                org_id="org-test",
+                organization_id="org-test",
                 funding=PlatformMetered(),
             ),
             provider=_Provider(),

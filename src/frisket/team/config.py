@@ -195,7 +195,7 @@ class TeamConfig:
         )
         object.__setattr__(self, "base_url", canonical)
         redirect_uri = self.google_connection_redirect_uri or (
-            f"{canonical}/api/org/oauth/google/callback"
+            f"{canonical}/api/organization/oauth/google/callback"
         )
         redirect = urlparse(redirect_uri)
         if (

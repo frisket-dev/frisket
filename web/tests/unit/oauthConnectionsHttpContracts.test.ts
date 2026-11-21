@@ -22,9 +22,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('OAuth connection generated HTTP contract', () => {
   it.each([
-    [undefined, '/api/org/oauth/connections'],
-    ['', '/api/org/oauth/connections?provider='],
-    ['google/a b?', '/api/org/oauth/connections?provider=google%2Fa+b%3F'],
+    [undefined, '/api/organization/oauth/connections'],
+    ['', '/api/organization/oauth/connections?provider='],
+    ['google/a b?', '/api/organization/oauth/connections?provider=google%2Fa+b%3F'],
   ])('preserves provider query bytes for %p', async (provider, path) => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal(

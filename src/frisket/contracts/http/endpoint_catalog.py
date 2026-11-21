@@ -174,9 +174,9 @@ _OUTER_ADMIN: tuple[RouteSpec, ...] = (
     ("admin_browser_revoke_invite", "DELETE"),
     ("admin_browser_update_user_role", "PATCH"),
     ("admin_browser_users", "GET"),
-    # Organization-wide network default: owner-only, like the other org-shaping admin
+    # Organization-wide network default: owner-only, like the other organization-shaping admin
     # actions.
-    ("update_org_network", "PATCH"),
+    ("update_organization_network", "PATCH"),
 )
 
 _OUTER_OAUTH_BROWSER: tuple[RouteSpec, ...] = (
@@ -194,17 +194,17 @@ _OUTER_PROFILE_BROWSER: tuple[RouteSpec, ...] = (("update_profile", "PATCH"),)
 _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("create_project_invite", "POST"),
     ("create_token", "POST"),
-    ("delete_org_env_var", "DELETE"),
-    ("delete_org_key", "DELETE"),
+    ("delete_organization_env_var", "DELETE"),
+    ("delete_organization_key", "DELETE"),
     ("diagnostic_bundle", "POST"),
-    ("get_org_network", "GET"),
+    ("get_organization_network", "GET"),
     ("get_project_blob", "GET"),
     ("list_members", "GET"),
-    ("list_org_env_vars", "GET"),
-    ("list_org_keys", "GET"),
+    ("list_organization_env_vars", "GET"),
+    ("list_organization_keys", "GET"),
     # Boolean-only media egress proxy status for run-failure remediation UI;
     # the proxy URL itself stays on the operator admin surface.
-    ("org_media_proxy_status", "GET"),
+    ("organization_media_proxy_status", "GET"),
     ("list_project_invites", "GET"),
     ("list_tokens", "GET"),
     ("me", "GET"),
@@ -212,9 +212,9 @@ _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("revoke_project_invite", "DELETE"),
     ("revoke_token", "DELETE"),
     ("set_member", "POST"),
-    ("set_org_env_var", "POST"),
-    ("set_org_key", "POST"),
-    ("validate_org_key", "POST"),
+    ("set_organization_env_var", "POST"),
+    ("set_organization_key", "POST"),
+    ("validate_organization_key", "POST"),
 )
 
 _TENANT_PUBLIC: tuple[RouteSpec, ...] = (
@@ -1120,16 +1120,16 @@ _BROWSER_CLIENT_IDS = (
             "outer.list_oauth_connections.get",
             "outer.me.get",
             "outer.update_profile.patch",
-            "outer.list_org_keys.get",
-            "outer.list_org_env_vars.get",
+            "outer.list_organization_keys.get",
+            "outer.list_organization_env_vars.get",
             "outer.list_tokens.get",
             "outer.revoke_token.delete",
-            "outer.set_org_key.post",
-            "outer.set_org_env_var.post",
-            "outer.validate_org_key.post",
-            "outer.delete_org_key.delete",
-            "outer.delete_org_env_var.delete",
-            "outer.org_media_proxy_status.get",
+            "outer.set_organization_key.post",
+            "outer.set_organization_env_var.post",
+            "outer.validate_organization_key.post",
+            "outer.delete_organization_key.delete",
+            "outer.delete_organization_env_var.delete",
+            "outer.organization_media_proxy_status.get",
             "outer.list_members.get",
             "outer.set_member.post",
             "outer.remove_member.delete",
@@ -1179,7 +1179,7 @@ _BASE_GROUPS: dict[str, tuple[EndpointPolicy, ...]] = {
         + _TENANT_LOCAL_CLOUD_CONNECTION,
     ),
     "tenant.spend": declare_endpoints(
-        "tenant", "session_or_pat", _TENANT_SPEND, resolvers=("org.spend",)
+        "tenant", "session_or_pat", _TENANT_SPEND, resolvers=("organization.spend",)
     ),
     # Mixed-role group: viewer-tier per-cell/per-row reads plus the bulk
     # data-takeout routes one rung up, at reviewer. Kept under the SAME

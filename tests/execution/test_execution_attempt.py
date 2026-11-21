@@ -241,7 +241,7 @@ def _mint(project, run_id, *, scope=(7, 11)):
     composition = ExecutionComposition(
         facts=CompositionFacts(
             edition="cloud",
-            org_id="org-test",
+            organization_id="org-test",
             funding=PlatformMetered(),
         ),
         provider=_PricedProvider(),

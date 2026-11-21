@@ -23,19 +23,19 @@ def test_project_mode_wins(project) -> None:
 
 
 def test_inherit_defers_to_organization_default(project) -> None:
-    project.set_network_policy(mode="inherit", org_default="off")
+    project.set_network_policy(mode="inherit", organization_default="off")
     assert project.effective_network_policy() == "off"
-    project.set_network_policy(org_default="on")
+    project.set_network_policy(organization_default="on")
     assert project.effective_network_policy() == "on"
 
 
 def test_project_on_overrides_organization_off(project) -> None:
-    project.set_network_policy(mode="on", org_default="off")
+    project.set_network_policy(mode="on", organization_default="off")
     assert project.effective_network_policy() == "on"
 
 
 def test_project_off_overrides_organization_on(project) -> None:
-    project.set_network_policy(mode="off", org_default="on")
+    project.set_network_policy(mode="off", organization_default="on")
     assert project.effective_network_policy() == "off"
 
 
@@ -51,7 +51,7 @@ def test_invalid_values_are_refused(project) -> None:
         project.set_network_policy(mode="maybe")
     with pytest.raises(ValueError):
         project.set_network_policy(
-            org_default="inherit"
+            organization_default="inherit"
         )  # organization default is 2-state
     # Stored state unchanged after the refusals.
     assert project.effective_network_policy() == "on"

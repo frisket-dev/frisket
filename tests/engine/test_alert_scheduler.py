@@ -245,7 +245,7 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
     opened = []
 
     def opener(key, path):
-        opened.append((key.storage_org_id, key.project_slug, path))
+        opened.append((key.storage_organization_id, key.project_slug, path))
         return Project(path)
 
     assert (

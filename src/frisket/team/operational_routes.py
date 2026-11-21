@@ -127,11 +127,11 @@ def register_operational_routes(
             raise HTTPException(403, "organization owner required")
 
     @app.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         response_model=OrganizationKeySave,
         responses=http_error_responses(400, 401, 403, 422, 500),
     )
-    def set_org_key(
+    def set_organization_key(
         request: Request, body: OrganizationKeySaveRequest
     ) -> dict[str, str]:
         actor = require_owner(request)
@@ -160,17 +160,17 @@ def register_operational_routes(
                 cx,
                 user_id=actor["id"],
                 org_id=org_id,
-                action="org_key_set",
+                action="organization_key_set",
                 detail=provider,
             )
         return {"provider": provider, "hint": key_hint(value)}
 
     @app.get(
-        "/api/org/keys",
+        "/api/organization/keys",
         response_model=OrganizationKeyList,
         responses=http_error_responses(401, 403, 500),
     )
-    def list_org_keys(request: Request) -> list[dict[str, str]]:
+    def list_organization_keys(request: Request) -> list[dict[str, str]]:
         require_member(request)
         with engine.connect() as cx:
             rows = cx.execute(
@@ -181,11 +181,11 @@ def register_operational_routes(
         return [dict(row._mapping) for row in rows]
 
     @app.delete(
-        "/api/org/keys/{provider}",
+        "/api/organization/keys/{provider}",
         response_model=OrganizationKeyDelete,
         responses=http_error_responses(400, 401, 403, 500),
     )
-    def delete_org_key(provider: str, request: Request) -> dict[str, bool]:
+    def delete_organization_key(provider: str, request: Request) -> dict[str, bool]:
         actor = require_owner(request)
         if provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
@@ -201,17 +201,17 @@ def register_operational_routes(
                     cx,
                     user_id=actor["id"],
                     org_id=org_id,
-                    action="org_key_deleted",
+                    action="organization_key_deleted",
                     detail=provider,
                 )
         return {"deleted": bool(result.rowcount)}
 
     @app.post(
-        "/api/org/keys/validate",
+        "/api/organization/keys/validate",
         response_model=OrganizationKeyValidation,
         responses=http_error_responses(400, 401, 403, 404, 422, 500, 501),
     )
-    async def validate_org_key(
+    async def validate_organization_key(
         request: Request, body: OrganizationKeyValidationRequest
     ) -> dict[str, Any]:
         actor = require_owner(request)
@@ -239,7 +239,7 @@ def register_operational_routes(
                 cx,
                 user_id=actor["id"],
                 org_id=org_id,
-                action="org_key_validation_requested",
+                action="organization_key_validation_requested",
                 detail=provider,
             )
         try:
@@ -266,12 +266,12 @@ def register_operational_routes(
         }
 
     @app.post(
-        "/api/org/env",
+        "/api/organization/env",
         response_model=OrganizationEnvSave,
         response_model_exclude_unset=True,
         responses=http_error_responses(400, 401, 403, 422, 500),
     )
-    def set_org_env_var(
+    def set_organization_env_var(
         request: Request, body: OrganizationEnvSaveRequest
     ) -> dict[str, str]:
         actor = require_owner(request)
@@ -298,18 +298,18 @@ def register_operational_routes(
                 cx,
                 user_id=actor["id"],
                 org_id=org_id,
-                action="org_env_set",
+                action="organization_env_set",
                 detail=name,
             )
         return {"name": name, "hint": key_hint(value)}
 
     @app.get(
-        "/api/org/env",
+        "/api/organization/env",
         response_model=OrganizationEnvList,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 500),
     )
-    def list_org_env_vars(request: Request) -> list[dict[str, str]]:
+    def list_organization_env_vars(request: Request) -> list[dict[str, str]]:
         require_member(request)
         with engine.connect() as cx:
             rows = cx.execute(
@@ -320,12 +320,12 @@ def register_operational_routes(
         return [dict(row._mapping) for row in rows]
 
     @app.delete(
-        "/api/org/env/{name}",
+        "/api/organization/env/{name}",
         response_model=OrganizationEnvDelete,
         response_model_exclude_unset=True,
         responses=http_error_responses(400, 401, 403, 500),
     )
-    def delete_org_env_var(name: str, request: Request) -> dict[str, bool]:
+    def delete_organization_env_var(name: str, request: Request) -> dict[str, bool]:
         actor = require_owner(request)
         canonical = name.strip().upper()
         if not _ENV_NAME_RE.fullmatch(canonical):
@@ -348,7 +348,7 @@ def register_operational_routes(
                     cx,
                     user_id=actor["id"],
                     org_id=org_id,
-                    action="org_env_deleted",
+                    action="organization_env_deleted",
                     detail=canonical,
                 )
         return {"deleted": bool(result.rowcount)}
@@ -360,12 +360,12 @@ def register_operational_routes(
     # with no organization analogue.
 
     @app.get(
-        "/api/org/local-endpoints",
+        "/api/organization/local-endpoints",
         response_model=LocalEndpointCatalog,
         response_model_exclude_unset=True,
         responses=team_model_http_error_responses(401, 403, 500),
     )
-    def list_org_local_endpoints(request: Request) -> dict[str, Any]:
+    def list_organization_local_endpoints(request: Request) -> dict[str, Any]:
         require_member(request)
         env = dict(os.environ)
         config, _notes = resolve_env_local_endpoint(env)
@@ -447,12 +447,12 @@ def register_operational_routes(
         }
 
     @app.post(
-        "/api/org/models/pull",
+        "/api/organization/models/pull",
         status_code=202,
         response_model=TeamModelPullStartResponse,
         responses=team_model_http_error_responses(400, 401, 403, 409, 422, 500, 503),
     )
-    def post_org_models_pull(
+    def post_organization_models_pull(
         request: Request,
         body: TeamArtifactPullRequest,
     ) -> dict[str, Any]:
@@ -564,12 +564,12 @@ def register_operational_routes(
         )
 
     @app.post(
-        "/api/org/models/setup",
+        "/api/organization/models/setup",
         status_code=202,
         response_model=TeamModelPullStartResponse,
         responses=team_model_http_error_responses(400, 401, 403, 409, 422, 500, 503),
     )
-    def setup_org_model_engine(
+    def setup_organization_model_engine(
         request: Request, body: TeamEngineSetupRequest
     ) -> dict[str, Any]:
         """Owner-gated, audited start for an allowlisted local engine bundle."""
@@ -604,22 +604,22 @@ def register_operational_routes(
         )
 
     @app.get(
-        "/api/org/models/pulls",
+        "/api/organization/models/pulls",
         response_model=TeamModelPullListResponse,
         responses=team_model_http_error_responses(401, 403, 500),
     )
-    def list_org_model_pulls(request: Request) -> dict[str, Any]:
+    def list_organization_model_pulls(request: Request) -> dict[str, Any]:
         require_member(request)
         queue_engine = workspace.queue.engine
         rows = model_pull_store.list_recent(queue_engine, str(workspace.root), limit=20)
         return {"pulls": [model_pull_store.to_dto(r, allow_remove=False) for r in rows]}
 
     @app.get(
-        "/api/org/models/pulls/{pull_id}",
+        "/api/organization/models/pulls/{pull_id}",
         response_model=TeamModelPull,
         responses=team_model_http_error_responses(401, 403, 404, 422, 500),
     )
-    def get_org_model_pull(pull_id: int, request: Request) -> dict[str, Any]:
+    def get_organization_model_pull(pull_id: int, request: Request) -> dict[str, Any]:
         require_member(request)
         queue_engine = workspace.queue.engine
         row = model_pull_store.get(queue_engine, pull_id)
@@ -634,12 +634,14 @@ def register_operational_routes(
         return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(
-        "/api/org/models/pulls/{pull_id}/cancel",
+        "/api/organization/models/pulls/{pull_id}/cancel",
         status_code=202,
         response_model=TeamModelPull,
         responses=team_model_http_error_responses(401, 403, 404, 409, 422, 500),
     )
-    def cancel_org_model_pull(pull_id: int, request: Request) -> dict[str, Any]:
+    def cancel_organization_model_pull(
+        pull_id: int, request: Request
+    ) -> dict[str, Any]:
         actor = require_owner(request)
         queue_engine = workspace.queue.engine
         row = model_pull_store.get(queue_engine, pull_id)

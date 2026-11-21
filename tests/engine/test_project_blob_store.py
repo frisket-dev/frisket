@@ -710,7 +710,7 @@ def test_project_storage_key_rejects_reserved_device_stem_slug() -> None:
     from frisket.project_identity import ProjectStorageKey
 
     with pytest.raises(ValueError, match="reserved Windows device name"):
-        ProjectStorageKey(storage_org_id=1, project_slug="con")
+        ProjectStorageKey(storage_organization_id=1, project_slug="con")
     # A normal slug still round-trips unchanged (no trimming/normalization).
-    key = ProjectStorageKey(storage_org_id=1, project_slug="normal-slug")
+    key = ProjectStorageKey(storage_organization_id=1, project_slug="normal-slug")
     assert key.project_slug == "normal-slug"

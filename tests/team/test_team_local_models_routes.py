@@ -1,5 +1,5 @@
 """Team local-model endpoint catalog + provisioning routes:
-``GET /api/org/local-endpoints``, ``POST .../pull``,
+``GET /api/organization/local-endpoints``, ``POST .../pull``,
 ``GET .../pulls[/{id}]``, ``POST .../pulls/{id}/cancel``. Owner-gated
 mutations, member-readable views, audit rows, DTO parity with the local
 ``/api/providers/models/pull*`` surface, and the scoped-cancel wrong-org
@@ -108,17 +108,19 @@ def test_organization_provider_key_save_requires_a_validation_receipt(tmp_path) 
     app = _app(tmp_path, validate_provider_key=accepted)
     owner = _owner(app)
     candidate = "sk-receipt-bound"
-    refused = owner.post("/api/org/keys", json={"provider": "openai", "key": candidate})
+    refused = owner.post(
+        "/api/organization/keys", json={"provider": "openai", "key": candidate}
+    )
     assert refused.status_code == 400
 
     validation = owner.post(
-        "/api/org/keys/validate", json={"provider": "openai", "key": candidate}
+        "/api/organization/keys/validate", json={"provider": "openai", "key": candidate}
     )
     assert validation.status_code == 200, validation.text
     receipt = validation.json()["validation_token"]
     assert receipt
     saved = owner.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={"provider": "openai", "key": candidate, "validation_token": receipt},
     )
     assert saved.status_code == 200, saved.text
@@ -128,14 +130,16 @@ def test_organization_env_rejects_models_gateway_pair(tmp_path) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
     for name in ("FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"):
-        saved = owner.post("/api/org/env", json={"name": name, "value": "secret"})
+        saved = owner.post(
+            "/api/organization/env", json={"name": name, "value": "secret"}
+        )
         assert saved.status_code == 400
-        deleted = owner.delete(f"/api/org/env/{name}")
+        deleted = owner.delete(f"/api/organization/env/{name}")
         assert deleted.status_code == 400
 
 
 # ---------------------------------------------------------------------------
-# GET /api/org/local-endpoints
+# GET /api/organization/local-endpoints
 # ---------------------------------------------------------------------------
 
 
@@ -149,7 +153,7 @@ def test_get_local_endpoints_unconfigured_returns_empty_collection(
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.get("/api/org/local-endpoints")
+    resp = owner.get("/api/organization/local-endpoints")
     assert resp.status_code == 200, resp.text
     assert resp.json() == {
         "schemaVersion": "frisket.local_endpoints.v1",
@@ -166,7 +170,7 @@ def test_get_local_models_configured_reports_facts_and_pull_flag(
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.get("/api/org/local-endpoints")
+    resp = owner.get("/api/organization/local-endpoints")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["schemaVersion"] == "frisket.local_endpoints.v1"
@@ -192,7 +196,7 @@ def test_get_local_models_member_can_read(tmp_path, monkeypatch) -> None:
     _native_reachable(monkeypatch)
     app = _app(tmp_path)
     member = _member(app)
-    resp = member.get("/api/org/local-endpoints")
+    resp = member.get("/api/organization/local-endpoints")
     assert resp.status_code == 200, resp.text
 
 
@@ -200,12 +204,12 @@ def test_get_local_models_anonymous_is_refused(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("OLLAMA_URL", ORIGIN)
     _native_reachable(monkeypatch)
     app = _app(tmp_path)
-    resp = TestClient(app).get("/api/org/local-endpoints")
+    resp = TestClient(app).get("/api/organization/local-endpoints")
     assert resp.status_code == 401, resp.text
 
 
 # ---------------------------------------------------------------------------
-# POST /api/org/models/pull
+# POST /api/organization/models/pull
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +220,9 @@ def test_pull_disabled_by_default_returns_409(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "model_pull_disabled"
 
@@ -228,7 +234,9 @@ def test_pull_member_is_forbidden(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     member = _member(app)
 
-    resp = member.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = member.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 403, resp.text
 
 
@@ -239,7 +247,7 @@ def test_pull_anonymous_is_unauthorized(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
 
     resp = TestClient(app).post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     )
     assert resp.status_code == 401, resp.text
 
@@ -251,7 +259,9 @@ def test_pull_invalid_model_ref_returns_400(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": "ollama:evil.example/x/y"})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": "ollama:evil.example/x/y"}
+    )
     assert resp.status_code == 400, resp.text
     assert resp.json()["detail"]["code"] == "invalid_model_ref"
 
@@ -274,7 +284,9 @@ def test_pull_unreachable_server_returns_503(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 503, resp.text
     assert resp.json()["detail"]["code"] == "local_server_unreachable"
 
@@ -287,7 +299,9 @@ def test_pull_unauthorized_server_returns_409(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "local_server_unauthorized"
     assert "shh-token-value" not in resp.text
@@ -302,7 +316,9 @@ def test_pull_non_native_protocol_returns_409_pull_unsupported(
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "pull_unsupported"
 
@@ -314,7 +330,9 @@ def test_pull_happy_path_enqueues_and_audits(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 202, resp.text
     body = resp.json()
     assert body["deduplicated"] is False
@@ -368,7 +386,7 @@ def test_explicit_ollama_ref_forces_artifact_like_name_through_ollama(
     owner = _owner(_app(tmp_path))
 
     response = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("opus-mt:en-es")}
+        "/api/organization/models/pull", json={"ref": _local_ref("opus-mt:en-es")}
     )
 
     assert response.status_code == 202, response.text
@@ -385,7 +403,9 @@ def test_explicit_ollama_ref_uses_generic_artifact_length_guard(
     owner = _owner(_app(tmp_path))
     model = "a" * 314
 
-    response = owner.post("/api/org/models/pull", json={"ref": _local_ref(model)})
+    response = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref(model)}
+    )
 
     assert response.status_code == 400
     assert response.json()["detail"] == {
@@ -410,7 +430,9 @@ def test_pull_records_the_resolved_endpoint_origin(tmp_path, monkeypatch) -> Non
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 202, resp.text
     body = resp.json()["pull"]
     assert body["endpoint_origin"] == ORIGIN
@@ -443,7 +465,9 @@ def test_pull_does_not_retry_an_internal_store_type_error(
         ).scalar_one()
 
     with pytest.raises(TypeError, match="internal store failure"):
-        owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+        owner.post(
+            "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+        )
 
     assert calls == [
         {
@@ -518,7 +542,9 @@ def test_team_app_pull_enqueues_into_the_configured_run_queue_database_not_the_c
     claim_server(app)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    resp = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert resp.status_code == 202, resp.text
     pull_id = resp.json()["pull"]["id"]
 
@@ -565,7 +591,7 @@ def test_pull_enqueue_failure_marks_the_row_failed_instead_of_wedging_the_worksp
     workspace.queue.enqueue = _boom
     try:
         resp = owner.post(
-            "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+            "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
         )
     finally:
         workspace.queue.enqueue = real_enqueue
@@ -579,7 +605,9 @@ def test_pull_enqueue_failure_marks_the_row_failed_instead_of_wedging_the_worksp
 
     # The workspace slot is free again -- a follow-up pull is NOT blocked by
     # the row from the failed attempt.
-    retry = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    retry = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert retry.status_code == 202, retry.text
 
 
@@ -590,9 +618,13 @@ def test_pull_same_ref_dedupes(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
 
-    first = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    first = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert first.status_code == 202
-    second = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    second = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert second.status_code == 202
     assert second.json()["deduplicated"] is True
     assert second.json()["pull"]["id"] == first.json()["pull"]["id"]
@@ -607,15 +639,19 @@ def test_pull_different_ref_while_active_returns_409_busy(
     app = _app(tmp_path)
     owner = _owner(app)
 
-    first = owner.post("/api/org/models/pull", json={"ref": _local_ref("smollm:135m")})
+    first = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
+    )
     assert first.status_code == 202
-    second = owner.post("/api/org/models/pull", json={"ref": _local_ref("qwen3:8b")})
+    second = owner.post(
+        "/api/organization/models/pull", json={"ref": _local_ref("qwen3:8b")}
+    )
     assert second.status_code == 409, second.text
     assert second.json()["detail"]["code"] == "pull_busy"
 
 
 # ---------------------------------------------------------------------------
-# GET /api/org/models/pulls[/{id}]
+# GET /api/organization/models/pulls[/{id}]
 # ---------------------------------------------------------------------------
 
 
@@ -626,32 +662,32 @@ def test_pulls_list_and_get_by_id(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
     created = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     ).json()["pull"]
 
     member = _member(app)
-    listing = member.get("/api/org/models/pulls")
+    listing = member.get("/api/organization/models/pulls")
     assert listing.status_code == 200, listing.text
     assert any(p["id"] == created["id"] for p in listing.json()["pulls"])
 
-    single = member.get(f"/api/org/models/pulls/{created['id']}")
+    single = member.get(f"/api/organization/models/pulls/{created['id']}")
     assert single.status_code == 200, single.text
     assert single.json()["id"] == created["id"]
     assert single.json()["schemaVersion"] == "frisket.model_pull.v4"
 
-    missing = member.get("/api/org/models/pulls/999999")
+    missing = member.get("/api/organization/models/pulls/999999")
     assert missing.status_code == 404, missing.text
 
 
 def test_pulls_list_anonymous_is_unauthorized(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("OLLAMA_URL", ORIGIN)
     app = _app(tmp_path)
-    resp = TestClient(app).get("/api/org/models/pulls")
+    resp = TestClient(app).get("/api/organization/models/pulls")
     assert resp.status_code == 401, resp.text
 
 
 # ---------------------------------------------------------------------------
-# POST /api/org/models/pulls/{id}/cancel
+# POST /api/organization/models/pulls/{id}/cancel
 # ---------------------------------------------------------------------------
 
 
@@ -662,10 +698,10 @@ def test_cancel_flips_state_and_audits(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
     created = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     ).json()["pull"]
 
-    cancel_resp = owner.post(f"/api/org/models/pulls/{created['id']}/cancel")
+    cancel_resp = owner.post(f"/api/organization/models/pulls/{created['id']}/cancel")
     assert cancel_resp.status_code == 202, cancel_resp.text
     assert cancel_resp.json()["cancel_requested"] is True
 
@@ -683,11 +719,11 @@ def test_cancel_member_is_forbidden(tmp_path, monkeypatch) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
     created = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     ).json()["pull"]
 
     member = _member(app)
-    resp = member.post(f"/api/org/models/pulls/{created['id']}/cancel")
+    resp = member.post(f"/api/organization/models/pulls/{created['id']}/cancel")
     assert resp.status_code == 403, resp.text
 
 
@@ -704,7 +740,7 @@ def test_cancel_scoped_wrong_organization_job_is_not_cancelled(
     app = _app(tmp_path)
     owner = _owner(app)
     created = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     ).json()["pull"]
 
     workspace = app.state.workspace
@@ -738,13 +774,13 @@ def test_cancel_refuses_without_audit_or_stamp_when_queue_cancel_does_not_succee
     app = _app(tmp_path)
     owner = _owner(app)
     created = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     ).json()["pull"]
 
     workspace = app.state.workspace
     monkeypatch.setattr(workspace.queue, "cancel_scoped", lambda *a, **k: False)
 
-    cancel_resp = owner.post(f"/api/org/models/pulls/{created['id']}/cancel")
+    cancel_resp = owner.post(f"/api/organization/models/pulls/{created['id']}/cancel")
     assert cancel_resp.status_code == 409, cancel_resp.text
     assert cancel_resp.json()["detail"]["code"] == "pull_not_cancellable"
     assert "model_pull_cancelled" not in _audit_actions(app)
@@ -772,7 +808,7 @@ def test_cancel_job_less_row_is_terminalized_and_audited(tmp_path, monkeypatch) 
     app = _app(tmp_path)
     owner = _owner(app)
     created = owner.post(
-        "/api/org/models/pull", json={"ref": _local_ref("smollm:135m")}
+        "/api/organization/models/pull", json={"ref": _local_ref("smollm:135m")}
     ).json()["pull"]
 
     workspace = app.state.workspace
@@ -784,7 +820,7 @@ def test_cancel_job_less_row_is_terminalized_and_audited(tmp_path, monkeypatch) 
             {"id": created["id"]},
         )
 
-    cancel_resp = owner.post(f"/api/org/models/pulls/{created['id']}/cancel")
+    cancel_resp = owner.post(f"/api/organization/models/pulls/{created['id']}/cancel")
     assert cancel_resp.status_code == 202, cancel_resp.text
     assert cancel_resp.json()["status"] == "cancelled"
     assert "model_pull_cancelled" in _audit_actions(app)
@@ -797,11 +833,11 @@ def test_cancel_not_found_returns_404(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("OLLAMA_URL", ORIGIN)
     app = _app(tmp_path)
     owner = _owner(app)
-    resp = owner.post("/api/org/models/pulls/999999/cancel")
+    resp = owner.post("/api/organization/models/pulls/999999/cancel")
     assert resp.status_code == 404, resp.text
 
 
-# --- artifact-generic team pull (/api/org/models/pull) ---------------------
+# --- artifact-generic team pull (/api/organization/models/pull) ---------------------
 
 
 def test_organization_artifact_pull_opus_mt_skips_daemon_and_audits(
@@ -817,7 +853,7 @@ def test_organization_artifact_pull_opus_mt_skips_daemon_and_audits(
     app = _app(tmp_path)
     owner = _owner(app)
 
-    resp = owner.post("/api/org/models/pull", json={"ref": "opus-mt:en-es"})
+    resp = owner.post("/api/organization/models/pull", json={"ref": "opus-mt:en-es"})
     assert resp.status_code == 202, resp.text
     pull = resp.json()["pull"]
     assert pull["model"] == "opus-mt:en-es"
@@ -841,23 +877,23 @@ def test_organization_engine_setup_requires_owner_deduplicates_and_audits(
     member = _member(app)
     assert (
         member.post(
-            "/api/org/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+            "/api/organization/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
         ).status_code
         == 403
     )
     first = owner.post(
-        "/api/org/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+        "/api/organization/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
     )
     assert first.status_code == 202, first.text
     second = owner.post(
-        "/api/org/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
+        "/api/organization/models/setup", json={"setup_ref": PARAKEET_TDT_SETUP_REF}
     )
     assert second.status_code == 202
     assert second.json()["deduplicated"] is True
     assert first.json()["pull"]["operation_kind"] == "engine_setup"
     assert "engine_setup_requested" in _audit_actions(app)
     refused = owner.post(
-        "/api/org/models/setup", json={"setup_ref": "engine-setup:unknown@1"}
+        "/api/organization/models/setup", json={"setup_ref": "engine-setup:unknown@1"}
     )
     assert refused.status_code == 400
     assert refused.json()["detail"]["code"] == "unknown_engine_setup"
@@ -873,7 +909,9 @@ def test_organization_engine_setup_requires_owner_deduplicates_and_audits(
 )
 def test_organization_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
     app = _app(tmp_path)
-    response = _owner(app).post("/api/org/models/setup", json={"setup_ref": setup_ref})
+    response = _owner(app).post(
+        "/api/organization/models/setup", json={"setup_ref": setup_ref}
+    )
     assert response.status_code == 202, response.text
     assert response.json()["pull"]["model"] == setup_ref
     assert "engine_setup_requested" in _audit_actions(app)
@@ -885,7 +923,7 @@ def test_organization_engine_setup_keeps_docling_outside_team_allowlist(
     app = _app(tmp_path)
 
     response = _owner(app).post(
-        "/api/org/models/setup",
+        "/api/organization/models/setup",
         json={"setup_ref": "engine-setup:docling.local@1"},
     )
 
@@ -914,7 +952,7 @@ def test_organization_completed_artifact_never_advertises_unowned_remove(
     )
     store.mark_done(workspace.queue.engine, row.id)
 
-    pulls = _member(app).get("/api/org/models/pulls")
+    pulls = _member(app).get("/api/organization/models/pulls")
     assert pulls.status_code == 200, pulls.text
     completed = next(pull for pull in pulls.json()["pulls"] if pull["id"] == row.id)
     assert completed["capabilities"]["remove"] is False
@@ -924,7 +962,7 @@ def test_organization_artifact_pull_member_forbidden(tmp_path, monkeypatch) -> N
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     app = _app(tmp_path)
     member = _member(app)
-    resp = member.post("/api/org/models/pull", json={"ref": "opus-mt:en-es"})
+    resp = member.post("/api/organization/models/pull", json={"ref": "opus-mt:en-es"})
     assert resp.status_code == 403
 
 
@@ -935,10 +973,11 @@ def test_organization_artifact_pull_unpinned_hf_requires_ack(
     app = _app(tmp_path)
     owner = _owner(app)
     ref = "hf:owner/repo@abc123/model.gguf"
-    resp = owner.post("/api/org/models/pull", json={"ref": ref})
+    resp = owner.post("/api/organization/models/pull", json={"ref": ref})
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "unpinned_unacknowledged"
     resp2 = owner.post(
-        "/api/org/models/pull", json={"ref": ref, "unpinned_acknowledged": True}
+        "/api/organization/models/pull",
+        json={"ref": ref, "unpinned_acknowledged": True},
     )
     assert resp2.status_code == 202, resp2.text

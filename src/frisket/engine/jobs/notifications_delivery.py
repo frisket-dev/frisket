@@ -83,7 +83,9 @@ def enqueue_notification_delivery(
         if project_opener is None
         else project_opener(
             ProjectStorageKey(
-                storage_org_id=require_opener_storage_organization_id(storage_org_id),
+                storage_organization_id=require_opener_storage_organization_id(
+                    storage_org_id
+                ),
                 project_slug=project_id,
             ),
             bundle,
@@ -215,7 +217,7 @@ def register_notification_handlers(
                 )
             )
             handler_workspace_root = handler_project_root
-            handler_storage_organization_id = claimed.storage_org_id
+            handler_storage_organization_id = claimed.storage_organization_id
             project_key = claimed
         try:
             runtime = (
@@ -289,7 +291,9 @@ def deliver_notification_request(
 ) -> dict[str, Any]:
     if project_key is None and storage_org_id is not None:
         project_key = ProjectStorageKey(
-            storage_org_id=require_opener_storage_organization_id(storage_org_id),
+            storage_organization_id=require_opener_storage_organization_id(
+                storage_org_id
+            ),
             project_slug=project_id,
         )
     bundle = Path(workspace_root) / f"{project_id}.frisket"
@@ -298,7 +302,9 @@ def deliver_notification_request(
         if project_opener is None
         else project_opener(
             ProjectStorageKey(
-                storage_org_id=require_opener_storage_organization_id(storage_org_id),
+                storage_organization_id=require_opener_storage_organization_id(
+                    storage_org_id
+                ),
                 project_slug=project_id,
             ),
             bundle,
@@ -618,7 +624,7 @@ def _effect_checkpoint_fields(
             "effect_id": effect.effect_id,
             "project_key": (
                 {
-                    "storage_org_id": effect.project_key.storage_org_id,
+                    "storage_org_id": effect.project_key.storage_organization_id,
                     "project_slug": effect.project_key.project_slug,
                 }
                 if effect.project_key is not None
@@ -691,7 +697,7 @@ def _notification_delivery_effect(
     identity = json.dumps(
         {
             "storage_org_id": (
-                project_key.storage_org_id if project_key is not None else None
+                project_key.storage_organization_id if project_key is not None else None
             ),
             "project_slug": (
                 project_key.project_slug if project_key is not None else project_id
@@ -841,7 +847,12 @@ def _recovery_targets(
             workspace, project_id=project_id, require_slug=True
         )
         return [
-            (ProjectStorageKey(storage_org_id=org_id, project_slug=path.stem), path)
+            (
+                ProjectStorageKey(
+                    storage_organization_id=org_id, project_slug=path.stem
+                ),
+                path,
+            )
             for path in paths
         ]
     targets: list[tuple[ProjectStorageKey | None, Path]] = []
@@ -856,7 +867,12 @@ def _recovery_targets(
             organization_dir, project_id=project_id, require_slug=True
         ):
             targets.append(
-                (ProjectStorageKey(storage_org_id=org_id, project_slug=path.stem), path)
+                (
+                    ProjectStorageKey(
+                        storage_organization_id=org_id, project_slug=path.stem
+                    ),
+                    path,
+                )
             )
     return targets
 
@@ -919,7 +935,7 @@ def reconcile_notification_delivery_requests(
                     queue,
                     workspace_root=project_path.parent,
                     project_id=project_path.stem,
-                    storage_org_id=storage_key.storage_org_id
+                    storage_org_id=storage_key.storage_organization_id
                     if storage_key is not None
                     else None,
                     request_id=int(request["id"]),

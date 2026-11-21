@@ -746,7 +746,7 @@ def create_app(
     # `providers` path segment, so an exposed route is reachable by any
     # signed-in user of any organization (env-key hint leak, non-owner key writes,
     # unmetered validate oracle). Hosted key management is the owner-gated
-    # /api/org/keys instead.
+    # /api/organization/keys instead.
     if enable_provider_config:
         register_provider_config_routes(app, workspace=ws)
     project_action_utility_service = ProjectActionUtilityService(ws)

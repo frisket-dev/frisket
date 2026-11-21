@@ -168,7 +168,7 @@ class CompositionFacts:
     operator-owned Modal target stays ``third_party_api`` in every edition,
     while a downstream shared or dedicated venue supplies its own target row.
 
-    ``org_id`` is always ``None`` in the open composition; the hosted port
+    ``organization_id`` is always ``None`` in the open composition; the hosted port
     supplies the organization context it actually reads.
 
     ``funding`` answers the generic credential/posture question: whose key or
@@ -179,7 +179,9 @@ class CompositionFacts:
     """
 
     edition: Edition = "open"
-    org_id: str | None = None  # hosted organization context; None in the open edition
+    organization_id: str | None = (
+        None  # hosted organization context; None in the open edition
+    )
     funding: Funding = field(default_factory=OperatorBorne)
 
     def __post_init__(self) -> None:
@@ -828,7 +830,7 @@ def open_execution_composition(
     return ExecutionComposition(
         facts=CompositionFacts(
             edition="open",
-            org_id=None,
+            organization_id=None,
             funding=OperatorBorne(),
         ),
         provider=StaticExecutionTargetProvider(

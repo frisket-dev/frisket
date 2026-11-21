@@ -80,7 +80,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
     created = Project.create(bundle, name="Trusted")
     created.close()
     key = ProjectStorageKey(
-        storage_org_id=_STORAGE_ORGANIZATION_ID, project_slug="trusted"
+        storage_organization_id=_STORAGE_ORGANIZATION_ID, project_slug="trusted"
     )
 
     calls: list[tuple[ProjectStorageKey, Path]] = []

@@ -113,7 +113,7 @@ def register_admin_api_routes(
                 sa.select(orgs.c.name, orgs.c.display_name).where(orgs.c.id == org_id)
             ).one()
         return {
-            "org": row.display_name or row.name,
+            "organization": row.display_name or row.name,
             "server_version": runtime_identity()["package_version"],
             "token_label": actor.get("operator_label"),
         }
@@ -197,7 +197,7 @@ def register_admin_api_routes(
                     cx,
                     user_id=actor["id"],
                     org_id=org_id,
-                    action="org_member_role_set",
+                    action="organization_member_role_set",
                     detail=f"{member.id}:{clean_role}",
                 )
                 return {"email": clean_email, "role": clean_role, "status": "active"}
@@ -215,7 +215,7 @@ def register_admin_api_routes(
                 cx,
                 user_id=actor["id"],
                 org_id=org_id,
-                action="org_invite_set",
+                action="organization_invite_set",
                 detail=f"{clean_email}:{clean_role}",
             )
             return {"email": clean_email, "role": clean_role, "status": "invited"}
@@ -287,7 +287,7 @@ def register_admin_api_routes(
                 cx,
                 user_id=actor["id"],
                 org_id=org_id,
-                action="org_key_set",
+                action="organization_key_set",
                 detail=clean_provider,
             )
         return {"provider": clean_provider, "hint": key_hint(value)}
@@ -373,7 +373,7 @@ def register_admin_api_routes(
                     cx,
                     user_id=actor["id"],
                     org_id=org_id,
-                    action="org_key_deleted",
+                    action="organization_key_deleted",
                     detail=clean_provider,
                 )
         return {"deleted": bool(result.rowcount)}

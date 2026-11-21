@@ -1318,7 +1318,7 @@ def test_grouped_action_preserves_injected_composition_through_model_rows(
             project, router, ExecutionCompositionContext.direct()
         ),
         facts=CompositionFacts(
-            edition="cloud", org_id="funding-org", funding=ByokZero()
+            edition="cloud", organization_id="funding-org", funding=ByokZero()
         ),
         credential_use_context=credentials,
         limits=limits,

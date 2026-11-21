@@ -223,10 +223,14 @@ def test_member_project_visibility_and_pat_inventory_are_actor_scoped(
     listed = ProjectList.model_validate(alice.get("/api/projects").json()).root
     assert {row.id: row.role for row in listed} == {alice_project: "owner"}
     assert bob.get(f"/api/projects/{owner_project}").status_code == 403
-    alice.post("/api/org/tokens", json={"name": "alice"})
-    bob.post("/api/org/tokens", json={"name": "bob"})
-    assert [row["name"] for row in alice.get("/api/org/tokens").json()] == ["alice"]
-    assert [row["name"] for row in bob.get("/api/org/tokens").json()] == ["bob"]
+    alice.post("/api/organization/tokens", json={"name": "alice"})
+    bob.post("/api/organization/tokens", json={"name": "bob"})
+    assert [row["name"] for row in alice.get("/api/organization/tokens").json()] == [
+        "alice"
+    ]
+    assert [row["name"] for row in bob.get("/api/organization/tokens").json()] == [
+        "bob"
+    ]
     with app.state.control_engine.connect() as cx:
         assert (
             cx.execute(sa.select(sa.func.count()).select_from(api_tokens)).scalar_one()
@@ -533,38 +537,46 @@ def test_secret_upsert_delete_validation_and_diagnostic_redaction(
     client = TestClient(app)
     _login(client, app, "owner@example.com")
     assert (
-        client.post("/api/org/keys", json={"provider": "bogus", "key": "x"}).status_code
+        client.post(
+            "/api/organization/keys", json={"provider": "bogus", "key": "x"}
+        ).status_code
         == 400
     )
     assert (
         client.post(
-            "/api/org/keys", json={"provider": "openai", "key": "sk-first-secret"}
+            "/api/organization/keys",
+            json={"provider": "openai", "key": "sk-first-secret"},
         ).status_code
         == 400
     )
     for secret in ("sk-first-secret", "sk-second-secret"):
         candidate = {"provider": "openai", "key": secret}
-        validation = client.post("/api/org/keys/validate", json=candidate)
+        validation = client.post("/api/organization/keys/validate", json=candidate)
         assert validation.status_code == 200
         assert validation.json()["ok"] is True
         receipt = validation.json()["validation_token"]
         assert receipt
         assert (
             client.post(
-                "/api/org/keys", json={**candidate, "validation_token": receipt}
+                "/api/organization/keys",
+                json={**candidate, "validation_token": receipt},
             ).status_code
             == 200
         )
-    assert client.get("/api/org/keys").json() == [
+    assert client.get("/api/organization/keys").json() == [
         {"provider": "openai", "hint": "...cret"}
     ]
     assert (
-        client.post("/api/org/env", json={"name": "1BAD", "value": "x"}).status_code
+        client.post(
+            "/api/organization/env", json={"name": "1BAD", "value": "x"}
+        ).status_code
         == 400
     )
-    client.post("/api/org/env", json={"name": "REPORT_FROM", "value": "one"})
-    client.post("/api/org/env", json={"name": "REPORT_FROM", "value": "two"})
-    assert client.delete("/api/org/env/REPORT_FROM").json() == {"deleted": True}
+    client.post("/api/organization/env", json={"name": "REPORT_FROM", "value": "one"})
+    client.post("/api/organization/env", json={"name": "REPORT_FROM", "value": "two"})
+    assert client.delete("/api/organization/env/REPORT_FROM").json() == {
+        "deleted": True
+    }
     client.post(
         "/api/client-errors",
         json={
@@ -614,7 +626,7 @@ def test_membership_admin_preserves_last_owner(tmp_path: Path) -> None:
     def set_role(user_id: int, role: str) -> int:
         return owner.patch(
             f"/api/admin/browser/users/{user_id}/role",
-            json={"org_id": org_id, "role": role},
+            json={"organization_id": org_id, "role": role},
         ).status_code
 
     assert set_role(owner_id, "member") == 409
@@ -945,33 +957,39 @@ def test_exact_catalog_paths_audits_key_files_and_safe_hints(tmp_path: Path) -> 
     }
     assert ("PATCH", "/api/admin/browser/users/{user_id}/role") in paths
     assert ("DELETE", "/api/projects/{pid}/members/{email}") in paths
-    assert ("POST", "/api/org/keys/validate") in paths
+    assert ("POST", "/api/organization/keys/validate") in paths
     candidate = {"provider": "openai", "key": "sk-secret-value"}
-    validation = client.post("/api/org/keys/validate", json=candidate)
+    validation = client.post("/api/organization/keys/validate", json=candidate)
     assert validation.status_code == 200
     assert validation.json()["ok"] is True
     receipt = validation.json()["validation_token"]
     assert receipt
     assert (
         client.post(
-            "/api/org/keys", json={**candidate, "validation_token": receipt}
+            "/api/organization/keys", json={**candidate, "validation_token": receipt}
         ).status_code
         == 200
     )
     assert (
-        client.post("/api/org/keys/validate", json={"provider": "openai"}).json()["ok"]
+        client.post(
+            "/api/organization/keys/validate", json={"provider": "openai"}
+        ).json()["ok"]
         is True
     )
     assert validated == [("openai", "sk-secret-value")] * 2
     assert (
-        client.post("/api/org/env", json={"name": "TINY", "value": "desk"}).json()[
-            "hint"
-        ]
+        client.post(
+            "/api/organization/env", json={"name": "TINY", "value": "desk"}
+        ).json()["hint"]
         == "..."
     )
     with app.state.control_engine.connect() as cx:
         actions = set(cx.execute(sa.select(audit_log.c.action)).scalars())
-    assert {"org_key_set", "org_key_validation_requested", "org_env_set"} <= actions
+    assert {
+        "organization_key_set",
+        "organization_key_validation_requested",
+        "organization_env_set",
+    } <= actions
     other_dir = tmp_path / "other-data"
     other_db = tmp_path / "other.db"
     _app(tmp_path / "other", database_url=f"sqlite:///{other_db}", data_dir=other_dir)

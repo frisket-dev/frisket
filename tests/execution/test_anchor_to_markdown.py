@@ -135,7 +135,7 @@ def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_en
     composition = ExecutionComposition(
         facts=CompositionFacts(
             edition="cloud",
-            org_id="org-a",
+            organization_id="org-a",
             funding=ByokZero(),
         ),
         provider=StaticExecutionTargetProvider(secrets=project, router=router),

@@ -9,7 +9,7 @@ against a database that has no commerce tables at all
 
 Editions extend it through two seams:
 
-* `_create_org` — an external edition overrides it to attach its own commerce
+* `_create_organization` — an external edition overrides it to attach its own commerce
   companion row to the new organization (its `AuthIdentityStore` subclass).
 * `user_payload` — an external edition overrides it to add its own fields to
   the identity payload.
@@ -52,7 +52,7 @@ class IdentityStore:
         self.cx = cx
         self._provision_organization_id = provision_organization_id
 
-    def _create_org(self, name: str) -> int:
+    def _create_organization(self, name: str) -> int:
         """Create an identity organization. Editions override to attach their own state."""
         return inserted_id(self.cx.execute(orgs.insert().values(name=name)))
 
@@ -199,7 +199,7 @@ class IdentityStore:
                 self.cx.execute(users.delete().where(users.c.id == user_id))
                 raise PermissionError("account admission requires an invite")
             else:
-                org_id = self._create_org(clean_email.split("@")[0])
+                org_id = self._create_organization(clean_email.split("@")[0])
                 self.cx.execute(
                     memberships.insert().values(
                         user_id=user_id,
@@ -317,7 +317,9 @@ class IdentityStore:
         """The open identity payload. Editions override to add their own fields."""
         effective_organization_id = org_id
         if effective_organization_id is None:
-            effective_organization_id = self._default_org_id_for_user(int(row.id))
+            effective_organization_id = self._default_organization_id_for_user(
+                int(row.id)
+            )
         return {
             "id": row.id,
             "email": row.email,
@@ -395,7 +397,7 @@ class IdentityStore:
             "support_contact": row.support_contact,
         }
 
-    def _default_org_id_for_user(self, user_id: int) -> int | None:
+    def _default_organization_id_for_user(self, user_id: int) -> int | None:
         default_org_id = self.cx.execute(
             sa.select(users.c.default_org_id).where(users.c.id == user_id)
         ).scalar_one_or_none()

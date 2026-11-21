@@ -636,7 +636,7 @@ def register_production_handlers(
                 trusted_payload = dict(payload)
                 # Identity comes from the claimed row, never a parsed directory name.
                 trusted_payload["project_id"] = claimed.project_slug
-                trusted_payload["storage_org_id"] = claimed.storage_org_id
+                trusted_payload["storage_org_id"] = claimed.storage_organization_id
                 trusted_payload["workspace_root"] = str(project_root)
                 return handler(trusted_payload, context)
 
@@ -942,7 +942,7 @@ class Worker:
                 )
             except (TypeError, ValueError) as exc:
                 safe = safe_error(
-                    "invalid_org_identity",
+                    "invalid_organization_identity",
                     exc,
                     include_frames=True,
                 )
@@ -961,7 +961,7 @@ class Worker:
                 return
             if payload_organization_id != trusted_organization_id:
                 safe = safe_error(
-                    "org_identity_mismatch",
+                    "organization_identity_mismatch",
                     f"refusing job {job.id}; the durable "
                     f"payload names org_id={payload_organization_id!r} but the trusted "
                     f"queue column names org_id={trusted_organization_id!r}. Credentials "
@@ -1022,7 +1022,9 @@ class Worker:
                         storage_key
                     )
                     handler_payload["project_id"] = storage_key.project_slug
-                    handler_payload["storage_org_id"] = storage_key.storage_org_id
+                    handler_payload["storage_org_id"] = (
+                        storage_key.storage_organization_id
+                    )
                 from frisket.execution.handler_lineage import record_handler_lineage
 
                 with record_handler_lineage(

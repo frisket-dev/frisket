@@ -106,7 +106,7 @@ class AdminMembershipService:
         members = {str(row.email) for row in rows}
         return {
             "schema_version": "frisket.admin_users.v1",
-            "orgs": [
+            "organizations": [
                 {
                     "id": int(organization.id),
                     "name": str(organization.name),
@@ -124,7 +124,7 @@ class AdminMembershipService:
                     "pending_invites": [
                         {
                             "email": str(row.email),
-                            "org_id": int(row.org_id),
+                            "organization_id": int(row.org_id),
                             "role": str(row.role),
                             "expires_at": iso_z(row.expires_at),
                         }
@@ -186,7 +186,7 @@ class AdminMembershipService:
                 cx,
                 user_id=actor["id"],
                 org_id=self.org_id,
-                action="org_member_role_set",
+                action="organization_member_role_set",
                 detail=f"{user_id}:{role}",
             )
         return {
@@ -227,7 +227,7 @@ class AdminMembershipService:
                         cx,
                         user_id=actor["id"],
                         org_id=self.org_id,
-                        action="org_invite_revoked",
+                        action="organization_invite_revoked",
                         detail=email,
                     )
             else:
@@ -293,7 +293,7 @@ class AdminMembershipService:
                 cx,
                 user_id=actor["id"],
                 org_id=self.org_id,
-                action="org_member_removed",
+                action="organization_member_removed",
                 detail=str(user_id),
             )
         return {

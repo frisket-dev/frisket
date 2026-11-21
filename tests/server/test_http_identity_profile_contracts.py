@@ -93,7 +93,7 @@ def test_live_team_identity_profile_wire_auth_and_validation(tmp_path: Path) -> 
     assert response.status_code == 200, response.text
     assert response.content == _wire_bytes(expected)
 
-    created = owner.post("/api/org/tokens", json={"name": "identity probe"})
+    created = owner.post("/api/organization/tokens", json={"name": "identity probe"})
     assert created.status_code == 200, created.text
     bearer = {"Authorization": f"Bearer {created.json()['token']}"}
     pat_me = owner.get("/api/me", headers=bearer)

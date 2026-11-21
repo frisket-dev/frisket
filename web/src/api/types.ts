@@ -193,7 +193,7 @@ export type ProjectSecrets = HttpProjectSecretCatalogResponse;
 
 export interface AdminOverview {
   totals: {
-    orgs?: number;
+    organizations?: number;
     users?: number;
     projects?: number;
     pending_invites?: number;
@@ -2576,7 +2576,7 @@ export interface RunRowErrorSummary {
   groups: RunRowErrorGroup[];
 }
 
-/** Server-side media egress proxy status (GET /api/org/media-proxy/status),
+/** Server-side media egress proxy status (GET /api/organization/media-proxy/status),
  *  polled by MediaProxyRemediationCard for the youtube_provider_blocked
  *  triage card. `connected` is null exactly when `configured` is false; the
  *  local tier (no organization identity) 404s instead of returning this shape. */

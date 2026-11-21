@@ -302,7 +302,7 @@ def register_alert_evaluate_handler(
             )
             claimed = claimed_opener_key(payload)
             project = project_opener(claimed, project_path)
-            delivery_storage_organization_id = claimed.storage_org_id
+            delivery_storage_organization_id = claimed.storage_organization_id
 
         def continue_after_indexing(processed: int) -> dict:
             from .search_index import index_work_marker

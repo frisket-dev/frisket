@@ -43,14 +43,14 @@ def validate_project_slug(value: str) -> str:
 class ProjectStorageKey:
     """Storage account plus project slug, independent of funding ownership."""
 
-    storage_org_id: int
+    storage_organization_id: int
     project_slug: str
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.storage_org_id, int)
-            or isinstance(self.storage_org_id, bool)
-            or self.storage_org_id < 1
+            not isinstance(self.storage_organization_id, int)
+            or isinstance(self.storage_organization_id, bool)
+            or self.storage_organization_id < 1
         ):
-            raise ValueError("storage_org_id must be a positive integer")
+            raise ValueError("storage_organization_id must be a positive integer")
         validate_project_slug(self.project_slug)

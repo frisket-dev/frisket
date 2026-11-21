@@ -11,7 +11,7 @@ import { createAdminOverviewApi } from '../../src/api/adminOverview';
 import { ApiError, getAdminOverview } from '../../src/api/real';
 
 const overview = {
-  orgs: [{
+  organizations: [{
     id: 17,
     name: 'Cloud',
     suspended: false,
@@ -22,7 +22,7 @@ const overview = {
     spend_30d: 4.2,
   }],
   totals: {
-    orgs: 1,
+    organizations: 1,
     pending_invites: 2,
     credits_usd: 12.5,
     spend_30d: 4.2,
