@@ -30,7 +30,7 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
 }
 
 const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = {
-  alert: 'Open alert', import: 'Open sheet', run: 'Open run', source: 'Open feed',
+  alert: 'Open alert', import: 'Open sheet', run: 'Open run', feed: 'Open feed',
 };
 
 function openSourceLabel(item: NotificationItem): string {

@@ -49,6 +49,7 @@ _REQUIRED_COLUMNS = {
         "created_at",
         "storage_org_id",
         "project_id",
+        "feed_id",
     ),
     # A table missing the endpoint-fingerprint/provenance columns is just as
     # unsafe to run product code against as a missing table would be.
