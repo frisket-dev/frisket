@@ -334,7 +334,7 @@ def test_summarize_http_estimate_matches_cloud_run_confirmation(tmp_path) -> Non
         assert estimated.status_code == 200, estimated.text
         estimate = estimated.json()["estimate"]
         assert 0 < estimate["billed_cost"] < 500_000
-        assert estimate["cost_source"] == "cloud_route_quote"
+        assert estimate["cost_source"] == "cloud_route_estimate"
         # Zero standing coverage requires the same confirmation at both seams.
         assert estimate["requires_confirmation"] is True
         challenge = client.post(

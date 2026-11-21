@@ -41,7 +41,7 @@ ESTIMATE_METER_KEY_BY_CAPABILITY: dict[str, str] = {
 
 EstimateRoundingMode = Literal["exact", "half_even", "half_up"]
 CeilingMode = Literal["none", "consented_quantity"]
-RowSettlementMode = Literal["all_metered", "quoted_successful_rows"]
+RowSettlementMode = Literal["all_metered", "estimated_successful_rows"]
 
 # These fields are copied from either an injected offering or base's neutral
 # provider-direct terms into both the pinned basis and the run-start live fact.
@@ -127,10 +127,10 @@ class CommercialEstimateRounding:
     def __post_init__(self) -> None:
         if self.mode == "exact":
             if self.decimal_places is not None:
-                raise ValueError("exact quote rounding has no decimal_places")
+                raise ValueError("exact estimate rounding has no decimal_places")
             return
         if self.mode not in ("half_even", "half_up"):
-            raise ValueError(f"unknown quote rounding mode {self.mode!r}")
+            raise ValueError(f"unknown estimate rounding mode {self.mode!r}")
         if (
             isinstance(self.decimal_places, bool)
             or not isinstance(self.decimal_places, int)
@@ -138,13 +138,13 @@ class CommercialEstimateRounding:
             or self.decimal_places > 18
         ):
             raise ValueError(
-                "rounded quote quantities require decimal_places between 0 and 18"
+                "rounded estimate quantities require decimal_places between 0 and 18"
             )
 
 
 @dataclass(frozen=True)
 class CommercialEstimateTerms:
-    """The public quote identity and arithmetic for one offering."""
+    """The public estimate identity and arithmetic for one offering."""
 
     pricing_key: str
     terms_version: str
@@ -159,7 +159,7 @@ class CommercialEstimateTerms:
         _decimal_string("commercial unit_rate", self.unit_rate)
         if not isinstance(self.rounding, CommercialEstimateRounding):
             raise TypeError(
-                "commercial quote rounding must be CommercialEstimateRounding"
+                "commercial estimate rounding must be CommercialEstimateRounding"
             )
 
 
@@ -183,7 +183,7 @@ class CommercialSettlementTerms:
             raise ValueError(f"unknown commercial ceiling mode {self.ceiling_mode!r}")
         if self.row_settlement_mode not in (
             "all_metered",
-            "quoted_successful_rows",
+            "estimated_successful_rows",
         ):
             raise ValueError(
                 f"unknown commercial row settlement mode {self.row_settlement_mode!r}"
@@ -216,7 +216,9 @@ class CommercialOffering:
         if not isinstance(self.match, CommercialOfferingMatch):
             raise TypeError("commercial offering match must be CommercialOfferingMatch")
         if not isinstance(self.estimate, CommercialEstimateTerms):
-            raise TypeError("commercial offering quote must be CommercialEstimateTerms")
+            raise TypeError(
+                "commercial offering estimate must be CommercialEstimateTerms"
+            )
         if not isinstance(self.settlement, CommercialSettlementTerms):
             raise TypeError(
                 "commercial offering settlement must be CommercialSettlementTerms"
@@ -237,10 +239,10 @@ class CommercialOffering:
         if self.settlement.meter_key != expected_meter:
             raise ValueError(
                 "commercial offering settlement meter does not match the "
-                f"capability's quoted measurement: expected {expected_meter!r}, "
+                f"capability's estimated measurement: expected {expected_meter!r}, "
                 f"got {self.settlement.meter_key!r}"
             )
-        if self.settlement.row_settlement_mode == "quoted_successful_rows" and (
+        if self.settlement.row_settlement_mode == "estimated_successful_rows" and (
             self.match.capability
             not in {
                 CAPABILITY_LLM,
@@ -250,8 +252,8 @@ class CommercialOffering:
             }
         ):
             raise ValueError(
-                "quoted_successful_rows settlement requires a capability "
-                "whose quote pins per-row quantities"
+                "estimated_successful_rows settlement requires a capability "
+                "whose estimate pins per-row quantities"
             )
         require_clean("commercial charge_authority", self.charge_authority)
         if not isinstance(self.presentation, CommercialPresentation):
