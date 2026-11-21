@@ -700,7 +700,6 @@ def run_typed_column_transform_action(
             op_id=op_id,
             claim_token=token,
             details={"output_fields": [field]},
-            commit=False,
         )
         if conflict is not None or len(claims) != 1:
             raise RuntimeError("column transform could not claim its output")
@@ -759,7 +758,7 @@ def run_typed_column_transform_action(
             rebuild_review_stats=False,
             claim_token=token,
         )
-        OutputColumnClaimStore(project).release(claim_token=token, commit=False)
+        OutputColumnClaimStore(project).release(claim_token=token)
         if not receipts.update_body_status(
             receipt, require_status="running", commit=False
         ):

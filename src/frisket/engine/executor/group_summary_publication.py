@@ -411,7 +411,6 @@ class GroupPublication:
                 claim_token=self.claim_token,
                 run_id=run_id,
                 lease_seconds=300,
-                commit=False,
             )
         else:
             acquired, conflict = claims.acquire(
@@ -428,7 +427,6 @@ class GroupPublication:
                         {"name": self.params.summary_column_name, "column_type": "text"}
                     ]
                 },
-                commit=False,
             )
             if conflict is not None or len(acquired) != 1:
                 raise ValueError("Grouped summary output is already claimed")
@@ -465,7 +463,6 @@ class GroupPublication:
             claim_token=self.claim_token,
             run_id=int(self._started_envelope["run_id"]),
             lease_seconds=300,
-            commit=False,
         )
 
     def _renew_provider_lease(self):

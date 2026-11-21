@@ -66,7 +66,7 @@ def test_interruption_after_begin_releases_owned_transaction(
     try:
         with pytest.raises(failure) as caught:
             action_reservations._reserve_queued_action(
-                project, action, Params(), spec=spec, project_id="p", commit=True
+                project, action, Params(), spec=spec, project_id="p"
             )
         assert caught.value is error
         assert not db.in_transaction, (
@@ -151,17 +151,18 @@ def test_reservation_after_insert_interrupt_respects_transaction_owner(
             project.db.execute(
                 "UPDATE sheets SET name='Caller pending' WHERE id=?", (sheet_id,)
             )
+        reserve_fn = (
+            action_reservations._reserve_queued_action
+            if owned
+            else action_reservations._reserve_queued_action_in_transaction
+        )
         if interrupt is RuntimeError and owned:
-            result = action_reservations._reserve_queued_action(
-                project, action, params, spec=spec, project_id="p", commit=owned
-            )
+            result = reserve_fn(project, action, params, spec=spec, project_id="p")
             assert result.status == "failed"
             assert result.errors[0].code == "project_write_failed"
         else:
             with pytest.raises(interrupt):
-                action_reservations._reserve_queued_action(
-                    project, action, params, spec=spec, project_id="p", commit=owned
-                )
+                reserve_fn(project, action, params, spec=spec, project_id="p")
         pending = project.db.in_transaction
         count = project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
         with project.read_snapshot() as reader:
@@ -202,7 +203,7 @@ def test_reservation_does_not_own_a_transaction_when_begin_fails(
             "UPDATE sheets SET name='Caller pending' WHERE id=?", (sheet_id,)
         )
         result = action_reservations._reserve_queued_action(
-            project, action, Params(), spec=spec, project_id="p", commit=True
+            project, action, Params(), spec=spec, project_id="p"
         )
         assert result.status == "failed"
         assert result.errors[0].code == "project_write_failed"

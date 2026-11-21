@@ -16,6 +16,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from helpers import replace_test_source_cell
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "typed-resolve-actions"
 
@@ -267,11 +268,12 @@ def test_output_collision_and_active_claim_are_atomic(text_project) -> None:
         assert called is False
         assert _counts(project) == collision_before
 
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["claimed"],
-            action_kind="test.blocker",
-        )
+        with write_transaction(project.db):
+            _claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["claimed"],
+                action_kind="test.blocker",
+            )
         assert conflict is None
         claim_before = _counts(project)
         claimed = run_action_spec(

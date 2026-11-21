@@ -44,6 +44,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Union
 
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.execution.promise_compiler import (
     CostBasis,
     OperatorBorneZeroCost,
@@ -400,16 +401,16 @@ def open_attempt(
     receipt_id: str | None = None,
     identity: str,
     scope: tuple[int, ...],
-    commit: bool = True,
 ) -> tuple[str, int]:
     """The ``created`` transition (§1.5): owner, identity and **scope**
-    freeze. Returns ``(attempt_id, seq)``.
+    freeze in the caller's transaction. Returns ``(attempt_id, seq)``.
 
     ``seq`` is per-owner monotone with a database uniqueness backstop, so a
     retry mints a NEW attempt (same owner, ``seq+1``, a new scope) rather than
     mutating the one that already ran.
     """
     db = project.db
+    require_transaction(db, "open_attempt")
     owner_column, owner_id = _attempt_owner(run_id, receipt_id)
     row = db.execute(
         f"SELECT COALESCE(MAX(seq), -1) AS top FROM execution_attempts WHERE {owner_column}=?",
@@ -431,19 +432,17 @@ def open_attempt(
             _now(),
         ),
     )
-    if commit:
-        db.commit()
     return attempt_id, seq
 
 
 def admit_attempt(
     project: Any,
     commitment: AttemptCommitment,
-    *,
-    commit: bool = True,
 ) -> None:
     """The ``admitted`` transition (§1.5): both head ids, the binding, the
-    evaluation, the consent id, the cost basis and its terms version freeze."""
+    evaluation, the consent id, the cost basis and its terms version freeze in
+    the caller's transaction."""
+    require_transaction(project.db, "admit_attempt")
     routed = commitment.routed
     admitted_by_consent_id = commitment.admission.admitted_by_consent_id
     row_estimates = (
@@ -482,8 +481,6 @@ def admit_attempt(
                 for row_id, quantity in row_estimates
             ],
         )
-    if commit:
-        project.db.commit()
 
 
 def set_attempt_state(
@@ -509,18 +506,17 @@ def set_attempt_state(
     """
     if state not in ATTEMPT_STATES:  # pragma: no cover - typed call sites
         raise ValueError(f"unknown attempt state {state!r}")
-    project.db.execute(
-        "UPDATE execution_attempts SET state=? WHERE id=? AND state IN "
-        "('created','admitted','dispatching')",
-        (state, attempt_id),
-    )
-    if state in TERMINAL_ATTEMPT_STATES:
+    with write_transaction(project.db, commit=commit, what="attempt state update"):
         project.db.execute(
-            "UPDATE runs SET current_attempt_id=NULL WHERE current_attempt_id=?",
-            (attempt_id,),
+            "UPDATE execution_attempts SET state=? WHERE id=? AND state IN "
+            "('created','admitted','dispatching')",
+            (state, attempt_id),
         )
-    if commit:
-        project.db.commit()
+        if state in TERMINAL_ATTEMPT_STATES:
+            project.db.execute(
+                "UPDATE runs SET current_attempt_id=NULL WHERE current_attempt_id=?",
+                (attempt_id,),
+            )
 
 
 def load_attempt(project: Any, attempt_id: str) -> Any:
@@ -567,9 +563,9 @@ def abandon_stale_dispatching_attempts(
     *,
     max_age: timedelta = STALE_DISPATCHING_AGE,
     now: datetime | None = None,
-    commit: bool = True,
 ) -> int:
-    """Close a silent dispatch under the existing output-claim lease.
+    """Close a silent dispatch under the existing output-claim lease in the
+    caller's transaction.
 
     A claimed output run is stale only after its attempt is old enough *and*
     every active claim row bound to the run has an expired (or malformed
@@ -577,8 +573,6 @@ def abandon_stale_dispatching_attempts(
     handler to have exited; without lineage, the entire linked job must stop.
     Unknown/unlinked work needs
     explicit stopped-writer recovery; its age alone cannot revoke authority.
-    The caller may join an existing project transaction with ``commit=False``;
-    initial-attempt mint does exactly that.
     """
 
     observed_now = now or datetime.now(timezone.utc)
@@ -590,7 +584,6 @@ def abandon_stale_dispatching_attempts(
         run_id=run_id,
         cutoff=cutoff,
         lease_cutoff=lease_cutoff,
-        commit=commit,
     )
 
 

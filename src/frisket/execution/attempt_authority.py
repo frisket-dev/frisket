@@ -38,6 +38,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.execution.attempt import (
     AttemptCommitment,
     RoutedAdmission,
@@ -49,6 +50,7 @@ from frisket.execution.attempt import (
     set_attempt_state,
     _attempt_owner,
 )
+from frisket.execution.promise_compiler import PricedCostBasis
 from frisket.execution.provider import (
     ExecutionComposition,
     ExecutionCompositionContext,
@@ -132,37 +134,15 @@ class AttemptAuthority:
         if not isinstance(self.composition, ExecutionComposition):
             raise TypeError("AttemptAuthority requires a full ExecutionComposition")
 
-    def mint(
+    def _prepare_mint_attempt(
         self,
         *,
         program: Any,
         spec: dict[str, Any],
-        run_id: int | None = None,
-        receipt_id: str | None = None,
+        run_id: int | None,
+        receipt_id: str | None,
         scope: tuple[int, ...],
-        commit: bool = True,
-        prepared_binding: CandidateBinding | None = None,
-        prepared_work_scope: Mapping[str, Any] | None = None,
-    ) -> AttemptCommitment:
-        """``created`` then ``admitted`` (§1.5), in that order.
-
-        Infrastructure/decode failures normalize to the DURABLE
-        ``consent_missing`` failure — consent that cannot be verified is
-        absent proof — and never escape as a generic job retry. A
-        ``ActionProgramInvocationHalt`` from a consented-fact authorization check
-        propagates untouched; the halt-aware caller converts it to a
-        resumable cancelled run.
-        """
-        from frisket.ops.base import ActionProgramInvocationHalt
-
-        # Recovery before admission (§1.5): a `dispatching` row left behind by
-        # a crashed process is closed EXPLICITLY here, so it cannot block a
-        # later retry or resume forever.
-        if not commit and not self.project.db.in_transaction:
-            raise RuntimeError(
-                "AttemptAuthority.mint(commit=False) requires "
-                "a caller-owned transaction"
-            )
+    ) -> tuple[str, str, int]:
         _attempt_owner(run_id, receipt_id)
         if receipt_id is not None:
             if any(type(row_id) is not int for row_id in scope) or len(
@@ -180,12 +160,7 @@ class AttemptAuthority:
                     "stale_head", "receipt attempt requires its running reservation"
                 )
         else:
-            abandon_stale_dispatching_attempts(
-                self.project,
-                run_id,
-                commit=commit,
-            )
-
+            abandon_stale_dispatching_attempts(self.project, run_id)
         identity = attempt_identity(program, spec)
         attempt_id, seq = open_attempt(
             self.project,
@@ -193,42 +168,30 @@ class AttemptAuthority:
             receipt_id=receipt_id,
             identity=identity,
             scope=scope,
-            commit=commit,
         )
-        try:
-            admission = self._admit(
-                program,
-                spec,
-                run_id,
-                identity,
-                scope,
-                prepared_binding=prepared_binding,
-                prepared_work_scope=prepared_work_scope,
-                receipt_id=receipt_id,
-            )
-        except ActionProgramInvocationHalt:
-            # §1.5's `-> halted` transition. This consented-fact refusal
-            # occurred before effect; terminalize the just-opened attempt
-            # before propagating it to the halt-aware caller.
-            set_attempt_state(
-                self.project,
-                attempt_id,
-                "halted",
-                commit=commit,
-            )
-            raise
-        if isinstance(admission, RoutedAdmission):
-            cost_basis = cost_basis_from_promises(admission.promise_set.promises)
-        else:
-            cost_basis = cost_basis_from_promises(())
-        from frisket.execution.promise_compiler import PricedCostBasis
+        return identity, attempt_id, seq
 
+    @staticmethod
+    def _commitment_from_admission(
+        opened: tuple[str, str, int],
+        *,
+        owner: tuple[int | None, str | None],
+        scope: tuple[int, ...],
+        admission: RoutedAdmission | UnroutedAdmission,
+    ) -> AttemptCommitment:
+        identity, attempt_id, seq = opened
+        run_id, receipt_id = owner
+        cost_basis = (
+            cost_basis_from_promises(admission.promise_set.promises)
+            if isinstance(admission, RoutedAdmission)
+            else cost_basis_from_promises(())
+        )
         terms_version = (
             cost_basis.terms_version
             if isinstance(cost_basis, PricedCostBasis)
             else None
         )
-        commitment = AttemptCommitment(
+        return AttemptCommitment(
             attempt_id=attempt_id,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -239,7 +202,101 @@ class AttemptAuthority:
             cost_basis=cost_basis,
             price_card_version=terms_version,
         )
-        admit_attempt(self.project, commitment, commit=commit)
+
+    def mint(
+        self,
+        *,
+        program: Any,
+        spec: dict[str, Any],
+        run_id: int | None = None,
+        receipt_id: str | None = None,
+        scope: tuple[int, ...],
+        prepared_work_scope: Mapping[str, Any] | None = None,
+    ) -> AttemptCommitment:
+        """``created`` then ``admitted`` (§1.5), owning its write transactions.
+
+        Infrastructure/decode failures normalize to the DURABLE
+        ``consent_missing`` failure — consent that cannot be verified is
+        absent proof — and never escape as a generic job retry. A
+        ``ActionProgramInvocationHalt`` from a consented-fact authorization check
+        propagates untouched; the halt-aware caller converts it to a
+        resumable cancelled run.
+        """
+        from frisket.ops.base import ActionProgramInvocationHalt
+
+        with write_transaction(self.project.db):
+            opened = self._prepare_mint_attempt(
+                program=program,
+                spec=spec,
+                run_id=run_id,
+                receipt_id=receipt_id,
+                scope=scope,
+            )
+        identity, attempt_id, _seq = opened
+        try:
+            admission = self._admit(
+                program,
+                spec,
+                run_id,
+                identity,
+                scope,
+                prepared_work_scope=prepared_work_scope,
+                receipt_id=receipt_id,
+            )
+        except ActionProgramInvocationHalt:
+            set_attempt_state(self.project, attempt_id, "halted")
+            raise
+        commitment = self._commitment_from_admission(
+            opened,
+            owner=(run_id, receipt_id),
+            scope=scope,
+            admission=admission,
+        )
+        with write_transaction(self.project.db):
+            admit_attempt(self.project, commitment)
+        return commitment
+
+    def mint_in_transaction(
+        self,
+        *,
+        program: Any,
+        spec: dict[str, Any],
+        run_id: int,
+        scope: tuple[int, ...],
+        prepared_binding: CandidateBinding | None = None,
+    ) -> AttemptCommitment:
+        """``created`` then ``admitted`` (§1.5) inside the caller's transaction."""
+        from frisket.ops.base import ActionProgramInvocationHalt
+
+        require_transaction(self.project.db, "AttemptAuthority.mint_in_transaction")
+        opened = self._prepare_mint_attempt(
+            program=program,
+            spec=spec,
+            run_id=run_id,
+            receipt_id=None,
+            scope=scope,
+        )
+        identity, attempt_id, _seq = opened
+        try:
+            admission = self._admit(
+                program,
+                spec,
+                run_id,
+                identity,
+                scope,
+                prepared_binding=prepared_binding,
+                receipt_id=None,
+            )
+        except ActionProgramInvocationHalt:
+            set_attempt_state(self.project, attempt_id, "halted", commit=False)
+            raise
+        commitment = self._commitment_from_admission(
+            opened,
+            owner=(run_id, None),
+            scope=scope,
+            admission=admission,
+        )
+        admit_attempt(self.project, commitment)
         return commitment
 
     def load_admitted(
@@ -760,22 +817,7 @@ class UnroutedOnlyAuthority:
 
     project: Any = None
 
-    def mint(
-        self,
-        *,
-        program: Any,
-        spec: dict[str, Any],
-        run_id: int,
-        scope: tuple[int, ...],
-        commit: bool = True,
-    ) -> AttemptCommitment:
-        """Refuse routed work by TYPE; mint ordinary unrouted work normally.
-
-        The refusal is the whole point of the variant, but it is scoped to
-        the one question the variant answers: does this program consume
-        execution resolution? Everything else — every local program these
-        surfaces legitimately run — mints exactly as it would anywhere else.
-        """
+    def _require_unrouted(self, program: Any) -> AttemptAuthority:
         if program.consumes_resolution:
             raise DependentChoiceRefusal(
                 f"action program '{getattr(program, 'name', program)}' consumes execution "
@@ -788,12 +830,46 @@ class UnroutedOnlyAuthority:
             composition=open_execution_composition(
                 self.project, None, ExecutionCompositionContext.direct()
             ),
-        ).mint(
+        )
+
+    def mint(
+        self,
+        *,
+        program: Any,
+        spec: dict[str, Any],
+        run_id: int,
+        scope: tuple[int, ...],
+    ) -> AttemptCommitment:
+        """Refuse routed work by TYPE; mint ordinary unrouted work normally.
+
+        The refusal is the whole point of the variant, but it is scoped to
+        the one question the variant answers: does this program consume
+        execution resolution? Everything else — every local program these
+        surfaces legitimately run — mints exactly as it would anywhere else.
+        """
+        return self._require_unrouted(program).mint(
             program=program,
             spec=spec,
             run_id=run_id,
             scope=scope,
-            commit=commit,
+        )
+
+    def mint_in_transaction(
+        self,
+        *,
+        program: Any,
+        spec: dict[str, Any],
+        run_id: int,
+        scope: tuple[int, ...],
+        prepared_binding: CandidateBinding | None = None,
+    ) -> AttemptCommitment:
+        """Refuse routed work by TYPE; join the caller's transaction for unrouted work."""
+        return self._require_unrouted(program).mint_in_transaction(
+            program=program,
+            spec=spec,
+            run_id=run_id,
+            scope=scope,
+            prepared_binding=prepared_binding,
         )
 
 

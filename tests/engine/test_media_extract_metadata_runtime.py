@@ -1102,13 +1102,14 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
     )
     claim_token = "claim:metadata-resume"
     claims = OutputColumnClaimStore(project)
-    acquired, conflict = claims.acquire(
-        sheet_id=sheet_id,
-        output_names=["meta"],
-        action_kind="media.extract_metadata",
-        claim_token=claim_token,
-        details={"output_fields": list(plan.output_fields)},
-    )
+    with write_transaction(claims.db):
+        acquired, conflict = claims.acquire(
+            sheet_id=sheet_id,
+            output_names=["meta"],
+            action_kind="media.extract_metadata",
+            claim_token=claim_token,
+            details={"output_fields": list(plan.output_fields)},
+        )
     assert conflict is None and len(acquired) == 1
     prepared = runner.prepare_run(spec, program=plan.program, confirmed=True)
     with write_transaction(claims.db):
@@ -2038,7 +2039,6 @@ def test_direct_rerun_rechecks_output_identity_after_claim_acquisition(
             "UPDATE columns SET name='renamed_meta' WHERE sheet_id=? AND name='meta'",
             (sheet_id,),
         )
-        project.db.commit()
         return acquire(*args, **kwargs)
 
     monkeypatch.setattr(

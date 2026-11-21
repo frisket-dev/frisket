@@ -96,9 +96,6 @@ OWNING_WRITES = {
     "set_sheet_title_column": lambda project: project.set_sheet_title_column(
         _sheet_id(project), None
     ),
-    "output_claim_release": lambda project: OutputColumnClaimStore(project).release(
-        claim_token="claim:none"
-    ),
     "notification_item": lambda project: _insert_notification(project),
     "notification_actor_state": lambda project: project.ensure_notification_actor_state(
         _insert_notification(project), "a"
@@ -158,6 +155,9 @@ JOINING_WRITES = {
     ),
     "bind_to_run": lambda project: OutputColumnClaimStore(project).bind_to_run(
         claim_token="claim:none", run_id=1
+    ),
+    "output_claim_release": lambda project: OutputColumnClaimStore(project).release(
+        claim_token="claim:none"
     ),
 }
 

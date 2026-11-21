@@ -140,13 +140,14 @@ class TestReuseConvergesSemanticType:
         )
         token = f"output-claim:test-semantic:{prepared.run_id}"
         names = list(prepared.out_cols)
-        claims, conflict = OutputColumnClaimStore(p).acquire(
-            sheet_id=sheet_id,
-            output_names=names,
-            action_kind="test.fake_semantic",
-            run_id=prepared.run_id,
-            claim_token=token,
-        )
+        with write_transaction(p.db):
+            claims, conflict = OutputColumnClaimStore(p).acquire(
+                sheet_id=sheet_id,
+                output_names=names,
+                action_kind="test.fake_semantic",
+                run_id=prepared.run_id,
+                claim_token=token,
+            )
         assert conflict is None and len(claims) == len(names)
         with write_transaction(p.db):
             OutputColumnClaimStore(p).bind_to_run(
@@ -173,7 +174,8 @@ class TestReuseConvergesSemanticType:
             "completed",
             **authority.terminal_kwargs(),
         )
-        OutputColumnClaimStore(p).release(claim_token=token)
+        with write_transaction(p.db):
+            OutputColumnClaimStore(p).release(claim_token=token)
         return prepared
 
     def test_second_run_adds_a_semantic_type_the_first_run_lacked(self, make_project):

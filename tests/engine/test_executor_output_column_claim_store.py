@@ -37,14 +37,15 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     )
     store = OutputColumnClaimStore(project)
 
-    claims, conflict = store.acquire(
-        sheet_id=sheet_id,
-        output_names=["summary"],
-        action_kind="map.template",
-        receipt_id="receipt_1",
-        claim_token="claim:store",
-        details={"source": "store-test"},
-    )
+    with write_transaction(store.db):
+        claims, conflict = store.acquire(
+            sheet_id=sheet_id,
+            output_names=["summary"],
+            action_kind="map.template",
+            receipt_id="receipt_1",
+            claim_token="claim:store",
+            details={"source": "store-test"},
+        )
 
     assert conflict is None
     assert len(claims) == 1
@@ -52,12 +53,13 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     assert claims[0]["receipt_id"] == "receipt_1"
     assert claims[0]["details"] == '{"source": "store-test"}'
 
-    _other_claims, conflict = store.acquire(
-        sheet_id=sheet_id,
-        output_names=["summary"],
-        action_kind="map.template",
-        claim_token="claim:delegate-conflict",
-    )
+    with write_transaction(store.db):
+        _other_claims, conflict = store.acquire(
+            sheet_id=sheet_id,
+            output_names=["summary"],
+            action_kind="map.template",
+            claim_token="claim:delegate-conflict",
+        )
     assert conflict is not None
     assert conflict["output_name"] == "summary"
     assert conflict["receipt_id"] == "receipt_1"
@@ -74,13 +76,15 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     assert bound["job_id"] == 42
     assert bound["op_id"] == op_id
 
-    store.renew(claim_token="claim:store", lease_seconds=5)
+    with write_transaction(store.db):
+        store.renew(claim_token="claim:store", lease_seconds=5)
     renewed = store.active_for_columns([columns["summary"]])
     assert renewed is not None
     assert renewed["lease_expires_at"] is not None
     assert renewed["renewed_at"] is not None
 
-    store.release(claim_token="claim:store")
+    with write_transaction(store.db):
+        store.release(claim_token="claim:store")
     assert store.active_for_columns([columns["summary"]]) is None
 
 
@@ -112,37 +116,41 @@ def test_generated_column_claim_store_releases_by_receipt_and_claim_token(
     )
     store = OutputColumnClaimStore(project)
 
-    claims, conflict = store.acquire(
-        sheet_id=sheet_id,
-        output_names=["summary"],
-        action_kind="map.template",
-        receipt_id="receipt_release",
-        claim_token="claim:receipt-release",
-    )
+    with write_transaction(store.db):
+        claims, conflict = store.acquire(
+            sheet_id=sheet_id,
+            output_names=["summary"],
+            action_kind="map.template",
+            receipt_id="receipt_release",
+            claim_token="claim:receipt-release",
+        )
     assert conflict is None
     assert claims
-    assert (
-        store.release_for_receipt(
-            receipt_id="receipt_release",
-            status="failed",
+    with write_transaction(store.db):
+        assert (
+            store.release_for_receipt(
+                receipt_id="receipt_release",
+                status="failed",
+            )
+            == 1
         )
-        == 1
-    )
     assert store.active_for_columns([]) is None
 
-    claims, conflict = store.acquire(
-        sheet_id=sheet_id,
-        output_names=["summary"],
-        action_kind="map.template",
-        receipt_id="receipt_release_again",
-        claim_token="claim:receipt-release-again",
-    )
+    with write_transaction(store.db):
+        claims, conflict = store.acquire(
+            sheet_id=sheet_id,
+            output_names=["summary"],
+            action_kind="map.template",
+            receipt_id="receipt_release_again",
+            claim_token="claim:receipt-release-again",
+        )
     assert conflict is None
     assert claims
-    assert (
-        store.release_for_receipt(
-            receipt_id="receipt_release_again",
-            status="cancelled",
+    with write_transaction(store.db):
+        assert (
+            store.release_for_receipt(
+                receipt_id="receipt_release_again",
+                status="cancelled",
+            )
+            == 1
         )
-        == 1
-    )

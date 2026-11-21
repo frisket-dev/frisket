@@ -114,13 +114,14 @@ def test_explicit_program_drives_prepare_and_run_without_registry(
     program = _ExplicitProgram()
     claim_token = f"output-claim:test:{uuid.uuid4()}"
     claim_store = OutputColumnClaimStore(project)
-    claims, conflict = claim_store.acquire(
-        sheet_id=int(spec["sheet_id"]),
-        output_names=["upper"],
-        action_kind=program.name,
-        claim_token=claim_token,
-        lease_seconds=60,
-    )
+    with write_transaction(claim_store.db):
+        claims, conflict = claim_store.acquire(
+            sheet_id=int(spec["sheet_id"]),
+            output_names=["upper"],
+            action_kind=program.name,
+            claim_token=claim_token,
+            lease_seconds=60,
+        )
     assert conflict is None
     assert len(claims) == 1
 

@@ -8,6 +8,7 @@ from frisket.actions.core import RegisteredAction
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.server.app import create_app
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -135,11 +136,12 @@ def test_column_transform_estimate_runs_output_gate(project_client, gate: str) -
         project.add_column(sheet_id, "filled")
         expected_code = "output_column_exists"
     else:
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["filled"],
-            action_kind="test.blocker",
-        )
+        with write_transaction(project.db):
+            _claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["filled"],
+                action_kind="test.blocker",
+            )
         assert conflict is None
         expected_code = "output_column_busy"
 

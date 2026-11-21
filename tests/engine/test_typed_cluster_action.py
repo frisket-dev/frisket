@@ -305,15 +305,17 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     )
     project.db.commit()
     run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    with write_transaction(project.db):
+        assert abandon_stale_dispatching_attempts(project, run_id) == 1
     claims = OutputColumnClaimStore(project)
     for claim in project.db.execute(
         "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
         (run_id,),
     ).fetchall():
-        claims.release_stale(
-            claim_id=claim["id"], reason="test: verified expired abandoned writer"
-        )
+        with write_transaction(claims.db):
+            claims.release_stale(
+                claim_id=claim["id"], reason="test: verified expired abandoned writer"
+            )
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )

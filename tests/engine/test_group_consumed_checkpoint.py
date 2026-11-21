@@ -73,9 +73,10 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
         (run_id,),
     )
     project.db.commit()
-    assert (
-        abandon_stale_dispatching_attempts(project, run_id) == 0
-    )  # Interrupted owner is already halted.
+    with write_transaction(project.db):
+        assert (
+            abandon_stale_dispatching_attempts(project, run_id) == 0
+        )  # Interrupted owner is already halted.
     resumed = _run(project, action, router)
     assert resumed.status == "completed", resumed.errors
     assert len(provider.requests) == 2

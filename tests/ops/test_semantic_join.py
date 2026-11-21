@@ -1631,11 +1631,12 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
         (run_a,),
     )
     project.db.commit()
-    abandoned = abandon_stale_dispatching_attempts(
-        project,
-        run_a,
-        now=datetime.now(timezone.utc) + timedelta(hours=7),
-    )
+    with write_transaction(project.db):
+        abandoned = abandon_stale_dispatching_attempts(
+            project,
+            run_a,
+            now=datetime.now(timezone.utc) + timedelta(hours=7),
+        )
     assert abandoned == 1
 
     # Attempt 1: finds the stale 'running' receipt, clears it, asks for a

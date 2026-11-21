@@ -43,6 +43,7 @@ from frisket.engine.store.result_generations import GenerationDeclarationConflic
 from frisket.engine.store.receipts import (
     ReceiptStore,
 )
+from frisket.engine.store.transactions import write_transaction
 from frisket.execution.attempt import (
     StaleAttemptWriter,
 )
@@ -81,8 +82,10 @@ from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserved_maprunner_delete_fn,
     _reserved_maprunner_reserve_fn,
+    _reserved_maprunner_reserve_in_transaction_fn,
     _reserved_maprunner_result_from_existing,
     _reserve_running_action_receipt,
+    _reserve_running_action_receipt_in_transaction,
     _runner_output_fields,
 )
 from frisket.engine.executor.action_support import (
@@ -191,6 +194,7 @@ def _run_action_core_spec(
         resolve_fn=spec.resolve_fn,
         precheck_fn=spec.precheck_fn,
         reserve_fn=spec.reserve_fn,
+        reserve_in_transaction_fn=spec.reserve_in_transaction_fn,
         legacy_delete_reservation_fn=spec.delete_reservation_fn,
         write_fn=spec.write_fn,
         resume_run_id_fn=spec.resume_run_id_fn,
@@ -512,6 +516,7 @@ def _run_reserved_maprunner_action_spec(
         confirmed_fn=spec.confirmed_fn,
         result_from_existing_fn=_reserved_maprunner_result_from_existing(spec),
         reserve_fn=_reserved_maprunner_reserve_fn(spec),
+        reserve_in_transaction_fn=_reserved_maprunner_reserve_in_transaction_fn(spec),
         delete_reservation_fn=_reserved_maprunner_delete_fn(spec),
         runner_spec_fn=spec.runner_spec_fn,
         resolve_fn=spec.resolve_fn,
@@ -806,6 +811,16 @@ def _has_live_managed_writer(project: Any, prepared_run: Any | None) -> bool:
     )
 
 
+def _release_output_claim(project: Any, claim_token: str, *, status: str) -> None:
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=claim_token, status=status)
+
+
+def _discard_output_claim(project: Any, receipt_id: str) -> None:
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).discard_for_receipt(receipt_id=receipt_id)
+
+
 def _run_reserved_maprunner_action(
     project: Any,
     action: _ActionExecutionEnvelope,
@@ -822,6 +837,8 @@ def _run_reserved_maprunner_action(
     ) = None,
     precheck_fn: Callable[..., ActionError | None] | None = None,
     reserve_fn: Callable[..., dict[str, str] | ActionResult] | None = None,
+    reserve_in_transaction_fn: Callable[..., dict[str, str] | ActionResult]
+    | None = None,
     legacy_delete_reservation_fn: Callable[[Any, str], None] | None = None,
     write_fn: Callable[..., ActionResult] | None = None,
     resume_run_id_fn: Callable[[Any, Any, dict[str, Any]], int | None] | None = None,
@@ -925,7 +942,12 @@ def _run_reserved_maprunner_action(
         ):
             reservation = dict(prepared_execution.reservation)
         elif prepared_execution is not None:
-            reservation = _reserve_running_action_receipt(
+            reserve_running = (
+                _reserve_running_action_receipt_in_transaction
+                if atomic_publication
+                else _reserve_running_action_receipt
+            )
+            reservation = reserve_running(
                 project,
                 action,
                 params_hash=params_hash,
@@ -933,16 +955,17 @@ def _run_reserved_maprunner_action(
                 reservation_kind=prepared_execution.reservation_kind,
                 replay_error_fn=prepared_execution.replay_error_fn,
                 edition_run_context=edition_run_context,
-                commit=not atomic_publication,
             )
         else:
-            assert reserve_fn is not None
-            reservation = reserve_fn(
+            active_reserve_fn = (
+                reserve_in_transaction_fn if atomic_publication else reserve_fn
+            )
+            assert active_reserve_fn is not None
+            reservation = active_reserve_fn(
                 project,
                 action,
                 params_hash=params_hash,
                 project_id=project_id,
-                commit=not atomic_publication,
                 **(
                     {"edition_run_context": edition_run_context}
                     if edition_run_context is not None
@@ -957,15 +980,25 @@ def _run_reserved_maprunner_action(
             reused_reservation_ids.add(reservation["receipt_id"])
 
         claim_token = _output_claim_token(reservation["receipt_id"])
-        claim_error = _acquire_output_claims_for_runner(
-            project,
-            action,
-            runner_spec,
-            receipt_id=reservation["receipt_id"],
-            output_fields=output_fields,
-            error_field=output_claim_error_field,
-            commit=not atomic_publication,
-        )
+        if atomic_publication:
+            claim_error = _acquire_output_claims_for_runner(
+                project,
+                action,
+                runner_spec,
+                receipt_id=reservation["receipt_id"],
+                output_fields=output_fields,
+                error_field=output_claim_error_field,
+            )
+        else:
+            with write_transaction(project.db):
+                claim_error = _acquire_output_claims_for_runner(
+                    project,
+                    action,
+                    runner_spec,
+                    receipt_id=reservation["receipt_id"],
+                    output_fields=output_fields,
+                    error_field=output_claim_error_field,
+                )
     except BaseException:
         if owns_atomic_transaction:
             project.db.rollback()
@@ -995,18 +1028,14 @@ def _run_reserved_maprunner_action(
         if atomic_publication:
             project.db.rollback()
         else:
-            OutputColumnClaimStore(project).release(
-                claim_token=claim_token, status="failed"
-            )
+            _release_output_claim(project, claim_token, status="failed")
             delete_reservation_fn(project, reservation["receipt_id"])
         raise
     if post_claim_precheck is not None:
         if atomic_publication:
             project.db.rollback()
         else:
-            OutputColumnClaimStore(project).release(
-                claim_token=claim_token, status="failed"
-            )
+            _release_output_claim(project, claim_token, status="failed")
             delete_reservation_fn(project, reservation["receipt_id"])
         return ctx.failed(post_claim_precheck)
 
@@ -1042,9 +1071,7 @@ def _run_reserved_maprunner_action(
         )
         if terminal_result is not None:
             return terminal_result
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
+        _release_output_claim(project, claim_token, status="failed")
         delete_reservation_fn(project, reservation["receipt_id"])
         return ctx.failed(error)
 
@@ -1066,7 +1093,6 @@ def _run_reserved_maprunner_action(
                     output_fields=output_fields,
                     program=program,
                     defer_publication=defer_generation_seal,
-                    commit=False,
                 )
                 project.db.commit()
             else:
@@ -1077,16 +1103,16 @@ def _run_reserved_maprunner_action(
                     resume_run_id=resume_run_id,
                     precomputed_output_fields=output_fields,
                 )
-                _mark_running_action_run_prepared(
-                    project,
-                    receipt_id=reservation["receipt_id"],
-                    run_id=prepared_run.run_id,
-                    attempt_id=None,
-                    output_fields=output_fields,
-                    program=program,
-                    defer_publication=defer_generation_seal,
-                    commit=True,
-                )
+                with write_transaction(project.db):
+                    _mark_running_action_run_prepared(
+                        project,
+                        receipt_id=reservation["receipt_id"],
+                        run_id=prepared_run.run_id,
+                        attempt_id=None,
+                        output_fields=output_fields,
+                        program=program,
+                        defer_publication=defer_generation_seal,
+                    )
         except BaseException:
             if atomic_publication and project.db.in_transaction:
                 project.db.rollback()
@@ -1111,9 +1137,7 @@ def _run_reserved_maprunner_action(
             )
         )
     except CostGate as exc:
-        OutputColumnClaimStore(project).discard_for_receipt(
-            receipt_id=reservation["receipt_id"]
-        )
+        _discard_output_claim(project, reservation["receipt_id"])
         delete_reservation_fn(project, reservation["receipt_id"])
         error = (
             cost_gate_error_fn(exc)
@@ -1141,13 +1165,9 @@ def _run_reserved_maprunner_action(
         # Request-time refusals: no row work was queued. A route refusal's run
         # row was already closed out by the MapRunner before dispatch.
         if isinstance(exc, ExecutionResolutionRefused):
-            OutputColumnClaimStore(project).discard_for_receipt(
-                receipt_id=reservation["receipt_id"]
-            )
+            _discard_output_claim(project, reservation["receipt_id"])
         else:
-            OutputColumnClaimStore(project).release(
-                claim_token=claim_token, status="failed"
-            )
+            _release_output_claim(project, claim_token, status="failed")
         delete_reservation_fn(project, reservation["receipt_id"])
         if (
             isinstance(exc, InvalidTargetRows)
@@ -1175,9 +1195,7 @@ def _run_reserved_maprunner_action(
     except SandboxTeardownError as exc:
         terminal_progress = _terminalized_sandbox_teardown_progress(project, exc)
         if terminal_progress is None:
-            OutputColumnClaimStore(project).release(
-                claim_token=claim_token, status="failed"
-            )
+            _release_output_claim(project, claim_token, status="failed")
             delete_reservation_fn(project, reservation["receipt_id"])
             raise
         # MapRunner deliberately re-raises this infrastructure failure after
@@ -1333,13 +1351,12 @@ def _run_reserved_maprunner_action(
             except StaleAttemptWriter as exc:
                 return ctx.fail(exc.code, str(exc))
     if result.status == "failed" and result.receipt_id is None:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
+        _release_output_claim(project, claim_token, status="failed")
         delete_reservation_fn(project, reservation["receipt_id"])
     else:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token,
+        _release_output_claim(
+            project,
+            claim_token,
             status="released" if result.status != "failed" else "failed",
         )
     return result

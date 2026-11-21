@@ -9,6 +9,7 @@ import pytest
 from executor_harness import CatalogEntry, ExecutorCase, Gate, UndoRerun
 from frisket.engine.store import Project
 from frisket.engine.store.value_codec import decode_stored_value
+from frisket.engine.store.transactions import write_transaction
 
 
 def _cell_edit_action(
@@ -547,13 +548,14 @@ def test_cell_edit_query_rejects_claimed_column_without_writes(make_project) -> 
     }
     project.add_rows(sheet_id, [{"sequence": 1, "status": "open"}], columns)
     before = _write_counts(project)
-    _claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["status"],
-        action_kind="map.ask",
-        claim_token="claim:query-edit-test",
-        lease_seconds=None,
-    )
+    with write_transaction(project.db):
+        _claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["status"],
+            action_kind="map.ask",
+            claim_token="claim:query-edit-test",
+            lease_seconds=None,
+        )
     assert conflict is None
 
     result = run_action_spec(

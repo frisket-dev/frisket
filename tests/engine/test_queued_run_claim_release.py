@@ -121,15 +121,16 @@ def _prepare_with_synthetic_claim(
     assert claimed.id == job_id
 
     claim_token = "claim:stale-recovery-test"
-    _claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["rendered_note"],
-        action_kind="map.extract",
-        claim_token=claim_token,
-        job_id=job_id,
-        lease_seconds=None,
-        details={"fixture": "synthetic-stale-claim"},
-    )
+    with write_transaction(project.db):
+        _claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["rendered_note"],
+            action_kind="map.extract",
+            claim_token=claim_token,
+            job_id=job_id,
+            lease_seconds=None,
+            details={"fixture": "synthetic-stale-claim"},
+        )
     assert conflict is None
     status, _details = _claim_status(project, claim_token)
     assert status == "active"
@@ -260,16 +261,17 @@ def _seed_terminal_fallback_tuple(
     receipt_id = f"receipt_fallback_{suffix}_0001"
     claim_token = f"claim:fallback-{suffix}"
     _seed_queued_receipt(project, receipt_id=receipt_id, run_id=run_id)
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=[f"fallback_output_{suffix}"],
-        action_kind="map.extract",
-        claim_token=claim_token,
-        receipt_id=receipt_id,
-        run_id=run_id,
-        lease_seconds=None,
-        details={"fixture": f"fallback-{suffix}"},
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=[f"fallback_output_{suffix}"],
+            action_kind="map.extract",
+            claim_token=claim_token,
+            receipt_id=receipt_id,
+            run_id=run_id,
+            lease_seconds=None,
+            details={"fixture": f"fallback-{suffix}"},
+        )
     assert conflict is None
     assert len(claims) == 1
     return project, run_id, receipt_id, claim_token
@@ -352,15 +354,16 @@ def test_finalize_fallback_is_a_noop_while_run_is_still_running(
 
         claim_token = "claim:fallback-running-test"
         _seed_queued_receipt(project, receipt_id="receipt_fallback_running_0001")
-        OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["fallback_output_running"],
-            action_kind="map.extract",
-            claim_token=claim_token,
-            receipt_id="receipt_fallback_running_0001",
-            lease_seconds=None,
-            details={"fixture": "fallback-still-running"},
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["fallback_output_running"],
+                action_kind="map.extract",
+                claim_token=claim_token,
+                receipt_id="receipt_fallback_running_0001",
+                lease_seconds=None,
+                details={"fixture": "fallback-still-running"},
+            )
         result = queued_v1_finalize_action_result(
             project,
             {

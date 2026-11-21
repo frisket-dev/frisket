@@ -354,13 +354,14 @@ def _ambiguous_run(
     first = _runner(project, router)
     confirmed = _confirmed_spec(first, _spec(sheet))
     claim_token = "output-claim:test:cli-reconcile"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet,
-        output_names=["relevance"],
-        action_kind="classify",
-        claim_token=claim_token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet,
+            output_names=["relevance"],
+            action_kind="classify",
+            claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
+        )
     assert conflict is None
     assert len(claims) == 1
     prepared = first._prepare(  # noqa: SLF001 - raw runner contract probe
@@ -433,13 +434,14 @@ def _fresh_successor(project: Project, provider, confirmed: dict):
     router._adapters["anthropic"] = provider  # noqa: SLF001
     runner = _runner(project, router)
     token = f"output-claim:test:cli-successor:{uuid.uuid4()}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=int(confirmed["sheet_id"]),
-        output_names=["relevance"],
-        action_kind="classify",
-        claim_token=token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=int(confirmed["sheet_id"]),
+            output_names=["relevance"],
+            action_kind="classify",
+            claim_token=token,
+            lease_seconds=6 * 60 * 60,
+        )
     assert conflict is None and len(claims) == 1
     prepared = runner._prepare(  # noqa: SLF001 - exact fresh-run probe
         confirmed,
@@ -482,9 +484,10 @@ def test_discard_makes_the_ambiguous_row_retryable_end_to_end(
         refused = _resume(project, provider, confirmed, run_id, claim_token)
         assert refused.halted_code == "external_effect_reconciliation_required"
         assert provider.calls == 1
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(
+                claim_token=claim_token, status="failed"
+            )
 
         rc = reconcile(["list", "--project", str(bundle)])
         assert rc == 0
@@ -551,9 +554,10 @@ def test_accept_charged_records_the_decision_and_refuses_a_recall(
         )
         refused = _resume(project, provider, confirmed, run_id, claim_token)
         assert refused.halted_code == "external_effect_reconciliation_required"
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(
+                claim_token=claim_token, status="failed"
+            )
         assert provider.calls == 1
 
         # The decision shows in list as decided (the stuck question drained),

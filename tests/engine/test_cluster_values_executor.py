@@ -15,6 +15,8 @@ import pytest
 
 from action_test_helpers import counts
 from executor_harness import CatalogEntry, ExecutorCase, Gate
+from frisket.engine.executor import action_reservations
+from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.store import Project
 from frisket.server.services.action_runs import v1_action_result_http_status
 from helpers import replace_test_source_cell
@@ -1127,12 +1129,13 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
         is None
     )
     claims = OutputColumnClaimStore(project)
-    _, conflict = claims.acquire(
-        sheet_id=seeded["sheet_id"],
-        output_names=["name_canonical"],
-        action_kind="test.foreign_writer",
-        claim_token="test:foreign-cluster-output",
-    )
+    with write_transaction(claims.db):
+        _, conflict = claims.acquire(
+            sheet_id=seeded["sheet_id"],
+            output_names=["name_canonical"],
+            action_kind="test.foreign_writer",
+            claim_token="test:foreign-cluster-output",
+        )
     assert conflict is None
     refused = run_action_spec(
         project,
@@ -1149,28 +1152,37 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     assert stored_receipt is not None
     assert stored_receipt["run_id"] == original_run_id
     assert stored_receipt["status"] == "running"
-    claims.release(claim_token="test:foreign-cluster-output", status="released")
+    with write_transaction(claims.db):
+        claims.release(claim_token="test:foreign-cluster-output", status="released")
 
     # Both retries pass the idle receipt check before either reaches the
     # output claim CAS. Hold the winner's claim until the competing retry
     # has observed the conflict, proving it cannot delete the reused receipt.
     acquire_barrier = threading.Barrier(2)
     competing_refusal = threading.Event()
-    original_acquire = OutputColumnClaimStore.acquire
+    original_reserve = action_reservations._reserve_running_action_receipt
+    original_prepare = MapRunner._prepare
 
-    def synchronize_resume_claim(self, **kwargs):
+    def synchronize_resume_reserve(*args, **kwargs):
+        result = original_reserve(*args, **kwargs)
         if (
-            kwargs.get("receipt_id") == original_receipt_id
-            and kwargs.get("claim_token") == f"output-claim:{original_receipt_id}"
+            isinstance(result, dict)
+            and result.get("receipt_id") == original_receipt_id
+            and result.get("reservation_reused") == "true"
         ):
             acquire_barrier.wait(timeout=10)
-            result = original_acquire(self, **kwargs)
-            if result[1] is None:
-                assert competing_refusal.wait(timeout=10)
-            return result
-        return original_acquire(self, **kwargs)
+        return result
 
-    monkeypatch.setattr(OutputColumnClaimStore, "acquire", synchronize_resume_claim)
+    def hold_winner_until_refusal(self, *args, **kwargs):
+        assert competing_refusal.wait(timeout=10)
+        return original_prepare(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        action_reservations,
+        "_reserve_running_action_receipt",
+        synchronize_resume_reserve,
+    )
+    monkeypatch.setattr(MapRunner, "_prepare", hold_winner_until_refusal)
 
     def resume():
         result = run_action_spec(

@@ -3946,7 +3946,6 @@ def typed_queued_map_spec(
             if not OutputColumnClaimStore(project).release(
                 claim_token=_output_claim_token(str(kwargs["receipt_id"])),
                 status="failed" if receipt.status == "failed" else "released",
-                commit=False,
             ):
                 raise StaleAttemptWriter("queued map receipt lost its output claim")
 

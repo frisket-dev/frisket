@@ -21,6 +21,7 @@ from frisket.engine.store.receipts import (
     ReceiptStatus,
     ReceiptStore,
 )
+from frisket.engine.store.transactions import write_transaction
 from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
 from frisket.notifications.run_outcomes import emit_run_outcome_notification
 
@@ -217,12 +218,6 @@ def terminalize_project_run(
             "BEGIN IMMEDIATE transaction"
         )
     db = project.db  # type: ignore[attr-defined]
-    if commit:
-        db.execute("BEGIN IMMEDIATE")
-    elif not db.in_transaction:
-        raise RuntimeError(
-            "terminalize_project_run(commit=False) requires a caller transaction"
-        )
 
     def complete(
         result: ProjectRunTerminalizationResult,
@@ -235,7 +230,7 @@ def terminalize_project_run(
                 emit_run_outcome_notification(project, run_id)
         return result
 
-    try:
+    with write_transaction(db, commit=commit, what="terminalize_project_run"):
         run = db.execute(
             "SELECT runs.status, runs.finished_at, runs.current_attempt_id, "
             "runs.cancel_requested_at, ops.spec AS runner_spec, "
@@ -1115,7 +1110,6 @@ def terminalize_project_run(
                 run_id=run_id,
                 receipt_id=receipt_id,
                 status=terminal_claim_status,
-                commit=False,
             )
             if released != len(active_claims):
                 raise RuntimeError(
@@ -1186,7 +1180,3 @@ def terminalize_project_run(
                 ),
             )
         )
-    except BaseException:
-        if commit:
-            db.rollback()
-        raise

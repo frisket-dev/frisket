@@ -1846,7 +1846,6 @@ class RunResultStore:
                 claim_token=claim_token,
                 run_id=run_id,
                 lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
-                commit=False,
             )
         except sqlite3.OperationalError as exc:
             from frisket.engine.store.output_claims import (
@@ -2587,7 +2586,6 @@ class RunResultStore:
                     run_id=original_run,
                     writer_attempt_id=owner,
                     claimless_direct_effect=True,
-                    commit=False,
                 )
                 if original_run == run_id:
                     cost += child_cost

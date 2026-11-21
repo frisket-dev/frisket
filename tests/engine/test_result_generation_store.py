@@ -19,6 +19,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.attempt import set_attempt_state
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
+from frisket.engine.store.transactions import write_transaction
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,8 @@ def _write(
 def _release(project: Project, claimed_run: _ClaimedRun) -> None:
     token = claimed_run.authority.claim_token
     assert token is not None
-    assert OutputColumnClaimStore(project).release(claim_token=token) == 1
+    with write_transaction(project.db):
+        assert OutputColumnClaimStore(project).release(claim_token=token) == 1
 
 
 def _declare(
@@ -1857,7 +1859,8 @@ def test_seal_partitions_projected_create_from_staged_output(
             "visible at seal"
         )
     finally:
-        assert OutputColumnClaimStore(project).release(claim_token=token) == 2
+        with write_transaction(project.db):
+            assert OutputColumnClaimStore(project).release(claim_token=token) == 2
         project.close()
 
 

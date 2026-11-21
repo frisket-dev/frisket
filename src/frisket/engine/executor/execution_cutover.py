@@ -207,9 +207,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                     raise ProjectCutoverRefused(
                         f"receipt {stored.id} refused cancellation"
                     )
-                claims.release_for_receipt(
-                    receipt_id=stored.id, status="cancelled", commit=False
-                )
+                claims.release_for_receipt(receipt_id=stored.id, status="cancelled")
         counts["receipts"] = len(open_receipts)
         if db.execute(
             "SELECT 1 FROM output_column_claims WHERE status='active'"

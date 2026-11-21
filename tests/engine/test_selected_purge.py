@@ -1168,9 +1168,10 @@ def test_active_or_unaccounted_work_must_resolve_before_purge(project):
     checkpoints.complete("checkpoint", **unit, payload={})
     with pytest.raises(ValueError, match="unrecorded usage"):
         begin_purge(project, sheet_ids=[first[0]])
-    checkpoints.account_returned(
-        "checkpoint", **unit, payload={"secret": 42}, accrue=lambda _: 0.0
-    )
+    with write_transaction(checkpoints.db):
+        checkpoints.account_returned(
+            "checkpoint", **unit, payload={"secret": 42}, accrue=lambda _: 0.0
+        )
     finish_purge(project, begin_purge(project, sheet_ids=[first[0]]))
     checkpoint = project.db.execute(
         "SELECT id,state,accounting_persisted,payload FROM effect_checkpoints"
