@@ -2090,14 +2090,15 @@ def test_automatic_ocr_keeps_local_target_with_cloud_first_account(
     )
     project_id = workspace.create("Local automatic OCR")["id"]
     project = workspace.get(project_id)
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     sheet = project.add_sheet("Files")
     column = project.add_column(sheet, "Source", type="image")
     digest = project.add_blob(b"media", mime="image/png")

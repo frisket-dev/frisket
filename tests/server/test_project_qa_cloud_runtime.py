@@ -113,14 +113,15 @@ def test_cloud_first_signed_out_ask_refuses_instead_of_using_local_key(tmp_path)
     )
     project_id = workspace.create("Ask")["id"]
     project = workspace.get(project_id)
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Cloud payer")
     turn = qa.submit_turn(
@@ -198,14 +199,15 @@ def test_project_ask_default_uses_the_only_cloud_catalog_model(tmp_path):
     )
     project_id = workspace.create("Ask")["id"]
     project = workspace.get(project_id)
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     router = workspace.router_for(project)
     composition = workspace.execution_composition_for(
         project,
@@ -243,14 +245,15 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
         cloud_connection_client=SnapshotOnlyClient(),
     )
     cloud_project = cloud_workspace.get(cloud_workspace.create("Cloud Ask")["id"])
-    write_project_settings(
-        cloud_project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with cloud_project.transaction_scope():
+        write_project_settings(
+            cloud_project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     cloud_project.set_network_policy(mode="off")
     cloud_qa = ProjectQAStore(cloud_project)
     cloud_thread = cloud_qa.create_thread(title="Cloud route")
@@ -315,10 +318,11 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
     )
     project = workspace.get(workspace.create("Local Ask")["id"])
     model = "ollama/@test-local/qwen2.5"
-    write_project_settings(
-        project,
-        ProjectSettings(model_execution_routes={model: "own"}),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(model_execution_routes={model: "own"}),
+        )
     project.set_network_policy(mode="off")
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Local route")
@@ -359,10 +363,11 @@ def test_ask_does_not_use_local_endpoint_for_saved_cloud_route(tmp_path):
     )
     project = workspace.get(workspace.create("Local Ask")["id"])
     model = "ollama/@test-local/qwen2.5"
-    write_project_settings(
-        project,
-        ProjectSettings(model_execution_routes={model: "cloud"}),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(model_execution_routes={model: "cloud"}),
+        )
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Selected Cloud route")
     turn = qa.submit_turn(
@@ -591,14 +596,15 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(
         )
         project_id = workspace.create("Ask")["id"]
         project = workspace.get(project_id)
-        write_project_settings(
-            project,
-            ProjectSettings(
-                cloud_user_id=7,
-                cloud_account_id=41,
-                cloud_execution_preference="cloud_first",
-            ),
-        )
+        with project.transaction_scope():
+            write_project_settings(
+                project,
+                ProjectSettings(
+                    cloud_user_id=7,
+                    cloud_account_id=41,
+                    cloud_execution_preference="cloud_first",
+                ),
+            )
         transport.on_execute = lambda call_count: (
             project.set_network_policy(mode="off")
             if disable_network_after_first_call and call_count == 1

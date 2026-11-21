@@ -336,14 +336,15 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
     assert imported.status_code == 200, imported.text
     drain_queue(client, worker_id="llm-key-gate-setup")
     project = client.app.state.workspace.get(project_id)
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
 
     action = _extract_action(model=model)
     action["scope"]["sheet_id"] = imported.json()["sheet_id"]

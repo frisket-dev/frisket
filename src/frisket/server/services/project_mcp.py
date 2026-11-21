@@ -154,7 +154,8 @@ class ProjectMcpService:
 
     @staticmethod
     def _write(project: Any, servers: list[dict[str, Any]]) -> None:
-        write_project_mcp_servers(project, servers)
+        with write_transaction(project.db, what="MCP servers"):
+            write_project_mcp_servers(project, servers)
 
     @classmethod
     def _write_with_secret_refs(
@@ -165,7 +166,7 @@ class ProjectMcpService:
     ) -> None:
         # The configuration and its secret grants commit together or not at all.
         with write_transaction(project.db, what="MCP servers and secret grants"):
-            write_project_mcp_servers(project, servers, commit=False)
+            write_project_mcp_servers(project, servers)
             for server in replacements:
                 replace_secret_consumers(
                     project,

@@ -449,7 +449,6 @@ class CloudConnectionService:
                 write_project_settings(
                     project,
                     settings.model_copy(update=updates),
-                    commit=False,
                 )
             self._refresh_capabilities(
                 patch.selected_account_id,
@@ -461,7 +460,6 @@ class CloudConnectionService:
                 write_project_settings(
                     project,
                     settings.model_copy(update=updates),
-                    commit=False,
                 )
         return self._project_routing(
             project_id, connection if connection is not None else self.connection()

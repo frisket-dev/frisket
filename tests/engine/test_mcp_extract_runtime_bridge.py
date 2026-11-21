@@ -192,22 +192,23 @@ def test_registered_recipe_runs_saved_stdio_server_and_keeps_secret_out_of_run_d
     project, sheet_id, row_id = _seed_project(tmp_path)
     events = tmp_path / "good.events.jsonl"
     server_id = "fixture/server"
-    write_project_mcp_servers(
-        project,
-        [
-            _server(
-                tmp_path,
-                server_id=server_id,
-                events=events,
-                marker="stale-definition-must-not-launch",
-            ),
-            _server(
-                tmp_path,
-                server_id="enabled-but-unselected",
-                events=tmp_path / "unselected.events.jsonl",
-            ),
-        ],
-    )
+    with project.transaction_scope():
+        write_project_mcp_servers(
+            project,
+            [
+                _server(
+                    tmp_path,
+                    server_id=server_id,
+                    events=events,
+                    marker="stale-definition-must-not-launch",
+                ),
+                _server(
+                    tmp_path,
+                    server_id="enabled-but-unselected",
+                    events=tmp_path / "unselected.events.jsonl",
+                ),
+            ],
+        )
     plaintext_reads: list[str] = []
     original_secret_plaintext = project.secret_plaintext
 
@@ -228,17 +229,18 @@ def test_registered_recipe_runs_saved_stdio_server_and_keeps_secret_out_of_run_d
         # The current saved record changes after recipe lookup.  The runtime
         # must resolve it as the execution scope opens, rather than retaining
         # an earlier settings snapshot.
-        write_project_mcp_servers(
-            project,
-            [
-                _server(tmp_path, server_id=server_id, events=events),
-                _server(
-                    tmp_path,
-                    server_id="enabled-but-unselected",
-                    events=tmp_path / "unselected.events.jsonl",
-                ),
-            ],
-        )
+        with project.transaction_scope():
+            write_project_mcp_servers(
+                project,
+                [
+                    _server(tmp_path, server_id=server_id, events=events),
+                    _server(
+                        tmp_path,
+                        server_id="enabled-but-unselected",
+                        events=tmp_path / "unselected.events.jsonl",
+                    ),
+                ],
+            )
 
         progress = run_action_with_confirmation(
             project, spec, router=_router(adapter), project_id="mcp-bridge"
@@ -322,10 +324,11 @@ def test_disabled_or_missing_saved_server_halts_before_any_row_is_run(
 ) -> None:
     project, sheet_id, row_id = _seed_project(tmp_path)
     events = tmp_path / "disabled.events.jsonl"
-    write_project_mcp_servers(
-        project,
-        [_server(tmp_path, server_id="disabled", events=events, enabled=False)],
-    )
+    with project.transaction_scope():
+        write_project_mcp_servers(
+            project,
+            [_server(tmp_path, server_id="disabled", events=events, enabled=False)],
+        )
     try:
         adapter = _ToolThenStrictAdapter()
         result = run_action_with_confirmation(
@@ -348,18 +351,19 @@ def test_one_failed_saved_server_does_not_hide_tools_from_another(
     project, sheet_id, row_id = _seed_project(tmp_path)
     good_events = tmp_path / "survivor.events.jsonl"
     good_id = "survivor/server"
-    write_project_mcp_servers(
-        project,
-        [
-            _server(tmp_path, server_id=good_id, events=good_events),
-            _server(
-                tmp_path,
-                server_id="unavailable/server",
-                events=tmp_path / "unavailable.events.jsonl",
-                command="definitely-not-an-mcp-command",
-            ),
-        ],
-    )
+    with project.transaction_scope():
+        write_project_mcp_servers(
+            project,
+            [
+                _server(tmp_path, server_id=good_id, events=good_events),
+                _server(
+                    tmp_path,
+                    server_id="unavailable/server",
+                    events=tmp_path / "unavailable.events.jsonl",
+                    command="definitely-not-an-mcp-command",
+                ),
+            ],
+        )
     adapter = _ToolThenStrictAdapter()
     try:
         progress = run_action_with_confirmation(
@@ -381,17 +385,18 @@ def test_tool_inventory_echoing_a_configured_secret_is_rejected_before_model_use
     project, sheet_id, row_id = _seed_project(tmp_path)
     events = tmp_path / "secret-inventory.events.jsonl"
     server_id = "secret-inventory/server"
-    write_project_mcp_servers(
-        project,
-        [
-            _server(
-                tmp_path,
-                server_id=server_id,
-                events=events,
-                scenario="secret_inventory",
-            )
-        ],
-    )
+    with project.transaction_scope():
+        write_project_mcp_servers(
+            project,
+            [
+                _server(
+                    tmp_path,
+                    server_id=server_id,
+                    events=events,
+                    scenario="secret_inventory",
+                )
+            ],
+        )
     adapter = _ToolThenStrictAdapter()
     try:
         progress = run_action_with_confirmation(
@@ -417,17 +422,18 @@ def test_lost_saved_server_tool_response_halts_without_automatic_retry(
     project, sheet_id, row_id = _seed_project(tmp_path)
     events = tmp_path / "lost-response.events.jsonl"
     server_id = "hanging/server"
-    write_project_mcp_servers(
-        project,
-        [
-            _server(
-                tmp_path,
-                server_id=server_id,
-                events=events,
-                scenario="malformed_call",
-            )
-        ],
-    )
+    with project.transaction_scope():
+        write_project_mcp_servers(
+            project,
+            [
+                _server(
+                    tmp_path,
+                    server_id=server_id,
+                    events=events,
+                    scenario="malformed_call",
+                )
+            ],
+        )
     try:
         progress = run_action_with_confirmation(
             project,

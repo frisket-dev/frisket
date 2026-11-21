@@ -108,14 +108,15 @@ def _cloud_selector_app(
         enable_local_model_pull=False,
     )
     project_id = workspace.create("Cloud selector", project_id="cloud-selector")["id"]
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7 if selected_account else None,
-            cloud_account_id=41 if selected_account else None,
-            cloud_execution_preference=preference,
-        ),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7 if selected_account else None,
+                cloud_account_id=41 if selected_account else None,
+                cloud_execution_preference=preference,
+            ),
+        )
     app = FastAPI()
     register_route_error_handler(app)
     register_selector_choices_routes(
@@ -260,10 +261,11 @@ def test_default_recommendation_respects_own_key_spend_cap(
         ),
     )
     settings = read_project_settings(workspace.get(project_id))
-    write_project_settings(
-        workspace.get(project_id),
-        settings.model_copy(update={"model_execution_routes": {model: "own"}}),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            settings.model_copy(update={"model_execution_routes": {model: "own"}}),
+        )
     with client:
         response = client.post(
             f"/api/projects/{project_id}/selector-choices",
@@ -379,14 +381,15 @@ def test_selected_missing_cloud_route_never_borrows_own_details(
         routes=[],
         local_keys=local_keys,
     )
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            model_execution_routes={"openai/gpt-5-mini": "cloud"},
-        ),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                model_execution_routes={"openai/gpt-5-mini": "cloud"},
+            ),
+        )
 
     with client:
         response = client.post(
@@ -433,14 +436,15 @@ def test_saved_cloud_model_route_exposes_own_ocr_without_falling_back(tmp_path) 
         routes=[_llm_route()],
         local_keys={"openai": "configured-locally"},
     )
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            model_execution_routes={model_id: "cloud"},
-        ),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                model_execution_routes={model_id: "cloud"},
+            ),
+        )
     ocr_query = {
         "schema_version": "frisket.selector_choices_query.v1",
         "subject": {
@@ -528,14 +532,15 @@ def test_nonlocal_own_model_shows_disabled_unsupported_cloud_route(tmp_path) -> 
         routes=[],
         local_keys={"openrouter": "configured-locally"},
     )
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            model_execution_routes={model_id: "own"},
-        ),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                model_execution_routes={model_id: "own"},
+            ),
+        )
 
     with client:
         response = client.post(
@@ -580,10 +585,11 @@ def test_signed_out_catalog_model_offers_cloud_setup(tmp_path) -> None:
         selected_account=False,
         local_keys={"openrouter": "configured-locally"},
     )
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(model_execution_routes={model_id: "own"}),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(model_execution_routes={model_id: "own"}),
+        )
 
     with client:
         response = client.post(
@@ -670,14 +676,15 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
     )
     project_id = workspace.create("Cloud selector", project_id="cloud-selector")["id"]
     workspace.get(project_id).set_network_policy(mode="off")
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     app = FastAPI()
     register_route_error_handler(app)
     register_selector_choices_routes(

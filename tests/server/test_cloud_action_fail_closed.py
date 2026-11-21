@@ -115,14 +115,15 @@ def _project_and_action(
     [row_id] = project.add_rows(
         sheet_id, [{"text": "Extract this"}], {"text": column_id}
     )
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference=preference,
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference=preference,
+            ),
+        )
     return project_id, {
         "action_id": "map.extract",
         "scope": {

@@ -86,7 +86,8 @@ def test_key_save_commits_route_pin_and_key_together(tmp_path, monkeypatch) -> N
     app = create_app(tmp_path / "workspace")
     project_id = app.state.workspace.create("Atomic provider key")["id"]
     project = app.state.workspace.get(project_id)
-    write_project_settings(project, ProjectSettings())
+    with project.transaction_scope():
+        write_project_settings(project, ProjectSettings())
     service = ProjectLifecycleService(app.state.workspace)
     context = object()
 
@@ -101,7 +102,7 @@ def test_key_save_commits_route_pin_and_key_together(tmp_path, monkeypatch) -> N
             settings = read_project_settings(project).model_copy(
                 update={"model_execution_routes": {"openai/gpt-5-mini": "own"}}
             )
-            return write_project_settings(project, settings, commit=False)
+            return write_project_settings(project, settings)
 
     service._model_routes = Routes()
     monkeypatch.setattr(provider_config, "require_validation_token", lambda *_a: None)
@@ -123,7 +124,8 @@ def test_key_save_failure_rolls_back_route_pin_and_key(tmp_path, monkeypatch) ->
     app = create_app(tmp_path / "workspace")
     project_id = app.state.workspace.create("Failed provider key")["id"]
     project = app.state.workspace.get(project_id)
-    write_project_settings(project, ProjectSettings())
+    with project.transaction_scope():
+        write_project_settings(project, ProjectSettings())
     service = ProjectLifecycleService(app.state.workspace)
     context = object()
 
@@ -138,7 +140,7 @@ def test_key_save_failure_rolls_back_route_pin_and_key(tmp_path, monkeypatch) ->
             settings = read_project_settings(project).model_copy(
                 update={"model_execution_routes": {"openai/gpt-5-mini": "own"}}
             )
-            return write_project_settings(project, settings, commit=False)
+            return write_project_settings(project, settings)
 
     service._model_routes = Routes()
     original_set = project.set_provider_key
