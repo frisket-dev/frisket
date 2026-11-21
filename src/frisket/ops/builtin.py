@@ -8,14 +8,9 @@ from .base import ActionProgram
 
 
 def get_action_program(action_kind: str) -> ActionProgram:
-    from frisket.authoring.plugin_registry import default_registry
-
     if action_kind != action_kind.strip() or "." not in action_kind:
         raise ValueError(f"action kind {action_kind!r} is not canonical")
-    program = default_registry().get_action_program(action_kind)
-    if program is None:
-        raise ValueError(f"unknown action kind {action_kind!r}")
-    return program
+    raise ValueError(f"unknown action kind {action_kind!r}")
 
 
 def prompt_hash_of(program: ActionProgram, spec: dict) -> str:

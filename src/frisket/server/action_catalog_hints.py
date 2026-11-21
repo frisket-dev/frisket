@@ -1876,19 +1876,7 @@ def project_action_catalog_launcher_hints(
         and routed_capability(registered.definition.run.direct) is not None
     }
 
-    providers = [
-        (
-            spec.action_kind,
-            spec.program.name,
-            bool(spec.program.llm),
-            spec.program.params(),
-            getattr(spec.program, "execution_capability", None),
-        )
-        for spec in default_registry().action_program_specs()
-        if spec.action_kind
-        and (action_kinds is None or spec.action_kind in action_kinds)
-    ]
-    providers.extend(
+    providers: list[tuple[str, str, bool, list[dict[str, Any]], str | None]] = [
         (
             registered.action_id,
             registered.action_id.rsplit(".", 1)[-1],
@@ -1900,7 +1888,7 @@ def project_action_catalog_launcher_hints(
         )
         for registered in ACTION_REGISTRY.actions
         if isinstance(registered.definition.run, ModelRows)
-    )
+    ]
     providers.extend(
         (registered.action_id, "media.ytdlp_download", False, [], None)
         for registered in ACTION_REGISTRY.actions
