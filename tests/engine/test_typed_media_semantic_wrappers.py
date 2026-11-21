@@ -152,7 +152,7 @@ def test_only_original_semantic_output_gets_grounding(
     assert project.get_values(sheet, columns["renamed_original"])[row_id] == TEXT
     assert project.get_values(sheet, columns["same_plain_string"])[row_id] == TEXT
     assert project.get_values(sheet, columns["edited"])[row_id] == TEXT + "!"
-    links = project.db.execute("SELECT column_id FROM evidence_links").fetchall()
+    links = project.db.execute("SELECT column_id FROM citations").fetchall()
     assert {link["column_id"] for link in links} == {columns["renamed_original"]}
     assert links
     spans = project.db.execute("SELECT * FROM source_spans").fetchall()

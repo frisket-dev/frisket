@@ -38,7 +38,7 @@ from frisket.engine.executor.map_find_source import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     list_row_citations,
     record_citation,
@@ -1217,7 +1217,7 @@ def test_timestamped_find_row_exposes_original_video_start_end_and_clip(
             "end_ms": 7_000,
             "span_ids": [artifact["spans"][0]["stable_id"]],
             "clip_url": (
-                "/api/projects/project-find-video/evidence/links/"
+                "/api/projects/project-find-video/citations/"
                 f"{evidence['links'][0]['stable_id']}/runs/0/clip"
             ),
         }
@@ -1744,7 +1744,7 @@ def test_find_rerun_atomically_supersedes_managed_generation(make_project) -> No
         is not None
     )
     stale = project.db.execute(
-        "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
+        "SELECT status, stale_reason FROM citations WHERE stable_id=?",
         (first_evidence["stable_id"],),
     ).fetchone()
     assert dict(stale) == {

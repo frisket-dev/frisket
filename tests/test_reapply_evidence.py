@@ -5,7 +5,7 @@ import json
 
 import test_execution_lifecycle_recovery as recovery
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -65,7 +65,7 @@ def _source(work, *, count=4):
                 metadata={"source_note": i},
             )
         project.db.execute(
-            "UPDATE evidence_links SET stale_at='2026-11-01T12:00:00Z' "
+            "UPDATE citations SET stale_at='2026-11-01T12:00:00Z' "
             "WHERE column_id=? AND status='stale'",
             (column,),
         )
@@ -83,10 +83,10 @@ def test_reapply_preserves_evidence_state_spans_and_undo_ownership(work):
     assert result.status == "completed", result.errors
     copied_column = next(c["id"] for c in project.columns(sheet) if c["name"] == "Copy")
     source = project.db.execute(
-        "SELECT * FROM evidence_links WHERE column_id=? ORDER BY id", (source_column,)
+        "SELECT * FROM citations WHERE column_id=? ORDER BY id", (source_column,)
     ).fetchall()
     copied = project.db.execute(
-        "SELECT * FROM evidence_links WHERE column_id=? ORDER BY id", (copied_column,)
+        "SELECT * FROM citations WHERE column_id=? ORDER BY id", (copied_column,)
     ).fetchall()
     assert len(copied) == len(source) == 4
     for old, new in zip(source, copied, strict=True):
@@ -113,7 +113,7 @@ def test_reapply_preserves_evidence_state_spans_and_undo_ownership(work):
             return [
                 tuple(r)
                 for r in project.db.execute(
-                    "SELECT span_id,rank,span_role,required,note FROM evidence_link_spans WHERE link_id=?",
+                    "SELECT span_id,rank,span_role,required,note FROM citation_spans WHERE citation_id=?",
                     (link["id"],),
                 )
             ]
@@ -156,7 +156,7 @@ def test_reapply_batches_current_refs_and_copies_spans_without_readback(
     assert len([r for c, r in reads if c == copied_column]) == 2
     assert (
         project.db.execute(
-            "SELECT count(*) FROM evidence_links WHERE column_id=?", (copied_column,)
+            "SELECT count(*) FROM citations WHERE column_id=?", (copied_column,)
         ).fetchone()[0]
         == 205
     )

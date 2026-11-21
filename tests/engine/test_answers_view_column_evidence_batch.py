@@ -6,7 +6,7 @@ from typing import Any
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_span,
     record_source_artifact,
@@ -124,11 +124,11 @@ def test_batch_returns_links_per_row_field_identical_to_per_cell_endpoint(
 
     batch = client.get(
         f"/api/projects/{project_id}/sheets/{seed['sheet_id']}"
-        f"/columns/{seed['output_col']}/evidence"
+        f"/columns/{seed['output_col']}/citations"
     )
     assert batch.status_code == 200, batch.text
     payload = batch.json()
-    assert payload["schema_version"] == "frisket.column_evidence_batch.v1"
+    assert payload["schema_version"] == "frisket.column_citations_batch.v1"
     assert payload["sheet_id"] == seed["sheet_id"]
     assert payload["column_id"] == seed["output_col"]
     by_row = {row["row_id"]: row for row in payload["rows"]}
@@ -141,7 +141,7 @@ def test_batch_returns_links_per_row_field_identical_to_per_cell_endpoint(
     # A chip's fields here must be byte-identical to the SAME link's fields
     # from the per-cell endpoint; both surfaces must be field-identical.
     per_cell = client.get(
-        f"/api/projects/{project_id}/cells/{seed['row_ids'][0]}/{seed['output_col']}/evidence"
+        f"/api/projects/{project_id}/cells/{seed['row_ids'][0]}/{seed['output_col']}/citations"
     )
     assert per_cell.status_code == 200, per_cell.text
     assert by_row[seed["row_ids"][0]]["links"][0] == per_cell.json()["links"][0]
@@ -156,7 +156,7 @@ def test_batch_honors_row_ids_window_filter(client) -> None:
 
     windowed = client.get(
         f"/api/projects/{project_id}/sheets/{seed['sheet_id']}"
-        f"/columns/{seed['output_col']}/evidence",
+        f"/columns/{seed['output_col']}/citations",
         params={"row_ids": str(seed["row_ids"][0])},
     )
     assert windowed.status_code == 200, windowed.text
@@ -195,7 +195,7 @@ def test_batch_excludes_stale_superseded_links_current_value_ref_scoped(
 
     batch = client.get(
         f"/api/projects/{project_id}/sheets/{seed['sheet_id']}"
-        f"/columns/{seed['output_col']}/evidence"
+        f"/columns/{seed['output_col']}/citations"
     )
     assert batch.status_code == 200, batch.text
     by_row = {row["row_id"]: row for row in batch.json()["rows"]}
@@ -215,7 +215,7 @@ def test_batch_zero_row_ids_short_circuits_to_empty_rows(client) -> None:
 
     empty = client.get(
         f"/api/projects/{project_id}/sheets/{seed['sheet_id']}"
-        f"/columns/{seed['output_col']}/evidence",
+        f"/columns/{seed['output_col']}/citations",
         params={"row_ids": ""},
     )
     assert empty.status_code == 200, empty.text
@@ -230,7 +230,7 @@ def test_batch_unknown_column_is_typed_404(client) -> None:
     seed = _seed_two_generated_rows(project)
 
     response = client.get(
-        f"/api/projects/{project_id}/sheets/{seed['sheet_id']}/columns/999999/evidence"
+        f"/api/projects/{project_id}/sheets/{seed['sheet_id']}/columns/999999/citations"
     )
     assert response.status_code == 404
     error = ActionError.model_validate(response.json())
@@ -248,7 +248,7 @@ def test_batch_invalid_row_ids_token_is_typed_400(client) -> None:
 
     response = client.get(
         f"/api/projects/{project_id}/sheets/{seed['sheet_id']}"
-        f"/columns/{seed['output_col']}/evidence",
+        f"/columns/{seed['output_col']}/citations",
         params={"row_ids": "abc"},
     )
     assert response.status_code == 400

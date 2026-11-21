@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -187,12 +187,12 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
             "export_ref": "evidence_link:fixture-risk",
             "status": "active",
             "role": "support",
-            "evidence_kind": "text",
+            "citation_kind": "text",
             "span_count": 1,
             "artifact_count": 1,
             "snippet": "risk score 0.82",
             "viewer_href": (
-                "/api/projects/case-1/evidence/links/evidence_link:fixture-risk/viewer"
+                "/api/projects/case-1/citations/evidence_link:fixture-risk/viewer"
             ),
         }
     ]

@@ -26,7 +26,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.temporal_materialization import revalidate_action_sources
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import canonical_json_hash, resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
@@ -1498,7 +1498,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
     ]
 
     projected_links = project.db.execute(
-        "SELECT id FROM evidence_links WHERE sheet_id=? "
+        "SELECT id FROM citations WHERE sheet_id=? "
         "AND link_role='temporal_transcript_projection'",
         (child_sheet_id,),
     ).fetchall()

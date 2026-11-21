@@ -188,7 +188,7 @@ def test_semantic_search_uses_shared_runtime_and_mints_a_citation(
 
 
 def test_located_media_hit_mints_navigable_evidence_citation(make_project, monkeypatch):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
@@ -246,8 +246,8 @@ def test_located_media_hit_mints_navigable_evidence_citation(make_project, monke
     )
     result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
     citation = store.get_citation(result["hits"][0]["citation_id"])
-    assert citation["source_kind"] == "evidence"
-    assert citation["locator"]["evidence_link_id"] == link["stable_id"]
+    assert citation["source_kind"] == "citation"
+    assert citation["locator"]["citation_id"] == link["stable_id"]
     assert citation["locator"]["artifact_id"] == artifact["stable_id"]
     assert citation["locator"]["span_id"] == span["stable_id"]
     assert citation["locator"]["location"]["time"] == {

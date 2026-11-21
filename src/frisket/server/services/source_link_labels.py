@@ -27,8 +27,8 @@ def add_source_link_labels(project: Any, columns, data, meta) -> None:
         # Only metadata is read: no artifact text, page images or full viewer.
         for row in project.db.execute(
             "SELECT link.stable_id,substr(artifact.filename,1,240) AS filename,"
-            "span.page_start,span.page_end FROM evidence_links link "
-            "JOIN evidence_link_spans member ON member.link_id=link.id "
+            "span.page_start,span.page_end FROM citations link "
+            "JOIN citation_spans member ON member.citation_id=link.id "
             "JOIN source_spans span ON span.id=member.span_id "
             "JOIN source_artifacts artifact ON artifact.id=span.artifact_id "
             f"WHERE link.stable_id IN ({placeholders}) "

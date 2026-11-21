@@ -4,7 +4,7 @@ import hashlib
 import tracemalloc
 from types import SimpleNamespace
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -183,7 +183,7 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(client
         subject_ref={"kind": "test"},
         spans=[{"span_id": entire["id"]}, {"span_id": fx.spans[0]["id"]}],
     )
-    endpoint = f"/api/projects/{fx.pid}/evidence/links/{link['stable_id']}/viewer"
+    endpoint = f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer"
     response = fx.client.get(
         endpoint,
         params={
@@ -195,7 +195,7 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(client
     assert response.status_code == 200, response.text
     artifact = response.json()["artifacts"][0]
     context = artifact["text_context"]
-    assert context["evidence_link_id"] == link["stable_id"]
+    assert context["citation_id"] == link["stable_id"]
     assert context["artifact_stable_id"] == fx.artifact["stable_id"]
     assert "Ada Lovelace" in context["text"]
     assert len(context["ranges"]) == 2
@@ -220,7 +220,7 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(client
 
 def test_source_edits_reject_revision_and_keep_legacy_hash_staleness(client):
     fx = _native(client)
-    endpoint = f"/api/projects/{fx.pid}/evidence/links/{fx.link['stable_id']}/viewer"
+    endpoint = f"/api/projects/{fx.pid}/citations/{fx.link['stable_id']}/viewer"
     context = fx.client.get(endpoint).json()["artifacts"][0]["text_context"]
     revision = context["window"]["retrieval_revision"]
     fx.project.apply_edits(
@@ -314,7 +314,7 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(client):
         subject_ref={"kind": "test"},
         spans=[{"span_id": span["id"]}],
     )
-    endpoint = f"/api/projects/{fx.pid}/evidence/links/{link['stable_id']}/viewer"
+    endpoint = f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer"
     response = fx.client.get(
         endpoint,
         params={
@@ -398,7 +398,7 @@ def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_histo
         spans=[{"span_id": span["id"]}],
     )
     response = fx.client.get(
-        f"/api/projects/{fx.pid}/evidence/links/{link['stable_id']}/viewer",
+        f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer",
         params={
             "text_artifact_id": artifact["id"],
             "text_start": target["start"] - 2,
@@ -471,7 +471,7 @@ def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(cli
         spans=[{"span_id": span["id"]}],
     )
     response = fx.client.get(
-        f"/api/projects/{fx.pid}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer"
     )
     assert response.status_code == 200, response.text
     served = response.json()["artifacts"][0]
@@ -495,7 +495,7 @@ def test_large_locate_current_is_bounded_and_never_reports_partial_scan_as_no_ma
     client,
 ):
     fx = _native(client, megabytes=5)
-    endpoint = f"/api/projects/{fx.pid}/evidence/links/{fx.link['stable_id']}/viewer"
+    endpoint = f"/api/projects/{fx.pid}/citations/{fx.link['stable_id']}/viewer"
     fx.project.apply_edits(
         [{"row_id": fx.row, "column_id": fx.body, "value": "extra prefix " + fx.text}]
     )

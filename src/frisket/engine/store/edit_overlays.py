@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
-from frisket.engine.store.evidence import mark_citations_stale_for_cell_refs
+from frisket.engine.store.citations import mark_citations_stale_for_cell_refs
 from frisket.engine.store.op_log import append_change_in_transaction, set_undo_info
 from frisket.engine.store.prepared_edits import prepared_edit_values
 

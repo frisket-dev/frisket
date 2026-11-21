@@ -16,7 +16,7 @@ from frisket.actions.system import (
 )
 from frisket.ops.capture import url as capture_url
 from frisket.contracts.action import Receipt
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,
@@ -349,7 +349,7 @@ def test_media_capture_url_static_contract_and_replay(
             "edits",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
         ),
     )
     result = run_action_spec(
@@ -453,7 +453,7 @@ def test_media_capture_url_static_contract_and_replay(
             "edits",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
         ),
     )
     assert after_first["columns"] == before["columns"] + 1
@@ -461,7 +461,7 @@ def test_media_capture_url_static_contract_and_replay(
     assert after_first["blobs"] == before["blobs"] + 1
     assert after_first["source_artifacts"] == before["source_artifacts"] + 1
     assert after_first["source_spans"] == before["source_spans"] + 1
-    assert after_first["evidence_links"] == before["evidence_links"] + 1
+    assert after_first["citations"] == before["citations"] + 1
     assert _staged_blob_files(project) == []
 
     calls.clear()
@@ -485,7 +485,7 @@ def test_media_capture_url_static_contract_and_replay(
                 "edits",
                 "source_artifacts",
                 "source_spans",
-                "evidence_links",
+                "citations",
             ),
         )
         == after_first

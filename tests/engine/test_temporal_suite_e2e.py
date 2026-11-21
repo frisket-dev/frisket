@@ -23,7 +23,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import TimelineLease, resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
@@ -292,7 +292,7 @@ def _assert_projected_evidence(
     expected_source_link_stable_id: str,
 ) -> None:
     link = project.db.execute(
-        "SELECT * FROM evidence_links WHERE sheet_id=? AND row_id=? "
+        "SELECT * FROM citations WHERE sheet_id=? AND row_id=? "
         "AND column_id=? AND link_role='temporal_transcript_projection' "
         "AND status='active'",
         (sheet_id, row_id, transcript_column_id),
@@ -305,8 +305,8 @@ def _assert_projected_evidence(
     assert metadata["semantic_type"] == "timestamped_transcript"
     assert metadata["source_evidence_link_stable_id"] == expected_source_link_stable_id
     spans = project.db.execute(
-        "SELECT sp.* FROM evidence_link_spans els "
-        "JOIN source_spans sp ON sp.id=els.span_id WHERE els.link_id=? "
+        "SELECT sp.* FROM citation_spans els "
+        "JOIN source_spans sp ON sp.id=els.span_id WHERE els.citation_id=? "
         "ORDER BY els.rank",
         (int(link["id"]),),
     ).fetchall()
@@ -658,7 +658,7 @@ def test_split_stage_failure_publishes_no_partial_children_or_lineage(
             "blob_derivations",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
             "artifact_timeline_segments",
         )
     }

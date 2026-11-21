@@ -466,7 +466,7 @@ def test_source_and_cancellation_are_rechecked_after_read_before_publication(
         if change == "cancel":
             cancelled.set()
         else:
-            project.db.execute("UPDATE evidence_links SET status='retracted'")
+            project.db.execute("UPDATE citations SET status='retracted'")
             project.db.commit()
         fields = ACTION_REGISTRY.get(
             "map.find_topic_sections"

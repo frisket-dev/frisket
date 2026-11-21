@@ -433,7 +433,7 @@ def ensure_media_timeline(
         )
 
         if anchor is None:
-            from frisket.engine.store.evidence import record_source_artifact
+            from frisket.engine.store.citations import record_source_artifact
 
             created = record_source_artifact(
                 project,

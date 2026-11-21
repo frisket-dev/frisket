@@ -16,7 +16,7 @@ import pytest
 
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     list_row_citations,
     resolve_citation_viewer,
@@ -258,14 +258,12 @@ def test_derive_table_from_list_replay_does_not_duplicate_row_evidence(
     )
     first = run_action_with_exact_confirmation(project, action, project_id=PROJECT_ID)
     assert first.status == "completed", first.errors
-    before = int(
-        project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
-    )
+    before = int(project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0])
 
     replay = run_action_with_exact_confirmation(project, action, project_id=PROJECT_ID)
     assert replay.status == "completed"
     assert replay.receipt_id == first.receipt_id
-    after = int(project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0])
+    after = int(project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0])
     assert after == before
 
 
@@ -360,7 +358,7 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         assert set(fresh_links).isdisjoint(previous_links)
         for link_id in previous_links:
             retained = project.db.execute(
-                "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
+                "SELECT status, stale_reason FROM citations WHERE stable_id=?",
                 (link_id,),
             ).fetchone()
             # Refresh hides superseded rows; it does not invalidate their
@@ -389,8 +387,8 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         "cells": "row_id, column_id",
         "ops": "id",
         "receipts": "id",
-        "evidence_links": "id",
-        "evidence_link_spans": "link_id, span_id",
+        "citations": "id",
+        "citation_spans": "citation_id, span_id",
     }
 
     def snapshot(table):
@@ -500,7 +498,7 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
         )
         assert current["links"] == []
         preserved = project.db.execute(
-            "SELECT status FROM evidence_links WHERE row_id=? AND column_id=? "
+            "SELECT status FROM citations WHERE row_id=? AND column_id=? "
             "AND json_extract(metadata,'$.schema_version')="
             "'frisket.map_extract_item_evidence_link.v1'",
             (seeded["row_ids"][0], seeded["moments_column_id"]),
@@ -585,7 +583,7 @@ def test_item_grounding_matches_the_admitted_source_run(
     project = seeded["project"]
     source_run = seeded["extracted"].run_id
     links = project.db.execute(
-        "SELECT id, metadata FROM evidence_links WHERE row_id=? AND column_id=? AND status='active'",
+        "SELECT id, metadata FROM citations WHERE row_id=? AND column_id=? AND status='active'",
         (seeded["row_ids"][0], seeded["moments_column_id"]),
     ).fetchall()
     first_link = next(
@@ -593,7 +591,7 @@ def test_item_grounding_matches_the_admitted_source_run(
     )
     # Same value and item index from another run cannot support this source.
     project.db.execute(
-        "UPDATE evidence_links SET run_id=? WHERE id=?",
+        "UPDATE citations SET run_id=? WHERE id=?",
         (source_run + 1000, first_link["id"]),
     )
     project.db.commit()
@@ -641,7 +639,7 @@ def test_item_grounding_publishes_the_link_spans_captured_during_admission(
             reader.item_associations[item.source]["evidence_link"] for item in items
         ]
         project.db.execute(
-            "UPDATE evidence_link_spans SET span_id=? WHERE link_id=?",
+            "UPDATE citation_spans SET span_id=? WHERE citation_id=?",
             (captured[1]["spans"][0]["span_id"], captured[0]["id"]),
         )
         project.db.commit()

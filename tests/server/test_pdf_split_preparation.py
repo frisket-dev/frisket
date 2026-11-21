@@ -75,7 +75,7 @@ def _runtime(tmp_path, monkeypatch):
 
     from pypdf import PdfWriter
     from frisket.ai.llm import LLMResponse, ModelRouter
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.op_log import append_change
     from frisket.server.services.action_preview_runs import ActionPreviewRunService
     from frisket.server.services.pdf_split_preparation import PdfSplitPreparationAdapter

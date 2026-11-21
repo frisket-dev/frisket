@@ -5,7 +5,7 @@ from typing import Any
 
 
 from frisket.contracts.action import ActionError
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -62,7 +62,7 @@ def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
     )
 
     response = client.get(
-        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
     )
 
     assert response.status_code == 200, response.text
@@ -133,7 +133,7 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
         == original
     )
     invalid_response = client.get(
-        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
     )
     assert invalid_response.status_code == 200, invalid_response.text
     assert invalid_response.json()["link"]["text_layer_hash_mismatch"] is False
@@ -143,7 +143,7 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
     project.apply_edits([{"row_id": row_id, "column_id": column_id, "value": None}])
 
     response = client.get(
-        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
     )
 
     assert response.status_code == 200, response.text
@@ -320,8 +320,8 @@ def _evidence_counts(project: Project) -> dict[str, int]:
         for table in (
             "source_artifacts",
             "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
+            "citations",
+            "citation_spans",
         )
     }
 
@@ -348,22 +348,22 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
 
     before_counts = _evidence_counts(project)
     default_response = client.get(
-        f"/api/projects/{project_id}/cells/{row_id}/{columns['output']}/evidence"
+        f"/api/projects/{project_id}/cells/{row_id}/{columns['output']}/citations"
     )
     empty_response = client.get(
-        f"/api/projects/{project_id}/cells/{row_id}/{columns['source']}/evidence"
+        f"/api/projects/{project_id}/cells/{row_id}/{columns['source']}/citations"
     )
     stable_viewer_response = client.get(
-        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
     )
     integer_viewer_response = client.get(
-        f"/api/projects/{project_id}/evidence/links/{link['id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['id']}/viewer"
     )
     after_counts = _evidence_counts(project)
 
     assert default_response.status_code == 200, default_response.text
     default_payload = default_response.json()
-    assert default_payload["schema_version"] == "frisket.cell_evidence.v1"
+    assert default_payload["schema_version"] == "frisket.cell_citations.v1"
     assert default_payload["sheet_id"] == sheet_id
     assert default_payload["row_id"] == row_id
     assert default_payload["column_id"] == columns["output"]
@@ -374,7 +374,7 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
     ]
     assert default_payload["links"][0]["status"] == "active"
     assert default_payload["links"][0]["viewer_href"] == (
-        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
     )
 
     assert empty_response.status_code == 200, empty_response.text
@@ -388,7 +388,7 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
     stable_viewer = stable_viewer_response.json()
     integer_viewer = integer_viewer_response.json()
     assert integer_viewer == stable_viewer
-    assert stable_viewer["schema_version"] == "frisket.evidence_viewer.v1"
+    assert stable_viewer["schema_version"] == "frisket.citation_viewer.v1"
     assert stable_viewer["link"]["stable_id"] == link["stable_id"]
     assert stable_viewer["link"]["status"] == "active"
     assert stable_viewer["link"]["producer"]["schema_version"] == (
@@ -406,7 +406,7 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
     assert before_counts == after_counts
     assert [
         row["status"]
-        for row in project.db.execute("SELECT status FROM evidence_links ORDER BY id")
+        for row in project.db.execute("SELECT status FROM citations ORDER BY id")
     ] == ["active", "active"]
 
     edit_result = run_action_spec(
@@ -430,14 +430,14 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
     assert edit_result.status == "completed"
 
     active_after_edit = client.get(
-        f"/api/projects/{project_id}/cells/{row_id}/{columns['output']}/evidence"
+        f"/api/projects/{project_id}/cells/{row_id}/{columns['output']}/citations"
     )
     stale_after_edit = client.get(
-        f"/api/projects/{project_id}/cells/{row_id}/{columns['output']}/evidence",
+        f"/api/projects/{project_id}/cells/{row_id}/{columns['output']}/citations",
         params={"include_stale": "1"},
     )
     stale_viewer_response = client.get(
-        f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+        f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
     )
 
     assert active_after_edit.status_code == 200, active_after_edit.text
@@ -461,18 +461,18 @@ def test_http_evidence_viewer_missing_refs_are_typed_404(client) -> None:
     ]
 
     missing_link = client.get(
-        f"/api/projects/{project_id}/evidence/links/evidence_link:missing/viewer"
+        f"/api/projects/{project_id}/citations/evidence_link:missing/viewer"
     )
     missing_project = client.get(
-        "/api/projects/missing-project/evidence/links/evidence_link:missing/viewer"
+        "/api/projects/missing-project/citations/evidence_link:missing/viewer"
     )
 
     assert missing_link.status_code == 404
     error = ActionError.model_validate(missing_link.json())
     assert error.schema_version == "frisket.action_error.v1"
-    assert error.code == "evidence_link_not_found"
-    assert error.field == "evidence_link_id"
-    assert error.details["evidence_link_id"] == "evidence_link:missing"
+    assert error.code == "citation_not_found"
+    assert error.field == "citation_id"
+    assert error.details["citation_id"] == "evidence_link:missing"
 
     assert missing_project.status_code == 404
     project_error = ActionError.model_validate(missing_project.json()["detail"])

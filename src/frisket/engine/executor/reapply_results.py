@@ -28,11 +28,11 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 
 def _copy_citations(project, op_id: int, sheet_id: int) -> None:
     """Copy link ownership, not source spans or per-cell receipt payloads."""
-    from frisket.engine.store.evidence import copy_citations
+    from frisket.engine.store.citations import copy_citations
 
     links = project.db.execute(
         "SELECT link.id,copy.row_id AS target_row_id,copy.column_id AS target_column_id "
-        "FROM copied_result_outcomes copy JOIN evidence_links link "
+        "FROM copied_result_outcomes copy JOIN citations link "
         "ON link.run_id=copy.source_run_id AND link.row_id=copy.source_row_id "
         "AND link.column_id=copy.source_column_id WHERE copy.op_id=? "
         "AND (link.op_id IS NULL OR link.op_id=(SELECT op_id FROM runs WHERE id=copy.source_run_id)) ORDER BY link.id",

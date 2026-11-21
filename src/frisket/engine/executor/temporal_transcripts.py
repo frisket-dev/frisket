@@ -23,7 +23,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_artifact_timeline,
     root_clock_extent,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
@@ -82,7 +82,7 @@ def _candidate_payload(
     row_id: int,
 ) -> dict[str, Any] | None:
     link = project.db.execute(
-        "SELECT * FROM evidence_links WHERE id=? AND status='active' "
+        "SELECT * FROM citations WHERE id=? AND status='active' "
         "AND sheet_id=? AND row_id=?",
         (link_id, sheet_id, row_id),
     ).fetchone()
@@ -190,9 +190,9 @@ def _candidate_payload(
         return None
 
     rows = project.db.execute(
-        "SELECT sp.*, els.rank FROM evidence_link_spans els "
+        "SELECT sp.*, els.rank FROM citation_spans els "
         "JOIN source_spans sp ON sp.id=els.span_id "
-        "WHERE els.link_id=? ORDER BY els.rank, sp.id",
+        "WHERE els.citation_id=? ORDER BY els.rank, sp.id",
         (link_id,),
     ).fetchall()
     if not rows or any(int(row["artifact_id"]) != artifact_id for row in rows):
@@ -309,8 +309,8 @@ def resolve_timestamped_transcript(
         artifact_filter = " AND sp.artifact_id=?"
         params.append(int(artifact_id))
     rows = project.db.execute(
-        "SELECT DISTINCT el.id, sp.artifact_id FROM evidence_links el "
-        "JOIN evidence_link_spans els ON els.link_id=el.id "
+        "SELECT DISTINCT el.id, sp.artifact_id FROM citations el "
+        "JOIN citation_spans els ON els.citation_id=el.id "
         "JOIN source_spans sp ON sp.id=els.span_id "
         "WHERE el.status='active' AND el.sheet_id=? AND el.row_id=? "
         "AND el.column_id=? "
@@ -588,7 +588,7 @@ def transcript_snapshot_by_identity(
         (artifact_stable_id,),
     ).fetchone()
     link = project.db.execute(
-        "SELECT id FROM evidence_links WHERE stable_id=?",
+        "SELECT id FROM citations WHERE stable_id=?",
         (evidence_link_stable_id,),
     ).fetchone()
     if artifact is None or link is None:

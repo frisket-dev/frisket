@@ -15,15 +15,15 @@ const linkSummary = {
   export_ref: 'evidence-link:11',
   status: 'active',
   role: 'support',
-  evidence_kind: 'source',
+  citation_kind: 'source',
   span_count: 1,
   artifact_count: 1,
   snippet: 'Ada',
-  viewer_href: '/api/projects/project/evidence/links/evidence-link-11/viewer',
+  viewer_href: '/api/projects/project/citations/evidence-link-11/viewer',
 };
 
 const cellFixture = {
-  schema_version: 'frisket.cell_evidence.v1',
+  schema_version: 'frisket.cell_citations.v1',
   sheet_id: 3,
   row_id: 7,
   column_id: 5,
@@ -89,14 +89,14 @@ const expectedAnnotations = {
 };
 
 const columnFixture = {
-  schema_version: 'frisket.column_evidence_batch.v1',
+  schema_version: 'frisket.column_citations_batch.v1',
   sheet_id: 3,
   column_id: 5,
   rows: [{ row_id: 7, links: [linkSummary] }],
 };
 
 const viewerFixture = {
-  schema_version: 'frisket.evidence_viewer.v1',
+  schema_version: 'frisket.citation_viewer.v1',
   link: {
     id: 11,
     stable_id: 'evidence-link-11',
@@ -209,7 +209,7 @@ describe('project evidence generated HTTP reads', () => {
     });
     const annotationQuery = new URL(requests[0], 'http://localhost').searchParams;
     expect(Object.fromEntries(annotationQuery)).toMatchObject({ start: '500', limit: '10', revision: '9', occurrence_id: '1:2' });
-    await api.getEvidenceViewer('owner', { textArtifactId: 22, textStart: 90000, textLimit: 16384, textRevision: 9, textSpanId: 'span:tail' });
+    await api.getCitationViewer('owner', { textArtifactId: 22, textStart: 90000, textLimit: 16384, textRevision: 9, textSpanId: 'span:tail' });
     const evidenceQuery = new URL(requests[1], 'http://localhost').searchParams;
     expect(Object.fromEntries(evidenceQuery)).toMatchObject({ text_artifact_id: '22', text_start: '90000', text_limit: '16384', text_revision: '9', text_span_id: 'span:tail' });
   });
@@ -225,19 +225,19 @@ describe('project evidence generated HTTP reads', () => {
     const options = { signal };
     const api = createProjectCitationsApi('evidence/project');
 
-    await expect(api.getCellEvidence('row/a', 'column/b', { includeStale: true, signal }))
+    await expect(api.getCellCitations('row/a', 'column/b', { includeStale: true, signal }))
       .resolves.toEqual(cellFixture);
     await expect(api.getTextAnnotations('row/a', 'column/b', options))
       .resolves.toEqual(expectedAnnotations);
-    await expect(api.getColumnEvidence('sheet/a', 'column/b', { rowIds: ['7', '8'], signal }))
+    await expect(api.getColumnCitations('sheet/a', 'column/b', { rowIds: ['7', '8'], signal }))
       .resolves.toEqual(columnFixture);
-    await expect(api.getEvidenceViewer('link/a', options)).resolves.toEqual(viewerFixture);
+    await expect(api.getCitationViewer('link/a', options)).resolves.toEqual(viewerFixture);
 
     expect(requests.map((request) => [request.input, request.init?.method])).toEqual([
-      ['/api/projects/evidence%2Fproject/cells/row%2Fa/column%2Fb/evidence?include_stale=1', 'GET'],
+      ['/api/projects/evidence%2Fproject/cells/row%2Fa/column%2Fb/citations?include_stale=1', 'GET'],
       ['/api/projects/evidence%2Fproject/cells/row%2Fa/column%2Fb/annotations', 'GET'],
-      ['/api/projects/evidence%2Fproject/sheets/sheet%2Fa/columns/column%2Fb/evidence?row_ids=7%2C8', 'GET'],
-      ['/api/projects/evidence%2Fproject/evidence/links/link%2Fa/viewer', 'GET'],
+      ['/api/projects/evidence%2Fproject/sheets/sheet%2Fa/columns/column%2Fb/citations?row_ids=7%2C8', 'GET'],
+      ['/api/projects/evidence%2Fproject/citations/link%2Fa/viewer', 'GET'],
     ]);
     requests.forEach((request) => {
       expect(request.init?.signal).toBe(signal);
@@ -248,7 +248,7 @@ describe('project evidence generated HTTP reads', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(viewerJsonLeavesFixture)));
     const api = createProjectCitationsApi('evidence-json-leaves');
 
-    await expect(api.getEvidenceViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
+    await expect(api.getCitationViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
   });
 
   it('adds current-passage location only when the caller explicitly requests it', async () => {
@@ -259,12 +259,12 @@ describe('project evidence generated HTTP reads', () => {
     }));
     const api = createProjectCitationsApi('evidence/project');
 
-    await api.getEvidenceViewer('link/a');
-    await api.getEvidenceViewer('link/a', { locateCurrent: true });
+    await api.getCitationViewer('link/a');
+    await api.getCitationViewer('link/a', { locateCurrent: true });
 
     expect(requests).toEqual([
-      '/api/projects/evidence%2Fproject/evidence/links/link%2Fa/viewer',
-      '/api/projects/evidence%2Fproject/evidence/links/link%2Fa/viewer?locate_current=true',
+      '/api/projects/evidence%2Fproject/citations/link%2Fa/viewer',
+      '/api/projects/evidence%2Fproject/citations/link%2Fa/viewer?locate_current=true',
     ]);
   });
 
@@ -355,16 +355,16 @@ describe('project evidence generated HTTP reads', () => {
         },
       ],
     });
-    await expect(api.getCellEvidence('7', '5')).resolves.toEqual(scalarCellValueFixture);
-    await expect(api.getColumnEvidence('3', '5', { rowIds: ['7'] })).resolves.toEqual(columnFixture);
-    await expect(api.getEvidenceViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
+    await expect(api.getCellCitations('7', '5')).resolves.toEqual(scalarCellValueFixture);
+    await expect(api.getColumnCitations('3', '5', { rowIds: ['7'] })).resolves.toEqual(columnFixture);
+    await expect(api.getCitationViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
   });
 
   it('preserves scalar cell-evidence JSON leaves through RealApi', async () => {
     const real = await import('../../src/api/real');
     const projectApi = real.createProjectApi('evidence-scalar-leaf');
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(scalarCellValueFixture)));
-    await expect(projectApi.getCellEvidence('7', '5'))
+    await expect(projectApi.getCellCitations('7', '5'))
       .resolves.toEqual(scalarCellValueFixture);
   });
 
@@ -374,27 +374,27 @@ describe('project evidence generated HTTP reads', () => {
     const responses = [annotationsFixture, cellFixture, columnFixture, viewerFixture];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
     await expect(projectApi.getTextAnnotations('7', '5')).resolves.toEqual(expectedAnnotations);
-    await expect(projectApi.getCellEvidence('7', '5', { includeStale: true }))
+    await expect(projectApi.getCellCitations('7', '5', { includeStale: true }))
       .resolves.toEqual(cellFixture);
-    await expect(projectApi.getColumnEvidence('3', '5', { rowIds: ['7'] }))
+    await expect(projectApi.getColumnCitations('3', '5', { rowIds: ['7'] }))
       .resolves.toEqual(columnFixture);
-    await expect(projectApi.getEvidenceViewer('evidence-link-11'))
+    await expect(projectApi.getCitationViewer('evidence-link-11'))
       .resolves.toEqual(viewerFixture);
 
     const errorPayload = {
       schema_version: 'frisket.action_error.v1',
-      code: 'evidence_not_found',
-      message: 'Evidence link is missing',
+      code: 'citation_not_found',
+      message: 'Citation is missing',
       field: null,
-      details: { evidence_link_id: 'missing' },
+      details: { citation_id: 'missing' },
     };
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(errorPayload, 404)));
-    await expect(projectApi.getEvidenceViewer('missing')).rejects.toMatchObject({
+    await expect(projectApi.getCitationViewer('missing')).rejects.toMatchObject({
       name: 'ApiError',
       status: 404,
-      message: 'Evidence link is missing',
-      code: 'evidence_not_found',
-      details: { evidence_link_id: 'missing' },
+      message: 'Citation is missing',
+      code: 'citation_not_found',
+      details: { citation_id: 'missing' },
     });
 
     const projectError = {
@@ -405,7 +405,7 @@ describe('project evidence generated HTTP reads', () => {
       },
     };
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectError, 404)));
-    await expect(projectApi.getCellEvidence('7', '5')).rejects.toMatchObject({
+    await expect(projectApi.getCellCitations('7', '5')).rejects.toMatchObject({
       name: 'ApiError',
       status: 404,
       message: 'Project is missing',

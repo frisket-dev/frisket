@@ -21,7 +21,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_timeline,
     write_rate1_timeline_segment,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_artifact,
@@ -493,7 +493,7 @@ def test_marked_transcript_evidence_requires_positive_run_identity(
     # Model a host/hand-created link that carries the clean-cutover marker
     # and valid spans/value identity but omits a real producing run.
     project.db.execute(
-        "UPDATE evidence_links SET run_id=? WHERE id=?",
+        "UPDATE citations SET run_id=? WHERE id=?",
         (invalid_run_id, link["id"]),
     )
     project.db.commit()
@@ -526,7 +526,7 @@ def test_timestamped_transcript_rejects_malformed_or_out_of_segment_words(
     project = make_project("invalid-transcript-words")
     source, transcript_column_id, link = _seed_source(project)
     span_id = project.db.execute(
-        "SELECT span_id FROM evidence_link_spans WHERE link_id=? ORDER BY rank LIMIT 1",
+        "SELECT span_id FROM citation_spans WHERE citation_id=? ORDER BY rank LIMIT 1",
         (link["id"],),
     ).fetchone()[0]
     project.db.execute(

@@ -77,10 +77,10 @@ def prepared_source_readiness_ctes(*, scope_relation: str, schema: str = "") -> 
        AND source_span.span_kind='page'
        AND source_span.page_start IS prepared.page_number
        AND source_span.page_end IS prepared.page_number
-      JOIN {prefix}evidence_link_spans AS source_linked
+      JOIN {prefix}citation_spans AS source_linked
         ON source_linked.span_id=source_span.id
-      JOIN {prefix}evidence_links AS source_link
-        ON source_link.id=source_linked.link_id
+      JOIN {prefix}citations AS source_link
+        ON source_link.id=source_linked.citation_id
        AND source_link.status='active'
        AND source_link.link_role='primary_support'
        AND source_link.subject_kind='cell_value'

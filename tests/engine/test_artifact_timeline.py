@@ -27,7 +27,7 @@ from frisket.engine.store.artifact_timeline import (
     validate_timeline_anchor,
     write_rate1_timeline_segment,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 from frisket.engine.store.transactions import write_transaction
 
@@ -552,7 +552,7 @@ def test_media_ensure_rejects_duplicate_stable_id_without_partial_commit(
 def test_generic_artifact_metadata_merge_cannot_replace_timeline_identity(
     make_project,
 ) -> None:
-    from frisket.engine.store.evidence import merge_artifact_metadata
+    from frisket.engine.store.citations import merge_artifact_metadata
 
     project = make_project("timeline-metadata-guard")
     artifact = _artifact(project, "source", 10_000)

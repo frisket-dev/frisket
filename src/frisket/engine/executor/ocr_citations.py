@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     get_source_artifact,
     mark_citations_stale_for_cell_refs,
     merge_artifact_metadata,
@@ -181,7 +181,7 @@ def write_ocr_citations(
             continue
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='media_ocr_grounding' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()

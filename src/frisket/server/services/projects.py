@@ -42,7 +42,7 @@ from frisket.engine.store.sheet_lifecycle import (
 )
 from frisket.features.graph.sheet_graph import sheet_materialized_kind
 from frisket.engine.store.document_text import document_text_column_ids_by_sheet
-from frisket.engine.store.evidence import sheet_cited_column_ids
+from frisket.engine.store.citations import sheet_cited_column_ids
 from frisket.engine.store.lineage import build_lineage_dag
 from frisket.engine.store.text_annotations import annotated_text_column_ids
 from frisket.engine.store.staleness import compute_sync_states

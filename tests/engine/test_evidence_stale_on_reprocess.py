@@ -9,7 +9,7 @@ import pytest
 from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,

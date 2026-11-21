@@ -50,28 +50,26 @@ def test_reapplied_timestamped_transcript_retains_temporal_authority(
     )
     assert (
         project.db.execute(
-            "SELECT count(*) FROM evidence_links WHERE column_id=? AND status='active'",
+            "SELECT count(*) FROM citations WHERE column_id=? AND status='active'",
             (target["id"],),
         ).fetchone()[0]
         == 1
     )
     link = project.db.execute(
-        "SELECT * FROM evidence_links WHERE column_id=?", (target["id"],)
+        "SELECT * FROM citations WHERE column_id=?", (target["id"],)
     ).fetchone()
     if change == "owner":
         project.db.execute(
-            "UPDATE evidence_links SET op_id=(SELECT op_id FROM runs WHERE id=?) WHERE id=?",
+            "UPDATE citations SET op_id=(SELECT op_id FROM runs WHERE id=?) WHERE id=?",
             (run_id, link["id"]),
         )
     elif change == "run":
-        project.db.execute(
-            "UPDATE evidence_links SET run_id=NULL WHERE id=?", (link["id"],)
-        )
+        project.db.execute("UPDATE citations SET run_id=NULL WHERE id=?", (link["id"],))
     elif change == "subject":
         ref = json.loads(link["subject_ref_json"])
         ref["retained_result"]["row_id"] += 1
         project.db.execute(
-            "UPDATE evidence_links SET subject_ref_json=? WHERE id=?",
+            "UPDATE citations SET subject_ref_json=? WHERE id=?",
             (json.dumps(ref), link["id"]),
         )
     elif change == "source_undo":

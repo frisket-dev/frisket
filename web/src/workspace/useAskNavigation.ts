@@ -37,8 +37,8 @@ export function useAskNavigation(
   const open = useCallback((citation: AskCitation) => {
     const target = citation.target;
     if (!target || target.kind === 'web') return;
-    if (target.kind === 'evidence') {
-      commands.openCitationViewer(target.evidence_link_id, 'modalOrPeek', {
+    if (target.kind === 'cell_citation') {
+      commands.openCitationViewer(target.citation_id, 'modalOrPeek', {
         scopeSpanId: target.span_id,
         scopeSpanIds: target.span_ids,
         highlight: citation.status === 'current',

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     _text_hash,
     record_citation,
     record_source_artifact,

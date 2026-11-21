@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     CITATION_RUN_GAP_TOLERANCE_MS,
     citation_temporal_runs,
     record_citation,
@@ -265,10 +265,10 @@ def test_viewer_payload_attaches_run_index_and_clip_urls(project: Project) -> No
     assert len(runs) == 2
     link_stable_id = seeded["link"]["stable_id"]
     assert runs[0]["clip_url"] == (
-        f"/api/projects/proj/evidence/links/{link_stable_id}/runs/0/clip"
+        f"/api/projects/proj/citations/{link_stable_id}/runs/0/clip"
     )
     assert runs[1]["clip_url"] == (
-        f"/api/projects/proj/evidence/links/{link_stable_id}/runs/1/clip"
+        f"/api/projects/proj/citations/{link_stable_id}/runs/1/clip"
     )
 
 
@@ -287,7 +287,7 @@ def test_run_clip_endpoint_streams_a_real_ffmpeg_cut_per_run(tmp_path: Path) -> 
     link_id = seeded["link"]["stable_id"]
     project.close()
 
-    run0 = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/0/clip")
+    run0 = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/0/clip")
     assert run0.status_code == 200, run0.text
     assert run0.headers["content-type"] == "audio/wav"
     assert "attachment" in run0.headers["content-disposition"]
@@ -296,7 +296,7 @@ def test_run_clip_endpoint_streams_a_real_ffmpeg_cut_per_run(tmp_path: Path) -> 
         seconds0 = clipped.getnframes() / clipped.getframerate()
     assert abs(seconds0 - 3.5) < 0.1
 
-    run1 = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/1/clip")
+    run1 = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/1/clip")
     assert run1.status_code == 200, run1.text
     # run 1 is a single 1000ms span; padded -> 2.0s.
     with wave.open(io.BytesIO(run1.content)) as clipped:
@@ -318,7 +318,7 @@ def test_run_clip_endpoint_honors_pad_ms(tmp_path: Path) -> None:
     project.close()
 
     response = client.get(
-        f"/api/projects/{pid}/evidence/links/{link_id}/runs/1/clip",
+        f"/api/projects/{pid}/citations/{link_id}/runs/1/clip",
         params={"pad_ms": 0},
     )
     assert response.status_code == 200, response.text
@@ -337,7 +337,7 @@ def test_run_clip_endpoint_404s_unknown_run_index(tmp_path: Path) -> None:
     link_id = seeded["link"]["stable_id"]
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/2/clip")
+    response = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/2/clip")
 
     assert response.status_code == 404
     assert response.json()["code"] == "run_not_found"
@@ -347,11 +347,11 @@ def test_run_clip_endpoint_404s_unknown_link(tmp_path: Path) -> None:
     client, pid, _ws = _client_and_project(tmp_path)
 
     response = client.get(
-        f"/api/projects/{pid}/evidence/links/evidence_link:does-not-exist/runs/0/clip"
+        f"/api/projects/{pid}/citations/evidence_link:does-not-exist/runs/0/clip"
     )
 
     assert response.status_code == 404
-    assert response.json()["code"] == "evidence_link_not_found"
+    assert response.json()["code"] == "citation_not_found"
 
 
 def test_run_clip_endpoint_404s_when_blob_missing_from_disk(tmp_path: Path) -> None:
@@ -364,7 +364,7 @@ def test_run_clip_endpoint_404s_when_blob_missing_from_disk(tmp_path: Path) -> N
     link_id = seeded["link"]["stable_id"]
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/0/clip")
+    response = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/0/clip")
 
     assert response.status_code == 404
     assert response.json()["code"] == "blob_missing"

@@ -12,7 +12,7 @@ from frisket.engine.runner.review import (
     set_review_run_status,
 )
 from frisket.engine.store.cell_reference import citation_subject_ref
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     list_row_citations,
     resolve_citation_viewer,

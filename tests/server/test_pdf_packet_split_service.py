@@ -21,7 +21,7 @@ from frisket.contracts.http.pdf_packet_splits import (
 )
 from frisket.engine.pdf_render import PdfRenderResult
 from frisket.engine.executor.table_preview import TablePreviewResult
-from frisket.engine.store.evidence import resolve_citation_viewer
+from frisket.engine.store.citations import resolve_citation_viewer
 from frisket.engine.store.cell_reference import citation_subject_ref
 from frisket.engine.store.ocr_word_stream import (
     resolve_current_ocr_citation,
@@ -436,12 +436,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     sheet_id = started.sheet_id
     assert project.row_count(sheet_id) == 2
     links = project.db.execute(
-        "SELECT link_role FROM evidence_links WHERE sheet_id=? ORDER BY id", (sheet_id,)
+        "SELECT link_role FROM citations WHERE sheet_id=? ORDER BY id", (sheet_id,)
     ).fetchall()
     assert [row["link_role"] for row in links].count("source_provenance") == 2
     assert [row["link_role"] for row in links].count("media_ocr_grounding") == 2
     for link in project.db.execute(
-        "SELECT row_id,column_id,subject_ref_json FROM evidence_links WHERE sheet_id=?",
+        "SELECT row_id,column_id,subject_ref_json FROM citations WHERE sheet_id=?",
         (sheet_id,),
     ):
         _, refs = project.get_values_with_refs(
@@ -505,7 +505,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     assert second_summary["snippet"] == "OCR page 4"
 
     source_links = project.db.execute(
-        "SELECT id FROM evidence_links WHERE sheet_id=? "
+        "SELECT id FROM citations WHERE sheet_id=? "
         "AND link_role='source_provenance' ORDER BY row_id",
         (sheet_id,),
     ).fetchall()
@@ -931,7 +931,7 @@ def test_packet_commit_rolls_back_source_and_retains_failed_journal(
     assert (
         project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 0
     )
-    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 0
     assert (
         project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
     )

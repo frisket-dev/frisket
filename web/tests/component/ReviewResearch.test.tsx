@@ -29,7 +29,7 @@ const bundle: ReviewBundle = {
   id: '7:1', runId: '7', sourceId: '7', copiedChangeId: null, rowId: '1', sheetId: '2', sheetName: 'Companies', rowIndex: 0,
   actionKind: 'research.answer', actionName: 'Agent Research', model: 'test',
   confidence: null, source: {}, context: '', fields: [answer, source],
-  evidence: [], items: [answer, source],
+  supportingColumns: [], items: [answer, source],
 };
 
 it('shows renamed historical companion sources before trace loading and after failure', async () => {

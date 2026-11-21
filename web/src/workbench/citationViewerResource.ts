@@ -22,7 +22,7 @@ export function useCitationViewerResource(
   const subscribe = useCallback((listener: () => void) => {
     if (key === null || linkId === null) return () => {};
     return cache.subscribe(linkApi, key, listener, async () => ({
-      status: 'ready', payload: await linkApi.getEvidenceViewer(linkId),
+      status: 'ready', payload: await linkApi.getCitationViewer(linkId),
     }));
   }, [key, linkApi, linkId]);
   const getSnapshot = useCallback(
