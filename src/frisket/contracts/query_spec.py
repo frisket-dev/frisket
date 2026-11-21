@@ -281,7 +281,7 @@ def _normalize_embedding_similarity_query(
     if anchor_kind not in allowed:
         if allow_row_cell:
             raise ValueError(
-                "embedding_similarity lens anchor must be a row, row_cell, or "
+                "embedding_similarity view anchor must be a row, row_cell, or "
                 "manual_text_query; vector_ref is not re-resolvable"
             )
         raise ValueError(
