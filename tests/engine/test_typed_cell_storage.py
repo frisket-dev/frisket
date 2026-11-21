@@ -17,7 +17,7 @@ from frisket.engine.store.cell_writes import (
     insert_edits,
 )
 from frisket.engine.store.current_cells import register_current_cell_functions
-from frisket.engine.store.op_log import append_change
+from frisket.engine.store.op_log import append_change_in_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
@@ -36,6 +36,7 @@ from frisket.upgrades.project.typed_storage_migration import migrate_legacy_json
 from frisket.search import drain_index, search_project
 from frisket.search_index import index_needs_work
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
+from frisket.engine.store.transactions import write_transaction
 
 
 def _database() -> sqlite3.Connection:
@@ -319,7 +320,7 @@ def test_project_open_reads_migrated_surrogate_as_replacement_text(tmp_path) -> 
 def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
     db = _database()
     db.execute("BEGIN")
-    source_op = append_change(_Project(db), "source.write", commit=False)
+    source_op = append_change_in_transaction(_Project(db), "source.write")
     producer_id = create_base_cell_producer(
         db, stage_id=f"op:{source_op}", op_id=source_op
     )
@@ -328,7 +329,7 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
         producer_id=producer_id,
         cells=[BaseCellWrite(100, 10, "0012"), BaseCellWrite(101, 10, 7)],
     )
-    edit_op = append_change(_Project(db), "edit", commit=False)
+    edit_op = append_change_in_transaction(_Project(db), "edit")
     insert_edits(db, op_id=edit_op, edits=[EditCellWrite(101, 10, None)])
 
     rows = db.execute(
@@ -423,14 +424,15 @@ def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_ra
         total_rows=2,
     )
     authority = run_writer_authority_fixture(project, run, output_column_ids={column})
-    ResultGenerationStore(project).declare(
-        run,
-        column,
-        output_role="value",
-        compatibility_key="test",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run,
+            column,
+            output_role="value",
+            compatibility_key="test",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     # legacy_invalid payloads come only from writers older than the typed
     # value codec; current writers cannot store them.
     with project.db:

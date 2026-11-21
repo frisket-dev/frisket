@@ -7,7 +7,7 @@ from typing import Any
 
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.changes import start_change
-from frisket.engine.store.op_log import append_change
+from frisket.engine.store.op_log import append_change_in_transaction
 from frisket.engine.store.structural_changes import note_row_membership_change
 from frisket.engine.store.transactions import write_transaction
 
@@ -109,13 +109,12 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
         if sheet is None:
             raise SheetDeleteNotFound(f"no sheet {sheet_id}")
         require_import_sheet_write(project.db, sheet_id)
-        op_id = append_change(
+        op_id = append_change_in_transaction(
             project,
             "sheet.delete",
             {"sheet_id": sheet_id},
             label=f"delete sheet {sheet['name']}",
             undo_info={"deleted_sheets": [sheet_id]},
-            commit=False,
         )
         start_change(project.db, op_id)
         project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))

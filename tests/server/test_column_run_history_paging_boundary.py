@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from frisket.server.run_payloads import column_run_provenance_payload
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _assert_no_recipe_keys(value: object) -> None:
@@ -71,9 +72,11 @@ def _seed_column_run_history(
             ],
         )
         RunResultStore(project).finish_run(run_id)
-        RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
         run_ids.append(run_id)
-    RunResultStore(project).point_column_at_run(op_id, topic_col, run_ids[1])
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, topic_col, run_ids[1])
     return client, project_id, topic_col, sheet_id, run_ids
 
 

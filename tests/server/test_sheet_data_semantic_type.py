@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
+from frisket.engine.store.transactions import write_transaction
 
 
 def _client(tmp_path) -> TestClient:
@@ -43,7 +44,10 @@ def test_data_endpoint_carries_semantic_type_for_a_marked_column(tmp_path):
     assert cols_before["name"]["semantic_type"] is None
 
     project = client.app.state.workspace.get(pid)
-    project.set_column_semantic_type(cols_before["mentions"]["id"], "entity_mentions")
+    with write_transaction(project.db):
+        project.set_column_semantic_type(
+            cols_before["mentions"]["id"], "entity_mentions"
+        )
 
     cols_after = _cols(client, pid, sheet_id)
     assert cols_after["mentions"]["semantic_type"] == "entity_mentions"

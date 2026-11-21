@@ -1356,11 +1356,10 @@ def instance_principal(project: Any) -> str:
     )
     cached = project.get_meta(INSTANCE_PRINCIPAL_META_KEY)
     if cached != principal:
-        project.set_meta(
-            INSTANCE_PRINCIPAL_META_KEY,
-            principal,
-            commit=not project.db.in_transaction,
-        )
+        if project.db.in_transaction:
+            project.set_meta_in_transaction(INSTANCE_PRINCIPAL_META_KEY, principal)
+        else:
+            project.set_meta(INSTANCE_PRINCIPAL_META_KEY, principal)
     return principal
 
 

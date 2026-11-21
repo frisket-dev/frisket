@@ -19,6 +19,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-media-to-markdown"
 HTML = (
@@ -316,7 +317,8 @@ def _mutate_markdown_output_for_replay(project: Project, receipt_id: str) -> Non
         ],
     )
     store.finish_run(run_id)
-    store.point_column_at_run(op_id, ref["column_id"], run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, ref["column_id"], run_id)
     project.db.commit()
 
 

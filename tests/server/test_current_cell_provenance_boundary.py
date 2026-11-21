@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_project(
@@ -80,7 +81,8 @@ def _seed_project(
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
     edit_op_id = project.apply_edits(
         [
             {

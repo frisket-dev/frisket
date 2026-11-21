@@ -53,14 +53,15 @@ def _publish(project, sheet, source, column, row, blob, text):
     run = runs.start_run(op, sheet, "media.ocr", row_ids=[row], total_rows=1)
     auth = run_writer_authority_fixture(project, run, output_column_ids={column})
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run,
-        column,
-        output_role="text",
-        compatibility_key="sha256:test-text",
-        write_mode="create",
-        claim_token=auth.claim_token,
-    )
+    with write_transaction(project.db):
+        generations.declare(
+            run,
+            column,
+            output_role="text",
+            compatibility_key="sha256:test-text",
+            write_mode="create",
+            claim_token=auth.claim_token,
+        )
     runs.write_results(
         run,
         [
@@ -73,11 +74,14 @@ def _publish(project, sheet, source, column, row, blob, text):
         ],
         **auth.kwargs(),
     )
-    generations.seal(
-        run, [column], claim_token=auth.claim_token, terminal_disposition="completed"
-    )
-    runs.point_column_at_run(op, column, run)
     with write_transaction(project.db):
+        generations.seal(
+            run,
+            [column],
+            claim_token=auth.claim_token,
+            terminal_disposition="completed",
+        )
+        runs.point_column_at_run(op, column, run)
         OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     return ref.ref_id
 
@@ -248,14 +252,15 @@ def test_failed_result_facts_survive_adoption(tmp_path):
         run = runs.start_run(op, sheet, "media.ocr", row_ids=[rows[1]], total_rows=1)
         auth = run_writer_authority_fixture(project, run, output_column_ids={right})
         generations = ResultGenerationStore(project)
-        generations.declare(
-            run,
-            right,
-            output_role="text",
-            compatibility_key="sha256:test-text",
-            write_mode="create",
-            claim_token=auth.claim_token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run,
+                right,
+                output_role="text",
+                compatibility_key="sha256:test-text",
+                write_mode="create",
+                claim_token=auth.claim_token,
+            )
         runs.write_results(
             run,
             [
@@ -270,9 +275,13 @@ def test_failed_result_facts_survive_adoption(tmp_path):
             ],
             **auth.kwargs(),
         )
-        generations.seal(
-            run, [right], claim_token=auth.claim_token, terminal_disposition="failed"
-        )
+        with write_transaction(generations.db):
+            generations.seal(
+                run,
+                [right],
+                claim_token=auth.claim_token,
+                terminal_disposition="failed",
+            )
         with write_transaction(project.db):
             OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
         before = [

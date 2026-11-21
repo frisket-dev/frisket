@@ -233,7 +233,7 @@ def write_preparation_policy(project, policy: PreparationPolicy) -> None:
 
     encoded = preparation_policy_json(policy)
     with project.transaction_scope():
-        project.set_meta(PREPARATION_POLICY_META_KEY, encoded, commit=False)
+        project.set_meta_in_transaction(PREPARATION_POLICY_META_KEY, encoded)
         enqueue_dirty_scope(project.db)
 
 
@@ -278,7 +278,7 @@ def write_preparation_policy_patch(
             separators=(",", ":"),
             sort_keys=True,
         )
-        project.set_meta(PREPARATION_POLICY_META_KEY, encoded, commit=False)
+        project.set_meta_in_transaction(PREPARATION_POLICY_META_KEY, encoded)
         enqueue_dirty_scope(project.db)
 
 

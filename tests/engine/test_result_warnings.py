@@ -27,6 +27,7 @@ from frisket.sdk.capture import _capture_result_warnings, capture_maprunner_fact
 from frisket.sdk.provenance import Provenance, build_receipt_from_provenance
 from helpers import run_writer_authority_fixture
 from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -47,14 +48,15 @@ def warning_run(make_project, request):
         project, run_id, output_column_ids={output_id}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output_id,
-        output_role="generated",
-        compatibility_key="sha256:text-warning-proof",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output_id,
+            output_role="generated",
+            compatibility_key="sha256:text-warning-proof",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     store.write_results(
         run_id,
         [
@@ -74,18 +76,20 @@ def warning_run(make_project, request):
         **authority.kwargs(),
     )
     if getattr(request, "param", True):
-        generations.seal(
-            run_id,
-            [output_id],
-            claim_token=authority.claim_token,
-            terminal_disposition="completed",
-        )
+        with write_transaction(generations.db):
+            generations.seal(
+                run_id,
+                [output_id],
+                claim_token=authority.claim_token,
+                terminal_disposition="completed",
+            )
         store.finish_run(
             run_id,
             writer_attempt_id=authority.writer_attempt_id,
             claim_token=authority.claim_token,
         )
-        store.point_column_at_run(op_id, output_id, run_id)
+        with write_transaction(store.db):
+            store.point_column_at_run(op_id, output_id, run_id)
     yield project, sheet_id, source_id, output_id, row_ids, run_id
 
 

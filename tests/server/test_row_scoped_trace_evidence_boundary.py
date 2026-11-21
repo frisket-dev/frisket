@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from frisket.operability.trace import trace_path
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.mark.parametrize(
@@ -123,7 +124,8 @@ def _seed_project(
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
 
     sidecar = trace_path(project.path, run_id)
     sidecar.parent.mkdir(parents=True, exist_ok=True)

@@ -465,10 +465,9 @@ def _mark_action_job_receipt_running(
     running = receipt.model_copy(update={"status": "running"})
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        updated = receipts.update_body_status(
+        updated = receipts.update_body_status_in_transaction(
             running,
             require_status="queued",
-            commit=False,
         )
         if not updated:
             project.db.rollback()
@@ -503,10 +502,9 @@ def _mark_action_job_receipt_queued_for_retry(
     queued = receipt.model_copy(update={"status": "queued"})
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        receipts.update_body_status(
+        receipts.update_body_status_in_transaction(
             queued,
             require_status="running",
-            commit=False,
         )
         project.db.commit()
     except Exception:
@@ -656,12 +654,11 @@ def reserve_queued_action_job_receipt(
                         field="idempotency_key",
                     )
                 if not pins:
-                    pinned = ReceiptStore(project).update_body_status(
+                    pinned = ReceiptStore(project).update_body_status_in_transaction(
                         previous.model_copy(
                             update={"inputs": [*previous.inputs, prepared_input]}
                         ),
                         require_status=previous.status,
-                        commit=False,
                     )
                     if not pinned:
                         raise RuntimeError("queued operation reservation changed")
@@ -912,10 +909,9 @@ def mark_action_job_enqueued(
             )
         )
         updated_receipt = receipt.model_copy(update={"evidence": supporting_records})
-        updated = receipts.update_body_status(
+        updated = receipts.update_body_status_in_transaction(
             updated_receipt,
             require_status=receipt.status,
-            commit=False,
         )
         if not updated:
             project.db.rollback()

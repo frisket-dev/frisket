@@ -13,7 +13,7 @@ from frisket.actions.cluster_types import ClusterOptions
 from frisket.ai.embeddings import backends as embedding_backends
 from frisket.ai.embeddings.analytics import encode_project_legacy_texts_async
 from frisket.engine.executor.embedding_batches import (
-    record_embedding_batch,
+    record_embedding_batch_in_transaction,
 )
 from frisket.engine.executor.map_rows_action import _TypedMapBatchProgram
 from frisket.engine.executor.value_cluster import (
@@ -153,12 +153,11 @@ class _ClusterEmbeddingBatch:
             **self.unit,
             **self.fence,
             payload=payload,
-            accrue=lambda _checkpoint: record_embedding_batch(
+            accrue=lambda _checkpoint: record_embedding_batch_in_transaction(
                 self.ctx,
                 self.model,
                 result,
                 texts,
-                commit=False,
                 identity_texts=self.texts,
             ),
         )

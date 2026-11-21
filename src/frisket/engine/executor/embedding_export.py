@@ -453,7 +453,7 @@ def _perform_index_export_in_txn(
         ],
         exports=artifact_refs,
     )
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
     for art in resolved.artifacts:
         resolved.deliveries.append(
             _deliver_export_artifact(Path(art.tmp_path), Path(art.path))

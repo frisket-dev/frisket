@@ -1343,7 +1343,7 @@ def test_source_file_edit_retires_pending_text(
             text_column_id=text_column,
         )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

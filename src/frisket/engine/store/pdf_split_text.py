@@ -89,7 +89,7 @@ def _text_owner_matches(db: Any, producer_id: int, parent_op_id: int) -> bool:
 def _start_preparation_change(
     project: Any, binding: PdfSplitTextBinding, prepared_ref_id: int
 ) -> tuple[int, int]:
-    op_id = project.append_change(
+    op_id = project.append_change_in_transaction(
         "pdf.prepare_text",
         {
             "import_op_id": binding.operation_id,
@@ -97,7 +97,6 @@ def _start_preparation_change(
             "prepared_ref_id": prepared_ref_id,
         },
         label="Prepare PDF text",
-        commit=False,
     )
     producer = create_base_cell_producer(
         project.db, stage_id=f"op:{op_id}", op_id=op_id

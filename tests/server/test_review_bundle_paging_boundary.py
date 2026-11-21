@@ -94,9 +94,12 @@ def _seed_review_history(client: TestClient) -> tuple[TestClient, str, list[int]
             ]
         )
     write_claimed_test_results(project, run_id, batch)
-    RunResultStore(project).point_column_at_run(op_id, risk_col, run_id)
-    RunResultStore(project).point_column_at_run(op_id, tone_col, run_id)
-    RunResultStore(project).point_column_at_run(op_id, justification_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, risk_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, tone_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, justification_col, run_id)
     RunResultStore(project).finish_run(run_id, "completed")
     return client, project_id, row_ids
 
@@ -203,7 +206,8 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
             }
         ],
     )
-    RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
     RunResultStore(project).finish_run(run_id, "completed")
 
     stored = project.db.execute(
@@ -416,7 +420,8 @@ def test_review_run_picker_includes_completed_results_of_running_runs(
         running_id,
         [{"row_id": row_ids[0], "column_id": risk_id, "value": "new"}],
     )
-    RunResultStore(project).point_column_at_run(op_id, risk_id, running_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, risk_id, running_id)
 
     while_running = client.get(f"/api/projects/{project_id}/review/runs")
     assert while_running.status_code == 200, while_running.text

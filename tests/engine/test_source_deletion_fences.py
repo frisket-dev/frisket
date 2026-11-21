@@ -222,14 +222,14 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
 
 def test_revert_source_column_creation_cancels_direct_consumer_only(make_project):
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_change
+    from frisket.engine.store.op_log import append_change_in_transaction
 
     project = make_project("column")
     sheet = project.add_sheet("data")
     source = project.add_column(sheet, "source")
     with write_transaction(project.db):
-        creator = append_change(
-            project, "create", undo_info={"created_columns": [source]}, commit=False
+        creator = append_change_in_transaction(
+            project, "create", undo_info={"created_columns": [source]}
         )
         start_change(project.db, creator)
     output = project.add_column(sheet, "answer", ai_generated=True)

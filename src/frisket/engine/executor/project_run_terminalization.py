@@ -994,7 +994,6 @@ def terminalize_project_run(
                     and json.loads(run["runner_spec"]).get("deferred_publication")
                     is not True
                 ),
-                commit=False,
             )
             if publication_refusal is not None:
                 # Fresh generations can have published earlier rows before a
@@ -1003,9 +1002,7 @@ def terminalize_project_run(
                 with generation_store.run_effect_key_table(
                     run_id, [binding.column_id for binding in declared_bindings]
                 ) as key_table:
-                    generation_store.rebuild_heads_from_key_table(
-                        key_table, commit=False
-                    )
+                    generation_store.rebuild_heads_from_key_table(key_table)
 
         deferred_publication = (
             json.loads(run["runner_spec"]).get("deferred_publication") is True
@@ -1063,7 +1060,7 @@ def terminalize_project_run(
         receipt_disposition: ReceiptDisposition
         if receipt_source_statuses is None:
             assert terminal_receipt is not None
-            receipts.insert_finished(terminal_receipt, commit=False)
+            receipts.insert_finished_in_transaction(terminal_receipt)
             receipt_disposition = "inserted"
         elif stored_receipt is None or stored_row is None:
             receipt_disposition = "missing"

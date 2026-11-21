@@ -110,9 +110,7 @@ def _sparse_head_rebuild_vm_work(project: Project, row_count: int) -> int:
     db.set_progress_handler(count_vm_work, 1_000)
     try:
         store = ResultGenerationStore(project)
-        assert store.rebuild_heads_from_key_table(key_table, commit=False) == len(
-            target_rows
-        )
+        assert store.rebuild_heads_from_key_table(key_table) == len(target_rows)
     finally:
         db.set_progress_handler(None, 0)
 

@@ -59,7 +59,8 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
             ],
         )
         RunResultStore(project).finish_run(run_id)
-        RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
         project.db.execute(
             "INSERT INTO receipts (id, run_id, action_kind, action_id, "
             "idempotency_key, params_hash, status, body) "

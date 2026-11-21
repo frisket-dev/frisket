@@ -83,18 +83,19 @@ class _Fixture:
             )
         generations = ResultGenerationStore(self.project)
         field = {"name": "label", "column_type": "text"}
-        generations.declare(
-            run_id,
-            self.col,
-            output_role="label",
-            compatibility_key=_compatibility_key(field=field),
-            write_mode=(
-                "replace_scope"
-                if generations.is_generation_managed(self.col)
-                else "create"
-            ),
-            claim_token=claim_token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                self.col,
+                output_role="label",
+                compatibility_key=_compatibility_key(field=field),
+                write_mode=(
+                    "replace_scope"
+                    if generations.is_generation_managed(self.col)
+                    else "create"
+                ),
+                claim_token=claim_token,
+            )
         authority = run_writer_authority_fixture(
             self.project, run_id, output_column_ids={self.col}
         )
@@ -112,12 +113,13 @@ class _Fixture:
             ],
             **authority.kwargs(),
         )
-        generations.seal(
-            run_id,
-            [self.col],
-            claim_token=claim_token,
-            terminal_disposition="completed",
-        )
+        with write_transaction(generations.db):
+            generations.seal(
+                run_id,
+                [self.col],
+                claim_token=claim_token,
+                terminal_disposition="completed",
+            )
         store.finish_run(run_id, **authority.terminal_kwargs())
         OutputColumnClaimStore(self.project).finish_current_writer(
             run_id=run_id,

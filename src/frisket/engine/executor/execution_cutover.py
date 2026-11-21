@@ -137,7 +137,6 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                     terminal_disposition=target,
                     allow_stale_output_name=True,
                     publish=False,
-                    commit=False,
                 )
                 # A wholly staged family never became the visible replacement.
                 # Retire its Change through the ordinary reversible history
@@ -159,8 +158,8 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                         f"run {run_id} has outputs without a receipt"
                     )
                 if run["status"] == "running":
-                    runs.finish_run(
-                        run_id, "cancelled", commit=False, rebuild_review_stats=False
+                    runs.finish_run_in_transaction(
+                        run_id, "cancelled", rebuild_review_stats=False
                     )
             else:
                 abandoned = db.execute(

@@ -353,7 +353,7 @@ def _materialize(
         # An older child without consumed identities cannot acquire invented
         # historical certainty merely because a later delta was backfilled.
         capture["incomplete"] = True
-    op_id = project.append_change(
+    op_id = project.append_change_in_transaction(
         "derive",
         {
             "from_sheet": sheet_id,
@@ -369,7 +369,6 @@ def _materialize(
             ],
         },
         label=f"semantic join {state['source']['name']} → {state['target']['name']}",
-        commit=False,
     )
     from frisket.engine.store.changes import ChangeStore, start_change
 
@@ -380,11 +379,10 @@ def _materialize(
     child_id = existing_child_id
     old_rows = []
     if child_id is None:
-        child_id = project.add_sheet(
+        child_id = project.add_sheet_in_transaction(
             state["child_name"],
             parent_sheet_id=sheet_id,
             parent_op_id=op_id,
-            commit=False,
             close_change=False,
         )
     else:
@@ -398,7 +396,9 @@ def _materialize(
         {col["name"]: col["id"] for col in project.columns(child_id)}
         if existing_child_id is not None
         else {
-            names[key]: project.add_column(child_id, names[key], type=typ, commit=False)
+            names[key]: project.add_column_in_transaction(
+                child_id, names[key], type=typ
+            )
             for key, typ in types.items()
         }
     )
@@ -411,13 +411,12 @@ def _materialize(
         {names[key]: data.get(rid) for key, data in values.items()} for rid in parents
     ]
     child_rows = (
-        project.add_rows(
+        project.add_rows_in_transaction(
             child_id,
             records,
             columns,
             parent_row_ids=parents,
             producer_id=producer_id,
-            commit=False,
         )
         if records
         else []
@@ -590,7 +589,6 @@ def finalize_semantic_join(
             claim_token=claim,
             terminal_disposition=terminal_status,
             publish=True,
-            commit=False,
         )
         op = project.db.execute(
             "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)

@@ -800,7 +800,7 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
     assert project.db.in_transaction
 
     with pytest.raises(RuntimeError, match="attempt_id changed"):
-        store.write_results(
+        store.write_results_in_transaction(
             run_id,
             [
                 {
@@ -816,17 +816,15 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
                 run_id,
                 attempt_id=attempt_b.attempt_id,
             ),
-            commit=False,
         )
 
     # The caller still owns a live transaction and can finish its unrelated
     # work.  Committing it must not resurrect the rejected sibling result.
     assert project.db.in_transaction
     terminal = _writer_authority(project, run_id, attempt_id=attempt_b.attempt_id)
-    store.finish_run(
+    store.finish_run_in_transaction(
         run_id,
         "completed",
-        commit=False,
         rebuild_review_stats=False,
         writer_attempt_id=terminal["writer_attempt_id"],
         claim_token=terminal["claim_token"],

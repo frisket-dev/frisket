@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from frisket.contracts.action import Receipt
@@ -419,19 +421,26 @@ def test_returned_fact_cannot_be_reparented_to_another_receipt(project):
     assert len(facts) == 1 and facts[0]["attempt_id"] == first.attempt_id
 
 
-def test_receipt_accounting_and_row_outcomes_can_share_callers_transaction(project):
+def test_receipt_accounting_joins_caller_transaction_and_row_outcomes_owns_its_own(
+    project,
+):
     _, route = _reserve(project)
     attempt = _mint(project)
     claim(project, attempt, claimless_direct_effect=True)
     batch = _batch(route)
     project.db.execute("BEGIN IMMEDIATE")
-    _write(project, attempt, batch, commit=False)
-    RunResultStore(project).write_receipt_row_outcomes(
-        "preview",
+    RunResultStore(project).write_returned_call_accounting_in_transaction(
+        None,
         batch,
+        receipt_id=attempt.receipt_id,
         writer_attempt_id=attempt.attempt_id,
-        commit=False,
     )
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).write_receipt_row_outcomes(
+            "preview",
+            batch,
+            writer_attempt_id=attempt.attempt_id,
+        )
     project.db.rollback()
     assert RunResultStore(project).model_calls() == []
     assert (

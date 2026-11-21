@@ -88,12 +88,11 @@ def test_result_write_renews_claim_inside_callers_transaction(
         project.db.commit()
 
         project.db.execute("BEGIN IMMEDIATE")
-        RunResultStore(project).write_results(
+        RunResultStore(project).write_results_in_transaction(
             run_id,
             [{"row_id": row_id, "column_id": output_column_id, "value": "one"}],
             writer_attempt_id="attempt_in_transaction_renewal",
             claim_token=claim_token,
-            commit=False,
         )
 
         lease = project.db.execute(

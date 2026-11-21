@@ -173,11 +173,10 @@ def reapply_results(project, project_id, bound):
                                 "output_column_exists",
                                 "A partial copy requires a compatible output column; choose a new column",
                             )
-                op_id = project.append_change(
+                op_id = project.append_change_in_transaction(
                     "run.reapply",
                     {"action_kind": "run.reapply", "source_run_id": source},
                     label="Reapply saved execution results",
-                    commit=False,
                 )
                 changes = ChangeStore(project)
                 changes.start(op_id)
@@ -185,14 +184,13 @@ def reapply_results(project, project_id, bound):
                 for field in fields:
                     target = preconditions[names[field.key]]
                     if target is None:
-                        target = project.add_column(
+                        target = project.add_column_in_transaction(
                             scope.sheet_id,
                             names[field.key],
                             type=field.column_type,
                             ai_generated=True,
                             format=field.format,
                             semantic_type=field.semantic_type,
-                            commit=False,
                         )
                         created.append(target)
                     else:
@@ -212,7 +210,6 @@ def reapply_results(project, project_id, bound):
                                     key,
                                     value,
                                     op_id=op_id,
-                                    commit=False,
                                 )
                     targets[field.key] = target
                 info = json.loads(

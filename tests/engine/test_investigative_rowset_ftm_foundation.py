@@ -75,7 +75,8 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
     edit_op_id = project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["age"], "value": 41}],
         label="correct age",
