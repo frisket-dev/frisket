@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from frisket.contracts.action import (
     project_transcription_engine_options,
@@ -127,7 +127,7 @@ async def transcription_execution_scope(
     if enabled and engine != "parakeet-tdt":
         raise RuntimeError(f"run-scoped transcription engine {engine!r} has no adapter")
     cancel = (ctx.extras or {}).get("cancelled")
-    should_cancel = (lambda: bool(cancel())) if callable(cancel) else None
+    should_cancel = cast(Callable[[], bool], cancel) if callable(cancel) else None
     async with execution_scope(
         enabled=enabled,
         spec=spec,
