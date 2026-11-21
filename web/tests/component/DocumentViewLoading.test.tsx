@@ -11,7 +11,7 @@ vi.mock('../../src/components/rowInspection/FieldValue', () => ({
   FieldValue: ({ value }: { value: unknown }) => <>{String(value ?? '')}</>,
 }));
 
-import type { SheetMeta } from '../../src/api/types';
+import type { Row, SheetMeta } from '../../src/api/types';
 import type { DocumentViewState } from '../../src/workspace/useWorkspaceChromeState';
 import { DocumentView } from '../../src/workbench/DocumentView';
 
@@ -31,6 +31,7 @@ const sheet: SheetMeta = {
   ],
   citedColumnIds: [],
   annotatedTextColumnIds: [],
+  documentTextColumnIds: [],
 };
 
 const state: DocumentViewState = {

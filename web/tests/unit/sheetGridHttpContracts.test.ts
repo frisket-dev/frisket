@@ -347,8 +347,8 @@ describe('sheet and grid HTTP contracts', () => {
     await realApi.locateSheetRow('7', '11', {
       parentRowId: '0',
       filter: { name: { contains: 'Ada' } },
-      sort: [{ columnId: '9', direction: 'desc' }],
-      rowIds: ['99', '100'],
+      sort: [{ column: '9', dir: 'desc' }],
+      rowIds: [99, 100],
     });
     const url = new URL(String(requests[0]), 'https://frisket.invalid');
     expect(url.pathname).toBe('/api/projects/tenant%2Fa%20%25%20hostile/sheets/7/rows/11/locate');
@@ -361,14 +361,14 @@ describe('sheet and grid HTTP contracts', () => {
     await realApi.locateSheetRow('7', '11', {
       parentRowId: '0',
       filter: { name: { contains: 'Ada' } },
-      sort: [{ columnId: '9', direction: 'desc' }],
+      sort: [{ column: '9', dir: 'desc' }],
     });
     const viewUrl = new URL(String(requests[1]), 'https://frisket.invalid');
     expect(JSON.parse(viewUrl.searchParams.get('filter') ?? '')).toEqual({
       name: { contains: 'Ada' },
     });
     expect(JSON.parse(viewUrl.searchParams.get('sort') ?? '')).toEqual([
-      { columnId: '9', direction: 'desc' },
+      { column: '9', dir: 'desc' },
     ]);
     expect(viewUrl.searchParams.has('row_ids')).toBe(false);
   });
