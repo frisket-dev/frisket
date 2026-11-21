@@ -449,29 +449,7 @@ class PdfSplitPreparationStore:
                 settings_hash,
             ),
         ).fetchone()
-        if row:
-            return json.loads(row[0])
-        # Older import previews omitted default false options from their hash.
-        # Reuse only when their recorded effective OCR parameters still match.
-        for candidate in self.db.execute(
-            "SELECT payload FROM pdf_ocr_cache WHERE sha256=? AND page=? AND engine=? ORDER BY rowid DESC",
-            (
-                target.blob_hash.removeprefix("sha256:"),
-                target.page_number,
-                target.ocr_action_params["engine"],
-            ),
-        ):
-            payload = json.loads(candidate[0])
-            recorded = payload.get("ocr_action_params")
-            if not isinstance(recorded, dict):
-                continue
-            params = OcrParams.model_validate(
-                {"source": "scratch", **recorded}
-            ).model_dump(mode="json")
-            params.pop("source")
-            if params == dict(target.ocr_action_params):
-                return payload
-        return None
+        return json.loads(row[0]) if row else None
 
     def claim(self, work_key: str, *, generation: str) -> bool:
         with self.db:
