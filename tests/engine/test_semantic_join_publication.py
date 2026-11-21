@@ -136,14 +136,14 @@ def test_actual_receipt_can_feed_match_reader(case):
     receipt = ReceiptStore(case.project).parsed_by_id(result.receipt_id)
     thresholds = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "semantic_join_thresholds"
     )
     assert thresholds["match_threshold"] == 0.7
     assert thresholds["confident_threshold"] == 0.85
     backend = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "semantic_join_embedding_backend"
     )
     assert backend["model"] == "fastembed/test"

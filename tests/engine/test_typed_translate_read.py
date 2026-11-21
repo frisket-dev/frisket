@@ -92,7 +92,7 @@ def test_local_translation_receipt_keeps_actual_pinned_artifact_without_rereadin
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     artifacts = [
         item
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_translate_artifact"
     ]
     assert len(artifacts) == 1

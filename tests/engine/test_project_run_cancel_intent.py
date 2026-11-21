@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.contracts.action import Receipt, ReceiptEvidence
+from frisket.contracts.action import Receipt, ReceiptRecord
 from frisket.engine.executor.project_run_terminalization import (
     ProjectRunTerminalizationResult,
 )
@@ -187,8 +187,8 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
                 action_kind="map.regex_extract",
                 run_id=run_id,
                 status="queued",
-                evidence=[
-                    ReceiptEvidence(
+                records=[
+                    ReceiptRecord(
                         ref={
                             "kind": "queued_action_run_prepared",
                             "queue_kind": "project.run",
@@ -355,8 +355,8 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
                 action_kind="map.regex_extract",
                 run_id=run_id,
                 status="queued",
-                evidence=[
-                    ReceiptEvidence(
+                records=[
+                    ReceiptRecord(
                         ref={
                             "kind": "queued_action_run_prepared",
                             "queue_kind": "project.run",

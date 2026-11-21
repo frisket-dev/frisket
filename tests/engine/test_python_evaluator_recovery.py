@@ -122,7 +122,7 @@ def test_worker_recovery_preserves_actual_code_evidence(
     expected_hash = "sha256:" + hashlib.sha256(actual_code.encode()).hexdigest()
     assert [
         item.ref["code_hash"]
-        for item in before.evidence
+        for item in before.records
         if item.ref.get("kind") == "map_python_code"
     ] == [expected_hash]
 
@@ -147,7 +147,7 @@ def test_worker_recovery_preserves_actual_code_evidence(
     ] == rows_before
     assert [
         item.ref["code_hash"]
-        for item in after.evidence
+        for item in after.records
         if item.ref.get("kind") == "map_python_code"
     ] == [expected_hash]
     client.close()
@@ -269,7 +269,7 @@ def test_python_capability_does_not_replace_other_capability_provider_facts(
     assert successor.provider_use == receipt.provider_use
     code_evidence = [
         item.ref
-        for item in successor.evidence
+        for item in successor.records
         if item.ref.get("kind") == "map_python_code"
     ]
     assert len(code_evidence) == 1

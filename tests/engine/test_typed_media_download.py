@@ -107,8 +107,8 @@ def test_unaccepted_download_never_backfills_channels(
     assert list(project.get_values(sheet, columns["channel_id"]).values()) == [None]
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 0
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.evidence)
-    assert any(e.ref.get("kind") == "row_file_call" for e in receipt.evidence)
+    assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.records)
+    assert any(e.ref.get("kind") == "row_file_call" for e in receipt.records)
 
 
 @pytest.mark.parametrize(
@@ -201,7 +201,7 @@ def test_typed_download_publication_and_replay(
     assert result.status == expected_status, result.model_dump(mode="json")
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     occurrences = [
-        e.ref for e in receipt.evidence if e.ref.get("kind") == "row_file_output"
+        e.ref for e in receipt.records if e.ref.get("kind") == "row_file_output"
     ]
     main = next(e for e in occurrences if e["output_key"] == media_type)
     assert main["facts"]["url"] == calls[0][0]

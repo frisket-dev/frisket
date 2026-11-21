@@ -156,7 +156,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert result.outputs[0].ref["columns"] == {
         name: column["id"] for name, column in columns.items()
     }
-    assert any(item.ref["kind"] == "source_cell" for item in receipt.evidence)
+    assert any(item.ref["kind"] == "source_cell" for item in receipt.records)
 
 
 CASES = [

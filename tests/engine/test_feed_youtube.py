@@ -398,7 +398,7 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
     assert receipt["provider_use"][0]["download"] is False
     refs = [
         item["ref"]
-        for item in [*receipt["outputs"], *receipt["evidence"]]
+        for item in [*receipt["outputs"], *receipt["records"]]
         if isinstance(item, dict)
     ]
     assert {"source_poll_run", "source_poll_rows", "source_poll_cursor"} <= {

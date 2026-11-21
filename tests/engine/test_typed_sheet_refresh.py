@@ -113,7 +113,7 @@ def test_derived_argument_and_mutated_return_cannot_forge_refresh_receipt(make_p
         ).fetchone()[0]
     )
     assert receipt["inputs"][0]["ref"]["sheet_id"] == child_id
-    assert receipt["evidence"][0]["ref"]["refreshed_row_count"] == 3
+    assert receipt["records"][0]["ref"]["refreshed_row_count"] == 3
     snapshot = _snapshot(project)
     replay = run_typed_sheet_refresh_action(project, "p-ref", bound)
     assert replay.receipt_id == result.receipt_id

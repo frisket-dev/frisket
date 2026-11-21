@@ -195,7 +195,7 @@ def test_renamed_params_multiple_outputs_keep_exact_unit_and_column_association(
         len(
             [
                 item
-                for item in receipt.evidence
+                for item in receipt.records
                 if item.ref.get("kind") == "typed_hidden_output"
             ]
         )
@@ -540,7 +540,7 @@ def test_replay_checks_hidden_integrity_without_reexecuting_engine(source):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     hidden = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "typed_hidden_output"
     )
     project.db.execute(
@@ -611,10 +611,10 @@ def test_backfill_recovery_preserves_sidecar_and_successor_receipt(source, monke
     receipt = ReceiptStore(project).parsed_by_id(backfill.receipt_id)
     assert any(
         item.ref.get("kind") == "topic_segmentation_analysis"
-        for item in receipt.evidence
+        for item in receipt.records
     )
     assert any(
-        item.ref.get("kind") == "typed_hidden_output" for item in receipt.evidence
+        item.ref.get("kind") == "typed_hidden_output" for item in receipt.records
     )
     output = next(c for c in project.columns(sheet) if c["name"] == "Topics")
     resolved = resolve_topic_analysis_sidecar(

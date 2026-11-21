@@ -123,7 +123,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.action_kind == "cell.edit"
     assert receipt.op_ids == [edit_op_id]
     assert receipt.outputs[0].name == "manual_edits"
-    assert receipt.evidence[0].ref["kind"] == "manual_edit_overlay"
+    assert receipt.records[0].ref["kind"] == "manual_edit_overlay"
 
 
 def _check_undone(project: Project, seeded: dict[str, Any], first: Any) -> None:

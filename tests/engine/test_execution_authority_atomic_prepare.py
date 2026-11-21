@@ -256,7 +256,7 @@ def _prepared_tuple(project: Any, *, idempotency_key: str) -> dict[str, Any]:
 
     prepared_refs = [
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"].get("kind") == "queued_action_run_prepared"
     ]
     assert len(prepared_refs) == 1
@@ -706,9 +706,9 @@ def test_stale_prepared_attempt_resume_reuses_tuple_and_replaces_only_attempt(
     # but enqueue publication did not.  An already-published job is observable
     # and an idempotent request must replay it without replacing its authority.
     receipt_body = json.loads(before["receipt_row"]["body"])
-    receipt_body["evidence"] = [
+    receipt_body["records"] = [
         evidence
-        for evidence in receipt_body["evidence"]
+        for evidence in receipt_body["records"]
         if evidence["ref"].get("job_id") is None
     ]
     project.db.execute(
@@ -799,9 +799,9 @@ def test_unacknowledged_job_replay_accepts_the_live_dispatching_attempt(
         (prepared["attempt_id"], prepared["run_id"]),
     )
     body = json.loads(prepared["receipt_row"]["body"])
-    body["evidence"] = [
+    body["records"] = [
         evidence
-        for evidence in body["evidence"]
+        for evidence in body["records"]
         if evidence["ref"].get("job_id") != job.id
     ]
     project.db.execute(
@@ -827,7 +827,7 @@ def test_unacknowledged_job_replay_accepts_the_live_dispatching_attempt(
     assert after["attempt"]["state"] == "dispatching"
     assert [
         evidence["ref"]["job_id"]
-        for evidence in after["receipt"]["evidence"]
+        for evidence in after["receipt"]["records"]
         if evidence["ref"].get("job_id") is not None
     ] == [job.id]
     assert [
@@ -931,7 +931,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
     ).fetchone()
     assert receipt_row is not None
     assert receipt_row["run_id"] is None
-    assert json.loads(receipt_row["body"])["evidence"] == []
+    assert json.loads(receipt_row["body"])["records"] == []
     assert (
         project.db.execute("SELECT id FROM runs ORDER BY id").fetchall()[0]["id"]
         == orphan_run_id

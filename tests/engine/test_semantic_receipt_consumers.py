@@ -72,7 +72,7 @@ def test_custom_semantic_receipt_feeds_link_table(completed_custom_join):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     fact = next(
         item.ref
-        for item in (*receipt.inputs, *receipt.evidence)
+        for item in (*receipt.inputs, *receipt.records)
         if item.ref.get("kind") == "semantic_join_link_source"
     )
     assert fact["source_action_kind"] == "custom.match"

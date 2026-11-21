@@ -100,7 +100,7 @@ def _map_python_action(sheet_id: int, *, key: str) -> dict[str, Any]:
                 {
                     "name": "debug",
                     "path": "$.debug",
-                    "target": {"kind": "receipt_evidence", "retention": "compactable"},
+                    "target": {"kind": "receipt_record", "retention": "compactable"},
                 },
             ],
         },
@@ -218,7 +218,7 @@ def test_receipt_evidence_route_is_hidden_column_plus_lightweight_ref(
 
     # receipt_evidence -> a HIDDEN __evidence_debug column holding the per-row values.
     evidence_col = project.db.execute(
-        "SELECT * FROM columns WHERE sheet_id=? AND name='__evidence_debug'",
+        "SELECT * FROM columns WHERE sheet_id=? AND name='__record_debug'",
         (sheet_id,),
     ).fetchone()
     assert evidence_col is not None
@@ -231,8 +231,8 @@ def test_receipt_evidence_route_is_hidden_column_plus_lightweight_ref(
     receipt = _receipt(project, result.receipt_id)
     ev = [
         item.ref
-        for item in receipt.evidence
-        if item.ref["kind"] == "map_python_receipt_evidence"
+        for item in receipt.records
+        if item.ref["kind"] == "map_python_receipt_record"
     ]
     assert len(ev) == 1
     ref = ev[0]

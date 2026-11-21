@@ -227,7 +227,7 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
     assert receipt.outputs[0].ref["value_hash"].startswith("sha256:")
     counts = next(
         evidence.ref
-        for evidence in receipt.evidence
+        for evidence in receipt.records
         if evidence.ref["kind"] == "map_rows_run_counts"
     )
     assert counts == {
@@ -476,7 +476,7 @@ def test_typed_receipt_preserves_normalized_request_provenance_on_replay(
     assert receipt is not None
     request_evidence = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "typed_action_request"
     )
     assert request_evidence == {

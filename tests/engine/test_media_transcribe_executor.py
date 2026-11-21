@@ -280,7 +280,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["engine"] == "faster_whisper"
     assert receipt.provider_use[0]["external_api"] is False
 
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     ref_kinds = {ref["kind"] for ref in refs}
     assert {
         "source_column",

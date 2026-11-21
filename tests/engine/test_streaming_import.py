@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from frisket.contracts.action import Receipt, ReceiptEvidence, ReceiptIO
+from frisket.contracts.action import Receipt, ReceiptRecord, ReceiptIO
 from frisket.engine.store import Project
 from frisket.engine.store.import_blobs import ImportBlobPlan, PreparedImportBlobPlan
 from frisket.engine.store.import_sessions import (
@@ -131,7 +131,7 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
         params_hash="sha256:inventory-one",
         status="running",
         inputs=[ReceiptIO(name="reservation", ref={"kind": "job_claim"})],
-        evidence=[ReceiptEvidence(ref={"kind": "consent", "id": "consent:one"})],
+        records=[ReceiptRecord(ref={"kind": "consent", "id": "consent:one"})],
         warnings=["reservation warning"],
     )
     ReceiptStore(project).insert_running(
@@ -148,7 +148,7 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
         name="source",
         ref={"kind": "file_inventory", "inventory_id": "inventory:one"},
     )
-    assert adopted.evidence == reserved.evidence
+    assert adopted.records == reserved.records
     assert adopted.warnings == reserved.warnings
     writer.abort()
     writer = StreamingSheetWriter.resume_session(
@@ -171,7 +171,7 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
     terminal_receipt = ReceiptStore(project).find_by_id(reserved.receipt_id)
     assert terminal_receipt is not None
     parsed = terminal_receipt.parsed()
-    assert reserved.evidence[0] in parsed.evidence
+    assert reserved.records[0] in parsed.records
     assert any(
         item.ref
         == {
@@ -179,7 +179,7 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
             "inventory_id": "inventory:one",
             "source_kind": "file_inventory",
         }
-        for item in parsed.evidence
+        for item in parsed.records
     )
     assert "bounded parser warning" in parsed.warnings
     assert (

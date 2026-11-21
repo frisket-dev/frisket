@@ -362,7 +362,7 @@ def test_custom_author_values_never_own_lineage_or_receipt_source(
     assert "forged-authority" not in json.dumps(receipt.model_dump(mode="json"))
     edges = next(
         e.ref["edges"]
-        for e in receipt.evidence
+        for e in receipt.records
         if e.ref.get("kind") == "semantic_link_table_edges"
     )
     assert edges[0]["target_row_id"] == seed["target_row_ids"][0]

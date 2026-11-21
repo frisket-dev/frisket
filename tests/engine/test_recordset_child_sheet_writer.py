@@ -244,7 +244,7 @@ def test_embedding_project_and_cluster_publish_standard_refs_with_lineage_eviden
         assert any(item.ref["kind"] == "materialized_rows" for item in receipt.outputs)
         lineage = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref["kind"] == "lineage_parent_rows"
         )
         assert [pair["parent_row_id"] for pair in lineage["pairs"]] == source_row_ids

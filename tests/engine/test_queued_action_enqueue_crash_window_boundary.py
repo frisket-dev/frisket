@@ -611,7 +611,7 @@ def _prepared_tuple(
     receipt = json.loads(row["body"])
     prepared = [
         evidence["ref"]
-        for evidence in receipt["evidence"]
+        for evidence in receipt["records"]
         if evidence["ref"].get("kind") == "queued_action_run_prepared"
     ]
     assert len(prepared) == 1
@@ -728,7 +728,7 @@ def _acknowledged_job_ids(project: Any, receipt_id: str) -> list[int]:
     body = json.loads(row["body"])
     return [
         int(evidence["ref"]["job_id"])
-        for evidence in body["evidence"]
+        for evidence in body["records"]
         if isinstance(evidence["ref"].get("job_id"), int)
         and not isinstance(evidence["ref"].get("job_id"), bool)
     ]
@@ -828,7 +828,7 @@ def test_routed_preparation_process_death_is_all_or_nothing(
     )
     acknowledged = [
         evidence["ref"]
-        for evidence in body["evidence"]
+        for evidence in body["records"]
         if evidence["ref"].get("job_id") == jobs[0].id
     ]
     assert len(acknowledged) == 1

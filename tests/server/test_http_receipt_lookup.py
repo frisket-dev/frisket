@@ -78,7 +78,7 @@ def test_http_v1_receipt_lookup_uses_canonical_receipt_contract(tmp_path) -> Non
         "materialized_sheet",
         "source_rows",
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "source_rows",
         "source_cell",
     }

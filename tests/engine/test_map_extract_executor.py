@@ -239,7 +239,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["model_call_count"] == 1
     refs = [
         item.ref
-        for section in (receipt.inputs, receipt.outputs, receipt.evidence)
+        for section in (receipt.inputs, receipt.outputs, receipt.records)
         for item in section
     ]
     ref_kinds = {ref["kind"] for ref in refs}
@@ -547,5 +547,5 @@ def test_map_extract_provider_failure_writes_failed_receipt_with_model_calls(
         ).fetchone()
         receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
         assert "model_rows_model_calls" in {
-            item.ref["kind"] for item in receipt.evidence
+            item.ref["kind"] for item in receipt.records
         }

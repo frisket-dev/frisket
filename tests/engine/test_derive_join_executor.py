@@ -143,7 +143,7 @@ def _receipt(project: Project, receipt_id: str):
 
 
 def _receipt_ref(receipt, kind: str) -> dict[str, Any] | None:
-    for item in [*receipt.inputs, *receipt.outputs, *receipt.evidence]:
+    for item in [*receipt.inputs, *receipt.outputs, *receipt.records]:
         ref = item.ref
         if isinstance(ref, dict) and ref.get("kind") == kind:
             return ref

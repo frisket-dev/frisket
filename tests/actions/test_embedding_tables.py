@@ -575,7 +575,7 @@ def test_parented_table_replay_rejects_tampered_publication_without_read(
             ref[field] = {} if value_kind == "dict" else []
         else:
             body["outputs"] = [body["outputs"][0]]
-            body["evidence"] = []
+            body["records"] = []
         project.db.execute(
             "UPDATE receipts SET body=? WHERE id=?",
             (json.dumps(body), result.receipt_id),

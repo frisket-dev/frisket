@@ -621,7 +621,7 @@ def test_media_download_receipt_evidence_records_extra_opts(
     def _engine_ref(receipt):
         calls = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "row_file_call"
         ]
         assert len(calls) == 2
@@ -786,7 +786,7 @@ def test_media_download_sidecar_columns_and_receipts(
     assert "no manual or automatic captions" in (subtitle_error_row["error"] or "")
 
     receipt = _receipt(project, result.receipt_id)
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     output_col_refs = {
         ref["name"]: ref for ref in refs if ref["kind"] == "map_result_column"
     }
@@ -924,7 +924,7 @@ def test_media_download_subtitles_text_column(
     assert subtitle_values[row_ids[0]]["mime"] == "text/vtt"
 
     receipt = _receipt(project, result.receipt_id)
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     output_col_refs = {
         ref["name"]: ref for ref in refs if ref["kind"] == "map_result_column"
     }

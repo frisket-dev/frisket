@@ -365,7 +365,7 @@ def test_extract_range_real_media_inherits_timeline_and_transcript(
     assert receipt is not None
     lineage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "derived_temporal_artifact"
     )
     assert clip_value["blob"] == lineage["blob_hash"]
@@ -450,7 +450,7 @@ def test_extract_range_real_media_inherits_timeline_and_transcript(
     } == {"start_ms": 1_000, "end_ms": 2_000, "metadata": {}}
     assert any(
         evidence.ref.get("kind") == "temporal_transcript_projection"
-        for evidence in receipt.evidence
+        for evidence in receipt.records
     )
 
 
@@ -595,7 +595,7 @@ def test_split_real_media_creates_child_rows_with_inherited_provenance(
         "column.transcript",
         "materialized_rows",
     }
-    evidence_kinds = [evidence.ref.get("kind") for evidence in receipt.evidence]
+    evidence_kinds = [evidence.ref.get("kind") for evidence in receipt.records]
     assert evidence_kinds.count("temporal_materialized_clip") == 3
     assert evidence_kinds.count("derived_temporal_artifact") == 3
     assert evidence_kinds.count("temporal_transcript_projection") == 3

@@ -115,7 +115,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
         assert receipt["action_kind"] == "source.poll"
         refs = [
             item["ref"]
-            for item in receipt["inputs"] + receipt["outputs"] + receipt["evidence"]
+            for item in receipt["inputs"] + receipt["outputs"] + receipt["records"]
         ]
         ref_kinds = {ref["kind"] for ref in refs}
         assert {

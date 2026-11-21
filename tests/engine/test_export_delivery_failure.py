@@ -177,7 +177,7 @@ def test_buffered_export_restores_destination_when_commit_fails_after_delivery(
     assert not list(tmp_path.glob(f".{destination.name}.*"))
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert receipt.status == "failed"
-    assert not receipt.outputs and not receipt.evidence and not receipt.exports
+    assert not receipt.outputs and not receipt.records and not receipt.exports
 
 
 def test_export_work_log_removes_new_destination_when_commit_fails_after_delivery(
@@ -242,7 +242,7 @@ def test_export_sheet_csv_restores_destination_when_commit_fails_after_delivery(
     assert len(promoted) == 1 and promoted[0] != b"previous csv\n"
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert receipt.status == "failed"
-    assert not receipt.outputs and not receipt.evidence and not receipt.exports
+    assert not receipt.outputs and not receipt.records and not receipt.exports
 
 
 @pytest.mark.parametrize(

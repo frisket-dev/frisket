@@ -143,9 +143,7 @@ def test_static_file_lists_preserve_order_occurrences_and_renamed_aliases(
         for names in filenames
     ]
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    refs = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
-    ]
+    refs = [item.ref for item in receipt.records if item.ref["kind"] == "imported_blob"]
     assert [
         (
             ref["row_id"],

@@ -239,12 +239,12 @@ def test_policy_update_has_exact_receipt_facts_without_provider_or_vector_work(
             "provider_policy": {"allow_remote": True},
         }
     )
-    assert receipt["evidence"][0]["ref"] == {
+    assert receipt["records"][0]["ref"] == {
         "kind": "embedding_index_policy",
         "maintenance_policy": {},
         "provider_policy": {"allow_remote": True},
     }
-    assert receipt["evidence"][0]["retention"] == "pinned"
+    assert receipt["records"][0]["retention"] == "pinned"
 
 
 @pytest.mark.parametrize("tamper", ["input", "output", "evidence", "space"])
@@ -262,7 +262,7 @@ def test_policy_replay_rejects_tampered_evidence_and_current_space(project, tamp
     elif tamper == "output":
         receipt["outputs"][0]["ref"]["provider_policy"] = {"allow_remote": True}
     elif tamper == "evidence":
-        receipt["evidence"] = []
+        receipt["records"] = []
     else:
         # A second admitted space makes the live index point somewhere else.
         other = _create(project, sheet, provider="fastembed", key="other-space")

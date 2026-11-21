@@ -233,7 +233,7 @@ def test_plugin_load_records_binding_classification(
     assert receipt_body is not None
     manifest_ref = next(
         item["ref"]
-        for item in receipt_body["evidence"]
+        for item in receipt_body["records"]
         if item["ref"]["kind"] == "plugin_manifest"
     )
     assert manifest_ref["frontend_component_bindings"] == [

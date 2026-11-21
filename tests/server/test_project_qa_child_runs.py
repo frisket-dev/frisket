@@ -101,7 +101,7 @@ def _receipt(*, cost: float | None = 0.125) -> dict[str, Any]:
             }
         ],
         "provider_use": [{"provider": "openai", "cost_actual": cost}],
-        "evidence": [],
+        "records": [],
         "exports": [],
         "warnings": [],
         "errors": [],

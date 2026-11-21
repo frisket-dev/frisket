@@ -278,7 +278,7 @@ def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
         item["external_api"] and item["cost_actual"] == 0
         for item in receipt.provider_use
     )
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     occurrences = [ref for ref in refs if ref["kind"] == "row_file_output"]
     assert len(occurrences) == 3
     assert {ref["facts"]["url"] for ref in occurrences} == {

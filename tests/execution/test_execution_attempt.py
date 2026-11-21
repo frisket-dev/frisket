@@ -446,7 +446,7 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
 
 
 def _link_run_job(project, run_id, job_id):
-    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.contracts.action import Receipt, ReceiptRecord
     from frisket.engine.store.receipts import ReceiptStore
 
     receipt = Receipt(
@@ -456,10 +456,8 @@ def _link_run_job(project, run_id, job_id):
         run_id=run_id,
         action_kind="media.transcribe",
         status="running",
-        evidence=[
-            ReceiptEvidence(
-                ref={"kind": "queued_action_job_enqueued", "job_id": job_id}
-            )
+        records=[
+            ReceiptRecord(ref={"kind": "queued_action_job_enqueued", "job_id": job_id})
         ],
     )
     ReceiptStore(project).insert(receipt)

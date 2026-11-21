@@ -125,7 +125,7 @@ def _map_python_action(sheet_id: int, *, idempotency_key: str) -> dict[str, Any]
                     "name": "debug",
                     "path": "$.debug",
                     "target": {
-                        "kind": "receipt_evidence",
+                        "kind": "receipt_record",
                         "retention": "compactable",
                     },
                 },
@@ -244,7 +244,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert named_result_column["current_run_id"] == result.run_id
 
     # receipt_evidence target -> hidden plumbing column (NOT a user-facing output)
-    evidence_column = columns.get("__evidence_debug")
+    evidence_column = columns.get("__record_debug")
     assert evidence_column is not None
     assert evidence_column["hidden"] == 1
 
@@ -282,15 +282,15 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.run_id == result.run_id
     assert receipt.action_kind == "map.python"
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "map_python_code",
         "typed_action_request",
-        "map_python_receipt_evidence",
+        "map_python_receipt_record",
     }
     debug_refs = [
         item.ref
-        for item in receipt.evidence
-        if item.ref["kind"] == "map_python_receipt_evidence"
+        for item in receipt.records
+        if item.ref["kind"] == "map_python_receipt_record"
     ]
     # lightweight: a pointer at the hidden column, no per-row value blobs.
     assert debug_refs[0]["route"] == "debug"

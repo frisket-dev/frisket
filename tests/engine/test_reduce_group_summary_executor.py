@@ -413,7 +413,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "materialized_column",
         "reduce_summary_output_column",
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "reduce_group_summary_groups",
         "reduce_group_summary_output_roles",
         "reduce_group_summary_model_calls",
@@ -421,7 +421,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     group_ref = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "reduce_group_summary_groups"
     )
     assert group_ref["groups"] == [
@@ -886,7 +886,7 @@ def test_unknown_live_call_cost_never_becomes_exact_zero_in_receipt(
         assert receipt.provider_use[0]["cost_actual"] is None
         run_counts = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref["kind"] == "reduce_group_summary_run_counts"
         )
         assert run_counts["cost_actual"] is None

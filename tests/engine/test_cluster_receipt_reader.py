@@ -133,7 +133,7 @@ def test_reader_refuses_groups_diverging_from_published_canonical_values(seeded)
             "SELECT body FROM receipts WHERE id=?", (receipt_id,)
         ).fetchone()[0]
     )
-    for section in ("inputs", "outputs", "evidence"):
+    for section in ("inputs", "outputs", "records"):
         for item in body[section]:
             ref = item["ref"]
             if ref.get("kind") == "value_clusters":
@@ -221,7 +221,7 @@ def test_reader_accepts_legacy_op_with_full_cluster_fact(seeded):
     )
     fact = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"].get("kind") == "value_clusters"
     )
     op = project.db.execute(

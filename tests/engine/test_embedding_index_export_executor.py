@@ -168,7 +168,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     )
     prov = next(
         e["ref"]
-        for e in receipt["evidence"]
+        for e in receipt["records"]
         if e["ref"]["kind"] == "embedding_index_export_provenance"
     )
     assert prov["dimension"] == 384

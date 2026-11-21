@@ -321,7 +321,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.idempotency_key == "import_rows@sha256:stable"
     assert receipt.outputs[0].ref["kind"] == "materialized_sheet"
     assert receipt.outputs[0].ref["sheet_id"] == sheet["id"]
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "source_rows",
         "source_cell",
     }

@@ -97,7 +97,7 @@ def _receipt(project: Project, receipt_id: str) -> Receipt:
 
 
 def _blob_ref(receipt: Receipt, role: str) -> dict[str, Any]:
-    for evidence in receipt.evidence:
+    for evidence in receipt.records:
         ref = evidence.ref
         if (
             ref.get("kind") == "web_capture_page_supplemental_artifact"
@@ -296,7 +296,7 @@ def test_media_capture_url_playwright_warc_records_artifacts_and_replays(
     receipt = _receipt(project, result.receipt_id or "")
     request_ref = next(
         ref.ref
-        for ref in receipt.evidence
+        for ref in receipt.records
         if ref.ref.get("kind") == "web_capture_page_request_counts"
     )
     assert request_ref["render_mode"] == "playwright"

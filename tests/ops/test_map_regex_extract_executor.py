@@ -182,7 +182,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     output_refs = {item.name: item.ref for item in receipt.outputs}
     assert output_refs["phone"]["kind"] == "map_result_column"
     assert output_refs["phone"]["type"] == "text"
-    evidence_refs = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence_refs = {item.ref["kind"]: item.ref for item in receipt.records}
     assert set(evidence_refs) == {"typed_action_request", "map_rows_run_counts"}
     assert evidence_refs["typed_action_request"]["params"] == {
         "input_columns": ["note"],

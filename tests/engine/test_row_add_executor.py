@@ -104,7 +104,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.op_ids == list(result.op_ids)
     assert receipt.outputs[0].name == "added_rows"
     assert receipt.outputs[0].ref["kind"] == "added_rows"
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "added_row",
         "source_cell",
     }

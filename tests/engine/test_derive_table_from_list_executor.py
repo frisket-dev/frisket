@@ -311,7 +311,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert {"materialized_sheet", "materialized_rows"} <= {
         item.ref["kind"] for item in receipt.outputs
     }
-    assert {"lineage_parent_rows"} <= {item.ref["kind"] for item in receipt.evidence}
+    assert {"lineage_parent_rows"} <= {item.ref["kind"] for item in receipt.records}
 
 
 CASES = [

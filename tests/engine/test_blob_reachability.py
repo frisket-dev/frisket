@@ -193,7 +193,7 @@ def test_malformed_published_receipt_digest_retains_all_blob_metadata(
     else:
         good = {"blob_hash": retained}
         payload = {
-            "evidence": [
+            "records": [
                 {
                     "ref": {
                         "kind": "row_file_output",
@@ -216,7 +216,7 @@ def test_malformed_published_receipt_digest_retains_all_blob_metadata(
     }
 
 
-@pytest.mark.parametrize("owner", ["exports", "evidence", "supplemental"])
+@pytest.mark.parametrize("owner", ["exports", "records", "supplemental"])
 @pytest.mark.parametrize("invalid", [{}, "", "bad", None, 12, [None], ["bad"]])
 def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, invalid):
     retained = project.add_blob(b"uncertain ownership")
@@ -224,7 +224,7 @@ def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, i
     payload = {owner: invalid}
     if owner == "supplemental":
         payload = {
-            "evidence": [
+            "records": [
                 {
                     "ref": {
                         "kind": "row_file_output",
@@ -250,11 +250,11 @@ def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, i
 @pytest.mark.parametrize("ref", [None, "", [], 12])
 def test_malformed_receipt_evidence_reference_retains_blobs(project, ref):
     project.add_blob(b"unknown ownership")
-    # Deliberately damaged evidence reference shape that Receipt validation rejects.
+    # Deliberately damaged record reference shape that Receipt validation rejects.
     with write_transaction(project.db):
         project.db.execute(
             "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
-            (json.dumps({"evidence": [{"ref": ref}]}),),
+            (json.dumps({"records": [{"ref": ref}]}),),
         )
     assert project.gc_blobs()["hashes"] == []
 
@@ -282,14 +282,14 @@ def test_malformed_returned_file_ownership_retains_blobs(project, owner, invalid
     "payload",
     [
         {},
-        {"evidence": [], "exports": []},
-        {"evidence": [{}]},
-        {"evidence": [{"ref": {"kind": "other"}}], "exports": [{"kind": "other"}]},
+        {"records": [], "exports": []},
+        {"records": [{}]},
+        {"records": [{"ref": {"kind": "other"}}], "exports": [{"kind": "other"}]},
     ],
 )
 def test_optional_or_nonpublication_receipt_fields_do_not_disable_gc(project, payload):
     orphan = project.add_blob(b"unowned")
-    if payload == {} or payload == {"evidence": [{}]}:
+    if payload == {} or payload == {"records": [{}]}:
         # Legacy/minimal receipt JSON missing required Receipt fields cannot pass Receipt validation.
         with write_transaction(project.db):
             project.db.execute(

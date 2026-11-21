@@ -1747,7 +1747,7 @@ class TestRunAction:
             )
             return [
                 evidence["ref"]
-                for evidence in body["evidence"]
+                for evidence in body["records"]
                 if evidence["ref"].get("kind") == "queued_action_run_prepared"
             ]
 

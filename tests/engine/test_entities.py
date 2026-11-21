@@ -84,7 +84,7 @@ def _cluster_fact(client, project_id, result: dict):
     assert response.status_code == 200, response.text
     return next(
         item["ref"]
-        for item in response.json()["evidence"]
+        for item in response.json()["records"]
         if item["ref"].get("kind") == "value_clusters"
     )
 

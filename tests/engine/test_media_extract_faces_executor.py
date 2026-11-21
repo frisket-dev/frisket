@@ -153,7 +153,7 @@ def test_typed_media_results_named_routes_durable_occurrences_and_replay(
     assert named["may_feed"] == ["derive.table_from_list"]
     observations = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "row_file_output"
     ]
     assert len(observations) == sum(len(items) for items in values.values())
@@ -190,8 +190,7 @@ def test_typed_media_results_named_routes_durable_occurrences_and_replay(
     assert replay.receipt_id == result.receipt_id
     assert replay.run_id == result.run_id
     assert (
-        ReceiptStore(project).parsed_by_id(result.receipt_id).evidence
-        == receipt.evidence
+        ReceiptStore(project).parsed_by_id(result.receipt_id).records == receipt.records
     )
 
 
@@ -295,7 +294,7 @@ def test_typed_media_repeated_backfill_keeps_output_identity_and_named_route(
         assert named["row_ids"] == [rows[0]]
         occurrences = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "row_file_output"
         ]
         assert len(occurrences) == (2 if key == "frames" else 1)
@@ -334,7 +333,7 @@ def test_zero_images_preserve_actual_read_facts_and_feedable_empty_list(
     ]
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     observations = [
-        item.ref for item in receipt.evidence if item.ref.get("kind") == "row_file_call"
+        item.ref for item in receipt.records if item.ref.get("kind") == "row_file_call"
     ]
     assert len(observations) == 2
     assert {item["source"]["blob_hash"] for item in observations} == set(
@@ -346,7 +345,7 @@ def test_zero_images_preserve_actual_read_facts_and_feedable_empty_list(
         for item in observations
     )
     assert not any(
-        item.ref.get("kind") == "row_file_output" for item in receipt.evidence
+        item.ref.get("kind") == "row_file_output" for item in receipt.records
     )
     named = next(item.ref for item in receipt.outputs if item.kind == "named_result")
     assert named["row_ids"] == seeded["row_ids"]

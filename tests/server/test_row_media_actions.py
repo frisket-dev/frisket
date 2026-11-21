@@ -71,7 +71,7 @@ def test_queued_row_media_recovers_durable_occurrences_without_extraction(
         before = ReceiptStore(project).parsed_by_id(queued["receipt_id"])
         observations = [
             item.ref
-            for item in before.evidence
+            for item in before.records
             if item.ref.get("kind") == "row_file_output"
         ]
         assert len(observations) == (4 if kind == "frames" else 2)
@@ -87,7 +87,7 @@ def test_queued_row_media_recovers_durable_occurrences_without_extraction(
         assert after.status == "completed", after.model_dump_json()
         assert [
             item.ref
-            for item in after.evidence
+            for item in after.records
             if item.ref.get("kind") == "row_file_output"
         ] == observations
         named = next(

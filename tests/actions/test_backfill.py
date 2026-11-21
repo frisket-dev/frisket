@@ -141,7 +141,7 @@ def test_actual_derived_column_prepares_without_writes_and_executes_with_host_fa
     )
     fact = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"]["kind"] == "backfill_source_generation"
     )
     assert fact["column"] == "beat"

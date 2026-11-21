@@ -114,7 +114,7 @@ def test_entity_table_uses_committed_choices_without_clustering_again(
     assert receipt_response.status_code == 200
     groups = next(
         item["ref"]["clusters"]
-        for item in receipt_response.json()["evidence"]
+        for item in receipt_response.json()["records"]
         if item["ref"]["kind"] == "value_clusters"
     )
     assert len(groups) == 2

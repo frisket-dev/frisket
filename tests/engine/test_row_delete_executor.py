@@ -128,7 +128,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.op_ids == list(result.op_ids)
     assert receipt.outputs[0].name == "deleted_rows"
     assert receipt.outputs[0].ref["kind"] == "deleted_rows"
-    assert {item.ref["kind"] for item in receipt.evidence} == {"deleted_row"}
+    assert {item.ref["kind"] for item in receipt.records} == {"deleted_row"}
 
 
 def _check_undone(project: Project, seeded: dict[str, Any], first: Any) -> None:

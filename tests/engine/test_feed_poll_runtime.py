@@ -441,7 +441,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         assert _table_count(project, "ops") == 0
         artifacts = next(
             item["ref"]
-            for item in receipt["evidence"]
+            for item in receipt["records"]
             if item["ref"]["kind"] == "source_poll_artifacts"
         )
         assert artifacts["artifacts"] == feed_checker.artifacts
@@ -689,7 +689,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert receipt["provider_use"] == feed_checker.provider_use
             refs = [
                 item["ref"]
-                for item in [*receipt["outputs"], *receipt["evidence"]]
+                for item in [*receipt["outputs"], *receipt["records"]]
                 if isinstance(item, dict)
             ]
             assert {"source_poll_run", "source_poll_rows", "source_poll_cursor"} <= {

@@ -465,7 +465,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert output_refs["answer_sources"]["role"] == "sources"
     assert output_refs["answer"]["value_hash"].startswith("sha256:")
     assert output_refs["answer_sources"]["value_hash"].startswith("sha256:")
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     assert "typed_action_request" in evidence
     assert "model_rows_model_calls" in evidence
     assert sorted(url for urls in sources.values() for url in urls) == [
@@ -654,7 +654,7 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
         assert search_use["cost_actual"] is not None
         search_evidence = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "web_search_call"
         ]
         assert len(search_evidence) == 2
@@ -716,7 +716,7 @@ def test_research_answer_receipts_failed_paid_search_as_unknown_cost(
         )
         search_evidence = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "web_search_call"
         ]
         assert search_evidence
@@ -972,7 +972,7 @@ def test_output_name_suffix_names_both_columns(
         output_refs = {item.name: item.ref for item in receipt.outputs}
         assert output_refs["brief_sources"]["role"] == "answer"
         assert output_refs["brief_sources_sources"]["role"] == "sources"
-        evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+        evidence = {item.ref["kind"]: item.ref for item in receipt.records}
         assert "model_rows_model_calls" in evidence
 
         replay = env.run(action)

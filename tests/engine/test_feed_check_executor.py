@@ -84,7 +84,7 @@ def test_custom_source_check_records_actual_capability_arguments(
     request = next(
         entry["ref"] for entry in body["inputs"] if entry["name"] == "request"
     )
-    evidence = body["evidence"][0]["ref"]
+    evidence = body["records"][0]["ref"]
     assert request["source_id"] == evidence["source_id"] == source_id
     assert request["reported_new_rows"] == 3
     assert request["cursor_provided"] is (cursor is not None)
@@ -199,7 +199,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(row["body"]))
     assert receipt.action_kind == "source.check"
     assert receipt.status == "completed"
-    refs = [item.ref for item in [*receipt.inputs, *receipt.outputs, *receipt.evidence]]
+    refs = [item.ref for item in [*receipt.inputs, *receipt.outputs, *receipt.records]]
     assert "source_check_source" in {ref["kind"] for ref in refs}
     assert "source_check_run" in {ref["kind"] for ref in refs}
 

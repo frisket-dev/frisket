@@ -1279,7 +1279,7 @@ def test_typed_model_backfill_can_repeat_from_successor_generations(
             )
             fact = next(
                 item["ref"]
-                for item in stored["evidence"]
+                for item in stored["records"]
                 if item["ref"]["kind"] == "backfill_source_generation"
             )
             if tamper == "fact_run":

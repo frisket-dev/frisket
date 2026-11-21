@@ -100,7 +100,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.op_ids == list(result.op_ids)
     assert receipt.outputs[0].name == "note"
     assert receipt.outputs[0].ref["kind"] == "column_patch"
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "column_format_transition",
     }
 

@@ -190,7 +190,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     assert receipt.outputs[0].name == "published"
     assert receipt.outputs[0].ref["kind"] == "column_type_update"
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     assert {"column_type_transition", "classified_column_values"} <= set(evidence)
     assert evidence["classified_column_values"] == {
         "kind": "classified_column_values",

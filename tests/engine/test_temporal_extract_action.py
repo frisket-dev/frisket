@@ -312,7 +312,7 @@ def test_extract_projects_compatible_typed_annotations_only(make_project) -> Non
     )
     assert any(
         item.ref.get("kind") == "temporal_annotation_projection"
-        for item in receipt.evidence
+        for item in receipt.records
     )
     output_columns = {output.column_id for output in result.outputs}
     assert project.undo() == result.op_ids[0]
@@ -385,7 +385,7 @@ def test_extract_range_stages_then_atomically_publishes_lineage_and_replays(
     assert selection["value"]["item"]["end_ms"] == 5_000
     lineage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "derived_temporal_artifact"
     )
     values = project.get_values(sheet_id, output.column_id, row_ids=[row_id])
@@ -1028,7 +1028,7 @@ def test_extract_range_maps_one_acknowledged_literal_over_multiple_rows(
     }
     summary = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "temporal_extract_summary"
     )
     assert summary["source_count"] == 2
