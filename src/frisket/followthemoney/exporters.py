@@ -8,11 +8,11 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from frisket.features.followthemoney.adapter import (
+from frisket.followthemoney.adapter import (
     parse_entities_jsonl,
     serialize_entities_jsonl,
 )
-from frisket.features.followthemoney.mapping import map_rowset_to_entities
+from frisket.followthemoney.mapping import map_rowset_to_entities
 
 FOLLOWTHEMONEY_EXPORT_PACKAGE_SCHEMA_VERSION = (
     "frisket.followthemoney.export_package.v1"

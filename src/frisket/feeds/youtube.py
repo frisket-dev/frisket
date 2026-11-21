@@ -31,7 +31,7 @@ from frisket.feeds.runtime import (
     register_feed_checker,
     text_hash,
 )
-from frisket.features.url_classification.matchers import host_matches_domain
+from frisket.url_classification.matchers import host_matches_domain
 
 # The registered-domain suffix match (music/m/www.youtube.com all resolve to
 # youtube.com) shared with the URL classification registry, so the feed checker host

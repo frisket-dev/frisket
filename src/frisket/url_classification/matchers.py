@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, unquote, urlencode
 
 import regex
 
-from frisket.features.url_classification.psl import registered_domain
+from frisket.url_classification.psl import registered_domain
 from frisket.ops.http_urls import parse_http_url
 
 # First-party matchers reserve priority >= this ceiling; a plugin matcher

@@ -21,7 +21,7 @@ from frisket.engine.store import Project
 from frisket.engine.jobs.notifications_delivery import (
     enqueue_notification_emit_result,
 )
-from frisket.features.alerts.service import AlertBindingError, check_alert
+from frisket.alerts.service import AlertBindingError, check_alert
 
 from .queue import JobQueue, TERMINAL, claimed_project_location
 from .project_opener import (
@@ -42,7 +42,7 @@ ALERT_EVALUATE_KIND = "watch.evaluate"
 
 
 def _alert_query(row: Any) -> dict[str, Any]:
-    from frisket.features.alerts.service import alert_query
+    from frisket.alerts.service import alert_query
 
     try:
         return alert_query(row)

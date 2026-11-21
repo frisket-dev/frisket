@@ -25,8 +25,8 @@ from frisket.engine.executor.plugin_write_apply import (
 )
 from frisket.engine.store.blob_backend import BlobIntegrityError, BlobNotFoundError
 from frisket.engine.store.project_blobs import publish_prepared_blob
-from frisket.features.followthemoney import entities_available
-from frisket.features.investigations.rowsets import (
+from frisket.followthemoney import entities_available
+from frisket.exports.investigative_rowsets import (
     resolve_investigative_rowset,
     InvestigativeRowsetError,
 )
@@ -68,11 +68,11 @@ class FollowTheMoneyImportCapability:
             _refuse(
                 "invalid_ftm_import", "dataset_name must be non-empty text or null."
             )
-        from frisket.features.followthemoney.import_planner import (
+        from frisket.followthemoney.import_planner import (
             FollowTheMoneyImportLimitError,
             plan_followthemoney_import,
         )
-        from frisket.features.followthemoney.write_plan import (
+        from frisket.followthemoney.write_plan import (
             import_plan_to_write_plan,
         )
 
@@ -268,7 +268,7 @@ class FollowTheMoneyExportCapability:
                 raise ValueError("invalid package filename or validate flag")
         except (ValueError, ValidationError) as error:
             _refuse("invalid_ftm_export", str(error))
-        from frisket.features.followthemoney.exporters import (
+        from frisket.followthemoney.exporters import (
             build_followthemoney_export_package,
         )
 

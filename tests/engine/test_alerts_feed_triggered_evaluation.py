@@ -11,11 +11,11 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs import EMBEDDING_REFRESH_KIND, Worker
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
-from frisket.features.alerts.triggers import (
+from frisket.alerts.triggers import (
     feed_poll_materialization_from_receipt,
     trigger_source_materialized_alerts,
 )
-from frisket.features.alerts.service import AlertBindingError
+from frisket.alerts.service import AlertBindingError
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -23,7 +23,7 @@ PROJECT_ID = "source-watch-project"
 
 
 def test_standalone_index_race_retries_only_failed_keyword_alert(monkeypatch):
-    import frisket.features.alerts.triggers as triggers
+    import frisket.alerts.triggers as triggers
     import frisket.search
 
     alerts = [

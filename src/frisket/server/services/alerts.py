@@ -17,7 +17,7 @@ from frisket.engine.jobs import enqueue_notification_emit_result
 from frisket.contracts.http.paging import offset_page_meta
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
-from frisket.features.alerts.events import (
+from frisket.alerts.events import (
     ALLOWED_EVENT_KINDS,
     ALERT_CHECK_EVENT_SCHEMA_VERSION,
     decode_alert_check_event,
@@ -26,7 +26,7 @@ from frisket.contracts.query_spec import (
     normalize_detection_policy,
     detection_conditions,
 )
-from frisket.features.alerts.service import AlertBindingError, check_alert
+from frisket.alerts.service import AlertBindingError, check_alert
 
 
 class AlertNotFound(ValueError):

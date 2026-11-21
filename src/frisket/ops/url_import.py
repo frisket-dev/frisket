@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from frisket.features.url_classification import (
+from frisket.url_classification import (
     classify_url,
     is_supported_ytdlp_media_url,
 )
