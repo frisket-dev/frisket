@@ -454,7 +454,7 @@ def _scrub_content(project, p, batch_size):
         ("import_session_pdf_sources", scope),
         ("replay_edit_dismissals", cell),
         ("column_descriptor_changes", _scope(column="column_id")),
-        ("evidence_links", scope),
+        ("citations", scope),
         ("watch_row_field_state", scope),
         ("watch_seen_rows", _scope(sheet="sheet_id", row="row_id")),
         ("watch_run_hits", _scope(sheet="sheet_id", column="column_id", row="row_id")),

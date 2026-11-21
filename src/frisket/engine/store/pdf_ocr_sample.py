@@ -14,7 +14,7 @@ from frisket.engine.store.document_text import (
     ensure_document_text_role,
     resolve_document_text_selection,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,

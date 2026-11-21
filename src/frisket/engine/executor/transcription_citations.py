@@ -6,7 +6,7 @@ import math
 from typing import Any
 
 from frisket.engine.store.artifact_timeline import ensure_media_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_artifact,
@@ -144,7 +144,7 @@ def write_transcription_citations(
             continue
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='media_transcribe_temporal' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()

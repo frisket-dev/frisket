@@ -120,7 +120,7 @@ def _materialize_text_spans(
     *,
     artifact_cache: dict[tuple[int, int], dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_source_artifact,
         record_source_span,
         record_text_surface,
@@ -206,7 +206,7 @@ def _materialize_visual_span(
     *,
     artifact_cache: dict[tuple[int, int], dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_source_artifact,
         record_source_span,
     )
@@ -364,7 +364,7 @@ def write_find_result(
     params_hash: str,
     admitted: dict[str, Any],
 ) -> ActionResult:
-    from frisket.engine.store.evidence import record_citation
+    from frisket.engine.store.citations import record_citation
     from frisket.engine.store.materialization import (
         AggregateColumnSpec,
         AggregateMaterializedRow,
@@ -451,7 +451,7 @@ def write_find_result(
                 f"(superseded:{superseded_sheet_id}:{target['parent_op_id']})"
             )
             project.db.execute(
-                "UPDATE evidence_links SET status='stale', "
+                "UPDATE citations SET status='stale', "
                 "stale_reason='superseded_find_generation', "
                 "stale_at=datetime('now') WHERE sheet_id=? AND status='active'",
                 (superseded_sheet_id,),

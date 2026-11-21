@@ -141,7 +141,7 @@ def _source_artifact(
     captured_sources: dict[str, Any] | None = None,
     source_label: str | None = None,
 ) -> dict[str, Any]:
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.media_blobs import MediaBlobStore
 
     for name in source_columns:
@@ -282,7 +282,7 @@ def _captured_text_spans(
     if passage is None:
         return []
 
-    from frisket.engine.store.evidence import record_source_span, record_text_surface
+    from frisket.engine.store.citations import record_source_span, record_text_surface
     from frisket.engine.store.text_passage_match import passage_ranges
 
     ranges = passage_ranges(text, passage)
@@ -392,7 +392,7 @@ def _region_spans_from_matches(
     """Persist a strategy result's region spans onto the extract artifact,
     borrowing the sibling OCR artifact's ``page_images`` so they render (W2.1)."""
 
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         merge_artifact_metadata,
         record_source_span,
     )
@@ -507,7 +507,7 @@ def _model_bbox_spans(
     + a ``model_bbox_unverified`` warning (PT SILENTLY-WRONG #1). Never render an
     unverifiable model box."""
 
-    from frisket.engine.store.evidence import record_source_span
+    from frisket.engine.store.citations import record_source_span
     from frisket.engine.store.grounding_contract import TextTarget, WordStream, ground
     from frisket.engine.store.ocr_word_stream import resolve_ocr_word_stream
     from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
@@ -697,7 +697,7 @@ def _transcript_segment_indices_spans(
     if not indices:
         return None
 
-    from frisket.engine.store.evidence import get_source_span, record_source_span
+    from frisket.engine.store.citations import get_source_span, record_source_span
     from frisket.engine.store.grounding_contract import AnchorTarget, ground
     from frisket.engine.store.transcript_segment_stream import (
         resolve_transcript_segment_stream,
@@ -799,7 +799,7 @@ def _transcript_passage_spans(
     if resolved is None:
         return None
 
-    from frisket.engine.store.evidence import get_source_span, record_source_span
+    from frisket.engine.store.citations import get_source_span, record_source_span
     from frisket.engine.store.grounding_contract import TextTarget, ground
 
     matches = ground(TextTarget(text=passage), resolved.segments, threshold=0.8)
@@ -920,7 +920,7 @@ def _resolve_citation_entry_spans(
         )
         prepared = _resolve_prepared_text(project, prepared_source)
         if prepared is not None and prepared.source_artifact_id is not None:
-            from frisket.engine.store.evidence import get_source_artifact
+            from frisket.engine.store.citations import get_source_artifact
 
             pdf_artifact = get_source_artifact(project, prepared.source_artifact_id)
             if pdf_artifact is not None:
@@ -968,7 +968,7 @@ def _source_spans(
     ``model_bbox`` is verified fail-closed; everything else keeps today's honest
     coarse behavior. Empty list means the item produced no usable span."""
 
-    from frisket.engine.store.evidence import record_source_span
+    from frisket.engine.store.citations import record_source_span
 
     bbox = _normalized_bbox(item.get("bbox"))
     page = _int_or_none(item.get("page") or item.get("page_start"))

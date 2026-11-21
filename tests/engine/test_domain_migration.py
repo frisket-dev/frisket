@@ -648,12 +648,12 @@ def _check_constraints(sql):
     return sorted(checks)
 
 
-def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path):
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "project.db")
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
@@ -764,8 +764,8 @@ def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outc
         )
 
 
-def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db, tmp_path):
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     def objects(db):
@@ -780,7 +780,7 @@ def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
         }
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "project.db")
     with sqlite3.connect(":memory:") as fresh:
         fresh.executescript(SCHEMA)
         expected = objects(fresh)

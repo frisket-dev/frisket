@@ -26,7 +26,7 @@ from frisket.engine.executor.recordsets import (
     is_feedable_named_result_ref,
     json_schema_equal,
 )
-from frisket.engine.store.evidence import find_item_citation
+from frisket.engine.store.citations import find_item_citation
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 

@@ -1319,8 +1319,8 @@ CREATE INDEX IF NOT EXISTS idx_blob_derivations_derived
 CREATE INDEX IF NOT EXISTS idx_blob_derivations_source
   ON blob_derivations(source_hash);
 
--- Canonical investigative evidence substrate. Artifacts and spans are source
--- objects; evidence_links attach product subjects to one or more spans.
+-- Canonical investigative citation substrate. Artifacts and spans are source
+-- objects; citations attach product subjects to one or more spans.
 CREATE TABLE IF NOT EXISTS source_artifacts (
   id INTEGER PRIMARY KEY,
   stable_id TEXT NOT NULL UNIQUE,
@@ -1546,7 +1546,7 @@ BEGIN
   SELECT RAISE(ABORT, 'character offsets require a valid range and matching text surface');
 END;
 
-CREATE TABLE IF NOT EXISTS evidence_links (
+CREATE TABLE IF NOT EXISTS citations (
   id INTEGER PRIMARY KEY,
   stable_id TEXT NOT NULL UNIQUE,
   subject_kind TEXT NOT NULL,
@@ -1576,36 +1576,36 @@ CREATE TABLE IF NOT EXISTS evidence_links (
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_evidence_links_cell_status
-  ON evidence_links(row_id, column_id, status);
-CREATE INDEX IF NOT EXISTS idx_evidence_links_subject
-  ON evidence_links(subject_kind, subject_ref_json);
-CREATE INDEX IF NOT EXISTS idx_evidence_links_run_cell
-  ON evidence_links(run_id, row_id, column_id);
-CREATE INDEX IF NOT EXISTS idx_evidence_links_receipt
-  ON evidence_links(receipt_id);
--- answers-view-cited-columns-signal-v1: the cited-column-availability probe
--- (SheetMeta.citedColumnIds, DISTINCT active column_ids for a sheet) filters
--- on sheet_id+status before touching column_id; idx_evidence_links_cell_status
--- leads on row_id so a sheet_id-scoped query would otherwise scan.
-CREATE INDEX IF NOT EXISTS idx_evidence_links_sheet_status
-  ON evidence_links(sheet_id, status, column_id);
+CREATE INDEX IF NOT EXISTS idx_citations_cell_status
+  ON citations(row_id, column_id, status);
+CREATE INDEX IF NOT EXISTS idx_citations_subject
+  ON citations(subject_kind, subject_ref_json);
+CREATE INDEX IF NOT EXISTS idx_citations_run_cell
+  ON citations(run_id, row_id, column_id);
+CREATE INDEX IF NOT EXISTS idx_citations_receipt
+  ON citations(receipt_id);
+-- The cited-column-availability probe (SheetMeta.citedColumnIds, DISTINCT
+-- active column_ids for a sheet) filters on sheet_id+status before touching
+-- column_id; idx_citations_cell_status leads on row_id so a sheet_id-scoped
+-- query would otherwise scan.
+CREATE INDEX IF NOT EXISTS idx_citations_sheet_status
+  ON citations(sheet_id, status, column_id);
 
-CREATE TABLE IF NOT EXISTS evidence_link_spans (
-  link_id INTEGER NOT NULL REFERENCES evidence_links(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS citation_spans (
+  citation_id INTEGER NOT NULL REFERENCES citations(id) ON DELETE CASCADE,
   span_id INTEGER NOT NULL REFERENCES source_spans(id) ON DELETE CASCADE,
   rank INTEGER NOT NULL DEFAULT 0,
   span_role TEXT NOT NULL DEFAULT 'support',
   required INTEGER NOT NULL DEFAULT 0,
   note TEXT,
-  PRIMARY KEY (link_id, span_id)
+  PRIMARY KEY (citation_id, span_id)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_evidence_link_spans_span
-  ON evidence_link_spans(span_id);
+CREATE INDEX IF NOT EXISTS idx_citation_spans_span
+  ON citation_spans(span_id);
 -- The inverse-query path (surface -> span -> annotation
--- association -> link) filters junction rows by span_role='annotation'.
-CREATE INDEX IF NOT EXISTS idx_evidence_link_spans_annotation
-  ON evidence_link_spans(span_id, span_role, link_id);
+-- association -> citation) filters junction rows by span_role='annotation'.
+CREATE INDEX IF NOT EXISTS idx_citation_spans_annotation
+  ON citation_spans(span_id, span_role, citation_id);
 
 -- Live sources, scheduling, and monitoring.
 -- A source is a recurring fetch (URL feed, search, etc.) that lands new rows

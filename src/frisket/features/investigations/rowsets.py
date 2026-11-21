@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from frisket.engine.store.evidence import list_cell_citations
+from frisket.engine.store.citations import list_cell_citations
 from frisket.exports import rowset as export_rowset
 from frisket.engine.store import Project
 

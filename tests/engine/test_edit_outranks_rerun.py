@@ -25,6 +25,7 @@ from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST
 from frisket.upgrades.project.edit_precedence_migration import (
     EDIT_PRECEDENCE_TO_DIGEST,
 )
+from tests.engine.test_citations_migration import _downgrade_to_pre_citations_schema
 from helpers import make_client
 
 _PROJECT_ID = "proj-edit-precedence"
@@ -533,6 +534,13 @@ def test_projection_rebuild_resolves_the_same_heads(make_project, reapply):
     ]
 
 
+def _stamp_pre_citations_digest(db, digest: str) -> None:
+    _downgrade_to_pre_citations_schema(db)
+    db.execute("BEGIN")
+    db.execute("UPDATE meta SET value=? WHERE key='schema_digest'", (digest,))
+    db.commit()
+
+
 def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
     sheet = _Sheet(make_project("p"))
     sheet.edit_first_three()
@@ -548,8 +556,8 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
         f"({run_heads}) WHERE column_id=?",
         (sheet.out,),
     )
-    db.execute("UPDATE meta SET value=? WHERE key='schema_digest'", (DOMAIN_TO_DIGEST,))
     db.commit()
+    _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
     assert sheet.values()[:3] == ["B0", "B1", "B2"]
     path = sheet.project.path
     sheet.project.close()
@@ -581,11 +589,8 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
         f"({copy_heads}) WHERE column_id=?",
         (sheet.out,),
     )
-    db.execute(
-        "UPDATE meta SET value=? WHERE key='schema_digest'",
-        (EDIT_PRECEDENCE_TO_DIGEST,),
-    )
     db.commit()
+    _stamp_pre_citations_digest(db, EDIT_PRECEDENCE_TO_DIGEST)
     assert sheet.values()[:3] == ["A0", "A1", "A2"]
     path = sheet.project.path
     sheet.project.close()

@@ -318,7 +318,7 @@ def _change_has_effects(db, target):
             "EXISTS(SELECT 1 FROM copied_result_outcomes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM column_descriptor_changes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM result_judgment_changes WHERE op_id=:op) OR "
-            "EXISTS(SELECT 1 FROM evidence_links WHERE op_id=:op) OR "
+            "EXISTS(SELECT 1 FROM citations WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM materialized_row_sources WHERE op_id=:op) OR "
             # Ordered work is cancellable even before its first visible output.
             "EXISTS(SELECT 1 FROM runs WHERE op_id=:op AND status='running' "
@@ -962,7 +962,7 @@ def _unapply(project: Any, change: sqlite3.Row) -> None:
         )
     for transition in info.get("evidence_links_staled", []):
         project.db.execute(
-            "UPDATE evidence_links SET status='active',stale_reason=NULL,stale_at=NULL "
+            "UPDATE citations SET status='active',stale_reason=NULL,stale_at=NULL "
             "WHERE stable_id=? AND status='stale' AND stale_reason=?",
             (transition["stable_id"], transition["stale_reason"]),
         )
@@ -999,7 +999,7 @@ def _reapply(project: Any, change: sqlite3.Row) -> None:
         )
     for transition in info.get("evidence_links_staled", []):
         project.db.execute(
-            "UPDATE evidence_links SET status='stale',stale_reason=?,"
+            "UPDATE citations SET status='stale',stale_reason=?,"
             "stale_at=datetime('now') WHERE stable_id=? AND status='active'",
             (transition["stale_reason"], transition["stable_id"]),
         )

@@ -31,7 +31,7 @@ from frisket.engine.executor.blob_outputs import (
 from frisket.engine.executor.action_families._errors import (
     receipt_stale_replay_error,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     citation_by_stable_id,
     record_citation,
     record_source_artifact,

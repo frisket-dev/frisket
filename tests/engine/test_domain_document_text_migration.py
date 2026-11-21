@@ -6,7 +6,7 @@ from frisket.engine.store.transactions import write_transaction
 from frisket.upgrades.project.domain_document_text_migration import (
     adopt_legacy_document_text,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -15,6 +15,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from helpers import run_writer_authority_fixture
+from tests.engine.test_citations_migration import _downgrade_to_pre_citations_schema
 
 
 def _setup(tmp_path):
@@ -82,7 +83,15 @@ def _publish(project, sheet, source, column, row, blob, text):
     return ref.ref_id
 
 
+def _ensure_pre_citations_tables(db) -> None:
+    if db.execute(
+        "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='citations'"
+    ).fetchone():
+        _downgrade_to_pre_citations_schema(db)
+
+
 def _adopt(project):
+    _ensure_pre_citations_tables(project.db)
     project.db.execute("BEGIN IMMEDIATE")
     try:
         result = adopt_legacy_document_text(project.db)
@@ -224,6 +233,7 @@ def test_adoption_rolls_back_then_can_resume(tmp_path):
         _publish(project, sheet, source, left, rows[0], blob, "first")
         _publish(project, sheet, source, right, rows[1], blob, "second")
         before = project.db.execute("SELECT count(*) FROM columns").fetchone()[0]
+        _ensure_pre_citations_tables(project.db)
         project.db.execute("BEGIN IMMEDIATE")
         adopt_legacy_document_text(project.db)
         project.db.rollback()

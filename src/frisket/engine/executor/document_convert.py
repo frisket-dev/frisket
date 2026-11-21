@@ -916,7 +916,7 @@ def write_document_convert_evidence(
 ):
     """Retain actual reads and quote-free dependencies at the result savepoint."""
     from frisket.engine.store.receipts import ReceiptStore
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
@@ -948,7 +948,7 @@ def write_document_convert_evidence(
         engine = read["engine"]
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='source_provenance' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()
