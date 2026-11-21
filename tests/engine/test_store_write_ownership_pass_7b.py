@@ -31,7 +31,7 @@ from frisket.ai.embeddings import (
     IndexCountUpdate,
     make_space_descriptor,
 )
-from frisket.contracts.action import Receipt, ReceiptEvidence, ReceiptIO
+from frisket.contracts.action import Receipt, ReceiptIO, ReceiptRecord
 from frisket.engine.executor import embedding_batches
 from frisket.engine.executor.action_families import embeddings as embedding_actions
 from frisket.engine.executor.action_inventory import ExecutorDeps, _TypedProjectEnvelope
@@ -879,7 +879,7 @@ def test_callable_record_in_transaction_savepoint_preserves_outer_caller_txn(
         invocation.record_in_transaction(
             CallableRecordUpdate(
                 outputs=(ReceiptIO(name="out", ref={"kind": "file", "path": "x.csv"}),),
-                citations=(ReceiptEvidence(ref={"kind": "probe"}, retention="pinned"),),
+                records=(ReceiptRecord(ref={"kind": "probe"}, retention="pinned"),),
             ),
             before_commit=fail_after_side_write,
         )
