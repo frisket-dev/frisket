@@ -69,14 +69,17 @@ _EMPTY_FENCE = WriterFence()
 
 def _bind_run_fence(run_id: int | None, fence: WriterFence) -> WriterFence:
     """Ensure a fence passed alongside ``run_id`` agrees with and carries it."""
-    if run_id is None:
-        return fence
-    if fence.run_id is not None and int(fence.run_id) != int(run_id):
+    if fence.run_id is not None and (
+        run_id is None or int(fence.run_id) != int(run_id)
+    ):
         from frisket.execution.attempt import StaleAttemptWriter
 
+        target = "an unscoped write" if run_id is None else f"run {run_id}"
         raise StaleAttemptWriter(
-            f"writer fence targets run {fence.run_id!r}, not run {run_id}"
+            f"writer fence targets run {fence.run_id!r}, not {target}"
         )
+    if run_id is None:
+        return fence
     return fence if fence.run_id == int(run_id) else replace(fence, run_id=int(run_id))
 
 
@@ -87,6 +90,14 @@ def _require_row_effect_ref(ref: EffectCheckpointRef) -> int:
             f"got {ref.family!r}"
         )
     return int(ref.group_key)
+
+
+def _require_model_call_ref(ref: EffectCheckpointRef) -> None:
+    if ref.family != MODEL_CALL_CHECKPOINT_FAMILY:
+        raise ValueError(
+            f"child checkpoint requires family {MODEL_CALL_CHECKPOINT_FAMILY!r}, "
+            f"got {ref.family!r}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2682,6 +2693,7 @@ class RunResultStore:
             child_call_ids = set()
             effects = self._effect_store()
             for child in child_checkpoints:
+                _require_model_call_ref(child)
                 returned = effects.returned_for_replay(child.unit)
                 if returned["id"] != child.checkpoint_id:
                     raise RuntimeError("returned child checkpoint identity changed")

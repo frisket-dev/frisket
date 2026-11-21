@@ -770,6 +770,38 @@ def queued_v1_finalize_action_result(
     )
 
 
+def _validate_queued_terminal_fence(
+    run_id: int,
+    fence: WriterFence | None,
+    *,
+    claimless_direct_effect: bool,
+) -> bool:
+    if fence is None:
+        return False
+    if fence.claim_token is not None and claimless_direct_effect:
+        raise ValueError("claimless_direct_effect cannot also carry a claim_token")
+    caller_supplied = (
+        fence.writer_attempt_id is not None
+        or fence.claim_token is not None
+        or fence.claimless_direct_effect
+    )
+    run_mismatch = fence.run_id is not None and int(fence.run_id) != int(run_id)
+    missing_attempt = caller_supplied and (
+        not isinstance(fence.writer_attempt_id, str) or not fence.writer_attempt_id
+    )
+    if run_mismatch or missing_attempt:
+        from frisket.execution.attempt import StaleAttemptWriter
+
+        if run_mismatch:
+            raise StaleAttemptWriter(
+                f"writer fence targets run {fence.run_id!r}, not run {run_id}"
+            )
+        raise StaleAttemptWriter(
+            "a dispatched queued terminal write requires its writer attempt"
+        )
+    return caller_supplied
+
+
 def queued_v1_terminal_receipt_transition(
     project: Project,
     payload: Mapping[str, Any] | None = None,
@@ -845,19 +877,11 @@ def queued_v1_terminal_receipt_transition(
                 else {"queued", "running"}
             ),
         )
-    caller_supplied_fence = fence is not None and (
-        fence.writer_attempt_id is not None or fence.claim_token is not None
+    caller_supplied_fence = _validate_queued_terminal_fence(
+        run_id,
+        fence,
+        claimless_direct_effect=claimless_direct_effect,
     )
-    if caller_supplied_fence and (
-        fence is None
-        or not isinstance(fence.writer_attempt_id, str)
-        or not fence.writer_attempt_id
-    ):
-        from frisket.execution.attempt import StaleAttemptWriter
-
-        raise StaleAttemptWriter(
-            "a dispatched queued terminal write requires its writer attempt"
-        )
     receipt: Receipt | None = None
     if stored is not None:
         receipt_id = stored.id

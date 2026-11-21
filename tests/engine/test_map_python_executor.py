@@ -492,7 +492,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
     ) -> None:
         original_publish_result_batch(store, run_id, batch, **kwargs)
         assert not store.db.in_transaction
-        writer_attempt_id = kwargs.get("writer_attempt_id")
+        writer_attempt_id = kwargs["fence"].writer_attempt_id
         assert isinstance(writer_attempt_id, str) and writer_attempt_id
         store.db.execute(
             "UPDATE execution_attempts "
