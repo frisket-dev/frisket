@@ -385,7 +385,7 @@ def resolve_run_keys(
     server process already gives the copilot/previews, without which a run
     fails per-row with the missing-key remediation while the copilot works.
     """
-    if org_id is not None and control_database_url:
+    if org_id is not None and control_database_url and credentials is not None:
         keys = dict(
             credentials.provider_keys(
                 org_id=int(org_id),

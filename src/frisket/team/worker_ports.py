@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from frisket.engine.jobs.ports import WorkerPorts
+from frisket.security.secrets import decrypt_secret
 from frisket.team.document_credentials import TeamOrganizationDocumentCredentialPort
 from frisket.team.config import team_config_from_env
 from frisket.team.control_plane import (
@@ -11,6 +12,14 @@ from frisket.team.control_plane import (
 )
 from frisket.team.gateway_routes import TeamOrganizationModelsGatewayPort
 from frisket.team.secret_box import TeamSecretBox
+
+
+def open_control_plane_worker_ports() -> WorkerPorts:
+    """Organization BYOK credential port over the shared AEAD secrets key."""
+
+    return WorkerPorts(
+        credential_port=TeamOrganizationKeyCredentialPort(decrypt_secret),
+    )
 
 
 def team_worker_ports_from_env() -> WorkerPorts:

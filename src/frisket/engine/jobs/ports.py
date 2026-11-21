@@ -1,9 +1,10 @@
 """Explicit edition credentials and admission for the worker.
 
-The open default resolves organization keys from its identity control plane and admits
-local actions. Hosted composition supplies its own credential and admission
-ports. Provider purchases own their accounting independently of job completion.
-Ports are checked structurally at composition time.
+Organization-scoped editions (team and cloud) supply their credential and
+admission ports at composition time. Local solo runs resolve workspace/project
+credentials without a control plane. Provider purchases own their accounting
+independently of job completion. Ports are checked structurally at composition
+time.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
 )
-from frisket.team.control_plane import control_plane_engine, organization_provider_keys
 
 
 @runtime_checkable
@@ -136,23 +136,6 @@ class JobHandlerContext:
         return cls(TrustedJobOrganizationUnavailable.NO_JOB_ROW)
 
 
-class OrganizationKeyCredentialPort:
-    """The OPEN default: organization BYOK keys read from the identity control plane.
-
-    No spend caps and no platform-key fallback — both are commerce policy. An
-    organization with no stored key simply gets no key, and the run fails the way any
-    unkeyed run fails.
-    """
-
-    def provider_keys(
-        self, *, org_id: int, control_database_url: str | None
-    ) -> Mapping[str, str]:
-        if not control_database_url:
-            return {}
-        engine = control_plane_engine(control_database_url)
-        return organization_provider_keys(engine, org_id=org_id)
-
-
 class EnvironmentModelsGatewayPort:
     """Open default preserving operator environment configuration for Team."""
 
@@ -181,9 +164,9 @@ def _require_port(value: Any, protocol: type, role: str) -> Any:
 class WorkerPorts:
     """The port carrier a composition hands to the open worker registration."""
 
-    credential_port: CredentialPort | None = dataclasses.field(
-        default_factory=OrganizationKeyCredentialPort
-    )
+    # Deliberately absent by default. An organization-scoped edition supplies
+    # its own control-plane credential authority at composition time.
+    credential_port: CredentialPort | None = None
     admission_port: AdmissionPort | None = None
     models_gateway_port: ModelsGatewayPort | None = dataclasses.field(
         default_factory=EnvironmentModelsGatewayPort
@@ -209,9 +192,9 @@ class WorkerPorts:
         )
         _require_port(self.admission_port, AdmissionPort, "admission")
 
-    def credentials(self) -> CredentialPort:
-        """The credential port, falling back to the OPEN default."""
-        return self.credential_port or OrganizationKeyCredentialPort()
+    def credentials(self) -> CredentialPort | None:
+        """The injected organization credential port, or None when absent."""
+        return self.credential_port
 
     def search_credentials(self) -> SearchCredentialPort | None:
         return self.search_credential_port
