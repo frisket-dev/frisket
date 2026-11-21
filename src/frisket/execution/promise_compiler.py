@@ -291,7 +291,9 @@ def compile_route_promises(
             # categorical claim makes exact-match and historical coverage
             # move together without pretending scope is action identity.
             basis=(
-                {"work_scope": dict(work_scope)} if scope_requires_consent else None
+                {"work_scope": dict(work_scope)}
+                if scope_requires_consent and work_scope is not None
+                else None
             ),
             order_ref=EGRESS_ORDER_REF,
             audience=(

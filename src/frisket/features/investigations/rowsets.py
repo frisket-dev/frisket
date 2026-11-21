@@ -9,7 +9,8 @@ current cell values into source-aware records that later mappers can consume.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from contextlib import closing
+from typing import Any, TypedDict
 
 from frisket.engine.store.evidence import list_cell_citations
 from frisket.exports import rowset as export_rowset
@@ -216,12 +217,17 @@ def _visible_row_ids(project: Project, sheet_id: int, *, batch_size: int) -> lis
     return row_ids
 
 
+class _RowMetadata(TypedDict):
+    position: int
+    parent_row_id: int | None
+
+
 def _row_metadata(
     project: Project, sheet_id: int, row_ids: list[int], *, batch_size: int
-) -> dict[int, dict[str, int | None]]:
+) -> dict[int, _RowMetadata]:
     if not row_ids:
         return {}
-    by_id: dict[int, dict[str, int | None]] = {}
+    by_id: dict[int, _RowMetadata] = {}
     chunk_size = max(1, min(int(batch_size), 500))
     for start in range(0, len(row_ids), chunk_size):
         chunk = row_ids[start : start + chunk_size]
@@ -402,11 +408,12 @@ def _materialized_membership_by_row(
 ) -> dict[int, list[dict[str, Any]]]:
     from frisket.engine.store.materialization import active_materialized_row_sources
 
-    rows = active_materialized_row_sources(
-        project.db,
-        materialized_row_ids=row_ids,
-        roles=("edge_source", "edge_target", "aggregate_source"),
-    )
+    with closing(project.db.cursor()) as cur:
+        rows = active_materialized_row_sources(
+            cur,
+            materialized_row_ids=row_ids,
+            roles=("edge_source", "edge_target", "aggregate_source"),
+        )
     by_row: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
         by_row.setdefault(int(row["materialized_row_id"]), []).append(row)

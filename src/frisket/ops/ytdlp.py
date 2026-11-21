@@ -527,7 +527,7 @@ def _installed_ytdlp_identity() -> dict[str, str]:
         )
     digest = hashlib.sha256()
     for relative in package_files:
-        path = Path(distribution.locate_file(relative))
+        path = Path(str(distribution.locate_file(relative)))
         if path.is_symlink() or not path.is_file():
             raise ManagedRuntimeUnavailable(
                 f"installed yt-dlp package file is missing or unsafe: {relative}"
