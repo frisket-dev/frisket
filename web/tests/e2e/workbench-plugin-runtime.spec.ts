@@ -1,21 +1,30 @@
+// Workbench plugin runtime E2E suite: frontend component bindings, trusted-local
+// runtime boundary, runtime index evidence rendering, and real local plugin smoke.
+
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   createProject,
   editCells,
   importCsv,
+  listSheets,
   mockBasemapTiles,
   openProject,
+  projectIdByName,
   setColumnType,
   sheetColumns,
+  sheetData,
   uniqueName,
 } from './helpers';
 import {
+  activateGeoBackendFromManager,
+  enableGeoPluginFromManager,
   expectBundledPluginRows,
   openPluginManager,
   pluginManagerRow,
+  routeGeoPluginLifecycle,
 } from './workbenchPluginLifecycleFixture';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,11 +38,8 @@ const smokeActionId = 'frisket.geosmoke.real_local_smoke';
 const smokeContributionId = 'frisket.geosmoke.view.real_local_smoke';
 const smokeMapContributionId = 'frisket.geosmoke.view.map';
 
-test('real local plugin load activates visible Map contribution and backend projection binding', async ({
-  page,
-}) => {
-  await mockBasemapTiles(page);
-  const pid = await createProject(page.request, uniqueName('real-local-plugin-smoke'));
+async function seedGeoPlaceProject(page: Page, namePrefix: string) {
+  const pid = await createProject(page.request, uniqueName(namePrefix));
   const sheetId = await importCsv(
     page.request,
     pid,
@@ -42,27 +48,205 @@ test('real local plugin load activates visible Map contribution and backend proj
   );
   const columns = await sheetColumns(page.request, pid, sheetId);
   const point = columns.find((c) => c.name === 'point')!;
-  const data = await page.request.get(
-    `/api/projects/${pid}/sheets/${sheetId}/data?offset=0&limit=1`,
-  );
-  const firstRow = (await data.json()).rows[0] as { id: number };
+  const data = await sheetData(page.request, pid, sheetId, 0, 1);
   await setColumnType(page.request, pid, point.id, 'geo_point');
   await editCells(page.request, pid, [
-    { rowId: firstRow.id, columnId: point.id, value: { lat: 48.8584, lon: 2.2945 } },
+    { rowId: data.rows[0].id, columnId: point.id, value: { lat: 48.8584, lon: 2.2945 } },
   ]);
+  return { pid, sheetId, point };
+}
+
+test('plugin manager lists frontend component bindings from runtime index metadata', async ({
+  page,
+}) => {
+  const { pid, sheetId } = await seedGeoPlaceProject(page, 'frontend-component-bindings');
+  const lifecycle = await routeGeoPluginLifecycle(page, pid, {
+    initialState: 'installed',
+    receiptId: 'receipt_frontend_binding_sentinel',
+    manifestSha: 'sha256:frontend-binding-sentinel',
+    moduleKey: 'trustedLocal.frisketGeo.receiptModule',
+    componentKey: 'trustedLocal.frisketGeo.receiptMapView',
+  });
+
+  await openProject(page, pid, sheetId);
+  await openPluginManager(page);
+  const row = pluginManagerRow(page);
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute('data-workbench-views', 'frisket.geo.view.map');
+  await expect(row).toHaveAttribute(
+    'data-frontend-bindings',
+    'frisket.geo.view.map=trustedLocal.frisketGeo.receiptModule#trustedLocal.frisketGeo.receiptMapView',
+  );
+  await expect(row).toHaveAttribute('data-manifest-sha256', 'sha256:frontend-binding-sentinel');
+
+  await enableGeoPluginFromManager(page);
+  expect(lifecycle.calls).toEqual(['activate']);
+  await expect(row).toHaveAttribute('data-install-state', 'enabled');
+  await expect(row).toHaveAttribute('data-registry-activated', 'true');
+  await expect(page.getByTestId('workbench-plugin-repair-frisket-geo-view-map')).toHaveCount(0);
+});
+
+test('trusted-local plugin runtime boundary is exposed through generic manager', async ({
+  page,
+}) => {
+  await mockBasemapTiles(page);
+  const { pid, sheetId, point } = await seedGeoPlaceProject(page, 'trusted-local-map-runtime');
+  const lifecycle = await routeGeoPluginLifecycle(page, pid, {
+    initialState: 'installed',
+    receiptId: 'receipt_trusted_local_runtime',
+    manifestSha: 'sha256:trusted-local-runtime',
+    moduleKey: 'trustedLocal.frisketGeo',
+    componentKey: 'trustedLocal.frisketGeo.views.MapView',
+  });
+
+  await openProject(page, pid, sheetId);
+  await openPluginManager(page);
+  const row = pluginManagerRow(page);
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute('data-receipt-id', 'receipt_trusted_local_runtime');
+  await expect(row).toHaveAttribute('data-manifest-sha256', 'sha256:trusted-local-runtime');
+  await expect(row).toHaveAttribute(
+    'data-frontend-bindings',
+    'frisket.geo.view.map=trustedLocal.frisketGeo#trustedLocal.frisketGeo.views.MapView',
+  );
+
+  await enableGeoPluginFromManager(page);
+  await activateGeoBackendFromManager(page);
+  expect(lifecycle.calls).toEqual(['activate', 'backend-activate']);
+  await expect(row).toHaveAttribute('data-install-state', 'enabled');
+  await expect(row).toHaveAttribute('data-registry-activated', 'true');
+
+  await page.goto(`/p/${pid}/s/${sheetId}/map/column/${point.id}`);
+  const mapContribution = page.getByTestId('workbench-contribution-frisket-geo-view-map');
+  await expect(mapContribution).toBeVisible();
+  await expect(mapContribution).toHaveAttribute('data-contribution-id', 'frisket.geo.view.map');
+  await expect(mapContribution).toHaveAttribute(
+    'data-runtime-component-key',
+    'trustedLocal.frisketGeo.views.MapView',
+  );
+  await expect(page.getByTestId('workbench-plugin-repair-frisket-geo-view-map')).toHaveCount(0);
+});
+
+test('generic plugin manager reads backend plugin runtime index evidence', async ({
+  page,
+}) => {
+  const pid = await projectIdByName(page.request, 'Local stories');
+  await page.route(`**/api/projects/${pid}/workbench/plugins`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schemaVersion: 'frisket.workbench_plugin_runtime_index.v1',
+        projectId: pid,
+        arbitraryPackageLoadAllowed: false,
+        receiptScanLimit: 5000,
+        skippedInvalidReceipts: 0,
+        skippedInvalidManifestRefs: 0,
+        loadedPluginCount: 1,
+        plugins: [
+          {
+            schemaVersion: 'frisket.workbench_plugin_runtime_plugin.v1',
+            pluginId: 'frisket.geo',
+            version: '0.1.0',
+            installState: 'installed',
+            activation: 'manifestLoaded',
+            runtimeSource: 'plugin.load_receipt',
+            receiptId: 'receipt_plugin_geo_loaded',
+            manifestSha256: 'sha256:geo-runtime-index',
+            packageSha256: 'sha256:geo-runtime-package',
+            byteCount: 512,
+            source: {
+              kind: 'local_file',
+              path: '/Users/example/plugins/frisket-geo/plugin.json',
+            },
+            contributionSummary: [
+              { kind: 'workbench_view', count: 1, ids: ['frisket.geo.view.map'] },
+              {
+                kind: 'workbench_panel',
+                count: 1,
+                ids: ['frisket.core.panel.projection_status'],
+              },
+            ],
+            frontendComponentBindings: [
+              {
+                schemaVersion: 'frisket.workbench_plugin_frontend_component_binding.v1',
+                contributionId: 'frisket.geo.view.map',
+                moduleKey: 'trustedLocal.frisketGeo.runtimeIndex',
+                componentKey: 'trustedLocal.frisketGeo.runtimeIndex.MapView',
+              },
+            ],
+            requires: {
+              capabilities: ['project:read', 'local.external.activate'],
+              secrets: [],
+            },
+            arbitraryPackageLoadAllowed: false,
+            registryActivated: false,
+            installStateSchemaVersion: 'frisket.workbench_plugin_install_state.v1',
+            disabledReason: null,
+          },
+        ],
+        firstParty: {
+          schemaVersion: 'frisket.workbench_descriptor_package.v1',
+          descriptors: [],
+        },
+      }),
+    });
+  });
+  const sheets = await listSheets(page.request, pid);
+  await openProject(page, pid, sheets[0].id);
+
+  const manager = await openPluginManager(page);
+  await expect(manager).toBeVisible();
+  await expect(manager).toHaveAttribute(
+    'data-schema-version',
+    'frisket.workbench_plugin_runtime_index.v1',
+  );
+  await expect(manager).toHaveAttribute('data-project-id', pid);
+  await expect(manager).toHaveAttribute('data-plugin-count', '1');
+
+  const row = pluginManagerRow(page);
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute('data-plugin-id', 'frisket.geo');
+  await expect(row).toHaveAttribute('data-install-state', 'installed');
+  await expect(row).toHaveAttribute('data-activation', 'manifestLoaded');
+  await expect(row).toHaveAttribute('data-receipt-id', 'receipt_plugin_geo_loaded');
+  await expect(row).toHaveAttribute('data-manifest-sha256', 'sha256:geo-runtime-index');
+  await expect(row).toHaveAttribute('data-package-sha256', 'sha256:geo-runtime-package');
+  await expect(row).toHaveAttribute('data-workbench-views', 'frisket.geo.view.map');
+  await expect(row).toHaveAttribute(
+    'data-workbench-panels',
+    'frisket.core.panel.projection_status',
+  );
+  await expect(row).toHaveAttribute(
+    'data-contributions',
+    'workbench_view:frisket.geo.view.map workbench_panel:frisket.core.panel.projection_status',
+  );
+  await expect(row).toHaveAttribute(
+    'data-frontend-bindings',
+    'frisket.geo.view.map=trustedLocal.frisketGeo.runtimeIndex#trustedLocal.frisketGeo.runtimeIndex.MapView',
+  );
+  await expect(row).not.toHaveAttribute(
+    'data-backend-source-path',
+    '/Users/example/plugins/frisket-geo/plugin.json',
+  );
+  await expect(page.getByTestId('workbench-plugin-repair-frisket-geo-view-map')).toHaveCount(0);
+
+  await openProject(page, pid, sheets[0].id);
+  await expect(page.getByTestId('bottom-dock-tab-plugins')).toHaveCount(0);
+});
+
+test('real local plugin load activates visible Map contribution and backend projection binding', async ({
+  page,
+}) => {
+  await mockBasemapTiles(page);
+  const { pid, sheetId, point } = await seedGeoPlaceProject(page, 'real-local-plugin-smoke');
 
   await openProject(page, pid, sheetId);
   const manager = await openPluginManager(page);
   await expect(manager).toBeVisible();
   await expectBundledPluginRows(page);
-  // The smoke twin ships under its own plugin id so activating it never
-  // collides with the workspace-resident bundled frisket.geo (a same-id package
-  // with different evidence is refused). The bundled frisket.geo is disabled
-  // for this project only, so exactly one map view resolves; uninstalling it
-  // would remove it from every project in the shared e2e workspace.
+
   const bundledRow = pluginManagerRow(page);
-  // Normally 'enabled'; a prior in-process registry swap (this shared e2e
-  // server hosts every spec) can leave bootstrap at 'installed'.
   if ((await bundledRow.getAttribute('data-install-state')) === 'enabled') {
     await bundledRow.getByTestId('plugin-manager-disable').click();
     await expect(manager.getByTestId('plugin-manager-status')).toHaveText(
@@ -161,8 +345,6 @@ test('real local plugin load activates visible Map contribution and backend proj
   expect(enabledModule.ok()).toBeTruthy();
   expect(await enabledModule.text()).toContain('trusted-local-smoke-map-plugin-ui');
 
-  // The plugin manager lives on the settings route; workbench contributions
-  // mount on the project work surface. Return there to observe the mount.
   await openProject(page, pid, sheetId);
 
   const runtimeView = page.getByTestId('workbench-contribution-frisket-geosmoke-view-real-local-smoke');
@@ -218,8 +400,6 @@ test('real local plugin load activates visible Map contribution and backend proj
 
   const mapContribution = page.getByTestId('workbench-contribution-frisket-geosmoke-view-map');
   await expect(mapContribution).toBeVisible();
-  // Pin revision (geo-bundled-plugin-v1): the frame stamps the smoke twin's
-  // BINDING componentKey, not the removed first-party registry key.
   await expect(mapContribution).toHaveAttribute(
     'data-runtime-component-key',
     'trustedLocal.frisketGeo.realLocalSmoke.MapView',
@@ -256,7 +436,6 @@ test('real local plugin load activates visible Map contribution and backend proj
   await expect(page.getByTestId('plugin-manager').getByTestId('plugin-manager-status')).toHaveText(
     `uninstall:${smokePluginId}`,
   );
-  // An uninstalled plugin leaves the runtime index and the manager's list.
   expect(await readRuntimePlugin()).toBeUndefined();
   await expect(pluginManagerRow(page, smokePluginId)).toHaveCount(0);
 });
