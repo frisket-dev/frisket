@@ -415,6 +415,14 @@ class RunProgress:
         self.cancelled = True
 
 
+def _require_execution_composition(
+    composition: ExecutionComposition | None,
+) -> ExecutionComposition:
+    if composition is None:
+        raise RuntimeError("MapRunner execution_composition is not initialized")
+    return composition
+
+
 @dataclass
 class MapRunner:
     project: Project
@@ -481,11 +489,6 @@ class MapRunner:
             caps.append(max(1, int(dynamic_cap)))
         return min(caps)
 
-    def _execution_composition(self) -> ExecutionComposition:
-        if self.execution_composition is None:
-            raise RuntimeError("MapRunner execution_composition is not initialized")
-        return self.execution_composition
-
     def estimate(self, spec: dict, *, program: ActionProgram | None = None) -> dict:
         """Pre-run estimate for the cost gate. Facade over validation.estimate_run
         (public — server/services/action_previews.py and workbench call this)."""
@@ -493,7 +496,7 @@ class MapRunner:
             self.project,
             spec,
             program=program,
-            composition=self._execution_composition(),
+            composition=_require_execution_composition(self.execution_composition),
             pricing_policy=self.pricing_policy,
             consent_coverage=self.consent_coverage,
         )
@@ -676,7 +679,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=resume_run_id,
             pricing_policy=self.pricing_policy,
-            composition=self._execution_composition(),
+            composition=_require_execution_composition(self.execution_composition),
             consent_coverage=self.consent_coverage,
             precomputed_output_fields=precomputed_output_fields,
             trusted_consent_authorizer=trusted_consent_authorizer,
@@ -2366,7 +2369,7 @@ class MapRunner:
             spec,
             program=program,
             pricing_policy=self.pricing_policy,
-            composition=self._execution_composition(),
+            composition=_require_execution_composition(self.execution_composition),
             consent_coverage=self.consent_coverage,
             allow_empty_scope=allow_empty_scope,
             accounted=accounted,
@@ -2394,7 +2397,7 @@ class MapRunner:
                 spec,
                 program=program,
                 pricing_policy=self.pricing_policy,
-                composition=self._execution_composition(),
+                composition=_require_execution_composition(self.execution_composition),
                 consent_coverage=getattr(self, "consent_coverage", None),
                 allow_empty_scope=allow_empty_scope,
             ).row_ids
@@ -2425,7 +2428,7 @@ class MapRunner:
             spec,
             program=program,
             pricing_policy=self.pricing_policy,
-            composition=self._execution_composition(),
+            composition=_require_execution_composition(self.execution_composition),
             consent_coverage=self.consent_coverage,
             allow_empty_scope=allow_empty_scope,
             progress_cb=progress_cb,
