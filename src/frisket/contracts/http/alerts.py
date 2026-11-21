@@ -1,6 +1,6 @@
 """HTTP contracts for the alert browser routes.
 
-An Alert is a saved condition on a saved View; selection belongs to that View.
+An Alert is a saved condition on a View; selection belongs to that View.
 """
 
 from __future__ import annotations

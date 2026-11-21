@@ -83,7 +83,7 @@ export function ViewsPanel({
   const confirmationTrigger = useRef<HTMLElement | null>(null);
   const confirmationWasOpen = useRef(confirmation !== null);
   const nameIsBlank = viewName.trim() === '';
-  const nameErrorId = 'saved-view-name-error';
+  const nameErrorId = 'view-name-error';
   const publishedView = lastPublication
     ? views.find((candidate) => candidate.id === lastPublication.viewId)
     : null;
@@ -157,11 +157,11 @@ export function ViewsPanel({
       {editor && canEdit ? (
         <div
           className="views-create"
-          data-testid={editor.kind === 'create' ? 'saved-view-create' : 'saved-view-edit'}
+          data-testid={editor.kind === 'create' ? 'view-create' : 'view-edit'}
           aria-busy={isSaving}
         >
           {editor.kind === 'edit' && (
-            <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeView(editor.view).summary}</span>
+            <span className="view-summary" data-testid="view-filter-summary">{summarizeView(editor.view).summary}</span>
           )}
           <TextInput
             data-testid="view-name-input"
@@ -198,7 +198,7 @@ export function ViewsPanel({
             <Button
               type="button"
 
-              data-testid="saved-view-editor-cancel"
+              data-testid="view-editor-cancel"
               disabled={isSaving}
               onClick={onCancel}
             >
@@ -211,7 +211,7 @@ export function ViewsPanel({
           <Button
             type="button"
             className="btn-primary"
-            data-testid="create-saved-view"
+            data-testid="create-view"
             disabled={isSaving}
             onClick={onStartCreating}
           >
@@ -219,14 +219,14 @@ export function ViewsPanel({
           </Button>
         )
       )}
-      <div className="saved-views-list" data-testid="saved-views-list" ref={listRef} tabIndex={-1}>
+      <div className="views-list" data-testid="views-list" ref={listRef} tabIndex={-1}>
         {views.length === 0 ? (
           <div className="views-empty">No views yet.</div>
         ) : (
           views.map((view) => (
             <div
-              className="saved-view-item"
-              data-testid="saved-view-item"
+              className="view-item"
+              data-testid="view-item"
               key={view.id}
               ref={(node) => {
                 if (node) viewRows.current.set(view.id, node);
@@ -234,11 +234,11 @@ export function ViewsPanel({
               }}
               tabIndex={-1}
             >
-              <div className="saved-view-main">
+              <div className="view-main">
                 <button
                   type="button"
-                  className="saved-view-apply"
-                  data-testid="apply-saved-view"
+                  className="view-apply"
+                  data-testid="apply-view"
                   disabled={isSaving || !!view.unavailable_reason}
                   onClick={() => {
                     if (view.sheet_id === null) setResultsView(view);
@@ -247,15 +247,15 @@ export function ViewsPanel({
                 >
                   {view.name}
                 </button>
-                <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeView(view).summary}</span>
-                {activeViewId === view.id && <span className="saved-view-active">{viewModified ? 'Modified' : 'Active'}</span>}
+                <span className="view-summary" data-testid="view-filter-summary">{summarizeView(view).summary}</span>
+                {activeViewId === view.id && <span className="view-active">{viewModified ? 'Modified' : 'Active'}</span>}
               </div>
               {canEdit && (
-                <div className="saved-view-actions">
+                <div className="view-actions">
                   <button
                     type="button"
                     className="icon-btn"
-                    data-testid="update-saved-view-definition"
+                    data-testid="update-view-definition"
                     aria-label={`Save changes to ${view.name}`}
                     title={`Save changes to ${view.name}`}
                     disabled={isSaving || view.sheet_id === null}
@@ -269,7 +269,7 @@ export function ViewsPanel({
                   <button
                     type="button"
                     className="icon-btn"
-                    data-testid="edit-saved-view"
+                    data-testid="edit-view"
                     aria-label={`Rename ${view.name}`}
                     title={`Rename ${view.name}`}
                     disabled={isSaving}
@@ -280,7 +280,7 @@ export function ViewsPanel({
                   <button
                     type="button"
                     className="icon-btn danger"
-                    data-testid="delete-saved-view"
+                    data-testid="delete-view"
                     aria-label={`Delete ${view.name}`}
                     title={`Delete ${view.name}`}
                     disabled={isSaving}
@@ -304,8 +304,8 @@ export function ViewsPanel({
           title={confirmation.kind === 'delete' ? `Delete “${confirmation.view.name}”?`
             : `Save changes to ${confirmation.view.name}?`}
           busy={isSaving} danger={confirmation.kind === 'delete'}
-          testId={confirmation.kind === 'delete' ? 'delete-saved-view-confirmation' : 'update-saved-view-confirmation'}
-          confirmTestId={confirmation.kind === 'delete' ? 'confirm-delete-saved-view' : 'confirm-update-saved-view'}
+          testId={confirmation.kind === 'delete' ? 'delete-view-confirmation' : 'update-view-confirmation'}
+          confirmTestId={confirmation.kind === 'delete' ? 'confirm-delete-view' : 'confirm-update-view'}
           confirmLabel={isSaving
             ? confirmation.kind === 'delete' ? 'Deleting…' : 'Saving…'
             : confirmation.kind === 'delete' ? 'Delete view' : 'Save changes'}

@@ -182,8 +182,8 @@ export function WorkspaceSheetToolbar() {
                   {activeViewId !== null && views.find((view) => view.id === activeViewId) && (
                     <button
                       type="button"
-                      className="active-saved-view-chip"
-                      data-testid="active-saved-view-chip"
+                      className="active-view-chip"
+                      data-testid="active-view-chip"
                       onClick={openViews}
                     >
                       {viewModified ? 'Modified' : 'View'}: {views.find((view) => view.id === activeViewId)!.name}
@@ -359,7 +359,7 @@ function ToolbarOverflowMenu() {
     enabled: overflowMenuOpen && viewsMenuOpen,
     focusRestore: viewsTriggerRef,
     sourceRef: viewsTriggerRef,
-    ignoreSelector: '[data-testid="open-saved-views-submenu"]',
+    ignoreSelector: '[data-testid="open-views-submenu"]',
   });
 
   const menuPos = useAnchoredPosition(triggerRef, {
@@ -424,7 +424,7 @@ function ToolbarOverflowMenu() {
             type="button"
             ref={viewsTriggerRef}
             className="menu-item"
-            data-testid="open-saved-views-submenu"
+            data-testid="open-views-submenu"
             aria-haspopup="menu"
             aria-expanded={viewsMenuOpen}
             onPointerEnter={openViewsSubmenu}
@@ -482,8 +482,8 @@ function ToolbarOverflowMenu() {
       {overflowMenuOpen && viewsMenuOpen && (
         <div
           ref={viewsMenuRef}
-          className="menu-pop saved-views-overflow-menu"
-          data-testid="saved-views-overflow-menu"
+          className="menu-pop views-overflow-menu"
+          data-testid="views-overflow-menu"
           role="menu"
           onKeyDown={(event) => {
             if (event.key === 'ArrowLeft') {
@@ -501,13 +501,13 @@ function ToolbarOverflowMenu() {
         >
           {views.length > 8 && (
             <TextInput
-              className="saved-views-overflow-search"
+              className="views-overflow-search"
               aria-label="Search views"
               value={viewsQuery}
               onChange={(event) => setViewsQuery(event.target.value)}
             />
           )}
-          <div className="saved-views-overflow-list" data-testid="saved-views-overflow-list">
+          <div className="views-overflow-list" data-testid="views-overflow-list">
             {filteredViews.length === 0 ? (
               <div className="menu-empty">No matching views</div>
             ) : (
@@ -515,7 +515,7 @@ function ToolbarOverflowMenu() {
                 <button
                   type="button"
                   className="menu-item"
-                  data-testid={`saved-views-overflow-view-${view.id}`}
+                  data-testid={`views-overflow-view-${view.id}`}
                   key={view.id}
                   onClick={() => {
                     applyView(view);
@@ -533,7 +533,7 @@ function ToolbarOverflowMenu() {
             <button
               type="button"
               className="menu-item"
-              data-testid="saved-views-overflow-new"
+              data-testid="views-overflow-new"
               onClick={() => {
                 setOverflowOpen(false);
                 openNewView();
@@ -546,7 +546,7 @@ function ToolbarOverflowMenu() {
           <button
             type="button"
             className="menu-item"
-            data-testid="saved-views-overflow-open-panel"
+            data-testid="views-overflow-open-panel"
             onClick={() => {
               setOverflowOpen(false);
               openViews();

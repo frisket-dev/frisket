@@ -1,4 +1,4 @@
-"""One saved View: selection, presentation, and a shared paginated resolver."""
+"""One View: selection, presentation, and a shared paginated resolver."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ class _ClosedRequest(WireModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
 
-class SavedView(WireModel):
+class View(WireModel):
     id: int
     name: str
     sheet_id: int | None
@@ -24,12 +24,12 @@ class SavedView(WireModel):
     unavailable_reason: str | None
 
 
-class SavedViewDelete(WireModel):
+class ViewDelete(WireModel):
     ok: bool
     deleted: int
 
 
-class SavedViewList(RootModel[list[SavedView]]):
+class ViewList(RootModel[list[View]]):
     model_config = ConfigDict(strict=True)
 
 
@@ -41,7 +41,7 @@ class ViewRowRef(WireModel):
     relevance_score: float | None
 
 
-class SavedViewResolved(WireModel):
+class ViewResolved(WireModel):
     view_id: int
     query_hash: str
     refs: list[ViewRowRef]
@@ -50,14 +50,14 @@ class SavedViewResolved(WireModel):
     limit: int
 
 
-class SavedViewDefinitionReplaceRequest(_ClosedRequest):
+class ViewDefinitionReplaceRequest(_ClosedRequest):
     selection: ViewSelection
     presentation: dict[str, JsonValue] | None = None
 
 
-class SavedViewRenameRequest(_ClosedRequest):
+class ViewRenameRequest(_ClosedRequest):
     name: Annotated[str, nonblank("name is required")]
 
 
-class SavedViewCreateRequest(SavedViewDefinitionReplaceRequest, SavedViewRenameRequest):
+class ViewCreateRequest(ViewDefinitionReplaceRequest, ViewRenameRequest):
     pass

@@ -886,7 +886,7 @@ describe('located palette search', () => {
       group_by: 'row',
       query: { kind: 'text', text: 'budget' },
     }));
-    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    fireEvent.click(screen.getByTestId('save-search-view-button'));
 
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget',
@@ -900,7 +900,7 @@ describe('located palette search', () => {
         },
       } }, presentation: {},
     }));
-    expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('View saved');
+    expect(await screen.findByTestId('save-search-view-status')).toHaveTextContent('View saved');
   });
 
   it('saves hybrid search with bounded membership and fused relevance order', async () => {
@@ -910,7 +910,7 @@ describe('located palette search', () => {
     await waitFor(() => expect(index).toHaveTextContent('Research passages'));
     fireEvent.change(index, { target: { value: 'index-1' } });
     fireEvent.change(screen.getByTestId('search-mode-select'), { target: { value: 'hybrid' } });
-    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    fireEvent.click(screen.getByTestId('save-search-view-button'));
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget', presentation: {}, selection: {
         scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [], limit: 500,
@@ -943,7 +943,7 @@ describe('located palette search', () => {
       },
     });
 
-    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    fireEvent.click(screen.getByTestId('save-search-view-button'));
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Similar to page 2',
       selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: 500, similarity: {

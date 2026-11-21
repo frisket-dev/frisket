@@ -165,10 +165,10 @@ test('native Glide AI column groups rename and hide support columns as layout st
   await expect(page.getByTestId('native-column-group-show-justification')).not.toBeChecked();
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('views-panel')).toBeVisible();
-  await page.getByTestId('create-saved-view').click();
+  await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Triage layout');
   const viewResponse = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views`) &&
