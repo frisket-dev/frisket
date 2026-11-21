@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -9,15 +9,30 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "sdk" / "contract-manifest.json"
 WEB_WORKBENCH = REPO_ROOT / "web" / "src" / "workbench"
+PLUGIN_RUNTIME_DESCRIPTORS = WEB_WORKBENCH / "pluginRuntimeDescriptors.ts"
 
-_spec = importlib.util.spec_from_file_location(
-    "test_workbench_placement_policy",
-    REPO_ROOT / "tests" / "authoring" / "test_workbench_placement_policy.py",
-)
-_policy = importlib.util.module_from_spec(_spec)
-assert _spec.loader is not None
-_spec.loader.exec_module(_policy)
-_plugin_legal_placement_pairs = _policy._plugin_legal_placement_pairs
+
+def _plugin_legal_placement_pairs() -> dict[str, set[tuple[str, str]]]:
+    # rule19: two-sources: web PLUGIN_LEGAL_PLACEMENTS diffed against the Python-generated manifest
+    source = PLUGIN_RUNTIME_DESCRIPTORS.read_text(encoding="utf-8")
+    match = re.search(
+        r"\bconst PLUGIN_LEGAL_PLACEMENTS[^=]*=\s*\{(?P<body>.*?)\n\};",
+        source,
+        flags=re.DOTALL,
+    )
+    assert match, "PLUGIN_LEGAL_PLACEMENTS table not found"
+    pairs: dict[str, set[tuple[str, str]]] = {}
+    for kind_match in re.finditer(
+        r"(?P<kind>\w+):\s*\[(?P<rows>[^\]]*)\]", match.group("body")
+    ):
+        rows = set()
+        for row in re.finditer(
+            r"\{\s*host:\s*'(?P<host>[A-Za-z]+)',\s*mode:\s*'(?P<mode>[A-Za-z]+)'\s*\}",
+            kind_match.group("rows"),
+        ):
+            rows.add((row.group("host"), row.group("mode")))
+        pairs[kind_match.group("kind")] = rows
+    return pairs
 
 
 def _manifest() -> dict:
@@ -59,8 +74,7 @@ def test_frontend_tables_match_the_manifest() -> None:
     manifest = _manifest()
 
     # placements: web/src/workbench/pluginRuntimeDescriptors.ts's
-    # PLUGIN_LEGAL_PLACEMENTS, parsed by the focused helper in
-    # test_workbench_placement_policy.py.
+    # PLUGIN_LEGAL_PLACEMENTS.
     frontend_pairs = _plugin_legal_placement_pairs()
     manifest_pairs = {
         kind: {(entry["host"], entry["mode"]) for entry in entries}

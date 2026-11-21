@@ -255,34 +255,20 @@ def test_non_json_2xx_errors_invalid_json(_allow_egress):
 @pytest.mark.parametrize(
     "payload",
     [
-        b'{"score": NaN}',
-        b'{"score": Infinity}',
-        b'{"score": -Infinity}',
-        b'{"score": 1e999}',
+        pytest.param(b'{"score": NaN}', id="nan"),
+        pytest.param(b'{"score": Infinity}', id="inf"),
+        pytest.param(b'{"score": -Infinity}', id="neg_inf"),
+        pytest.param(b'{"score": 1e999}', id="overflow"),
+        pytest.param(b'{"role": "user", "role": "admin"}', id="duplicate_top_key"),
+        pytest.param(
+            b'{"result": {"role": "user", "role": "admin"}}',
+            id="duplicate_nested_key",
+        ),
     ],
 )
-def test_non_finite_json_response_errors_invalid_json(_allow_egress, payload):
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            content=payload,
-            headers={"content-type": "application/json"},
-        )
-
-    spec = {"method": "GET", "url": "https://api.test.example/page"}
-    out = _run({}, spec, _ctx(handler))
-    assert out["error_code"] == "invalid_json"
-    assert "200" in out["error"]
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        b'{"role": "user", "role": "admin"}',
-        b'{"result": {"role": "user", "role": "admin"}}',
-    ],
-)
-def test_duplicate_json_response_key_errors_invalid_json(_allow_egress, payload):
+def test_non_finite_or_duplicate_key_json_response_errors_invalid_json(
+    _allow_egress, payload
+):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,

@@ -320,45 +320,19 @@ def test_document_models_route_to_sidecar_ocr(tmp_path, monkeypatch, engine):
     assert captured["data"]["engine"] == engine
 
 
-def test_pp_ocrv6_routes_to_sidecar_ocr(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "engine",
+    ["pp-ocrv6", "dots.mocr", "glm-ocr", "surya2"],
+)
+def test_sidecar_ocr_engines_route_to_sidecar_ocr(tmp_path, monkeypatch, engine):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, "pp-ocrv6")
+    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, engine)
     assert prog.status == "completed", prog.errors
     assert captured["url"] == "http://models:9000/ocr"
     assert captured["headers"]["Authorization"] == "Bearer sekrit"
     assert captured["follow_redirects"] is True
-    assert captured["data"]["engine"] == "pp-ocrv6"
-
-
-def test_dots_mocr_routes_to_sidecar_ocr(tmp_path, monkeypatch):
-    monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
-    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, "dots.mocr")
-    assert prog.status == "completed", prog.errors
-    assert captured["url"] == "http://models:9000/ocr"
-    assert captured["follow_redirects"] is True
-    assert captured["data"]["engine"] == "dots.mocr"
-
-
-def test_glm_ocr_routes_to_sidecar_ocr(tmp_path, monkeypatch):
-    monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
-    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, "glm-ocr")
-    assert prog.status == "completed", prog.errors
-    assert captured["url"] == "http://models:9000/ocr"
-    assert captured["follow_redirects"] is True
-    assert captured["data"]["engine"] == "glm-ocr"
-
-
-def test_surya2_routes_to_sidecar_ocr(tmp_path, monkeypatch):
-    monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
-    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    prog, captured = _routes_to_sidecar(tmp_path, monkeypatch, "surya2")
-    assert prog.status == "completed", prog.errors
-    assert captured["url"] == "http://models:9000/ocr"
-    assert captured["follow_redirects"] is True
-    assert captured["data"]["engine"] == "surya2"
+    assert captured["data"]["engine"] == engine
 
 
 def test_public_sidecar_ocr_catalog_hint_entries_present():
