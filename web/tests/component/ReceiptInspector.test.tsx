@@ -26,7 +26,7 @@ async function inspect(ref: Record<string, unknown>, overrides: Partial<V1Receip
     schemaVersion: 'frisket.receipt.v1', receiptId: 'receipt-export',
     projectId: 'source/project ?', actionId: 'action-export', actionKind: 'export.column_tables',
     runId: null, opIds: [], idempotencyKey: null, paramsHash: null, status: 'completed',
-    inputs: [], outputs: [{ name: 'package', ref }], providerUse: [], evidence: [], errors: [],
+    inputs: [], outputs: [{ name: 'package', ref }], providerUse: [], records: [], errors: [],
     ...overrides,
   };
   vi.spyOn(stores.projectApi, 'getReceipt').mockResolvedValue(receipt);

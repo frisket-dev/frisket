@@ -3149,7 +3149,7 @@ export interface ReceiptRef {
   ref: Record<string, unknown>;
 }
 
-export interface ReceiptEvidence {
+export interface ReceiptRecord {
   ref: Record<string, unknown>;
   retention: string;
 }
@@ -3177,7 +3177,7 @@ export interface V1Receipt {
   outputs: ReceiptRef[];
   value?: HttpReceipt['value'];
   providerUse: Array<Record<string, unknown>>;
-  evidence: ReceiptEvidence[];
+  records: ReceiptRecord[];
   errors: ReceiptError[];
 }
 
