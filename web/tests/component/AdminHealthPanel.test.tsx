@@ -114,12 +114,12 @@ describe('AdminHealthPanel', () => {
       jobs: [],
     });
     api.getAdminAuditLog.mockResolvedValue({
-      schema_version: 'frisket.admin_audit.v1', events: [], filters: { orgs: [], projects: [], actions: [] },
+      schema_version: 'frisket.admin_audit.v1', events: [], filters: { organizations: [], projects: [], actions: [] },
     });
     api.getAdminErrors.mockResolvedValue({ schema_version: 'frisket.admin_errors.v1', errors: [], retention: null });
     api.getAdminUsers.mockResolvedValue({
       schema_version: 'frisket.admin_users.v1',
-      orgs: [{ id: 7, name: 'Open', suspended: false, pending_invites: [], users: [{ user_id: 9, email: 'member@example.com', name: null, role: 'member', created_at: null }] }],
+      organizations: [{ id: 7, name: 'Open', suspended: false, pending_invites: [], users: [{ user_id: 9, email: 'member@example.com', name: null, role: 'member', created_at: null }] }],
       capabilities: { assignable_roles: ['owner', 'member'], magic_link_ttl_minutes: 30, invite_ttl_days: 9 },
     });
 
@@ -152,10 +152,10 @@ describe('AdminHealthPanel', () => {
       schema_version: 'frisket.admin_jobs.v1', summary: {}, workers: {}, jobs: [],
     });
     api.getAdminAuditLog.mockResolvedValue({
-      schema_version: 'frisket.admin_audit.v1', events: [], filters: { orgs: [], projects: [], actions: [] },
+      schema_version: 'frisket.admin_audit.v1', events: [], filters: { organizations: [], projects: [], actions: [] },
     });
     api.getAdminErrors.mockResolvedValue({ schema_version: 'frisket.admin_errors.v1', errors: [], retention: null });
-    api.getAdminUsers.mockResolvedValue({ schema_version: 'frisket.admin_users.v1', orgs: [], capabilities: {} });
+    api.getAdminUsers.mockResolvedValue({ schema_version: 'frisket.admin_users.v1', organizations: [], capabilities: {} });
     diagnosticsApi.fetchDiagnostics.mockResolvedValue({
       healthy: true,
       core: { models: { ok: true, detail: 'Models available' } },

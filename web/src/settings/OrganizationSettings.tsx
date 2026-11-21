@@ -109,7 +109,7 @@ export function OrganizationAiProvidersSettings() {
 
 // Organization (team-tier) local endpoint cards come from the same plural catalog DTO
 // as workspace endpoints, reported under the hosted organization authority by
-// GET /api/org/local-endpoints. An empty collection means the operator has
+// GET /api/organization/local-endpoints. An empty collection means the operator has
 // not wired up an endpoint, so nothing renders (unlike workspace guidance for
 // a machine the user controls). The UI has no way to know owner-vs-member, so
 // a member's forbidden download surfaces through the flow's error message.

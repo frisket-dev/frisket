@@ -109,13 +109,13 @@ def claimed_project_root(
     claim's organization id is its per-organization subdirectory.
     """
     if workspace_root_storage_organization_id is None:
-        return Path(workspace_root) / str(claimed.storage_org_id)
-    if claimed.storage_org_id == workspace_root_storage_organization_id:
+        return Path(workspace_root) / str(claimed.storage_organization_id)
+    if claimed.storage_organization_id == workspace_root_storage_organization_id:
         return Path(workspace_root)
     raise ValueError(
-        f"claimed storage identity (org {claimed.storage_org_id}) does "
-        "not belong to this registration's org-scoped storage root "
-        f"(org {workspace_root_storage_organization_id})"
+        f"claimed storage identity (organization {claimed.storage_organization_id}) does "
+        "not belong to this registration's organization-scoped storage root "
+        f"(organization {workspace_root_storage_organization_id})"
     )
 
 
@@ -340,7 +340,7 @@ def _validate_cloud_attribution(
         ):
             raise ValueError("storage_org_id must be a positive integer")
         ProjectStorageKey(
-            storage_org_id=raw_storage_organization_id,
+            storage_organization_id=raw_storage_organization_id,
             project_slug=str(refs["project_id"]),
         )
     elif refs["storage_org_id"] is None and not server_scoped:
@@ -435,7 +435,7 @@ class Job:
         if self.storage_org_id is None or self.project_id is None:
             return None
         return ProjectStorageKey(
-            storage_org_id=self.storage_org_id,
+            storage_organization_id=self.storage_org_id,
             project_slug=self.project_id,
         )
 

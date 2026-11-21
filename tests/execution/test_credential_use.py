@@ -15,7 +15,7 @@ import pytest
 from frisket.execution.credential_use import (
     ENV_KEY,
     NO_CREDENTIAL,
-    ORG_BYOK_KEY,
+    ORGANIZATION_BYOK_KEY,
     PLATFORM_KEY,
     PROJECT_KEY,
     CredentialOwner,
@@ -65,10 +65,10 @@ def _honest_context(cost_posture: str) -> CredentialUseContext:
     [
         # "billed to your own account" names no particular key of the user's,
         # so any of the user's own satisfies it.
-        (OperatorBorne(), frozenset({ENV_KEY, PROJECT_KEY, ORG_BYOK_KEY})),
+        (OperatorBorne(), frozenset({ENV_KEY, PROJECT_KEY, ORGANIZATION_BYOK_KEY})),
         (PlatformMetered(), frozenset({PLATFORM_KEY})),
         # "billed to your organization's provider key" names exactly one.
-        (ByokZero(), frozenset({ORG_BYOK_KEY})),
+        (ByokZero(), frozenset({ORGANIZATION_BYOK_KEY})),
     ],
 )
 def test_each_funding_class_names_its_credential_classes(funding, expected):
@@ -94,7 +94,7 @@ def test_the_pinned_source_belongs_to_the_classes_its_funding_names(funding):
         ("platform_key", PLATFORM_KEY),
         ("local", ENV_KEY),
         ("project_key", PROJECT_KEY),
-        ("org_byok", ORG_BYOK_KEY),
+        ("org_byok", ORGANIZATION_BYOK_KEY),
         ("none", NO_CREDENTIAL),
         ("cache", NO_CREDENTIAL),
         ("a-token-from-2029", NO_CREDENTIAL),  # fail closed on the unknown
@@ -130,7 +130,7 @@ def test_the_users_own_key_satisfies_an_operator_borne_consent():
     for source, expected in (
         ("local", ENV_KEY),
         ("project_key", PROJECT_KEY),
-        ("org_byok", ORG_BYOK_KEY),
+        ("org_byok", ORGANIZATION_BYOK_KEY),
     ):
         assert (
             require_consented_credential(
@@ -189,7 +189,7 @@ def test_the_organization_byok_key_satisfies_its_own_consent():
             context=_honest_context("org_key"),
             effect="the call",
         )
-        == ORG_BYOK_KEY
+        == ORGANIZATION_BYOK_KEY
     )
 
 

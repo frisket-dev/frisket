@@ -174,7 +174,7 @@ def test_unclaimed_server_admits_only_the_operator_admin_api(
     assert client.get("/api/admin/ping").status_code == 503
     ping = client.get("/api/admin/ping", headers=bearer)
     assert ping.status_code == 200, ping.text
-    assert ping.json()["org"] == "Ops Desk"
+    assert ping.json()["organization"] == "Ops Desk"
     assert ping.json()["token_label"] == "install"
     # Only /api/admin/* passes pre-claim; organization-owner power does not open the
     # rest of the unclaimed server.

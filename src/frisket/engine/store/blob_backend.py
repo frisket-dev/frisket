@@ -289,7 +289,7 @@ class S3ProjectBlobStore:
     def _project_object_prefix(self) -> str:
         parts = [
             self.prefix,
-            str(self.project_storage_key.storage_org_id),
+            str(self.project_storage_key.storage_organization_id),
             self.project_storage_key.project_slug,
             "sha256",
         ]

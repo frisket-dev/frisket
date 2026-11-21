@@ -28,7 +28,8 @@ def bundle_opener(
 
     def open_bundle(bundle: Path) -> Project:
         return project_opener(
-            ProjectStorageKey(storage_org_id=org_id, project_slug=bundle.stem), bundle
+            ProjectStorageKey(storage_organization_id=org_id, project_slug=bundle.stem),
+            bundle,
         )
 
     return open_bundle

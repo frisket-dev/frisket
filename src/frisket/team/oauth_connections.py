@@ -257,7 +257,7 @@ def register_oauth_connection_routes(
     injected = google_connection_exchange is not None
 
     @app.get(
-        "/api/org/oauth/connections",
+        "/api/organization/oauth/connections",
         response_model=OAuthConnectionList,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 500),
@@ -270,7 +270,7 @@ def register_oauth_connection_routes(
             "connections": service.list_connections(user["org_id"], provider=provider)
         }
 
-    @app.delete("/api/org/oauth/connections/{provider}/{connection_id}")
+    @app.delete("/api/organization/oauth/connections/{provider}/{connection_id}")
     def revoke_oauth_connection(
         request: Request, provider: str, connection_id: str
     ) -> dict[str, bool]:
@@ -281,7 +281,7 @@ def register_oauth_connection_routes(
             )
         }
 
-    @app.get("/api/org/oauth/google/start")
+    @app.get("/api/organization/oauth/google/start")
     def google_connection_start(request: Request) -> Response:
         user = require_browser_user(request)
         if not _configured(config, require_secret=False, injected=injected):
@@ -314,12 +314,12 @@ def register_oauth_connection_routes(
             httponly=True,
             secure=config.secure_cookies,
             samesite="lax",
-            path="/api/org/oauth",
+            path="/api/organization/oauth",
             max_age=600,
         )
         return response
 
-    @app.get("/api/org/oauth/google/callback")
+    @app.get("/api/organization/oauth/google/callback")
     async def google_connection_callback(
         request: Request, code: str = "", state: str = "", error: str = ""
     ) -> Response:
@@ -373,7 +373,9 @@ def register_oauth_connection_routes(
             token_type=str(connected.get("token_type") or "Bearer"),
         )
         response = RedirectResponse("/?connected=google_sheets", status_code=302)
-        response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+        response.delete_cookie(
+            OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+        )
         return response
 
     return service
@@ -389,13 +391,17 @@ def _configured(config: TeamConfig, *, require_secret: bool, injected: bool) -> 
 
 def _error_response(body: str) -> HTMLResponse:
     response = HTMLResponse(body, status_code=400)
-    response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+    response.delete_cookie(
+        OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+    )
     return response
 
 
 def _callback_json_error(status_code: int, detail: str) -> JSONResponse:
     response = JSONResponse({"detail": detail}, status_code=status_code)
-    response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+    response.delete_cookie(
+        OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+    )
     return response
 
 
@@ -403,7 +409,9 @@ def _callback_http_error(exc: HTTPException) -> JSONResponse:
     response = JSONResponse(
         {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
     )
-    response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+    response.delete_cookie(
+        OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+    )
     return response
 
 

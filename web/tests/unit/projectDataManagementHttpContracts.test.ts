@@ -24,7 +24,7 @@ const network = {
   schemaVersion: 'frisket.project_network_policy.v1',
   mode: 'inherit',
   effective: 'on',
-  org_default: null,
+  organization_default: null,
 };
 const settings = {
   media_allow_private_hosts: false,

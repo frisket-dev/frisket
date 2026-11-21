@@ -11,8 +11,8 @@ const auditEvents = [
     created_at: '2026-06-14T12:00:00Z',
     actor_user_id: 1,
     actor_email: 'analyst@example.com',
-    org_id: 1,
-    org_name: 'News Lab',
+    organization_id: 1,
+    organization_name: 'News Lab',
     project_id: null,
     project_name: null,
     action: 'admin_invited',
@@ -20,7 +20,7 @@ const auditEvents = [
     object_type: 'invite',
     object_id: 'reporter@example.com',
     route: null,
-    context: { target_org_id: 1, email: 'reporter@example.com' },
+    context: { target_organization_id: 1, email: 'reporter@example.com' },
   },
   {
     id: 'audit:member',
@@ -29,8 +29,8 @@ const auditEvents = [
     created_at: '2026-06-14T12:01:00Z',
     actor_user_id: 1,
     actor_email: 'analyst@example.com',
-    org_id: 1,
-    org_name: 'News Lab',
+    organization_id: 1,
+    organization_name: 'News Lab',
     project_id: 'rss-watch',
     project_name: 'RSS Watch',
     action: 'project_role_set',
@@ -47,8 +47,8 @@ const auditEvents = [
     created_at: '2026-06-14T12:04:00Z',
     actor_user_id: 1,
     actor_email: 'analyst@example.com',
-    org_id: 1,
-    org_name: 'News Lab',
+    organization_id: 1,
+    organization_name: 'News Lab',
     project_id: null,
     project_name: null,
     action: 'pat_created',
@@ -65,8 +65,8 @@ const auditEvents = [
     created_at: '2026-06-14T12:05:00Z',
     actor_user_id: 9,
     actor_email: 'owner@other.org',
-    org_id: 2,
-    org_name: 'Other Org',
+    organization_id: 2,
+    organization_name: 'Other Org',
     project_id: null,
     project_name: null,
     action: 'login',
@@ -74,7 +74,7 @@ const auditEvents = [
     object_type: null,
     object_id: null,
     route: null,
-    context: { actor_org_id: 2 },
+    context: { actor_organization_id: 2 },
   },
 ];
 
@@ -86,8 +86,8 @@ test('admin audit feed shows event details and filters by organization, project,
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        orgs: [],
-        totals: { orgs: 0 },
+        organizations: [],
+        totals: { organizations: 0 },
       }),
     });
   });
@@ -102,7 +102,7 @@ test('admin audit feed shows event details and filters by organization, project,
           invite_ttl_days: 14,
           magic_link_ttl_minutes: 15,
         },
-        orgs: [],
+        organizations: [],
       }),
     });
   });
@@ -123,12 +123,12 @@ test('admin audit feed shows event details and filters by organization, project,
   await page.route('**/api/admin/browser/audit?*', async (route) => {
     const url = new URL(route.request().url());
     auditRequests.push(url);
-    const organizationId = url.searchParams.get('org_id');
+    const organizationId = url.searchParams.get('organization_id');
     const projectId = url.searchParams.get('project_id');
     const user = url.searchParams.get('user')?.toLowerCase() ?? '';
     const action = url.searchParams.get('action');
     const events = auditEvents.filter((event) => {
-      if (organizationId && String(event.org_id ?? '') !== organizationId) return false;
+      if (organizationId && String(event.organization_id ?? '') !== organizationId) return false;
       if (projectId && String(event.project_id ?? '') !== projectId) return false;
       if (action && event.action !== action) return false;
       if (user) {
@@ -144,8 +144,8 @@ test('admin audit feed shows event details and filters by organization, project,
       body: JSON.stringify({
         events,
         filters: {
-          orgs: [{ id: 1, name: 'News Lab' }, { id: 2, name: 'Other Org' }],
-          projects: [{ org_id: 1, id: 'rss-watch', name: 'RSS Watch' }],
+          organizations: [{ id: 1, name: 'News Lab' }, { id: 2, name: 'Other Org' }],
+          projects: [{ organization_id: 1, project_id: 'rss-watch', name: 'RSS Watch' }],
           actions: ['admin_invited', 'project_role_set', 'pat_created', 'login'],
         },
       }),
@@ -173,7 +173,7 @@ test('admin audit feed shows event details and filters by organization, project,
   await panel.getByTestId('admin-audit-apply').click();
   await expect(table).toContainText('owner@other.org');
   await expect(table).not.toContainText('reporter@example.com');
-  expect(auditRequests.at(-1)?.searchParams.get('org_id')).toBe('2');
+  expect(auditRequests.at(-1)?.searchParams.get('organization_id')).toBe('2');
 
   await panel.getByTestId('admin-audit-org-filter').selectOption('1');
   await panel.getByTestId('admin-audit-project-filter').selectOption('rss-watch');

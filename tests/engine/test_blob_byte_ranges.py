@@ -54,7 +54,9 @@ def test_s3_range_uses_scoped_key_and_bounded_read_then_closes(fault: str) -> No
         client=client,
         bucket="private",
         prefix="orgs",
-        project_storage_key=ProjectStorageKey(storage_org_id=7, project_slug="project"),
+        project_storage_key=ProjectStorageKey(
+            storage_organization_id=7, project_slug="project"
+        ),
     )
     digest = "a" * 64
     if fault == "ignored":

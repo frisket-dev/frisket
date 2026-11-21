@@ -129,7 +129,7 @@ def test_unreadable_bundle_does_not_stop_the_scan(
     opened: list[str] = []
 
     def opener(key, path: Path) -> Project:
-        assert key.storage_org_id == 23
+        assert key.storage_organization_id == 23
         opened.append(key.project_slug)
         return Project(path)
 

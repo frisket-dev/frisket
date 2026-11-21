@@ -15,7 +15,7 @@ describe('TeamAdminOverview', () => {
     render(
       <TeamAdminOverview
         overview={{
-          totals: { orgs: 1, users: 7, projects: 3, pending_invites: 2 },
+          totals: { organizations: 1, users: 7, projects: 3, pending_invites: 2 },
         }}
       />,
     );

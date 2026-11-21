@@ -106,18 +106,18 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
         "invite_ttl_days": 7,
         "magic_link_ttl_minutes": 30,
     }
-    assert payload["orgs"][0]["id"] == org_id
-    assert payload["orgs"][0]["suspended"] is False
-    assert payload["orgs"][0]["users"][0]["email"] == "owner@example.com"
-    owner_id = payload["orgs"][0]["users"][0]["user_id"]
+    assert payload["organizations"][0]["id"] == org_id
+    assert payload["organizations"][0]["suspended"] is False
+    assert payload["organizations"][0]["users"][0]["email"] == "owner@example.com"
+    owner_id = payload["organizations"][0]["users"][0]["user_id"]
     hosted_payload = {
         **payload,
-        "orgs": [
+        "organizations": [
             {
-                **payload["orgs"][0],
+                **payload["organizations"][0],
                 "users": [
                     {
-                        **payload["orgs"][0]["users"][0],
+                        **payload["organizations"][0]["users"][0],
                         "role": "admin",
                     }
                 ],
@@ -125,7 +125,10 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
         ],
     }
     assert (
-        AdminBrowserUsersV1.model_validate(hosted_payload).orgs[0].users[0].role
+        AdminBrowserUsersV1.model_validate(hosted_payload)
+        .organizations[0]
+        .users[0]
+        .role
         == "admin"
     )
     schemas = app.openapi()["components"]["schemas"]
@@ -145,37 +148,39 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
     assert (
         owner.patch(
             f"/api/admin/browser/users/{owner_id}/role",
-            json={"org_id": org_id, "role": "member"},
+            json={"organization_id": org_id, "role": "member"},
         ).status_code
         == 409
     )
     assert (
         owner.delete(
-            f"/api/admin/browser/users/{owner_id}", params={"org_id": org_id}
+            f"/api/admin/browser/users/{owner_id}", params={"organization_id": org_id}
         ).status_code
         == 409
     )
     assert (
         owner.post(
             "/api/admin/browser/users/invite",
-            json={"org_id": org_id + 1, "email": "wrong-org@example.com"},
+            json={"organization_id": org_id + 1, "email": "wrong-org@example.com"},
         ).status_code
         == 404
     )
 
     invited = owner.post(
         "/api/admin/browser/users/invite",
-        json={"org_id": org_id, "email": "New@Example.com"},
+        json={"organization_id": org_id, "email": "New@Example.com"},
     )
     assert invited.status_code == 200, invited.text
     assert invited.json()["ok"] is True
     assert invited.json()["sent"] is True
-    assert invited.json()["org_id"] == org_id
+    assert invited.json()["organization_id"] == org_id
     assert invited.json()["email"] == "new@example.com"
     assert invited.json()["role"] == "member"
     assert invited.json()["expires_at"] is not None
     assert sent and sent[-1][0] == "new@example.com"
-    pending = owner.get("/api/admin/browser/users").json()["orgs"][0]["pending_invites"]
+    pending = owner.get("/api/admin/browser/users").json()["organizations"][0][
+        "pending_invites"
+    ]
     assert (
         next(row for row in pending if row["email"] == "new@example.com")["role"]
         == "member"
@@ -190,7 +195,7 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
         )
     refused = owner.patch(
         f"/api/admin/browser/users/{member_id}/role",
-        json={"org_id": org_id, "role": "admin"},
+        json={"organization_id": org_id, "role": "admin"},
     )
     assert refused.status_code == 400, refused.text
     with app.state.control_engine.connect() as cx:
@@ -205,24 +210,24 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
         )
     promoted = owner.patch(
         f"/api/admin/browser/users/{member_id}/role",
-        json={"org_id": org_id, "role": "owner"},
+        json={"organization_id": org_id, "role": "owner"},
     )
     assert promoted.status_code == 200, promoted.text
     assert promoted.json() == {
         "ok": True,
-        "org_id": org_id,
+        "organization_id": org_id,
         "user_id": member_id,
         "role": "owner",
         "self": False,
     }
 
     removed = owner.delete(
-        f"/api/admin/browser/users/{member_id}", params={"org_id": org_id}
+        f"/api/admin/browser/users/{member_id}", params={"organization_id": org_id}
     )
     assert removed.status_code == 200, removed.text
     assert removed.json() == {
         "ok": True,
-        "org_id": org_id,
+        "organization_id": org_id,
         "user_id": member_id,
         "email": None,
         "membership_removed": True,
@@ -233,12 +238,12 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
 
     revoked = owner.delete(
         "/api/admin/browser/users/invites/new@example.com",
-        params={"org_id": org_id},
+        params={"organization_id": org_id},
     )
     assert revoked.status_code == 200, revoked.text
     assert revoked.json() == {
         "ok": True,
-        "org_id": org_id,
+        "organization_id": org_id,
         "email": "new@example.com",
         "revoked": True,
     }
@@ -321,7 +326,7 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
                 {
                     "user_id": owner_id,
                     "org_id": org_id,
-                    "action": "org_key_set",
+                    "action": "organization_key_set",
                     "detail": "openai",
                     "created_at": datetime.now(UTC),
                 },
@@ -333,7 +338,7 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
                 {
                     "user_id": owner_id,
                     "org_id": org_id,
-                    "action": "org_env_set",
+                    "action": "organization_env_set",
                     "detail": f"RECENT_{index}",
                     "created_at": datetime.now(UTC),
                 }
@@ -363,13 +368,13 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
     assert unfiltered.json()["schema_version"] == "frisket.admin_audit.v1"
     assert set(unfiltered.json()["filters"]["actions"]) >= {
         "project_created",
-        "org_key_set",
+        "organization_key_set",
     }
 
     audit = owner.get(
         "/api/admin/browser/audit",
         params={
-            "org_id": org_id,
+            "organization_id": org_id,
             "project_id": project_id,
             "user": "OWNER@EXAMPLE.COM",
             "action": "PROJECT_CREATED",
@@ -385,11 +390,13 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
         "owner@example.com",
         "project_created",
     )
-    assert audit_payload["filters"]["orgs"] == [{"id": org_id, "name": "Ops Desk"}]
+    assert audit_payload["filters"]["organizations"] == [
+        {"id": org_id, "name": "Ops Desk"}
+    ]
     assert {item["project_id"] for item in audit_payload["filters"]["projects"]} == {
         project_id
     }
-    assert {"project_created", "org_key_set"} <= set(
+    assert {"project_created", "organization_key_set"} <= set(
         audit_payload["filters"]["actions"]
     )
 
@@ -417,9 +424,9 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
     org_id = app.state.team_organization_id
     anonymous = TestClient(app)
     member = _member_client(app)
-    pat = owner.post("/api/org/tokens", json={"name": "browser-admin-probe"}).json()[
-        "token"
-    ]
+    pat = owner.post(
+        "/api/organization/tokens", json={"name": "browser-admin-probe"}
+    ).json()["token"]
     pat_client = TestClient(app)
     pat_headers = {"Authorization": f"Bearer {pat}"}
 
@@ -436,7 +443,7 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
             client.post(
                 "/api/admin/browser/users/invite",
                 headers=headers,
-                json={"org_id": org_id, "email": "blocked@example.com"},
+                json={"organization_id": org_id, "email": "blocked@example.com"},
             ).status_code
             == expected
         )
@@ -454,7 +461,7 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
     operator_invite = TestClient(app).post(
         "/api/admin/browser/users/invite",
         headers=operator_headers,
-        json={"org_id": org_id, "email": "operator-invited@example.com"},
+        json={"organization_id": org_id, "email": "operator-invited@example.com"},
     )
     assert operator_invite.status_code == 200, operator_invite.text
 
@@ -483,12 +490,12 @@ def test_operator_token_can_create_and_revoke_invites_on_the_browser_wire(
     created = TestClient(app).post(
         "/api/admin/browser/users/invite",
         headers=headers,
-        json={"org_id": org_id, "email": email},
+        json={"organization_id": org_id, "email": email},
     )
     revoked = TestClient(app).delete(
         f"/api/admin/browser/users/invites/{email}",
         headers=headers,
-        params={"org_id": org_id},
+        params={"organization_id": org_id},
     )
     assert created.status_code == 200, created.text
     assert revoked.status_code == 200, revoked.text

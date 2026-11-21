@@ -86,7 +86,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
     # slug "trusted" is projects/23/trusted.frisket — NOT anything the payload
     # names.
     global_root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=23, project_slug="trusted")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="trusted")
     trusted_bundle = global_root / "23" / "trusted.frisket"
     Project.create(trusted_bundle, name="Trusted").close()
 

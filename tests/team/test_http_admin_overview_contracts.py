@@ -90,14 +90,14 @@ def test_admin_overview_dto_is_strict_for_shared_fields_and_lossless_for_extensi
     contract = _contract()
     team_payload = {
         "totals": {
-            "orgs": 1,
+            "organizations": 1,
             "users": 7,
             "projects": 3,
             "pending_invites": 2,
         }
     }
     cloud_payload = {
-        "orgs": [
+        "organizations": [
             {
                 "id": 17,
                 "name": "Cloud",
@@ -110,7 +110,7 @@ def test_admin_overview_dto_is_strict_for_shared_fields_and_lossless_for_extensi
             }
         ],
         "totals": {
-            "orgs": 1,
+            "organizations": 1,
             "pending_invites": 2,
             "credits_usd": 12.5,
             "spend_30d": 4.2,
@@ -140,7 +140,7 @@ def test_admin_overview_dto_is_strict_for_shared_fields_and_lossless_for_extensi
     invalid_totals = (
         {**team_payload["totals"], "users": "7"},
         {"pending_invites": 2},
-        {"orgs": 1},
+        {"organizations": 1},
         {**cloud_payload["totals"], "users": None},
         {**cloud_payload["totals"], "projects": None},
     )
@@ -161,7 +161,7 @@ def test_admin_overview_auth_matrix_and_current_team_response_are_unchanged(
     _sign_in(owner, app, "owner@example.com")
     _sign_in(member, app, "member@example.com")
 
-    token = owner.post("/api/org/tokens", json={"name": "overview-contract"})
+    token = owner.post("/api/organization/tokens", json={"name": "overview-contract"})
     assert token.status_code == 200, token.text
     pat = token.json()["token"]
 
@@ -171,7 +171,7 @@ def test_admin_overview_auth_matrix_and_current_team_response_are_unchanged(
     assert pat_response.status_code == 403
     assert pat_response.json() == {"detail": "admin routes require a browser session"}
     assert owner.get(_PATH).json() == {
-        "totals": {"orgs": 1, "users": 2, "projects": 0, "pending_invites": 0}
+        "totals": {"organizations": 1, "users": 2, "projects": 0, "pending_invites": 0}
     }
 
 

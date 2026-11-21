@@ -290,7 +290,7 @@ def test_pat_and_project_role_ladder_protect_real_core_routes(tmp_path: Path) ->
     )
     assert granted.status_code == 200, granted.text
 
-    made = member.post("/api/org/tokens", json={"name": "reader"})
+    made = member.post("/api/organization/tokens", json={"name": "reader"})
     assert made.status_code == 200, made.text
     token = made.json()["token"]
     member.cookies.clear()
@@ -305,7 +305,7 @@ def test_pat_and_project_role_ladder_protect_real_core_routes(tmp_path: Path) ->
     assert denied.status_code == 403, denied.text
     assert (
         member.post(
-            "/api/org/tokens", headers=headers, json={"name": "nested"}
+            "/api/organization/tokens", headers=headers, json={"name": "nested"}
         ).status_code
         == 403
     )
@@ -339,19 +339,23 @@ def test_open_admin_diagnostics_and_organization_secret_management_work_over_htt
     admin = TestClient(app)
     _session_for_email(admin, app, "owner@example.com")
     candidate = {"provider": "openai", "key": "sk-team-secret"}
-    validation = admin.post("/api/org/keys/validate", json=candidate)
+    validation = admin.post("/api/organization/keys/validate", json=candidate)
     assert validation.status_code == 200, validation.text
     receipt = validation.json()["validation_token"]
     assert receipt
 
-    key = admin.post("/api/org/keys", json={**candidate, "validation_token": receipt})
+    key = admin.post(
+        "/api/organization/keys", json={**candidate, "validation_token": receipt}
+    )
     assert key.status_code == 200, key.text
-    env = admin.post("/api/org/env", json={"name": "REPORT_FROM", "value": "desk"})
+    env = admin.post(
+        "/api/organization/env", json={"name": "REPORT_FROM", "value": "desk"}
+    )
     assert env.status_code == 200, env.text
-    listed_keys = admin.get("/api/org/keys")
+    listed_keys = admin.get("/api/organization/keys")
     assert listed_keys.status_code == 200, listed_keys.text
     assert listed_keys.json() == [{"provider": "openai", "hint": "...cret"}]
-    assert admin.get("/api/org/env").status_code == 200
+    assert admin.get("/api/organization/env").status_code == 200
 
     error = admin.post(
         "/api/client-errors",
@@ -514,7 +518,7 @@ def test_organization_key_candidate_validation_matches_ui_contract_and_binds_rec
     _session_for_email(client, app, "owner@example.com")
     candidate = "sk-unsaved-candidate"
     response = client.post(
-        "/api/org/keys/validate", json={"provider": "openai", "key": candidate}
+        "/api/organization/keys/validate", json={"provider": "openai", "key": candidate}
     )
     assert response.status_code == 200, response.text
     result = response.json()
@@ -539,7 +543,7 @@ def test_organization_key_candidate_validation_matches_ui_contract_and_binds_rec
     assert not validation_token_is_valid("openai", "sk-other", receipt)
 
     saved = client.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={
             "provider": "openai",
             "key": candidate,
@@ -547,7 +551,7 @@ def test_organization_key_candidate_validation_matches_ui_contract_and_binds_rec
         },
     )
     assert saved.status_code == 200, saved.text
-    stored = client.post("/api/org/keys/validate", json={"provider": "openai"})
+    stored = client.post("/api/organization/keys/validate", json={"provider": "openai"})
     assert stored.status_code == 200, stored.text
     assert stored.json()["ok"] is True
     assert validated == [("openai", candidate), ("openai", candidate)]
@@ -667,7 +671,7 @@ def test_organization_and_project_owner_mutations_request_scoped_database_locks(
     assert (
         owner.patch(
             f"/api/admin/browser/users/{member_id}/role",
-            json={"org_id": 1, "role": "owner"},
+            json={"organization_id": 1, "role": "owner"},
         ).status_code
         == 200
     )
@@ -876,12 +880,12 @@ token = parse_qs(urlparse(links[-1]).query)["token"][0]
 assert client.get(f"/auth/callback?token={token}", follow_redirects=False).status_code == 302
 if mode == "validate":
     response = client.post(
-        "/api/org/keys/validate",
+        "/api/organization/keys/validate",
         json={"provider": "openai", "key": candidate},
     )
 else:
     response = client.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={"provider": "openai", "key": candidate, "validation_token": receipt},
     )
 print(json.dumps({"status_code": response.status_code, "body": response.json()}))
@@ -965,7 +969,7 @@ def test_candidate_key_validator_exception_is_publicly_opaque(tmp_path: Path) ->
     client = TestClient(app)
     _session_for_email(client, app, "owner@example.com")
     failed = client.post(
-        "/api/org/keys/validate", json={"provider": "openai", "key": candidate}
+        "/api/organization/keys/validate", json={"provider": "openai", "key": candidate}
     )
     assert failed.status_code == 200
     body = failed.json()
@@ -1100,7 +1104,9 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
     organization_owner = TestClient(organization_app)
     _session_for_email(organization_owner, organization_app, "owner@example.com")
     candidate = {"provider": "openai", "key": "sk-must-not-save"}
-    validation = organization_owner.post("/api/org/keys/validate", json=candidate)
+    validation = organization_owner.post(
+        "/api/organization/keys/validate", json=candidate
+    )
     assert validation.status_code == 200, validation.text
     receipt = validation.json()["validation_token"]
     assert receipt
@@ -1135,7 +1141,7 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
         operational_routes, "locked_transaction", revoke_organization_inside_lock
     )
     denied_organization = organization_owner.post(
-        "/api/org/keys", json={**candidate, "validation_token": receipt}
+        "/api/organization/keys", json={**candidate, "validation_token": receipt}
     )
     assert denied_organization.status_code == 403, denied_organization.text
     assert organization_revoked is True
@@ -1199,12 +1205,12 @@ def test_membership_admin_rechecks_stale_browser_owner_inside_shared_lock(
     elif operation == "role":
         response = owner.patch(
             f"/api/admin/browser/users/{ids['target@example.com']}/role",
-            json={"org_id": 1, "role": "owner"},
+            json={"organization_id": 1, "role": "owner"},
         )
     else:
         response = owner.delete(
             f"/api/admin/browser/users/{ids['target@example.com']}",
-            params={"org_id": 1},
+            params={"organization_id": 1},
         )
 
     assert response.status_code == 403, response.text

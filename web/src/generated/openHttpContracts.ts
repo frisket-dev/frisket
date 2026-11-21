@@ -85,9 +85,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "outer.cancel_org_model_pull.post",
+      "id": "outer.cancel_organization_model_pull.post",
       "method": "POST",
-      "path": "/api/org/models/pulls/{pull_id}/cancel",
+      "path": "/api/organization/models/pulls/{pull_id}/cancel",
       "request": null
     },
     {
@@ -120,22 +120,22 @@ export const HTTP_CONTRACT_ARTIFACT = {
     {
       "id": "outer.create_token.post",
       "method": "POST",
-      "path": "/api/org/tokens",
+      "path": "/api/organization/tokens",
       "request": {
         "mediaType": "application/json",
         "required": true
       }
     },
     {
-      "id": "outer.delete_org_env_var.delete",
+      "id": "outer.delete_organization_env_var.delete",
       "method": "DELETE",
-      "path": "/api/org/env/{name}",
+      "path": "/api/organization/env/{name}",
       "request": null
     },
     {
-      "id": "outer.delete_org_key.delete",
+      "id": "outer.delete_organization_key.delete",
       "method": "DELETE",
-      "path": "/api/org/keys/{provider}",
+      "path": "/api/organization/keys/{provider}",
       "request": null
     },
     {
@@ -148,15 +148,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "outer.get_org_model_pull.get",
+      "id": "outer.get_organization_model_pull.get",
       "method": "GET",
-      "path": "/api/org/models/pulls/{pull_id}",
+      "path": "/api/organization/models/pulls/{pull_id}",
       "request": null
     },
     {
-      "id": "outer.get_org_models_gateway.get",
+      "id": "outer.get_organization_models_gateway.get",
       "method": "GET",
-      "path": "/api/org/models-gateway",
+      "path": "/api/organization/models-gateway",
       "request": null
     },
     {
@@ -174,31 +174,31 @@ export const HTTP_CONTRACT_ARTIFACT = {
     {
       "id": "outer.list_oauth_connections.get",
       "method": "GET",
-      "path": "/api/org/oauth/connections",
+      "path": "/api/organization/oauth/connections",
       "request": null
     },
     {
-      "id": "outer.list_org_env_vars.get",
+      "id": "outer.list_organization_env_vars.get",
       "method": "GET",
-      "path": "/api/org/env",
+      "path": "/api/organization/env",
       "request": null
     },
     {
-      "id": "outer.list_org_keys.get",
+      "id": "outer.list_organization_keys.get",
       "method": "GET",
-      "path": "/api/org/keys",
+      "path": "/api/organization/keys",
       "request": null
     },
     {
-      "id": "outer.list_org_local_endpoints.get",
+      "id": "outer.list_organization_local_endpoints.get",
       "method": "GET",
-      "path": "/api/org/local-endpoints",
+      "path": "/api/organization/local-endpoints",
       "request": null
     },
     {
-      "id": "outer.list_org_model_pulls.get",
+      "id": "outer.list_organization_model_pulls.get",
       "method": "GET",
-      "path": "/api/org/models/pulls",
+      "path": "/api/organization/models/pulls",
       "request": null
     },
     {
@@ -210,7 +210,7 @@ export const HTTP_CONTRACT_ARTIFACT = {
     {
       "id": "outer.list_tokens.get",
       "method": "GET",
-      "path": "/api/org/tokens",
+      "path": "/api/organization/tokens",
       "request": null
     },
     {
@@ -226,9 +226,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "outer.org_media_proxy_status.get",
+      "id": "outer.organization_media_proxy_status.get",
       "method": "GET",
-      "path": "/api/org/media-proxy/status",
+      "path": "/api/organization/media-proxy/status",
       "request": null
     },
     {
@@ -241,9 +241,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "outer.post_org_models_pull.post",
+      "id": "outer.post_organization_models_pull.post",
       "method": "POST",
-      "path": "/api/org/models/pull",
+      "path": "/api/organization/models/pull",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -273,7 +273,7 @@ export const HTTP_CONTRACT_ARTIFACT = {
     {
       "id": "outer.revoke_token.delete",
       "method": "DELETE",
-      "path": "/api/org/tokens/{token_id}",
+      "path": "/api/organization/tokens/{token_id}",
       "request": null
     },
     {
@@ -286,36 +286,36 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "outer.set_org_env_var.post",
+      "id": "outer.set_organization_env_var.post",
       "method": "POST",
-      "path": "/api/org/env",
+      "path": "/api/organization/env",
       "request": {
         "mediaType": "application/json",
         "required": true
       }
     },
     {
-      "id": "outer.set_org_key.post",
+      "id": "outer.set_organization_key.post",
       "method": "POST",
-      "path": "/api/org/keys",
+      "path": "/api/organization/keys",
       "request": {
         "mediaType": "application/json",
         "required": true
       }
     },
     {
-      "id": "outer.set_org_models_gateway.put",
+      "id": "outer.set_organization_models_gateway.put",
       "method": "PUT",
-      "path": "/api/org/models-gateway",
+      "path": "/api/organization/models-gateway",
       "request": {
         "mediaType": "application/json",
         "required": true
       }
     },
     {
-      "id": "outer.setup_org_model_engine.post",
+      "id": "outer.setup_organization_model_engine.post",
       "method": "POST",
-      "path": "/api/org/models/setup",
+      "path": "/api/organization/models/setup",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -340,18 +340,18 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "outer.validate_org_key.post",
+      "id": "outer.validate_organization_key.post",
       "method": "POST",
-      "path": "/api/org/keys/validate",
+      "path": "/api/organization/keys/validate",
       "request": {
         "mediaType": "application/json",
         "required": true
       }
     },
     {
-      "id": "outer.validate_org_models_gateway.post",
+      "id": "outer.validate_organization_models_gateway.post",
       "method": "POST",
-      "path": "/api/org/models-gateway/validate",
+      "path": "/api/organization/models-gateway/validate",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -1773,7 +1773,7 @@ export const HTTP_CONTRACT_ARTIFACT = {
     {
       "id": "tenant.provider_catalog.get",
       "method": "GET",
-      "path": "/api/org/provider-catalog",
+      "path": "/api/organization/provider-catalog",
       "request": null
     },
     {
@@ -3779,8 +3779,8 @@ type HttpAdminBrowserAuditV1_AdminBrowserAuditEvent = ({
   "id": (string);
   "object_id": (((string)) | ((null)));
   "object_type": (((string)) | ((null)));
-  "org_id": (((number)) | ((null)));
-  "org_name": (((string)) | ((null)));
+  "organization_id": (((number)) | ((null)));
+  "organization_name": (((string)) | ((null)));
   "project_id": (((string)) | ((number)) | ((null)));
   "project_name": (((string)) | ((null)));
   "route": (((string)) | ((null)));
@@ -3789,18 +3789,18 @@ type HttpAdminBrowserAuditV1_AdminBrowserAuditEvent = ({
 
 type HttpAdminBrowserAuditV1_AdminBrowserAuditFilterOptions = ({
   "actions": (Array<(string)>);
-  "orgs": (Array<(HttpAdminBrowserAuditV1_AdminBrowserAuditOrgOption)>);
+  "organizations": (Array<(HttpAdminBrowserAuditV1_AdminBrowserAuditOrganizationOption)>);
   "projects": (Array<(HttpAdminBrowserAuditV1_AdminBrowserAuditProjectOption)>);
 });
 
-type HttpAdminBrowserAuditV1_AdminBrowserAuditOrgOption = ({
+type HttpAdminBrowserAuditV1_AdminBrowserAuditOrganizationOption = ({
   "id": (number);
   "name": (string);
 });
 
 type HttpAdminBrowserAuditV1_AdminBrowserAuditProjectOption = ({
   "name": (string);
-  "org_id": (number);
+  "organization_id": (number);
   "project_id": (string);
 });
 
@@ -3833,7 +3833,7 @@ type HttpAdminBrowserErrorsV1_AdminBrowserErrorEvent = ({
   "kind": (string);
   "message": (string);
   "name": (((string)) | ((null)));
-  "org_id": (((number)) | ((null)));
+  "organization_id": (((number)) | ((null)));
   "project_id": (((string)) | ((null)));
   "record_id": (((number)) | ((null)));
   "route": (((string)) | ((null)));
@@ -3901,14 +3901,14 @@ export type HttpAdminBrowserHealthV1 = ({
 
 export type HttpAdminBrowserInviteRequest = ({
   "email": (string);
-  "org_id": (number);
+  "organization_id": (number);
 });
 
 export type HttpAdminBrowserInviteResult = ({
   "email": (string);
   "expires_at": (((string)) | ((null)));
   "ok": (boolean);
-  "org_id": (number);
+  "organization_id": (number);
   "role": ("owner" | "admin" | "member") & (string);
   "sent": (boolean);
 });
@@ -3975,7 +3975,7 @@ export type HttpAdminBrowserRemoveUserResult = ({
   "invite_revoked": (boolean);
   "membership_removed": (boolean);
   "ok": (boolean);
-  "org_id": (number);
+  "organization_id": (number);
   "self": (boolean);
   "user_id"?: (((number)) | ((null)));
 });
@@ -3983,18 +3983,18 @@ export type HttpAdminBrowserRemoveUserResult = ({
 export type HttpAdminBrowserRevokeInviteResult = ({
   "email": (string);
   "ok": (boolean);
-  "org_id": (number);
+  "organization_id": (number);
   "revoked": (boolean);
 });
 
 export type HttpAdminBrowserUpdateRoleRequest = ({
-  "org_id": (number);
+  "organization_id": (number);
   "role": ("owner" | "admin" | "member") & (string);
 });
 
 export type HttpAdminBrowserUpdateRoleResult = ({
   "ok": (boolean);
-  "org_id": (number);
+  "organization_id": (number);
   "role": ("owner" | "admin" | "member") & (string);
   "self": (boolean);
   "user_id": (number);
@@ -4011,7 +4011,7 @@ type HttpAdminBrowserUsersV1_AdminBrowserOrganization = ({
 type HttpAdminBrowserUsersV1_AdminBrowserPendingInvite = ({
   "email": (string);
   "expires_at": (((string)) | ((null)));
-  "org_id": (number);
+  "organization_id": (number);
   "role": ("owner" | "admin" | "member") & (string);
 });
 
@@ -4031,12 +4031,12 @@ type HttpAdminBrowserUsersV1_AdminBrowserUserCapabilities = ({
 
 export type HttpAdminBrowserUsersV1 = ({
   "capabilities": (HttpAdminBrowserUsersV1_AdminBrowserUserCapabilities);
-  "orgs": (Array<(HttpAdminBrowserUsersV1_AdminBrowserOrganization)>);
+  "organizations": (Array<(HttpAdminBrowserUsersV1_AdminBrowserOrganization)>);
   "schema_version": ("frisket.admin_users.v1") & (string);
 });
 
 type HttpAdminOverviewResponse_AdminOverviewTotals = ({
-  "orgs": (number);
+  "organizations": (number);
   "pending_invites": (number);
   "projects"?: (number);
   "users"?: (number);
@@ -8318,6 +8318,10 @@ export type HttpInline_87cacc773db826e7 = ({
   "pid": (string);
 });
 
+export type HttpInline_87e8b6808f2b0325 = ({
+  "organization_id": (number);
+});
+
 export type HttpInline_8b265931c6336b68 = ({
   "pid": (string);
   "run_id": (number);
@@ -8487,6 +8491,14 @@ export type HttpInline_9e7b45d6a7a78694 = ({
   "hits_limit"?: (number);
   "limit"?: (number);
   "offset"?: (number);
+});
+
+export type HttpInline_a04d2ad03321c1e5 = ({
+  "action"?: (((string)) | ((null)));
+  "limit"?: (number);
+  "organization_id"?: (((number)) | ((null)));
+  "project_id"?: (((string)) | ((null)));
+  "user"?: (((string)) | ((null)));
 });
 
 type HttpInline_a10062e5b1ce4f0e_ActionEstimate = ({
@@ -9156,18 +9168,6 @@ export type HttpInline_ed465fdc9da8ce19 = ({
 
 export type HttpInline_ed634489e2911dae = ({
   "column_id"?: (((number)) | ((null)));
-});
-
-export type HttpInline_ed69b7ba07c7e46e = ({
-  "action"?: (((string)) | ((null)));
-  "limit"?: (number);
-  "org_id"?: (((number)) | ((null)));
-  "project_id"?: (((string)) | ((null)));
-  "user"?: (((string)) | ((null)));
-});
-
-export type HttpInline_edfe3e855dac6f5a = ({
-  "org_id": (number);
 });
 
 export type HttpInline_ee98181c02dc0aa4 = ({
@@ -11882,7 +11882,7 @@ export type HttpProjectNetworkRequest = ({
 export type HttpProjectNetworkResponse = ({
   "effective": ("on" | "off") & (string);
   "mode": ("inherit" | "on" | "off") & (string);
-  "org_default": ((("on" | "off") & (string)) | ((null)));
+  "organization_default": ((("on" | "off") & (string)) | ((null)));
   "schemaVersion": ("frisket.project_network_policy.v1") & (string);
 });
 
@@ -15628,7 +15628,7 @@ export type HttpContractOperationMap = {
   };
   readonly "outer.admin_browser_audit.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
-    readonly query: HttpInline_ed69b7ba07c7e46e;
+    readonly query: HttpInline_a04d2ad03321c1e5;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpAdminBrowserAuditV1;
@@ -15703,7 +15703,7 @@ export type HttpContractOperationMap = {
   };
   readonly "outer.admin_browser_remove_user.delete": {
     readonly pathParams: HttpInline_8dd8e83611062581;
-    readonly query: HttpInline_edfe3e855dac6f5a;
+    readonly query: HttpInline_87e8b6808f2b0325;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpAdminBrowserRemoveUserResult;
@@ -15717,7 +15717,7 @@ export type HttpContractOperationMap = {
   };
   readonly "outer.admin_browser_revoke_invite.delete": {
     readonly pathParams: HttpInline_c9f18fae6ecff1c4;
-    readonly query: HttpInline_edfe3e855dac6f5a;
+    readonly query: HttpInline_87e8b6808f2b0325;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpAdminBrowserRevokeInviteResult;
@@ -15765,7 +15765,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.cancel_org_model_pull.post": {
+  readonly "outer.cancel_organization_model_pull.post": {
     readonly pathParams: HttpInline_c775a438f1aaffc0;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15826,7 +15826,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.delete_org_env_var.delete": {
+  readonly "outer.delete_organization_env_var.delete": {
     readonly pathParams: HttpInline_bbf568d7195f5e35;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15838,7 +15838,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.delete_org_key.delete": {
+  readonly "outer.delete_organization_key.delete": {
     readonly pathParams: HttpInline_dbfb2e9677d6c7f1;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15859,7 +15859,7 @@ export type HttpContractOperationMap = {
       readonly "422": HttpHTTPValidationError;
     };
   };
-  readonly "outer.get_org_model_pull.get": {
+  readonly "outer.get_organization_model_pull.get": {
     readonly pathParams: HttpInline_c775a438f1aaffc0;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15872,7 +15872,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpTeamModelHttpError;
     };
   };
-  readonly "outer.get_org_models_gateway.get": {
+  readonly "outer.get_organization_models_gateway.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15915,7 +15915,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.list_org_env_vars.get": {
+  readonly "outer.list_organization_env_vars.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15926,7 +15926,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.list_org_keys.get": {
+  readonly "outer.list_organization_keys.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15937,7 +15937,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.list_org_local_endpoints.get": {
+  readonly "outer.list_organization_local_endpoints.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -15948,7 +15948,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpTeamModelHttpError;
     };
   };
-  readonly "outer.list_org_model_pulls.get": {
+  readonly "outer.list_organization_model_pulls.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -16002,7 +16002,7 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
-  readonly "outer.org_media_proxy_status.get": {
+  readonly "outer.organization_media_proxy_status.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
@@ -16026,7 +16026,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.post_org_models_pull.post": {
+  readonly "outer.post_organization_models_pull.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpTeamArtifactPullRequest;
@@ -16106,7 +16106,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.set_org_env_var.post": {
+  readonly "outer.set_organization_env_var.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpOrganizationEnvSaveRequest;
@@ -16119,7 +16119,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.set_org_key.post": {
+  readonly "outer.set_organization_key.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpOrganizationKeySaveRequest;
@@ -16132,7 +16132,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.set_org_models_gateway.put": {
+  readonly "outer.set_organization_models_gateway.put": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpModelsGatewaySaveRequest;
@@ -16145,7 +16145,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.setup_org_model_engine.post": {
+  readonly "outer.setup_organization_model_engine.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpTeamEngineSetupRequest;
@@ -16188,7 +16188,7 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "outer.validate_org_key.post": {
+  readonly "outer.validate_organization_key.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpOrganizationKeyValidationRequest;
@@ -16203,7 +16203,7 @@ export type HttpContractOperationMap = {
       readonly "501": HttpError;
     };
   };
-  readonly "outer.validate_org_models_gateway.post": {
+  readonly "outer.validate_organization_models_gateway.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpModelsGatewayCandidateRequest;

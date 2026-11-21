@@ -117,7 +117,7 @@ def test_client_errors_return_stored_id_and_persist_sanitized_fields(
         "message",
         "stack",
         "route",
-        "org_id",
+        "organization_id",
         "user_id",
         "project_id",
         "sheet_id",

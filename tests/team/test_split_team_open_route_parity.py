@@ -173,7 +173,7 @@ def _create_project(client: TestClient, name: str = "Parity project") -> str:
 
 
 def _pat(client: TestClient) -> str:
-    response = client.post("/api/org/tokens", json={"name": "parity"})
+    response = client.post("/api/organization/tokens", json={"name": "parity"})
     assert response.status_code == 200, response.text
     token = response.json().get("token")
     assert isinstance(token, str) and token.startswith("frisket_pat_")
@@ -301,14 +301,14 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
             assert isinstance(totals, dict), (
                 "overview must expose named substantive totals"
             )
-            assert totals.get("orgs") == 1
+            assert totals.get("organizations") == 1
             assert totals.get("users") == 2
             assert totals.get("projects") == 0
             assert totals.get("pending_invites") == 0
     org_id = app.state.team_organization_id
     invited = owner.post(
         "/api/admin/browser/users/invite",
-        json={"org_id": org_id, "email": "remove@example.com"},
+        json={"organization_id": org_id, "email": "remove@example.com"},
     )
     assert invited.status_code == 200, invited.text
     with app.state.control_engine.connect() as cx:
@@ -322,7 +322,7 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
         )
     revoke = owner.delete(
         "/api/admin/browser/users/invites/remove@example.com",
-        params={"org_id": org_id},
+        params={"organization_id": org_id},
     )
     assert revoke.status_code == 200, revoke.text
     with app.state.control_engine.connect() as cx:
@@ -348,7 +348,10 @@ def test_admin_invite_delivers_usable_magic_link_into_the_single_organization(
 
     organization_invite = owner.post(
         "/api/admin/browser/users/invite",
-        json={"org_id": app.state.team_organization_id, "email": "member@example.com"},
+        json={
+            "organization_id": app.state.team_organization_id,
+            "email": "member@example.com",
+        },
     )
     assert organization_invite.status_code == 200, organization_invite.text
     link = _delivered_link(deliveries, "member@example.com")
@@ -431,11 +434,13 @@ def test_project_invite_acceptance_is_open_single_use_and_project_scoped(
         "create_project": invitee.post(
             "/api/projects", json={"name": "Project-only user must not create"}
         ).status_code,
-        "org_keys": invitee.get("/api/org/keys").status_code,
-        "org_env": invitee.get("/api/org/env").status_code,
-        "oauth_connections": invitee.get("/api/org/oauth/connections").status_code,
+        "org_keys": invitee.get("/api/organization/keys").status_code,
+        "org_env": invitee.get("/api/organization/env").status_code,
+        "oauth_connections": invitee.get(
+            "/api/organization/oauth/connections"
+        ).status_code,
         "create_pat": invitee.post(
-            "/api/org/tokens", json={"name": "forbidden project-only token"}
+            "/api/organization/tokens", json={"name": "forbidden project-only token"}
         ).status_code,
     }
     assert forbidden_organization_scope == {
@@ -625,16 +630,16 @@ def test_google_connection_uses_injected_exchange_and_persists_encrypted_metadat
     monkeypatch.setattr(httpx, "AsyncClient", NoNetworkClient)
     client = TestClient(app)
     _sign_in(client, app, "owner@example.com")
-    start = client.get("/api/org/oauth/google/start", follow_redirects=False)
+    start = client.get("/api/organization/oauth/google/start", follow_redirects=False)
     assert start.status_code == 302, start.text
     state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
     callback = client.get(
-        f"/api/org/oauth/google/callback?code=local-code&state={state}",
+        f"/api/organization/oauth/google/callback?code=local-code&state={state}",
         follow_redirects=False,
     )
     assert callback.status_code == 302, callback.text
     assert exchanges == [("google", "local-code")]
-    listed = client.get("/api/org/oauth/connections")
+    listed = client.get("/api/organization/oauth/connections")
     assert listed.status_code == 200, listed.text
     payload = listed.json()
     serialized = json.dumps(payload)
@@ -659,7 +664,9 @@ def test_google_connection_uses_injected_exchange_and_persists_encrypted_metadat
     assert "refresh-secret-never-in-response" not in stored.encrypted_refresh_token
     assert stored.refresh_token_hint
     assert "refresh-secret-never-in-response" not in stored.refresh_token_hint
-    revoked = client.delete(f"/api/org/oauth/connections/google/{connection['id']}")
+    revoked = client.delete(
+        f"/api/organization/oauth/connections/google/{connection['id']}"
+    )
     assert revoked.status_code == 200, revoked.text
     assert revoked.json()["revoked"] is True
 

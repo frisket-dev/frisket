@@ -39,7 +39,7 @@ async function noProvidersConfigured(page: Page): Promise<void> {
       body: JSON.stringify({ schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [] }),
     }),
   );
-  await page.route('**/api/org/keys', (route) =>
+  await page.route('**/api/organization/keys', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
   await page.route('**/api/projects/*/provider-keys', (route) =>

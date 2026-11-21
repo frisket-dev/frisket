@@ -55,11 +55,11 @@ def _claimed_storage_organization_id(project: Project) -> int | None:
         return None
     try:
         key = ProjectStorageKey(
-            storage_org_id=int(parent), project_slug=project.path.stem
+            storage_organization_id=int(parent), project_slug=project.path.stem
         )
     except ValueError:
         return None
-    return key.storage_org_id
+    return key.storage_organization_id
 
 
 EMBEDDING_INDEX_REFRESH_ACTION_KIND = "embedding.index_refresh"

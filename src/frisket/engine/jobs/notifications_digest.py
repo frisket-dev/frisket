@@ -141,7 +141,7 @@ def register_notification_digest_handlers(
                 )
             )
             handler_workspace_root = handler_project_root
-            handler_storage_organization_id = claimed.storage_org_id
+            handler_storage_organization_id = claimed.storage_organization_id
         return compose_notification_digest_job(
             workspace_root=handler_workspace_root,
             project_id=handler_project_id,
@@ -175,7 +175,9 @@ def compose_notification_digest_job(
         if project_opener is None
         else project_opener(
             ProjectStorageKey(
-                storage_org_id=require_opener_storage_organization_id(storage_org_id),
+                storage_organization_id=require_opener_storage_organization_id(
+                    storage_org_id
+                ),
                 project_slug=project_id,
             ),
             bundle,

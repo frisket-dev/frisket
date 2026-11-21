@@ -24,14 +24,14 @@ ValueSanitizer = Callable[[Any], Any]
 MessageSanitizer = Callable[[str | None], str | None]
 
 ADMIN_JOB_REF_KEYS = (
-    "org_id",
+    "organization_id",
     "project_id",
     "run_id",
     "source_id",
     "sheet_id",
     "trace_id",
 )
-INTEGER_JOB_REF_KEYS = frozenset({"org_id", "run_id", "source_id", "sheet_id"})
+INTEGER_JOB_REF_KEYS = frozenset({"organization_id", "run_id", "source_id", "sheet_id"})
 ADMIN_JOB_DIAGNOSTIC_KEYS = (
     "total_rows",
     "completed_rows",
@@ -461,6 +461,8 @@ def projected_job_refs(
     out: dict[str, Any] = {}
     for key in ADMIN_JOB_REF_KEYS:
         value = payload.get(key)
+        if key == "organization_id" and (value is None or value == ""):
+            value = payload.get("org_id")
         if value is None or value == "":
             continue
         out[key] = _projected_ref_value(
@@ -478,7 +480,8 @@ def overlay_job_ref_fields(
     sanitize_value: ValueSanitizer = _identity,
 ) -> None:
     for key in ADMIN_JOB_REF_KEYS:
-        value = getattr(job, key, None)
+        attr = "org_id" if key == "organization_id" else key
+        value = getattr(job, attr, None)
         if value is not None and value != "":
             refs[key] = _projected_ref_value(
                 key,
@@ -622,7 +625,7 @@ def diagnostic_job_event(
         "message": sanitize_message(message),
         "stack": None,
         "route": None,
-        "org_id": refs.get("org_id"),
+        "organization_id": refs.get("organization_id"),
         "user_id": None,
         "project_id": refs.get("project_id"),
         "sheet_id": refs.get("sheet_id"),

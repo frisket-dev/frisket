@@ -116,7 +116,7 @@ def _composition(
     return ExecutionComposition(
         facts=CompositionFacts(
             edition="open" if isinstance(funding, OperatorBorne) else "cloud",
-            org_id=None if isinstance(funding, OperatorBorne) else "org-test",
+            organization_id=None if isinstance(funding, OperatorBorne) else "org-test",
             funding=funding,
         ),
         provider=provider,
@@ -283,7 +283,7 @@ def test_empty_platform_provider_has_no_fallback_estimate(project) -> None:
     composition = ExecutionComposition(
         facts=CompositionFacts(
             edition="cloud",
-            org_id="org-empty-provider",
+            organization_id="org-empty-provider",
             funding=PlatformMetered(),
         ),
         provider=_EmptyProvider(),

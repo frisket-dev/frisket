@@ -19,5 +19,5 @@ export function continueAfterBrowserSignIn(returnTo: string): void {
 
 /** Start the organization's Google OAuth browser flow. */
 export function googleOAuthStartUrl(): string {
-  return '/api/org/oauth/google/start';
+  return '/api/organization/oauth/google/start';
 }

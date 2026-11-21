@@ -73,7 +73,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
 
     storage_org_id = 23
     root = tmp_path / str(storage_org_id)
-    key = ProjectStorageKey(storage_org_id=storage_org_id, project_slug="same")
+    key = ProjectStorageKey(storage_organization_id=storage_org_id, project_slug="same")
     bundle = root / "same.frisket"
     created = Project.create(bundle, name="Same")
     created.close()
@@ -81,7 +81,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
 
     def store_factory(project_slug: str) -> S3ProjectBlobStore:
         store_key = ProjectStorageKey(
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_org_id,
             project_slug=project_slug,
         )
         store_keys.append(store_key)
@@ -126,7 +126,9 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
         before_wrong_organization = (list(opened_paths), list(store_keys))
         with pytest.raises((RuntimeError, ValueError)):
             opener(
-                ProjectStorageKey(storage_org_id=99, project_slug=key.project_slug),
+                ProjectStorageKey(
+                    storage_organization_id=99, project_slug=key.project_slug
+                ),
                 bundle,
             )
         assert (opened_paths, store_keys) == before_wrong_organization
@@ -175,7 +177,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
     modules = _opener_modules()
     worker_module = modules["frisket.engine.jobs.worker"]
     global_root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=23, project_slug="trusted")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="trusted")
     bundle = global_root / "23" / "trusted.frisket"
     created = Project.create(bundle, name="Trusted")
     created.close()
@@ -295,7 +297,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     # The root basename is intentionally 999 while its declared identity is 23.
     # Re-parsing root.name would cross the test's tenant boundary.
     root = tmp_path / "999"
-    key = ProjectStorageKey(storage_org_id=23, project_slug="same")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="same")
     bundle = root / "same.frisket"
     created = Project.create(bundle, name="Same")
     created.close()
@@ -354,7 +356,9 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         # The actual global hosted notification recovery root is
         # /data/projects, not a pre-selected per-organization directory.
         global_root = tmp_path / "projects"
-        recovery_key = ProjectStorageKey(storage_org_id=31, project_slug="recover")
+        recovery_key = ProjectStorageKey(
+            storage_organization_id=31, project_slug="recover"
+        )
         recovery_bundle = global_root / "31" / "recover.frisket"
         recovery = Project.create(recovery_bundle, name="Recover")
         recovery.close()
@@ -396,7 +400,9 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         from frisket.engine.jobs.queue import ACTION_RUN_KIND
         import frisket.engine.store as store_module
 
-        action_key = ProjectStorageKey(storage_org_id=41, project_slug="action")
+        action_key = ProjectStorageKey(
+            storage_organization_id=41, project_slug="action"
+        )
         action_bundle = global_root / "41" / "action.frisket"
         action_project = Project.create(action_bundle, name="Action")
         action_project.close()
@@ -497,7 +503,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         result = digests.compose_notification_digest_job(
             workspace_root=root,
             project_id=key.project_slug,
-            storage_org_id=key.storage_org_id,
+            storage_org_id=key.storage_organization_id,
             route_id=5,
             window=window_type(
                 cadence="daily",
