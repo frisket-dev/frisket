@@ -18,9 +18,7 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST,
 )
 from frisket.upgrades.project._step import execute_ddl, schema_digest, schema_step
-from frisket.upgrades.project.research_pause_migration import (
-    RESEARCH_PAUSE_TO_DIGEST,
-)
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 
 
 DOMAIN_FROM_DIGEST = "frisket.schema.v1:7e339a8995763aa40346e7d36187837d"
@@ -374,7 +372,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         return
     # The cutover installs runtime DDL; only explicit chain-tail steps that leave
     # its views and tables consistent may separate it from this build.
-    if SCHEMA_DIGEST != RESEARCH_PAUSE_TO_DIGEST:
+    if SCHEMA_DIGEST != CURRENT_CHAIN_TIP_DIGEST:
         raise BundleSchemaMismatch(
             "Domain migration endpoint needs updating for this build"
         )
