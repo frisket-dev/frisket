@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.server.services.pdf_packet_ocr import PdfPacketOcrCoordinator
+from frisket.server.services.pdf_packet_ocr import (
+    PdfPacketOcrCoordinator,
+    packet_ocr_params,
+)
 from frisket.server.services.pdf_packet_sources import AdmittedPacketSource
 from tests.server.test_pdf_split_preparation import _runtime
 
@@ -274,7 +277,7 @@ def test_cached_reduction_keeps_old_confirmation_and_transfers_only_remaining_wo
     )
     source = replace(source, page_start=2, page_end=3)
     selection = {"kind": "engine", "engine": "anthropic/claude-haiku-4-5"}
-    params = {"engine": selection["engine"]}
+    params = packet_ocr_params(selection)
     try:
         old = coordinator.estimate(
             project_id="pages",
