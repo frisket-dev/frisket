@@ -292,7 +292,7 @@ class IdentityStore:
                 users.c.id,
                 users.c.email,
                 users.c.name,
-                users.c.cost_preapproval_usd,
+                users.c.allowance_usd,
             )
             .select_from(sessions.join(users, users.c.id == sessions.c.user_id))
             .where(sessions.c.token == token)
@@ -322,10 +322,8 @@ class IdentityStore:
             "id": row.id,
             "email": row.email,
             "name": row.name,
-            "cost_preapproval_usd": (
-                None
-                if row.cost_preapproval_usd is None
-                else str(row.cost_preapproval_usd)
+            "allowance_usd": (
+                None if row.allowance_usd is None else str(row.allowance_usd)
             ),
             "org_id": effective_organization_id,
             "new": new,
@@ -342,7 +340,7 @@ class IdentityStore:
         self.cx.execute(
             users.update()
             .where(users.c.id == user_id)
-            .values(cost_preapproval_usd=threshold_usd)
+            .values(allowance_usd=threshold_usd)
         )
         row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
         return self.user_payload(row, new=False)

@@ -39,7 +39,7 @@ def _me_payload(
         "email": user["email"],
         "display_name": user.get("name"),
         "avatar_seed": f"user:{user['email']}",
-        "cost_preapproval_usd": user.get("cost_preapproval_usd"),
+        "allowance_usd": user.get("allowance_usd"),
         "instance": session.organization_identity(user),
     }
     payload.update(session.me_contributions(user))
@@ -102,9 +102,9 @@ def register_session_routes(
                 user,
                 display_name=body.display_name,
                 update_display_name="display_name" in body.model_fields_set,
-                cost_preapproval_usd=(
-                    body.cost_preapproval_usd
-                    if "cost_preapproval_usd" in body.model_fields_set
+                allowance_usd=(
+                    body.allowance_usd
+                    if "allowance_usd" in body.model_fields_set
                     else None
                 ),
             )
