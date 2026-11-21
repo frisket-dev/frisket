@@ -1825,7 +1825,7 @@ def _url_classification_launcher_hints() -> dict[str, dict[str, Any]]:
     so frontend hints and backend routing cannot drift. Hints only — matcher
     METADATA, never executable predicates.
     """
-    from frisket.features.url_classification.contract import (
+    from frisket.url_classification.contract import (
         SNAPSHOT_SCHEMA_VERSION,
         build_snapshot,
     )

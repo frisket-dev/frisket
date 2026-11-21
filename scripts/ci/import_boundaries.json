@@ -181,23 +181,39 @@
       "reject_unresolved_dynamic": true
     },
     {
+      "id": "url-classification-does-not-import-server-team-engine-or-features",
+      "comment": "frisket.url_classification holds URL matcher contracts, PSL normalization, first-party matchers, and the matcher registry shared by engine fetch/collection actions, ops, feeds, plugins, and server hints. It must not depend on server, team, engine, or features.",
+      "modules": [
+        "frisket.url_classification",
+        "frisket.url_classification.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.engine",
+        "frisket.engine.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
       "id": "engine-does-not-import-features",
-      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers: entity_package (the FollowTheMoney dataset/package adapter), file_fetch and collection_read (URL classification), visual_cuts_read, topic_sections_read, temporal_annotations and temporal_finder_provenance (temporal and topic-segmentation adapters), jobs feeds/alerts and store alerts (alert events and triggers), and store media_download_candidates (URL classification). No other engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers: entity_package (the FollowTheMoney dataset/package adapter), visual_cuts_read, topic_sections_read, temporal_annotations and temporal_finder_provenance (temporal and topic-segmentation adapters), and jobs feeds/alerts and store alerts (alert events and triggers). No other engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
       ],
       "exclude": [
         "frisket.engine.executor.entity_package",
-        "frisket.engine.executor.file_fetch",
         "frisket.engine.executor.temporal_annotations",
         "frisket.engine.executor.temporal_finder_provenance",
         "frisket.engine.executor.visual_cuts_read",
         "frisket.engine.executor.topic_sections_read",
-        "frisket.engine.executor.collection_read",
         "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.alerts",
-        "frisket.engine.store.media_download_candidates",
         "frisket.engine.store.alerts"
       ],
       "forbidden_imports": [

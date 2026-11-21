@@ -42,7 +42,7 @@ from frisket.contracts.plugin import (
     LoadedPluginManifest,
 )
 from frisket.engine.store import Project
-from frisket.features.url_classification.matchers import UrlMatcher
+from frisket.url_classification.matchers import UrlMatcher
 
 
 @dataclass(frozen=True)
@@ -260,7 +260,7 @@ def _register_backend_contribution_metadata(
     # so it registers here on the always-run metadata path (not gated behind
     # executableHandlersAllowed).
     # register_plugin_matchers re-applies the trust caps as defense in depth.
-    from frisket.features.url_classification.plugin_matchers import (
+    from frisket.url_classification.plugin_matchers import (
         register_plugin_matchers,
     )
 
@@ -294,7 +294,7 @@ def _validated_backend_contribution_metadata(
         importer_ids=list(plan.importer_ids),
         job_handler_ids=list(plan.job_handler_ids),
     )
-    from frisket.features.url_classification.plugin_matchers import (
+    from frisket.url_classification.plugin_matchers import (
         _validate_plugin_matchers,
     )
 
@@ -309,7 +309,7 @@ def _snapshot_backend_contributions(
     contributes = loaded.manifest.contributes
     importer_specs = {spec.name: spec for spec in registry.importer_specs()}
     job_handler_specs = {spec.kind: spec for spec in registry.job_handler_specs()}
-    from frisket.features.url_classification.registry import registered_matchers
+    from frisket.url_classification.registry import registered_matchers
 
     matchers = {matcher.matcher_id: matcher for matcher in registered_matchers()}
     runtime_bindings: dict[str, dict[str, RuntimeBindingSpec | None]] = {}
@@ -379,7 +379,7 @@ def _restore_backend_contributions(
             ),
         )
 
-    from frisket.features.url_classification.registry import (
+    from frisket.url_classification.registry import (
         _restore_matcher,
     )
 

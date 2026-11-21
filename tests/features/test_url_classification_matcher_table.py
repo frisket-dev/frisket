@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.features.url_classification import classify_url
+from frisket.url_classification import classify_url
 
 # (url) -> (kind, provider, matcher_id)
 GOLDEN: list[tuple[str, tuple[str, str, str]]] = [

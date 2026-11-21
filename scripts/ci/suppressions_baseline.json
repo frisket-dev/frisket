@@ -79,7 +79,7 @@
   "src/frisket/features/followthemoney/_sdk_import.py": 1,
   "src/frisket/features/followthemoney/adapter.py": 1,
   "src/frisket/features/followthemoney/import_planner.py": 2,
-  "src/frisket/features/url_classification/psl.py": 1,
+  "src/frisket/url_classification/psl.py": 1,
   "src/frisket/feeds/api_list_dicts.py": 1,
   "src/frisket/feeds/courtlistener.py": 2,
   "src/frisket/feeds/youtube.py": 2,

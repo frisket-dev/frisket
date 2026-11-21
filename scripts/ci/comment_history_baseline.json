@@ -15,7 +15,7 @@
  "src/frisket/engine/runner/review.py": 1,
  "src/frisket/engine/runner/validation.py": 1,
  "src/frisket/engine/sandbox/shim.py": 1,
- "src/frisket/features/url_classification/psl.py": 2,
+ "src/frisket/url_classification/psl.py": 2,
  "src/frisket/operability/reset_drain.py": 1,
  "src/frisket/ops/integrations/natural_pdf.py": 1,
  "src/frisket/ops/integrations/opendocrouter.py": 1,

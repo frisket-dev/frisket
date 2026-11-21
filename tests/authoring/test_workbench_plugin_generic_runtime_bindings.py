@@ -25,7 +25,7 @@ from frisket.authoring.workbench.plugin_runtime_capabilities import (
 )
 from frisket.engine.jobs import HandlerRegistry
 from frisket.engine.store import Project
-from frisket.features.url_classification import (
+from frisket.url_classification import (
     classify_url,
     plugin_matchers,
     registered_matchers,
