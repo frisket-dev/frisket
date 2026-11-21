@@ -24,10 +24,10 @@ function seed(): ActionComparisonContext {
   const draft = { action_id: 'map.extract', scope: { kind: 'sheet_rows' as const, sheet_id: 7 },
     params: { model: 'local/qwen', instruction: 'Extract' }, output_names: { answer: 'answer' } };
   return { schema_version: 'frisket.action_compare_context.v1', available: true, reason: null,
-    limits: { max_sample_rows: 20, max_challengers: 3 }, baseline_mode: 'current_values',
+    limits: { max_sample_rows: 500, max_challengers: 19 }, baseline_mode: 'current_values',
     comparison_basis: { kind: 'run', run_id: 41, column_id: 13 }, draft, sheet: { id: 7, name: 'Cases' },
     sample_row_ids: [101], sample_fingerprint: 'inputs', locked_params: [], source_columns: [], source_rows: {},
-    output_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer', column_type: 'text', format: null, hidden: false, schema: null }],
+    output_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer', column_type: 'text', format: null, hidden: false, schema: {} }],
     expected_output_signature: 'output', replacement_targets: [{ logical_key: 'answer', current_name: 'answer', column_id: 13 }],
     baseline_rows: { 101: { answer: { state: 'value', value: 'A', origin: { kind: 'run_result', run_id: 41, op_id: 9, review_decision: null } } } },
     origin_summary: { mixed_runs: false, includes_manual_edits: false, includes_reject_clear: false },
@@ -236,7 +236,7 @@ describe('comparison evaluation workspace', () => {
   });
   it('shows shelf items only for the same physical output family', async () => {
     const { api } = await setup();
-    const summary = { id: 9, label: 'This output family', sheet_id: 7, action_id: 'map.extract', row_count: 1,
+    const summary = { id: 9, label: 'This output family', sheet_id: 7, action_id: 'map.extract', row_count: 1, kept: false,
       output_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'renamed answer' }], saved_at: '2026-10-30T00:00:00Z' };
     vi.mocked(api.getShelf).mockResolvedValue({ items: [summary, { ...summary, id: 10, label: 'Another output family', output_columns: [{ logical_key: 'answer', column_id: 99, current_name: 'answer' }] }] });
     fireEvent.click(screen.getByRole('button', { name: '✓ Expected answers' }));
