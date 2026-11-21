@@ -15,7 +15,6 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from helpers import run_writer_authority_fixture
-from frisket.engine.store.transactions import write_transaction
 
 
 def _setup(tmp_path):
