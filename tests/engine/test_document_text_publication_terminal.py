@@ -22,6 +22,7 @@ from test_native_pdf_text_action import _pdf_bytes, _request, _source
 from test_document_text_authority import _project_with_selection, _OTHER_BLOB
 from helpers import run_writer_authority_fixture
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.effect_checkpoints import row_effect_ref
 
 
 @pytest.mark.parametrize(
@@ -272,14 +273,10 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
     run_id = store.start_run(
         op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
     )
+
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={text_id}
     )
-    writer_kwargs = {
-        key: value
-        for key, value in authority.kwargs().items()
-        if key != "authorized_attempt_id"
-    }
     with write_transaction(project.db):
         ResultGenerationStore(project).declare(
             run_id,
@@ -309,24 +306,19 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
             "model_calls": [call],
         }
     ]
-    assert store.reserve_row_effect_checkpoint(
+    ref = row_effect_ref(
         "returned-document",
         run_id=run_id,
         row_id=row_id,
         action_kind="media.ocr",
         identity="document-source",
-        authorized_attempt_id=authority.writer_attempt_id,
-        **writer_kwargs,
     )
+    assert store.reserve_row_effect_checkpoint(ref, fence=authority.fence())
     assert store.complete_row_effect_checkpoint(
-        "returned-document",
-        run_id=run_id,
-        row_id=row_id,
-        action_kind="media.ocr",
-        identity="document-source",
+        ref,
         batch=batch,
         replay_response={"text": {"prepared_ref_id": ref_id, "cost": 0.0}},
-        **writer_kwargs,
+        fence=authority.fence(),
     ) == pytest.approx(0.125)
     project.db.execute("BEGIN IMMEDIATE")
     edit_op = project.append_change_in_transaction("edit")
@@ -353,9 +345,8 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
             publish(
                 run_id,
                 batch,
-                checkpoint=("returned-document", row_id, "document-source"),
-                checkpoint_action_kind="media.ocr",
-                **writer_kwargs,
+                checkpoint=ref,
+                fence=authority.fence(),
             )
         assert project.db.in_transaction is caller_owns_transaction
         if caller_owns_transaction:

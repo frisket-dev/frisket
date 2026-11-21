@@ -22,6 +22,7 @@ from frisket.ai.research.search import (
     SearchResponse,
     SearchService,
 )
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.ops.base import ActionProgramInvocationHalt
 
 MAX_ATTEMPTS = 4
@@ -212,9 +213,11 @@ class AdmittedWebSearcher:
             evidence["error_code"] = error.code
         ReceiptStore(ctx.project)._record_writer_supporting_record(
             evidence,
-            run_id=ctx.extras["run_id"],
-            writer_attempt_id=writer.attempt_id,
-            claim_token=ctx.extras["claim_token"],
+            fence=WriterFence.claimed(
+                run_id=ctx.extras["run_id"],
+                writer_attempt_id=writer.attempt_id,
+                claim_token=ctx.extras["claim_token"],
+            ),
         )
 
     async def search_response(

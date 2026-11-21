@@ -8,7 +8,7 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from frisket.engine.jobs.queue import JobQueue, claimed_project_location
 from frisket.engine.jobs.ports import JobHandlerContext
@@ -40,8 +40,10 @@ from frisket.engine.store.notifications import (
 )
 from frisket.engine.store.effect_checkpoints import (
     AmbiguousReserved,
+    EffectCheckpointRef,
     EffectCheckpointStore,
 )
+from frisket.engine.store.writer_fence import WriterFence
 
 from .project_opener import (
     project_bundle_paths,
@@ -560,6 +562,9 @@ def deliver_notification_request(
         project.close()
 
 
+_NOTIFICATION_FENCE = WriterFence(claimless_direct_effect=True)
+
+
 class _ProjectNotificationEffectGuard:
     """Local/team durable effect lifecycle in the project bundle."""
 
@@ -569,15 +574,11 @@ class _ProjectNotificationEffectGuard:
     def reserve(
         self, effect: NotificationDeliveryEffect
     ) -> NotificationDeliveryEffectDecision:
-        fields = _effect_checkpoint_fields(effect)
-        if self._store.reserve(
-            effect.effect_id,
-            **fields,
-            claimless_direct_effect=True,
-        ):
+        ref = _effect_checkpoint_ref(effect)
+        if self._store.reserve(ref, fence=_NOTIFICATION_FENCE):
             return NotificationDeliveryEffectDecision(status="send")
         try:
-            checkpoint = self._store.returned_for_replay(**fields)
+            checkpoint = self._store.returned_for_replay(ref.unit)
         except AmbiguousReserved:
             if effect.provider_idempotency_key is not None:
                 return NotificationDeliveryEffectDecision(status="send")
@@ -593,32 +594,19 @@ class _ProjectNotificationEffectGuard:
         effect: NotificationDeliveryEffect,
         result: DeliveryProviderResult,
     ) -> None:
-        fields = _effect_checkpoint_fields(effect)
+        ref = _effect_checkpoint_ref(effect)
         self._store.complete(
-            effect.effect_id,
-            **fields,
+            ref,
             payload=_delivery_result_payload(result),
-            claimless_direct_effect=True,
+            fence=_NOTIFICATION_FENCE,
         )
         if result.transient:
-            self._store.consume_and_retire(
-                effect.effect_id,
-                **fields,
-                claimless_direct_effect=True,
-            )
+            self._store.consume_and_retire(ref, fence=_NOTIFICATION_FENCE)
 
 
-class _EffectCheckpointFields(TypedDict):
-    family: str
-    group_key: str
-    unit_key: str
-    action_kind: str
-    identity: str
-
-
-def _effect_checkpoint_fields(
+def _effect_checkpoint_ref(
     effect: NotificationDeliveryEffect,
-) -> _EffectCheckpointFields:
+) -> EffectCheckpointRef:
     identity = json.dumps(
         {
             "effect_id": effect.effect_id,
@@ -637,13 +625,14 @@ def _effect_checkpoint_fields(
         sort_keys=True,
         separators=(",", ":"),
     )
-    return {
-        "family": _EFFECT_FAMILY,
-        "group_key": effect.effect_id,
-        "unit_key": str(effect.delivery_request_id),
-        "action_kind": effect.provider_kind,
-        "identity": identity,
-    }
+    return EffectCheckpointRef(
+        checkpoint_id=effect.effect_id,
+        family=_EFFECT_FAMILY,
+        group_key=effect.effect_id,
+        unit_key=str(effect.delivery_request_id),
+        action_kind=effect.provider_kind,
+        identity=identity,
+    )
 
 
 def _delivery_result_payload(result: DeliveryProviderResult) -> dict[str, Any]:

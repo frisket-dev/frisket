@@ -31,6 +31,7 @@ from frisket.engine.store.cell_writes import create_base_cell_producer
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import StaleAttemptWriter
 
 
@@ -559,9 +560,11 @@ def finalize_semantic_join(
         )
         OutputColumnClaimStore.require_current_writer(
             project.db,
-            run_id=run_id,
-            writer_attempt_id=writer,
-            claim_token=claim,
+            fence=WriterFence.claimed(
+                run_id=run_id,
+                writer_attempt_id=writer,
+                claim_token=claim,
+            ),
             output_column_ids=column_ids,
         )
         validate_semantic_join_pins(project, state)

@@ -28,11 +28,15 @@ from frisket.engine.executor.project_run_terminalization import (
     terminalize_project_run,
     terminalize_project_run_in_transaction,
 )
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+)
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import (
     AttemptCommitment,
     UnroutedAdmission,
@@ -288,12 +292,14 @@ JOINING_WRITES = {
     "checkpoints.account_returned": lambda project: EffectCheckpointStore(
         project.db
     ).account_returned(
-        "cp-none",
-        family="test",
-        group_key="1",
-        unit_key="1",
-        action_kind="map.test",
-        identity="id-1",
+        EffectCheckpointRef(
+            checkpoint_id="cp-none",
+            family="test",
+            group_key="1",
+            unit_key="1",
+            action_kind="map.test",
+            identity="id-1",
+        ),
         payload={},
         accrue=lambda _cp: 0.0,
     ),
@@ -376,15 +382,16 @@ def test_joined_claim_attempt_and_checkpoint_writes_roll_back_with_caller(projec
     sheet_id = _sheet_id(project)
     run_id = _seed_run(project)
     store = EffectCheckpointStore(project.db)
-    unit = {
-        "family": "test",
-        "group_key": str(run_id),
-        "unit_key": "1",
-        "action_kind": "map.test",
-        "identity": "id-1",
-    }
-    assert store.reserve("cp-rollback", **unit) is True
-    store.complete("cp-rollback", **unit, payload={"ok": True})
+    ref = EffectCheckpointRef(
+        checkpoint_id="cp-rollback",
+        family="test",
+        group_key=str(run_id),
+        unit_key="1",
+        action_kind="map.test",
+        identity="id-1",
+    )
+    assert store.reserve(ref) is True
+    store.complete(ref, payload={"ok": True})
 
     _open_caller_transaction(project)
     claims, conflict = OutputColumnClaimStore(project).acquire(
@@ -402,8 +409,7 @@ def test_joined_claim_attempt_and_checkpoint_writes_roll_back_with_caller(projec
     )
     admit_attempt(project, _commitment(run_id, attempt_id))
     store.account_returned(
-        "cp-rollback",
-        **unit,
+        ref,
         payload={"ok": True},
         accrue=lambda _cp: 0.25,
     )
@@ -440,11 +446,8 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
         "finish_current_writer": lambda: OutputColumnClaimStore(
             project
         ).finish_current_writer(
-            run_id=run_id,
-            writer_attempt_id=attempt_id,
-            claim_token=None,
+            fence=WriterFence.claimless(run_id=run_id, attempt_id=attempt_id),
             attempt_state="halted",
-            claimless_direct_effect=True,
         ),
         "authority.mint": lambda: _authority(project).mint(
             program=_DummyProgram(),
@@ -512,7 +515,7 @@ def test_set_attempt_state_rolls_back_when_run_pointer_update_fails(project):
         run_id=run_id,
         scope=(1,),
     )
-    claim(project, commitment, claimless_direct_effect=True)
+    claim(project, commitment, fence=WriterFence(claimless_direct_effect=True))
     _refuse(project, "UPDATE", "runs")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
@@ -616,17 +619,18 @@ def test_finish_current_writer_rolls_back_when_claim_release_fails(project):
     claim(
         project,
         commitment,
-        claim_token=claim_token,
+        fence=WriterFence(run_id=run_id, claim_token=claim_token),
         output_column_ids={_column_id(project)},
-        claimless_direct_effect=False,
     )
     _refuse(project, "UPDATE", "output_column_claims")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         OutputColumnClaimStore(project).finish_current_writer(
-            run_id=run_id,
-            writer_attempt_id=commitment.attempt_id,
-            claim_token=claim_token,
+            fence=WriterFence.claimed(
+                run_id=run_id,
+                writer_attempt_id=commitment.attempt_id,
+                claim_token=claim_token,
+            ),
             attempt_state="effected",
         )
 
@@ -708,9 +712,8 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
     claim(
         project,
         commitment,
-        claim_token=claim_token,
+        fence=WriterFence(run_id=run_id, claim_token=claim_token),
         output_column_ids={_column_id(project)},
-        claimless_direct_effect=False,
     )
     _refuse(project, "UPDATE", "output_column_claims")
 
@@ -783,9 +786,8 @@ def test_abandon_stale_dispatching_attempts_is_atomic_on_run_pointer_failure(pro
     claim(
         project,
         commitment,
-        claim_token=claim_token,
+        fence=WriterFence(run_id=run_id, claim_token=claim_token),
         output_column_ids={_column_id(project)},
-        claimless_direct_effect=False,
     )
     with write_transaction(project.db):
         project.db.execute(

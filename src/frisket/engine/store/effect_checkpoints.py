@@ -44,8 +44,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar
 
-from .value_codec import repair_unicode_value
 from .transactions import require_transaction, write_transaction
+from .value_codec import repair_unicode_value
+from .writer_fence import WriterFence
+
+
+def _stale_writer(message: str) -> Exception:
+    from frisket.execution.attempt import StaleAttemptWriter
+
+    return StaleAttemptWriter(message)
+
 
 # The retained payload written when an OPERATOR (frisket reconcile) decides a
 # reserved unit's unknown provider effect really happened.  It is an
@@ -53,16 +61,78 @@ from .transactions import require_transaction, write_transaction
 # cost — and is the one consumed payload the operator may later reverse.
 OPERATOR_RESOLUTION_SCHEMA_VERSION = "frisket.effect_checkpoint_operator_resolution.v1"
 
+_EMPTY_FENCE = WriterFence()
+
 
 @dataclass(frozen=True, slots=True)
-class EffectCheckpointRef:
-    """The exact logical coordinates needed to retire a returned checkpoint."""
+class EffectCheckpointUnit:
+    """The logical coordinates identifying one durable checkpoint unit."""
 
-    checkpoint_id: str
+    family: str
     group_key: str
     unit_key: str
     action_kind: str
     identity: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectCheckpointRef:
+    """The exact durable and logical coordinates for one checkpoint."""
+
+    checkpoint_id: str
+    family: str
+    group_key: str
+    unit_key: str
+    action_kind: str
+    identity: str
+
+    @property
+    def unit(self) -> EffectCheckpointUnit:
+        return EffectCheckpointUnit(
+            family=self.family,
+            group_key=self.group_key,
+            unit_key=self.unit_key,
+            action_kind=self.action_kind,
+            identity=self.identity,
+        )
+
+
+def row_effect_ref(
+    checkpoint_id: str,
+    *,
+    run_id: int,
+    row_id: int,
+    action_kind: str,
+    identity: str,
+) -> EffectCheckpointRef:
+    """Build an ``EffectCheckpointRef`` for one MapRunner row effect."""
+    return EffectCheckpointRef(
+        checkpoint_id=checkpoint_id,
+        family="row_effect",
+        group_key=str(int(run_id)),
+        unit_key=str(int(row_id)),
+        action_kind=action_kind,
+        identity=identity,
+    )
+
+
+def model_call_ref(
+    checkpoint_id: str,
+    *,
+    group_key: str,
+    unit_key: str,
+    action_kind: str,
+    identity: str,
+) -> EffectCheckpointRef:
+    """Build an ``EffectCheckpointRef`` for one child model-call checkpoint."""
+    return EffectCheckpointRef(
+        checkpoint_id=checkpoint_id,
+        family="model_call",
+        group_key=group_key,
+        unit_key=unit_key,
+        action_kind=action_kind,
+        identity=identity,
+    )
 
 
 def is_operator_attestation(payload: Any) -> bool:
@@ -258,19 +328,10 @@ class EffectCheckpointStore:
 
     def reserve(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
-        authorized_attempt_id: str | None = None,
         payload: dict[str, Any] | None = None,
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> bool:
         """Durably reserve one logical unit immediately before possible egress.
 
@@ -282,59 +343,78 @@ class EffectCheckpointStore:
         reconstruction payload at reserve time)."""
 
         encoded = None if payload is None else canonical_json(payload)
+        authorized_attempt_id = fence.fact_owner_attempt_id
         with write_transaction(self.db):
-            self._fence_writer(
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id,
-            )
+            self._fence_writer(fence.for_fact_owner(authorized_attempt_id))
             inserted = self.db.execute(
                 "INSERT OR IGNORE INTO effect_checkpoints "
                 "(id, family, group_key, unit_key, action_kind, identity, "
                 "authorized_attempt_id, state, payload) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?)",
                 (
-                    checkpoint_id,
-                    family,
-                    group_key,
-                    unit_key,
-                    action_kind,
-                    identity,
+                    ref.checkpoint_id,
+                    ref.family,
+                    ref.group_key,
+                    ref.unit_key,
+                    ref.action_kind,
+                    ref.identity,
                     authorized_attempt_id,
                     encoded,
                 ),
             ).rowcount
         return inserted == 1
 
+    @staticmethod
+    def _validate_recovery_request(
+        source: EffectCheckpointRef,
+        current: EffectCheckpointRef,
+        fence: WriterFence,
+    ) -> tuple[str, bool]:
+        if (
+            source.family != current.family
+            or source.action_kind != current.action_kind
+            or source.identity != current.identity
+        ):
+            raise ValueError(
+                "checkpoint recovery source and target must share family, "
+                "action_kind, and identity"
+            )
+        if fence.run_id is None or fence.writer_attempt_id is None:
+            raise _stale_writer(
+                "checkpoint recovery requires a run-scoped current writer"
+            )
+        if (
+            fence.authorized_attempt_id is not None
+            and fence.authorized_attempt_id != fence.writer_attempt_id
+        ):
+            raise _stale_writer(
+                "checkpoint recovery must authorize the current writer attempt"
+            )
+        same_checkpoint = source.checkpoint_id == current.checkpoint_id
+        if same_checkpoint and (
+            source.group_key != current.group_key or source.unit_key != current.unit_key
+        ):
+            raise ValueError(
+                "an in-place checkpoint recovery cannot change logical coordinates"
+            )
+        return fence.writer_attempt_id, same_checkpoint
+
     def adopt_reserved_for_recovery(
         self,
-        checkpoint_id: str,
+        source: EffectCheckpointRef,
         *,
-        current_checkpoint_id: str,
-        family: str,
-        source_group_key: str,
-        source_unit_key: str,
-        current_group_key: str,
-        current_unit_key: str,
-        action_kind: str,
-        identity: str,
-        current_authorized_attempt_id: str,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        current: EffectCheckpointRef,
+        fence: WriterFence,
     ) -> dict[str, Any]:
         """Transfer one exact ambiguous reservation to a fresh run writer.
 
         Recovery must keep the original checkpoint id because it is also the
         provider idempotency key.  A row-effect caller first creates its usual
-        no-egress reservation for the fresh run and supplies that id as
-        ``current_checkpoint_id``; this transaction removes that replacement
-        before moving the old reservation.  A child model-call checkpoint is
-        already keyed by the stable parent request, so it supplies its own id
-        for both arguments and only its authorized attempt changes.
+        no-egress reservation for the fresh run and supplies that ref as
+        ``current``; this transaction removes that replacement before moving
+        the old reservation.  A child model-call checkpoint is already keyed
+        by the stable parent request, so it supplies its own ref for both
+        arguments and only its authorized attempt changes.
 
         Only a terminal source attempt may be adopted.  Returned evidence is
         immutable and the current writer still passes the ordinary claim
@@ -346,29 +426,13 @@ class EffectCheckpointStore:
             StaleAttemptWriter,
         )
 
-        if current_authorized_attempt_id != writer_attempt_id:
-            raise StaleAttemptWriter(
-                "checkpoint recovery must authorize the current writer attempt"
-            )
-        same_checkpoint = checkpoint_id == current_checkpoint_id
-        if same_checkpoint and (
-            source_group_key != current_group_key or source_unit_key != current_unit_key
-        ):
-            raise ValueError(
-                "an in-place checkpoint recovery cannot change logical coordinates"
-            )
+        current_authorized_attempt_id, same_checkpoint = (
+            self._validate_recovery_request(source, current, fence)
+        )
 
         with write_transaction(self.db):
-            source = self._verified_unit(
-                checkpoint_id,
-                family=family,
-                group_key=source_group_key,
-                unit_key=source_unit_key,
-                action_kind=action_kind,
-                identity=identity,
-                expected_state="reserved",
-            )
-            source_attempt_id = source.get("authorized_attempt_id")
+            source_row = self._verified_unit(source, expected_state="reserved")
+            source_attempt_id = source_row.get("authorized_attempt_id")
             source_attempt = (
                 None
                 if not isinstance(source_attempt_id, str) or not source_attempt_id
@@ -387,26 +451,12 @@ class EffectCheckpointStore:
                     f"found {state!r}"
                 )
 
-            self._fence_writer(
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=current_authorized_attempt_id,
-            )
+            self._fence_writer(fence.for_fact_owner(current_authorized_attempt_id))
 
             if not same_checkpoint:
-                current = self._verified_unit(
-                    current_checkpoint_id,
-                    family=family,
-                    group_key=current_group_key,
-                    unit_key=current_unit_key,
-                    action_kind=action_kind,
-                    identity=identity,
-                    expected_state="reserved",
-                )
+                current_row = self._verified_unit(current, expected_state="reserved")
                 if (
-                    current.get("authorized_attempt_id")
+                    current_row.get("authorized_attempt_id")
                     != current_authorized_attempt_id
                 ):
                     raise StaleAttemptWriter(
@@ -415,7 +465,7 @@ class EffectCheckpointStore:
                 deleted = self.db.execute(
                     "DELETE FROM effect_checkpoints WHERE id=? AND state='reserved' "
                     "AND authorized_attempt_id=?",
-                    (current_checkpoint_id, current_authorized_attempt_id),
+                    (current.checkpoint_id, current_authorized_attempt_id),
                 ).rowcount
                 if deleted != 1:
                     raise CheckpointLost(
@@ -427,10 +477,10 @@ class EffectCheckpointStore:
                 "authorized_attempt_id=? WHERE id=? AND state='reserved' "
                 "AND authorized_attempt_id=?",
                 (
-                    current_group_key,
-                    current_unit_key,
+                    current.group_key,
+                    current.unit_key,
                     current_authorized_attempt_id,
-                    checkpoint_id,
+                    source.checkpoint_id,
                     source_attempt_id,
                 ),
             ).rowcount
@@ -438,19 +488,14 @@ class EffectCheckpointStore:
                 raise CheckpointLost(
                     "the source reservation changed during recovery adoption"
                 )
-            adopted = self.get(checkpoint_id)
+            adopted = self.get(source.checkpoint_id)
             if adopted is None:
                 raise CheckpointLost("the adopted checkpoint disappeared")
             return adopted
 
     def returned_for_replay(
         self,
-        *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
+        unit: EffectCheckpointUnit,
     ) -> dict[str, Any]:
         """The unit's ``returned`` checkpoint, or the named refusal.
 
@@ -462,63 +507,42 @@ class EffectCheckpointStore:
 
         row = self.db.execute(
             f"{_SELECT} WHERE family=? AND group_key=? AND unit_key=?",
-            (family, group_key, unit_key),
+            (unit.family, unit.group_key, unit.unit_key),
         ).fetchone()
         return self._verified(
             row,
-            action_kind=action_kind,
-            identity=identity,
+            action_kind=unit.action_kind,
+            identity=unit.identity,
             expected_state="returned",
         )
 
     def complete(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
         payload: dict[str, Any],
         accrue: Callable[[dict[str, Any]], float] | None = None,
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> float:
         """Atomically move ``reserved`` → ``returned`` with the response durable.
 
         ``accrue`` is the caller's in-transaction accounting hook (fact +
-        spend writes, ``commit=False`` style); it receives the verified
-        checkpoint — including ``authorized_attempt_id``, which permanently
-        owns the facts — and returns the newly-incurred cost.  When given,
-        ``accounting_persisted`` is set so a later idempotent
-        :meth:`account_returned` replays free."""
+        spend writes); it receives the verified checkpoint — including
+        ``authorized_attempt_id``, which permanently owns the facts — and
+        returns the newly-incurred cost.  When given, ``accounting_persisted``
+        is set so a later idempotent :meth:`account_returned` replays free."""
 
         with write_transaction(self.db):
-            checkpoint = self._verified_unit(
-                checkpoint_id,
-                family=family,
-                group_key=group_key,
-                unit_key=unit_key,
-                action_kind=action_kind,
-                identity=identity,
-                expected_state="reserved",
-            )
+            checkpoint = self._verified_unit(ref, expected_state="reserved")
             self._fence_returned(
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                fence.for_fact_owner(checkpoint["authorized_attempt_id"])
             )
             cost = 0.0 if accrue is None else float(accrue(checkpoint))
             encoded = _returned_payload_json(payload)
             updated = self.db.execute(
                 "UPDATE effect_checkpoints SET state='returned', payload=?, "
                 "accounting_persisted=? WHERE id=? AND state='reserved'",
-                (encoded, 1 if accrue is not None else 0, checkpoint_id),
+                (encoded, 1 if accrue is not None else 0, ref.checkpoint_id),
             ).rowcount
             if updated != 1:
                 raise CheckpointLost(
@@ -528,19 +552,11 @@ class EffectCheckpointStore:
 
     def account_returned(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
         payload: dict[str, Any],
         accrue: Callable[[dict[str, Any]], float],
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> float:
         """Idempotently persist a ``returned`` unit's accounting in the caller's
         transaction without consuming.
@@ -551,22 +567,8 @@ class EffectCheckpointStore:
         ``0.0`` without re-running ``accrue``."""
 
         require_transaction(self.db, "EffectCheckpointStore.account_returned")
-        checkpoint = self._verified_unit(
-            checkpoint_id,
-            family=family,
-            group_key=group_key,
-            unit_key=unit_key,
-            action_kind=action_kind,
-            identity=identity,
-            expected_state="returned",
-        )
-        self._fence_returned(
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=checkpoint["authorized_attempt_id"],
-        )
+        checkpoint = self._verified_unit(ref, expected_state="returned")
+        self._fence_returned(fence.for_fact_owner(checkpoint["authorized_attempt_id"]))
         if checkpoint["accounting_persisted"]:
             return 0.0
         cost = float(accrue(checkpoint))
@@ -574,7 +576,7 @@ class EffectCheckpointStore:
         updated = self.db.execute(
             "UPDATE effect_checkpoints SET payload=?, accounting_persisted=1 "
             "WHERE id=? AND state='returned' AND accounting_persisted=0",
-            (encoded, checkpoint_id),
+            (encoded, ref.checkpoint_id),
         ).rowcount
         if updated != 1:
             raise CheckpointLost(
@@ -584,49 +586,27 @@ class EffectCheckpointStore:
 
     def consume_and_retire_in_transaction(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
         finalize: Callable[[dict[str, Any]], None] | None = None,
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> None:
         """Consume a ``returned`` unit and delete its row in the caller's transaction."""
         require_transaction(
             self.db, "EffectCheckpointStore.consume_and_retire_in_transaction"
         )
-        checkpoint = self._verified_unit(
-            checkpoint_id,
-            family=family,
-            group_key=group_key,
-            unit_key=unit_key,
-            action_kind=action_kind,
-            identity=identity,
-            expected_state="returned",
-        )
+        checkpoint = self._verified_unit(ref, expected_state="returned")
         # Accounting may retire a returned fact under its original attempt even
         # after publication closes. Recovery may instead retire that same fact
         # under the current same-run writer, without reassigning its ownership.
-        fence = (
+        check_fence = (
             self._fence_returned
             if finalize is None
-            and writer_attempt_id == checkpoint["authorized_attempt_id"]
+            and fence.writer_attempt_id == checkpoint["authorized_attempt_id"]
             else self._fence_writer
         )
-        fence(
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=checkpoint["authorized_attempt_id"],
-        )
-        if family == "model_call" and not checkpoint["accounting_persisted"]:
+        check_fence(fence.for_fact_owner(checkpoint["authorized_attempt_id"]))
+        if ref.family == "model_call" and not checkpoint["accounting_persisted"]:
             raise InvalidCheckpointState(
                 "returned model-call accounting must be persisted before retirement"
             )
@@ -634,25 +614,17 @@ class EffectCheckpointStore:
             finalize(checkpoint)
         deleted = self.db.execute(
             "DELETE FROM effect_checkpoints WHERE id=? AND state='returned'",
-            (checkpoint_id,),
+            (ref.checkpoint_id,),
         ).rowcount
         if deleted != 1:
             raise CheckpointLost("the returned effect checkpoint was not retired")
 
     def consume_and_retire(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
         finalize: Callable[[dict[str, Any]], None] | None = None,
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> None:
         """Atomically commit a ``returned`` unit's facts and delete its row.
 
@@ -664,17 +636,9 @@ class EffectCheckpointStore:
         """
         with write_transaction(self.db):
             self.consume_and_retire_in_transaction(
-                checkpoint_id,
-                family=family,
-                group_key=group_key,
-                unit_key=unit_key,
-                action_kind=action_kind,
-                identity=identity,
+                ref,
                 finalize=finalize,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
+                fence=fence,
             )
 
     def consume_group_retained(
@@ -684,10 +648,7 @@ class EffectCheckpointStore:
         group_key: str,
         action_kind: str,
         audit: Callable[[str | None], dict[str, Any]],
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> int:
         """Move a group's ``returned`` units to retained ``consumed`` rows.
 
@@ -705,13 +666,7 @@ class EffectCheckpointStore:
                 (family, group_key, action_kind),
             ).fetchall()
             for row in rows:
-                self._fence_writer(
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
-                    authorized_attempt_id=row["authorized_attempt_id"],
-                )
+                self._fence_writer(fence.for_fact_owner(row["authorized_attempt_id"]))
             consumed = 0
             for row in rows:
                 replacement = canonical_json(audit(row["payload"]))
@@ -724,17 +679,9 @@ class EffectCheckpointStore:
 
     def discard_reserved(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> bool:
         """Delete a reservation ONLY when the caller proves egress did not start.
 
@@ -742,14 +689,14 @@ class EffectCheckpointStore:
         audit record is historical truth and cannot be discarded."""
 
         with write_transaction(self.db):
-            checkpoint = self.get(checkpoint_id)
+            checkpoint = self.get(ref.checkpoint_id)
             if (
                 checkpoint is None
-                or checkpoint["family"] != family
-                or checkpoint["group_key"] != group_key
-                or checkpoint["unit_key"] != unit_key
-                or checkpoint["action_kind"] != action_kind
-                or checkpoint["identity"] != identity
+                or checkpoint["family"] != ref.family
+                or checkpoint["group_key"] != ref.group_key
+                or checkpoint["unit_key"] != ref.unit_key
+                or checkpoint["action_kind"] != ref.action_kind
+                or checkpoint["identity"] != ref.identity
                 or checkpoint["state"] != "reserved"
             ):
                 # This operation was historically a conditional delete:
@@ -758,23 +705,19 @@ class EffectCheckpointStore:
                 # no-op contract while fencing only the row we may mutate.
                 return False
             self._fence_writer(
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                fence.for_fact_owner(checkpoint["authorized_attempt_id"])
             )
             deleted = self.db.execute(
                 "DELETE FROM effect_checkpoints WHERE id=? AND family=? "
                 "AND group_key=? AND unit_key=? AND action_kind=? AND identity=? "
                 "AND state='reserved'",
                 (
-                    checkpoint_id,
-                    family,
-                    group_key,
-                    unit_key,
-                    action_kind,
-                    identity,
+                    ref.checkpoint_id,
+                    ref.family,
+                    ref.group_key,
+                    ref.unit_key,
+                    ref.action_kind,
+                    ref.identity,
                 ),
             ).rowcount
         return deleted == 1
@@ -903,51 +846,41 @@ class EffectCheckpointStore:
 
     # -- shared verification ----------------------------------------------
 
-    def _fence_returned(
-        self,
-        *,
-        run_id: int | None,
-        writer_attempt_id: str | None,
-        claim_token: str | None,
-        claimless_direct_effect: bool,
-        authorized_attempt_id: str | None,
-    ) -> None:
+    def _fence_returned(self, fence: WriterFence) -> None:
         """Retain an already dispatched response without granting publication."""
-        if authorized_attempt_id is None and run_id is None:
+        authorized_attempt_id = fence.authorized_attempt_id
+        if authorized_attempt_id is None and fence.run_id is None:
             return
         from frisket.execution.attempt import (
             StaleAttemptWriter,
             require_returned_attempt,
         )
 
-        if not authorized_attempt_id or writer_attempt_id != authorized_attempt_id:
+        if (
+            not authorized_attempt_id
+            or fence.writer_attempt_id != authorized_attempt_id
+        ):
             raise StaleAttemptWriter(
                 "returned checkpoint requires its actual authorized attempt"
             )
-        require_returned_attempt(self, run_id, authorized_attempt_id)
-        if run_id is None and (claim_token is not None or not claimless_direct_effect):
+        require_returned_attempt(self, fence.run_id, authorized_attempt_id)
+        if fence.run_id is None and (
+            fence.claim_token is not None or not fence.claimless_direct_effect
+        ):
             raise StaleAttemptWriter("receipt checkpoint requires claimless authority")
 
-    def _fence_writer(
-        self,
-        *,
-        run_id: int | None,
-        writer_attempt_id: str | None,
-        claim_token: str | None,
-        claimless_direct_effect: bool,
-        authorized_attempt_id: str | None,
-    ) -> None:
+    def _fence_writer(self, fence: WriterFence) -> None:
         """Fence run-scoped checkpoint mutations in this transaction."""
 
-        if authorized_attempt_id is None and run_id is None:
+        authorized_attempt_id = fence.authorized_attempt_id
+        if authorized_attempt_id is None and fence.run_id is None:
             return
-        from frisket.execution.attempt import StaleAttemptWriter
 
         if authorized_attempt_id is None:
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 "a run-scoped checkpoint supplied no immutable authorized attempt"
             )
-        if run_id is None:
+        if fence.run_id is None:
             owner = self.db.execute(
                 "SELECT run_id, receipt_id FROM execution_attempts WHERE id=?",
                 (authorized_attempt_id,),
@@ -956,11 +889,11 @@ class EffectCheckpointStore:
                 owner is None
                 or owner["run_id"] is not None
                 or owner["receipt_id"] is None
-                or writer_attempt_id != authorized_attempt_id
-                or claim_token is not None
-                or not claimless_direct_effect
+                or fence.writer_attempt_id != authorized_attempt_id
+                or fence.claim_token is not None
+                or not fence.claimless_direct_effect
             ):
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "receipt checkpoint mutation requires its authorized writer"
                 )
             from frisket.execution.attempt import require_receipt_attempt_writer
@@ -978,35 +911,29 @@ class EffectCheckpointStore:
         if (
             owner is None
             or owner["run_id"] is None
-            or int(owner["run_id"]) != int(run_id)
+            or int(owner["run_id"]) != int(fence.run_id)
         ):
             owner_run = None if owner is None else owner["run_id"]
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"checkpoint fact owner {authorized_attempt_id!r} belongs to "
-                f"run {owner_run!r}, not run {run_id}"
+                f"run {owner_run!r}, not run {fence.run_id}"
             )
-        if writer_attempt_id is None:
-            raise StaleAttemptWriter(
+        if fence.writer_attempt_id is None:
+            raise _stale_writer(
                 "a run-scoped checkpoint mutation supplied no writer attempt"
             )
         from frisket.engine.store.output_claims import OutputColumnClaimStore
 
-        OutputColumnClaimStore.require_current_writer(
-            self.db,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-        )
-        if claim_token is None:
+        OutputColumnClaimStore.require_current_writer(self.db, fence=fence)
+        if fence.claim_token is None:
             return
         from frisket.execution.attempt import STALE_DISPATCHING_AGE
 
         try:
             renewed = OutputColumnClaimStore.renew_in_transaction(
                 self.db,
-                claim_token=claim_token,
-                run_id=run_id,
+                claim_token=fence.claim_token,
+                run_id=fence.run_id,
                 lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
             )
         except sqlite3.OperationalError as exc:
@@ -1016,29 +943,24 @@ class EffectCheckpointStore:
 
             raise ClaimLeaseRenewalFailed(str(exc)) from exc
         if renewed == 0:
-            raise StaleAttemptWriter(
-                f"claim token {claim_token!r} stopped being active during renewal"
+            raise _stale_writer(
+                f"claim token {fence.claim_token!r} stopped being active during renewal"
             )
 
     def _verified_unit(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
         expected_state: str,
     ) -> dict[str, Any]:
         row = self.db.execute(
             f"{_SELECT} WHERE id=? AND family=? AND group_key=? AND unit_key=?",
-            (checkpoint_id, family, group_key, unit_key),
+            (ref.checkpoint_id, ref.family, ref.group_key, ref.unit_key),
         ).fetchone()
         return self._verified(
             row,
-            action_kind=action_kind,
-            identity=identity,
+            action_kind=ref.action_kind,
+            identity=ref.identity,
             expected_state=expected_state,
         )
 
@@ -1119,13 +1041,17 @@ def _decoded(row: Any) -> dict[str, Any] | None:
 __all__ = [
     "AmbiguousReserved",
     "CheckpointLost",
+    "EffectCheckpointRef",
     "EffectCheckpointRefused",
     "EffectCheckpointStore",
+    "EffectCheckpointUnit",
     "IdentityMismatch",
     "InvalidCheckpointState",
     "ModelCallIdMissing",
     "OPERATOR_RESOLUTION_SCHEMA_VERSION",
     "canonical_json",
     "is_operator_attestation",
+    "model_call_ref",
     "require_model_call_ids",
+    "row_effect_ref",
 ]

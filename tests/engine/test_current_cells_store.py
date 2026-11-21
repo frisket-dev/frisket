@@ -386,9 +386,7 @@ def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped(
         )
     project.db.commit()
     OutputColumnClaimStore(project).finish_current_writer(
-        run_id=retype_run,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
+        fence=authority.fence(),
         attempt_state="effected",
     )
     runs.finish_run(retype_run)

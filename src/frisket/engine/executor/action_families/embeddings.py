@@ -147,6 +147,7 @@ from frisket.execution.attempt import (
 from frisket.execution.attempt_authority import mint_direct_effect_attempt
 from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import BlobNotFoundError
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -155,6 +156,7 @@ from frisket.engine.store.transactions import (
     roll_back_failed_work,
     write_transaction,
 )
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.ai.models.metadata import ModelCallMeta
 
 from frisket.engine.executor.embedding_read import (
@@ -2012,6 +2014,7 @@ def _run_paid_embedding_dimension_probe(
         )
     attempt_id = commitment.attempt_id
 
+    probe_fence = WriterFence.claimless(run_id=run_id, attempt_id=attempt_id)
     try:
         _mark_embedding_probe_egress_reserved(
             project,
@@ -2028,8 +2031,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
             set_attempt_state_in_transaction(project, attempt_id, "halted")
             ReceiptStore(project).delete_running_in_transaction(receipt_id)
@@ -2061,8 +2063,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled",
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
             set_attempt_state_in_transaction(project, attempt_id, "halted")
         raise
@@ -2072,8 +2073,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
             set_attempt_state_in_transaction(project, attempt_id, "halted")
             ReceiptStore(project).delete_running_in_transaction(receipt_id)
@@ -2125,8 +2125,7 @@ def _run_paid_embedding_dimension_probe(
         run_store.finish_run(
             run_id,
             "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
+            fence=probe_fence,
         )
         return _error(
             action,
@@ -2151,16 +2150,13 @@ def _run_paid_embedding_dimension_probe(
                 fact=provider_fact,
                 sheet_id=sheet_id,
                 row_ids=probe_row_ids,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
-                authorized_attempt_id=attempt_id,
+                fence=probe_fence,
             )
             run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
             set_attempt_state_in_transaction(project, attempt_id, "effected")
         return _error(
@@ -2230,9 +2226,7 @@ def _run_paid_embedding_dimension_probe(
                 fact=provider_fact,
                 sheet_id=sheet_id,
                 row_ids=probe_row_ids,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
-                authorized_attempt_id=attempt_id,
+                fence=probe_fence,
             )
             landed = ReceiptStore(project).update_body_status_in_transaction(
                 checkpoint_receipt, require_status="running"
@@ -2257,8 +2251,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if cancelled_after_return else "completed",
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
             set_attempt_state_in_transaction(
                 project,
@@ -2279,17 +2272,14 @@ def _run_paid_embedding_dimension_probe(
                 fact=provider_fact,
                 sheet_id=sheet_id,
                 row_ids=probe_row_ids,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
-                authorized_attempt_id=attempt_id,
+                fence=probe_fence,
             )
         with write_transaction(project.db, what="embedding probe failure close"):
             run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
             set_attempt_state_in_transaction(project, attempt_id, "effected")
         if not isinstance(exc, Exception):
@@ -2883,6 +2873,7 @@ def _do_refresh(
     attempt_closed = False
     stale_writer = False
     effect_unit: dict[str, str] | None = None
+    effect_ref: EffectCheckpointRef | None = None
     checkpoint_store: EffectCheckpointStore | None = None
     try:
         refreshed = 0
@@ -2920,6 +2911,14 @@ def _do_refresh(
             if effect_checkpointed:
                 checkpoint_store = EffectCheckpointStore(project.db)
                 effect_unit = _embedding_refresh_effect_unit(space, modality, to_embed)
+                effect_ref = EffectCheckpointRef(
+                    checkpoint_id=effect_unit["checkpoint_id"],
+                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
+                    group_key=str(params.index_id),
+                    unit_key=effect_unit["unit_key"],
+                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
+                    identity=effect_unit["identity"],
+                )
                 prior = checkpoint_store.find_unit(
                     family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
                     group_key=str(params.index_id),
@@ -2930,13 +2929,7 @@ def _do_refresh(
                     # another egress; reserved is ambiguous and refuses;
                     # identity drift refuses by name.
                     try:
-                        returned = checkpoint_store.returned_for_replay(
-                            family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                            group_key=str(params.index_id),
-                            unit_key=effect_unit["unit_key"],
-                            action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                            identity=effect_unit["identity"],
-                        )
+                        returned = checkpoint_store.returned_for_replay(effect_ref.unit)
                     except EffectCheckpointRefused as exc:
                         return _error(
                             action,
@@ -3100,20 +3093,15 @@ def _do_refresh(
                             project=project,
                             leases=leases,
                         )
+                        refresh_fence = WriterFence.claimless(
+                            run_id=run_id, attempt_id=attempt_id
+                        )
                         if effect_checkpointed:
                             assert checkpoint_store is not None
                             assert effect_unit is not None
+                            assert effect_ref is not None
                             reserved = checkpoint_store.reserve(
-                                effect_unit["checkpoint_id"],
-                                family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                group_key=str(params.index_id),
-                                unit_key=effect_unit["unit_key"],
-                                action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                identity=effect_unit["identity"],
-                                authorized_attempt_id=attempt_id,
-                                run_id=run_id,
-                                writer_attempt_id=attempt_id,
-                                claimless_direct_effect=True,
+                                effect_ref,
                                 payload={
                                     "effect": {
                                         "op_id": op_id,
@@ -3121,6 +3109,7 @@ def _do_refresh(
                                         "attempt_id": attempt_id,
                                     }
                                 },
+                                fence=refresh_fence,
                             )
                             if not reserved:
                                 return _error(
@@ -3166,16 +3155,10 @@ def _do_refresh(
                             if effect_checkpointed:
                                 assert checkpoint_store is not None
                                 assert effect_unit is not None
+                                assert effect_ref is not None
                                 checkpoint_store.discard_reserved(
-                                    effect_unit["checkpoint_id"],
-                                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                    group_key=str(params.index_id),
-                                    unit_key=effect_unit["unit_key"],
-                                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                    identity=effect_unit["identity"],
-                                    run_id=run_id,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
+                                    effect_ref,
+                                    fence=refresh_fence,
                                 )
                             raise
                         except EmbeddingProviderError as exc:
@@ -3194,13 +3177,9 @@ def _do_refresh(
                             if effect_checkpointed:
                                 assert checkpoint_store is not None
                                 assert effect_unit is not None
+                                assert effect_ref is not None
                                 checkpoint_store.complete(
-                                    effect_unit["checkpoint_id"],
-                                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                    group_key=str(params.index_id),
-                                    unit_key=effect_unit["unit_key"],
-                                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                    identity=effect_unit["identity"],
+                                    effect_ref,
                                     payload={
                                         "effect": {
                                             "op_id": op_id,
@@ -3212,9 +3191,7 @@ def _do_refresh(
                                             "message": str(exc)[:500],
                                         },
                                     },
-                                    run_id=run_id,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
+                                    fence=refresh_fence,
                                 )
                             raise
                         batch_result = result
@@ -3222,6 +3199,7 @@ def _do_refresh(
                         if effect_checkpointed:
                             assert checkpoint_store is not None
                             assert effect_unit is not None
+                            assert effect_ref is not None
                             assert provider_fact is not None
                             # The durable call id, minted at call time: replay
                             # dedup requires it, and the run id keeps it
@@ -3247,6 +3225,7 @@ def _do_refresh(
                                 *,
                                 _run_id: int = run_id,
                                 _fact: dict[str, Any] = provider_fact,
+                                _fence: WriterFence = refresh_fence,
                             ) -> float:
                                 _persist_embedding_provider_fact(
                                     project,
@@ -3255,11 +3234,9 @@ def _do_refresh(
                                     fact=_fact,
                                     index=index,
                                     row_ids=row_ids,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
-                                    authorized_attempt_id=checkpoint[
-                                        "authorized_attempt_id"
-                                    ],
+                                    fence=_fence.for_fact_owner(
+                                        checkpoint["authorized_attempt_id"]
+                                    ),
                                 )
                                 return float(_fact.get("provider_cost_usd") or 0.0)
 
@@ -3269,17 +3246,10 @@ def _do_refresh(
                             # between "provider charged" and "anything
                             # recorded" is the reservation alone.
                             checkpoint_store.complete(
-                                effect_unit["checkpoint_id"],
-                                family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                group_key=str(params.index_id),
-                                unit_key=effect_unit["unit_key"],
-                                action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                identity=effect_unit["identity"],
+                                effect_ref,
                                 payload=completion_payload,
                                 accrue=accrue,
-                                run_id=run_id,
-                                writer_attempt_id=attempt_id,
-                                claimless_direct_effect=True,
+                                fence=refresh_fence,
                             )
                         else:
                             with write_transaction(
@@ -3292,8 +3262,7 @@ def _do_refresh(
                                     fact=provider_fact,
                                     index=index,
                                     row_ids=row_ids,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
+                                    fence=refresh_fence,
                                 )
                 except _ImageSourceError as exc:
                     return _error(
@@ -3378,10 +3347,7 @@ def _do_refresh(
                 assert attempt_id is not None
                 OutputColumnClaimStore.require_current_writer(
                     project.db,
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claim_token=None,
-                    claimless_direct_effect=True,
+                    fence=WriterFence.claimless(run_id=run_id, attempt_id=attempt_id),
                 )
                 retrieval.put_representations(encoded_items)
 
@@ -3473,11 +3439,10 @@ def _do_refresh(
                         )
                     OutputColumnClaimStore.require_current_writer(
                         project.db,
-                        run_id=run_id,
-                        writer_attempt_id=attempt_id,
-                        claim_token=None,
+                        fence=WriterFence.claimless(
+                            run_id=run_id, attempt_id=attempt_id
+                        ),
                         output_column_ids=frozenset(),
-                        claimless_direct_effect=True,
                     )
                     # Run units are provider inputs. ``refreshed`` also includes
                     # cached representations that needed publishing, so it may be
@@ -3518,20 +3483,18 @@ def _do_refresh(
                         last_refresh_receipt_id=receipt_id,
                     ),
                 )
-                if checkpoint_store is not None and effect_unit is not None:
+                if checkpoint_store is not None and effect_ref is not None:
                     # Retire the batch checkpoint in the SAME transaction as the
                     # terminal receipt: the refresh can never finalize while
                     # replay authority survives, and a rollback keeps both.
+                    retire_fence = (
+                        WriterFence.claimless(run_id=run_id, attempt_id=attempt_id)
+                        if attempt_id is not None
+                        else WriterFence(run_id=run_id, claimless_direct_effect=True)
+                    )
                     checkpoint_store.consume_and_retire_in_transaction(
-                        effect_unit["checkpoint_id"],
-                        family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                        group_key=str(params.index_id),
-                        unit_key=effect_unit["unit_key"],
-                        action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                        identity=effect_unit["identity"],
-                        run_id=run_id,
-                        writer_attempt_id=attempt_id,
-                        claimless_direct_effect=True,
+                        effect_ref,
+                        fence=retire_fence,
                     )
                 if run_id is not None:
                     assert attempt_id is not None
@@ -3616,17 +3579,17 @@ def _do_refresh(
                     # Close the run and its current attempt atomically. Cancellation
                     # must not be relabeled failure or leave an open transaction.
                     with write_transaction(project.db, what="embedding refresh close"):
+                        close_fence = (
+                            WriterFence.claimless(run_id=run_id, attempt_id=attempt_id)
+                            if attempt_id is not None and not attempt_closed
+                            else WriterFence(run_id=run_id)
+                        )
                         run_store.finish_run_in_transaction(
                             run_id,
                             "cancelled"
                             if run_store.cancellation_requested(run_id)
                             else "failed",
-                            writer_attempt_id=(
-                                attempt_id if not attempt_closed else None
-                            ),
-                            claimless_direct_effect=bool(
-                                attempt_id and not attempt_closed
-                            ),
+                            fence=close_fence,
                             rebuild_review_stats=False,
                         )
                         if attempt_id is not None and not attempt_closed:
@@ -3857,15 +3820,12 @@ def _persist_embedding_provider_fact(
     row_ids: list[int],
     index: Any | None = None,
     sheet_id: int | None = None,
-    writer_attempt_id: str | None = None,
-    claimless_direct_effect: bool = False,
-    authorized_attempt_id: str | None = None,
+    fence: WriterFence = WriterFence(),
 ) -> None:
     """Persist the returned provider fact inside the caller's open transaction.
 
-    ``authorized_attempt_id`` is the immutable owner of the fact (the attempt
-    that authorized egress, pinned at execution start); ``None``
-    keeps the legacy single-attempt fallback for the probe paths."""
+    ``fence.authorized_attempt_id`` is the immutable owner of the fact (the
+    attempt that authorized egress, pinned at execution start)."""
     require_transaction(project.db, "embedding provider fact")
     if sheet_id is None:
         if index is None:
@@ -3899,9 +3859,7 @@ def _persist_embedding_provider_fact(
                 "model_calls": [stored],
             }
         ],
-        writer_attempt_id=writer_attempt_id,
-        claimless_direct_effect=claimless_direct_effect,
-        authorized_attempt_id=authorized_attempt_id,
+        fence=fence,
     )
 
 

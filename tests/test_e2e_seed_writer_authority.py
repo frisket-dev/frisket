@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import StaleAttemptWriter
 from helpers import write_claimed_test_results
 
@@ -64,15 +65,20 @@ def test_e2e_result_seeder_uses_one_immutable_claimed_writer(
     monkeypatch.setattr(RunResultStore, "write_results", capture_authority)
     write_claimed_test_results(project, run_id, batch)
 
-    writer_attempt_id = observed_authority["writer_attempt_id"]
+    fence = observed_authority["fence"]
+    assert isinstance(fence, WriterFence)
+    writer_attempt_id = fence.writer_attempt_id
     assert writer_attempt_id
+    assert fence.claim_token
     assert observed_authority == {
-        "writer_attempt_id": writer_attempt_id,
-        "claim_token": observed_authority["claim_token"],
-        "claimless_direct_effect": False,
-        "authorized_attempt_id": writer_attempt_id,
+        "fence": WriterFence(
+            run_id=run_id,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=fence.claim_token,
+            claimless_direct_effect=False,
+            authorized_attempt_id=writer_attempt_id,
+        )
     }
-    assert observed_authority["claim_token"]
     assert (
         project.db.execute(
             "SELECT state FROM execution_attempts WHERE id=?",
@@ -83,7 +89,7 @@ def test_e2e_result_seeder_uses_one_immutable_claimed_writer(
     assert (
         project.db.execute(
             "SELECT status FROM output_column_claims WHERE claim_token=?",
-            (observed_authority["claim_token"],),
+            (fence.claim_token,),
         ).fetchone()["status"]
         == "released"
     )

@@ -23,6 +23,7 @@ from frisket.engine.store.citations import record_citation
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _captured_transcript(project, sources, *, sheet_id, row_id):
@@ -334,12 +335,12 @@ class ExtractResultCitations:
         **kwargs,
     ):
         del kwargs
-        OutputColumnClaimStore.require_current_writer(
-            project.db,
+        fence = WriterFence(
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
         )
+        OutputColumnClaimStore.require_current_writer(project.db, fence=fence)
         receipt_id = project.db.execute(
             "SELECT DISTINCT receipt_id FROM output_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
@@ -560,9 +561,7 @@ class ExtractResultCitations:
                             for code in failures
                         ],
                     },
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
+                    fence=fence,
                 )
 
 

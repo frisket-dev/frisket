@@ -26,11 +26,15 @@ from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import Receipt
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import ModelCallIdMissing
+from frisket.engine.store.effect_checkpoints import (
+    ModelCallIdMissing,
+    row_effect_ref,
+)
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _wav(path) -> str:
@@ -296,16 +300,17 @@ def checkpointed_run(make_project):
         (attempt_id, run_id),
     )
     project.db.commit()
-    assert store.reserve_row_effect_checkpoint(
+    ref = row_effect_ref(
         "cp-1",
         run_id=run_id,
         row_id=row_id,
         action_kind="classify",
         identity="identity-digest",
-        authorized_attempt_id=attempt_id,
-        writer_attempt_id=attempt_id,
-        claim_token=claim_token,
     )
+    fence = WriterFence.claimed(
+        run_id=run_id, writer_attempt_id=attempt_id, claim_token=claim_token
+    )
+    assert store.reserve_row_effect_checkpoint(ref, fence=fence)
     yield (
         project,
         store,
@@ -366,17 +371,22 @@ def test_id_less_model_call_refuses_checkpoint_complete_and_writes_nothing(
         attempt_id,
         claim_token,
     ) = checkpointed_run
+    ref = row_effect_ref(
+        "cp-1",
+        run_id=run_id,
+        row_id=row_id,
+        action_kind="classify",
+        identity="identity-digest",
+    )
+    fence = WriterFence.claimed(
+        run_id=run_id, writer_attempt_id=attempt_id, claim_token=claim_token
+    )
     with pytest.raises(ModelCallIdMissing) as refusal:
         store.complete_row_effect_checkpoint(
-            "cp-1",
-            run_id=run_id,
-            row_id=row_id,
-            action_kind="classify",
-            identity="identity-digest",
+            ref,
             batch=_batch(None, row_id=row_id, column_id=column_id),
             replay_response={"field": {"value": "x", "cost": 0.0}},
-            writer_attempt_id=attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )
     assert refusal.value.code == "model_call_id_missing"
     assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
@@ -407,30 +417,30 @@ def test_id_less_model_call_refuses_consume_of_returned_row(
         attempt_id,
         claim_token,
     ) = checkpointed_run
-    cost = store.complete_row_effect_checkpoint(
+    ref = row_effect_ref(
         "cp-1",
         run_id=run_id,
         row_id=row_id,
         action_kind="classify",
         identity="identity-digest",
+    )
+    fence = WriterFence.claimed(
+        run_id=run_id, writer_attempt_id=attempt_id, claim_token=claim_token
+    )
+    cost = store.complete_row_effect_checkpoint(
+        ref,
         batch=_batch("call-1", row_id=row_id, column_id=column_id),
         replay_response={"field": {"value": "x", "cost": 0.0}},
-        writer_attempt_id=attempt_id,
-        claim_token=claim_token,
+        fence=fence,
     )
     assert cost == pytest.approx(0.0001)
     assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
 
     for refuse in (
         lambda: store.consume_returned_row_effect_checkpoint(
-            "cp-1",
-            run_id=run_id,
-            row_id=row_id,
-            action_kind="classify",
-            identity="identity-digest",
+            ref,
             batch=_batch(None, row_id=row_id, column_id=column_id),
-            writer_attempt_id=attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         ),
     ):
         with pytest.raises(ModelCallIdMissing), write_transaction(project.db):

@@ -80,11 +80,7 @@ def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(pro
             "receipt-owned",
             "both-associations",
         }
-        store.finish_run(
-            run_id,
-            writer_attempt_id=authority["writer_attempt_id"],
-            claim_token=authority["claim_token"],
-        )
+        store.finish_run(run_id, **authority)
         assert (
             project.db.execute(
                 "SELECT cost_actual FROM runs WHERE id=?", (run_id,)

@@ -725,7 +725,10 @@ class TestCompactionGC:
     def _discarded_run_with_checkpoints(self, project):
         """A discarded run carrying one ``reserved`` and one ``returned``
         row-effect checkpoint."""
-        from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+        from frisket.engine.store.effect_checkpoints import (
+            EffectCheckpointStore,
+            row_effect_ref,
+        )
 
         sheet, _ = make_sheet(project, 2)
         col = project.add_column(sheet, "score", ai_generated=True)
@@ -741,26 +744,27 @@ class TestCompactionGC:
         )
         for cp_id, rid in (("cp-reserved", rids[0]), ("cp-returned", rids[1])):
             assert RunResultStore(project).reserve_row_effect_checkpoint(
-                cp_id,
-                run_id=run,
-                row_id=rid,
-                action_kind="c",
-                identity=f"identity-{rid}",
+                row_effect_ref(
+                    cp_id,
+                    run_id=run,
+                    row_id=rid,
+                    action_kind="c",
+                    identity=f"identity-{rid}",
+                ),
                 **authority.kwargs(),
             )
         # The second one's provider response came back and is durable, but no
         # result ever committed, so it was never consumed/retired.
         EffectCheckpointStore(project.db).complete(
-            "cp-returned",
-            family="row_effect",
-            group_key=str(run),
-            unit_key=str(rids[1]),
-            action_kind="c",
-            identity=f"identity-{rids[1]}",
+            row_effect_ref(
+                "cp-returned",
+                run_id=run,
+                row_id=rids[1],
+                action_kind="c",
+                identity=f"identity-{rids[1]}",
+            ),
             payload={"score": {"value": "paid answer", "error": None}},
-            run_id=run,
-            writer_attempt_id=authority.writer_attempt_id,
-            claimless_direct_effect=True,
+            fence=authority.fence(),
         )
         from frisket.execution.attempt import set_attempt_state
 

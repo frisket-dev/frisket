@@ -7,7 +7,10 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.column_descriptors import set_descriptor
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+)
 from frisket.engine.store.leases import acquire_lease
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -286,16 +289,17 @@ def test_begin_run_resume_rolls_back_interrupted_reopen(project, monkeypatch, fa
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_consume_group_retained_rolls_back_interrupted_consumption(project, failure):
-    unit = {
-        "family": "test_family",
-        "group_key": "group-1",
-        "unit_key": "unit-1",
-        "action_kind": "classify",
-        "identity": "identity-digest-1",
-    }
+    ref = EffectCheckpointRef(
+        checkpoint_id="cp-1",
+        family="test_family",
+        group_key="group-1",
+        unit_key="unit-1",
+        action_kind="classify",
+        identity="identity-digest-1",
+    )
     store = EffectCheckpointStore(project.db)
-    assert store.reserve("cp-1", **unit) is True
-    store.complete("cp-1", **unit, payload={"envelope": "raw"})
+    assert store.reserve(ref) is True
+    store.complete(ref, payload={"envelope": "raw"})
     before = _snapshot(project.db)
     error = failure("interrupted after the consume UPDATE")
     db = project.db
@@ -304,9 +308,9 @@ def test_consume_group_retained_rolls_back_interrupted_consumption(project, fail
         EffectCheckpointStore(
             _InterruptAfter(db, "UPDATE effect_checkpoints SET state='consumed'", error)
         ).consume_group_retained(
-            family=unit["family"],
-            group_key=unit["group_key"],
-            action_kind=unit["action_kind"],
+            family=ref.family,
+            group_key=ref.group_key,
+            action_kind=ref.action_kind,
             audit=lambda raw: {"sha_of": raw},
         )
 

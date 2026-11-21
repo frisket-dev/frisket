@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
+from frisket.engine.store.writer_fence import WriterFence
+
 
 class DispatchControl(Protocol):
     def check(self) -> None: ...
@@ -91,10 +93,12 @@ class RunDispatch:
             require_execution_sources(self.project, int(live[0]))
             OutputColumnClaimStore.require_current_writer(
                 self.project.db,
-                run_id=self.run_id,
-                writer_attempt_id=self.attempt_id,
-                claim_token=self.claim_token,
-                claimless_direct_effect=self.claim_token is None,
+                fence=WriterFence(
+                    run_id=self.run_id,
+                    writer_attempt_id=self.attempt_id,
+                    claim_token=self.claim_token,
+                    claimless_direct_effect=self.claim_token is None,
+                ),
             )
         except (StaleAttemptWriter, ExecutionSourceUnavailable):
             raise asyncio.CancelledError from None

@@ -16,6 +16,7 @@ from frisket.cloud_execution import (
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.runner.validation import assert_selected_egress_policy
 from frisket.execution.resolver import Refusal, resolve
 from frisket.execution.targets import CAPABILITY_LLM
@@ -157,7 +158,7 @@ class SoloCloudProjectQARuntimePort:
             estimate_authority=CloudEstimateAuthority(maximum_charge_micro),
             group_key=f"ask:{turn_id}",
             action_kind="project.ask",
-            claimless_direct_effect=True,
+            fence=WriterFence(claimless_direct_effect=True),
         )
         return SoloCloudProjectQATurnRuntime(
             coordinator,

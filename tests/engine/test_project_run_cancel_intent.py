@@ -41,6 +41,7 @@ from http_test_helpers import (
     v1_action_from_canonical_run_spec,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 CSV = "note\nfirst 101\nsecond 202\nthird 303\nfourth 404\n"
@@ -252,8 +253,11 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
         run_id=run_id,
         status="cancelled",
         receipt_id=receipt_id,
-        writer_attempt_id=attempt_id,
-        claim_token=claim_token,
+        fence=WriterFence.claimed(
+            run_id=run_id,
+            writer_attempt_id=attempt_id,
+            claim_token=claim_token,
+        ),
     )
     terminal_run = project.db.execute(
         "SELECT status, finished_at, current_attempt_id, cancel_requested_at "
@@ -421,8 +425,11 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
         run_id=run_id,
         status="cancelled",
         receipt_id=receipt_id,
-        writer_attempt_id=attempt_id,
-        claim_token=claim_token,
+        fence=WriterFence.claimed(
+            run_id=run_id,
+            writer_attempt_id=attempt_id,
+            claim_token=claim_token,
+        ),
     )
     before_repeat = (
         tuple(

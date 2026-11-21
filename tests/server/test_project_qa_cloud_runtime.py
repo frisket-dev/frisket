@@ -41,6 +41,7 @@ from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.cloud_project_qa_runtime import SoloCloudProjectQARuntimePort
 from frisket.server.workspace import Workspace
+from frisket.engine.store.writer_fence import WriterFence
 
 
 MODEL = "anthropic/claude-sonnet-4-5"
@@ -480,7 +481,7 @@ def test_ask_uses_cloud_coordinator_and_retires_after_usage_commit(tmp_path):
                     estimate_authority=CloudEstimateAuthority(1_000),
                     group_key=f"ask:{turn_id}",
                     action_kind="project.ask",
-                    claimless_direct_effect=True,
+                    fence=WriterFence(claimless_direct_effect=True),
                 )
 
             @contextmanager

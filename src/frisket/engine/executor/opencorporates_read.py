@@ -22,6 +22,7 @@ from frisket.execution.purchases import (
     policy_for_context,
 )
 from frisket.engine.jobs.rate_limiter import RateLimitPolicy
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.jobs.rate_limiter import (
     RateLimitCancelled,
     SqliteRateLimiter,
@@ -148,9 +149,11 @@ class AdmittedOpenCorporates:
                 "cost_actual": None,
                 "cost_source": "external_metered_declared",
             },
-            run_id=ctx.extras["run_id"],
-            writer_attempt_id=writer.attempt_id,
-            claim_token=ctx.extras["claim_token"],
+            fence=WriterFence.claimed(
+                run_id=ctx.extras["run_id"],
+                writer_attempt_id=writer.attempt_id,
+                claim_token=ctx.extras["claim_token"],
+            ),
             provider_use_fact={
                 "provider": "opencorporates.com",
                 "plugin_id": self.binding.plugin,

@@ -9,6 +9,7 @@ from typing import Any, Iterator, Literal
 
 from frisket.contracts.action import Receipt, ReceiptEvidence
 from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 ReceiptStatus = Literal[
     "queued", "running", "completed", "partial", "failed", "cancelled"
@@ -131,9 +132,7 @@ class ReceiptStore:
         self,
         code_hash: str,
         *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str,
+        fence: WriterFence,
     ) -> None:
         """Pin actual evaluator arguments before a guest can run or publish.
 
@@ -143,34 +142,26 @@ class ReceiptStore:
         """
         self._record_writer_supporting_record(
             {"kind": "map_python_code", "code_hash": code_hash},
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )
 
     def record_pdf_table_read(
         self,
         fact: dict[str, Any],
         *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str,
+        fence: WriterFence,
     ) -> None:
         """Attach an output-bound PDF read inside the accepted result savepoint."""
         self._record_writer_supporting_record(
             {**fact, "kind": "pdf_table_read"},
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )
 
     def record_semantic_match(
         self,
         fact: dict[str, Any],
         *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str,
+        fence: WriterFence,
     ) -> None:
         """Pin actual matcher arguments before transient row checkpoints retire."""
         from frisket.ai.llm.types import provider_from_model_id
@@ -192,20 +183,13 @@ class ReceiptStore:
                 "confident_threshold": fact["confident_threshold"],
             },
         ):
-            self._record_writer_supporting_record(
-                ref,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-            )
+            self._record_writer_supporting_record(ref, fence=fence)
 
     def _record_writer_supporting_record(
         self,
         ref: dict[str, Any],
         *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str,
+        fence: WriterFence,
         provider_use_fact: dict[str, Any] | None = None,
     ) -> None:
         from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -213,16 +197,11 @@ class ReceiptStore:
         db = self.db
         db.execute("SAVEPOINT python_code_evidence")
         try:
-            OutputColumnClaimStore.require_current_writer(
-                db,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-            )
+            OutputColumnClaimStore.require_current_writer(db, fence=fence)
             refs = db.execute(
                 "SELECT DISTINCT receipt_id FROM output_column_claims "
                 "WHERE run_id=? AND claim_token=? AND status='active'",
-                (run_id, claim_token),
+                (fence.run_id, fence.claim_token),
             ).fetchall()
             if len(refs) != 1 or refs[0][0] is None:
                 raise RuntimeError("Python evaluation requires its reserved receipt")
@@ -231,18 +210,18 @@ class ReceiptStore:
                 raise RuntimeError("Python evaluation receipt is no longer active")
             receipt = stored.parsed()
             op_id = db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (run_id,)
+                "SELECT op_id FROM runs WHERE id=?", (fence.run_id,)
             ).fetchone()[0]
             ref = {
                 **ref,
                 "op_id": op_id,
-                "run_id": run_id,
+                "run_id": fence.run_id,
             }
             if not any(item.ref == ref for item in receipt.evidence):
                 receipt.evidence.append(ReceiptEvidence(ref=ref, retention="pinned"))
                 if provider_use_fact is not None:
                     receipt.provider_use.append(dict(provider_use_fact))
-                receipt.run_id = run_id
+                receipt.run_id = fence.run_id
                 if not self.update_body_status_in_transaction(
                     receipt, require_status=stored.status
                 ):

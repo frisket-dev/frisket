@@ -19,6 +19,7 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
 
 def _receipt(project, receipt_id, run_id=None):
@@ -154,18 +155,18 @@ def test_cutover_retires_runless_attempt_and_chat_and_receiptless_local_run(
 
 def test_cutover_absorbs_reserved_checkpoint_but_keeps_returned_evidence(make_project):
     project, run, _, rows = _claimed(make_project)
+
     checkpoints = EffectCheckpointStore(project.db)
     checkpoints.reserve(
-        "uncertain",
-        family="row_effect",
-        group_key=f"run:{run.run_id}",
-        unit_key=f"row:{rows[1]}",
-        action_kind="map.regex_extract",
-        identity="old-call",
-        authorized_attempt_id=run.authority.writer_attempt_id,
-        run_id=run.run_id,
-        writer_attempt_id=run.authority.writer_attempt_id,
-        claim_token=run.authority.claim_token,
+        EffectCheckpointRef(
+            checkpoint_id="uncertain",
+            family="row_effect",
+            group_key=f"run:{run.run_id}",
+            unit_key=f"row:{rows[1]}",
+            action_kind="map.regex_extract",
+            identity="old-call",
+        ),
+        fence=run.authority.fence(),
         payload={"uncertain": True},
     )
     project.db.execute(

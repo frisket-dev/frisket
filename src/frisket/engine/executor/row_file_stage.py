@@ -24,6 +24,7 @@ from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import sha256_blob_path
 from frisket.engine.store.media_blobs import media_cell
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.row_files import (
     RowFileBlob,
     RowFileOccurrence,
@@ -428,13 +429,12 @@ def write_row_file_evidence(
     op_id = project.db.execute(
         "SELECT op_id FROM runs WHERE id=?", (run_id,)
     ).fetchone()[0]
-    record_row_file_calls(
-        project,
-        batch,
+    fence = WriterFence(
         run_id=run_id,
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
     )
+    record_row_file_calls(project, batch, fence=fence)
     for result in batch:
         if result.get("error") is not None:
             continue
@@ -489,9 +489,7 @@ def write_row_file_evidence(
                     **_file_feed_metadata(descriptor.primary),
                     **data,
                 },
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
+                fence=fence,
             )
 
 

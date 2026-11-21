@@ -72,7 +72,11 @@ from frisket.exports.sheet_csv import (
 )
 from frisket.exports.work_log import build_work_log_payload, work_log_markdown
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+)
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import export_notification_candidate
 from frisket.ops.integrations.google_sheets import (
@@ -1424,19 +1428,23 @@ def _run_export_google_sheets(
         assert dispatch.error is not None
         return terminal_effect_failure(dispatch.error)
 
+    effect_ref = EffectCheckpointRef(
+        checkpoint_id=effect_unit.checkpoint_id,
+        family=_EXPORT_GOOGLE_SHEETS_EFFECT_FAMILY,
+        group_key=effect_unit.group_key,
+        unit_key=_EXPORT_GOOGLE_SHEETS_EFFECT_UNIT_KEY,
+        action_kind=_EXPORT_GOOGLE_SHEETS_EFFECT_KIND,
+        identity=effect_unit.identity,
+    )
+    export_fence = WriterFence(claimless_direct_effect=True)
     if dispatch.disposition == "replay_returned":
         assert dispatch.provider_result is not None
         provider_result = dispatch.provider_result
     else:
         reserved = checkpoint_store.reserve(
-            effect_unit.checkpoint_id,
-            family=_EXPORT_GOOGLE_SHEETS_EFFECT_FAMILY,
-            group_key=effect_unit.group_key,
-            unit_key=_EXPORT_GOOGLE_SHEETS_EFFECT_UNIT_KEY,
-            action_kind=_EXPORT_GOOGLE_SHEETS_EFFECT_KIND,
-            identity=effect_unit.identity,
+            effect_ref,
             payload=effect_unit.reservation_payload(),
-            claimless_direct_effect=True,
+            fence=export_fence,
         )
         if not reserved:
             # The unique canonical unit serialized a concurrent fresh-key
@@ -1516,17 +1524,12 @@ def _run_export_google_sheets(
             )
         try:
             checkpoint_store.complete(
-                effect_unit.checkpoint_id,
-                family=_EXPORT_GOOGLE_SHEETS_EFFECT_FAMILY,
-                group_key=effect_unit.group_key,
-                unit_key=_EXPORT_GOOGLE_SHEETS_EFFECT_UNIT_KEY,
-                action_kind=_EXPORT_GOOGLE_SHEETS_EFFECT_KIND,
-                identity=effect_unit.identity,
+                effect_ref,
                 payload={
                     **effect_unit.reservation_payload(),
                     "provider_result": provider_result,
                 },
-                claimless_direct_effect=True,
+                fence=export_fence,
             )
         except Exception as exc:
             # The provider returned but its response did not become durable.

@@ -20,11 +20,15 @@ from frisket.engine.executor.queued_actions import (
     queued_v1_terminal_receipt_transition,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+)
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import (
     StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
@@ -165,16 +169,19 @@ def _seed_orphaned_run(
     if reserved_checkpoint:
         checkpoint_id = "checkpoint_dead_writer_reserved"
         assert EffectCheckpointStore(project.db).reserve(
-            checkpoint_id,
-            family="row_effect",
-            group_key=f"run:{run_id}",
-            unit_key=f"row:{row_id}",
-            action_kind=ACTION_KIND,
-            identity="dead-writer-paid-effect",
-            authorized_attempt_id=attempt_id,
-            run_id=run_id,
-            writer_attempt_id=attempt_id,
-            claim_token=claim_token,
+            EffectCheckpointRef(
+                checkpoint_id=checkpoint_id,
+                family="row_effect",
+                group_key=f"run:{run_id}",
+                unit_key=f"row:{row_id}",
+                action_kind=ACTION_KIND,
+                identity="dead-writer-paid-effect",
+            ),
+            fence=WriterFence.claimed(
+                run_id=run_id,
+                writer_attempt_id=attempt_id,
+                claim_token=claim_token,
+            ),
             payload={
                 "possible_external_effect": True,
                 "run_id": run_id,
@@ -821,16 +828,19 @@ def test_never_dispatched_reserved_effect_requires_reconciliation(project) -> No
     _dispatch_directly(project, run.run_id, attempt_id)
     checkpoint_id = "checkpoint_never_dispatched_reserved"
     assert EffectCheckpointStore(project.db).reserve(
-        checkpoint_id,
-        family="row_effect",
-        group_key=f"run:{run.run_id}",
-        unit_key="row:1",
-        action_kind=ACTION_KIND,
-        identity="never-dispatched-reserved",
-        authorized_attempt_id=attempt_id,
-        run_id=run.run_id,
-        writer_attempt_id=attempt_id,
-        claim_token=run.claim_token,
+        EffectCheckpointRef(
+            checkpoint_id=checkpoint_id,
+            family="row_effect",
+            group_key=f"run:{run.run_id}",
+            unit_key="row:1",
+            action_kind=ACTION_KIND,
+            identity="never-dispatched-reserved",
+        ),
+        fence=WriterFence.claimed(
+            run_id=run.run_id,
+            writer_attempt_id=attempt_id,
+            claim_token=run.claim_token,
+        ),
         payload={"possible_external_effect": True},
     )
     # The attempt that reserved the effect reads as never dispatched again.
@@ -871,34 +881,33 @@ def test_never_dispatched_refuses_effect_history(
     _dispatch_directly(project, run.run_id, attempt_id)
     checkpoint_id = f"checkpoint_never_dispatched_{effect_state}"
     checkpoints = EffectCheckpointStore(project.db)
-    writer = {
-        "run_id": run.run_id,
-        "writer_attempt_id": attempt_id,
-        "claim_token": run.claim_token,
-    }
-    unit = {
-        "family": "row_effect",
-        "group_key": f"run:{run.run_id}",
-        "unit_key": "row:1",
-        "action_kind": ACTION_KIND,
-        "identity": f"never-dispatched-{effect_state}",
-    }
+    fence = WriterFence.claimed(
+        run_id=run.run_id,
+        writer_attempt_id=attempt_id,
+        claim_token=run.claim_token,
+    )
+    ref = EffectCheckpointRef(
+        checkpoint_id=checkpoint_id,
+        family="row_effect",
+        group_key=f"run:{run.run_id}",
+        unit_key="row:1",
+        action_kind=ACTION_KIND,
+        identity=f"never-dispatched-{effect_state}",
+    )
     assert checkpoints.reserve(
-        checkpoint_id,
-        **unit,
-        authorized_attempt_id=attempt_id,
-        **writer,
+        ref,
+        fence=fence,
         payload={"possible_external_effect": True},
     )
-    checkpoints.complete(checkpoint_id, **unit, payload={}, **writer)
+    checkpoints.complete(ref, payload={}, fence=fence)
     if effect_state == "consumed":
         assert (
             checkpoints.consume_group_retained(
-                family=unit["family"],
-                group_key=unit["group_key"],
+                family=ref.family,
+                group_key=ref.group_key,
                 action_kind=ACTION_KIND,
                 audit=lambda _payload: {},
-                **writer,
+                fence=fence,
             )
             == 1
         )

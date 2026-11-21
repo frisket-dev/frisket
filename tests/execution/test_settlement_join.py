@@ -33,6 +33,7 @@ from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter, attempt_receipt, claim
 from frisket.execution.attempt_authority import AttemptAuthority
@@ -288,8 +289,10 @@ def _claim_output_attempt(project, commitment) -> None:
     claim(
         project,
         commitment,
-        claimless_direct_effect=False,
-        claim_token=str(claims[0]["claim_token"]),
+        fence=WriterFence(
+            run_id=commitment.run_id,
+            claim_token=str(claims[0]["claim_token"]),
+        ),
         output_column_ids={
             int(row["column_id"]) for row in claims if row["column_id"] is not None
         },
@@ -301,7 +304,7 @@ def _writer_authority(
     run_id: int,
     *,
     attempt_id: str | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, WriterFence]:
     row = project.db.execute(
         "SELECT r.current_attempt_id, c.claim_token "
         "FROM runs r JOIN output_column_claims c ON c.run_id=r.id "
@@ -310,10 +313,14 @@ def _writer_authority(
     ).fetchone()
     assert row is not None
     writer = attempt_id or row["current_attempt_id"]
+    writer_id = str(writer) if writer is not None else None
     return {
-        "writer_attempt_id": str(writer) if writer is not None else None,
-        "authorized_attempt_id": str(writer) if writer is not None else None,
-        "claim_token": str(row["claim_token"]),
+        "fence": WriterFence(
+            run_id=run_id,
+            writer_attempt_id=writer_id,
+            authorized_attempt_id=writer_id,
+            claim_token=str(row["claim_token"]),
+        )
     }
 
 
@@ -725,12 +732,7 @@ def test_rejected_cross_attempt_call_id_cannot_leak_result_through_outer_commit(
     # Exercise the real leak window: a later owner commits ordinary run
     # finalization without knowing the rejected sink left mutations pending.
     terminal = _writer_authority(project, run_id, attempt_id=attempt_b.attempt_id)
-    store.finish_run(
-        run_id,
-        "completed",
-        writer_attempt_id=terminal["writer_attempt_id"],
-        claim_token=terminal["claim_token"],
-    )
+    store.finish_run(run_id, "completed", **terminal)
 
     result = project.db.execute(
         "SELECT value_kind, value FROM results "
@@ -826,8 +828,7 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
         run_id,
         "completed",
         rebuild_review_stats=False,
-        writer_attempt_id=terminal["writer_attempt_id"],
-        claim_token=terminal["claim_token"],
+        **terminal,
     )
     project.db.commit()
 

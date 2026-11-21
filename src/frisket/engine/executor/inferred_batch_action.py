@@ -22,6 +22,7 @@ from frisket.contracts.action import (
     ActionResultStatus,
 )
 from frisket.engine.store.receipts import ReceiptStatus
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
@@ -618,9 +619,11 @@ def _publish(
         else:
             claims.require_current_writer(
                 project.db,
-                run_id=run_id,
-                writer_attempt_id=writer,
-                claim_token=claim,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id=writer,
+                    claim_token=claim,
+                ),
                 output_column_ids=column_ids,
             )
             ResultGenerationStore(project).seal(

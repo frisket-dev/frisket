@@ -41,6 +41,7 @@ from tests.typed_model_fixtures import model_plan
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 MODEL = "anthropic/claude-haiku-4-5"
 
@@ -1181,12 +1182,13 @@ class TestCancel:
             project,
             run_store,
             op_id=prepared.op_id,
-            run_id=progress.run_id,
             status="cancelled",
             out_cols=dict(prepared.out_cols),
-            writer_attempt_id=progress.writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=False,
+            fence=WriterFence.claimed(
+                run_id=progress.run_id,
+                writer_attempt_id=progress.writer_attempt_id,
+                claim_token=claim_token,
+            ),
             terminal_attempt_state="effected",
         )
         values = project.get_values(sheet, output_id)

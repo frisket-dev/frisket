@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from frisket.engine.store.transactions import inserted_rowid
+from frisket.engine.store.writer_fence import WriterFence
 import inspect
 import json
 import threading
@@ -752,7 +753,7 @@ def run_typed_column_transform_action(
             run_id,
             "completed",
             rebuild_review_stats=False,
-            claim_token=token,
+            fence=WriterFence(run_id=run_id, claim_token=token),
         )
         OutputColumnClaimStore(project).release(claim_token=token)
         if not receipts.update_body_status_in_transaction(

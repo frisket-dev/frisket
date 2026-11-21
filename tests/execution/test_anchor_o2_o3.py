@@ -35,6 +35,7 @@ from frisket.ai.models.metadata import ModelCallMeta
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.promise_compiler import (
     PricedCostBasis,
     compile_route_promises,
@@ -112,7 +113,7 @@ def _make_run(project) -> int:
     return run_id
 
 
-def _writer_authority(project, run_id: int) -> dict[str, str]:
+def _writer_authority(project, run_id: int) -> dict[str, WriterFence]:
     row = project.db.execute(
         "SELECT r.current_attempt_id, c.claim_token "
         "FROM runs r JOIN output_column_claims c ON c.run_id=r.id "
@@ -122,9 +123,12 @@ def _writer_authority(project, run_id: int) -> dict[str, str]:
     assert row is not None
     attempt_id = str(row["current_attempt_id"])
     return {
-        "writer_attempt_id": attempt_id,
-        "authorized_attempt_id": attempt_id,
-        "claim_token": str(row["claim_token"]),
+        "fence": WriterFence(
+            run_id=run_id,
+            writer_attempt_id=attempt_id,
+            authorized_attempt_id=attempt_id,
+            claim_token=str(row["claim_token"]),
+        )
     }
 
 

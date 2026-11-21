@@ -29,6 +29,7 @@ from frisket.ai.llm import (
 )
 from frisket.ai.llm.types import ModelRouterTransport
 from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.base import ActionContext, ActionProgram, ActionProgramInvocationHalt
 from frisket.redaction import safe_error
@@ -225,13 +226,17 @@ def _retain_returned_before_halt(
     attempt = attempt_in_scope(ctx.extras)
     if attempt is None:
         return
+    claim_token = ctx.extras.get("claim_token")
     RunResultStore(project).write_returned_call_accounting(
         attempt.run_id,
         [{"row_id": row_id, "column_id": None, **accounting}],
-        writer_attempt_id=attempt.attempt_id,
-        authorized_attempt_id=attempt.attempt_id,
-        claim_token=ctx.extras.get("claim_token"),
-        claimless_direct_effect=ctx.extras.get("claim_token") is None,
+        fence=WriterFence(
+            run_id=attempt.run_id,
+            writer_attempt_id=attempt.attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=claim_token is None,
+            authorized_attempt_id=attempt.attempt_id,
+        ),
         receipt_id=attempt.receipt_id if attempt.run_id is None else None,
     )
 

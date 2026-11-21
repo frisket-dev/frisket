@@ -62,6 +62,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.worker_version import code_version
 from frisket.execution.credential_use import ActionCredentialResolver
 from frisket.execution.attempt_authority import AttemptAuthority
@@ -1123,10 +1124,15 @@ def register_project_run_handler(
                         terminal_run_status=(
                             terminal_run_status if not defer_attempt_close else None
                         ),
-                        writer_attempt_id=(
-                            completed.writer_attempt_id if defer_attempt_close else None
+                        fence=(
+                            WriterFence(
+                                run_id=completed.run_id,
+                                writer_attempt_id=completed.writer_attempt_id,
+                                claim_token=claim_token,
+                            )
+                            if defer_attempt_close
+                            else None
                         ),
-                        claim_token=(claim_token if defer_attempt_close else None),
                     )
                     _enqueue_search_index_after_completion(
                         project,
@@ -1156,13 +1162,14 @@ def register_project_run_handler(
                         project_id=project_id,
                         run_id=completed.run_id,
                         status="cancelled",
-                        writer_attempt_id=(
-                            completed.writer_attempt_id
+                        fence=(
+                            WriterFence(
+                                run_id=completed.run_id,
+                                writer_attempt_id=completed.writer_attempt_id,
+                                claim_token=claim_token,
+                            )
                             if completed.writer_attempt_claimed
                             else None
-                        ),
-                        claim_token=(
-                            claim_token if completed.writer_attempt_claimed else None
                         ),
                     )
                 else:
@@ -1269,8 +1276,11 @@ def register_project_run_handler(
                     message=str(exc),
                     action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 ),
-                writer_attempt_id=progress.writer_attempt_id,
-                claim_token=claim_token,
+                fence=WriterFence(
+                    run_id=run_id,
+                    writer_attempt_id=progress.writer_attempt_id,
+                    claim_token=claim_token,
+                ),
                 publication_refusal=exc,
             )
             row = run_store.get_run(run_id)

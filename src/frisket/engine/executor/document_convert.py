@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.engine.store.writer_fence import WriterFence
 
 from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
@@ -923,13 +924,16 @@ def write_document_convert_evidence(
     )
 
     store = ReceiptStore(project)
+    fence = WriterFence(
+        run_id=run_id,
+        writer_attempt_id=writer_attempt_id,
+        claim_token=claim_token,
+    )
     reads = document_convert_reads(batch)
     for row_id, read in reads.items():
         store._record_writer_supporting_record(
             {**read, "row_id": row_id},
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )
     for item in batch:
         value = item.get("value")
@@ -1021,7 +1025,5 @@ def write_document_convert_evidence(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

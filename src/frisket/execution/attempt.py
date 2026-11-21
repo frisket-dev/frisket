@@ -44,6 +44,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Union
 
+from frisket.engine.store.writer_fence import WriterFence
+
 from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.execution.promise_compiler import (
     CostBasis,
@@ -634,8 +636,7 @@ def claim(
     project: Any,
     commitment: AttemptCommitment,
     *,
-    claimless_direct_effect: bool,
-    claim_token: str | None = None,
+    fence: WriterFence,
     output_column_ids: set[int] | frozenset[int] | None = None,
 ) -> None:
     """Compare-and-swap the attempt to ``dispatching`` — the linearization
@@ -766,6 +767,8 @@ def claim(
         from frisket.engine.store.output_claims import OutputColumnClaimStore
 
         output_claims = OutputColumnClaimStore(project)
+        claimless_direct_effect = fence.claimless_direct_effect
+        claim_token = fence.claim_token
         if receipt_id is not None:
             if (
                 not claimless_direct_effect

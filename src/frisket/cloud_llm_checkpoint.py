@@ -25,11 +25,14 @@ from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
     EffectCheckpointStore,
     canonical_json,
+    model_call_ref,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 _FAMILY = "model_call"
 _SCHEMA = "frisket.cloud_llm_checkpoint.v1"
+_EMPTY_FENCE = WriterFence()
 
 
 CloudLLMCheckpointRef = EffectCheckpointRef
@@ -54,10 +57,7 @@ class CloudLLMCheckpointCoordinator:
         estimate_authority: CloudEstimateAuthority,
         group_key: str,
         action_kind: str,
-        run_id: int | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
         capability: CloudModelCapability = "llm.complete",
     ) -> None:
         if not callable(getattr(transport, "execute_llm", None)):
@@ -77,10 +77,7 @@ class CloudLLMCheckpointCoordinator:
         self.estimate_authority = estimate_authority
         self.group_key = group_key
         self.action_kind = action_kind
-        self.run_id = run_id
-        self.writer_attempt_id = writer_attempt_id
-        self.claim_token = claim_token
-        self.claimless_direct_effect = claimless_direct_effect
+        self.fence = fence
         self.capability: CloudModelCapability = capability
         self._returned: dict[str, CloudLLMCheckpointRef] = {}
         self._accounting: dict[str, dict[str, Any]] = {}
@@ -126,6 +123,13 @@ class CloudLLMCheckpointCoordinator:
         identity = hashlib.sha256(
             canonical_json(identity_payload).encode("utf-8")
         ).hexdigest()
+        ref = model_call_ref(
+            checkpoint_id,
+            group_key=self.group_key,
+            unit_key=unit_key,
+            action_kind=self.action_kind,
+            identity=identity,
+        )
         store = EffectCheckpointStore(self.project.db)
         payload = {
             "schema_version": _SCHEMA,
@@ -134,18 +138,9 @@ class CloudLLMCheckpointCoordinator:
             "response": None,
         }
         created = store.reserve(
-            checkpoint_id,
-            family=_FAMILY,
-            group_key=self.group_key,
-            unit_key=unit_key,
-            action_kind=self.action_kind,
-            identity=identity,
-            authorized_attempt_id=self.writer_attempt_id,
+            ref,
             payload=payload,
-            run_id=self.run_id,
-            writer_attempt_id=self.writer_attempt_id,
-            claim_token=self.claim_token,
-            claimless_direct_effect=self.claimless_direct_effect,
+            fence=self.fence.for_fact_owner(self.fence.writer_attempt_id),
         )
         row = store.find_unit(
             family=_FAMILY, group_key=self.group_key, unit_key=unit_key
@@ -159,28 +154,17 @@ class CloudLLMCheckpointCoordinator:
         if (
             not created
             and row["state"] == "reserved"
-            and row.get("authorized_attempt_id") != self.writer_attempt_id
+            and row.get("authorized_attempt_id") != self.fence.writer_attempt_id
         ):
-            if self.run_id is None or self.writer_attempt_id is None:
+            if self.fence.run_id is None or self.fence.writer_attempt_id is None:
                 raise CloudExecutionRefused(
                     "external_effect_reconciliation_required",
                     "Cloud LLM recovery has no current run writer",
                 )
             row = store.adopt_reserved_for_recovery(
-                checkpoint_id,
-                current_checkpoint_id=checkpoint_id,
-                family=_FAMILY,
-                source_group_key=self.group_key,
-                source_unit_key=unit_key,
-                current_group_key=self.group_key,
-                current_unit_key=unit_key,
-                action_kind=self.action_kind,
-                identity=identity,
-                current_authorized_attempt_id=self.writer_attempt_id,
-                run_id=self.run_id,
-                writer_attempt_id=self.writer_attempt_id,
-                claim_token=self.claim_token,
-                claimless_direct_effect=self.claimless_direct_effect,
+                ref,
+                current=ref,
+                fence=self.fence.for_fact_owner(self.fence.writer_attempt_id),
             )
         attempt = CloudExecutionAttempt(
             request_id=checkpoint_id,
@@ -189,7 +173,7 @@ class CloudLLMCheckpointCoordinator:
         )
         if not created and row["state"] == "returned":
             response = self._response(row)
-            self._remember(checkpoint_id, unit_key, identity, attempt, response)
+            self._remember(ref, attempt, response)
             return attempt, response
         if row["state"] != "reserved":
             raise CloudExecutionRefused(
@@ -207,19 +191,11 @@ class CloudLLMCheckpointCoordinator:
             )
         returned_payload = {**payload, "response": response.model_dump(mode="json")}
         store.complete(
-            checkpoint_id,
-            family=_FAMILY,
-            group_key=self.group_key,
-            unit_key=unit_key,
-            action_kind=self.action_kind,
-            identity=identity,
+            ref,
             payload=returned_payload,
-            run_id=self.run_id,
-            writer_attempt_id=self.writer_attempt_id,
-            claim_token=self.claim_token,
-            claimless_direct_effect=self.claimless_direct_effect,
+            fence=self.fence,
         )
-        self._remember(checkpoint_id, unit_key, identity, attempt, response)
+        self._remember(ref, attempt, response)
         return attempt, response
 
     def retire_returned(self) -> None:
@@ -227,13 +203,7 @@ class CloudLLMCheckpointCoordinator:
 
         store = EffectCheckpointStore(self.project.db)
         for ref in self.returned_checkpoints:
-            returned = store.returned_for_replay(
-                family=_FAMILY,
-                group_key=ref.group_key,
-                unit_key=ref.unit_key,
-                action_kind=ref.action_kind,
-                identity=ref.identity,
-            )
+            returned = store.returned_for_replay(ref.unit)
             owner = returned["authorized_attempt_id"]
             original = (
                 self.project.db.execute(
@@ -256,31 +226,19 @@ class CloudLLMCheckpointCoordinator:
                         )
                 return 0.0
 
+            retire_fence = (
+                WriterFence.claimless(run_id=original_run, attempt_id=owner)
+                if owner is not None
+                else WriterFence(run_id=original_run, claimless_direct_effect=True)
+            )
             with write_transaction(self.project.db):
                 store.account_returned(
-                    ref.checkpoint_id,
-                    family=_FAMILY,
-                    group_key=ref.group_key,
-                    unit_key=ref.unit_key,
-                    action_kind=ref.action_kind,
-                    identity=ref.identity,
+                    ref,
                     payload=returned["payload"],
                     accrue=verify_accounted,
-                    run_id=original_run,
-                    writer_attempt_id=owner,
-                    claimless_direct_effect=True,
+                    fence=retire_fence,
                 )
-            store.consume_and_retire(
-                ref.checkpoint_id,
-                family=_FAMILY,
-                group_key=ref.group_key,
-                unit_key=ref.unit_key,
-                action_kind=ref.action_kind,
-                identity=ref.identity,
-                run_id=original_run,
-                writer_attempt_id=owner,
-                claimless_direct_effect=True,
-            )
+            store.consume_and_retire(ref, fence=retire_fence)
             self._returned.pop(ref.checkpoint_id, None)
             self._accounting.pop(ref.checkpoint_id, None)
 
@@ -385,20 +343,12 @@ class CloudLLMCheckpointCoordinator:
 
     def _remember(
         self,
-        checkpoint_id: str,
-        unit_key: str,
-        identity: str,
+        ref: EffectCheckpointRef,
         attempt: CloudExecutionAttempt,
         response: CloudExecutionResponse,
     ) -> None:
-        self._returned[checkpoint_id] = CloudLLMCheckpointRef(
-            checkpoint_id=checkpoint_id,
-            group_key=self.group_key,
-            unit_key=unit_key,
-            action_kind=self.action_kind,
-            identity=identity,
-        )
-        self._accounting[checkpoint_id] = cloud_execution_accounting(
+        self._returned[ref.checkpoint_id] = ref
+        self._accounting[ref.checkpoint_id] = cloud_execution_accounting(
             attempt, response, capability=self.capability
         )
 

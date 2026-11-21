@@ -10,6 +10,13 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.writer_fence import WriterFence
+
+
+def _stale_writer(message: str) -> Exception:
+    from frisket.execution.attempt import StaleAttemptWriter
+
+    return StaleAttemptWriter(message)
 
 
 # A claim's owning run can reach a terminal status (project-local
@@ -423,47 +430,56 @@ class OutputColumnClaimStore:
         return int(renewed.rowcount)
 
     @staticmethod
-    def require_current_writer(
+    def _require_dispatching_attempt(
         db: sqlite3.Connection,
-        *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str | None,
-        output_column_ids: set[int] | frozenset[int] | None = None,
-        claimless_direct_effect: bool = False,
-    ) -> str:
-        """Fence one run-scoped mutation inside its caller's write transaction."""
-
-        from frisket.execution.attempt import StaleAttemptWriter
-
+        fence: WriterFence,
+    ) -> tuple[int, str]:
+        run_id = fence.run_id
+        writer_attempt_id = fence.writer_attempt_id
+        if run_id is None:
+            raise _stale_writer("the mutation supplied no run id")
         if not isinstance(writer_attempt_id, str) or not writer_attempt_id:
-            raise StaleAttemptWriter(
-                "the mutation supplied no immutable writer attempt"
-            )
+            raise _stale_writer("the mutation supplied no immutable writer attempt")
         attempt = db.execute(
             "SELECT run_id, state FROM execution_attempts WHERE id=?",
             (writer_attempt_id,),
         ).fetchone()
         if attempt is None:
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"attempt {writer_attempt_id!r} is missing; "
                 "no writer owns this mutation"
             )
         attempt_run_id = attempt["run_id"]
         if attempt_run_id is None or int(attempt_run_id) != int(run_id):
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"attempt {writer_attempt_id!r} belongs to run "
                 f"{attempt_run_id!r}, not run {run_id}"
             )
         if str(attempt["state"]) != "dispatching":
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"attempt {writer_attempt_id!r} is {attempt['state']!r}, "
                 "not 'dispatching'"
             )
+        return run_id, writer_attempt_id
+
+    @staticmethod
+    def require_current_writer(
+        db: sqlite3.Connection,
+        *,
+        fence: WriterFence,
+        output_column_ids: set[int] | frozenset[int] | None = None,
+    ) -> str:
+        """Fence one run-scoped mutation inside its caller's write transaction."""
+
+        run_id, writer_attempt_id = OutputColumnClaimStore._require_dispatching_attempt(
+            db, fence
+        )
+        claim_token = fence.claim_token
+        claimless_direct_effect = fence.claimless_direct_effect
 
         if claimless_direct_effect:
             if output_column_ids:
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "a claimless direct writer cannot mutate output columns"
                 )
             active_claim = db.execute(
@@ -472,7 +488,7 @@ class OutputColumnClaimStore:
                 (run_id,),
             ).fetchone()
             if active_claim is not None:
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "a claimed output run cannot use claimless direct authority"
                 )
             run = db.execute(
@@ -481,23 +497,21 @@ class OutputColumnClaimStore:
             ).fetchone()
             if run is None or run["current_attempt_id"] != writer_attempt_id:
                 holder = None if run is None else run["current_attempt_id"]
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "the claimless dispatch is no longer held by this writer "
                     f"(current holder {holder!r})"
                 )
             return writer_attempt_id
 
         if not isinstance(claim_token, str) or not claim_token:
-            raise StaleAttemptWriter(
-                "an output-producing mutation supplied no claim token"
-            )
+            raise _stale_writer("an output-producing mutation supplied no claim token")
         claims = db.execute(
             "SELECT column_id FROM output_column_claims "
             "WHERE claim_token=? AND run_id=? AND status='active'",
             (claim_token, run_id),
         ).fetchall()
         if not claims:
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"claim token {claim_token!r} has no active claims "
                 f"bound to run {run_id}"
             )
@@ -508,7 +522,7 @@ class OutputColumnClaimStore:
             }
             missing = sorted(required_columns - claimed_columns)
             if missing:
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     f"claim token {claim_token!r} does not cover "
                     f"output columns {missing}"
                 )
@@ -575,12 +589,9 @@ class OutputColumnClaimStore:
     def finish_current_writer(
         self,
         *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str | None,
+        fence: WriterFence,
         attempt_state: str,
         claim_status: str = "released",
-        claimless_direct_effect: bool = False,
     ) -> int:
         """Close only the still-current writer and its own active claim group.
 
@@ -593,13 +604,7 @@ class OutputColumnClaimStore:
         from frisket.execution.attempt import set_attempt_state_in_transaction
 
         with write_transaction(self.db):
-            self.require_current_writer(
-                self.db,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-            )
+            writer_attempt_id = self.require_current_writer(self.db, fence=fence)
             set_attempt_state_in_transaction(
                 self.project,
                 writer_attempt_id,
@@ -607,9 +612,9 @@ class OutputColumnClaimStore:
             )
             released = (
                 0
-                if claim_token is None
+                if fence.claim_token is None
                 else self.release(
-                    claim_token=claim_token,
+                    claim_token=fence.claim_token,
                     status=claim_status,
                 )
             )

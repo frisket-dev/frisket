@@ -19,6 +19,7 @@ from frisket.engine.store.media_blobs import (
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _ocr_token_granularity_metadata(read):
@@ -147,12 +148,12 @@ def write_ocr_citations(
     }
     if not reads or not ocr_columns:
         return
-    OutputColumnClaimStore.require_current_writer(
-        project.db,
+    fence = WriterFence(
         run_id=run_id,
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
     )
+    OutputColumnClaimStore.require_current_writer(project.db, fence=fence)
     receipt_id = project.db.execute(
         "SELECT DISTINCT receipt_id FROM output_column_claims "
         "WHERE run_id=? AND claim_token=? AND status='active'",
@@ -332,7 +333,5 @@ def write_ocr_citations(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

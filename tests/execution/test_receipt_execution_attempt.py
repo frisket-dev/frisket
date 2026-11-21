@@ -11,6 +11,7 @@ from frisket.contracts.http.project_attempts import ProjectAttemptReceipt
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import (
     AttemptClaimRefused,
     StaleAttemptWriter,
@@ -103,12 +104,15 @@ def _batch(route, *, call_id="actual-call", outcome="ok", **fact):
     ]
 
 
+_CLAIMLESS = WriterFence(claimless_direct_effect=True)
+
+
 def _write(project, attempt, batch, **kwargs):
     RunResultStore(project).write_returned_call_accounting(
         None,
         batch,
         receipt_id=attempt.receipt_id,
-        writer_attempt_id=attempt.attempt_id,
+        fence=WriterFence(writer_attempt_id=attempt.attempt_id),
         **kwargs,
     )
 
@@ -130,7 +134,7 @@ def test_receipt_attempt_prices_actual_calls_and_estimated_rows_without_outputs(
         spec=SPEC,
     )
     assert restored == attempt
-    claim(project, restored, claimless_direct_effect=True)
+    claim(project, restored, fence=_CLAIMLESS)
     batch = _batch(route)
     _write(project, attempt, batch)
     _write(project, attempt, batch)  # same returned call is accounted once
@@ -166,7 +170,7 @@ def test_receipt_attempt_prices_actual_calls_and_estimated_rows_without_outputs(
 def test_failed_row_keeps_actual_cost_but_is_not_a_successful_retail_row(project):
     receipt, route = _reserve(project)
     attempt = _mint(project)
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     _write(project, attempt, _batch(route, outcome="model_error"))
     RunResultStore(project).write_receipt_row_outcomes(
         receipt.receipt_id,
@@ -189,7 +193,7 @@ def test_failed_row_keeps_actual_cost_but_is_not_a_successful_retail_row(project
 def test_receipt_writer_reuses_atomic_project_key_spend_and_replay(project):
     _, route = _reserve(project)
     attempt = _mint(project)
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     batch = _batch(route, credential_source="project_key", provider_cost_usd=0.012)
     # Persist the actual credential, including a divergence from the route pin.
     actual = batch[0]["model_calls"][0]
@@ -225,7 +229,7 @@ def test_receipt_fact_writer_refuses_scope_and_owner_drift(project, change):
     _, route = _reserve(project)
     _, other_route = _reserve(project, "other")
     attempt = _mint(project)
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     batch = _batch(route)
     call = batch[0]["model_calls"][0]
     if change == "row":
@@ -253,13 +257,13 @@ def test_receipt_requires_active_claim_and_exact_reservation(project):
     attempt = _mint(project)
     with pytest.raises(StaleAttemptWriter):
         _write(project, attempt, _batch(route))
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     with pytest.raises(StaleAttemptWriter):
         RunResultStore(project).write_model_calls(
             None,
             _batch(route),
             receipt_id="wrong",
-            writer_attempt_id=attempt.attempt_id,
+            fence=WriterFence(writer_attempt_id=attempt.attempt_id),
         )
     ReceiptStore(project).update_body_status(
         receipt.model_copy(update={"status": "failed"})
@@ -273,10 +277,10 @@ def test_receipt_claim_cannot_duplicate_dispatch_or_claim_generated_columns(proj
     _reserve(project)
     first, second = _mint(project), _mint(project)
     with pytest.raises(AttemptClaimRefused):
-        claim(project, first, claimless_direct_effect=True, output_column_ids={1})
-    claim(project, first, claimless_direct_effect=True)
+        claim(project, first, fence=_CLAIMLESS, output_column_ids={1})
+    claim(project, first, fence=_CLAIMLESS)
     with pytest.raises(AttemptClaimRefused):
-        claim(project, second, claimless_direct_effect=True)
+        claim(project, second, fence=_CLAIMLESS)
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM execution_attempts WHERE state='dispatching'"
@@ -288,7 +292,7 @@ def test_receipt_claim_cannot_duplicate_dispatch_or_claim_generated_columns(proj
 def test_receipt_row_outcome_cannot_be_rewritten(project):
     _reserve(project)
     attempt = _mint(project)
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     store = RunResultStore(project)
     store.write_receipt_row_outcomes(
         "preview",
@@ -377,7 +381,7 @@ def test_receipt_route_recording_reuses_durable_resolution(audio_project):
         spec=spec,
         scope=(1,),
     )
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     assert (
         attempt_receipt(project, attempt.attempt_id)["target"]["target_id"] == "local"
     )
@@ -400,7 +404,7 @@ def test_receipt_claim_rechecks_durable_route_head(project):
         predecessor_id=route.id,
     )
     with pytest.raises(AttemptClaimRefused, match="advanced"):
-        claim(project, attempt, claimless_direct_effect=True)
+        claim(project, attempt, fence=_CLAIMLESS)
     assert (
         project.db.execute("SELECT state FROM execution_attempts").fetchone()[0]
         == "admitted"
@@ -411,8 +415,8 @@ def test_returned_fact_cannot_be_reparented_to_another_receipt(project):
     _, route = _reserve(project)
     _, other_route = _reserve(project, "other")
     first, second = _mint(project), _mint(project, "other")
-    claim(project, first, claimless_direct_effect=True)
-    claim(project, second, claimless_direct_effect=True)
+    claim(project, first, fence=_CLAIMLESS)
+    claim(project, second, fence=_CLAIMLESS)
     _write(project, first, _batch(route))
     with pytest.raises(RuntimeError, match="attempt_id changed"):
         _write(project, second, _batch(other_route))
@@ -426,14 +430,14 @@ def test_receipt_accounting_joins_caller_transaction_and_row_outcomes_owns_its_o
 ):
     _, route = _reserve(project)
     attempt = _mint(project)
-    claim(project, attempt, claimless_direct_effect=True)
+    claim(project, attempt, fence=_CLAIMLESS)
     batch = _batch(route)
     project.db.execute("BEGIN IMMEDIATE")
     RunResultStore(project).write_returned_call_accounting_in_transaction(
         None,
         batch,
         receipt_id=attempt.receipt_id,
-        writer_attempt_id=attempt.attempt_id,
+        fence=WriterFence(writer_attempt_id=attempt.attempt_id),
     )
     with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
         RunResultStore(project).write_receipt_row_outcomes(

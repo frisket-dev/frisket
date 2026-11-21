@@ -32,6 +32,7 @@ from frisket.execution.runtime_binding import (
     bind_fact_to_route,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 PROMISES = [
     {
@@ -144,12 +145,15 @@ def _write_call(project, run_id: int, call: dict, *, row_id=1, column_id=1):
         (run_id,),
     ).fetchone()
     assert authority is not None
+
     store.write_model_calls(
         run_id,
         [{"row_id": row_id, "column_id": column_id, "model_calls": [call]}],
-        writer_attempt_id=str(authority["current_attempt_id"]),
-        claim_token=str(authority["claim_token"]),
-        authorized_attempt_id=str(authority["current_attempt_id"]),
+        fence=WriterFence.claimed(
+            run_id=run_id,
+            writer_attempt_id=str(authority["current_attempt_id"]),
+            claim_token=str(authority["claim_token"]),
+        ),
     )
     project.db.commit()
 

@@ -35,6 +35,7 @@ from frisket.engine.store.transactions import (
     write_transaction,
 )
 from frisket.engine.store.value_codec import PreparedContentRef, encode_stored_value
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.prepared_ocr import (
     prepare_ocr_results,
     hydrate_prepared_results,
@@ -63,13 +64,40 @@ RESULT_WARNING_MAX_ITEMS = 20
 RESULT_WARNING_MAX_CHARS = 2_000
 
 
-@dataclass(frozen=True, slots=True)
-class _WriterAuthority:
-    writer_attempt_id: str | None = None
-    claim_token: str | None = None
-    claimless_direct_effect: bool = False
-    authorized_attempt_id: str | None = None
-    receipt_id: str | None = None
+_EMPTY_FENCE = WriterFence()
+
+
+def _bind_run_fence(run_id: int | None, fence: WriterFence) -> WriterFence:
+    """Ensure a fence passed alongside ``run_id`` agrees with and carries it."""
+    if fence.run_id is not None and (
+        run_id is None or int(fence.run_id) != int(run_id)
+    ):
+        from frisket.execution.attempt import StaleAttemptWriter
+
+        target = "an unscoped write" if run_id is None else f"run {run_id}"
+        raise StaleAttemptWriter(
+            f"writer fence targets run {fence.run_id!r}, not {target}"
+        )
+    if run_id is None:
+        return fence
+    return fence if fence.run_id == int(run_id) else replace(fence, run_id=int(run_id))
+
+
+def _require_row_effect_ref(ref: EffectCheckpointRef) -> int:
+    if ref.family != ROW_EFFECT_CHECKPOINT_FAMILY:
+        raise ValueError(
+            f"row-effect checkpoint requires family {ROW_EFFECT_CHECKPOINT_FAMILY!r}, "
+            f"got {ref.family!r}"
+        )
+    return int(ref.group_key)
+
+
+def _require_model_call_ref(ref: EffectCheckpointRef) -> None:
+    if ref.family != MODEL_CALL_CHECKPOINT_FAMILY:
+        raise ValueError(
+            f"child checkpoint requires family {MODEL_CALL_CHECKPOINT_FAMILY!r}, "
+            f"got {ref.family!r}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1005,7 +1033,7 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        authority: _WriterAuthority,
+        fence: WriterFence,
         project_heads: bool,
     ) -> None:
         savepoint = f"write_results_{uuid.uuid4().hex}"
@@ -1014,7 +1042,7 @@ class RunResultStore:
             self._write_results_uncommitted(
                 run_id,
                 batch,
-                authority=authority,
+                fence=fence,
                 project_heads=project_heads,
             )
         except BaseException:
@@ -1028,10 +1056,7 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
         project_heads: bool = True,
     ) -> None:
         """Persist a result batch and its accounting inside the caller's transaction.
@@ -1044,37 +1069,27 @@ class RunResultStore:
         require_transaction(self.db, "result batch")
         if not batch:
             return
-        authority = _WriterAuthority(
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=authorized_attempt_id,
-        )
+        run_fence = _bind_run_fence(run_id, fence)
+        returned_fence = run_fence.with_returned_owner(run_fence.fact_owner_attempt_id)
         if any(item.get("model_calls") for item in batch):
             self.write_returned_call_accounting_in_transaction(
                 run_id,
                 batch,
-                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                fence=returned_fence,
             )
 
         try:
             self._write_results_in_savepoint(
                 run_id,
                 batch,
-                authority=authority,
+                fence=run_fence,
                 project_heads=project_heads,
             )
         except ChangePublicationClosed:
             self.write_returned_call_accounting_in_transaction(
                 run_id,
                 batch,
-                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                fence=returned_fence,
             )
             raise
 
@@ -1083,21 +1098,14 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
         project_heads: bool = True,
     ) -> None:
         """Atomically persist a result batch and its accounting evidence in its own transaction."""
         if not batch:
             return
-        authority = _WriterAuthority(
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=authorized_attempt_id,
-        )
+        run_fence = _bind_run_fence(run_id, fence)
+        returned_fence = run_fence.with_returned_owner(run_fence.fact_owner_attempt_id)
         if any(item.get("model_calls") for item in batch):
             # Returned provider usage is owned by its admitted attempt, not by
             # the output claim. Commit it in its own transaction before
@@ -1106,10 +1114,7 @@ class RunResultStore:
             self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                fence=returned_fence,
             )
 
         try:
@@ -1117,7 +1122,7 @@ class RunResultStore:
                 self._write_results_in_savepoint(
                     run_id,
                     batch,
-                    authority=authority,
+                    fence=run_fence,
                     project_heads=project_heads,
                 )
         except (
@@ -1132,34 +1137,20 @@ class RunResultStore:
             self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                fence=returned_fence,
             )
             raise
 
     def _refused_publication_fact_owner(
         self,
-        run_id: int,
         *,
-        writer_attempt_id: str | None,
-        authorized_attempt_id: str | None,
-        checkpoint: tuple[str, int, str] | None,
-        checkpoint_action_kind: str | None,
+        fence: WriterFence,
+        checkpoint: EffectCheckpointRef | None,
     ) -> str | None:
         if checkpoint is None:
-            return authorized_attempt_id or writer_attempt_id
-        if not checkpoint_action_kind:
-            raise ValueError("checkpoint publication requires its action kind")
-        checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
+            return fence.fact_owner_attempt_id
         returned = self._effect_store()._verified_unit(
-            checkpoint_id,
-            family=ROW_EFFECT_CHECKPOINT_FAMILY,
-            group_key=str(int(run_id)),
-            unit_key=str(int(checkpoint_row_id)),
-            action_kind=checkpoint_action_kind,
-            identity=checkpoint_identity,
+            checkpoint,
             expected_state="returned",
         )
         return returned["authorized_attempt_id"]
@@ -1169,27 +1160,23 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
-        checkpoint: tuple[str, int, str] | None = None,
-        checkpoint_action_kind: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
+        checkpoint: EffectCheckpointRef | None = None,
         defer_generation_seal: bool = False,
         citation_writer: Callable[[], None] | None = None,
     ) -> None:
         """Publish results with optional program-owned citations inside the caller's transaction."""
         require_transaction(self.db, "result publication")
-        if checkpoint is not None and not checkpoint_action_kind:
-            raise ValueError("checkpoint publication requires its action kind")
+        run_fence = _bind_run_fence(run_id, fence)
+        if checkpoint is not None and _require_row_effect_ref(checkpoint) != int(
+            run_id
+        ):
+            raise ValueError("checkpoint publication targets another run")
         if checkpoint is None and any(item.get("model_calls") for item in batch):
             self.write_returned_call_accounting_in_transaction(
                 run_id,
                 batch,
-                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                fence=run_fence.with_returned_owner(run_fence.fact_owner_attempt_id),
             )
 
         savepoint = f"result_publication_{uuid.uuid4().hex}"
@@ -1200,25 +1187,14 @@ class RunResultStore:
                 self.write_results_in_transaction(
                     run_id,
                     batch,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
-                    authorized_attempt_id=authorized_attempt_id,
+                    fence=run_fence,
                     project_heads=project_heads,
                 )
             else:
-                assert checkpoint_action_kind is not None
-                checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
                 self.consume_returned_row_effect_checkpoint(
-                    checkpoint_id,
-                    run_id=run_id,
-                    row_id=checkpoint_row_id,
-                    action_kind=checkpoint_action_kind,
-                    identity=checkpoint_identity,
+                    checkpoint,
                     batch=batch,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
+                    fence=run_fence,
                     project_heads=project_heads,
                 )
             if citation_writer is not None:
@@ -1232,7 +1208,7 @@ class RunResultStore:
                 )._project_written_results_uncommitted(
                     run_id,
                     batch,
-                    claim_token=claim_token,
+                    claim_token=run_fence.claim_token,
                 )
         except BaseException as exc:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
@@ -1247,19 +1223,13 @@ class RunResultStore:
                 ),
             ):
                 fact_owner = self._refused_publication_fact_owner(
-                    run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    authorized_attempt_id=authorized_attempt_id,
+                    fence=run_fence,
                     checkpoint=checkpoint,
-                    checkpoint_action_kind=checkpoint_action_kind,
                 )
                 self.write_returned_call_accounting_in_transaction(
                     run_id,
                     batch,
-                    writer_attempt_id=fact_owner,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
-                    authorized_attempt_id=fact_owner,
+                    fence=run_fence.with_returned_owner(fact_owner),
                 )
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
@@ -1269,12 +1239,8 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
-        checkpoint: tuple[str, int, str] | None = None,
-        checkpoint_action_kind: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
+        checkpoint: EffectCheckpointRef | None = None,
         defer_generation_seal: bool = False,
         citation_writer: Callable[[], None] | None = None,
     ) -> None:
@@ -1286,16 +1252,16 @@ class RunResultStore:
         together.  Deferred generations still project only when their existing
         sealing policy permits it.
         """
-        if checkpoint is not None and not checkpoint_action_kind:
-            raise ValueError("checkpoint publication requires its action kind")
+        run_fence = _bind_run_fence(run_id, fence)
+        if checkpoint is not None and _require_row_effect_ref(checkpoint) != int(
+            run_id
+        ):
+            raise ValueError("checkpoint publication targets another run")
         if checkpoint is None and citation_writer is None:
             self.write_results(
                 run_id,
                 batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id,
+                fence=run_fence,
                 project_heads=not defer_generation_seal,
             )
             return
@@ -1305,10 +1271,7 @@ class RunResultStore:
             self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                fence=run_fence.with_returned_owner(run_fence.fact_owner_attempt_id),
             )
 
         try:
@@ -1316,12 +1279,8 @@ class RunResultStore:
                 self.publish_result_batch_in_transaction(
                     run_id,
                     batch,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
-                    authorized_attempt_id=authorized_attempt_id,
+                    fence=run_fence,
                     checkpoint=checkpoint,
-                    checkpoint_action_kind=checkpoint_action_kind,
                     defer_generation_seal=defer_generation_seal,
                     citation_writer=citation_writer,
                 )
@@ -1335,19 +1294,13 @@ class RunResultStore:
             # request. Facts and spend remain historical truth even though
             # no result/evidence/head may land.
             fact_owner = self._refused_publication_fact_owner(
-                run_id,
-                writer_attempt_id=writer_attempt_id,
-                authorized_attempt_id=authorized_attempt_id,
+                fence=run_fence,
                 checkpoint=checkpoint,
-                checkpoint_action_kind=checkpoint_action_kind,
             )
             self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=fact_owner,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=fact_owner,
+                fence=run_fence.with_returned_owner(fact_owner),
             )
             raise
 
@@ -1548,19 +1501,17 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        authority: _WriterAuthority,
+        fence: WriterFence,
         project_heads: bool,
     ) -> None:
         self._require_run_sheet_mutable(run_id)
         self._fence_effect_write(
             run_id,
             batch,
-            authority=authority,
+            fence=fence,
             renew_claim=True,
         )
-        fact_owner_attempt_id = (
-            authority.authorized_attempt_id or authority.writer_attempt_id
-        )
+        fact_owner_attempt_id = fence.fact_owner_attempt_id
         fact_attempt_id, terminal_outcomes = self._attempt_row_outcomes_for_batch(
             run_id,
             batch,
@@ -1572,10 +1523,7 @@ class RunResultStore:
         self.write_model_calls(
             run_id,
             batch,
-            writer_attempt_id=authority.writer_attempt_id,
-            claim_token=authority.claim_token,
-            claimless_direct_effect=authority.claimless_direct_effect,
-            authorized_attempt_id=fact_owner_attempt_id,
+            fence=fence.for_fact_owner(fact_owner_attempt_id),
             _renew_claim=False,
         )
         from frisket.engine.store.result_generations import ResultGenerationStore
@@ -1589,7 +1537,7 @@ class RunResultStore:
             run_id,
             batch,
             row_states=row_states,
-            claim_token=authority.claim_token,
+            claim_token=fence.claim_token,
             project_heads=project_heads,
         )
 
@@ -1846,10 +1794,7 @@ class RunResultStore:
         run_id: int | None,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
         receipt_id: str | None = None,
     ) -> float:
         """Persist returned provider facts inside the caller's open transaction."""
@@ -1859,10 +1804,7 @@ class RunResultStore:
         return self.write_model_calls(
             run_id,
             batch,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+            fence=fence.for_fact_owner(fence.fact_owner_attempt_id),
             receipt_id=receipt_id,
             _require_current_writer=False,
         )
@@ -1872,10 +1814,7 @@ class RunResultStore:
         run_id: int | None,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
         receipt_id: str | None = None,
     ) -> float:
         """Persist returned provider facts independently of result cells.
@@ -1899,10 +1838,7 @@ class RunResultStore:
             return self.write_returned_call_accounting_in_transaction(
                 run_id,
                 batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id,
+                fence=fence,
                 receipt_id=receipt_id,
             )
 
@@ -2067,16 +2003,17 @@ class RunResultStore:
         run_id: int,
         batch: list[dict[str, Any]],
         *,
-        authority: _WriterAuthority,
+        fence: WriterFence,
         renew_claim: bool,
     ) -> None:
         """Apply the current-writer fence before any batch mutation."""
 
         from frisket.execution.attempt import STALE_DISPATCHING_AGE, StaleAttemptWriter
 
-        writer_attempt_id = authority.writer_attempt_id
-        claim_token = authority.claim_token
-        claimless_direct_effect = authority.claimless_direct_effect
+        run_fence = _bind_run_fence(run_id, fence)
+        writer_attempt_id = run_fence.writer_attempt_id
+        claim_token = run_fence.claim_token
+        claimless_direct_effect = run_fence.claimless_direct_effect
         if writer_attempt_id is None:
             raise StaleAttemptWriter(
                 "a run-scoped mutation supplied no immutable writer attempt"
@@ -2102,11 +2039,8 @@ class RunResultStore:
         claims = OutputColumnClaimStore(self.project)
         claims.require_current_writer(
             self.db,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=run_fence,
             output_column_ids=column_ids,
-            claimless_direct_effect=claimless_direct_effect,
         )
         if claim_token is None or not renew_claim:
             return
@@ -2133,10 +2067,7 @@ class RunResultStore:
         run_id: int | None,
         batch: list[dict[str, Any]],
         *,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-        authorized_attempt_id: str | None = None,
+        fence: WriterFence = _EMPTY_FENCE,
         _renew_claim: bool = True,
         receipt_id: str | None = None,
         _require_current_writer: bool = True,
@@ -2161,18 +2092,12 @@ class RunResultStore:
         """
         if not batch:
             return 0.0
-        authority = _WriterAuthority(
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=authorized_attempt_id,
-            receipt_id=receipt_id,
-        )
         with self._atomic_fact_batch():
             return self._write_model_calls_uncommitted(
                 run_id,
                 batch,
-                authority=authority,
+                fence=_bind_run_fence(run_id, fence),
+                receipt_id=receipt_id,
                 renew_claim=_renew_claim,
                 require_current_writer=_require_current_writer,
             )
@@ -2212,14 +2137,14 @@ class RunResultStore:
         run_id: int | None,
         batch: list[dict[str, Any]],
         *,
-        authority: _WriterAuthority,
+        fence: WriterFence,
+        receipt_id: str | None = None,
         renew_claim: bool = True,
         require_current_writer: bool = True,
     ) -> float:
-        writer_attempt_id = authority.writer_attempt_id
-        claim_token = authority.claim_token
-        authorized_attempt_id = authority.authorized_attempt_id
-        receipt_id = authority.receipt_id
+        writer_attempt_id = fence.writer_attempt_id
+        claim_token = fence.claim_token
+        authorized_attempt_id = fence.authorized_attempt_id
         receipt_attempt = None
         if receipt_id is not None:
             if run_id is not None or claim_token is not None:
@@ -2237,7 +2162,7 @@ class RunResultStore:
             self._fence_effect_write(
                 run_id,
                 batch,
-                authority=authority,
+                fence=fence,
                 renew_claim=renew_claim,
             )
         else:
@@ -2245,7 +2170,7 @@ class RunResultStore:
                 raise RuntimeError(
                     "publication-independent run accounting requires its admitted attempt"
                 )
-            owner_attempt_id = authorized_attempt_id or writer_attempt_id
+            owner_attempt_id = fence.fact_owner_attempt_id
             if owner_attempt_id != writer_attempt_id:
                 raise RuntimeError(
                     "publication-independent accounting must use the actual writer attempt"
@@ -2258,7 +2183,7 @@ class RunResultStore:
         candidate_calls: list[dict[str, Any]] = []
         fact_attempt_id = self._attempt_for_fact_write(
             run_id,
-            authorized_attempt_id or writer_attempt_id,
+            fence.fact_owner_attempt_id,
             receipt_id=receipt_id,
         )
         # A same-id terminal enrichment may only belong to the attempt that
@@ -2701,54 +2626,33 @@ class RunResultStore:
 
     def reserve_row_effect_checkpoint(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        run_id: int,
-        row_id: int,
-        action_kind: str,
-        identity: str,
-        authorized_attempt_id: str | None,
         consumed_capture: Mapping[str, Any] | None = None,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> bool:
         """Reserve one logical row immediately before possible egress."""
 
+        run_id = _require_row_effect_ref(ref)
         return self._effect_store().reserve(
-            checkpoint_id,
-            family=ROW_EFFECT_CHECKPOINT_FAMILY,
-            group_key=str(int(run_id)),
-            unit_key=str(int(row_id)),
-            action_kind=action_kind,
-            identity=identity,
-            authorized_attempt_id=authorized_attempt_id,
+            ref,
             payload=(
                 {"__consumed_sources": dict(consumed_capture)}
                 if consumed_capture is not None
                 else None
             ),
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            fence=_bind_run_fence(run_id, fence),
         )
 
     def complete_row_effect_checkpoint(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        run_id: int,
-        row_id: int,
-        action_kind: str,
-        identity: str,
         batch: list[dict[str, Any]],
         replay_response: dict[str, Any],
         child_checkpoints: Collection[EffectCheckpointRef] = (),
         supplemental_accounting: Collection[dict[str, Any]] = (),
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> float:
         """Atomically persist a returned row's facts, spend, and replay.
 
@@ -2766,6 +2670,8 @@ class RunResultStore:
         checkpoint path refuses it before anything is written.
         """
 
+        run_id = _require_row_effect_ref(ref)
+        run_fence = _bind_run_fence(run_id, fence)
         accounting_batch = [*batch, *supplemental_accounting]
         require_model_call_ids(accounting_batch)
 
@@ -2779,13 +2685,7 @@ class RunResultStore:
             prepare_ocr_results(
                 self.project, run_id, [*batch, *replay_response.values()]
             )
-            record_row_file_calls(
-                self.project,
-                batch,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-            )
+            record_row_file_calls(self.project, batch, fence=run_fence)
             # Child calls can predate this row's recovery attempt. Their own
             # checkpoint is the immutable accounting authority, never the new
             # parent or current writer that happens to publish the result.
@@ -2793,13 +2693,8 @@ class RunResultStore:
             child_call_ids = set()
             effects = self._effect_store()
             for child in child_checkpoints:
-                returned = effects.returned_for_replay(
-                    family=MODEL_CALL_CHECKPOINT_FAMILY,
-                    group_key=child.group_key,
-                    unit_key=child.unit_key,
-                    action_kind=child.action_kind,
-                    identity=child.identity,
-                )
+                _require_model_call_ref(child)
+                returned = effects.returned_for_replay(child.unit)
                 if returned["id"] != child.checkpoint_id:
                     raise RuntimeError("returned child checkpoint identity changed")
                 call_id = returned["payload"]["response"]["execution_id"]
@@ -2846,43 +2741,31 @@ class RunResultStore:
                 if original_run != run_id:
                     selected = [{**entry, "column_id": None} for entry in selected]
 
+                child_fence = WriterFence.claimless(
+                    run_id=original_run, attempt_id=owner
+                )
+
                 def accrue_child(
-                    _verified, selected=selected, owner=owner, original_run=original_run
+                    _verified,
+                    selected=selected,
+                    child_fence=child_fence,
+                    original_run=original_run,
                 ):
                     return self.write_returned_call_accounting_in_transaction(
                         original_run,
                         selected,
-                        writer_attempt_id=owner,
-                        authorized_attempt_id=owner,
-                        claimless_direct_effect=True,
+                        fence=child_fence,
                     )
 
                 child_cost = effects.account_returned(
-                    child.checkpoint_id,
-                    family=MODEL_CALL_CHECKPOINT_FAMILY,
-                    group_key=child.group_key,
-                    unit_key=child.unit_key,
-                    action_kind=child.action_kind,
-                    identity=child.identity,
+                    child,
                     payload=returned["payload"],
                     accrue=accrue_child,
-                    run_id=original_run,
-                    writer_attempt_id=owner,
-                    claimless_direct_effect=True,
+                    fence=child_fence,
                 )
                 if original_run == run_id:
                     cost += child_cost
-                effects.consume_and_retire_in_transaction(
-                    child.checkpoint_id,
-                    family=MODEL_CALL_CHECKPOINT_FAMILY,
-                    group_key=child.group_key,
-                    unit_key=child.unit_key,
-                    action_kind=child.action_kind,
-                    identity=child.identity,
-                    run_id=original_run,
-                    writer_attempt_id=owner,
-                    claimless_direct_effect=True,
-                )
+                effects.consume_and_retire_in_transaction(child, fence=child_fence)
                 child_call_ids.add(call_id)
             parent_batch = [
                 {
@@ -2896,12 +2779,11 @@ class RunResultStore:
                 for entry in accounting_batch
             ]
             cost += self.write_returned_call_accounting_in_transaction(
-                int(run_id),
+                run_id,
                 parent_batch,
-                writer_attempt_id=checkpoint["authorized_attempt_id"],
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                fence=run_fence.with_returned_owner(
+                    checkpoint["authorized_attempt_id"]
+                ),
             )
             # These durable facts already belong to their child, possibly in an
             # earlier attempt/run. Result replay must not reassign them to this
@@ -2917,34 +2799,20 @@ class RunResultStore:
             return cost
 
         cost = self._effect_store().complete(
-            checkpoint_id,
-            family=ROW_EFFECT_CHECKPOINT_FAMILY,
-            group_key=str(int(run_id)),
-            unit_key=str(int(row_id)),
-            action_kind=action_kind,
-            identity=identity,
+            ref,
             payload=replay_response,
             accrue=accrue,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            fence=run_fence,
         )
         hydrate_prepared_results(self.project, list(replay_response.values()))
         return cost
 
     def consume_returned_row_effect_checkpoint(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        run_id: int,
-        row_id: int,
-        action_kind: str,
-        identity: str,
         batch: list[dict[str, Any]],
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
         project_heads: bool = True,
     ) -> None:
         """Atomically persist a returned row, its original-attempt facts, and retire
@@ -2962,57 +2830,35 @@ class RunResultStore:
         """
         require_transaction(self.db, "row-effect checkpoint consumption")
         require_model_call_ids(batch)
+        run_id = _require_row_effect_ref(ref)
+        run_fence = _bind_run_fence(run_id, fence)
 
         def finalize(checkpoint: dict[str, Any]) -> None:
             self.write_results_in_transaction(
-                int(run_id),
+                run_id,
                 batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                fence=run_fence.for_fact_owner(checkpoint["authorized_attempt_id"]),
                 project_heads=project_heads,
             )
 
         self._effect_store().consume_and_retire_in_transaction(
-            checkpoint_id,
-            family=ROW_EFFECT_CHECKPOINT_FAMILY,
-            group_key=str(int(run_id)),
-            unit_key=str(int(row_id)),
-            action_kind=action_kind,
-            identity=identity,
+            ref,
             finalize=finalize,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            fence=run_fence,
         )
 
     def discard_reserved_row_effect_checkpoint(
         self,
-        checkpoint_id: str,
+        ref: EffectCheckpointRef,
         *,
-        run_id: int,
-        row_id: int,
-        action_kind: str,
-        identity: str,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
     ) -> bool:
         """Retire a reservation only when the caller proves egress did not start."""
 
+        run_id = _require_row_effect_ref(ref)
         return self._effect_store().discard_reserved(
-            checkpoint_id,
-            family=ROW_EFFECT_CHECKPOINT_FAMILY,
-            group_key=str(int(run_id)),
-            unit_key=str(int(row_id)),
-            action_kind=action_kind,
-            identity=identity,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            ref,
+            fence=_bind_run_fence(run_id, fence),
         )
 
     def _reconcile_existing_model_call(self, call: dict[str, Any]) -> float:
@@ -3303,9 +3149,7 @@ class RunResultStore:
         status: str = "completed",
         *,
         rebuild_review_stats: bool = True,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
         prepared_attempt_id: str | None = None,
     ) -> None:
         """Terminalize a running run inside the caller's open transaction."""
@@ -3313,7 +3157,8 @@ class RunResultStore:
 
         if status not in {"completed", "partial", "failed", "cancelled"}:
             raise ValueError(f"unsupported terminal run status: {status}")
-        if writer_attempt_id is not None and prepared_attempt_id is not None:
+        run_fence = _bind_run_fence(run_id, fence)
+        if run_fence.writer_attempt_id is not None and prepared_attempt_id is not None:
             raise ValueError(
                 "a terminal run cannot have both prepared and current writers"
             )
@@ -3334,7 +3179,7 @@ class RunResultStore:
                 "a run with cancellation intent cannot finish successfully"
             )
 
-        if writer_attempt_id is not None:
+        if run_fence.writer_attempt_id is not None:
             from .run_lifecycle import require_terminal_writer
 
             generation_columns = frozenset(
@@ -3346,15 +3191,12 @@ class RunResultStore:
             )
             require_terminal_writer(
                 self.project,
-                run_id=int(run_id),
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
+                fence=run_fence,
                 terminal_status=status,
-                claimless_direct_effect=claimless_direct_effect,
                 output_column_ids=generation_columns,
             )
         else:
-            if claimless_direct_effect:
+            if run_fence.claimless_direct_effect:
                 raise StaleAttemptWriter(
                     "claimless terminalization requires its exact current attempt"
                 )
@@ -3388,13 +3230,15 @@ class RunResultStore:
                 (int(run_id),),
             ).fetchall()
             if active_claims and (
-                not claim_token
-                or any(row["claim_token"] != claim_token for row in active_claims)
+                not run_fence.claim_token
+                or any(
+                    row["claim_token"] != run_fence.claim_token for row in active_claims
+                )
             ):
                 raise StaleAttemptWriter(
                     "terminalization does not own the active output claim"
                 )
-            if claim_token and not active_claims:
+            if run_fence.claim_token and not active_claims:
                 raise StaleAttemptWriter(
                     "terminalization output claim is no longer active"
                 )
@@ -3428,9 +3272,7 @@ class RunResultStore:
         status: str = "completed",
         *,
         rebuild_review_stats: bool = True,
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
+        fence: WriterFence = _EMPTY_FENCE,
         prepared_attempt_id: str | None = None,
     ) -> None:
         """Terminalize a running run under its existing publication owner.
@@ -3448,7 +3290,7 @@ class RunResultStore:
         """
         if status not in {"completed", "partial", "failed", "cancelled"}:
             raise ValueError(f"unsupported terminal run status: {status}")
-        if writer_attempt_id is not None and prepared_attempt_id is not None:
+        if fence.writer_attempt_id is not None and prepared_attempt_id is not None:
             raise ValueError(
                 "a terminal run cannot have both prepared and current writers"
             )
@@ -3457,9 +3299,7 @@ class RunResultStore:
                 run_id,
                 status,
                 rebuild_review_stats=rebuild_review_stats,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
+                fence=fence,
                 prepared_attempt_id=prepared_attempt_id,
             )
 

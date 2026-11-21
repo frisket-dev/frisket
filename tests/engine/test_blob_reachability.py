@@ -19,6 +19,7 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
 
 @pytest.fixture
@@ -157,24 +158,18 @@ def test_receipt_owns_exports_but_model_response_is_not_a_file_publication(proje
                 exports=[{"kind": "export_project_file", "blob_hash": receipt}],
             )
         )
+
     checkpoints = EffectCheckpointStore(project.db)
-    checkpoints.reserve(
-        "paid",
+    ref = EffectCheckpointRef(
+        checkpoint_id="paid",
         family="model",
         group_key="g",
         unit_key="u",
         action_kind="test",
         identity="identity",
     )
-    checkpoints.complete(
-        "paid",
-        family="model",
-        group_key="g",
-        unit_key="u",
-        action_kind="test",
-        identity="identity",
-        payload={"response": {"blob_hash": effect}},
-    )
+    checkpoints.reserve(ref)
+    checkpoints.complete(ref, payload={"response": {"blob_hash": effect}})
     assert set(project.gc_blobs()["hashes"]) == {effect, orphan}
 
 

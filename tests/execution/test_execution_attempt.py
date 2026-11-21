@@ -44,6 +44,7 @@ from frisket.execution.attempt import (
 from frisket.execution.attempt_authority import AttemptAuthority
 from frisket.execution.resolve_for_action import action_identity_hash
 from tests.deterministic_time import controlled_time
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _transcription_plan():
@@ -256,7 +257,7 @@ def _mint(project, run_id, *, scope=(7, 11)):
 def _claim_unscoped(project, commitment) -> None:
     """These lifecycle probes carry no output-column effect."""
 
-    claim(project, commitment, claimless_direct_effect=True)
+    claim(project, commitment, fence=WriterFence(claimless_direct_effect=True))
 
 
 def test_claim_requires_an_explicit_claimed_or_claimless_mode(
@@ -265,8 +266,10 @@ def test_claim_requires_an_explicit_claimed_or_claimless_mode(
 ):
     run_id, _route, _set, _consent = consented_run
     attempt = _mint(project, run_id)
-    with pytest.raises(TypeError, match="claimless_direct_effect"):
+    with pytest.raises(TypeError, match="fence"):
         claim(project, attempt)
+    with pytest.raises(AttemptClaimRefused):
+        claim(project, attempt, fence=WriterFence())
     assert attempt_receipt(project, attempt.attempt_id)["state"] == "admitted"
 
 
@@ -283,8 +286,8 @@ def test_claimless_dispatch_refuses_an_generated_column_plan(
         claim(
             project,
             attempt,
+            fence=WriterFence(claimless_direct_effect=True),
             output_column_ids=frozenset({123}),
-            claimless_direct_effect=True,
         )
     assert attempt_receipt(project, attempt.attempt_id)["state"] == "admitted"
 

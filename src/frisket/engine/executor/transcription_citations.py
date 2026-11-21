@@ -17,6 +17,7 @@ from frisket.engine.store.citations import (
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _milliseconds(value: Any) -> int | None:
@@ -116,12 +117,12 @@ def write_transcription_citations(
     }
     if not reads or not transcript_columns:
         return
-    OutputColumnClaimStore.require_current_writer(
-        project.db,
+    fence = WriterFence(
         run_id=run_id,
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
     )
+    OutputColumnClaimStore.require_current_writer(project.db, fence=fence)
     receipt_id = project.db.execute(
         "SELECT DISTINCT receipt_id FROM output_column_claims "
         "WHERE run_id=? AND claim_token=? AND status='active'",
@@ -227,7 +228,5 @@ def write_transcription_citations(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

@@ -55,6 +55,7 @@ from frisket.engine.store.transactions import (
     roll_back_failed_work,
     write_transaction,
 )
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import claim, set_attempt_state_in_transaction
 from frisket.execution.attempt_authority import AttemptAuthority, attempt_identity
 from frisket.ops.base import ActionProgramInvocationHalt
@@ -403,7 +404,13 @@ class ActionPreviewRunService:
                         scope=(SCRATCH_PREVIEW_UNIT_ID,),
                         prepared_work_scope=plan.work_scope,
                     )
-                    claim(project, attempt, claimless_direct_effect=True)
+                    claim(
+                        project,
+                        attempt,
+                        fence=WriterFence.claimless(
+                            run_id=None, attempt_id=attempt.attempt_id
+                        ),
+                    )
 
                 async def _run_plan() -> TablePreviewResult:
                     return await plan.run(
@@ -914,7 +921,13 @@ class ActionPreviewRunService:
                         spec=runner_spec,
                         scope=tuple(prepared.row_ids),
                     )
-                    claim(project, attempt, claimless_direct_effect=True)
+                    claim(
+                        project,
+                        attempt,
+                        fence=WriterFence.claimless(
+                            run_id=None, attempt_id=attempt.attempt_id
+                        ),
+                    )
                     preview_kwargs["attempt"] = attempt
                 result = asyncio.run(
                     runner.preview(runner_spec, **program_kwargs, **preview_kwargs)

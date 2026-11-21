@@ -1723,11 +1723,12 @@ class TestRunAction:
             batch,
             **kwargs,
         ):
+            fence = kwargs["fence"]
             writes.append(
                 {
                     "run_id": run_id,
-                    "writer_attempt_id": kwargs.get("writer_attempt_id"),
-                    "claim_token": kwargs.get("claim_token"),
+                    "writer_attempt_id": fence.writer_attempt_id,
+                    "claim_token": fence.claim_token,
                 }
             )
             return original_write_results(store, run_id, batch, **kwargs)

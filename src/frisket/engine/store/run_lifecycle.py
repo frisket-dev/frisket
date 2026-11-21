@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from .transactions import require_transaction
+from .writer_fence import WriterFence
 
 
 def close_run_change(project: Any, run_id: int) -> None:
@@ -38,11 +39,8 @@ def close_run_change(project: Any, run_id: int) -> None:
 def require_terminal_writer(
     project: Any,
     *,
-    run_id: int,
-    writer_attempt_id: str,
-    claim_token: str | None,
+    fence: WriterFence,
     terminal_status: str,
-    claimless_direct_effect: bool = False,
     output_column_ids=(),
 ) -> bool:
     """Close only the current attempt; closed Changes grant no publication rights.
@@ -55,6 +53,16 @@ def require_terminal_writer(
     from frisket.execution.attempt import StaleAttemptWriter
     from .output_claims import OutputColumnClaimStore
 
+    run_id = fence.run_id
+    writer_attempt_id = fence.writer_attempt_id
+    if (
+        run_id is None
+        or not isinstance(writer_attempt_id, str)
+        or not writer_attempt_id
+    ):
+        raise StaleAttemptWriter(
+            "terminalization requires the current dispatching attempt"
+        )
     row = project.db.execute(
         "SELECT run.current_attempt_id,run.cancel_requested_at,op.publication_closed,attempt.state "
         "FROM runs run JOIN ops op ON op.id=run.op_id "
@@ -71,11 +79,8 @@ def require_terminal_writer(
     try:
         OutputColumnClaimStore.require_current_writer(
             project.db,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
             output_column_ids=frozenset(output_column_ids),
-            claimless_direct_effect=claimless_direct_effect,
         )
     except StaleAttemptWriter:
         if not closed_cancellation:
@@ -84,15 +89,15 @@ def require_terminal_writer(
             "SELECT column_id,claim_token FROM run_output_generations WHERE run_id=?",
             (run_id,),
         ).fetchall()
-        if claimless_direct_effect:
-            if declarations or claim_token is not None or output_column_ids:
+        if fence.claimless_direct_effect:
+            if declarations or fence.claim_token is not None or output_column_ids:
                 raise StaleAttemptWriter(
                     "claimed cancellation cannot use claimless authority"
                 )
         elif (
             not declarations
-            or not claim_token
-            or any(declaration[1] != claim_token for declaration in declarations)
+            or not fence.claim_token
+            or any(declaration[1] != fence.claim_token for declaration in declarations)
             or not set(output_column_ids).issubset({item[0] for item in declarations})
         ):
             raise StaleAttemptWriter(

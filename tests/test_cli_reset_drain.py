@@ -19,6 +19,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
 
 def _seed_nonterminal_attempt(project: Project) -> None:
@@ -112,13 +113,16 @@ def test_base_reset_drain_reports_every_hit_and_authority_independent_of_status(
         OutputColumnClaimStore(project).release(
             claim_token=str(claims[0]["claim_token"]), status="released"
         )
+
     assert EffectCheckpointStore(project.db).reserve(
-        "checkpoint_reset_drain",
-        family="model_call",
-        group_key="map.classify",
-        unit_key="row:1",
-        action_kind="map.classify",
-        identity="sha256:test",
+        EffectCheckpointRef(
+            checkpoint_id="checkpoint_reset_drain",
+            family="model_call",
+            group_key="map.classify",
+            unit_key="row:1",
+            action_kind="map.classify",
+            identity="sha256:test",
+        )
     )
     _seed_nonterminal_attempt(project)
     project.close()

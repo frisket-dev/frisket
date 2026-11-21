@@ -26,7 +26,11 @@ from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import op_log
 from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
 from frisket.engine.store.column_descriptors import set_descriptor
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+    row_effect_ref,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import (
     GenerationStateError,
@@ -221,11 +225,13 @@ JOINING_WRITES = {
     "runs.consume_returned_row_effect_checkpoint": lambda p: RunResultStore(
         p
     ).consume_returned_row_effect_checkpoint(
-        "cp-missing",
-        run_id=_seed_run(p)[1],
-        row_id=_row_id(p),
-        action_kind="map.template",
-        identity="id-1",
+        row_effect_ref(
+            "cp-missing",
+            run_id=_seed_run(p)[1],
+            row_id=_row_id(p),
+            action_kind="map.template",
+            identity="id-1",
+        ),
         batch=[],
     ),
     "runs.finish_run_in_transaction": lambda p: RunResultStore(
@@ -300,12 +306,14 @@ JOINING_WRITES = {
     "checkpoints.consume_and_retire_in_transaction": lambda p: EffectCheckpointStore(
         p.db
     ).consume_and_retire_in_transaction(
-        "cp-none",
-        family="test",
-        group_key="1",
-        unit_key="1",
-        action_kind="map.template",
-        identity="id-1",
+        EffectCheckpointRef(
+            checkpoint_id="cp-none",
+            family="test",
+            group_key="1",
+            unit_key="1",
+            action_kind="map.template",
+            identity="id-1",
+        )
     ),
     "op_log.append_change_in_transaction": lambda p: (
         op_log.append_change_in_transaction(p, "edit", {})
@@ -343,15 +351,16 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
 
     ReceiptStore(project).insert_running(_receipt("rcpt_existing"))
     checkpoint_store = EffectCheckpointStore(project.db)
-    unit = {
-        "family": "test",
-        "group_key": "g",
-        "unit_key": "u",
-        "action_kind": "map.template",
-        "identity": "id-1",
-    }
-    assert checkpoint_store.reserve("cp_owned", **unit) is True
-    checkpoint_store.complete("cp_owned", **unit, payload={"ok": True})
+    owned_ref = EffectCheckpointRef(
+        checkpoint_id="cp_owned",
+        family="test",
+        group_key="g",
+        unit_key="u",
+        action_kind="map.template",
+        identity="id-1",
+    )
+    assert checkpoint_store.reserve(owned_ref) is True
+    checkpoint_store.complete(owned_ref, payload={"ok": True})
 
     owning = {
         "runs.start_run": lambda: RunResultStore(project).start_run(
@@ -426,7 +435,7 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
             sheet_id, [{"value": "second"}], {"value": col_id}
         ),
         "checkpoints.consume_and_retire": lambda: checkpoint_store.consume_and_retire(
-            "cp_owned", **unit
+            owned_ref
         ),
         "op_log.append_change": lambda: op_log.append_change(project, "edit", {}),
         "project.append_change": lambda: project.append_change("edit", {}),
@@ -712,22 +721,23 @@ def test_request_cancel_rolls_back_when_change_close_fails(project):
 
 def test_consume_and_retire_rolls_back_when_finalize_fails(project):
     store = EffectCheckpointStore(project.db)
-    unit = {
-        "family": ROW_EFFECT_CHECKPOINT_FAMILY,
-        "group_key": "1",
-        "unit_key": "1",
-        "action_kind": "map.template",
-        "identity": "id-atomic",
-    }
-    assert store.reserve("cp-atomic", **unit) is True
-    store.complete("cp-atomic", **unit, payload={"ok": True})
+    ref = EffectCheckpointRef(
+        checkpoint_id="cp-atomic",
+        family=ROW_EFFECT_CHECKPOINT_FAMILY,
+        group_key="1",
+        unit_key="1",
+        action_kind="map.template",
+        identity="id-atomic",
+    )
+    assert store.reserve(ref) is True
+    store.complete(ref, payload={"ok": True})
 
     def failing_finalize(_cp: dict[str, Any]) -> None:
         project.db.execute("UPDATE sheets SET name='Should Roll Back'")
         raise RuntimeError("finalize boom")
 
     with pytest.raises(RuntimeError, match="finalize boom"):
-        store.consume_and_retire("cp-atomic", **unit, finalize=failing_finalize)
+        store.consume_and_retire(ref, finalize=failing_finalize)
 
     _assert_nothing_left_behind(project)
     assert _committed_sheet_name(project) == "Source"
