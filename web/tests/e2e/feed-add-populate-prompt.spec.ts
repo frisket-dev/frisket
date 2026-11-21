@@ -26,7 +26,7 @@ interface WireSource {
 }
 
 async function sources(request: import('@playwright/test').APIRequestContext, pid: string): Promise<WireSource[]> {
-  const res = await request.get(`/api/projects/${pid}/sources`);
+  const res = await request.get(`/api/projects/${pid}/feeds`);
   expect(res.ok()).toBeTruthy();
   return res.json();
 }
@@ -39,7 +39,7 @@ test('manual feed creation via the import dialog surfaces "Populate feed?" immed
   const pollActions: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.action_id === 'source.poll') pollActions.push(payload);
+    if (payload.action_id === 'feed.poll') pollActions.push(payload);
     await route.continue();
   });
 
@@ -72,7 +72,7 @@ test('manual feed creation via the import dialog surfaces "Populate feed?" immed
   expect(created.last_status).toBe('never');
 });
 
-test('Run launches exactly the manual poll (source.poll on the new feed)', async ({ page }) => {
+test('Run launches exactly the manual poll (feed.poll on the new feed)', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('feed-populate-run'));
   const feedName = uniqueName('Populate-run feed');
   const blockedUrl = 'http://localhost/feed.xml';
@@ -80,7 +80,7 @@ test('Run launches exactly the manual poll (source.poll on the new feed)', async
   const pollActions: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.action_id === 'source.poll') pollActions.push(payload);
+    if (payload.action_id === 'feed.poll') pollActions.push(payload);
     await route.continue();
   });
 
@@ -98,9 +98,9 @@ test('Run launches exactly the manual poll (source.poll on the new feed)', async
   await expect.poll(() => pollActions.length).toBe(1);
   const created = (await sources(page.request, pid)).find((s) => s.name === feedName)!;
   expect(pollActions[0]).toMatchObject({
-    action_id: 'source.poll',
+    action_id: 'feed.poll',
     scope: { kind: 'project' },
-    params: { source: created.id },
+    params: { feed: created.id },
   });
 
   // localhost is netguard-blocked, so this queued poll fails deterministically

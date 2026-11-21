@@ -146,7 +146,7 @@ def test_every_project_action_has_exactly_one_host_owner() -> None:
 
 
 _SOURCE_CREATE = {
-    "action_id": "source.create",
+    "action_id": "feed.create",
     "scope": {"kind": "project"},
     "params": {
         "name": "Feed",
@@ -161,7 +161,7 @@ _SOURCE_CREATE = {
 
 @pytest.mark.parametrize(
     ("source_support", "mutation_support", "matches"),
-    [(False, False, "none"), (True, True, "mutation, source")],
+    [(False, False, "none"), (True, True, "mutation, feed")],
 )
 def test_project_dispatch_rejects_invalid_owner_count(
     monkeypatch: pytest.MonkeyPatch,

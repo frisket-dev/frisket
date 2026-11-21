@@ -53,7 +53,7 @@ ExecutionMode = Literal[
     "batch_deduped",
     "atomic_column_transform",
     "grouped",
-    "source_poll",
+    "feed_poll",
     "whole_project",
     "cross_sheet",
     # Queued placements: plugin/project actions launched onto the run queue

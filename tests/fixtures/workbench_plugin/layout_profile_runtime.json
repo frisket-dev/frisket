@@ -19,7 +19,7 @@
         },
         "regions": {
           "activityRail": [{"contributionId": "frisket.investigative.panel.friendly_filters"}],
-          "leftSidebar": [{"contributionId": "frisket.core.panel.sources", "collapsed": false, "size": 300}],
+          "leftSidebar": [{"contributionId": "frisket.core.panel.feeds", "collapsed": false, "size": 300}],
           "rightInspector": [{"contributionId": "frisket.core.panel.actions", "collapsed": false, "size": 420}],
           "bottomDock": [
             {
@@ -70,12 +70,12 @@
         "title": "Import cleanup",
         "scope": "projectDefault",
         "hiddenContributions": ["frisket.geo.view.map", "frisket.core.panel.watches"],
-        "pinnedContributions": {"leftSidebar": ["frisket.core.panel.sources"]},
+        "pinnedContributions": {"leftSidebar": ["frisket.core.panel.feeds"]},
         "defaults": {
           "schemaVersion": "frisket.workbench_layout.v1",
           "profileId": "frisket.workspace.profile.import_cleanup",
           "main": {"type": "leaf", "paneId": "pane-grid", "contributionId": "frisket.core.view.grid"},
-          "regions": {"leftSidebar": [{"contributionId": "frisket.core.panel.sources"}]}
+          "regions": {"leftSidebar": [{"contributionId": "frisket.core.panel.feeds"}]}
         }
       },
       "expectedResolved": [
@@ -88,15 +88,15 @@
       "projectDefault": {
         "hiddenContributions": ["frisket.graph.view.neighborhood"],
         "defaults": {
-          "regions": {"leftSidebar": [{"contributionId": "frisket.core.panel.sources", "collapsed": false, "size": 300}]}
+          "regions": {"leftSidebar": [{"contributionId": "frisket.core.panel.feeds", "collapsed": false, "size": 300}]}
         }
       },
       "personalOverrides": {
         "schemaVersion": "frisket.personal_layout_overrides.v1",
         "projectId": "proj_123",
-        "openByContribution": {"frisket.core.panel.sources": false},
-        "sizeByContribution": {"frisket.core.panel.sources": 360},
-        "lastActiveByRegion": {"leftSidebar": "frisket.core.panel.sources"},
+        "openByContribution": {"frisket.core.panel.feeds": false},
+        "sizeByContribution": {"frisket.core.panel.feeds": 360},
+        "lastActiveByRegion": {"leftSidebar": "frisket.core.panel.feeds"},
         "lastActiveTabByHost": {"bottomDock": "frisket.core.panel.errors"}
       },
       "expectedMerge": {
@@ -126,7 +126,7 @@
           },
           "openByContribution": {
             "frisket.core.panel.actions": false,
-            "frisket.core.panel.sources": true,
+            "frisket.core.panel.feeds": true,
             "frisket.investigative.panel.friendly_filters": false
           }
         },

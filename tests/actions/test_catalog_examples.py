@@ -16,8 +16,8 @@ from frisket.sdk import (
     ActionParams,
     Row,
     RowResult,
-    SourceCreator,
-    SourceRecord,
+    FeedCreator,
+    FeedRecord,
     TableResult,
     action,
     create_sheet,
@@ -47,7 +47,7 @@ def runtime_handler(params: ExampleParams) -> DynamicTableResult:
     raise AssertionError("catalog examples must not discover runtime schemas")
 
 
-def project_handler(params: ExampleParams, sources: SourceCreator) -> SourceRecord:
+def project_handler(params: ExampleParams, feeds: FeedCreator) -> FeedRecord:
     raise AssertionError("catalog examples must not invoke capabilities")
 
 
@@ -194,7 +194,7 @@ def test_omitted_fields_and_explicit_null_are_not_interchanged():
     assert explicit_null["params"]["note"] is None
     registered.bind_request(ActionRequest.model_validate(omitted))
     registered.bind_request(ActionRequest.model_validate(explicit_null))
-    [updated] = ACTION_REGISTRY.get("source.update").catalog_entry()["examples"]
+    [updated] = ACTION_REGISTRY.get("feed.update").catalog_entry()["examples"]
     assert updated["params"]["patch"] == {"enabled": False}
 
 

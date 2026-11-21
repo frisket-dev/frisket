@@ -26,7 +26,7 @@ const PANEL_SCHEMA_VERSION = 'frisket.workbench.panel.v1';
 const VIEW_SCHEMA_VERSION = 'frisket.workbench.view.v1';
 const ROW_INSPECTOR_SECTION_SCHEMA_VERSION = 'frisket.row_inspector.section.v1';
 const COLUMN_INSPECTOR_SECTION_SCHEMA_VERSION = 'frisket.column_inspector.section.v1';
-const SOURCE_KIND_FORM_SCHEMA_VERSION = 'frisket.source.kind.form.v1';
+const FEED_KIND_FORM_SCHEMA_VERSION = 'frisket.feed.kind.form.v1';
 // The single change point for plugin placement parity: each cohort that opens a
 // host/mode pair to plugins adds a row here (parity-tested against the backend
 // LEGAL_HOSTS/LEGAL_MODES sets in src/frisket/authoring/workbench/contracts.py).
@@ -42,7 +42,7 @@ const PLUGIN_LEGAL_PLACEMENTS: Record<
     { host: 'columnDetail', mode: 'tab' },
     { host: 'columnInspector', mode: 'section' },
     { host: 'entityDetail', mode: 'tab' },
-    { host: 'sourceDetail', mode: 'tab' },
+    { host: 'feedDetail', mode: 'tab' },
     { host: 'modalOrPeek', mode: 'peek' },
     // Launcher-only secondary placement: the rail renders a host-owned
     // reveal/focus button; no plugin code mounts there.
@@ -69,7 +69,7 @@ const FIRST_PARTY_LEGAL_HOSTS = new Set<WorkbenchHostId>([
   'modalOrPeek',
   'rowDetail',
   'entityDetail',
-  'sourceDetail',
+  'feedDetail',
   'columnDetail',
   'rowInspector',
   'columnInspector',
@@ -425,17 +425,17 @@ function inspectorSectionDescriptorFromManifest(
 
 // Source-kind forms are first-party only (no plugin source-provider
 // contributions exist yet).
-function sourceKindFormDescriptorFromManifest(
+function feedKindFormDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
 ): FeedKindFormDescriptor | null {
-  const base = parseDescriptorBase(source, manifest, { schemaVersion: SOURCE_KIND_FORM_SCHEMA_VERSION, kind: 'provider' });
+  const base = parseDescriptorBase(source, manifest, { schemaVersion: FEED_KIND_FORM_SCHEMA_VERSION, kind: 'provider' });
   if (!base) return null;
   const accepts = Array.isArray(manifest.accepts)
     ? manifest.accepts.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
     : [];
   if (accepts.length === 0) return null;
-  return { ...base.descriptor, schemaVersion: SOURCE_KIND_FORM_SCHEMA_VERSION, kind: 'provider', accepts };
+  return { ...base.descriptor, schemaVersion: FEED_KIND_FORM_SCHEMA_VERSION, kind: 'provider', accepts };
 }
 
 function collectFromRuntimeIndex<Descriptor extends { id: string; placements: WorkbenchPlacement[] }>(
@@ -499,7 +499,7 @@ export function firstPartyWorkbenchDescriptorsFromPackage(
       commandDescriptorFromManifest(source, manifest) ??
       inspectorSectionDescriptorFromManifest(source, manifest, ROW_INSPECTOR_SECTION_SCHEMA_VERSION) ??
       inspectorSectionDescriptorFromManifest(source, manifest, COLUMN_INSPECTOR_SECTION_SCHEMA_VERSION) ??
-      sourceKindFormDescriptorFromManifest(source, manifest);
+      feedKindFormDescriptorFromManifest(source, manifest);
     if (!descriptor) {
       throw new Error(
         `first-party workbench descriptor package entry failed to parse: ${String(manifest.id)} (${String(manifest.schemaVersion)})`,

@@ -103,7 +103,7 @@ function pluginPanelDataRequirementContext(
     activeColumn: hostContext.selection.activeColumnId !== null,
     activeCell: hostContext.selection.activeCell !== null,
     activeEvidence: hostContext.selection.activeEvidenceLinkId !== null,
-    activeSource: hostContext.selection.activeSourceId !== null,
+    activeFeed: hostContext.selection.activeFeedId !== null,
     activeEntity: hostContext.selection.activeEntityId !== null,
     selectedRowIds: hostContext.selection.selectedRowIds,
   };

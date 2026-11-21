@@ -485,9 +485,9 @@ def test_feed_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     response = client.post(
         f"/api/projects/{pid}/actions/v1/run",
         json={
-            "action_id": "source.poll",
+            "action_id": "feed.poll",
             "scope": {"kind": "project"},
-            "params": {"source": source_id},
+            "params": {"feed": source_id},
             "idempotency_key": "enclosure-source-poll-queued",
         },
     )
@@ -499,7 +499,7 @@ def test_feed_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     )
     ws = client.app.state.workspace
     source_job_id = body["job_id"]
-    assert ws.queue.get(source_job_id).kind == "source.poll"
+    assert ws.queue.get(source_job_id).kind == "feed.poll"
     worker = Worker(ws.queue, ws.registry, worker_id="test-worker", poll_interval=0.01)
     assert worker.run_once()
     source_job = ws.queue.get(source_job_id)

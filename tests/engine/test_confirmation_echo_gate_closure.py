@@ -254,7 +254,7 @@ _NO_PAIR_EXCLUSIONS = {
     # for optional dimension probes), not an invocation echo protocol.
     "embedding.index_create",
     "media.enclosure_materialize",
-    "source.poll",
+    "feed.poll",
     # Typed transcript repetition is semantic Params intent, not paid consent.
     # The historical error suffix still makes the mechanical roster include it.
     "derive.transcript_segments",

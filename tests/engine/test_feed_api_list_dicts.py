@@ -72,11 +72,11 @@ def _feed_poll_action(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if source_id is not None:
-        params["source"] = source_id
+        params["feed"] = source_id
     if source is not None:
-        params["source"] = source
+        params["feed"] = source
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -215,12 +215,12 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
     assert first.receipt_id is not None
     assert fake_http.calls == [{"url": API_URL, "max_bytes": 1_000_000}]
     source_id = next(
-        output.ref["source_id"] for output in first.outputs if output.kind == "source"
+        output.ref["feed_id"] for output in first.outputs if output.kind == "feed"
     )
     source_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in first.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     sheet_id = next(
         output.sheet_id for output in first.outputs if output.kind == "sheet"
@@ -246,7 +246,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
     assert record_columns == ["id", "name", "details", "tags", "updated", "status"]
 
     first_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (source_run_id,),
     ).fetchone()
     assert first_run is not None
@@ -267,7 +267,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         "status",
     ]
     receipt = _receipt(project, first.receipt_id)
-    assert receipt["action_kind"] == "source.poll"
+    assert receipt["action_kind"] == "feed.poll"
     assert receipt["status"] == "completed"
     assert receipt["warnings"] == []
     assert receipt["provider_use"][0]["provider"] == "http"
@@ -287,12 +287,12 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
     )
     assert second.status == "completed"
     second_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in second.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     second_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (second_run_id,),
     ).fetchone()
     assert second_run["new_rows"] == 0
@@ -320,12 +320,12 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
     )
     assert third.status == "completed"
     third_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in third.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     third_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (third_run_id,),
     ).fetchone()
     assert third_run["new_rows"] == 1
@@ -459,11 +459,11 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     assert len(append_sizes) < 50
     assert max(append_sizes) <= 1_000
     run_ref = next(
-        output.ref for output in result.outputs if output.kind == "source_run"
+        output.ref for output in result.outputs if output.kind == "feed_check"
     )
     source_run = project.db.execute(
-        "SELECT cursor_after FROM source_runs WHERE id=?",
-        (run_ref["source_run_id"],),
+        "SELECT cursor_after FROM feed_checks WHERE id=?",
+        (run_ref["feed_check_id"],),
     ).fetchone()
     assert source_run is not None
     cursor = json.loads(source_run["cursor_after"])
@@ -510,10 +510,10 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
         project_id=PROJECT_ID,
     )
     assert invalid.status == "failed"
-    assert invalid.errors[0].code == "unsupported_source_config"
+    assert invalid.errors[0].code == "unsupported_feed_config"
     assert "method must be GET" in invalid.errors[0].message
-    assert _table_count(project, "sources") == 0
-    assert _table_count(project, "source_runs") == 0
+    assert _table_count(project, "feeds") == 0
+    assert _table_count(project, "feed_checks") == 0
 
     capped_http = FakeHttpGet(
         [
@@ -552,11 +552,11 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
     assert sheet_id is not None
     assert [row["id"] for row in _rows(capped_project, sheet_id)] == ["one", "two"]
     run_ref = next(
-        output.ref for output in capped.outputs if output.kind == "source_run"
+        output.ref for output in capped.outputs if output.kind == "feed_check"
     )
     source_run = capped_project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
-        (run_ref["source_run_id"],),
+        "SELECT * FROM feed_checks WHERE id=?",
+        (run_ref["feed_check_id"],),
     ).fetchone()
     cursor = json.loads(source_run["cursor_after"])
     assert cursor["list_path"] == "/"
@@ -591,7 +591,7 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
     )
     assert failed.status == "failed"
     assert failed.receipt_id is not None
-    assert failed.errors[0].code == "source_poll_failed"
+    assert failed.errors[0].code == "feed_poll_failed"
     assert "max_bytes=10" in failed.errors[0].message
     source_run = FeedStore(failed_project).feed_checks_page(source_id, limit=1)[0]
     assert source_run["status"] == "error"
@@ -633,7 +633,7 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     )
     assert failed.status == "failed"
     assert failed.receipt_id is not None
-    assert failed.errors[0].code == "source_poll_failed"
+    assert failed.errors[0].code == "feed_poll_failed"
     assert "SECRET" not in failed.errors[0].message
     assert "abc123" not in failed.errors[0].message
     source_run = FeedStore(failed_project).feed_checks_page(source_id, limit=1)[0]
@@ -681,7 +681,7 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     try:
         jobs = enqueue_due_feed_polls(workspace_root=workspace, queue=queue)
         assert len(jobs) == 1
-        assert jobs[0]["source_id"] == api_source_id
+        assert jobs[0]["feed_id"] == api_source_id
         job_id = int(jobs[0]["job_id"])
 
         def unexpected_rss_fetch(_url: str) -> str:
@@ -697,8 +697,8 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
         assert Worker(queue, registry).run_once()
         job = queue.get(job_id)
         assert job.status == "done"
-        assert job.result["action_kind"] == "source.poll"
-        assert job.result["source_id"] == api_source_id
+        assert job.result["action_kind"] == "feed.poll"
+        assert job.result["feed_id"] == api_source_id
         assert job.result["new_rows"] == 1
         assert scheduled_http.calls == [{"url": API_URL, "max_bytes": 5_000_000}]
 
@@ -710,7 +710,7 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
             assert len(runs) == 1
             assert runs[0]["status"] == "ok"
             receipt = _receipt(reopened, job.result["receipt_id"])
-            assert receipt["action_kind"] == "source.poll"
+            assert receipt["action_kind"] == "feed.poll"
             assert receipt["provider_use"][0]["provider"] == "http"
         finally:
             reopened.close()

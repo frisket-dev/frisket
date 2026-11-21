@@ -52,8 +52,8 @@ def _seed(tmp_path: Path) -> tuple[TestClient, str, int, int]:
     return client, project_id, quiet, busy
 
 
-def _downstream(client: TestClient, project_id: str, source_id: int) -> list[dict]:
-    response = client.get(f"/api/projects/{project_id}/sources/{source_id}/health")
+def _downstream(client: TestClient, project_id: str, feed_id: int) -> list[dict]:
+    response = client.get(f"/api/projects/{project_id}/feeds/{feed_id}/health")
     assert response.status_code == 200, response.text
     return response.json()["downstream_jobs"]
 
@@ -61,28 +61,28 @@ def _downstream(client: TestClient, project_id: str, source_id: int) -> list[dic
 def test_quiet_feed_keeps_its_jobs_behind_a_busier_neighbour(
     tmp_path: Path,
 ) -> None:
-    """The reported failure: 100 newer jobs bury the quiet source's poll job."""
+    """The reported failure: 100 newer jobs bury the quiet feed's poll job."""
 
     client, project_id, quiet, busy = _seed(tmp_path)
     queue = client.app.state.workspace.queue
     workspace_root = str(client.app.state.workspace.root)
 
     quiet_job = queue.enqueue(
-        "source.poll",
+        "feed.poll",
         {
             "project_id": project_id,
-            "source_id": quiet,
+            "feed_id": quiet,
             "workspace_root": workspace_root,
         },
     )
-    # Newer traffic: the busy source's polls plus ordinary action runs.
+    # Newer traffic: the busy feed's polls plus ordinary action runs.
     for index in range(120):
         if index % 2:
             queue.enqueue(
-                "source.poll",
+                "feed.poll",
                 {
                     "project_id": project_id,
-                    "source_id": busy,
+                    "feed_id": busy,
                     "workspace_root": workspace_root,
                     "dedupe_key": f"busy-{index}",
                 },
@@ -95,7 +95,7 @@ def test_quiet_feed_keeps_its_jobs_behind_a_busier_neighbour(
 
     summaries = _downstream(client, project_id, quiet)
     assert [job["job_id"] for job in summaries] == [quiet_job], (
-        "the quiet source's poll job fell out of the 100-row window"
+        "the quiet feed's poll job fell out of the 100-row window"
     )
 
 
@@ -105,7 +105,7 @@ def test_trigger_ref_only_jobs_stay_attributed_to_their_feed(
     """A column-only filter must not drop the jobs the panel exists to show.
 
     ``watch.evaluate`` and the ``action.run`` embedding refresh name their
-    source only inside ``payload["trigger_ref"]``.
+    feed only inside ``payload["trigger_ref"]``.
     """
 
     client, project_id, quiet, busy = _seed(tmp_path)
@@ -113,9 +113,9 @@ def test_trigger_ref_only_jobs_stay_attributed_to_their_feed(
     workspace_root = str(client.app.state.workspace.root)
 
     trigger_ref = {
-        "trigger_kind": "source_run_completed",
-        "source_id": quiet,
-        "source_run_id": 3,
+        "trigger_kind": "feed_check_completed",
+        "feed_id": quiet,
+        "feed_check_id": 3,
     }
     alert_job = queue.enqueue(
         "watch.evaluate",
@@ -142,7 +142,7 @@ def test_trigger_ref_only_jobs_stay_attributed_to_their_feed(
 
     # The column is the attribution, not a payload re-read at display time.
     for job_id in (alert_job, refresh_job):
-        assert queue.get(job_id).source_id == quiet
+        assert queue.get(job_id).feed_id == quiet
 
     # ... and it agrees with the reader that the panel used to rely on.
     for job_id in (alert_job, refresh_job):

@@ -60,7 +60,7 @@ test('the command palette Commands section filters by the typed query, joins key
   const queryInput = page.getByTestId('command-palette-input');
   const commandsSection = page.getByTestId('palette-section-commands');
   const commandRows = commandsSection.locator('.workbench-command-palette-item');
-  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-sources');
+  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-feeds');
 
   // Placeholder text now names commands as a filterable target too.
   await expect(queryInput).toHaveAttribute('placeholder', /commands/i);

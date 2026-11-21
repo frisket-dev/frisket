@@ -529,7 +529,7 @@ export function useWorkspaceModel({
           const column = sheet?.columns.find((item) => item.id === columnId);
           if (column) openColumnPanel(column);
         },
-        openSource: (sourceId) => openFeedHealthMainView(Number(sourceId)),
+        openFeed: (feedId) => openFeedHealthMainView(Number(feedId)),
         openActionRoute: (actionKind) => {
           if (actionKind) {
             runActionFromSurface(actionKind);
@@ -558,7 +558,7 @@ export function useWorkspaceModel({
           }
           if (contributionId === GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID) openGraphPanel();
         },
-        openSources: openFeedsFromCommandPalette,
+        openFeeds: openFeedsFromCommandPalette,
         openSettings: openSettingsFromCommandPalette,
       },
       scratch: {
@@ -623,7 +623,7 @@ export function useWorkspaceModel({
       activeRowId: routePanel?.kind === 'row' ? routePanel.rowId : null,
       activeCell: null,
       activeColumnId: routePanel?.kind === 'column' ? routePanel.columnId : null,
-      activeSourceId: routePanel?.kind === 'sourceHealth' ? routePanel.sourceId : null,
+      activeFeedId: routePanel?.kind === 'sourceHealth' ? routePanel.sourceId : null,
       activeEntityId: null,
       activeEvidenceLinkId: citationViewerState?.linkId ?? null,
     },
@@ -640,7 +640,7 @@ export function useWorkspaceModel({
       openRow: (sheetId, rowId) =>
         dispatchCommand({ type: 'openRow', sheetId: String(sheetId), rowId: String(rowId) }),
       openColumn: (columnId) => dispatchCommand({ type: 'openColumn', columnId }),
-      openSource: (sourceId) => dispatchCommand({ type: 'openSource', sourceId: String(sourceId) }),
+      openFeed: (feedId) => dispatchCommand({ type: 'openFeed', feedId: String(feedId) }),
       openEvidence: (evidenceLinkId) =>
         dispatchCommand({ type: 'openEvidence', linkId: evidenceLinkId }),
       openMap: (columnId) => dispatchCommand({ type: 'openMap', columnId }),
@@ -678,8 +678,8 @@ export function useWorkspaceModel({
       applyReviewDecision: async () => {
         await refreshReviewCount();
       },
-      pollSource: async (sourceId) => {
-        openFeedHealthMainView(Number(sourceId));
+      pollFeed: async (feedId) => {
+        openFeedHealthMainView(Number(feedId));
       },
     },
     invalidation: {
@@ -740,7 +740,7 @@ export function useWorkspaceModel({
       activeColumn: workbenchHostContext.selection.activeColumnId !== null,
       activeCell: workbenchHostContext.selection.activeCell !== null,
       activeEvidence: workbenchHostContext.selection.activeEvidenceLinkId !== null,
-      activeSource: workbenchHostContext.selection.activeSourceId !== null,
+      activeFeed: workbenchHostContext.selection.activeFeedId !== null,
       activeEntity: workbenchHostContext.selection.activeEntityId !== null,
       activeProjection: projectionStatus !== null,
       selectedRowIds: workbenchHostContext.selection.selectedRowIds,
@@ -831,7 +831,7 @@ export function useWorkspaceModel({
           dispatchCommand({ type: 'import.open' });
           return;
         case 'sources':
-          dispatchCommand({ type: 'sources.open' });
+          dispatchCommand({ type: 'feeds.open' });
           return;
         case 'export-csv':
           dispatchCommand({ type: 'export.open', kind: 'dataset' });

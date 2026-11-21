@@ -19,14 +19,14 @@ test('command palette controls workbench contributions through command descripto
   await expect(palette).toBeVisible();
   await expect(palette).toHaveAttribute('data-host', 'commandPalette');
 
-  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-sources');
+  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-feeds');
   await expect(openSources).toBeVisible();
   await expect(openSources).toHaveAttribute('data-schema-version', 'frisket.command.v1');
-  await expect(openSources).toHaveAttribute('data-contribution-id', 'frisket.core.command.open_sources');
+  await expect(openSources).toHaveAttribute('data-contribution-id', 'frisket.core.command.open_feeds');
   await expect(openSources).toHaveAttribute('data-host', 'commandPalette');
   await expect(openSources).toHaveAttribute('data-mode', 'command');
   await expect(openSources).toHaveAttribute('data-runtime-handler-key', 'core.commands.openContribution');
-  await expect(openSources).toHaveAttribute('data-required-contributions', /frisket\.core\.panel\.sources/);
+  await expect(openSources).toHaveAttribute('data-required-contributions', /frisket\.core\.panel\.feeds/);
 
   await openSources.click();
   await expect(palette).toHaveCount(0);

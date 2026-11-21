@@ -35,10 +35,10 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
             result = run_action_spec(
                 project,
                 {
-                    "action_id": "source.poll",
+                    "action_id": "feed.poll",
                     "scope": {"kind": "project"},
                     "params": {
-                        "source": {
+                        "feed": {
                             "kind": "tiktok_profile",
                             "name": "test",
                             "url": "https://www.tiktok.com/@example",
@@ -52,7 +52,7 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
             assert result.status == "failed"
             assert result.errors[0].code == "network_disabled"
             assert not calls
-            assert project.db.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+            assert project.db.execute("SELECT COUNT(*) FROM feeds").fetchone()[0] == 0
     finally:
         if previous is not None:
             register_feed_checker(previous, replace=True)

@@ -221,7 +221,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           actSurfaceHandle.closeSourcesConnections();
           openFeedHealthMainView(sourceId);
         }}
-        feedDetailContributions={resolvedRegion('sourceDetail').contributions}
+        feedDetailContributions={resolvedRegion('feedDetail').contributions}
         renderPluginDetailTab={renderPluginDetailTab}
       />
       {commandPaletteOpen && (

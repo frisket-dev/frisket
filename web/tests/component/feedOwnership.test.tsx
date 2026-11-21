@@ -12,11 +12,11 @@ import type { ActionJob, FeedFetchResult } from '../../src/api/types';
 afterEach(cleanup);
 const source = (id = 7): FeedInfo => ({ id, name: `Source ${id}`, kind: 'rss', url: 'https://example.test/feed',
   config: {}, schedule: '@hourly', enabled: true, sheetId: 2, lastCheckedAt: null, lastStatus: 'ok', newRowsTotal: 3 });
-const health = (id = 7): FeedHealth => ({ schemaVersion: 'frisket.source_health.v1',
-  source: { ...source(id), createdAt: null, redactions: [] },
+const health = (id = 7): FeedHealth => ({ schemaVersion: 'frisket.feed_health.v1',
+  feed: { ...source(id), createdAt: null, redactions: [] },
   summary: { status: 'healthy', lastSuccessAt: null, lastFailureAt: null, consecutiveFailures: 0,
     newRowsTotal: 3, newRowsRecent: 0, changedRowsRecent: 0, skippedRowsRecent: 0, revisionsRecent: 0, recentRunCount: 0, lastCursorSummary: '' },
-  runsPage: { schemaVersion: 'frisket.source_runs_page.v1', order: 'desc', offset: 0, limit: 20, total: 0, hasMore: false, nextOffset: null },
+  runsPage: { schemaVersion: 'frisket.feed_checks_page.v1', order: 'desc', offset: 0, limit: 20, total: 0, hasMore: false, nextOffset: null },
   runs: [], downstreamJobs: [], costs: { recentActualMicro: 0, recentEstimatedMicro: 0, basis: 'runs' }, alerts: [], warnings: [] });
 
 function deferred<T>() {
@@ -41,7 +41,7 @@ function jobStore() {
 }
 const noJobs = jobStore();
 const pollJob = (status: string, error: string | null = null): ActionJob => ({
-  schemaVersion: 'frisket.action_job.v1', projectId: 'p', jobId: 41, kind: 'source.poll', runId: null, status,
+  schemaVersion: 'frisket.action_job.v1', projectId: 'p', jobId: 41, kind: 'feed.poll', runId: null, status,
   actionKind: null, actionName: null, attempts: 1, maxAttempts: 1,
   lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
   timing: { createdAt: null, startedAt: null, finishedAt: null }, error });
@@ -62,7 +62,7 @@ describe('source health request ownership', () => {
     expect(result.current.state.healthError).toBeNull();
     await act(async () => { b.resolve(health(8)); });
     expect(result.current.state.healthLoading).toBe(false);
-    expect(result.current.state.health[8]?.source.id).toBe(8);
+    expect(result.current.state.health[8]?.feed.id).toBe(8);
     expect(result.current.state.healthError).toBeNull();
   });
 
@@ -82,7 +82,7 @@ describe('source health request ownership', () => {
     await act(async () => { await result.current.load(7); });
     await act(async () => { stale.reject(new Error('retired scope')); });
     expect(result.current.entries[7]?.error).toBeNull();
-    expect(result.current.entries[7]?.health?.source.id).toBe(7);
+    expect(result.current.entries[7]?.health?.feed.id).toBe(7);
   });
 
   it('does not navigate or refresh retired source health when a poll completes after API replacement', async () => {
@@ -174,7 +174,7 @@ describe('source health request ownership', () => {
     await act(async () => { await result.current.actions.openHealth(7); });
     expect(result.current.state.healthError).toBe('Health read unavailable');
     await act(async () => { await result.current.actions.toggleEnabled(7, false); });
-    expect(result.current.state.health[7]?.source.id).toBe(7);
+    expect(result.current.state.health[7]?.feed.id).toBe(7);
     expect(result.current.state.healthError).toBeNull();
   });
 });

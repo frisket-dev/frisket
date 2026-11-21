@@ -483,6 +483,63 @@ export type ExportWorkLogParams = ({
   "include_receipts"?: (boolean);
 });
 
+export type FeedCheckParams = ({
+  "feed_id": (number);
+  "new_rows"?: (number);
+  "status"?: ("ok" | "error") & (string);
+  "error"?: (((string)) | ((null)));
+  "cursor"?: (((string)) | ((null)));
+});
+
+export type FeedCreateIntent = ({
+  "name": (string);
+  "kind"?: (string);
+  "url"?: (((string)) | ((null)));
+  "config"?: ({
+  [key: string]: JsonValue;
+});
+  "sheet_id"?: (((number)) | ((null)));
+  "schedule"?: (((string)) | ((null)));
+  "enabled"?: (boolean);
+});
+
+export type FeedDeleteParams = ({
+  "feed_id": (number);
+});
+
+type FeedPollParams_FeedCreateIntent = ({
+  "name": (string);
+  "kind"?: (string);
+  "url"?: (((string)) | ((null)));
+  "config"?: ({
+  [key: string]: JsonValue;
+});
+  "sheet_id"?: (((number)) | ((null)));
+  "schedule"?: (((string)) | ((null)));
+  "enabled"?: (boolean);
+});
+
+export type FeedPollParams = ({
+  "feed": (((number)) | ((FeedPollParams_FeedCreateIntent)));
+});
+
+type FeedUpdateParams_FeedPatch = ({
+  "name"?: (string);
+  "kind"?: (string);
+  "url"?: (((string)) | ((null)));
+  "config"?: ((({
+  [key: string]: JsonValue;
+})) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+  "schedule"?: (((string)) | ((null)));
+  "enabled"?: (boolean);
+});
+
+export type FeedUpdateParams = ({
+  "feed_id": (number);
+  "patch": (FeedUpdateParams_FeedPatch);
+});
+
 type ImportCsvParams_CsvSource = ({
   "path": (string);
   "label"?: (((string)) | ((null)));
@@ -1665,63 +1722,6 @@ export type RefreshParams = ({
   "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
 });
 
-export type SourceCheckParams = ({
-  "source_id": (number);
-  "new_rows"?: (number);
-  "status"?: ("ok" | "error") & (string);
-  "error"?: (((string)) | ((null)));
-  "cursor"?: (((string)) | ((null)));
-});
-
-export type SourceCreateIntent = ({
-  "name": (string);
-  "kind"?: (string);
-  "url"?: (((string)) | ((null)));
-  "config"?: ({
-  [key: string]: JsonValue;
-});
-  "sheet_id"?: (((number)) | ((null)));
-  "schedule"?: (((string)) | ((null)));
-  "enabled"?: (boolean);
-});
-
-export type SourceDeleteParams = ({
-  "source_id": (number);
-});
-
-type SourcePollParams_SourceCreateIntent = ({
-  "name": (string);
-  "kind"?: (string);
-  "url"?: (((string)) | ((null)));
-  "config"?: ({
-  [key: string]: JsonValue;
-});
-  "sheet_id"?: (((number)) | ((null)));
-  "schedule"?: (((string)) | ((null)));
-  "enabled"?: (boolean);
-});
-
-export type SourcePollParams = ({
-  "source": (((number)) | ((SourcePollParams_SourceCreateIntent)));
-});
-
-type SourceUpdateParams_SourcePatch = ({
-  "name"?: (string);
-  "kind"?: (string);
-  "url"?: (((string)) | ((null)));
-  "config"?: ((({
-  [key: string]: JsonValue;
-})) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
-  "schedule"?: (((string)) | ((null)));
-  "enabled"?: (boolean);
-});
-
-export type SourceUpdateParams = ({
-  "source_id": (number);
-  "patch": (SourceUpdateParams_SourcePatch);
-});
-
 type ExtractRangeParams_TemporalMediaColumn = (string);
 
 type ExtractRangeParams_TemporalSelectionColumn = (string);
@@ -1803,6 +1803,11 @@ export interface GeneratedActionParams {
   'export.sheet_jsonl': ExportSheetJsonlParams;
   'export.sheet_parquet': ExportSheetParquetParams;
   'export.work_log': ExportWorkLogParams;
+  'feed.check': FeedCheckParams;
+  'feed.create': FeedCreateIntent;
+  'feed.delete': FeedDeleteParams;
+  'feed.poll': FeedPollParams;
+  'feed.update': FeedUpdateParams;
   'import.append_csv': ImportCsvParams;
   'import.append_rows': ImportRowsParams;
   'import.append_xlsx': ImportXlsxParams;
@@ -1880,11 +1885,6 @@ export interface GeneratedActionParams {
   'run.reapply': ReapplyParams;
   'run.retry': RetryParams;
   'sheet.refresh': RefreshParams;
-  'source.check': SourceCheckParams;
-  'source.create': SourceCreateIntent;
-  'source.delete': SourceDeleteParams;
-  'source.poll': SourcePollParams;
-  'source.update': SourceUpdateParams;
   'temporal.extract_range': ExtractRangeParams;
   'web.capture_page': CapturePageParams;
   'web.capture_screenshot': ScreenshotParams;

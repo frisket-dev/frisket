@@ -1204,7 +1204,7 @@ async function writeCommandPluginPackage({
                 componentKey: `${pluginId}.commands.${handlerExport}`,
                 // NOT namespaced under the plugin id: the frontend parser must
                 // reject this whole descriptor (it could shadow core commands).
-                commandId: 'frisket.core.command.open_sources',
+                commandId: 'frisket.core.command.open_feeds',
                 handlerKey: `${pluginId}.commands.${handlerExport}`,
                 placements: [
                   {
@@ -1836,7 +1836,7 @@ async function writeDetailPluginPackage({
     { id: columnId, exportName: `ColumnSection${handlerSuffix}`, host: 'columnInspector', mode: 'section', testId: 'contract-detail-column-section' },
     { id: `${columnId}_tab`, exportName: `ColumnTab${handlerSuffix}`, host: 'columnDetail', mode: 'tab', testId: 'contract-detail-column-tab' },
     { id: entityId, exportName: `EntityTab${handlerSuffix}`, host: 'entityDetail', mode: 'tab', testId: 'contract-detail-entity-tab' },
-    { id: sourceId, exportName: `SourceTab${handlerSuffix}`, host: 'sourceDetail', mode: 'tab', testId: 'contract-detail-source-tab' },
+    { id: sourceId, exportName: `SourceTab${handlerSuffix}`, host: 'feedDetail', mode: 'tab', testId: 'contract-detail-source-tab' },
   ];
   await mkdir(join(root, 'frontend'), { recursive: true });
   await writeFile(
@@ -2101,7 +2101,7 @@ test('generated plugin detail tabs mount in entity and source detail with their 
   await page.getByTestId('feed-populate-dismiss').click();
   await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
   await openDiscoverTab(page, 'Sources');
-  const sourcesRes = await page.request.get(`/api/projects/${projectId}/sources`);
+  const sourcesRes = await page.request.get(`/api/projects/${projectId}/feeds`);
   const sources = (await sourcesRes.json()) as Array<{ id: number; name: string }>;
   const source = sources.find((candidate) => candidate.name === 'Detail parity feed');
   expect(source).toBeTruthy();
@@ -2112,10 +2112,10 @@ test('generated plugin detail tabs mount in entity and source detail with their 
   const sourceTab = page.getByTestId('contract-detail-source-tab');
   await expect(sourceTab).toBeVisible();
   await expect(sourceTab).toHaveAttribute('data-schema', 'frisket.plugin_detail_context.v1');
-  await expect(sourceTab).toHaveAttribute('data-subject-kind', 'source');
+  await expect(sourceTab).toHaveAttribute('data-subject-kind', 'feed');
   await expect(sourceTab).toHaveAttribute(
     'data-subject',
-    JSON.stringify({ kind: 'source', sourceId: String(source!.id) }),
+    JSON.stringify({ kind: 'feed', feedId: String(source!.id) }),
   );
 });
 
@@ -3432,7 +3432,7 @@ test('first-party descriptors resolve through the runtime descriptor pipeline', 
   }
 
   const sources = indexBody.firstParty.descriptors.find(
-    (descriptor) => descriptor.id === 'frisket.core.panel.sources',
+    (descriptor) => descriptor.id === 'frisket.core.panel.feeds',
   );
   expect(sources).toBeTruthy();
   // Runtime-only fields are deliberately absent from the served artifact —
@@ -3443,7 +3443,7 @@ test('first-party descriptors resolve through the runtime descriptor pipeline', 
   const sheetId = await importCsv(page.request, projectId, 'places.csv', 'place\n"Pier 57"\n');
   await openProject(page, projectId, sheetId);
 
-  // The Sources panel is descriptor #1 among first-party contributions
+  // The Feeds panel is descriptor #1 among first-party contributions
   // (no async flash — the frontend parses first-party from the
   // statically-imported artifact, not a network round trip) and its
   // componentKey/host/slot are DERIVED from the artifact + registry, not
@@ -3451,14 +3451,14 @@ test('first-party descriptors resolve through the runtime descriptor pipeline', 
   // RENDERS inside the Discover panel's Sources tab (workbench-ia-right-edge-
   // v1 re-mapping; declaration unchanged), so reveal that tab first.
   await openDiscoverTab(page, 'Sources');
-  const sourcesFrame = page.getByTestId(testIdForContribution('frisket.core.panel.sources'));
+  const sourcesFrame = page.getByTestId(testIdForContribution('frisket.core.panel.feeds'));
   await expect(sourcesFrame).toBeVisible();
   await expect(sourcesFrame).toHaveAttribute('data-host', 'leftSidebar');
-  await expect(sourcesFrame).toHaveAttribute('data-runtime-component-key', 'core.panels.SourcesPanel');
+  await expect(sourcesFrame).toHaveAttribute('data-runtime-component-key', 'core.panels.FeedsPanel');
 
   const leftSidebar = page.getByTestId('workbench-resolved-layout-region-leftSidebar');
   const sourcesItem = leftSidebar.getByTestId(
-    'workbench-resolved-layout-item-frisket-core-panel-sources',
+    'workbench-resolved-layout-item-frisket-core-panel-feeds',
   );
   await expect(sourcesItem).toHaveAttribute('data-runtime-source', 'firstParty');
   await expect(sourcesItem).toHaveAttribute('data-slot', 'scope');

@@ -48,9 +48,9 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
         state = _sync_state(sheet_id)
         return state is not None and state["sync_state"] == "stale"
 
-    # Sources tier.
+    # Feeds tier.
     for src in project.db.execute(
-        "SELECT id, name, kind, sheet_id, last_status FROM sources"
+        "SELECT id, name, kind, sheet_id, last_status FROM feeds"
     ).fetchall():
         src_node = f"source:{int(src['id'])}"
         nodes.append(

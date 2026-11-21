@@ -216,15 +216,15 @@
     },
     {
       "id": "runtime_activation_failure",
-      "contributionId": "frisket.core.panel.sources",
-      "activationError": {"code": "component_import_failed", "message": "Unable to import core.panels.SourcesPanel"},
+      "contributionId": "frisket.core.panel.feeds",
+      "activationError": {"code": "component_import_failed", "message": "Unable to import core.panels.FeedsPanel"},
       "expectedResolved": {"status": "enabled", "activation": "failed", "reason": "runtime_activation_failed", "placeholderVisible": true}
     },
     {
       "id": "duplicate_id_alias_conflict",
       "descriptors": [
-        {"id": "frisket.core.panel.sources", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": ["frisket.sources.panel"]},
-        {"id": "frisket.core.panel.sources", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": []},
+        {"id": "frisket.core.panel.feeds", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": ["frisket.sources.panel"]},
+        {"id": "frisket.core.panel.feeds", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": []},
         {"id": "frisket.media.panel.sources", "kind": "panel", "placements": [{"host": "leftSidebar", "mode": "panel"}], "aliases": ["frisket.sources.panel"]}
       ],
       "expectedErrors": ["duplicate_id", "duplicate_alias"]

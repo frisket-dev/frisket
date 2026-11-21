@@ -1187,7 +1187,7 @@ class TestRunAction:
         assert output["ref"]["kind"] == "added_rows"
         assert output["ref"]["row_ids"]
 
-    def test_local_typed_source_create_returns_terminal_result(self, tmp_path) -> None:
+    def test_local_typed_feed_create_returns_terminal_result(self, tmp_path) -> None:
         root = tmp_path / "ws"
         root.mkdir()
         Project.create(root / "demo.frisket", name="demo").close()
@@ -1197,14 +1197,14 @@ class TestRunAction:
             backend.run_action(
                 "demo",
                 {
-                    "action_id": "source.create",
+                    "action_id": "feed.create",
                     "scope": {"kind": "project"},
                     "params": {
                         "name": "Court feed",
                         "kind": "courtlistener.custom",
                         "config": {"query": {"court": "ca9", "precedential": True}},
                     },
-                    "idempotency_key": "mcp-source-create@sha256:stable",
+                    "idempotency_key": "mcp-feed-create@sha256:stable",
                 },
             )
         )
@@ -1213,21 +1213,21 @@ class TestRunAction:
         assert result["done"] is True
         assert result["receipt_id"]
         [output] = result["outputs"]
-        assert output["kind"] == "source"
-        assert output["ref"]["source_kind"] == "courtlistener.custom"
+        assert output["kind"] == "feed"
+        assert output["ref"]["feed_kind"] == "courtlistener.custom"
         assert output["ref"]["config"] == {
             "query": {"court": "ca9", "precedential": True}
         }
-        assert output["ref"]["source_id"] > 0
+        assert output["ref"]["feed_id"] > 0
 
-    def test_local_typed_source_check_returns_terminal_result(self, tmp_path) -> None:
+    def test_local_typed_feed_check_returns_terminal_result(self, tmp_path) -> None:
         from frisket.engine.store.feeds import FeedStore
 
         root = tmp_path / "ws"
         root.mkdir()
         project = Project.create(root / "demo.frisket", name="demo")
         with write_transaction(project.db):
-            source_id = FeedStore(project).add_feed(
+            feed_id = FeedStore(project).add_feed(
                 name="Court feed",
                 kind="courtlistener.custom",
                 config={"query": {"court": "ca9"}},
@@ -1238,15 +1238,15 @@ class TestRunAction:
             LocalBackend(root).run_action(
                 "demo",
                 {
-                    "action_id": "source.check",
+                    "action_id": "feed.check",
                     "scope": {"kind": "project"},
                     "params": {
-                        "source_id": source_id,
+                        "feed_id": feed_id,
                         "new_rows": 4,
                         "status": "ok",
                         "cursor": "page-2",
                     },
-                    "idempotency_key": "mcp-source-check@sha256:stable",
+                    "idempotency_key": "mcp-feed-check@sha256:stable",
                 },
             )
         )
@@ -1255,8 +1255,8 @@ class TestRunAction:
         assert result["done"] is True
         assert result["receipt_id"]
         assert [output["kind"] for output in result["outputs"]] == [
-            "source",
-            "source_run",
+            "feed",
+            "feed_check",
         ]
         assert result["outputs"][1]["ref"]["new_rows"] == 4
 

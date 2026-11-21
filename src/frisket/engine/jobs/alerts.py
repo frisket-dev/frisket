@@ -64,12 +64,12 @@ def find_embedding_similarity_alerts(project: Project, index_id: str) -> list[An
 
 def _alert_eval_dedupe_key(alert_id: int, trigger_ref: dict[str, Any] | None) -> str:
     """Stable per (alert, trigger) so a refresh completion evaluates each dependent
-    alert at most once per source run / schedule tick (-> notify exactly once). Each
-    trigger kind gets a PREFIXED tag so a source_run_id and a schedule_tick (both
+    alert at most once per feed check / schedule tick (-> notify exactly once). Each
+    trigger kind gets a PREFIXED tag so a feed_check_id and a schedule_tick (both
     bare ints) can never collide in the same key namespace."""
     trigger_ref = trigger_ref or {}
-    if trigger_ref.get("source_run_id") is not None:
-        tag = f"run-{trigger_ref['source_run_id']}"
+    if trigger_ref.get("feed_check_id") is not None:
+        tag = f"run-{trigger_ref['feed_check_id']}"
     elif trigger_ref.get("schedule_tick") is not None:
         tag = f"sched-{trigger_ref['schedule_tick']}"
     elif trigger_ref.get("dedupe_key"):

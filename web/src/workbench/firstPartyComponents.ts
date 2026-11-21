@@ -19,7 +19,7 @@ interface FirstPartyComponentBinding {
 const FIRST_PARTY_COMPONENT_BINDINGS: Readonly<Record<string, FirstPartyComponentBinding>> = {
   'frisket.investigative.panel.friendly_filters': { componentKey: 'core.panels.FriendlyFiltersPanel' },
   'frisket.investigative.panel.mentions': { componentKey: 'core.panels.MentionsPanel' },
-  'frisket.core.panel.sources': { componentKey: 'core.panels.SourcesPanel' },
+  'frisket.core.panel.feeds': { componentKey: 'core.panels.FeedsPanel' },
   'frisket.core.panel.notifications': { componentKey: 'core.panels.NotificationsPanel' },
   'frisket.core.panel.views': { componentKey: 'core.panels.ViewsPanel' },
   'frisket.core.panel.watches': { componentKey: 'core.panels.AlertsPanel' },
@@ -39,8 +39,8 @@ const FIRST_PARTY_COMPONENT_BINDINGS: Readonly<Record<string, FirstPartyComponen
   // same disposal as the projection_status panel above.
   'frisket.core.panel.jobs': { componentKey: 'core.bottomDock.JobsPanel' },
   'frisket.core.panel.errors': { componentKey: 'core.bottomDock.ErrorsPanel' },
-  'frisket.core.command.open_sources': {
-    componentKey: 'core.commands.OpenSources',
+  'frisket.core.command.open_feeds': {
+    componentKey: 'core.commands.OpenFeeds',
     handlerKey: 'core.commands.openContribution',
   },
   'frisket.core.command.open_settings': {
@@ -84,11 +84,11 @@ const FIRST_PARTY_COMPONENT_BINDINGS: Readonly<Record<string, FirstPartyComponen
   'frisket.investigative.view.entity_connections': {
     componentKey: 'investigative.entityDetail.Connections',
   },
-  'frisket.core.view.source_summary': { componentKey: 'core.sourceDetail.Summary' },
-  'frisket.core.view.source_health': { componentKey: 'core.sourceDetail.Health' },
-  'frisket.core.view.source_runs': { componentKey: 'core.sourceDetail.Runs' },
-  'frisket.core.source_kind_form.rss': { componentKey: 'core.sources.RssSourceForm' },
-  'frisket.core.source_kind_form.api_list_dicts': { componentKey: 'core.sources.ApiListDictsSourceForm' },
+  'frisket.core.view.feed_summary': { componentKey: 'core.feedDetail.Summary' },
+  'frisket.core.view.feed_health': { componentKey: 'core.feedDetail.Health' },
+  'frisket.core.view.feed_checks': { componentKey: 'core.feedDetail.Checks' },
+  'frisket.core.feed_kind_form.rss': { componentKey: 'core.feeds.RssFeedForm' },
+  'frisket.core.feed_kind_form.api_list_dicts': { componentKey: 'core.feeds.ApiListDictsFeedForm' },
 };
 
 export function firstPartyComponentBinding(contributionId: string): FirstPartyComponentBinding | null {

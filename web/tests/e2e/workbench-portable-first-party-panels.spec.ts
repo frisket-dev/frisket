@@ -79,6 +79,6 @@ test('Sources, History, and Actions expose honest portable placements', async ({
 
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P');
   const palette = page.getByTestId('workbench-region-commandPalette');
-  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-sources');
-  await expect(openSources).toHaveAttribute('data-required-contributions', /frisket\.core\.panel\.sources/);
+  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-feeds');
+  await expect(openSources).toHaveAttribute('data-required-contributions', /frisket\.core\.panel\.feeds/);
 });

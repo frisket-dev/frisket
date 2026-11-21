@@ -96,7 +96,7 @@
       "componentKey": "demo.detail_panels.components.SourceTab",
       "placements": [
         {
-          "host": "sourceDetail",
+          "host": "feedDetail",
           "mode": "tab",
           "slot": "detail",
           "placementId": "demo-source-detail",

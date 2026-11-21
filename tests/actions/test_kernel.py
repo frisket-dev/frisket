@@ -24,8 +24,8 @@ from frisket.sdk import (
     Row,
     RowResult,
     RowScope,
-    SourceCreator,
-    SourceRecord,
+    FeedCreator,
+    FeedRecord,
     Template,
     action,
     map_rows,
@@ -103,9 +103,9 @@ class ProjectCreateParams(ActionParams):
 
 
 def create_project_source(
-    params: ProjectCreateParams, sources: SourceCreator
-) -> SourceRecord:
-    return sources.create(
+    params: ProjectCreateParams, feeds: FeedCreator
+) -> FeedRecord:
+    return feeds.create(
         name=params.name,
         kind="plugin",
         url=None,
@@ -118,7 +118,7 @@ def create_project_source(
 
 def unsupported_project_capability(
     params: ProjectCreateParams, capability: object
-) -> SourceRecord:
+) -> FeedRecord:
     del params, capability
     raise AssertionError
 
@@ -278,20 +278,20 @@ def test_project_callable_infers_one_source_capability_and_rejects_row_controls(
         description="Create a source.",
         category=ActionCategory.SOURCES,
         run=create_project_source,
-        form="source_create",
+        form="feed_create",
     )
-    registered = ActionRegistry([ActionNamespace("source", actions=[definition])]).get(
-        "source.create"
+    registered = ActionRegistry([ActionNamespace("feed", actions=[definition])]).get(
+        "feed.create"
     )
     request = ActionRequest(
-        action_id="source.create",
+        action_id="feed.create",
         scope=ProjectScope(),
         params={"name": "Feed"},
         idempotency_key="create-1",
     )
 
     assert registered.validate_request(request).model_dump() == {"name": "Feed"}
-    assert registered.catalog_entry()["ui_hints"]["form"] == "source_create"
+    assert registered.catalog_entry()["ui_hints"]["form"] == "feed_create"
     with pytest.raises(ValueError, match="project scope"):
         registered.validate_request(
             request.model_copy(update={"scope": SheetRows(sheet_id=1)})

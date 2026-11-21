@@ -1607,11 +1607,11 @@ CREATE INDEX IF NOT EXISTS idx_evidence_link_spans_span
 CREATE INDEX IF NOT EXISTS idx_evidence_link_spans_annotation
   ON evidence_link_spans(span_id, span_role, link_id);
 
--- Live sources, scheduling, and monitoring.
--- A source is a recurring fetch (URL feed, search, etc.) that lands new rows
+-- Live feeds, scheduling, and monitoring.
+-- A feed is a recurring fetch (RSS, API, channel, etc.) that lands new rows
 -- on a target sheet. `schedule` is a cron-style cadence; `cursor` records
--- what was last seen for new-row detection; runs are tracked in source_runs.
-CREATE TABLE IF NOT EXISTS sources (
+-- what was last seen for new-row detection; checks are tracked in feed_checks.
+CREATE TABLE IF NOT EXISTS feeds (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'url',      -- url | search | rss | api
@@ -1626,12 +1626,12 @@ CREATE TABLE IF NOT EXISTS sources (
   new_rows_total INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_sources_sheet ON sources(sheet_id);
+CREATE INDEX IF NOT EXISTS idx_feeds_sheet ON feeds(sheet_id);
 
--- One poll of a source: how many rows were new, plus any error.
-CREATE TABLE IF NOT EXISTS source_runs (
+-- One poll of a feed: how many rows were new, plus any error.
+CREATE TABLE IF NOT EXISTS feed_checks (
   id INTEGER PRIMARY KEY,
-  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
   op_id INTEGER REFERENCES ops(id) ON DELETE SET NULL,
   receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'ok',     -- ok | error
@@ -1649,9 +1649,9 @@ CREATE TABLE IF NOT EXISTS source_runs (
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
-  ON source_runs(source_id, started_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_feed_checks_feed_started
+  ON feed_checks(feed_id, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_feed_checks_receipt ON feed_checks(receipt_id);
 
 -- A View owns the selection; alerts only reference it.
 CREATE TABLE IF NOT EXISTS views (

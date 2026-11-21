@@ -43,14 +43,14 @@ def test_feed_detail_returns_bounded_check_history_page(tmp_path: Path) -> None:
     client, project_id, source_id, run_ids = _seed_source_runs(tmp_path)
 
     first_page = client.get(
-        f"/api/projects/{project_id}/sources/{source_id}",
+        f"/api/projects/{project_id}/feeds/{source_id}",
         params={"runs_offset": 0, "runs_limit": 20},
     )
     assert first_page.status_code == 200, first_page.text
     body = first_page.json()
     assert body["id"] == source_id
     assert body["runs_page"] == {
-        "schema_version": "frisket.source_runs_page.v1",
+        "schema_version": "frisket.feed_checks_page.v1",
         "order": "desc",
         "offset": 0,
         "limit": 20,
@@ -65,13 +65,13 @@ def test_feed_detail_returns_bounded_check_history_page(tmp_path: Path) -> None:
     assert [run["id"] for run in body["runs"]] == list(reversed(run_ids[-20:]))
 
     tail_page = client.get(
-        f"/api/projects/{project_id}/sources/{source_id}",
+        f"/api/projects/{project_id}/feeds/{source_id}",
         params={"runs_offset": 120, "runs_limit": 20},
     )
     assert tail_page.status_code == 200, tail_page.text
     tail_body = tail_page.json()
     assert tail_body["runs_page"] == {
-        "schema_version": "frisket.source_runs_page.v1",
+        "schema_version": "frisket.feed_checks_page.v1",
         "order": "desc",
         "offset": 120,
         "limit": 20,
@@ -90,7 +90,7 @@ def test_feed_detail_returns_bounded_check_history_page(tmp_path: Path) -> None:
         {"runs_offset": 0, "runs_limit": 101},
     ):
         invalid = client.get(
-            f"/api/projects/{project_id}/sources/{source_id}",
+            f"/api/projects/{project_id}/feeds/{source_id}",
             params=params,
         )
         assert invalid.status_code == 422

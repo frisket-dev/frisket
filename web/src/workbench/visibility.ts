@@ -30,7 +30,7 @@ const WORKBENCH_VISIBILITY_HOST_POLICIES: readonly WorkbenchVisibilityHostPolicy
     nonHideableContributionIds: [GRID_CONTRIBUTION_ID],
     firstPartyVisibilityTargetIds: [
       'frisket.core.view.evidence',
-      'frisket.core.view.source_health',
+      'frisket.core.view.feed_health',
       'frisket.geo.view.map',
       'frisket.investigative.view.graph_neighborhood',
       'frisket.media.view.image_gallery',
@@ -74,7 +74,7 @@ const WORKBENCH_VISIBILITY_HOST_POLICIES: readonly WorkbenchVisibilityHostPolicy
     // hideable left-sidebar targets. The remaining panels re-home into Discover.
     firstPartyVisibilityTargetIds: [
       'frisket.core.panel.notifications',
-      'frisket.core.panel.sources',
+      'frisket.core.panel.feeds',
       'frisket.investigative.panel.friendly_filters',
       'frisket.investigative.panel.mentions',
       'frisket.core.panel.views',

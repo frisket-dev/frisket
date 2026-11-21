@@ -22,7 +22,7 @@ from frisket.engine.store.transactions import write_transaction
 from frisket.server.app import create_app
 
 
-_CONTRACT_MODULE = "frisket.contracts.http.project_sources"
+_CONTRACT_MODULE = "frisket.contracts.http.project_feeds"
 _RAW_SOURCE_FIELDS = frozenset(
     {
         "id",
@@ -40,13 +40,11 @@ _RAW_SOURCE_FIELDS = frozenset(
         "created_at",
     }
 )
-# Exact current source_runs rows. The initial F4 handoff said 21 fields; the
-# frozen base schema and service return 18, and this RED intentionally follows
-# the executable source of truth rather than widening a nonexistent shape.
+# Exact current feed_checks rows.
 _RAW_RUN_FIELDS = frozenset(
     {
         "id",
-        "source_id",
+        "feed_id",
         "op_id",
         "receipt_id",
         "status",
@@ -120,7 +118,7 @@ _HEALTH_PAGE_FIELDS = frozenset(
 _HEALTH_RUN_FIELDS = frozenset(
     {
         "id",
-        "source_id",
+        "feed_id",
         "status",
         "started_at",
         "finished_at",
@@ -157,7 +155,7 @@ _HEALTH_JOB_FIELDS = frozenset(
 )
 _HEALTH_SPARSE_NOTICE_FIELDS = frozenset({"code", "message", "run_ids"})
 _HEALTH_UNSUPPORTED_SCHEDULE_NOTICE_FIELDS = frozenset({"code", "message"})
-_HEALTH_REFS_FIELDS = frozenset({"source_id", "source_run_id", "sheet_id"})
+_HEALTH_REFS_FIELDS = frozenset({"feed_id", "feed_check_id", "sheet_id"})
 
 _SOURCE_NULLABLE_FIELDS = frozenset(
     {
@@ -198,29 +196,29 @@ class RouteTruth:
 
 
 ROUTES = {
-    "list_sources": RouteTruth(
-        "/api/projects/{pid}/sources",
-        "ProjectSourceList",
+    "list_feeds": RouteTruth(
+        "/api/projects/{pid}/feeds",
+        "ProjectFeedList",
         frozenset({401, 403, 404, 409, 500}),
     ),
-    "get_source_ep": RouteTruth(
-        "/api/projects/{pid}/sources/{source_id}",
-        "ProjectSourceDetail",
+    "get_feed": RouteTruth(
+        "/api/projects/{pid}/feeds/{feed_id}",
+        "ProjectFeedDetail",
         frozenset({401, 403, 404, 409, 422, 500}),
         50,
     ),
-    "get_source_health_ep": RouteTruth(
-        "/api/projects/{pid}/sources/{source_id}/health",
-        "ProjectSourceHealth",
+    "get_feed_health": RouteTruth(
+        "/api/projects/{pid}/feeds/{feed_id}/health",
+        "ProjectFeedHealth",
         frozenset({401, 403, 404, 409, 422, 500}),
         20,
     ),
 }
 OPERATION_IDS = frozenset(
     {
-        "tenant.list_sources.get",
-        "tenant.get_source_ep.get",
-        "tenant.get_source_health_ep.get",
+        "tenant.list_feeds.get",
+        "tenant.get_feed.get",
+        "tenant.get_feed_health.get",
     }
 )
 
@@ -348,9 +346,9 @@ def test_exact_three_source_reads_have_policy_identity_auth_and_browser_membersh
         for entry in entries
     } == {
         (
-            "tenant.list_sources.get",
+            "tenant.list_feeds.get",
             "tenant",
-            "list_sources",
+            "list_feeds",
             "GET",
             "session_or_pat",
             "viewer",
@@ -359,9 +357,9 @@ def test_exact_three_source_reads_have_policy_identity_auth_and_browser_membersh
             False,
         ),
         (
-            "tenant.get_source_ep.get",
+            "tenant.get_feed.get",
             "tenant",
-            "get_source_ep",
+            "get_feed",
             "GET",
             "session_or_pat",
             "viewer",
@@ -370,9 +368,9 @@ def test_exact_three_source_reads_have_policy_identity_auth_and_browser_membersh
             False,
         ),
         (
-            "tenant.get_source_health_ep.get",
+            "tenant.get_feed_health.get",
             "tenant",
-            "get_source_health_ep",
+            "get_feed_health",
             "GET",
             "session_or_pat",
             "viewer",
@@ -385,7 +383,7 @@ def test_exact_three_source_reads_have_policy_identity_auth_and_browser_membersh
         not {
             entry.id
             for entry in BASE_ENDPOINT_CATALOG
-            if entry.id.startswith("tenant.source_") and entry.browser_client
+            if entry.id.startswith("tenant.feed_") and entry.browser_client
         }
         - OPERATION_IDS
     )
@@ -428,9 +426,9 @@ def test_source_reads_continue_to_ignore_unknown_query_parameters(
 
     with TestClient(create_app(tmp_path / "unknown-project-source-query")) as client:
         for path in (
-            "/api/projects/missing/sources?unrecognized=1",
-            "/api/projects/missing/sources/7?unrecognized=1",
-            "/api/projects/missing/sources/7/health?unrecognized=1",
+            "/api/projects/missing/feeds?unrecognized=1",
+            "/api/projects/missing/feeds/7?unrecognized=1",
+            "/api/projects/missing/feeds/7/health?unrecognized=1",
         ):
             response = client.get(path)
             assert response.status_code == 404
@@ -438,12 +436,12 @@ def test_source_reads_continue_to_ignore_unknown_query_parameters(
 
 def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     contracts = _contracts()
-    source = _model(contracts, "ProjectSource")
-    run = _model(contracts, "ProjectSourceRun")
-    page = _model(contracts, "ProjectSourceRunsPage")
-    detail = _model(contracts, "ProjectSourceDetail")
-    health = _model(contracts, "ProjectSourceHealth")
-    source_list = _model(contracts, "ProjectSourceList")
+    source = _model(contracts, "ProjectFeed")
+    run = _model(contracts, "ProjectFeedCheck")
+    page = _model(contracts, "ProjectFeedChecksPage")
+    detail = _model(contracts, "ProjectFeedDetail")
+    health = _model(contracts, "ProjectFeedHealth")
+    source_list = _model(contracts, "ProjectFeedList")
 
     assert issubclass(source, WireModel)
     for model in (source, run, page, detail, health):
@@ -467,7 +465,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     }
     run_annotations = {
         "id": int,
-        "source_id": int,
+        "feed_id": int,
         "op_id": int | None,
         "receipt_id": str | None,
         "status": str,
@@ -486,7 +484,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
         "finished_at": str | None,
     }
     page_annotations = {
-        "schema_version": Literal["frisket.source_runs_page.v1"],
+        "schema_version": Literal["frisket.feed_checks_page.v1"],
         "order": Literal["desc"],
         "offset": int,
         "limit": int,
@@ -521,7 +519,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     assert set(detail.model_fields) == _RAW_SOURCE_FIELDS | {"runs", "runs_page"}
     assert set(health.model_fields) == {
         "schema_version",
-        "source",
+        "feed",
         "summary",
         "runs_page",
         "runs",
@@ -534,7 +532,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     assert source_list.model_config.get("strict") is True
     source_list_root = source_list.model_fields["root"].annotation
     assert source_list_root == list[source]
-    _assert_closed_annotation(source_list_root, label="ProjectSourceList.root")
+    _assert_closed_annotation(source_list_root, label="ProjectFeedList.root")
 
     raw_source = {
         "id": 7,
@@ -553,7 +551,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     }
     raw_run = {
         "id": 8,
-        "source_id": 7,
+        "feed_id": 7,
         "op_id": None,
         "receipt_id": None,
         "status": "ok",
@@ -589,7 +587,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     _assert_missing_fields_rejected(run, raw_run, _RAW_RUN_FIELDS)
     assert source_list.model_validate([raw_source]).model_dump() == [raw_source]
     page_payload = {
-        "schema_version": "frisket.source_runs_page.v1",
+        "schema_version": "frisket.feed_checks_page.v1",
         "order": "desc",
         "offset": 0,
         "limit": 50,
@@ -608,7 +606,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     )
     with pytest.raises(ValidationError):
         page.model_validate(
-            {**page_payload, "schema_version": "frisket.source_runs_page.v2"}
+            {**page_payload, "schema_version": "frisket.feed_checks_page.v2"}
         )
     with pytest.raises(ValidationError):
         page.model_validate({**page_payload, "order": "asc"})
@@ -629,17 +627,17 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
 
 def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() -> None:
     contracts = _contracts()
-    health = _model(contracts, "ProjectSourceHealth")
-    source = _model(contracts, "ProjectSourceHealthSource")
-    summary = _model(contracts, "ProjectSourceHealthSummary")
-    page = _model(contracts, "ProjectSourceHealthRunsPage")
-    run = _model(contracts, "ProjectSourceHealthRun")
-    job = _model(contracts, "ProjectSourceHealthJob")
-    refs = _model(contracts, "ProjectSourceHealthJobRefs")
-    costs = _model(contracts, "ProjectSourceHealthCosts")
-    sparse_notice = _model(contracts, "ProjectSourceHealthSparseRunNotice")
+    health = _model(contracts, "ProjectFeedHealth")
+    source = _model(contracts, "ProjectFeedHealthFeed")
+    summary = _model(contracts, "ProjectFeedHealthSummary")
+    page = _model(contracts, "ProjectFeedHealthChecksPage")
+    run = _model(contracts, "ProjectFeedHealthCheck")
+    job = _model(contracts, "ProjectFeedHealthJob")
+    refs = _model(contracts, "ProjectFeedHealthJobRefs")
+    costs = _model(contracts, "ProjectFeedHealthCosts")
+    sparse_notice = _model(contracts, "ProjectFeedHealthSparseCheckNotice")
     unsupported_schedule_notice = _model(
-        contracts, "ProjectSourceHealthUnsupportedScheduleNotice"
+        contracts, "ProjectFeedHealthUnsupportedScheduleNotice"
     )
 
     assert set(source.model_fields) == _HEALTH_SOURCE_FIELDS
@@ -701,7 +699,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         ],
     }
     page_annotations = {
-        "schema_version": Literal["frisket.source_runs_page.v1"],
+        "schema_version": Literal["frisket.feed_checks_page.v1"],
         "order": Literal["desc"],
         "offset": int,
         "limit": int,
@@ -711,7 +709,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
     }
     run_annotations = {
         "id": int,
-        "source_id": int,
+        "feed_id": int,
         "status": str,
         "started_at": str,
         "finished_at": str | None,
@@ -730,8 +728,8 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "summary_present": bool,
     }
     refs_annotations = {
-        "source_id": int,
-        "source_run_id": int | None,
+        "feed_id": int,
+        "feed_check_id": int | None,
         "sheet_id": int | None,
     }
     job_annotations = {
@@ -754,17 +752,17 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "basis": str,
     }
     sparse_notice_annotations = {
-        "code": Literal["sparse_source_run_metadata"],
+        "code": Literal["sparse_feed_check_metadata"],
         "message": str,
         "run_ids": list[int],
     }
     unsupported_schedule_notice_annotations = {
-        "code": Literal["unsupported_source_schedule"],
+        "code": Literal["unsupported_feed_schedule"],
         "message": str,
     }
     health_annotations = {
-        "schema_version": Literal["frisket.source_health.v1"],
-        "source": source,
+        "schema_version": Literal["frisket.feed_health.v1"],
+        "feed": source,
         "summary": summary,
         "runs_page": page,
         "runs": list[run],
@@ -796,15 +794,15 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
     _assert_required_nullable(page, _HEALTH_PAGE_NULLABLE_FIELDS)
     _assert_required_nullable(run, _HEALTH_RUN_NULLABLE_FIELDS)
     _assert_required_nullable(job, _HEALTH_JOB_NULLABLE_FIELDS)
-    assert refs.model_fields["source_id"].is_required()
-    _assert_optional_nullable(refs, "source_run_id")
+    assert refs.model_fields["feed_id"].is_required()
+    _assert_optional_nullable(refs, "feed_check_id")
     _assert_optional_nullable(refs, "sheet_id")
     _assert_all_fields_required(sparse_notice)
     _assert_all_fields_required(unsupported_schedule_notice)
 
     payload = {
-        "schema_version": "frisket.source_health.v1",
-        "source": {
+        "schema_version": "frisket.feed_health.v1",
+        "feed": {
             "id": 7,
             "name": "source",
             "kind": "rss",
@@ -829,7 +827,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
             "last_cursor_summary": "stored",
         },
         "runs_page": {
-            "schema_version": "frisket.source_runs_page.v1",
+            "schema_version": "frisket.feed_checks_page.v1",
             "order": "desc",
             "offset": 0,
             "limit": 20,
@@ -840,7 +838,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "runs": [
             {
                 "id": 8,
-                "source_id": 7,
+                "feed_id": 7,
                 "status": "running",
                 "started_at": "2026-08-10 00:00:00",
                 "finished_at": None,
@@ -862,14 +860,14 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "downstream_jobs": [
             {
                 "job_id": 9,
-                "kind": "source.poll",
+                "kind": "feed.poll",
                 "status": "done",
                 "attempts": 1,
                 "max_attempts": 3,
                 "created_at": "2026-08-10T00:00:00Z",
                 "started_at": None,
                 "finished_at": None,
-                "refs": {"source_id": 7},
+                "refs": {"feed_id": 7},
                 "result_summary": {"kept": [1]},
                 "error_summary": None,
                 "stalled": False,
@@ -878,17 +876,17 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "costs": {
             "recent_actual_micro": 0,
             "recent_estimated_micro": 0,
-            "basis": "source_runs.cost_micro for loaded runs; downstream costs unknown-safe",
+            "basis": "feed_checks.cost_micro for loaded checks; downstream costs unknown-safe",
         },
         "alerts": [
             {
-                "code": "unsupported_source_schedule",
+                "code": "unsupported_feed_schedule",
                 "message": "Feed schedule could not be parsed for stale detection.",
             }
         ],
         "warnings": [
             {
-                "code": "sparse_source_run_metadata",
+                "code": "sparse_feed_check_metadata",
                 "message": "Some loaded feed checks lack v1 runtime metadata; row deltas and costs may be incomplete.",
                 "run_ids": [8],
             },
@@ -896,7 +894,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
     }
     health_wire = health.model_validate(payload)
     assert health_wire.model_dump(exclude_unset=True) == payload
-    assert isinstance(health_wire.source, source)
+    assert isinstance(health_wire.feed, source)
     assert isinstance(health_wire.summary, summary)
     assert isinstance(health_wire.runs_page, page)
     assert isinstance(health_wire.runs[0], run)
@@ -913,12 +911,12 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         sparse_notice.model_validate(payload["warnings"][0]).model_dump()
         == payload["warnings"][0]
     )
-    assert refs.model_validate({"source_id": 7}).model_dump(exclude_unset=True) == {
-        "source_id": 7
+    assert refs.model_validate({"feed_id": 7}).model_dump(exclude_unset=True) == {
+        "feed_id": 7
     }
 
     with pytest.raises(ValidationError):
-        health.model_validate({**payload, "schema_version": "frisket.source_health.v2"})
+        health.model_validate({**payload, "schema_version": "frisket.feed_health.v2"})
     with pytest.raises(ValidationError):
         health.model_validate(
             {**payload, "summary": {**payload["summary"], "status": "unknown"}}
@@ -949,13 +947,13 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
                 **payload,
                 "runs_page": {
                     **payload["runs_page"],
-                    "schema_version": "frisket.source_runs_page.v2",
+                    "schema_version": "frisket.feed_checks_page.v2",
                 },
             }
         )
     with pytest.raises(ValidationError):
         health.model_validate(
-            {**payload, "source": {**payload["source"], "created_at": None}}
+            {**payload, "feed": {**payload["feed"], "created_at": None}}
         )
     with pytest.raises(ValidationError):
         health.model_validate(
@@ -968,7 +966,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         )
 
     _assert_missing_fields_rejected(health, payload, frozenset(health_annotations))
-    _assert_missing_fields_rejected(source, payload["source"], _HEALTH_SOURCE_FIELDS)
+    _assert_missing_fields_rejected(source, payload["feed"], _HEALTH_SOURCE_FIELDS)
     _assert_missing_fields_rejected(summary, payload["summary"], _HEALTH_SUMMARY_FIELDS)
     _assert_missing_fields_rejected(page, payload["runs_page"], _HEALTH_PAGE_FIELDS)
     _assert_missing_fields_rejected(run, payload["runs"][0], _HEALTH_RUN_FIELDS)
@@ -988,15 +986,13 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
     )
 
     with pytest.raises(ValidationError):
-        health.model_validate(
-            {**payload, "source": {**payload["source"], "config": {}}}
-        )
+        health.model_validate({**payload, "feed": {**payload["feed"], "config": {}}})
     with pytest.raises(ValidationError):
         health.model_validate(
             {
                 **payload,
                 "downstream_jobs": [
-                    {**payload["downstream_jobs"][0], "refs": {"source_id": "7"}}
+                    {**payload["downstream_jobs"][0], "refs": {"feed_id": "7"}}
                 ],
             }
         )
@@ -1019,7 +1015,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
                 "downstream_jobs": [
                     {
                         **payload["downstream_jobs"][0],
-                        "refs": {"source_id": 7, "unapproved_ref": 9},
+                        "refs": {"feed_id": 7, "unapproved_ref": 9},
                     }
                 ],
             }
@@ -1047,7 +1043,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         )
     with pytest.raises(ValidationError):
         sparse_notice.model_validate(
-            {"code": "sparse_source_run_metadata", "run_ids": [8]}
+            {"code": "sparse_feed_check_metadata", "run_ids": [8]}
         )
     with pytest.raises(ValidationError):
         sparse_notice.model_validate(
@@ -1103,7 +1099,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
                 schedule=None,
             )
         project.db.execute(
-            "UPDATE sources SET config=? WHERE id=?",
+            "UPDATE feeds SET config=? WHERE id=?",
             (json.dumps(config), source_id),
         )
         project.db.commit()
@@ -1111,19 +1107,19 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
 
     detailed_source_id = source_ids[0]
     project.db.execute(
-        "UPDATE sources SET cursor=?, last_checked_at=?, last_status=? WHERE id=?",
+        "UPDATE feeds SET cursor=?, last_checked_at=?, last_status=? WHERE id=?",
         ("raw-source-cursor", None, None, detailed_source_id),
     )
     project.db.commit()
     with write_transaction(project.db):
         run_id = store.start_feed_check(detailed_source_id, cursor_before="raw-before")
     job_id = workspace.queue.enqueue(
-        "source.poll",
-        {"project_id": project_id, "source_id": detailed_source_id},
+        "feed.poll",
+        {"project_id": project_id, "feed_id": detailed_source_id},
     )
 
     with TestClient(app) as client:
-        listed_response = client.get(f"/api/projects/{project_id}/sources")
+        listed_response = client.get(f"/api/projects/{project_id}/feeds")
         assert listed_response.status_code == 200
         listed = listed_response.json()
         assert [row["id"] for row in listed] == source_ids
@@ -1139,13 +1135,13 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
 
         for source_id, (_, config) in zip(source_ids, config_cases, strict=True):
             detail_response = client.get(
-                f"/api/projects/{project_id}/sources/{source_id}"
+                f"/api/projects/{project_id}/feeds/{source_id}"
             )
             assert detail_response.status_code == 200
             assert detail_response.json()["config"] == config
 
         detail_response = client.get(
-            f"/api/projects/{project_id}/sources/{detailed_source_id}"
+            f"/api/projects/{project_id}/feeds/{detailed_source_id}"
         )
         assert detail_response.status_code == 200
         detail = detail_response.json()
@@ -1158,7 +1154,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         assert set(raw_run) == _RAW_RUN_FIELDS
         assert {
             "id": raw_run["id"],
-            "source_id": raw_run["source_id"],
+            "feed_id": raw_run["feed_id"],
             "op_id": raw_run["op_id"],
             "receipt_id": raw_run["receipt_id"],
             "status": raw_run["status"],
@@ -1176,7 +1172,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
             "finished_at": raw_run["finished_at"],
         } == {
             "id": run_id,
-            "source_id": detailed_source_id,
+            "feed_id": detailed_source_id,
             "op_id": None,
             "receipt_id": None,
             "status": "running",
@@ -1195,7 +1191,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         }
         assert isinstance(raw_run["started_at"], str)
         assert detail["runs_page"] == {
-            "schema_version": "frisket.source_runs_page.v1",
+            "schema_version": "frisket.feed_checks_page.v1",
             "order": "desc",
             "offset": 0,
             "limit": 50,
@@ -1207,13 +1203,13 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         }
 
         health_response = client.get(
-            f"/api/projects/{project_id}/sources/{detailed_source_id}/health"
+            f"/api/projects/{project_id}/feeds/{detailed_source_id}/health"
         )
         assert health_response.status_code == 200
         health = health_response.json()
         assert set(health) == {
             "schema_version",
-            "source",
+            "feed",
             "summary",
             "runs_page",
             "runs",
@@ -1222,10 +1218,10 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
             "alerts",
             "warnings",
         }
-        assert set(health["source"]) == _HEALTH_SOURCE_FIELDS
-        assert "config" not in health["source"]
-        assert "cursor" not in health["source"]
-        assert health["source"] == {
+        assert set(health["feed"]) == _HEALTH_SOURCE_FIELDS
+        assert "config" not in health["feed"]
+        assert "cursor" not in health["feed"]
+        assert health["feed"] == {
             "id": detailed_source_id,
             "name": "config-object",
             "kind": "rss",
@@ -1250,7 +1246,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
             "last_cursor_summary": "stored",
         }
         assert health["runs_page"] == {
-            "schema_version": "frisket.source_runs_page.v1",
+            "schema_version": "frisket.feed_checks_page.v1",
             "order": "desc",
             "offset": 0,
             "limit": 20,
@@ -1261,7 +1257,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         assert health["runs"] == [
             {
                 "id": run_id,
-                "source_id": detailed_source_id,
+                "feed_id": detailed_source_id,
                 "status": "running",
                 "started_at": raw_run["started_at"],
                 "finished_at": None,
@@ -1285,14 +1281,14 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         assert set(job) == _HEALTH_JOB_FIELDS
         assert job == {
             "job_id": job_id,
-            "kind": "source.poll",
+            "kind": "feed.poll",
             "status": "queued",
             "attempts": 0,
             "max_attempts": 3,
             "created_at": job["created_at"],
             "started_at": None,
             "finished_at": None,
-            "refs": {"source_id": detailed_source_id},
+            "refs": {"feed_id": detailed_source_id},
             "result_summary": {},
             "error_summary": None,
             "stalled": False,
@@ -1301,20 +1297,20 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         assert health["costs"] == {
             "recent_actual_micro": 0,
             "recent_estimated_micro": 0,
-            "basis": "source_runs.cost_micro for loaded runs; downstream costs unknown-safe",
+            "basis": "feed_checks.cost_micro for loaded checks; downstream costs unknown-safe",
         }
         assert health["alerts"] == []
         assert health["warnings"] == [
             {
-                "code": "sparse_source_run_metadata",
+                "code": "sparse_feed_check_metadata",
                 "message": "Some loaded feed checks lack v1 runtime metadata; row deltas and costs may be incomplete.",
                 "run_ids": [run_id],
             }
         ]
         for path in (
-            f"/api/projects/{project_id}/sources?unrecognized=1",
-            f"/api/projects/{project_id}/sources/{detailed_source_id}?unrecognized=1",
-            f"/api/projects/{project_id}/sources/{detailed_source_id}/health?unrecognized=1",
+            f"/api/projects/{project_id}/feeds?unrecognized=1",
+            f"/api/projects/{project_id}/feeds/{detailed_source_id}?unrecognized=1",
+            f"/api/projects/{project_id}/feeds/{detailed_source_id}/health?unrecognized=1",
         ):
             assert client.get(path).status_code == 200
 
@@ -1332,19 +1328,19 @@ def test_source_read_error_oracles_preserve_existing_http_behavior(
 
     with TestClient(app) as client:
         for suffix in ("", "/1", "/1/health"):
-            response = client.get(f"/api/projects/missing/sources{suffix}")
+            response = client.get(f"/api/projects/missing/feeds{suffix}")
             assert response.status_code == 404
             assert response.json() == {"detail": "no project 'missing'"}
 
         for suffix in ("", "/health"):
             response = client.get(
-                f"/api/projects/{project_id}/sources/{missing_source_id}{suffix}"
+                f"/api/projects/{project_id}/feeds/{missing_source_id}{suffix}"
             )
             assert response.status_code == 404
             assert response.json() == {"detail": "feed not found"}
 
         detail_bad_offset = client.get(
-            f"/api/projects/{project_id}/sources/{source_id}?runs_offset=-1"
+            f"/api/projects/{project_id}/feeds/{source_id}?runs_offset=-1"
         )
         assert detail_bad_offset.status_code == 422
         assert detail_bad_offset.json() == {
@@ -1360,7 +1356,7 @@ def test_source_read_error_oracles_preserve_existing_http_behavior(
         }
 
         health_bad_limit = client.get(
-            f"/api/projects/{project_id}/sources/{source_id}/health?runs_limit=101"
+            f"/api/projects/{project_id}/feeds/{source_id}/health?runs_limit=101"
         )
         assert health_bad_limit.status_code == 422
         assert health_bad_limit.json() == {

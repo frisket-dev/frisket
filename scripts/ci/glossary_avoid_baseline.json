@@ -67,7 +67,7 @@
  "src/frisket/contracts/http/project_qa.py [names] evidence": 2,
  "src/frisket/contracts/http/project_search.py [names] evidence": 2,
  "src/frisket/contracts/http/project_search.py [names] recipe": 2,
- "src/frisket/contracts/http/project_sources.py [names] op": 2,
+ "src/frisket/contracts/http/project_feeds.py [names] op": 2,
  "src/frisket/contracts/http/run_provenance.py [names] evidence": 1,
  "src/frisket/contracts/http/views.py [names] op": 1,
  "src/frisket/contracts/plugin_write_plan.py [names] op": 12,

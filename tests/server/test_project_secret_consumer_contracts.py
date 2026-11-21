@@ -98,7 +98,7 @@ def test_project_secret_consumer_refs_cover_source_job_and_mcp(tmp_path) -> None
 
     for kind, consumer_id in [
         ("source", "rss-feed:1"),
-        ("job", "source.poll"),
+        ("job", "feed.poll"),
         ("mcp_connector", "linear"),
     ]:
         declared = service.declare_project_secret_consumer(
@@ -124,7 +124,7 @@ def test_project_secret_consumer_refs_cover_source_job_and_mcp(tmp_path) -> None
 
     secret = client.get(f"/api/projects/{pid}/secrets").json()["secrets"][0]
     assert secret["consumers"] == [
-        {"kind": "job", "id": "source.poll"},
+        {"kind": "job", "id": "feed.poll"},
         {"kind": "mcp_connector", "id": "linear"},
         {"kind": "source", "id": "rss-feed:1"},
     ]
@@ -148,7 +148,7 @@ def test_project_secret_resolution_prefers_project_secret_over_organization_fall
     service.declare_project_secret_consumer(
         pid,
         kind="job",
-        consumer_id="source.poll",
+        consumer_id="feed.poll",
         name="token",
     )
 
@@ -156,7 +156,7 @@ def test_project_secret_resolution_prefers_project_secret_over_organization_fall
         service.resolve_project_secret_for_consumer(
             pid,
             kind="job",
-            consumer_id="source.poll",
+            consumer_id="feed.poll",
             name="token",
         )
         == "org-secret-value"
@@ -189,7 +189,7 @@ def test_project_secret_resolution_prefers_project_secret_over_organization_fall
         service.resolve_project_secret_for_consumer(
             pid,
             kind="job",
-            consumer_id="source.poll",
+            consumer_id="feed.poll",
             name="token",
         )
         == "project-secret-value"

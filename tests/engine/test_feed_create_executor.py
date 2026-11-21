@@ -24,7 +24,7 @@ def _source_create_action(
     if config is not None:
         params["config"] = config
     return {
-        "action_id": "source.create",
+        "action_id": "feed.create",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -51,11 +51,11 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.engine.store.feeds import FeedStore
 
     del seeded
-    source_output = next(output for output in result.outputs if output.kind == "source")
-    source_id = int(source_output.ref["source_id"])
-    assert source_output.ref["kind"] == "source_create_source"
+    source_output = next(output for output in result.outputs if output.kind == "feed")
+    source_id = int(source_output.ref["feed_id"])
+    assert source_output.ref["kind"] == "feed_create_feed"
     assert source_output.ref["name"] == "Policy feed"
-    assert source_output.ref["source_kind"] == "rss"
+    assert source_output.ref["feed_kind"] == "rss"
     assert source_output.ref["schedule"] == "@hourly"
     assert source_output.ref["enabled"] is True
 
@@ -69,21 +69,21 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     ).fetchone()
     assert row is not None
     receipt = Receipt.model_validate(json.loads(row["body"]))
-    assert receipt.action_kind == "source.create"
+    assert receipt.action_kind == "feed.create"
     assert receipt.status == "completed"
-    assert receipt.outputs[0].ref["source_id"] == source_id
+    assert receipt.outputs[0].ref["feed_id"] == source_id
 
 
 CASES = [
     ExecutorCase(
-        kind="source.create",
+        kind="feed.create",
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",
             writes_project=True,
             receipt_policy="writes_receipt",
             required_capabilities=("project:write",),
-            side_effects=frozenset({"create_source", "write_receipt"}),
+            side_effects=frozenset({"create_feed", "write_receipt"}),
             error_codes=frozenset(
                 {
                     "invalid_action_request",
@@ -94,7 +94,7 @@ CASES = [
             ),
             cost_policy_kind="none",
             input_schema_properties=("name", "kind", "url", "schedule", "enabled"),
-            output_schema_properties=("source_id", "receipt_id"),
+            output_schema_properties=("feed_id", "receipt_id"),
         ),
         seed=_seed,
         make_action=_make_action,
@@ -106,7 +106,7 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"sources": 1, "receipts": 1},
+        expect_counts={"feeds": 1, "receipts": 1},
         check_state=_check_state,
         replay_output_names=False,
         request_style="typed",
@@ -139,10 +139,10 @@ def test_source_create_replay_normalizes_omitted_and_explicit_defaults(
 
     project = make_project("defaults")
     base = {
-        "action_id": "source.create",
+        "action_id": "feed.create",
         "scope": {"kind": "project"},
         "params": {"name": "Feed"},
-        "idempotency_key": "source-create-defaults",
+        "idempotency_key": "feed-create-defaults",
     }
     first = run_action_spec(project, base, project_id="project-defaults")
     replay = run_action_spec(

@@ -13,7 +13,7 @@ export function docsCatalog(catalog: ActionCatalogPayload, appRevision: string) 
   const templates = actionTemplatesFromCatalog(catalog);
   const byKind = new Map(templates.map((template) => [template.kind, template]));
   const context = { activeProject: false, activeSheet: false, activeRow: false, activeColumn: false,
-    activeCell: false, activeEvidence: false, activeSource: false, activeEntity: false,
+    activeCell: false, activeEvidence: false, activeFeed: false, activeEntity: false,
     activeProjection: false, selectedRowIds: [], columnTypes: [] };
   const actions = resolveRibbonTabs(templates, context).filter((tab) => !tab.contextual)
     .flatMap((tab) => tab.groups.flatMap((group) => group.items.flatMap((item) => {

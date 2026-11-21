@@ -18,8 +18,8 @@ from frisket.features.alerts.service import (
 class FeedPollMaterialization(TypedDict):
     kind: str
     project_id: str
-    source_id: int
-    source_run_id: int
+    feed_id: int
+    feed_check_id: int
     sheet_id: int
     op_id: int
     row_ids: list[int]
@@ -39,43 +39,41 @@ def feed_poll_materialization_from_receipt(
         receipt = json.loads(body)
     except (TypeError, ValueError):
         return None
-    if receipt.get("action_kind") != "source.poll":
+    if receipt.get("action_kind") != "feed.poll":
         return None
     if receipt.get("status") != "completed":
         return None
     refs = _receipt_refs(receipt)
-    source_run = next(
-        (ref for ref in refs if ref.get("kind") == "source_poll_run"),
+    feed_check = next(
+        (ref for ref in refs if ref.get("kind") == "feed_poll_check"),
         {},
     )
     rows = next(
-        (ref for ref in refs if ref.get("kind") == "source_poll_rows"),
+        (ref for ref in refs if ref.get("kind") == "feed_poll_rows"),
         {},
     )
-    if source_run.get("status") != "ok":
+    if feed_check.get("status") != "ok":
         return None
-    materialized_rows = _positive_int_or_none(source_run.get("materialized_rows"))
+    materialized_rows = _positive_int_or_none(feed_check.get("materialized_rows"))
     if materialized_rows is None or materialized_rows <= 0:
         return None
     row_ids = [_as_positive_int(row_id) for row_id in rows.get("row_ids") or []]
     row_ids = [row_id for row_id in row_ids if row_id is not None]
     if not row_ids:
         return None
-    source_id = _positive_int_or_none(
-        source_run.get("source_id") or rows.get("source_id")
+    feed_id = _positive_int_or_none(feed_check.get("feed_id") or rows.get("feed_id"))
+    feed_check_id = _positive_int_or_none(
+        feed_check.get("feed_check_id") or rows.get("feed_check_id")
     )
-    source_run_id = _positive_int_or_none(
-        source_run.get("source_run_id") or rows.get("source_run_id")
-    )
-    sheet_id = _positive_int_or_none(source_run.get("sheet_id") or rows.get("sheet_id"))
-    op_id = _positive_int_or_none(source_run.get("op_id") or rows.get("op_id"))
-    if source_id is None or source_run_id is None or sheet_id is None or op_id is None:
+    sheet_id = _positive_int_or_none(feed_check.get("sheet_id") or rows.get("sheet_id"))
+    op_id = _positive_int_or_none(feed_check.get("op_id") or rows.get("op_id"))
+    if feed_id is None or feed_check_id is None or sheet_id is None or op_id is None:
         return None
     return {
-        "kind": "source_poll_materialized",
+        "kind": "feed_poll_materialized",
         "project_id": project_id,
-        "source_id": source_id,
-        "source_run_id": source_run_id,
+        "feed_id": feed_id,
+        "feed_check_id": feed_check_id,
         "sheet_id": sheet_id,
         "op_id": op_id,
         "row_ids": row_ids,
@@ -91,7 +89,7 @@ def trigger_source_materialized_alerts(
     | None = None,
 ) -> list[dict[str, Any]]:
     if (
-        materialization.get("kind") != "source_poll_materialized"
+        materialization.get("kind") != "feed_poll_materialized"
         or materialization.get("op_id") is None
         or not materialization.get("row_ids")
     ):
@@ -130,9 +128,9 @@ def trigger_source_materialized_alerts(
             evaluation = check_alert(project, alert)
         evaluation.update(
             {
-                "trigger_kind": "source_poll_materialized",
-                "source_id": materialization["source_id"],
-                "source_run_id": materialization["source_run_id"],
+                "trigger_kind": "feed_poll_materialized",
+                "feed_id": materialization["feed_id"],
+                "feed_check_id": materialization["feed_check_id"],
                 "sheet_id": materialization["sheet_id"],
                 "op_id": materialization["op_id"],
                 "materialized_row_ids": list(materialization["row_ids"]),

@@ -106,11 +106,11 @@ def _feed_poll_action(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if source_id is not None:
-        params["source"] = source_id
+        params["feed"] = source_id
     if source is not None:
-        params["source"] = source
+        params["feed"] = source
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -247,11 +247,11 @@ def test_youtube_channel_solo_poll_materializes_legacy_cap_plus_one(
         == 501
     )
     run_ref = next(
-        output.ref for output in result.outputs if output.kind == "source_run"
+        output.ref for output in result.outputs if output.kind == "feed_check"
     )
     source_run = project.db.execute(
-        "SELECT cursor_after FROM source_runs WHERE id=?",
-        (run_ref["source_run_id"],),
+        "SELECT cursor_after FROM feed_checks WHERE id=?",
+        (run_ref["feed_check_id"],),
     ).fetchone()
     assert source_run is not None
     cursor = json.loads(source_run["cursor_after"])
@@ -403,12 +403,12 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
         }
     ]
     source_id = next(
-        output.ref["source_id"] for output in first.outputs if output.kind == "source"
+        output.ref["feed_id"] for output in first.outputs if output.kind == "feed"
     )
     source_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in first.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     sheet_id = next(
         output.sheet_id for output in first.outputs if output.kind == "sheet"
@@ -444,7 +444,7 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
     assert column_visibility["source_raw"] is True
 
     first_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (source_run_id,),
     ).fetchone()
     assert first_run is not None
@@ -461,7 +461,7 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
     assert json.loads(first_run["summary_json"])["summary"]["pages_fetched"] == 1
 
     receipt = _receipt(project, first.receipt_id)
-    assert receipt["action_kind"] == "source.poll"
+    assert receipt["action_kind"] == "feed.poll"
     assert receipt["warnings"] == [
         "youtube_channel skipped unavailable video: [Deleted video]"
     ]
@@ -482,12 +482,12 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
     )
     assert second.status == "completed"
     second_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in second.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     second_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (second_run_id,),
     ).fetchone()
     assert second_run["new_rows"] == 0
@@ -515,12 +515,12 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
     )
     assert third.status == "completed"
     third_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in third.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     third_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (third_run_id,),
     ).fetchone()
     assert third_run["new_rows"] == 1
@@ -654,7 +654,7 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
         project_id=PROJECT_ID,
     )
     assert invalid.status == "failed"
-    assert invalid.errors[0].code == "unsupported_source_config"
+    assert invalid.errors[0].code == "unsupported_feed_config"
     assert "playlist" in invalid.errors[0].message
 
     capped_provider = FakeYouTubeChannelProvider(
@@ -688,13 +688,13 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
     assert capped_provider.calls[0]["max_pages"] == 1
     assert capped_provider.calls[0]["item_cap"] == 2
     run_ref = next(
-        output.ref for output in capped.outputs if output.kind == "source_run"
+        output.ref for output in capped.outputs if output.kind == "feed_check"
     )
     assert run_ref["new_rows"] == 2
     assert run_ref["warning_count"] == 1
     source_run = capped_project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
-        (run_ref["source_run_id"],),
+        "SELECT * FROM feed_checks WHERE id=?",
+        (run_ref["feed_check_id"],),
     ).fetchone()
     cursor = json.loads(source_run["cursor_after"])
     assert cursor["item_cap"] == 2
@@ -731,7 +731,7 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
     )
     assert failed.status == "failed"
     assert failed.receipt_id is not None
-    assert failed.errors[0].code == "source_poll_failed"
+    assert failed.errors[0].code == "feed_poll_failed"
     assert "SECRET" not in failed.errors[0].message
     assert "abc123" not in failed.errors[0].message
     source_run = FeedStore(failed_project).feed_checks_page(source_id, limit=1)[0]
@@ -783,7 +783,7 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
             queue=queue,
         )
         assert len(jobs) == 1
-        assert jobs[0]["source_id"] == youtube_source_id
+        assert jobs[0]["feed_id"] == youtube_source_id
         job_id = int(jobs[0]["job_id"])
 
         def unexpected_rss_fetch(_url: str) -> str:
@@ -799,8 +799,8 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
         assert Worker(queue, registry).run_once()
         job = queue.get(job_id)
         assert job.status == "done"
-        assert job.result["action_kind"] == "source.poll"
-        assert job.result["source_id"] == youtube_source_id
+        assert job.result["action_kind"] == "feed.poll"
+        assert job.result["feed_id"] == youtube_source_id
         assert job.result["new_rows"] == 1
         assert provider.calls[0]["max_pages"] == 1
 
@@ -813,7 +813,7 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
             assert len(runs) == 1
             assert runs[0]["status"] == "ok"
             receipt = _receipt(reopened, job.result["receipt_id"])
-            assert receipt["action_kind"] == "source.poll"
+            assert receipt["action_kind"] == "feed.poll"
             assert receipt["provider_use"][0]["source_kind"] == YOUTUBE_CHANNEL_KIND
         finally:
             reopened.close()

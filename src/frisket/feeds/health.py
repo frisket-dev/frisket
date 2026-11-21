@@ -23,8 +23,8 @@ from frisket.engine.jobs.schedule import _parse_time, _schedule_interval
 from frisket.redaction import redact_text
 from frisket.engine.store.feeds import FeedStore
 
-FEED_HEALTH_SCHEMA_VERSION = "frisket.source_health.v1"
-FEED_CHECKS_PAGE_SCHEMA_VERSION = "frisket.source_runs_page.v1"
+FEED_HEALTH_SCHEMA_VERSION = "frisket.feed_health.v1"
+FEED_CHECKS_PAGE_SCHEMA_VERSION = "frisket.feed_checks_page.v1"
 _MAX_JOB_SUMMARIES = 20
 _MAX_ERROR_CHARS = 240
 
@@ -83,7 +83,7 @@ def build_feed_health(
 
     return {
         "schema_version": FEED_HEALTH_SCHEMA_VERSION,
-        "source": feed,
+        "feed": feed,
         "summary": {
             "status": status,
             "last_success_at": last_success_at,
@@ -133,7 +133,7 @@ def _public_run(row: Any) -> dict[str, Any]:
     summary = _decode_json_object(_row_get(row, "summary_json"), {})
     return {
         "id": int(row["id"]),
-        "source_id": int(row["source_id"]),
+        "feed_id": int(row["feed_id"]),
         "status": row["status"],
         "started_at": _row_get(row, "started_at"),
         "finished_at": _row_get(row, "finished_at"),
@@ -214,7 +214,7 @@ def _feed_stale(
     except (TypeError, ValueError):
         warnings.append(
             {
-                "code": "unsupported_source_schedule",
+                "code": "unsupported_feed_schedule",
                 "message": "Feed schedule could not be parsed for stale detection.",
             }
         )
@@ -247,7 +247,7 @@ def _costs(rows: list[Any]) -> dict[str, Any]:
             _int_value(_row_get(row, "cost_micro"), 0) for row in rows
         ),
         "recent_estimated_micro": 0,
-        "basis": "source_runs.cost_micro for loaded runs; downstream costs unknown-safe",
+        "basis": "feed_checks.cost_micro for loaded checks; downstream costs unknown-safe",
     }
 
 
@@ -265,7 +265,7 @@ def _feed_check_warnings(rows: list[Any]) -> list[dict[str, Any]]:
     if sparse_ids:
         warnings.append(
             {
-                "code": "sparse_source_run_metadata",
+                "code": "sparse_feed_check_metadata",
                 "message": (
                     "Some loaded feed checks lack v1 runtime metadata; row deltas "
                     "and costs may be incomplete."
@@ -286,10 +286,10 @@ def _job_summaries(
     for job in jobs:
         if _job_feed_id(job) != feed_id:
             continue
-        refs = {"source_id": feed_id}
+        refs = {"feed_id": feed_id}
         feed_check_id = _job_feed_check_id(job)
         if feed_check_id is not None:
-            refs["source_run_id"] = feed_check_id
+            refs["feed_check_id"] = feed_check_id
         sheet_id = getattr(job, "sheet_id", None) or _mapping(job.payload).get(
             "sheet_id"
         )
@@ -321,19 +321,19 @@ def _job_summaries(
 
 
 def _job_feed_id(job: Any) -> int | None:
-    direct = getattr(job, "source_id", None)
+    direct = getattr(job, "feed_id", None)
     if isinstance(direct, int):
         return direct
     payload = _mapping(job.payload)
-    payload_feed_id = payload.get("source_id")
+    payload_feed_id = payload.get("feed_id")
     if isinstance(payload_feed_id, int):
         return payload_feed_id
     trigger_ref = _mapping(payload.get("trigger_ref"))
-    trigger_feed_id = trigger_ref.get("source_id")
+    trigger_feed_id = trigger_ref.get("feed_id")
     if isinstance(trigger_feed_id, int):
         return trigger_feed_id
     result = _mapping(job.result)
-    result_feed_id = result.get("source_id")
+    result_feed_id = result.get("feed_id")
     if isinstance(result_feed_id, int):
         return result_feed_id
     return None
@@ -343,10 +343,10 @@ def _job_feed_check_id(job: Any) -> int | None:
     payload = _mapping(job.payload)
     trigger_ref = _mapping(payload.get("trigger_ref"))
     for value in (
-        payload.get("source_run_id"),
-        trigger_ref.get("source_run_id"),
+        payload.get("feed_check_id"),
+        trigger_ref.get("feed_check_id"),
         _mapping(job.result).get("run_id"),
-        _mapping(job.result).get("source_run_id"),
+        _mapping(job.result).get("feed_check_id"),
     ):
         if isinstance(value, int):
             return value

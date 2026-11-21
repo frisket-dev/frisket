@@ -10,7 +10,7 @@ vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({ job: { store: holder.store }, chromePreferences: { projectId: 'project' } }),
 }));
 function jobs(status: string, summary: Record<string, unknown> = {}) {
-  return { actionJobs: { jobs: [{ kind: 'source.poll', jobId: 7, status, resultSummary: summary, error: 'Provider unavailable' }] } };
+  return { actionJobs: { jobs: [{ kind: 'feed.poll', jobId: 7, status, resultSummary: summary, error: 'Provider unavailable' }] } };
 }
 beforeEach(() => { holder.store = createStore(jobs('queued')); });
 afterEach(cleanup);

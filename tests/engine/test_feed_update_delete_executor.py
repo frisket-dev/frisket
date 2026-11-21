@@ -15,13 +15,13 @@ def _source_update_action(
     source_id: int,
     *,
     patch: dict[str, Any] | None = None,
-    idempotency_key: str = "source_update@sha256:first-update",
+    idempotency_key: str = "feed_update@sha256:first-update",
 ) -> dict[str, Any]:
     return {
-        "action_id": "source.update",
+        "action_id": "feed.update",
         "scope": {"kind": "project"},
         "params": {
-            "source_id": source_id,
+            "feed_id": source_id,
             "patch": patch
             if patch is not None
             else {
@@ -37,12 +37,12 @@ def _source_update_action(
 def _source_delete_action(
     source_id: int,
     *,
-    idempotency_key: str = "source_delete@sha256:first-delete",
+    idempotency_key: str = "feed_delete@sha256:first-delete",
 ) -> dict[str, Any]:
     return {
-        "action_id": "source.delete",
+        "action_id": "feed.delete",
         "scope": {"kind": "project"},
-        "params": {"source_id": source_id},
+        "params": {"feed_id": source_id},
         "idempotency_key": idempotency_key,
     }
 
@@ -91,10 +91,10 @@ def _conflicting_patch_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _check_update_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
-    source_output = next(output for output in result.outputs if output.kind == "source")
-    assert source_output.ref["kind"] == "source_update_source"
-    assert source_output.ref["source_id"] == seeded["source_id"]
-    assert source_output.ref["source_kind"] == "rss"
+    source_output = next(output for output in result.outputs if output.kind == "feed")
+    assert source_output.ref["kind"] == "feed_update_feed"
+    assert source_output.ref["feed_id"] == seeded["source_id"]
+    assert source_output.ref["feed_kind"] == "rss"
     assert source_output.ref["updated_fields"] == ["config", "enabled", "schedule"]
 
     source = _get_source(project, seeded["source_id"])
@@ -104,7 +104,7 @@ def _check_update_state(project: Project, seeded: dict[str, Any], result: Any) -
     assert json.loads(source["config"]) == {"download_enclosures": "queued"}
 
 
-# --- source.delete ---------------------------------------------------------
+# --- feed.delete -----------------------------------------------------------
 
 
 def _make_delete_action(seeded: dict[str, Any]) -> dict[str, Any]:
@@ -115,18 +115,16 @@ def _delete_missing_source_action(seeded: dict[str, Any]) -> dict[str, Any]:
     # After the primary delete the source is gone; a new key must not "re-delete".
     return _source_delete_action(
         seeded["source_id"],
-        idempotency_key="source_delete@sha256:missing-after-delete",
+        idempotency_key="feed_delete@sha256:missing-after-delete",
     )
 
 
 def _check_delete_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    deleted_output = next(
-        output for output in result.outputs if output.kind == "source"
-    )
-    assert deleted_output.ref["kind"] == "source_delete_source"
-    assert deleted_output.ref["source_id"] == seeded["source_id"]
+    deleted_output = next(output for output in result.outputs if output.kind == "feed")
+    assert deleted_output.ref["kind"] == "feed_delete_feed"
+    assert deleted_output.ref["feed_id"] == seeded["source_id"]
     assert deleted_output.ref["deleted"] is True
     assert _get_source(project, seeded["source_id"]) is None
 
@@ -135,7 +133,7 @@ def _check_delete_state(project: Project, seeded: dict[str, Any], result: Any) -
     ).fetchone()
     assert row is not None
     receipt = Receipt.model_validate(json.loads(row["body"]))
-    assert receipt.action_kind == "source.delete"
+    assert receipt.action_kind == "feed.delete"
     assert receipt.outputs[0].ref["deleted"] is True
 
 
@@ -150,9 +148,9 @@ _SOURCE_POLL_CATALOG = dict(
 
 CASES = [
     ExecutorCase(
-        kind="source.update",
+        kind="feed.update",
         catalog=CatalogEntry(
-            side_effects=frozenset({"update_source", "write_receipt"}),
+            side_effects=frozenset({"update_feed", "write_receipt"}),
             error_codes=frozenset(
                 {
                     "invalid_action_request",
@@ -162,7 +160,7 @@ CASES = [
                     "project_write_failed",
                 }
             ),
-            input_schema_properties=("source_id", "patch"),
+            input_schema_properties=("feed_id", "patch"),
             output_schema_properties=("updated_fields", "receipt_id"),
             **_SOURCE_POLL_CATALOG,
         ),
@@ -176,16 +174,16 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"sources": 0, "receipts": 1},
+        expect_counts={"feeds": 0, "receipts": 1},
         check_state=_check_update_state,
         replay_output_names=False,
         request_style="typed",
     ),
     ExecutorCase(
-        kind="source.delete",
+        kind="feed.delete",
         catalog=CatalogEntry(
             side_effects=frozenset(
-                {"delete_source", "cascade_source_runs", "write_receipt"}
+                {"delete_feed", "cascade_feed_checks", "write_receipt"}
             ),
             error_codes=frozenset(
                 {
@@ -196,7 +194,7 @@ CASES = [
                     "project_write_failed",
                 }
             ),
-            input_schema_properties=("source_id",),
+            input_schema_properties=("feed_id",),
             output_schema_properties=("deleted", "receipt_id"),
             **_SOURCE_POLL_CATALOG,
         ),
@@ -210,7 +208,7 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"sources": -1, "source_runs": -1, "receipts": 1},
+        expect_counts={"feeds": -1, "feed_checks": -1, "receipts": 1},
         check_state=_check_delete_state,
         replay_output_names=False,
         request_style="typed",
@@ -261,10 +259,10 @@ def test_source_update_rejects_empty_patch_at_typed_ingress(
 def test_source_update_rejects_null_for_nonnullable_patch_fields(field: str) -> None:
     from pydantic import ValidationError
 
-    from frisket.actions.feeds import SourceUpdateParams
+    from frisket.actions.feeds import FeedUpdateParams
 
     with pytest.raises(ValidationError):
-        SourceUpdateParams.model_validate({"source_id": 1, "patch": {field: None}})
+        FeedUpdateParams.model_validate({"feed_id": 1, "patch": {field: None}})
 
 
 @pytest.mark.parametrize("case_index", [0, 1], ids=["update", "delete"])

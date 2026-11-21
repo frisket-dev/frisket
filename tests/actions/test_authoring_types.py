@@ -79,13 +79,11 @@ def test_generated_action_params_cover_the_registry() -> None:
         assert registered.definition.run.params_model.__name__ in rendered
 
 
-@pytest.mark.parametrize(
-    "action_id", ["source.create", "source.update", "source.delete"]
-)
-def test_source_catalog_output_schema_uses_emitted_source_kind(action_id: str) -> None:
+@pytest.mark.parametrize("action_id", ["feed.create", "feed.update", "feed.delete"])
+def test_feed_catalog_output_schema_uses_emitted_feed_kind(action_id: str) -> None:
     properties = ACTION_REGISTRY.get(action_id).catalog_entry()["output_schema"][
         "properties"
     ]
 
-    assert "source_kind" in properties
+    assert "feed_kind" in properties
     assert "kind" not in properties

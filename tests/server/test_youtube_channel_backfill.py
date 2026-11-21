@@ -93,10 +93,10 @@ def restore_youtube_playlist_feed_checker():
 
 def _feed_poll_action(source: dict[str, Any]) -> dict[str, Any]:
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
-        "params": {"source": source},
-        "idempotency_key": "source_poll@sha256:channel-backfill",
+        "params": {"feed": source},
+        "idempotency_key": "feed_poll@sha256:channel-backfill",
     }
 
 

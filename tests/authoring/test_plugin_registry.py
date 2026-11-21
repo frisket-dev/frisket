@@ -19,7 +19,7 @@ def test_default_registry_discovers_builtin_plugin_surfaces():
     assert {"csv", "xlsx", "pdf", "rss"} <= importer_names
 
     job_kinds = {job["kind"] for job in snapshot["job_handlers"]}
-    assert {"project.run", "source.poll", "enclosure.download"} <= job_kinds
+    assert {"project.run", "feed.poll", "enclosure.download"} <= job_kinds
 
 
 def test_plugin_registry_publishes_importers_and_job_handlers():

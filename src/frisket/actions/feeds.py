@@ -1,4 +1,4 @@
-"""Typed feed metadata actions (action ids stay ``source.*``)."""
+"""Typed feed metadata and polling actions."""
 
 from __future__ import annotations
 
@@ -9,51 +9,51 @@ from pydantic import Field
 from frisket.actions.core import ActionCategory, action
 from frisket.actions.types import (
     ActionParams,
-    CheckedSource,
-    DeletedSource,
-    SourceCreator,
-    SourceChecker,
-    SourceDeleter,
-    SourcePatch,
-    SourceRecord,
-    SourceUpdater,
-    SourceCreateIntent,
-    SourcePoller,
-    SourcePollSelector,
-    PolledSource,
-    UpdatedSource,
+    CheckedFeed,
+    DeletedFeed,
+    FeedCreator,
+    FeedChecker,
+    FeedDeleter,
+    FeedPatch,
+    FeedRecord,
+    FeedUpdater,
+    FeedCreateIntent,
+    FeedPoller,
+    FeedPollSelector,
+    PolledFeed,
+    UpdatedFeed,
 )
 
 
-SourceCreateParams = SourceCreateIntent
+FeedCreateParams = FeedCreateIntent
 
 
-class SourcePollParams(ActionParams):
-    source: SourcePollSelector
+class FeedPollParams(ActionParams):
+    feed: FeedPollSelector
 
 
-def poll_feed(params: SourcePollParams, feeds: SourcePoller) -> PolledSource:
-    return feeds.poll(params.source)
+def poll_feed(params: FeedPollParams, feeds: FeedPoller) -> PolledFeed:
+    return feeds.poll(params.feed)
 
 
-class SourceUpdateParams(ActionParams):
-    source_id: int = Field(gt=0, strict=True)
-    patch: SourcePatch
+class FeedUpdateParams(ActionParams):
+    feed_id: int = Field(gt=0, strict=True)
+    patch: FeedPatch
 
 
-class SourceDeleteParams(ActionParams):
-    source_id: int = Field(gt=0, strict=True)
+class FeedDeleteParams(ActionParams):
+    feed_id: int = Field(gt=0, strict=True)
 
 
-class SourceCheckParams(ActionParams):
-    source_id: int = Field(gt=0, strict=True)
+class FeedCheckParams(ActionParams):
+    feed_id: int = Field(gt=0, strict=True)
     new_rows: int = Field(default=0, ge=0, strict=True)
     status: Literal["ok", "error"] = "ok"
     error: str | None = None
     cursor: str | None = None
 
 
-def create_feed(params: SourceCreateParams, feeds: SourceCreator) -> SourceRecord:
+def create_feed(params: FeedCreateParams, feeds: FeedCreator) -> FeedRecord:
     return feeds.create(
         name=params.name,
         kind=params.kind,
@@ -65,17 +65,17 @@ def create_feed(params: SourceCreateParams, feeds: SourceCreator) -> SourceRecor
     )
 
 
-def update_feed(params: SourceUpdateParams, feeds: SourceUpdater) -> UpdatedSource:
-    return feeds.update(params.source_id, patch=params.patch)
+def update_feed(params: FeedUpdateParams, feeds: FeedUpdater) -> UpdatedFeed:
+    return feeds.update(params.feed_id, patch=params.patch)
 
 
-def delete_feed(params: SourceDeleteParams, feeds: SourceDeleter) -> DeletedSource:
-    return feeds.delete(params.source_id)
+def delete_feed(params: FeedDeleteParams, feeds: FeedDeleter) -> DeletedFeed:
+    return feeds.delete(params.feed_id)
 
 
-def check_feed(params: SourceCheckParams, feeds: SourceChecker) -> CheckedSource:
+def check_feed(params: FeedCheckParams, feeds: FeedChecker) -> CheckedFeed:
     return feeds.check(
-        params.source_id,
+        params.feed_id,
         new_rows=params.new_rows,
         status=params.status,
         error=params.error,
@@ -85,7 +85,7 @@ def check_feed(params: SourceCheckParams, feeds: SourceChecker) -> CheckedSource
 
 CREATE = action(
     examples=(
-        SourceCreateParams(
+        FeedCreateParams(
             name="Example feed", kind="rss", url="https://example.org/feed.xml"
         ),
     ),
@@ -96,14 +96,14 @@ CREATE = action(
     ),
     category=ActionCategory.SOURCES,
     run=create_feed,
-    form="source_create",
+    form="feed_create",
 )
 
 POLL = action(
     examples=(
-        SourcePollParams(source=1),
-        SourcePollParams(
-            source=SourceCreateIntent(
+        FeedPollParams(feed=1),
+        FeedPollParams(
+            feed=FeedCreateIntent(
                 name="Example feed", kind="rss", url="https://example.org/feed.xml"
             )
         ),
@@ -116,38 +116,38 @@ POLL = action(
     ),
     category=ActionCategory.SOURCES,
     run=poll_feed,
-    form="source_poll",
+    form="feed_poll",
 )
 
 UPDATE = action(
-    examples=(SourceUpdateParams(source_id=1, patch=SourcePatch(enabled=False)),),
+    examples=(FeedUpdateParams(feed_id=1, patch=FeedPatch(enabled=False)),),
     name="update",
     title="Update feed",
     description="Update selected fields on an existing feed.",
     category=ActionCategory.SOURCES,
     run=update_feed,
-    form="source_update",
+    form="feed_update",
 )
 
 DELETE = action(
-    examples=(SourceDeleteParams(source_id=1),),
+    examples=(FeedDeleteParams(feed_id=1),),
     name="delete",
     title="Delete feed",
     description="Delete a feed and its check history.",
     category=ActionCategory.SOURCES,
     run=delete_feed,
-    form="source_delete",
+    form="feed_delete",
 )
 
 CHECK = action(
-    examples=(SourceCheckParams(source_id=1, new_rows=3, cursor="page:2"),),
+    examples=(FeedCheckParams(feed_id=1, new_rows=3, cursor="page:2"),),
     name="check",
     title="Record feed check",
     description=(
         "Record an externally observed non-RSS feed check, update the feed's "
-        "status, and write a receipt. RSS feeds are checked by source.poll."
+        "status, and write a receipt. RSS feeds are checked by feed.poll."
     ),
     category=ActionCategory.SOURCES,
     run=check_feed,
-    form="source_check",
+    form="feed_check",
 )

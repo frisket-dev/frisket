@@ -27,11 +27,11 @@ ADMIN_JOB_REF_KEYS = (
     "org_id",
     "project_id",
     "run_id",
-    "source_id",
+    "feed_id",
     "sheet_id",
     "trace_id",
 )
-INTEGER_JOB_REF_KEYS = frozenset({"org_id", "run_id", "source_id", "sheet_id"})
+INTEGER_JOB_REF_KEYS = frozenset({"org_id", "run_id", "feed_id", "sheet_id"})
 ADMIN_JOB_DIAGNOSTIC_KEYS = (
     "total_rows",
     "completed_rows",
@@ -44,7 +44,7 @@ ADMIN_JOB_DIAGNOSTIC_KEYS = (
     "model",
     "engine",
 )
-FEED_POLL_KIND = "source.poll"
+FEED_POLL_KIND = "feed.poll"
 ENCLOSURE_DOWNLOAD_KIND = "enclosure.download"
 
 # runs-are-jobs-parity-v1: a run whose action placement is INLINE never gets a
@@ -83,7 +83,7 @@ JOB_RESULT_SUMMARY_KEYS_BY_KIND = {
     FEED_POLL_KIND: (
         "completed_items",
         "total_items",
-        "source_name",
+        "feed_name",
         "skipped",
         "reason",
         "action_kind",
@@ -272,8 +272,8 @@ def job_queue_payload(job: Job, *, now: datetime) -> dict[str, Any]:
 def job_payload_ref(job_kind: str, refs: Mapping[str, Any]) -> dict[str, Any]:
     if refs.get("run_id") is not None:
         return {"kind": "run", "run_id": refs["run_id"]}
-    if refs.get("source_id") is not None:
-        return {"kind": "source", "source_id": refs["source_id"]}
+    if refs.get("feed_id") is not None:
+        return {"kind": "feed", "feed_id": refs["feed_id"]}
     if refs.get("project_id") is not None:
         return {"kind": "project", "project_id": refs["project_id"]}
     return {"kind": job_kind}

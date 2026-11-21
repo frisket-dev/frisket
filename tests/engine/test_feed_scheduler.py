@@ -81,7 +81,7 @@ def test_source_poll_worker_ingests_enabled_rss(tmp_path):
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
-        FEED_POLL_KIND, {"project_id": "news", "source_id": sid}, max_attempts=1
+        FEED_POLL_KIND, {"project_id": "news", "feed_id": sid}, max_attempts=1
     )
 
     worker = Worker(
@@ -176,7 +176,7 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
 
     # Establish the source-owned sheet before creating an Alert, so only the
     # second poll has an Alert to evaluate.
-    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "source_id": sid})
+    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "feed_id": sid})
     assert worker.run_once()
     p = Project(workspace / "news.frisket")
     alert_id = add_alert(
@@ -204,7 +204,7 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
     )
     p.close()
 
-    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "source_id": sid})
+    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "feed_id": sid})
     assert worker.run_once()
     p = Project(workspace / "news.frisket")
     drain_index(p)
@@ -219,7 +219,7 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
 
     # A later materialization still evaluates the Alert, but a non-matching
     # row emits no notification and cannot enqueue a second delivery.
-    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "source_id": sid})
+    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "feed_id": sid})
     assert worker.run_once()
     p = Project(workspace / "news.frisket")
     drain_index(p)
@@ -245,7 +245,7 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
-        FEED_POLL_KIND, {"project_id": "news", "source_id": sid}, max_attempts=1
+        FEED_POLL_KIND, {"project_id": "news", "feed_id": sid}, max_attempts=1
     )
 
     worker = Worker(
@@ -275,7 +275,7 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
 
     job = q.get(jid)
     assert job.status == "done"
-    assert job.result["action_kind"] == "source.poll"
+    assert job.result["action_kind"] == "feed.poll"
     assert job.result["receipt_id"]
     assert job.result["new_rows"] == 1
     assert job.result["enclosure_jobs"] == 1
@@ -290,16 +290,16 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
     receipts = [
         dict(row)
         for row in reopened.db.execute(
-            "SELECT * FROM receipts WHERE action_kind='source.poll'"
+            "SELECT * FROM receipts WHERE action_kind='feed.poll'"
         ).fetchall()
     ]
     assert len(receipts) == 1
     assert receipts[0]["id"] == job.result["receipt_id"]
     receipt = json.loads(receipts[0]["body"])
     refs = [item["ref"] for item in [*receipt["outputs"], *receipt["evidence"]]]
-    source_run_ref = next(ref for ref in refs if ref["kind"] == "source_poll_run")
+    source_run_ref = next(ref for ref in refs if ref["kind"] == "feed_poll_check")
     enclosure_ref = next(
-        ref for ref in refs if ref["kind"] == "source_poll_enclosure_pointers"
+        ref for ref in refs if ref["kind"] == "feed_poll_enclosure_pointers"
     )
     assert source_run_ref["new_rows"] == 1
     assert enclosure_ref["row_ids"]
@@ -342,7 +342,7 @@ def test_source_poll_worker_skips_disabled_feed(tmp_path):
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
-        FEED_POLL_KIND, {"project_id": "news", "source_id": sid}, max_attempts=1
+        FEED_POLL_KIND, {"project_id": "news", "feed_id": sid}, max_attempts=1
     )
     called = False
 
@@ -357,7 +357,7 @@ def test_source_poll_worker_skips_disabled_feed(tmp_path):
     assert job.status == "done"
     assert job.result == {
         "project_id": "news",
-        "source_id": sid,
+        "feed_id": sid,
         "skipped": True,
         "reason": "disabled",
     }
@@ -374,7 +374,7 @@ def test_source_poll_worker_skips_missing_feed(tmp_path):
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
-        FEED_POLL_KIND, {"project_id": "news", "source_id": 404}, max_attempts=1
+        FEED_POLL_KIND, {"project_id": "news", "feed_id": 404}, max_attempts=1
     )
     called = False
 
@@ -389,7 +389,7 @@ def test_source_poll_worker_skips_missing_feed(tmp_path):
     assert job.status == "done"
     assert job.result == {
         "project_id": "news",
-        "source_id": 404,
+        "feed_id": 404,
         "skipped": True,
         "reason": "not_found",
     }
@@ -410,7 +410,7 @@ def test_source_poll_worker_skips_non_rss_feed(tmp_path):
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
-        FEED_POLL_KIND, {"project_id": "news", "source_id": sid}, max_attempts=1
+        FEED_POLL_KIND, {"project_id": "news", "feed_id": sid}, max_attempts=1
     )
     called = False
 
@@ -425,7 +425,7 @@ def test_source_poll_worker_skips_non_rss_feed(tmp_path):
     assert job.status == "done"
     assert job.result == {
         "project_id": "news",
-        "source_id": sid,
+        "feed_id": sid,
         "skipped": True,
         "reason": "unsupported_kind:api",
     }
@@ -455,7 +455,7 @@ def test_source_poll_failure_retry_replays_same_logical_poll(tmp_path):
             FEED_POLL_KIND,
             {
                 "project_id": "news",
-                "source_id": sid,
+                "feed_id": sid,
                 "poll_id": "news:1:2026-06-13T12:00:00.000000+00:00",
                 "workspace_root": str(workspace),
             },
@@ -483,12 +483,12 @@ def test_source_poll_failure_retry_replays_same_logical_poll(tmp_path):
         source_notifications = [
             dict(row)
             for row in reopened.db.execute(
-                "SELECT * FROM notification_items WHERE source_kind='source'"
+                "SELECT * FROM notification_items WHERE source_kind='feed'"
             ).fetchall()
         ]
         assert len(source_notifications) == 1
         source_ref = json.loads(source_notifications[0]["source_ref"])
-        assert source_ref["source_id"] == sid
+        assert source_ref["feed_id"] == sid
         assert source_ref["status"] == "failed"
         assert "feed down" in source_notifications[0]["payload"]
         reopened.close()
@@ -507,7 +507,7 @@ def test_source_poll_failure_retry_replays_same_logical_poll(tmp_path):
         receipts = [
             dict(row)
             for row in reopened.db.execute(
-                "SELECT idempotency_key, status FROM receipts WHERE action_kind='source.poll'"
+                "SELECT idempotency_key, status FROM receipts WHERE action_kind='feed.poll'"
             ).fetchall()
         ]
         assert len(receipts) == 1
@@ -570,7 +570,7 @@ def test_unavailable_destination_check_preserves_scheduled_interval(tmp_path):
             queue=queue,
             now=checked + timedelta(hours=1),
         )
-        assert next_check["source_id"] == source_id
+        assert next_check["feed_id"] == source_id
         assert worker.run_once()
         assert queue.get(next_check["job_id"]).status == "done"
         assert calls == ["https://example.test/feed"]
@@ -612,7 +612,7 @@ def test_scheduler_enqueues_due_enabled_sources_once(tmp_path):
             schedule="@hourly",
         )
     p.db.execute(
-        "UPDATE sources SET last_checked_at=? WHERE id=?",
+        "UPDATE feeds SET last_checked_at=? WHERE id=?",
         ("2026-06-13 11:30:00", fresh),
     )
     p.db.commit()
@@ -626,13 +626,13 @@ def test_scheduler_enqueues_due_enabled_sources_once(tmp_path):
     )
     assert len(jobs) == 1
     assert jobs[0]["project_id"] == "news"
-    assert jobs[0]["source_id"] == due
+    assert jobs[0]["feed_id"] == due
     queued = q.list_jobs(status="queued")
     assert len(queued) == 1
     assert queued[0].kind == FEED_POLL_KIND
     assert queued[0].payload == {
         "project_id": "news",
-        "source_id": due,
+        "feed_id": due,
         "poll_id": "news:1:2026-06-13T12:00:00.000000+00:00",
         "workspace_root": str(workspace),
     }
@@ -658,11 +658,11 @@ def test_source_poll_success_after_error_emits_recovery_notification(tmp_path):
             url="https://example.com/recovering.xml",
             schedule="@hourly",
         )
-    p.db.execute("UPDATE sources SET last_status='error' WHERE id=?", (sid,))
+    p.db.execute("UPDATE feeds SET last_status='error' WHERE id=?", (sid,))
     p.db.commit()
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
-    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "source_id": sid}, max_attempts=1)
+    q.enqueue(FEED_POLL_KIND, {"project_id": "news", "feed_id": sid}, max_attempts=1)
 
     worker = Worker(
         q,
@@ -678,12 +678,12 @@ def test_source_poll_success_after_error_emits_recovery_notification(tmp_path):
     source_notifications = [
         dict(row)
         for row in reopened.db.execute(
-            "SELECT * FROM notification_items WHERE source_kind='source'"
+            "SELECT * FROM notification_items WHERE source_kind='feed'"
         ).fetchall()
     ]
     assert len(source_notifications) == 1
     source_ref = json.loads(source_notifications[0]["source_ref"])
-    assert source_ref["source_id"] == sid
+    assert source_ref["feed_id"] == sid
     assert source_ref["status"] == "recovered"
     reopened.close()
     q.close()
@@ -700,7 +700,7 @@ def test_scheduler_enqueues_stale_checked_source(tmp_path):
             schedule="@hourly",
         )
     p.db.execute(
-        "UPDATE sources SET last_checked_at=? WHERE id=?",
+        "UPDATE feeds SET last_checked_at=? WHERE id=?",
         ("2026-06-13 10:00:00", stale),
     )
     p.db.commit()
@@ -714,17 +714,17 @@ def test_scheduler_enqueues_stale_checked_source(tmp_path):
     )
 
     assert len(jobs) == 1
-    assert jobs[0]["source_id"] == stale
+    assert jobs[0]["feed_id"] == stale
     reopened = Project(workspace / "news.frisket")
     source_notifications = [
         dict(row)
         for row in reopened.db.execute(
-            "SELECT * FROM notification_items WHERE source_kind='source'"
+            "SELECT * FROM notification_items WHERE source_kind='feed'"
         ).fetchall()
     ]
     assert len(source_notifications) == 1
     source_ref = json.loads(source_notifications[0]["source_ref"])
-    assert source_ref["source_id"] == stale
+    assert source_ref["feed_id"] == stale
     assert source_ref["status"] == "stale"
     assert source_ref["stale_reason"] == "missed_two_intervals"
     reopened.close()
@@ -795,7 +795,7 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
             "project_id": "payload-attacker",
             "storage_org_id": 23,
             "workspace_root": str(tmp_path / "payload-root"),
-            "source_id": sid,
+            "feed_id": sid,
         },
         JobHandlerContext.without_job_row(),
     )
@@ -860,7 +860,7 @@ def test_scheduler_keeps_workspace_roots_distinct_for_hosted_slugs(tmp_path):
     )
 
     assert len(jobs) == 2
-    assert {job["source_id"] for job in jobs} == {sid1, sid2}
+    assert {job["feed_id"] for job in jobs} == {sid1, sid2}
     roots = {job.payload["workspace_root"] for job in q.list_jobs(status="queued")}
     assert roots == {str(root1), str(root2)}
     q.close()

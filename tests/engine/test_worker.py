@@ -915,7 +915,7 @@ class TestCli:
             FEED_POLL_KIND,
             {
                 "project_id": "source-cli",
-                "source_id": sid,
+                "feed_id": sid,
                 "workspace_root": str(project_root),
             },
             max_attempts=1,

@@ -37,8 +37,8 @@
   "requiredHostCapabilities": [
     "host.navigation.openRow",
     "host.navigation.openEvidence",
-    "source.list",
-    "source.poll",
+    "feed.list",
+    "feed.poll",
     "action.run",
     "action.preview",
     "grid.filter.applyBbox",

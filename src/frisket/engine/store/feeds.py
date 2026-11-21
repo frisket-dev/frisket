@@ -1,4 +1,4 @@
-"""Feed catalog and check-history store (tables ``sources`` and ``source_runs``)."""
+"""Feed catalog and check-history store (tables ``feeds`` and ``feed_checks``)."""
 
 from __future__ import annotations
 
@@ -24,14 +24,10 @@ class FeedStore:
         return self.project.db
 
     def feeds(self) -> list[sqlite3.Row]:
-        return self.db.execute(
-            "SELECT * FROM sources ORDER BY created_at, id"
-        ).fetchall()
+        return self.db.execute("SELECT * FROM feeds ORDER BY created_at, id").fetchall()
 
     def get_feed(self, feed_id: int) -> sqlite3.Row | None:
-        return self.db.execute(
-            "SELECT * FROM sources WHERE id=?", (feed_id,)
-        ).fetchone()
+        return self.db.execute("SELECT * FROM feeds WHERE id=?", (feed_id,)).fetchone()
 
     def add_feed(
         self,
@@ -46,7 +42,7 @@ class FeedStore:
         """Create a feed in the caller's transaction."""
         require_transaction(self.db, "feed add")
         cur = self.db.execute(
-            "INSERT INTO sources (name, kind, url, config, sheet_id, schedule, "
+            "INSERT INTO feeds (name, kind, url, config, sheet_id, schedule, "
             "enabled, last_status) VALUES (?,?,?,?,?,?,?, 'never')",
             (
                 name,
@@ -61,7 +57,7 @@ class FeedStore:
         return inserted_rowid(cur)
 
     def update_feed(self, feed_id: int, **fields: Any) -> None:
-        """Patch a subset of mutable source columns in the caller's transaction."""
+        """Patch a subset of mutable feed columns in the caller's transaction."""
         require_transaction(self.db, "feed update")
         allowed = {
             "name",
@@ -86,7 +82,7 @@ class FeedStore:
         if not sets:
             return
         vals.append(feed_id)
-        self.db.execute(f"UPDATE sources SET {', '.join(sets)} WHERE id=?", vals)
+        self.db.execute(f"UPDATE feeds SET {', '.join(sets)} WHERE id=?", vals)
 
     def delete_feed(self, feed_id: int) -> None:
         """Delete a feed and its key relationship in the caller's transaction."""
@@ -94,7 +90,7 @@ class FeedStore:
         self.db.execute(
             "DELETE FROM keyed_relationships WHERE id=?", (f"source:{feed_id}",)
         )
-        self.db.execute("DELETE FROM sources WHERE id=?", (feed_id,))
+        self.db.execute("DELETE FROM feeds WHERE id=?", (feed_id,))
 
     def record_feed_check(
         self,
@@ -105,15 +101,15 @@ class FeedStore:
         cursor: str | None = None,
         op_id: int | None = None,
     ) -> int:
-        """Log one poll and advance the source monitoring state in the caller's transaction."""
+        """Log one poll and advance the feed monitoring state in the caller's transaction."""
         require_transaction(self.db, "feed check record")
         cur = self.db.execute(
-            "INSERT INTO source_runs (source_id, op_id, status, new_rows, error, "
+            "INSERT INTO feed_checks (feed_id, op_id, status, new_rows, error, "
             "finished_at) VALUES (?,?,?,?,?, datetime('now'))",
             (feed_id, op_id, status, new_rows, error),
         )
         self.db.execute(
-            "UPDATE sources SET last_checked_at=datetime('now'), "
+            "UPDATE feeds SET last_checked_at=datetime('now'), "
             "last_status=?, new_rows_total=new_rows_total+?, "
             "cursor=COALESCE(?, cursor) WHERE id=?",
             (status, new_rows, cursor, feed_id),
@@ -129,7 +125,7 @@ class FeedStore:
         """Open a running feed check in the caller's transaction."""
         require_transaction(self.db, "feed check start")
         cur = self.db.execute(
-            "INSERT INTO source_runs (source_id, status, new_rows, "
+            "INSERT INTO feed_checks (feed_id, status, new_rows, "
             "cursor_before) VALUES (?, 'running', 0, ?)",
             (feed_id, cursor_before),
         )
@@ -156,7 +152,7 @@ class FeedStore:
         """Finish a feed check and advance its feed in the caller's transaction."""
         require_transaction(self.db, "feed check finish")
         self.db.execute(
-            "UPDATE source_runs SET receipt_id=?, op_id=?, status=?, "
+            "UPDATE feed_checks SET receipt_id=?, op_id=?, status=?, "
             "new_rows=?, skipped_rows=?, changed_rows=?, revisions=?, error=?, "
             "cursor_after=COALESCE(?, cursor_after), duration_ms=?, "
             "warning_count=?, cost_micro=?, summary_json=?, "
@@ -179,19 +175,19 @@ class FeedStore:
             ),
         )
         row = self.db.execute(
-            "SELECT source_id FROM source_runs WHERE id=?",
+            "SELECT feed_id FROM feed_checks WHERE id=?",
             (feed_check_id,),
         ).fetchone()
         if row is not None:
             self.db.execute(
-                "UPDATE sources SET last_checked_at=datetime('now'), "
+                "UPDATE feeds SET last_checked_at=datetime('now'), "
                 "last_status=?, new_rows_total=new_rows_total+?, "
                 "cursor=COALESCE(?, cursor) WHERE id=?",
                 (
                     "ok" if status == "ok" else "error",
                     int(new_rows) + int(revisions),
                     cursor_after,
-                    int(row["source_id"]),
+                    int(row["feed_id"]),
                 ),
             )
 
@@ -202,14 +198,14 @@ class FeedStore:
         limit: int = 50,
     ) -> list[sqlite3.Row]:
         return self.db.execute(
-            "SELECT * FROM source_runs WHERE source_id=? "
+            "SELECT * FROM feed_checks WHERE feed_id=? "
             "ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
             (feed_id, limit, offset),
         ).fetchall()
 
     def feed_checks_total(self, feed_id: int) -> int:
         row = self.db.execute(
-            "SELECT COUNT(*) AS count FROM source_runs WHERE source_id=?",
+            "SELECT COUNT(*) AS count FROM feed_checks WHERE feed_id=?",
             (feed_id,),
         ).fetchone()
         return int(row["count"] if row else 0)
@@ -222,7 +218,7 @@ class FeedStore:
         self, feed_id: int, status: str
     ) -> sqlite3.Row | None:
         return self.db.execute(
-            "SELECT * FROM source_runs WHERE source_id=? AND status=? "
+            "SELECT * FROM feed_checks WHERE feed_id=? AND status=? "
             "ORDER BY started_at DESC, id DESC LIMIT 1",
             (feed_id, status),
         ).fetchone()
@@ -231,7 +227,7 @@ class FeedStore:
         return [
             str(row["status"])
             for row in self.db.execute(
-                "SELECT status FROM source_runs WHERE source_id=? "
+                "SELECT status FROM feed_checks WHERE feed_id=? "
                 "ORDER BY started_at DESC, id DESC",
                 (feed_id,),
             )
@@ -239,7 +235,7 @@ class FeedStore:
 
     def latest_feed_check_after(self, feed_id: int, run_id: int) -> sqlite3.Row | None:
         return self.db.execute(
-            "SELECT * FROM source_runs WHERE source_id=? AND id>? "
+            "SELECT * FROM feed_checks WHERE feed_id=? AND id>? "
             "ORDER BY id DESC LIMIT 1",
             (feed_id, run_id),
         ).fetchone()

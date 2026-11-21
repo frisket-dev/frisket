@@ -24,9 +24,9 @@ def _insert_receipt(project: Project, receipt_id: str, body: dict[str, Any]) -> 
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             receipt_id,
-            "source.poll",
+            "feed.poll",
             f"action_{receipt_id}",
-            f"source_poll@sha256:{receipt_id}",
+            f"feed_poll@sha256:{receipt_id}",
             f"params_{receipt_id}",
             str(body.get("status") or "completed"),
             json.dumps(body, sort_keys=True),
@@ -52,7 +52,7 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
             schedule="@hourly",
         )
     project.db.execute(
-        "UPDATE sources SET cursor=? WHERE id=?",
+        "UPDATE feeds SET cursor=? WHERE id=?",
         (json.dumps({"cursor": "SECRET_SOURCE_CURSOR"}), source_id),
     )
     project.db.commit()
@@ -99,23 +99,23 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
 
     ws = client.app.state.workspace
     ws.queue.enqueue(
-        "source.poll",
+        "feed.poll",
         {
             "project_id": pid,
-            "source_id": source_id,
+            "feed_id": source_id,
             "token": "SECRET_JOB_PAYLOAD_TOKEN",
             "raw_provider_body": "SECRET_JOB_PROVIDER_BODY",
         },
         max_attempts=2,
     )
 
-    response = client.get(f"/api/projects/{pid}/sources/{source_id}/health")
+    response = client.get(f"/api/projects/{pid}/feeds/{source_id}/health")
     assert response.status_code == 200, response.text
     body = response.json()
     serialized = json.dumps(body, sort_keys=True)
 
-    assert body["schema_version"] == "frisket.source_health.v1"
-    assert body["source"] == {
+    assert body["schema_version"] == "frisket.feed_health.v1"
+    assert body["feed"] == {
         "id": source_id,
         "name": "Sensitive feed",
         "kind": "rss",
@@ -123,7 +123,7 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
         "enabled": True,
         "schedule": "@hourly",
         "sheet_id": None,
-        "created_at": body["source"]["created_at"],
+        "created_at": body["feed"]["created_at"],
         "redactions": ["config", "cursor", "url_query"],
     }
     assert body["summary"]["status"] == "failing"
@@ -137,7 +137,7 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
     assert body["summary"]["revisions_recent"] == 1
     assert body["summary"]["last_cursor_summary"] == "stored"
 
-    assert body["runs_page"]["schema_version"] == "frisket.source_runs_page.v1"
+    assert body["runs_page"]["schema_version"] == "frisket.feed_checks_page.v1"
     assert body["runs_page"]["limit"] == 20
     assert body["runs_page"]["total"] == 3
     assert [run["id"] for run in body["runs"]][0] == latest_failure_id
@@ -150,16 +150,16 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
     assert body["costs"] == {
         "recent_actual_micro": 2300,
         "recent_estimated_micro": 0,
-        "basis": "source_runs.cost_micro for loaded runs; downstream costs unknown-safe",
+        "basis": "feed_checks.cost_micro for loaded checks; downstream costs unknown-safe",
     }
-    assert body["downstream_jobs"][0]["kind"] == "source.poll"
+    assert body["downstream_jobs"][0]["kind"] == "feed.poll"
     assert body["downstream_jobs"][0]["status"] == "queued"
-    assert body["downstream_jobs"][0]["refs"] == {"source_id": source_id}
+    assert body["downstream_jobs"][0]["refs"] == {"feed_id": source_id}
     assert "payload" not in body["downstream_jobs"][0]
     assert "result" not in body["downstream_jobs"][0]
-    assert any(w["code"] == "sparse_source_run_metadata" for w in body["warnings"])
+    assert any(w["code"] == "sparse_feed_check_metadata" for w in body["warnings"])
 
-    assert "config" not in body["source"]
+    assert "config" not in body["feed"]
     assert "SECRET_" not in serialized
     assert "provider_body" not in serialized
 
@@ -187,11 +187,11 @@ def test_feed_health_paginates_recent_checks_defaulting_to_twenty(
                 )
             )
 
-    first = client.get(f"/api/projects/{pid}/sources/{source_id}/health")
+    first = client.get(f"/api/projects/{pid}/feeds/{source_id}/health")
     assert first.status_code == 200, first.text
     body = first.json()
     assert body["runs_page"] == {
-        "schema_version": "frisket.source_runs_page.v1",
+        "schema_version": "frisket.feed_checks_page.v1",
         "order": "desc",
         "offset": 0,
         "limit": 20,
@@ -202,13 +202,13 @@ def test_feed_health_paginates_recent_checks_defaulting_to_twenty(
     assert [run["id"] for run in body["runs"]] == list(reversed(run_ids[-20:]))
 
     tail = client.get(
-        f"/api/projects/{pid}/sources/{source_id}/health",
+        f"/api/projects/{pid}/feeds/{source_id}/health",
         params={"runs_offset": 20, "runs_limit": 20},
     )
     assert tail.status_code == 200, tail.text
     tail_body = tail.json()
     assert tail_body["runs_page"] == {
-        "schema_version": "frisket.source_runs_page.v1",
+        "schema_version": "frisket.feed_checks_page.v1",
         "order": "desc",
         "offset": 20,
         "limit": 20,
@@ -247,11 +247,11 @@ def test_feed_health_statuses_cover_disabled_never_checked_stale_and_missing(
         FeedStore(project).record_feed_check(stale, status="ok", new_rows=1)
     old = "2000-01-01T00:00:00+00:00"
     project.db.execute(
-        "UPDATE source_runs SET started_at=?, finished_at=? WHERE source_id=?",
+        "UPDATE feed_checks SET started_at=?, finished_at=? WHERE feed_id=?",
         (old, old, stale),
     )
     project.db.execute(
-        "UPDATE sources SET last_checked_at=?, last_status='ok' WHERE id=?",
+        "UPDATE feeds SET last_checked_at=?, last_status='ok' WHERE id=?",
         (old, stale),
     )
     project.db.commit()
@@ -261,9 +261,9 @@ def test_feed_health_statuses_cover_disabled_never_checked_stale_and_missing(
         (never_run, "never_run"),
         (stale, "stale"),
     ):
-        response = client.get(f"/api/projects/{pid}/sources/{source_id}/health")
+        response = client.get(f"/api/projects/{pid}/feeds/{source_id}/health")
         assert response.status_code == 200, response.text
         assert response.json()["summary"]["status"] == expected
 
-    missing = client.get(f"/api/projects/{pid}/sources/9999/health")
+    missing = client.get(f"/api/projects/{pid}/feeds/9999/health")
     assert missing.status_code == 404

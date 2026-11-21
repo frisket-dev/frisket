@@ -3476,13 +3476,13 @@ export interface FeedCheck {
 }
 
 export interface FeedCheckPage extends PageMeta {
-  schemaVersion: 'frisket.source_runs_page.v1';
+  schemaVersion: 'frisket.feed_checks_page.v1';
   order: 'desc';
   latestRun: FeedCheck | null;
   latestRunLoaded: boolean;
 }
 
-/** A source plus its recent poll history (GET /sources/{id}). */
+/** A feed plus its recent check history (GET /feeds/{id}). */
 export interface FeedDetail extends FeedInfo {
   runs: FeedCheck[];
   runsPage: FeedCheckPage;
@@ -3533,7 +3533,7 @@ export interface FeedHealthSummary {
 }
 
 export interface FeedHealthCheck extends FeedCheck {
-  sourceId: number;
+  feedId: number;
   opId: number | null;
   errorSummary: string | null;
   cursorBeforePresent: boolean;
@@ -3563,8 +3563,8 @@ export interface FeedHealthNotice {
 }
 
 export interface FeedHealth {
-  schemaVersion: 'frisket.source_health.v1';
-  source: {
+  schemaVersion: 'frisket.feed_health.v1';
+  feed: {
     id: number;
     name: string;
     kind: string;

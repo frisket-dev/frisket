@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.contracts.http.project_sources import (
-    ProjectSourceDetail,
-    ProjectSourceHealth,
-    ProjectSourceList,
+from frisket.contracts.http.project_feeds import (
+    ProjectFeedDetail,
+    ProjectFeedHealth,
+    ProjectFeedList,
 )
 from frisket.contracts.http.paging import offset_page_meta
 from frisket.server.workspace import Workspace
@@ -24,9 +24,9 @@ class FeedService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def list_feeds(self, project_id: str) -> ProjectSourceList:
+    def list_feeds(self, project_id: str) -> ProjectFeedList:
         project = self._workspace.get(project_id)
-        return ProjectSourceList.model_validate(
+        return ProjectFeedList.model_validate(
             [_feed_dict(row) for row in FeedStore(project).feeds()]
         )
 
@@ -37,7 +37,7 @@ class FeedService:
         *,
         runs_offset: int,
         runs_limit: int,
-    ) -> ProjectSourceDetail:
+    ) -> ProjectFeedDetail:
         project = self._workspace.get(project_id)
         feed_store = FeedStore(project)
         row = feed_store.get_feed(feed_id)
@@ -61,7 +61,7 @@ class FeedService:
         out["runs"] = runs
         out["runs_page"] = {
             **offset_page_meta(
-                schema_version="frisket.source_runs_page.v1",
+                schema_version="frisket.feed_checks_page.v1",
                 order="desc",
                 offset=runs_offset,
                 limit=runs_limit,
@@ -74,7 +74,7 @@ class FeedService:
                 and any(run["id"] == latest_run["id"] for run in runs)
             ),
         }
-        return ProjectSourceDetail.model_validate(out)
+        return ProjectFeedDetail.model_validate(out)
 
     def get_feed_health(
         self,
@@ -83,12 +83,12 @@ class FeedService:
         *,
         runs_offset: int,
         runs_limit: int,
-    ) -> ProjectSourceHealth:
+    ) -> ProjectFeedHealth:
         project = self._workspace.get(project_id)
         jobs = self._workspace.queue.list_project_jobs(
             project_id,
             storage_org_id=self._workspace.queue_storage_organization_id,
-            source_id=feed_id,
+            feed_id=feed_id,
             limit=100,
         )
         try:
@@ -101,7 +101,7 @@ class FeedService:
             )
         except FeedHealthNotFound as exc:
             raise FeedNotFound("feed not found") from exc
-        return ProjectSourceHealth.model_validate(health)
+        return ProjectFeedHealth.model_validate(health)
 
 
 def _feed_dict(row: Any) -> dict[str, Any]:

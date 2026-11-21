@@ -1,4 +1,4 @@
-"""Strict HTTP response contracts for project-source read routes."""
+"""Strict HTTP response contracts for project-feed read routes."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pydantic import ConfigDict, JsonValue, RootModel
 from frisket.contracts.http.models import WireModel
 
 
-class ProjectSource(WireModel):
+class ProjectFeed(WireModel):
     id: int
     name: str
     kind: str
@@ -25,9 +25,9 @@ class ProjectSource(WireModel):
     created_at: str
 
 
-class ProjectSourceRun(WireModel):
+class ProjectFeedCheck(WireModel):
     id: int
-    source_id: int
+    feed_id: int
     op_id: int | None
     receipt_id: str | None
     status: str
@@ -46,28 +46,28 @@ class ProjectSourceRun(WireModel):
     finished_at: str | None
 
 
-class ProjectSourceRunsPage(WireModel):
-    schema_version: Literal["frisket.source_runs_page.v1"]
+class ProjectFeedChecksPage(WireModel):
+    schema_version: Literal["frisket.feed_checks_page.v1"]
     order: Literal["desc"]
     offset: int
     limit: int
     total: int
     has_more: bool
     next_offset: int | None
-    latest_run: ProjectSourceRun | None
+    latest_run: ProjectFeedCheck | None
     latest_run_loaded: bool
 
 
-class ProjectSourceDetail(ProjectSource):
-    runs: list[ProjectSourceRun]
-    runs_page: ProjectSourceRunsPage
+class ProjectFeedDetail(ProjectFeed):
+    runs: list[ProjectFeedCheck]
+    runs_page: ProjectFeedChecksPage
 
 
-class ProjectSourceList(RootModel[list[ProjectSource]]):
+class ProjectFeedList(RootModel[list[ProjectFeed]]):
     model_config = ConfigDict(strict=True)
 
 
-class ProjectSourceHealthSource(WireModel):
+class ProjectFeedHealthFeed(WireModel):
     id: int
     name: str
     kind: str
@@ -79,7 +79,7 @@ class ProjectSourceHealthSource(WireModel):
     redactions: list[str]
 
 
-class ProjectSourceHealthSummary(WireModel):
+class ProjectFeedHealthSummary(WireModel):
     status: Literal["disabled", "never_run", "failing", "stale", "healthy"]
     last_success_at: str | None
     last_failure_at: str | None
@@ -98,8 +98,8 @@ class ProjectSourceHealthSummary(WireModel):
     ]
 
 
-class ProjectSourceHealthRunsPage(WireModel):
-    schema_version: Literal["frisket.source_runs_page.v1"]
+class ProjectFeedHealthChecksPage(WireModel):
+    schema_version: Literal["frisket.feed_checks_page.v1"]
     order: Literal["desc"]
     offset: int
     limit: int
@@ -108,9 +108,9 @@ class ProjectSourceHealthRunsPage(WireModel):
     next_offset: int | None
 
 
-class ProjectSourceHealthRun(WireModel):
+class ProjectFeedHealthCheck(WireModel):
     id: int
-    source_id: int
+    feed_id: int
     status: str
     started_at: str
     finished_at: str | None
@@ -129,13 +129,13 @@ class ProjectSourceHealthRun(WireModel):
     summary_present: bool
 
 
-class ProjectSourceHealthJobRefs(WireModel):
-    source_id: int
-    source_run_id: int | None = None
+class ProjectFeedHealthJobRefs(WireModel):
+    feed_id: int
+    feed_check_id: int | None = None
     sheet_id: int | None = None
 
 
-class ProjectSourceHealthJob(WireModel):
+class ProjectFeedHealthJob(WireModel):
     job_id: int
     kind: str
     status: str
@@ -144,61 +144,59 @@ class ProjectSourceHealthJob(WireModel):
     created_at: str
     started_at: str | None
     finished_at: str | None
-    refs: ProjectSourceHealthJobRefs
+    refs: ProjectFeedHealthJobRefs
     result_summary: dict[str, JsonValue]
     error_summary: str | None
     stalled: bool
 
 
-class ProjectSourceHealthCosts(WireModel):
+class ProjectFeedHealthCosts(WireModel):
     recent_actual_micro: int
     recent_estimated_micro: int
     basis: str
 
 
-class ProjectSourceHealthSparseRunNotice(WireModel):
-    code: Literal["sparse_source_run_metadata"]
+class ProjectFeedHealthSparseCheckNotice(WireModel):
+    code: Literal["sparse_feed_check_metadata"]
     message: str
     run_ids: list[int]
 
 
-class ProjectSourceHealthUnsupportedScheduleNotice(WireModel):
-    code: Literal["unsupported_source_schedule"]
+class ProjectFeedHealthUnsupportedScheduleNotice(WireModel):
+    code: Literal["unsupported_feed_schedule"]
     message: str
 
 
-class ProjectSourceHealth(WireModel):
-    schema_version: Literal["frisket.source_health.v1"]
-    source: ProjectSourceHealthSource
-    summary: ProjectSourceHealthSummary
-    runs_page: ProjectSourceHealthRunsPage
-    runs: list[ProjectSourceHealthRun]
-    downstream_jobs: list[ProjectSourceHealthJob]
-    costs: ProjectSourceHealthCosts
+class ProjectFeedHealth(WireModel):
+    schema_version: Literal["frisket.feed_health.v1"]
+    feed: ProjectFeedHealthFeed
+    summary: ProjectFeedHealthSummary
+    runs_page: ProjectFeedHealthChecksPage
+    runs: list[ProjectFeedHealthCheck]
+    downstream_jobs: list[ProjectFeedHealthJob]
+    costs: ProjectFeedHealthCosts
     alerts: list[
-        ProjectSourceHealthSparseRunNotice
-        | ProjectSourceHealthUnsupportedScheduleNotice
+        ProjectFeedHealthSparseCheckNotice | ProjectFeedHealthUnsupportedScheduleNotice
     ]
     warnings: list[
-        ProjectSourceHealthSparseRunNotice
-        | ProjectSourceHealthUnsupportedScheduleNotice
+        ProjectFeedHealthSparseCheckNotice | ProjectFeedHealthUnsupportedScheduleNotice
     ]
 
 
 __all__ = [
-    "ProjectSource",
-    "ProjectSourceDetail",
-    "ProjectSourceHealth",
-    "ProjectSourceHealthCosts",
-    "ProjectSourceHealthJob",
-    "ProjectSourceHealthJobRefs",
-    "ProjectSourceHealthRun",
-    "ProjectSourceHealthRunsPage",
-    "ProjectSourceHealthSource",
-    "ProjectSourceHealthSparseRunNotice",
-    "ProjectSourceHealthSummary",
-    "ProjectSourceHealthUnsupportedScheduleNotice",
-    "ProjectSourceList",
-    "ProjectSourceRun",
-    "ProjectSourceRunsPage",
+    "ProjectFeed",
+    "ProjectFeedCheck",
+    "ProjectFeedChecksPage",
+    "ProjectFeedDetail",
+    "ProjectFeedHealth",
+    "ProjectFeedHealthCheck",
+    "ProjectFeedHealthChecksPage",
+    "ProjectFeedHealthCosts",
+    "ProjectFeedHealthFeed",
+    "ProjectFeedHealthJob",
+    "ProjectFeedHealthJobRefs",
+    "ProjectFeedHealthSparseCheckNotice",
+    "ProjectFeedHealthSummary",
+    "ProjectFeedHealthUnsupportedScheduleNotice",
+    "ProjectFeedList",
 ]

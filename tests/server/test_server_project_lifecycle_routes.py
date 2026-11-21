@@ -357,7 +357,7 @@ def test_non_lifecycle_routes_404_for_malformed_pid_instead_of_500(
     for pid in malformed_pids:
         for path in (
             f"/api/projects/{pid}",
-            f"/api/projects/{pid}/sources",
+            f"/api/projects/{pid}/feeds",
             f"/api/projects/{pid}/actions/v1/catalog",
             f"/api/projects/{pid}/sheets",
         ):

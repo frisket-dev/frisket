@@ -78,7 +78,7 @@
     },
     {
       "schemaVersion": "frisket.workbench.panel.v1",
-      "id": "frisket.core.panel.sources",
+      "id": "frisket.core.panel.feeds",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
       "title": "Feeds",
@@ -99,11 +99,11 @@
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "source.list"
+          "id": "feed.list"
         },
         {
           "kind": "hostCapability",
-          "id": "source.poll"
+          "id": "feed.poll"
         },
         {
           "kind": "hostCapability",
@@ -291,8 +291,8 @@
       ]
     },
     {
-      "schemaVersion": "frisket.source.kind.form.v1",
-      "id": "frisket.core.source_kind_form.rss",
+      "schemaVersion": "frisket.feed.kind.form.v1",
+      "id": "frisket.core.feed_kind_form.rss",
       "kind": "provider",
       "ownerPluginId": "frisket.core",
       "title": "RSS feed",
@@ -308,20 +308,20 @@
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "source.create"
+          "id": "feed.create"
         },
         {
           "kind": "hostCapability",
-          "id": "source.update"
+          "id": "feed.update"
         }
       ],
       "accepts": [
-        "source.rss"
+        "feed.rss"
       ]
     },
     {
-      "schemaVersion": "frisket.source.kind.form.v1",
-      "id": "frisket.core.source_kind_form.api_list_dicts",
+      "schemaVersion": "frisket.feed.kind.form.v1",
+      "id": "frisket.core.feed_kind_form.api_list_dicts",
       "kind": "provider",
       "ownerPluginId": "frisket.core",
       "title": "API list feed",
@@ -337,15 +337,15 @@
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "source.create"
+          "id": "feed.create"
         },
         {
           "kind": "hostCapability",
-          "id": "source.update"
+          "id": "feed.update"
         }
       ],
       "accepts": [
-        "source.api_list_dicts"
+        "feed.api_list_dicts"
       ]
     },
     {
@@ -460,7 +460,7 @@
     },
     {
       "schemaVersion": "frisket.command.v1",
-      "id": "frisket.core.command.open_sources",
+      "id": "frisket.core.command.open_feeds",
       "kind": "command",
       "ownerPluginId": "frisket.core",
       "title": "Open Feeds",
@@ -476,10 +476,10 @@
       "requires": [
         {
           "kind": "contribution",
-          "id": "frisket.core.panel.sources"
+          "id": "frisket.core.panel.feeds"
         }
       ],
-      "commandId": "frisket.core.command.open_sources"
+      "commandId": "frisket.core.command.open_feeds"
     },
     {
       "schemaVersion": "frisket.command.v1",
@@ -1020,14 +1020,14 @@
     },
     {
       "schemaVersion": "frisket.workbench.view.v1",
-      "id": "frisket.core.view.source_summary",
+      "id": "frisket.core.view.feed_summary",
       "kind": "view",
       "ownerPluginId": "frisket.core",
       "title": "Summary",
       "icon": "Database",
       "placements": [
         {
-          "host": "sourceDetail",
+          "host": "feedDetail",
           "mode": "tab",
           "default": true,
           "order": 10
@@ -1036,51 +1036,51 @@
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "source.detail.summary"
+          "id": "feed.detail.summary"
         }
       ]
     },
     {
       "schemaVersion": "frisket.workbench.view.v1",
-      "id": "frisket.core.view.source_health",
+      "id": "frisket.core.view.feed_health",
       "kind": "view",
       "ownerPluginId": "frisket.core",
       "title": "Health",
       "icon": "Activity",
       "placements": [
         {
-          "host": "sourceDetail",
+          "host": "feedDetail",
           "mode": "tab",
           "order": 20
         },
         {
           "host": "mainView",
           "mode": "pane",
-          "placementId": "source-health",
+          "placementId": "feed-health",
           "order": 55
         }
       ],
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "source.health.read"
+          "id": "feed.health.read"
         },
         {
           "kind": "hostCapability",
-          "id": "source.poll"
+          "id": "feed.poll"
         }
       ]
     },
     {
       "schemaVersion": "frisket.workbench.view.v1",
-      "id": "frisket.core.view.source_runs",
+      "id": "frisket.core.view.feed_checks",
       "kind": "view",
       "ownerPluginId": "frisket.core",
       "title": "Checks",
       "icon": "ListChecks",
       "placements": [
         {
-          "host": "sourceDetail",
+          "host": "feedDetail",
           "mode": "tab",
           "order": 30
         }
@@ -1088,7 +1088,7 @@
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "source.runs.list"
+          "id": "feed.checks.list"
         }
       ]
     }

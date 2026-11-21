@@ -188,7 +188,7 @@ def test_lineage_endpoint_includes_source_tier(client) -> None:
     project = client.app.state.workspace.get(pid)
     # A source that lands rows on the root sheet is the first DAG tier.
     project.db.execute(
-        "INSERT INTO sources (name, kind, sheet_id, last_status) "
+        "INSERT INTO feeds (name, kind, sheet_id, last_status) "
         "VALUES ('PACER feed', 'url', ?, 'ok')",
         (parent_id,),
     )

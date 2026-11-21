@@ -1,8 +1,8 @@
 """Queue job handlers and scheduling helpers for feeds.
 
-``source.poll`` is the worker-owned version of a source check/scheduled poll:
-it reopens the project bundle, checks the source is still enabled, and runs the
-public typed ``source.poll`` action. Manual imports also use this worker,
+``feed.poll`` is the worker-owned version of a feed check/scheduled poll:
+it reopens the project bundle, checks the feed is still enabled, and runs the
+public typed ``feed.poll`` action. Manual imports also use this worker,
 with progress exposed through the ordinary Jobs surface.
 """
 
@@ -44,7 +44,7 @@ from .project_scan import bundle_opener, scan_projects
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry, NonRetryableJobError
 
-FEED_POLL_KIND = "source.poll"
+FEED_POLL_KIND = "feed.poll"
 LOG = logging.getLogger(__name__)
 
 
@@ -82,7 +82,7 @@ def register_feed_poll_handler(
 
     def handle(payload: dict, _context: JobHandlerContext) -> dict:
         project_id = str(payload["project_id"])
-        feed_id = int(payload["source_id"])
+        feed_id = int(payload["feed_id"])
         if project_opener is None:
             project_root = Path(payload.get("workspace_root") or root)
             project = Project(project_root / f"{project_id}.frisket")
@@ -102,7 +102,7 @@ def register_feed_poll_handler(
             if row is None:
                 return {
                     "project_id": project_id,
-                    "source_id": feed_id,
+                    "feed_id": feed_id,
                     "skipped": True,
                     "reason": "not_found",
                 }
@@ -110,14 +110,14 @@ def register_feed_poll_handler(
             if not src["enabled"]:
                 return {
                     "project_id": project_id,
-                    "source_id": feed_id,
+                    "feed_id": feed_id,
                     "skipped": True,
                     "reason": "disabled",
                 }
             if not _feed_kind_supported(src["kind"]):
                 return {
                     "project_id": project_id,
-                    "source_id": feed_id,
+                    "feed_id": feed_id,
                     "skipped": True,
                     "reason": f"unsupported_kind:{src['kind']}",
                 }
@@ -149,7 +149,7 @@ def register_feed_poll_handler(
                             "completed_items": completed,
                             "total_items": total,
                             "sheet_id": src.get("sheet_id"),
-                            "source_name": src["name"],
+                            "feed_name": src["name"],
                         },
                     )
 
@@ -169,7 +169,7 @@ def register_feed_poll_handler(
             )
             if result.status != "completed":
                 message = "; ".join(error.message for error in result.errors) or (
-                    f"source.poll returned {result.status}"
+                    f"feed.poll returned {result.status}"
                 )
                 refused = result.receipt_id is None and any(
                     error.code == "invalid_input_ref" for error in result.errors
@@ -233,7 +233,7 @@ def register_feed_poll_handler(
                         project_id=project_id,
                         workspace_root=project_root,
                         storage_org_id=_coerce_storage_organization_id(payload),
-                        trigger_ref={"source_run_id": materialization["source_run_id"]},
+                        trigger_ref={"feed_check_id": materialization["feed_check_id"]},
                     )
 
                 enqueue_keyword_alerts = _enqueue_keyword_alerts
@@ -265,17 +265,17 @@ def register_feed_poll_handler(
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=[int(r) for r in summary.get("row_ids") or []],
                 trigger_ref={
-                    "trigger_kind": "source_run_completed",
-                    "source_id": feed_id,
-                    "source_run_id": summary["run_id"],
+                    "trigger_kind": "feed_check_completed",
+                    "feed_id": feed_id,
+                    "feed_check_id": summary["run_id"],
                     "receipt_id": result.receipt_id,
                     "sheet_id": summary["sheet_id"],
                 },
             )
             return {
                 "project_id": project_id,
-                "source_id": feed_id,
-                "action_kind": "source.poll",
+                "feed_id": feed_id,
+                "action_kind": "feed.poll",
                 "receipt_id": result.receipt_id,
                 "run_id": summary["run_id"],
                 "new_rows": summary["new_rows"],
@@ -292,7 +292,7 @@ def register_feed_poll_handler(
     return registry.add(
         FEED_POLL_KIND,
         handle,
-        origin="frisket.production.source_poll",
+        origin="frisket.production.feed_poll",
     )
 
 
@@ -303,16 +303,16 @@ def _feed_poll_action(
     identity: str,
 ) -> dict[str, Any]:
     basis = json.dumps(
-        {"project_id": project_id, "source_id": feed_id, "identity": identity},
+        {"project_id": project_id, "feed_id": feed_id, "identity": identity},
         sort_keys=True,
         separators=(",", ":"),
     )
     digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
-        "params": {"source": feed_id},
-        "idempotency_key": f"source.poll@sha256:{digest}",
+        "params": {"feed": feed_id},
+        "idempotency_key": f"feed.poll@sha256:{digest}",
     }
 
 
@@ -328,9 +328,9 @@ def _feed_poll_job_identity(queue: JobQueue | None, payload: dict[str, Any]) -> 
     poll_id = payload.get("poll_id")
     if queue is not None:
         project_id = str(payload.get("project_id"))
-        raw_feed_id = payload.get("source_id")
+        raw_feed_id = payload.get("feed_id")
         if raw_feed_id is None:
-            raise TypeError("source_id must not be None")
+            raise TypeError("feed_id must not be None")
         feed_id = int(raw_feed_id)
         workspace_root = (
             str(payload["workspace_root"]) if payload.get("workspace_root") else None
@@ -341,13 +341,13 @@ def _feed_poll_job_identity(queue: JobQueue | None, payload: dict[str, Any]) -> 
                 statuses=("running",),
                 project_id=project_id,
                 storage_org_id=_coerce_storage_organization_id(payload),
-                source_id=feed_id,
+                feed_id=feed_id,
                 workspace_root=workspace_root,
             )
             if job is not None:
                 if isinstance(poll_id, str) and poll_id:
                     # JobQueue retries increment attempts before handler execution;
-                    # source.poll retry identity must still replay attempt 1.
+                    # feed.poll retry identity must still replay attempt 1.
                     return f"{poll_id}:attempt:1"
                 return f"job:{job.id}"
     if isinstance(poll_id, str) and poll_id:
@@ -365,10 +365,10 @@ def _feed_poll_summary_from_result(
     receipt_id: str | None,
 ) -> dict[str, Any]:
     if not receipt_id:
-        raise RuntimeError("source.poll did not return a receipt id")
+        raise RuntimeError("feed.poll did not return a receipt id")
     body = ReceiptStore(project).body_by_id(receipt_id)
     if body is None:
-        raise RuntimeError("source.poll receipt was not persisted")
+        raise RuntimeError("feed.poll receipt was not persisted")
     receipt = json.loads(body)
     refs = [
         item.get("ref") or {}
@@ -376,21 +376,21 @@ def _feed_poll_summary_from_result(
         if isinstance(item, dict)
     ]
     feed_check = next(
-        (ref for ref in refs if ref.get("kind") == "source_poll_run"),
+        (ref for ref in refs if ref.get("kind") == "feed_poll_check"),
         None,
     )
     rows = next(
-        (ref for ref in refs if ref.get("kind") == "source_poll_rows"),
+        (ref for ref in refs if ref.get("kind") == "feed_poll_rows"),
         {},
     )
     enclosures = next(
-        (ref for ref in refs if ref.get("kind") == "source_poll_enclosure_pointers"),
+        (ref for ref in refs if ref.get("kind") == "feed_poll_enclosure_pointers"),
         {},
     )
     if feed_check is None:
-        raise RuntimeError("source.poll receipt lacks feed check output")
+        raise RuntimeError("feed.poll receipt lacks feed check output")
     return {
-        "run_id": feed_check.get("source_run_id"),
+        "run_id": feed_check.get("feed_check_id"),
         "new_rows": int(feed_check.get("new_rows") or 0),
         "revisions": int(feed_check.get("revisions") or 0),
         "sheet_id": feed_check.get("sheet_id"),
@@ -422,9 +422,9 @@ def _emit_feed_health_notification(
         error = "; ".join(error.message for error in getattr(result, "errors", []))
         candidate = feed_health_notification_candidate(
             project_id=project_id,
-            source_id=int(feed["id"]),
-            source_name=str(feed.get("name") or f"Source {feed['id']}"),
-            source_run_id=feed_check_id,
+            feed_id=int(feed["id"]),
+            feed_name=str(feed.get("name") or f"Feed {feed['id']}"),
+            feed_check_id=feed_check_id,
             status=status,
             error=error or None,
             stale_reason=stale_reason,
@@ -598,11 +598,11 @@ def enqueue_due_feed_polls(
     max_attempts: int = 3,
     project_opener: ProjectOpener | None = None,
 ) -> list[dict[str, int | str]]:
-    """Enqueue one ``source.poll`` job for each due enabled scheduled source.
+    """Enqueue one ``feed.poll`` job for each due enabled scheduled feed.
 
     The helper is deliberately internal and conservative: it scans workspace
-    bundles, skips manual/disabled/fresh sources, and avoids duplicate queued or
-    running polls for the same source.
+    bundles, skips manual/disabled/fresh feeds, and avoids duplicate queued or
+    running polls for the same feed.
     """
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
@@ -622,7 +622,7 @@ def enqueue_due_feed_polls(
                     FEED_POLL_KIND,
                     project_id=project_id,
                     storage_org_id=storage_org_id,
-                    source_id=feed_id,
+                    feed_id=feed_id,
                     workspace_root=str(root),
                 )
                 is not None
@@ -646,7 +646,7 @@ def enqueue_due_feed_polls(
                         if storage_org_id is not None
                         else {}
                     ),
-                    "source_id": feed_id,
+                    "feed_id": feed_id,
                     "poll_id": (
                         f"{project_id}:{feed_id}:"
                         f"{now.isoformat(timespec='microseconds')}"
@@ -659,7 +659,7 @@ def enqueue_due_feed_polls(
                 {
                     "job_id": job_id,
                     "project_id": project_id,
-                    "source_id": feed_id,
+                    "feed_id": feed_id,
                 }
             )
 
@@ -667,6 +667,6 @@ def enqueue_due_feed_polls(
         project_bundle_paths(root, require_slug=project_opener is not None),
         bundle_opener(Project, project_opener, storage_org_id),
         visit,
-        failure_event="source_project_schedule_failed",
+        failure_event="feed_project_schedule_failed",
     )
     return enqueued

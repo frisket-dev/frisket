@@ -36,9 +36,9 @@ function catalogWire(): Record<string, unknown> {
   delete withoutConditional.row_scope_policy;
   const projectScoped: Record<string, unknown> = {
     ...conditional,
-    kind: 'source.create',
+    kind: 'feed.create',
     row_scope_policy: { kind: 'project' },
-    ui_hints: { form: 'source_create' },
+    ui_hints: { form: 'feed_create' },
   };
 
   return {

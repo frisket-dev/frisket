@@ -31,7 +31,7 @@ def _job(kind: str, result: dict[str, Any]) -> Job:
             "org_id": 8,
             "project_id": "proj_worker_summary",
             "run_id": 99,
-            "source_id": 4,
+            "feed_id": 4,
             "sheet_id": 3,
             "trace_id": "trace-worker-summary",
             "action_kind": "map.extract",
@@ -94,9 +94,9 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
 
     source_poll_result = {
         "project_id": "proj_worker_summary",
-        "source_id": 4,
-        "action_kind": "source.poll",
-        "receipt_id": "receipt_source_poll",
+        "feed_id": 4,
+        "action_kind": "feed.poll",
+        "receipt_id": "receipt_feed_poll",
         "run_id": 44,
         "new_rows": 3,
         "revisions": 2,
@@ -106,9 +106,9 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
         "feed_xml": "raw provider payload",
         "enclosure_row_ids": [1, 2, 3, 4, 5],
     }
-    assert job_result_summary("source.poll", source_poll_result) == {
-        "action_kind": "source.poll",
-        "receipt_id": "receipt_source_poll",
+    assert job_result_summary("feed.poll", source_poll_result) == {
+        "action_kind": "feed.poll",
+        "receipt_id": "receipt_feed_poll",
         "run_id": 44,
         "new_rows": 3,
         "revisions": 2,
@@ -144,7 +144,7 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
         now=datetime(2026, 6, 18, 12, 1, tzinfo=UTC),
     )
     diagnostic_payload = diagnostic_job_context(
-        _job("source.poll", source_poll_result),
+        _job("feed.poll", source_poll_result),
         now=datetime(2026, 6, 18, 12, 1, tzinfo=UTC),
     )
     enclosure_payload = admin_job_payload(

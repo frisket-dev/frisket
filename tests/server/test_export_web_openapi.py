@@ -356,9 +356,9 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.poll_cloud_authorization.get",
     }
     assert {
-        "tenant.list_sources.get",
-        "tenant.get_source_ep.get",
-        "tenant.get_source_health_ep.get",
+        "tenant.list_feeds.get",
+        "tenant.get_feed.get",
+        "tenant.get_feed_health.get",
         "tenant.list_views.get",
         "tenant.create_view.post",
         "tenant.patch_view.patch",

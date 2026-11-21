@@ -41,7 +41,7 @@ function itemSourceLabel(item: NotificationItem): string {
   if (item.sourceKind === 'watch') return 'Alert';
   if (item.sourceKind === 'run') return 'Run';
   if (item.sourceKind === 'import') return 'Import';
-  if (item.sourceKind === 'source') return 'Feed';
+  if (item.sourceKind === 'feed') return 'Feed';
   return item.sourceKind || 'Source';
 }
 

@@ -24,9 +24,9 @@ def test_manual_poll_returns_empty_sheet_then_worker_populates(tmp_path):
     queue = SqliteJobQueue(workspace / ".queue.db")
     ctx = SimpleNamespace(queue=queue, queue_payload_extra={}, workspace_root=workspace)
     body = {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
-        "params": {"source": source_id},
+        "params": {"feed": source_id},
         "idempotency_key": "manual-feed-1",
     }
     result = queue_feed_poll(project, "news", body, ctx)

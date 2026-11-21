@@ -17,6 +17,95 @@ PRE_DOMAIN_SCHEMA = gzip.decompress(
 ).decode()
 PRE_DOMAIN_DIGEST = "frisket.schema.v1:7e339a8995763aa40346e7d36187837d"
 
+_PRE_FEEDS_DDL = """
+CREATE TABLE IF NOT EXISTS sources (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'url',
+  url TEXT,
+  config TEXT NOT NULL DEFAULT '{}',
+  sheet_id INTEGER REFERENCES sheets(id) ON DELETE SET NULL,
+  schedule TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  cursor TEXT,
+  last_checked_at TEXT,
+  last_status TEXT,
+  new_rows_total INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sources_sheet ON sources(sheet_id);
+
+CREATE TABLE IF NOT EXISTS source_runs (
+  id INTEGER PRIMARY KEY,
+  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  op_id INTEGER REFERENCES ops(id) ON DELETE SET NULL,
+  receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'ok',
+  new_rows INTEGER NOT NULL DEFAULT 0,
+  skipped_rows INTEGER NOT NULL DEFAULT 0,
+  changed_rows INTEGER NOT NULL DEFAULT 0,
+  revisions INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  cursor_before TEXT,
+  cursor_after TEXT,
+  duration_ms INTEGER,
+  warning_count INTEGER NOT NULL DEFAULT 0,
+  cost_micro INTEGER NOT NULL DEFAULT 0,
+  summary_json TEXT NOT NULL DEFAULT '{}',
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
+  ON source_runs(source_id, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);
+"""
+
+
+def restore_pre_feeds_tables(db: sqlite3.Connection) -> None:
+    """Replace current feeds/feed_checks tables with pre-cutover sources/source_runs."""
+    tables = {
+        row[0]
+        for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if "sources" in tables and "source_runs" in tables:
+        return
+    foreign_keys = int(db.execute("PRAGMA foreign_keys").fetchone()[0])
+    db.commit()
+    db.execute("PRAGMA foreign_keys=OFF")
+    try:
+        db.executescript(_PRE_FEEDS_DDL)
+        if "feeds" in tables:
+            db.execute(
+                "INSERT INTO sources ("
+                "id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
+                "last_checked_at, last_status, new_rows_total, created_at"
+                ") SELECT "
+                "id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
+                "last_checked_at, last_status, new_rows_total, created_at "
+                "FROM feeds"
+            )
+        if "feed_checks" in tables:
+            db.execute(
+                "INSERT INTO source_runs ("
+                "id, source_id, op_id, receipt_id, status, new_rows, skipped_rows, "
+                "changed_rows, revisions, error, cursor_before, cursor_after, "
+                "duration_ms, warning_count, cost_micro, summary_json, started_at, "
+                "finished_at"
+                ") SELECT "
+                "id, feed_id, op_id, receipt_id, status, new_rows, skipped_rows, "
+                "changed_rows, revisions, error, cursor_before, cursor_after, "
+                "duration_ms, warning_count, cost_micro, summary_json, started_at, "
+                "finished_at "
+                "FROM feed_checks"
+            )
+        db.execute("DROP TABLE IF EXISTS feed_checks")
+        db.execute("DROP TABLE IF EXISTS feeds")
+        db.commit()
+    finally:
+        db.execute(f"PRAGMA foreign_keys={foreign_keys}")
+
 
 def _quoted(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
@@ -45,20 +134,40 @@ def restore_pre_domain_schema(db: sqlite3.Connection) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         ]
+        _table_aliases = {"sources": "feeds", "source_runs": "feed_checks"}
+        _column_aliases = {"source_runs": {"source_id": "feed_id"}}
         saved = {}
         for table in tables:
             columns = [
                 row[1] for row in old.execute(f"PRAGMA table_info({_quoted(table)})")
             ]
+            current_table = table
             available = {
                 row[1] for row in db.execute(f"PRAGMA table_info({_quoted(table)})")
             }
-            common = [name for name in columns if name in available]
-            if not common:
+            if not available and table in _table_aliases:
+                current_table = _table_aliases[table]
+                available = {
+                    row[1]
+                    for row in db.execute(
+                        f"PRAGMA table_info({_quoted(current_table)})"
+                    )
+                }
+            col_map = _column_aliases.get(table, {})
+            selected_pairs = [
+                (name, col_map.get(name, name))
+                for name in columns
+                if col_map.get(name, name) in available
+            ]
+            if not selected_pairs:
                 continue
-            names = ",".join(map(_quoted, common))
+            common = [old_name for old_name, _ in selected_pairs]
+            select_names = ",".join(_quoted(cur_name) for _, cur_name in selected_pairs)
             records = [
-                list(row) for row in db.execute(f"SELECT {names} FROM {_quoted(table)}")
+                list(row)
+                for row in db.execute(
+                    f"SELECT {select_names} FROM {_quoted(current_table)}"
+                )
             ]
             if table == "current_cells":
                 # The prior layer represented source ownership through producer_id,

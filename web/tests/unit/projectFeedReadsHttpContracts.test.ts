@@ -11,7 +11,7 @@ import type { RequestOptions } from "../../src/api/httpContract";
 
 const rawRun = {
   id: 8,
-  source_id: 7,
+  feed_id: 7,
   op_id: null,
   receipt_id: "receipt-8",
   status: "ok",
@@ -61,7 +61,7 @@ const detailFixture = {
   ...rawSource({ nested: ["value"] }),
   runs: [rawRun],
   runs_page: {
-    schema_version: "frisket.source_runs_page.v1",
+    schema_version: "frisket.feed_checks_page.v1",
     order: "desc",
     offset: 2,
     limit: 3,
@@ -74,8 +74,8 @@ const detailFixture = {
 };
 
 const healthFixture = {
-  schema_version: "frisket.source_health.v1",
-  source: {
+  schema_version: "frisket.feed_health.v1",
+  feed: {
     id: 7,
     name: "source-7",
     kind: "rss",
@@ -100,7 +100,7 @@ const healthFixture = {
     last_cursor_summary: "stored",
   },
   runs_page: {
-    schema_version: "frisket.source_runs_page.v1",
+    schema_version: "frisket.feed_checks_page.v1",
     order: "desc",
     offset: 4,
     limit: 5,
@@ -111,7 +111,7 @@ const healthFixture = {
   runs: [
     {
       id: 8,
-      source_id: 7,
+      feed_id: 7,
       status: "ok",
       started_at: "2026-08-10 00:00:00",
       finished_at: "2026-08-10 00:01:00",
@@ -133,14 +133,14 @@ const healthFixture = {
   downstream_jobs: [
     {
       job_id: 9,
-      kind: "source.poll",
+      kind: "feed.poll",
       status: "done",
       attempts: 1,
       max_attempts: 3,
       created_at: "2026-08-10T00:00:00Z",
       started_at: "2026-08-10T00:02:00Z",
       finished_at: "2026-08-10T00:03:00Z",
-      refs: { source_id: 7 },
+      refs: { feed_id: 7 },
       result_summary: { kept: [1] },
       error_summary: "downstream-error",
       stalled: false,
@@ -150,19 +150,19 @@ const healthFixture = {
     recent_actual_micro: 7,
     recent_estimated_micro: 0,
     basis:
-      "source_runs.cost_micro for loaded runs; downstream costs unknown-safe",
+      "feed_checks.cost_micro for loaded checks; downstream costs unknown-safe",
   },
   alerts: [
     {
-      code: "unsupported_source_schedule",
-      message: "Source schedule could not be parsed for stale detection.",
+      code: "unsupported_feed_schedule",
+      message: "Feed schedule could not be parsed for stale detection.",
     },
   ],
   warnings: [
     {
-      code: "sparse_source_run_metadata",
+      code: "sparse_feed_check_metadata",
       message:
-        "Some loaded source runs lack v1 runtime metadata; row deltas and costs may be incomplete.",
+        "Some loaded feed checks lack v1 runtime metadata; row deltas and costs may be incomplete.",
       run_ids: [8],
     },
   ],
@@ -192,7 +192,7 @@ interface ProjectSourcesTransport {
     offset?: number | null,
     limit?: number,
     options?: RequestOptions,
-  ): Promise<{ source: { redactions: string[] } }>;
+  ): Promise<{ feed: { redactions: string[] } }>;
   createFeed(input: unknown): Promise<{ id: number; config: unknown }>;
   updateFeed(id: number, patch: unknown): Promise<{ id: number }>;
   deleteFeed(id: number): Promise<void>;
@@ -305,15 +305,15 @@ describe("project-source generated HTTP reads", () => {
     expect(
       requests.map((request) => [request.input, request.init?.method]),
     ).toEqual([
-      ["/api/projects/source-read-contract/sources", "GET"],
-      ["/api/projects/source-read-contract/sources/7?runs_limit=3", "GET"],
+      ["/api/projects/source-read-contract/feeds", "GET"],
+      ["/api/projects/source-read-contract/feeds/7?runs_limit=3", "GET"],
       [
-        "/api/projects/source-read-contract/sources/8/health?runs_offset=4&runs_limit=5",
+        "/api/projects/source-read-contract/feeds/8/health?runs_offset=4&runs_limit=5",
         "GET",
       ],
-      ["/api/projects/source-read-contract/sources/9?runs_limit=50", "GET"],
+      ["/api/projects/source-read-contract/feeds/9?runs_limit=50", "GET"],
       [
-        "/api/projects/source-read-contract/sources/10/health?runs_limit=20",
+        "/api/projects/source-read-contract/feeds/10/health?runs_limit=20",
         "GET",
       ],
     ]);
@@ -336,11 +336,11 @@ describe("project-source generated HTTP reads", () => {
     const results = [
       {
         outputs: [{
-          kind: "source",
+          kind: "feed",
           ref: {
-            source_id: 7,
+            feed_id: 7,
             name: "source-7",
-            source_kind: "rss",
+            feed_kind: "rss",
             url: "https://example.test/feed",
             config: { nested: ["value"] },
             sheet_id: 3,
@@ -354,11 +354,11 @@ describe("project-source generated HTTP reads", () => {
       },
       {
         outputs: [{
-          kind: "source",
+          kind: "feed",
           ref: {
-            source_id: 7,
+            feed_id: 7,
             name: "renamed-source",
-            source_kind: "rss",
+            feed_kind: "rss",
             new_rows_total: 2,
           },
         }],
@@ -366,9 +366,9 @@ describe("project-source generated HTTP reads", () => {
       { outputs: [] },
       {
         outputs: [{
-          kind: "source_run",
+          kind: "feed_check",
           ref: {
-            source_run_id: 8,
+            feed_check_id: 8,
             new_rows: 1,
             revisions: 4,
             skipped_rows: 2,
@@ -426,7 +426,7 @@ describe("project-source generated HTTP reads", () => {
 
     expect(specs).toEqual([
       {
-        action_id: "source.create",
+        action_id: "feed.create",
         scope: { kind: "project" },
         output_names: {},
         params: {
@@ -439,11 +439,11 @@ describe("project-source generated HTTP reads", () => {
         },
       },
       {
-        action_id: "source.update",
+        action_id: "feed.update",
         scope: { kind: "project" },
         output_names: {},
         params: {
-          source_id: 7,
+          feed_id: 7,
           patch: {
             name: "renamed-source",
             url: null,
@@ -452,16 +452,16 @@ describe("project-source generated HTTP reads", () => {
         },
       },
       {
-        action_id: "source.delete",
+        action_id: "feed.delete",
         scope: { kind: "project" },
         output_names: {},
-        params: { source_id: 7 },
+        params: { feed_id: 7 },
       },
       {
-        action_id: "source.poll",
+        action_id: "feed.poll",
         scope: { kind: "project" },
         output_names: {},
-        params: { source: 7 },
+        params: { feed: 7 },
       },
     ]);
     expect(postOptions).toEqual([
@@ -480,10 +480,10 @@ describe("project-source generated HTTP reads", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       bodies.push(body);
       const actionId = String(body.action_id);
-      const sourceRef = {
-        source_id: 7,
-        name: actionId === "source.update" ? "renamed-source" : "source-7",
-        source_kind: "rss",
+      const feedRef = {
+        feed_id: 7,
+        name: actionId === "feed.update" ? "renamed-source" : "source-7",
+        feed_kind: "rss",
         url: null,
         config: {},
         sheet_id: null,
@@ -500,9 +500,9 @@ describe("project-source generated HTTP reads", () => {
         project_id: "registered-source-project",
         run_id: null,
         receipt_id: null,
-        outputs: actionId === "source.delete"
+        outputs: actionId === "feed.delete"
           ? []
-          : [{ kind: "source", name: "source", ref: sourceRef }],
+          : [{ kind: "feed", name: "feed", ref: feedRef }],
         errors: [],
       });
     }));
@@ -515,28 +515,28 @@ describe("project-source generated HTTP reads", () => {
     expect(bodies).toHaveLength(3);
     expect(bodies).toMatchObject([
       {
-        action_id: "source.create",
+        action_id: "feed.create",
         scope: { kind: "project" },
         params: { name: "source-7", kind: "rss" },
         output_names: {},
       },
       {
-        action_id: "source.update",
+        action_id: "feed.update",
         scope: { kind: "project" },
-        params: { source_id: 7, patch: { name: "renamed-source" } },
+        params: { feed_id: 7, patch: { name: "renamed-source" } },
         output_names: {},
       },
       {
-        action_id: "source.delete",
+        action_id: "feed.delete",
         scope: { kind: "project" },
-        params: { source_id: 7 },
+        params: { feed_id: 7 },
         output_names: {},
       },
     ]);
     for (const body of bodies) {
       expect(body).not.toHaveProperty("kind");
       expect(body).not.toHaveProperty("capabilities");
-      expect(body.idempotency_key).toMatch(/^web-source\.(create|update|delete):/);
+      expect(body.idempotency_key).toMatch(/^web-feed\.(create|update|delete):/);
     }
   });
 
@@ -621,7 +621,7 @@ describe("project-source generated HTTP reads", () => {
       ...expectedSourceInfo,
       runs: [expectedRun],
       runsPage: {
-        schemaVersion: "frisket.source_runs_page.v1",
+        schemaVersion: "frisket.feed_checks_page.v1",
         order: "desc",
         offset: 2,
         limit: 3,
@@ -634,15 +634,15 @@ describe("project-source generated HTTP reads", () => {
     });
     expect(detail).not.toHaveProperty("cursor");
     expect(detail).not.toHaveProperty("createdAt");
-    expect(detail.runs[0]).not.toHaveProperty("sourceId");
+    expect(detail.runs[0]).not.toHaveProperty("feedId");
     expect(detail.runs[0]).not.toHaveProperty("opId");
     expect(detail.runs[0]).not.toHaveProperty("cursorBefore");
     expect(detail.runs[0]).not.toHaveProperty("cursorAfter");
     expect(detail.runs[0]).not.toHaveProperty("summaryJson");
 
     expect(health).toEqual({
-      schemaVersion: "frisket.source_health.v1",
-      source: {
+      schemaVersion: "frisket.feed_health.v1",
+      feed: {
         id: 7,
         name: "source-7",
         kind: "rss",
@@ -667,7 +667,7 @@ describe("project-source generated HTTP reads", () => {
         lastCursorSummary: "stored",
       },
       runsPage: {
-        schemaVersion: "frisket.source_runs_page.v1",
+        schemaVersion: "frisket.feed_checks_page.v1",
         order: "desc",
         offset: 4,
         limit: 5,
@@ -690,7 +690,7 @@ describe("project-source generated HTTP reads", () => {
           error: "health-run-error",
           startedAt: "2026-08-10T00:00:00Z",
           finishedAt: "2026-08-10T00:01:00Z",
-          sourceId: 7,
+          feedId: 7,
           opId: 11,
           errorSummary: "health-run-error",
           cursorBeforePresent: true,
@@ -701,14 +701,14 @@ describe("project-source generated HTTP reads", () => {
       downstreamJobs: [
         {
           jobId: 9,
-          kind: "source.poll",
+          kind: "feed.poll",
           status: "done",
           attempts: 1,
           maxAttempts: 3,
           createdAt: "2026-08-10T00:00:00Z",
           startedAt: "2026-08-10T00:02:00Z",
           finishedAt: "2026-08-10T00:03:00Z",
-          refs: { source_id: 7 },
+          refs: { feed_id: 7 },
           resultSummary: { kept: [1] },
           errorSummary: "downstream-error",
           stalled: false,
@@ -718,25 +718,25 @@ describe("project-source generated HTTP reads", () => {
         recentActualMicro: 7,
         recentEstimatedMicro: 0,
         basis:
-          "source_runs.cost_micro for loaded runs; downstream costs unknown-safe",
+          "feed_checks.cost_micro for loaded checks; downstream costs unknown-safe",
       },
       alerts: [
         {
-          code: "unsupported_source_schedule",
-          message: "Source schedule could not be parsed for stale detection.",
+          code: "unsupported_feed_schedule",
+          message: "Feed schedule could not be parsed for stale detection.",
         },
       ],
       warnings: [
         {
-          code: "sparse_source_run_metadata",
+          code: "sparse_feed_check_metadata",
           message:
-            "Some loaded source runs lack v1 runtime metadata; row deltas and costs may be incomplete.",
+            "Some loaded feed checks lack v1 runtime metadata; row deltas and costs may be incomplete.",
           run_ids: [8],
         },
       ],
     });
-    expect(health.source).not.toHaveProperty("config");
-    expect(health.source).not.toHaveProperty("cursor");
+    expect(health.feed).not.toHaveProperty("config");
+    expect(health.feed).not.toHaveProperty("cursor");
   });
 
 });

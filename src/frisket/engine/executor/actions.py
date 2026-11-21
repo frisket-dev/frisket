@@ -679,8 +679,8 @@ def run_action_spec(
             for name, supports in (
                 ("mutation", supports_typed_mutation_action),
                 ("operation", supports_typed_operation_action),
-                ("source", supports_typed_feed_action),
-                ("source_poll", supports_typed_feed_poll_action),
+                ("feed", supports_typed_feed_action),
+                ("feed_poll", supports_typed_feed_poll_action),
                 ("export", supports_typed_export_action),
                 ("embedding", supports_typed_embedding_action),
                 ("plugin", supports_typed_plugin_load_action),
@@ -733,9 +733,9 @@ def run_action_spec(
             )
         if owners[0] == "operation":
             return run_typed_operation_action(project, project_id, typed)
-        if owners[0] == "source":
+        if owners[0] == "feed":
             return run_typed_feed_action(project, project_id, typed)
-        if owners[0] == "source_poll":
+        if owners[0] == "feed_poll":
             return run_typed_feed_poll_action(
                 project,
                 project_id,

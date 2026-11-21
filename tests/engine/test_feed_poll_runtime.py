@@ -13,8 +13,8 @@ from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
     ActionParams,
     ActionRequest,
-    PolledSource,
-    SourcePoller as PollCapability,
+    FeedPoller as PollCapability,
+    PolledFeed,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 
@@ -79,11 +79,11 @@ def _feed_poll_action(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if source_id is not None:
-        params["source"] = source_id
+        params["feed"] = source_id
     if source is not None:
-        params["source"] = source
+        params["feed"] = source
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -284,10 +284,10 @@ class _RenamedPollParams(ActionParams):
 
 def _renamed_poll(
     params: _RenamedPollParams, feed_checker: PollCapability
-) -> PolledSource:
+) -> PolledFeed:
     result = feed_checker.poll(int(params.target.removeprefix("source:")))
     # A handler's mutable descriptive return cannot overwrite admitted facts.
-    result.source_id = 999999
+    result.feed_id = 999999
     result.item_count = 999999
     result.cost_micro = 999999
     return result
@@ -334,9 +334,9 @@ def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
         run_ref = next(
             item["ref"]
             for item in receipt["outputs"]
-            if item["ref"]["kind"] == "source_poll_run"
+            if item["ref"]["kind"] == "feed_poll_check"
         )
-        assert run_ref["source_id"] == source_id
+        assert run_ref["feed_id"] == source_id
         assert run_ref["materialized_rows"] == 1
         assert run_ref["cost_micro"] == 12000
         assert receipt["provider_use"] == feed_checker.provider_use
@@ -357,7 +357,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
 ):
     from frisket.engine.executor.feed_poll_action import run_typed_feed_poll_action
 
-    def produce(params: _RenamedPollParams, sources: PollCapability) -> PolledSource:
+    def produce(params: _RenamedPollParams, sources: PollCapability) -> PolledFeed:
         sources.poll(int(params.target))
         if failure == "value_error":
             raise ValueError("author failed after polling")
@@ -408,7 +408,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         observed = {
             "poll_calls": feed_checker.calls,
             "receipts": _table_count(project, "receipts"),
-            "source_runs": _table_count(project, "source_runs"),
+            "feed_checks": _table_count(project, "feed_checks"),
             "exceptions": exceptions,
         }
         assert not exceptions, observed
@@ -418,10 +418,10 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         assert replay.receipt_id == failed.receipt_id
         assert replay.status == "failed"
         assert feed_checker.calls == 1
-        assert _table_count(project, "source_runs") == 1
+        assert _table_count(project, "feed_checks") == 1
         assert _table_count(project, "rows") == 0
         assert FeedStore(project).get_feed(source_id)["cursor"] == cursor_before
-        run = project.db.execute("SELECT * FROM source_runs").fetchone()
+        run = project.db.execute("SELECT * FROM feed_checks").fetchone()
         assert run["status"] == "error"
         assert run["receipt_id"] == failed.receipt_id
         assert run["cursor_after"] == run["cursor_before"]
@@ -443,7 +443,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         artifacts = next(
             item["ref"]
             for item in receipt["evidence"]
-            if item["ref"]["kind"] == "source_poll_artifacts"
+            if item["ref"]["kind"] == "feed_poll_artifacts"
         )
         assert artifacts["artifacts"] == feed_checker.artifacts
     finally:
@@ -467,20 +467,20 @@ def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
             project_id=PROJECT_ID,
         )
         assert invalid.status == "failed"
-        assert invalid.errors[0].code == "unsupported_source_config"
+        assert invalid.errors[0].code == "unsupported_feed_config"
         assert invalid.receipt_id is None
         assert feed_checker.calls == 0
-        assert _table_count(project, "sources") == 0
-        assert _table_count(project, "source_runs") == 0
+        assert _table_count(project, "feeds") == 0
+        assert _table_count(project, "feed_checks") == 0
 
         feed_checker.fail = RuntimeError("provider unavailable")
         request = _feed_poll_action(source=_source(), idempotency_key="new-failed")
         failed = run_action_spec(project, request, project_id=PROJECT_ID)
         assert failed.status == "failed"
         assert failed.receipt_id is not None
-        assert _table_count(project, "sources") == 1
+        assert _table_count(project, "feeds") == 1
         assert _table_count(project, "rows") == 0
-        run = project.db.execute("SELECT * FROM source_runs").fetchone()
+        run = project.db.execute("SELECT * FROM feed_checks").fetchone()
         assert run["status"] == "error"
         assert run["receipt_id"] == failed.receipt_id
         assert run["cursor_before"] == run["cursor_after"]
@@ -494,7 +494,7 @@ def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
         assert replay.status == "failed"
         assert replay.receipt_id == failed.receipt_id
         assert feed_checker.calls == 1
-        assert _table_count(project, "source_runs") == 1
+        assert _table_count(project, "feed_checks") == 1
     finally:
         project.close()
         unregister_feed_checker("fake")
@@ -524,7 +524,7 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
         assert result.errors[0].code == "project_write_failed"
         assert feed_checker.calls == 1
         for table in (
-            "source_runs",
+            "feed_checks",
             "keyed_observations",
             "sheets",
             "columns",
@@ -553,9 +553,9 @@ def test_poll_preview_and_legacy_request_refuse_before_source_creation(make_proj
             project,
             {
                 "schema_version": "frisket.action.v2",
-                "kind": "source.poll",
-                "params": {"source": _source()},
-                "capabilities": ["project:write", "external:source_poll"],
+                "kind": "feed.poll",
+                "params": {"feed": _source()},
+                "capabilities": ["project:write", "external:feed_poll"],
                 "idempotency_key": "legacy-refused",
             },
             project_id=PROJECT_ID,
@@ -563,7 +563,7 @@ def test_poll_preview_and_legacy_request_refuse_before_source_creation(make_proj
         assert old.status == "failed"
         assert old.errors[0].code == "invalid_action_request"
         assert feed_checker.calls == 0
-        assert _table_count(project, "sources") == 0
+        assert _table_count(project, "feeds") == 0
         assert _table_count(project, "receipts") == 0
     finally:
         project.close()
@@ -604,9 +604,9 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
         assert encode_cursor({"page": 1, "done": False}) == '{"done":false,"page":1}'
 
         catalog = root_action_catalog()
-        entry = next(item for item in catalog.actions if item.kind == "source.poll")
+        entry = next(item for item in catalog.actions if item.kind == "feed.poll")
         assert entry.execution_mode == "whole_project"
-        assert entry.required_capabilities == ["project:write", "external:source_poll"]
+        assert entry.required_capabilities == ["project:write", "external:feed_poll"]
         assert entry.cost_policy.kind == "external_metered"
         assert entry.cost_policy.requires_confirmation is False
         # source.poll now runs on the plain body: a sync poll is never observably "in
@@ -648,14 +648,14 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert first.receipt_id is not None
             assert feed_checker.calls == 1
             source_id = next(
-                output.ref["source_id"]
+                output.ref["feed_id"]
                 for output in first.outputs
-                if output.kind == "source"
+                if output.kind == "feed"
             )
             source_run_id = next(
-                output.ref["source_run_id"]
+                output.ref["feed_check_id"]
                 for output in first.outputs
-                if output.kind == "source_run"
+                if output.kind == "feed_check"
             )
             sheet_id = next(
                 output.sheet_id for output in first.outputs if output.kind == "sheet"
@@ -670,7 +670,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert rows[0]["source_raw"] == {"id": "a", "title": "Alpha"}
 
             source_run = project.db.execute(
-                "SELECT * FROM source_runs WHERE id=?",
+                "SELECT * FROM feed_checks WHERE id=?",
                 (source_run_id,),
             ).fetchone()
             assert source_run is not None
@@ -687,7 +687,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert _table_count(project, "keyed_observations") == 2
 
             receipt = _receipt(project, first.receipt_id)
-            assert receipt["action_kind"] == "source.poll"
+            assert receipt["action_kind"] == "feed.poll"
             assert receipt["status"] == "completed"
             assert receipt["warnings"] == ["fake warning"]
             assert receipt["provider_use"] == feed_checker.provider_use
@@ -696,13 +696,13 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
                 for item in [*receipt["outputs"], *receipt["evidence"]]
                 if isinstance(item, dict)
             ]
-            assert {"source_poll_run", "source_poll_rows", "source_poll_cursor"} <= {
+            assert {"feed_poll_check", "feed_poll_rows", "feed_poll_cursor"} <= {
                 ref["kind"] for ref in refs
             }
 
             before_replay = {
                 table: _table_count(project, table)
-                for table in ("source_runs", "keyed_observations", "rows", "receipts")
+                for table in ("feed_checks", "keyed_observations", "rows", "receipts")
             }
             replay = run_action_spec(
                 project,
@@ -714,7 +714,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert feed_checker.calls == 1
             assert {
                 table: _table_count(project, table)
-                for table in ("source_runs", "keyed_observations", "rows", "receipts")
+                for table in ("feed_checks", "keyed_observations", "rows", "receipts")
             } == before_replay
 
             feed_checker.items = [
@@ -757,12 +757,12 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert second.status == "completed"
             assert feed_checker.calls == 2
             second_run_id = next(
-                output.ref["source_run_id"]
+                output.ref["feed_check_id"]
                 for output in second.outputs
-                if output.kind == "source_run"
+                if output.kind == "feed_check"
             )
             second_run = project.db.execute(
-                "SELECT * FROM source_runs WHERE id=?",
+                "SELECT * FROM feed_checks WHERE id=?",
                 (second_run_id,),
             ).fetchone()
             assert second_run["new_rows"] == 1
@@ -815,7 +815,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             )
             assert failed.status == "failed"
             assert failed.receipt_id is not None
-            assert failed.errors[0].code == "source_poll_failed"
+            assert failed.errors[0].code == "feed_poll_failed"
             failed_run = FeedStore(project).feed_checks_page(source_id, limit=1)[0]
             assert failed_run["status"] == "error"
             assert failed_run["receipt_id"] == failed.receipt_id
@@ -856,7 +856,7 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
         project_id=PROJECT_ID,
     )
     assert rejected.status == "failed"
-    assert rejected.errors[0].code == "unsupported_source_kind"
+    assert rejected.errors[0].code == "unsupported_feed_kind"
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -875,7 +875,7 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
     try:
         job_id = queue.enqueue(
             FEED_POLL_KIND,
-            {"project_id": "news", "source_id": source_id},
+            {"project_id": "news", "feed_id": source_id},
             max_attempts=1,
         )
         registry = default_registry()
@@ -892,13 +892,13 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
         assert Worker(queue, registry).run_once()
         job = queue.get(job_id)
         assert job.status == "done"
-        assert job.result["action_kind"] == "source.poll"
+        assert job.result["action_kind"] == "feed.poll"
         reopened = Project(workspace / "news.frisket")
         try:
             receipts = reopened.db.execute(
                 "SELECT action_kind FROM receipts ORDER BY created_at, id"
             ).fetchall()
-            assert [row["action_kind"] for row in receipts] == ["source.poll"]
+            assert [row["action_kind"] for row in receipts] == ["feed.poll"]
             runs = [
                 dict(row) for row in FeedStore(reopened).feed_checks_page(source_id)
             ]
@@ -932,17 +932,17 @@ def test_source_poll_running_reservation_replays_without_provider_call(
             )
             params_hash = typed_request_hash(typed_action_for_request(action))
             receipt = Receipt(
-                receipt_id="receipt_running_source_poll",
+                receipt_id="receipt_running_feed_poll",
                 project_id=PROJECT_ID,
-                action_id="act_running_source_poll",
-                action_kind="source.poll",
+                action_id="act_running_feed_poll",
+                action_kind="feed.poll",
                 idempotency_key=action["idempotency_key"],
                 params_hash=params_hash,
                 status="running",
                 inputs=[
                     ReceiptIO(
                         name="idempotency",
-                        ref={"kind": "source_poll_idempotency_reservation"},
+                        ref={"kind": "feed_poll_idempotency_reservation"},
                     )
                 ],
             )
@@ -968,7 +968,7 @@ def test_source_poll_running_reservation_replays_without_provider_call(
             assert result.status == "running"
             assert result.receipt_id == receipt.receipt_id
             assert feed_checker.calls == 0
-            assert _table_count(project, "source_runs") == 0
+            assert _table_count(project, "feed_checks") == 0
             assert _table_count(project, "keyed_observations") == 0
         finally:
             project.close()
@@ -999,17 +999,17 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
             )
             params_hash = typed_request_hash(typed_action_for_request(action))
             receipt = Receipt(
-                receipt_id="receipt_stale_source_poll",
+                receipt_id="receipt_stale_feed_poll",
                 project_id=PROJECT_ID,
-                action_id="act_stale_source_poll",
-                action_kind="source.poll",
+                action_id="act_stale_feed_poll",
+                action_kind="feed.poll",
                 idempotency_key=action["idempotency_key"],
                 params_hash=params_hash,
                 status="running",
                 inputs=[
                     ReceiptIO(
                         name="idempotency",
-                        ref={"kind": "source_poll_idempotency_reservation"},
+                        ref={"kind": "feed_poll_idempotency_reservation"},
                     )
                 ],
             )
@@ -1039,7 +1039,7 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
             assert result.receipt_id == receipt.receipt_id
             assert feed_checker.calls == 0
             assert _table_count(project, "receipts") == before_receipts
-            assert _table_count(project, "source_runs") == 0
+            assert _table_count(project, "feed_checks") == 0
             assert _table_count(project, "keyed_observations") == 0
             assert (
                 project.db.execute(

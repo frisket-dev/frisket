@@ -19,7 +19,7 @@ export interface WorkbenchHostContext {
     activeRowId: string | null;
     activeCell: { rowId: string; columnId: string } | null;
     activeColumnId: string | null;
-    activeSourceId: string | null;
+    activeFeedId: string | null;
     activeEntityId: string | null;
     activeEvidenceLinkId: string | number | null;
   };
@@ -82,7 +82,7 @@ export interface WorkbenchHostContext {
     openSheet(sheetId: string): void;
     openRow(sheetId: string | number, rowId: string | number): void;
     openColumn(columnId: string): void;
-    openSource(sourceId: string | number): void;
+    openFeed(feedId: string | number): void;
     openEvidence(evidenceLinkId: string | number): void;
     openMap(columnId?: string): void;
     openGraph(anchorId?: string): void;
@@ -94,7 +94,7 @@ export interface WorkbenchHostContext {
     previewAction(actionKind: string): Promise<void>;
     inspectProposal(proposalId: string): void;
     applyReviewDecision(reviewId: string, decision: 'accept' | 'reject'): Promise<void>;
-    pollSource(sourceId: string | number): Promise<void>;
+    pollFeed(feedId: string | number): Promise<void>;
   };
   invalidation: {
     refreshSheets(): Promise<SheetMeta[] | void>;
@@ -135,7 +135,7 @@ function hostContextCapabilities(context: WorkbenchHostContext): string[] {
     'host.navigation.openSheet',
     'host.navigation.openRow',
     'host.navigation.openColumn',
-    'host.navigation.openSource',
+    'host.navigation.openFeed',
     'host.navigation.openEvidence',
     'host.evidence.open',
     'host.navigation.openMap',
@@ -143,9 +143,9 @@ function hostContextCapabilities(context: WorkbenchHostContext): string[] {
     'host.navigation.openActionRoute',
     'action.run',
     'action.preview',
-    'source.list',
+    'feed.list',
     'review.decision',
-    'source.poll',
+    'feed.poll',
     'invalidation.sheets',
     'invalidation.history',
     'policy.costGate',

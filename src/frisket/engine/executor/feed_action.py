@@ -10,15 +10,15 @@ from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
-    CheckedSource,
-    DeletedSource,
-    SourceChecker,
-    SourceCreator,
-    SourceDeleter,
-    SourcePatch,
-    SourceRecord,
-    SourceUpdater,
-    UpdatedSource,
+    CheckedFeed,
+    DeletedFeed,
+    FeedChecker,
+    FeedCreator,
+    FeedDeleter,
+    FeedPatch,
+    FeedRecord,
+    FeedUpdater,
+    UpdatedFeed,
 )
 from frisket.contracts.action import (
     ActionError,
@@ -59,9 +59,9 @@ def _config(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _record(row: Mapping[str, Any]) -> SourceRecord:
-    return SourceRecord(
-        source_id=int(row["id"]),
+def _record(row: Mapping[str, Any]) -> FeedRecord:
+    return FeedRecord(
+        feed_id=int(row["id"]),
         name=str(row["name"]),
         kind=str(row["kind"]),
         url=row["url"],
@@ -79,26 +79,24 @@ class _CallOnce:
     def __init__(self, project: Any):
         self._project = project
         self._called = False
-        self.result: (
-            SourceRecord | UpdatedSource | DeletedSource | CheckedSource | None
-        ) = None
+        self.result: FeedRecord | UpdatedFeed | DeletedFeed | CheckedFeed | None = None
         self.before: dict[str, Any] | None = None
         self.after: dict[str, Any] | None = None
 
     def _begin(self) -> FeedStore:
         if self._called:
-            raise RuntimeError("source capability may be called only once")
+            raise RuntimeError("feed capability may be called only once")
         self._called = True
         return FeedStore(self._project)
 
 
 class _Creator(_CallOnce):
-    def create(self, **values: Any) -> SourceRecord:
+    def create(self, **values: Any) -> FeedRecord:
         store = self._begin()
-        source_id = store.add_feed(**values)
-        row = store.get_feed(source_id)
+        feed_id = store.add_feed(**values)
+        row = store.get_feed(feed_id)
         if row is None:
-            raise RuntimeError("created source is unavailable")
+            raise RuntimeError("created feed is unavailable")
         self.after = dict(row)
         result = _record(self.after)
         self.result = result
@@ -106,34 +104,34 @@ class _Creator(_CallOnce):
 
 
 class _Updater(_CallOnce):
-    def update(self, source_id: int, *, patch: SourcePatch) -> UpdatedSource:
+    def update(self, feed_id: int, *, patch: FeedPatch) -> UpdatedFeed:
         store = self._begin()
-        before = store.get_feed(source_id)
+        before = store.get_feed(feed_id)
         if before is None:
-            raise LookupError(source_id)
+            raise LookupError(feed_id)
         self.before = dict(before)
         values = patch.values()
         if values.get("config", object()) is None:
             values["config"] = {}
-        store.update_feed(source_id, **values)
-        row = store.get_feed(source_id)
+        store.update_feed(feed_id, **values)
+        row = store.get_feed(feed_id)
         if row is None:
-            raise LookupError(source_id)
+            raise LookupError(feed_id)
         self.after = dict(row)
-        result = UpdatedSource(_record(self.after), tuple(sorted(values)))
+        result = UpdatedFeed(_record(self.after), tuple(sorted(values)))
         self.result = result
         return result
 
 
 class _Deleter(_CallOnce):
-    def delete(self, source_id: int) -> DeletedSource:
+    def delete(self, feed_id: int) -> DeletedFeed:
         store = self._begin()
-        row = store.get_feed(source_id)
+        row = store.get_feed(feed_id)
         if row is None:
-            raise LookupError(source_id)
+            raise LookupError(feed_id)
         self.before = dict(row)
-        result = DeletedSource(_record(self.before), store.feed_checks_total(source_id))
-        store.delete_feed(source_id)
+        result = DeletedFeed(_record(self.before), store.feed_checks_total(feed_id))
+        store.delete_feed(feed_id)
         self.result = result
         return result
 
@@ -147,35 +145,35 @@ class _Checker(_CallOnce):
 
     def check(
         self,
-        source_id: int,
+        feed_id: int,
         *,
         new_rows: int,
         status: Literal["ok", "error"],
         error: str | None,
         cursor: str | None,
-    ) -> CheckedSource:
+    ) -> CheckedFeed:
         store = self._begin()
-        before = store.get_feed(source_id)
+        before = store.get_feed(feed_id)
         if before is None:
-            raise LookupError(source_id)
+            raise LookupError(feed_id)
         if before["kind"] == "rss":
             raise _UnsupportedFeedKind("rss")
         self.before = dict(before)
         self.cursor = cursor
-        source_run_id = store.record_feed_check(
-            source_id,
+        feed_check_id = store.record_feed_check(
+            feed_id,
             new_rows=new_rows,
             status=status,
             error=error,
             cursor=cursor,
         )
-        after = store.get_feed(source_id)
+        after = store.get_feed(feed_id)
         if after is None:
-            raise LookupError(source_id)
+            raise LookupError(feed_id)
         self.after = dict(after)
-        result = CheckedSource(
-            source=_record(self.after),
-            source_run_id=source_run_id,
+        result = CheckedFeed(
+            feed=_record(self.after),
+            feed_check_id=feed_check_id,
             status=status,
             new_rows=new_rows,
             error=error,
@@ -185,16 +183,16 @@ class _Checker(_CallOnce):
 
 
 _CAPABILITY_IMPL = {
-    SourceCreator: _Creator,
-    SourceUpdater: _Updater,
-    SourceDeleter: _Deleter,
-    SourceChecker: _Checker,
+    FeedCreator: _Creator,
+    FeedUpdater: _Updater,
+    FeedDeleter: _Deleter,
+    FeedChecker: _Checker,
 }
 _CAPABILITY_OPERATION = {
-    SourceCreator: "create",
-    SourceUpdater: "update",
-    SourceDeleter: "delete",
-    SourceChecker: "check",
+    FeedCreator: "create",
+    FeedUpdater: "update",
+    FeedDeleter: "delete",
+    FeedChecker: "check",
 }
 
 
@@ -205,7 +203,7 @@ def supports_typed_feed_action(terminal: object) -> TypeGuard[_ProjectAction]:
 
 
 def _feed_ref(
-    result: SourceRecord,
+    result: FeedRecord,
     *,
     action: str,
     params_hash: str,
@@ -214,10 +212,10 @@ def _feed_ref(
     raw_config = (raw or {}).get("config") or "{}"
     config_text = raw_config if isinstance(raw_config, str) else json.dumps(raw_config)
     ref = {
-        "kind": f"source_{action}_source",
-        "source_id": result.source_id,
+        "kind": f"feed_{action}_feed",
+        "feed_id": result.feed_id,
         "name": result.name,
-        "source_kind": result.kind,
+        "feed_kind": result.kind,
         "sheet_id": result.sheet_id,
         "schedule": result.schedule,
         "enabled": result.enabled,
@@ -249,22 +247,22 @@ def _feed_ref(
 
 def _public_output(ref: dict[str, Any]) -> ActionOutput:
     return ActionOutput(
-        kind="source",
-        name=str(ref.get("name") or "source"),
+        kind="feed",
+        name=str(ref.get("name") or "feed"),
         sheet_id=ref.get("sheet_id"),
         ref=ref,
     )
 
 
 def _feed_check_refs(
-    result: CheckedSource,
+    result: CheckedFeed,
     *,
     cursor: str | None,
     params_hash: str,
     before: Mapping[str, Any],
     after: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    feed = result.source
+    feed = result.feed
     config_raw = after.get("config") or before.get("config") or "{}"
     config_text = (
         config_raw if isinstance(config_raw, str) else json.dumps(dict(config_raw))
@@ -272,29 +270,29 @@ def _feed_check_refs(
     feed_kind = feed.kind or str(before.get("kind") or "")
     url = feed.url or str(before.get("url") or "")
     return {
-        "source": {
-            "kind": "source_check_source",
-            "source_id": feed.source_id,
+        "feed": {
+            "kind": "feed_check_feed",
+            "feed_id": feed.feed_id,
             "name": feed.name or before.get("name"),
-            "source_kind": feed_kind,
+            "feed_kind": feed_kind,
             "url_hash": _text_hash(url),
             "sheet_id": feed.sheet_id,
             "config_hash": _text_hash(config_text),
             "params_hash": params_hash,
         },
         "request": {
-            "kind": "source_check_request",
-            "source_id": feed.source_id,
+            "kind": "feed_check_request",
+            "feed_id": feed.feed_id,
             "reported_status": result.status,
             "reported_new_rows": result.new_rows,
             "reported_error": result.error,
             "cursor_provided": cursor is not None,
             "params_hash": params_hash,
         },
-        "source_run": {
-            "kind": "source_check_run",
-            "source_id": feed.source_id,
-            "source_run_id": result.source_run_id,
+        "feed_check": {
+            "kind": "feed_check_record",
+            "feed_id": feed.feed_id,
+            "feed_check_id": result.feed_check_id,
             "status": result.status,
             "new_rows": result.new_rows,
             "error": result.error,
@@ -302,9 +300,9 @@ def _feed_check_refs(
             "op_id": None,
         },
         "cursor": {
-            "kind": "source_check_cursor",
-            "source_id": feed.source_id,
-            "source_run_id": result.source_run_id,
+            "kind": "feed_check_cursor",
+            "feed_id": feed.feed_id,
+            "feed_check_id": result.feed_check_id,
             "cursor_hash": _text_hash(cursor or ""),
             "cursor_provided": cursor is not None,
         },
@@ -313,12 +311,12 @@ def _feed_check_refs(
 
 def _feed_check_outputs(refs: Mapping[str, dict[str, Any]]) -> list[ActionOutput]:
     return [
-        _public_output(refs["source"]),
+        _public_output(refs["feed"]),
         ActionOutput(
-            kind="source_run",
-            name="source_run",
-            sheet_id=refs["source_run"].get("sheet_id"),
-            ref=refs["source_run"],
+            kind="feed_check",
+            name="feed_check",
+            sheet_id=refs["feed_check"].get("sheet_id"),
+            ref=refs["feed_check"],
         ),
     ]
 
@@ -344,26 +342,26 @@ def _perform(
     except LookupError:
         return ctx.fail(
             "invalid_input_ref",
-            f"{action.kind} source_id does not exist",
+            f"{action.kind} feed_id does not exist",
             field="params",
         )
     except _UnsupportedFeedKind as exc:
         return ctx.fail(
-            "unsupported_source_kind",
-            "RSS sources must be polled with source.poll",
+            "unsupported_feed_kind",
+            "RSS feeds must be polled with feed.poll",
             field="params",
-            details={"source_kind": str(exc)},
+            details={"feed_kind": str(exc)},
         )
     if capability.result is None or returned != capability.result:
-        raise TypeError("source handler must return its capability result")
+        raise TypeError("feed handler must return its capability result")
 
     operation = _CAPABILITY_OPERATION[terminal.single_capability()]
     semantic = (
-        returned.source
-        if isinstance(returned, (UpdatedSource, DeletedSource, CheckedSource))
+        returned.feed
+        if isinstance(returned, (UpdatedFeed, DeletedFeed, CheckedFeed))
         else returned
     )
-    if isinstance(returned, CheckedSource):
+    if isinstance(returned, CheckedFeed):
         refs = _feed_check_refs(
             returned,
             cursor=capability.cursor,
@@ -380,12 +378,12 @@ def _perform(
             params_hash=params_hash,
             status="completed",
             inputs=[
-                ReceiptIO(name="source", ref=refs["source"]),
+                ReceiptIO(name="feed", ref=refs["feed"]),
                 ReceiptIO(name="request", ref=refs["request"]),
             ],
             outputs=[
-                ReceiptIO(name="source", ref=refs["source"]),
-                ReceiptIO(name="source_run", ref=refs["source_run"]),
+                ReceiptIO(name="feed", ref=refs["feed"]),
+                ReceiptIO(name="feed_check", ref=refs["feed_check"]),
             ],
             evidence=[ReceiptEvidence(ref=refs["cursor"])],
         )
@@ -404,20 +402,20 @@ def _perform(
         raw=capability.after or capability.before,
     )
     request_ref: dict[str, Any] = {
-        "kind": f"source_{operation}_request",
+        "kind": f"feed_{operation}_request",
         "params_hash": params_hash,
     }
     if operation != "create":
-        request_ref["source_id"] = semantic.source_id
-    if isinstance(returned, UpdatedSource):
+        request_ref["feed_id"] = semantic.feed_id
+    if isinstance(returned, UpdatedFeed):
         ref["updated_fields"] = list(returned.updated_fields)
         request_ref["updated_fields"] = list(returned.updated_fields)
-    if isinstance(returned, DeletedSource):
-        ref["source_run_count"] = returned.source_run_count
+    if isinstance(returned, DeletedFeed):
+        ref["feed_check_count"] = returned.feed_check_count
     inputs = [ReceiptIO(name="request", ref=request_ref)]
     evidence_ref = request_ref
-    if isinstance(returned, (UpdatedSource, DeletedSource)):
-        if isinstance(returned, UpdatedSource):
+    if isinstance(returned, (UpdatedFeed, DeletedFeed)):
+        if isinstance(returned, UpdatedFeed):
             raw_before = capability.before or {}
             before_config = raw_before.get("config") or "{}"
             before_config_text = (
@@ -426,10 +424,10 @@ def _perform(
                 else json.dumps(before_config)
             )
             before = {
-                "kind": "source_update_before",
-                "source_id": semantic.source_id,
+                "kind": "feed_update_before",
+                "feed_id": semantic.feed_id,
                 "name": raw_before.get("name"),
-                "source_kind": raw_before.get("kind"),
+                "feed_kind": raw_before.get("kind"),
                 "url_hash": _text_hash(str(raw_before.get("url") or "")),
                 "config_hash": _text_hash(before_config_text),
                 "sheet_id": raw_before.get("sheet_id"),
@@ -440,14 +438,14 @@ def _perform(
                 "new_rows_total": int(raw_before.get("new_rows_total") or 0),
                 "params_hash": params_hash,
             }
-            inputs.insert(0, ReceiptIO(name="source_before", ref=before))
+            inputs.insert(0, ReceiptIO(name="feed_before", ref=before))
             evidence_ref = before
         else:
-            inputs.insert(0, ReceiptIO(name="source_before", ref=ref))
+            inputs.insert(0, ReceiptIO(name="feed_before", ref=ref))
             evidence_ref = ref
     elif operation == "create":
         request_ref.update(
-            source_kind=semantic.kind,
+            feed_kind=semantic.kind,
             has_url=semantic.url is not None,
             schedule=semantic.schedule,
             enabled=semantic.enabled,
@@ -462,7 +460,7 @@ def _perform(
         params_hash=params_hash,
         status="completed",
         inputs=inputs,
-        outputs=[ReceiptIO(name="source", ref=ref)],
+        outputs=[ReceiptIO(name="feed", ref=ref)],
         evidence=[ReceiptEvidence(ref=evidence_ref)],
     )
     ReceiptStore(project).insert_completed(receipt)
@@ -480,7 +478,7 @@ def run_typed_feed_action(
 ) -> ActionResult:
     terminal = bound.action.definition.run
     if not supports_typed_feed_action(terminal):
-        raise TypeError("typed source executor requires a source action")
+        raise TypeError("typed feed executor requires a feed action")
     envelope = _typed_params_envelope(bound)
     params_hash = typed_request_hash(bound)
 
@@ -496,9 +494,9 @@ def run_typed_feed_action(
         plain_exception_error_fn=lambda action: ActionError(
             code="project_write_failed",
             message=(
-                "source.check could not write source_run and receipt"
-                if terminal.capabilities == (SourceChecker,)
-                else f"{action.kind} could not mutate source and receipt"
+                "feed.check could not write feed_check and receipt"
+                if terminal.capabilities == (FeedChecker,)
+                else f"{action.kind} could not mutate feed and receipt"
             ),
             action_kind=action.kind,
         ),

@@ -212,18 +212,18 @@ def _receipt_plugin_manifest_output(
     )
 
 
-def _receipt_source_output(output: ReceiptIO, ref: dict[str, Any]) -> ActionOutput:
+def _receipt_feed_output(output: ReceiptIO, ref: dict[str, Any]) -> ActionOutput:
     return ActionOutput(
-        kind="source",
+        kind="feed",
         name=output.name,
         sheet_id=ref.get("sheet_id"),
         ref=ref,
     )
 
 
-def _receipt_source_run_output(output: ReceiptIO, ref: dict[str, Any]) -> ActionOutput:
+def _receipt_feed_check_output(output: ReceiptIO, ref: dict[str, Any]) -> ActionOutput:
     return ActionOutput(
-        kind="source_run",
+        kind="feed_check",
         name=output.name,
         sheet_id=ref.get("sheet_id"),
         ref=ref,
@@ -319,18 +319,15 @@ _OUTPUT_REF_RESULT_BUILDERS: Mapping[str, _OutputRefResultBuilder] = {
     "export_project_file": _receipt_export_output,
     "external_export": _receipt_export_output,
     "plugin_manifest": _receipt_plugin_manifest_output,
-    "source_create_source": _receipt_source_output,
-    "source_update_source": _receipt_source_output,
-    "source_delete_source": _receipt_source_output,
-    "rss_source": _receipt_source_output,
-    "rss_source_run": _receipt_source_run_output,
-    "source_poll_source": _receipt_source_output,
-    "source_poll_run": _receipt_source_run_output,
-    "source_check_source": _receipt_source_output,
-    "source_check_run": _receipt_source_run_output,
-    "source_sheet": _receipt_sheet_output,
-    "rss_feed_rows": _receipt_rows_output,
-    "source_poll_rows": _receipt_rows_output,
+    "feed_create_feed": _receipt_feed_output,
+    "feed_update_feed": _receipt_feed_output,
+    "feed_delete_feed": _receipt_feed_output,
+    "feed_poll_feed": _receipt_feed_output,
+    "feed_poll_check": _receipt_feed_check_output,
+    "feed_check_feed": _receipt_feed_output,
+    "feed_check_record": _receipt_feed_check_output,
+    "feed_sheet": _receipt_sheet_output,
+    "feed_poll_rows": _receipt_rows_output,
     "enclosure_rows": _receipt_rows_output,
     "media_cell": _receipt_media_cell_output,
     "media_blob": _receipt_media_blob_output,

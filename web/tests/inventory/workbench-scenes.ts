@@ -296,14 +296,14 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     last_checked_at: timestamp, last_status: 'error', new_rows_total: 42, created_at: timestamp,
   };
   const sourceRun = {
-    id: 711, source_id: sourceId, op_id: null, receipt_id: null, status: 'error',
+    id: 711, feed_id: sourceId, op_id: null, receipt_id: null, status: 'error',
     new_rows: 0, skipped_rows: 2, changed_rows: 0, revisions: 0, duration_ms: 180,
     warning_count: 1, cost_micro: 0, error: 'Synthetic fixture: the archive returned an incomplete response; previously imported records remain available.',
     cursor_before: null, cursor_after: null, summary_json: '{}', started_at: timestamp, finished_at: timestamp,
   };
-  const sourcePage = { schema_version: 'frisket.source_runs_page.v1', ...pageInfo };
+  const sourcePage = { schema_version: 'frisket.feed_checks_page.v1', ...pageInfo };
   const health = {
-    schema_version: 'frisket.source_health.v1', source: { ...source, redactions: ['config', 'cursor'] },
+    schema_version: 'frisket.feed_health.v1', feed: { ...source, redactions: ['config', 'cursor'] },
     summary: {
       status: 'failing', last_success_at: '2026-10-19T11:00:00Z', last_failure_at: timestamp,
       consecutive_failures: 1, new_rows_total: 42, new_rows_recent: 4, changed_rows_recent: 1,
@@ -312,9 +312,9 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     runs_page: sourcePage,
     runs: [{ ...sourceRun, error_summary: sourceRun.error, cursor_before_present: true, cursor_after_present: false, summary_present: true }],
     downstream_jobs: [{
-      job_id: 712, kind: 'source.poll', status: 'failed', attempts: 1, max_attempts: 3,
+      job_id: 712, kind: 'feed.poll', status: 'failed', attempts: 1, max_attempts: 3,
       created_at: timestamp, started_at: timestamp, finished_at: timestamp,
-      refs: { source_id: sourceId }, result_summary: {}, error_summary: 'Synthetic fixture: archive unavailable.', stalled: false,
+      refs: { feed_id: sourceId }, result_summary: {}, error_summary: 'Synthetic fixture: archive unavailable.', stalled: false,
     }],
     costs: { recent_actual_micro: 0, recent_estimated_micro: 0, basis: 'synthetic fixture; no work executed' },
     alerts: [], warnings: [{ code: 'synthetic_fixture', message: 'Synthetic fixture: one loaded poll has incomplete archive metadata.' }],

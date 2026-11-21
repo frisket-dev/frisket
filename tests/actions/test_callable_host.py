@@ -474,7 +474,7 @@ def test_declared_serialization_schema_matches_durable_value(source):
 
 
 def test_unsupported_specialized_combinations_refuse_before_handler(source):
-    from frisket.actions.types import SourceCreator
+    from frisket.actions.types import FeedCreator
 
     project, params, _ = source
     calls = []
@@ -487,7 +487,7 @@ def test_unsupported_specialized_combinations_refuse_before_handler(source):
     unsupported.__annotations__ = {
         "params": ReportParams,
         "query": QueryPreviewer,
-        "source": SourceCreator,
+        "source": FeedCreator,
         "return": type(None),
     }
     with pytest.raises(TypeError, match="composed callable execution"):

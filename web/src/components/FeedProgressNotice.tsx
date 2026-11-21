@@ -6,7 +6,7 @@ import { ActivityProgressCard, ProgressRow } from './ActivityProgress';
 /** Uses the ordinary jobs polling owner; no separate timer or progress store. */
 export function FeedProgressNotice() {
   const { job, chromePreferences: { projectId } } = useWorkspaceStores();
-  const feed = useSelector(job.store, (state) => state.actionJobs.jobs.find((candidate) => candidate.kind === 'source.poll'));
+  const feed = useSelector(job.store, (state) => state.actionJobs.jobs.find((candidate) => candidate.kind === 'feed.poll'));
   const [dismissed, setDismissed] = useState<string | null>(null);
   const active = feed?.status === 'queued' || feed?.status === 'running';
   const identity = feed ? `${projectId}:${feed.jobId}` : null;

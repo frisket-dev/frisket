@@ -17,43 +17,43 @@ def test_feed_routes_bind_queries_defaults_and_map_service_errors() -> None:
     register_health_routes(app)
     client = TestClient(app)
 
-    listed = client.get("/api/projects/p/sources")
+    listed = client.get("/api/projects/p/feeds")
     assert listed.status_code == 200
     assert listed.json() == [_source_payload(1)]
-    assert service.calls[-1] == ("list_sources", "p")
+    assert service.calls[-1] == ("list_feeds", "p")
 
     detail = client.get(
-        "/api/projects/p/sources/9",
+        "/api/projects/p/feeds/9",
         params={"runs_offset": 2, "runs_limit": 3},
     )
     assert detail.status_code == 200
     assert service.calls[-1] == ("get_feed", "p", 9, 2, 3)
 
-    detail_default = client.get("/api/projects/p/sources/9")
+    detail_default = client.get("/api/projects/p/feeds/9")
     assert detail_default.status_code == 200
     assert service.calls[-1] == ("get_feed", "p", 9, 0, 50)
 
     health = client.get(
-        "/api/projects/p/sources/9/health",
+        "/api/projects/p/feeds/9/health",
         params={"runs_offset": 4, "runs_limit": 5},
     )
     assert health.status_code == 200
     assert service.calls[-1] == ("get_feed_health", "p", 9, 4, 5)
 
-    health_default = client.get("/api/projects/p/sources/9/health")
+    health_default = client.get("/api/projects/p/feeds/9/health")
     assert health_default.status_code == 200
     assert service.calls[-1] == ("get_feed_health", "p", 9, 0, 20)
 
-    missing_detail = client.get("/api/projects/p/sources/404")
+    missing_detail = client.get("/api/projects/p/feeds/404")
     assert missing_detail.status_code == 404
     assert missing_detail.json()["detail"] == "feed not found"
 
-    missing_health = client.get("/api/projects/p/sources/404/health")
+    missing_health = client.get("/api/projects/p/feeds/404/health")
     assert missing_health.status_code == 404
     assert missing_health.json()["detail"] == "feed not found"
 
     invalid = client.get(
-        "/api/projects/p/sources/9",
+        "/api/projects/p/feeds/9",
         params={"runs_offset": -1, "runs_limit": 0},
     )
     assert invalid.status_code == 422
@@ -66,7 +66,7 @@ class _FakeSourceService:
         self.calls: list[tuple[Any, ...]] = []
 
     def list_feeds(self, project_id: str) -> list[dict[str, Any]]:
-        self.calls.append(("list_sources", project_id))
+        self.calls.append(("list_feeds", project_id))
         return [_source_payload(1)]
 
     def get_feed(
@@ -84,7 +84,7 @@ class _FakeSourceService:
             **_source_payload(source_id),
             "runs": [],
             "runs_page": {
-                "schema_version": "frisket.source_runs_page.v1",
+                "schema_version": "frisket.feed_checks_page.v1",
                 "order": "desc",
                 "offset": runs_offset,
                 "limit": runs_limit,
@@ -110,8 +110,8 @@ class _FakeSourceService:
         if source_id == 404:
             raise FeedNotFound("feed not found")
         return {
-            "schema_version": "frisket.source_health.v1",
-            "source": {
+            "schema_version": "frisket.feed_health.v1",
+            "feed": {
                 "id": source_id,
                 "name": f"source-{source_id}",
                 "kind": "rss",
@@ -136,7 +136,7 @@ class _FakeSourceService:
                 "last_cursor_summary": "not_recorded",
             },
             "runs_page": {
-                "schema_version": "frisket.source_runs_page.v1",
+                "schema_version": "frisket.feed_checks_page.v1",
                 "order": "desc",
                 "offset": runs_offset,
                 "limit": runs_limit,
@@ -150,7 +150,7 @@ class _FakeSourceService:
                 "recent_actual_micro": 0,
                 "recent_estimated_micro": 0,
                 "basis": (
-                    "source_runs.cost_micro for loaded runs; "
+                    "feed_checks.cost_micro for loaded checks; "
                     "downstream costs unknown-safe"
                 ),
             },

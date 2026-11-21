@@ -50,7 +50,7 @@
     "activeColumn",
     "activeCell",
     "activeEvidence",
-    "activeSource",
+    "activeFeed",
     "activeEntity",
     "activeProjection",
     "selectedRows",
@@ -101,7 +101,7 @@
         "mode": "tab"
       },
       {
-        "host": "sourceDetail",
+        "host": "feedDetail",
         "mode": "tab"
       },
       {
@@ -135,12 +135,12 @@
     "columnInspector": "detail",
     "commandPalette": "launcher",
     "entityDetail": "detail",
+    "feedDetail": "detail",
     "leftSidebar": "scope",
     "mainView": "work.primary",
     "modalOrPeek": "interruption",
     "rightInspector": "inspection",
     "rowDetail": "detail",
-    "rowInspector": "detail",
-    "sourceDetail": "detail"
+    "rowInspector": "detail"
   }
 }

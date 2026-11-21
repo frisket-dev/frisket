@@ -7,12 +7,20 @@ import sqlite3
 
 import pytest
 
+from frisket.upgrades.project._step import run_rebuild_step, run_step
 from frisket.upgrades.project.domain_migration import (
+    DOMAIN_TO_DIGEST,
     archive_history,
     capture_current_baseline,
     install_current_baseline,
     retire_unfinished_work,
 )
+from frisket.upgrades.project.edit_precedence_migration import (
+    COPY_PRECEDENCE_TO_DIGEST,
+    EDIT_PRECEDENCE_TO_DIGEST,
+    apply_edit_precedence,
+)
+from frisket.upgrades.project.feeds_migration import FEEDS_TO_DIGEST, migrate_feeds
 from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.engine.store.transactions import write_transaction
 
@@ -654,6 +662,14 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
 
     _stamp_old(old_db)
     migrate_domain(old_db)
+    run_step(old_db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
+    run_step(
+        old_db,
+        EDIT_PRECEDENCE_TO_DIGEST,
+        COPY_PRECEDENCE_TO_DIGEST,
+        apply_edit_precedence,
+    )
+    run_rebuild_step(old_db, COPY_PRECEDENCE_TO_DIGEST, FEEDS_TO_DIGEST, migrate_feeds)
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
@@ -781,6 +797,14 @@ def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
 
     _stamp_old(old_db)
     migrate_domain(old_db)
+    run_step(old_db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
+    run_step(
+        old_db,
+        EDIT_PRECEDENCE_TO_DIGEST,
+        COPY_PRECEDENCE_TO_DIGEST,
+        apply_edit_precedence,
+    )
+    run_rebuild_step(old_db, COPY_PRECEDENCE_TO_DIGEST, FEEDS_TO_DIGEST, migrate_feeds)
     with sqlite3.connect(":memory:") as fresh:
         fresh.executescript(SCHEMA)
         expected = objects(fresh)

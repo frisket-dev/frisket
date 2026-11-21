@@ -190,7 +190,7 @@ test('Feed source creation is discoverable from the primary import/start surface
   const apiListCreate = page.waitForRequest((request) =>
     request.url().includes(`/api/projects/${pid}/actions/v1/run`) &&
     request.method() === 'POST' &&
-    request.postDataJSON().action_id === 'source.create' &&
+    request.postDataJSON().action_id === 'feed.create' &&
     request.postDataJSON().params.kind === 'api_list_dicts',
   );
   await page.getByTestId('feed-create').click();
@@ -222,7 +222,7 @@ test('Feed source creation is discoverable from the primary import/start surface
   const youtubeCreate = page.waitForRequest((request) =>
     request.url().includes(`/api/projects/${pid}/actions/v1/run`) &&
     request.method() === 'POST' &&
-    request.postDataJSON().action_id === 'source.create' &&
+    request.postDataJSON().action_id === 'feed.create' &&
     request.postDataJSON().params.kind === 'youtube_channel',
   );
   await page.getByTestId('feed-create').click();

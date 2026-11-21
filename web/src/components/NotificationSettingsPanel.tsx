@@ -47,7 +47,7 @@ interface RouteDraft {
   name: string;
   channelId: string;
   enabled: boolean;
-  sourceKind: 'all' | 'watch' | 'run' | 'import' | 'source';
+  sourceKind: 'all' | 'watch' | 'run' | 'import' | 'feed';
   alertId: string;
   severityMin: 'info' | 'warning' | 'critical';
   deliveryMode: 'immediate' | 'digest';
@@ -516,7 +516,7 @@ function RouteSection({
             <option value="watch">Alert</option>
             <option value="run">Run</option>
             <option value="import">Import</option>
-            <option value="source">Feed</option>
+            <option value="feed">Feed</option>
             <option value="all">All</option>
           </PanelSelect>
         </FormField>
