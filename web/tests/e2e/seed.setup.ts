@@ -17,82 +17,19 @@ import { fileURLToPath } from 'node:url';
 import { test as setup, type APIRequestContext } from '@playwright/test';
 import { testPython } from '../support/testPython';
 import { SEED_REMEDY, SEEDED_PROJECTS, type SeedStatus, writeSeedStatus } from './seedProjects';
+import { type BackendHealth, publishSeedToBaseWorkspace } from './seedPublish';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-
-function sleep(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
 
 // The seeder's report on one project (seed_demo.py --status-file).
 type SeedOutcome = { state: 'complete' | 'partial' | 'missing' | 'present'; detail: string | null };
 // project name -> why it is unusable after seeding, else null
 type SeedVerdict = (name: string) => string | null;
 
-function isPublishableProjectDir(dir: string, publishable: ReadonlySet<string>): boolean {
-  if (!dir.endsWith('.frisket')) return false;
-  try {
-    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as {
-      name?: string;
-    };
-    return publishable.has(manifest.name ?? '');
-  } catch {
-    return false;
-  }
-}
-
-function isRunLocalFile(name: string): boolean {
-  return name.startsWith('.queue.db') || name === '.seed-publish.lock' || name.startsWith('.frisket-e2e-');
-}
-
-async function acquireSeedPublishLock(lockPath: string): Promise<() => void> {
-  const staleAfterMs = 60 * 60 * 1000;
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    try {
-      fs.mkdirSync(lockPath);
-      return () => fs.rmSync(lockPath, { recursive: true, force: true });
-    } catch (error) {
-      if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') {
-        throw error;
-      }
-      try {
-        const stat = fs.statSync(lockPath);
-        if (Date.now() - stat.mtimeMs > staleAfterMs) {
-          fs.rmSync(lockPath, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-        // The lock disappeared between mkdir attempts; try again.
-      }
-      await sleep(250);
-    }
-  }
-  throw new Error(`Timed out waiting for e2e seed publish lock: ${lockPath}`);
-}
-
-// Copy the completely built projects (and workspace files) the base workspace
-// lacks, so the next isolated run starts from them; a partial project stays
-// out so the next run builds it again. Existing base entries are kept.
-async function publishSeedToBaseWorkspace(publishable: ReadonlySet<string>) {
-  const workspace = process.env.FRISKET_E2E_WS;
-  const baseWorkspace = process.env.FRISKET_E2E_BASE_WS;
-  if (process.env.FRISKET_E2E_ISOLATED !== '1' || !workspace || !baseWorkspace) return;
-  if (path.resolve(workspace) === path.resolve(baseWorkspace)) return;
-  fs.mkdirSync(baseWorkspace, { recursive: true });
-  const release = await acquireSeedPublishLock(path.join(baseWorkspace, '.seed-publish.lock'));
-  try {
-    for (const entry of fs.readdirSync(workspace, { withFileTypes: true })) {
-      const source = path.join(workspace, entry.name);
-      const target = path.join(baseWorkspace, entry.name);
-      if (fs.existsSync(target) || isRunLocalFile(entry.name)) continue;
-      if (entry.isDirectory() && !isPublishableProjectDir(source, publishable)) continue;
-      fs.cpSync(source, target, { recursive: true });
-    }
-  } finally {
-    release();
-  }
+async function readBackendHealth(request: APIRequestContext): Promise<BackendHealth | null> {
+  const res = await request.get('/api/health');
+  if (!res.ok()) return null;
+  return (await res.json()) as BackendHealth;
 }
 
 async function projectIds(request: APIRequestContext): Promise<Map<string, string>> {
@@ -114,7 +51,7 @@ function outcomeFailure(outcome: SeedOutcome | undefined): string | null {
 
 // Runs the seeder for the projects the workspace lacks; returns why each
 // project is still unusable afterwards.
-async function seed(): Promise<SeedVerdict> {
+async function seed(request: APIRequestContext): Promise<SeedVerdict> {
   const backendURL = process.env.FRISKET_E2E_BACKEND_URL ?? 'http://127.0.0.1:8000';
   const keyless = process.env.FRISKET_CACHE_MODE === 'replay_strict';
   const workspace = process.env.FRISKET_E2E_WS;
@@ -140,7 +77,10 @@ async function seed(): Promise<SeedVerdict> {
   const complete = Object.entries(outcomes)
     .filter(([, outcome]) => outcome.state === 'complete')
     .map(([name]) => name);
-  await publishSeedToBaseWorkspace(new Set(complete));
+  await publishSeedToBaseWorkspace({
+    publishable: new Set(complete),
+    readHealth: () => readBackendHealth(request),
+  });
   return (name) => outcomeFailure(outcomes[name]);
 }
 
@@ -163,7 +103,7 @@ setup('seed demo projects (once per workspace)', async ({ request }) => {
   let ids = await projectIds(request);
   let verdict: SeedVerdict = () => null;
   if (SEEDED_PROJECTS.some((name) => !ids.has(name))) {
-    verdict = await seed();
+    verdict = await seed(request);
     ids = await projectIds(request);
   }
   const status: SeedStatus = {};
