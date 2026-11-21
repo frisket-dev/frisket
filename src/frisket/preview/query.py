@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from frisket.actions.types import (
     QUERY_PREVIEW_SCHEMA_VERSION as QUERY_PREVIEW_SCHEMA_VERSION,
+    QueryPreviewEvaluator,
     QueryPreviewResult as QueryPreview,
+    QueryPreviewScore,
 )
 from frisket.querysets import (
     SHEET_FILTER_ROWSET_EVALUATOR,
@@ -176,7 +178,7 @@ def _resolve_query_preview_in_snapshot(
         total=rowset.total,
         limit=rowset.limit,
         offset=rowset.offset,
-        evaluator=dict(QUERY_PREVIEW_EVALUATOR),
+        evaluator=QueryPreviewEvaluator.model_validate(QUERY_PREVIEW_EVALUATOR),
         scores={},
     )
     return QueryPreviewResolution(
@@ -243,7 +245,8 @@ def _resolve_embedding_similarity_preview(
     window = hits[offset : offset + limit]
     row_ids = [hit.row_id for hit in window]
     scores = {
-        hit.row_id: {"distance": hit.distance, "score": hit.score} for hit in window
+        hit.row_id: QueryPreviewScore(distance=hit.distance, score=hit.score)
+        for hit in window
     }
     sheet_id = result.sheet_id if result.sheet_id is not None else 0
     output = QueryPreview(
@@ -255,7 +258,7 @@ def _resolve_embedding_similarity_preview(
         total=total,
         limit=limit,
         offset=offset,
-        evaluator=dict(EMBEDDING_SIMILARITY_EVALUATOR),
+        evaluator=QueryPreviewEvaluator.model_validate(EMBEDDING_SIMILARITY_EVALUATOR),
         scores=scores,
     )
     return QueryPreviewResolution(
@@ -309,7 +312,9 @@ def _resolve_embedding_hybrid_preview(
     total = len(hits)
     window = hits[offset : offset + limit]
     row_ids = [hit.row_id for hit in window]
-    scores = {hit.row_id: {"distance": None, "score": hit.score} for hit in window}
+    scores = {
+        hit.row_id: QueryPreviewScore(distance=None, score=hit.score) for hit in window
+    }
     output = QueryPreview(
         sheet_id=result.sheet_id,
         query=normalized,
@@ -319,7 +324,7 @@ def _resolve_embedding_hybrid_preview(
         total=total,
         limit=limit,
         offset=offset,
-        evaluator=dict(EMBEDDING_HYBRID_EVALUATOR),
+        evaluator=QueryPreviewEvaluator.model_validate(EMBEDDING_HYBRID_EVALUATOR),
         scores=scores,
     )
     return QueryPreviewResolution(
