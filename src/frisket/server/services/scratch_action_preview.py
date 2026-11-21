@@ -29,17 +29,14 @@ def scratch_estimate(
     """Project the shared cost basis once, adding only its display quantity."""
 
     presentation = resolved.presentation
-    estimate = estimate_from_cost_basis(
-        resolved,
-        **(
-            {
-                "billing_label": presentation.billing_label,
-                "venue_label": presentation.venue_label,
-            }
-            if presentation is not None
-            else {}
-        ),
-    )
+    if presentation is not None:
+        estimate = estimate_from_cost_basis(
+            resolved,
+            billing_label=presentation.billing_label,
+            venue_label=presentation.venue_label,
+        )
+    else:
+        estimate = estimate_from_cost_basis(resolved)
     estimate["rows"] = 1
     if quantity_name is not None:
         estimate[quantity_name] = quantity

@@ -62,10 +62,11 @@ class ImportUrlsPrepareService:
 
             def adopt() -> PdfImportStatus:
                 nonlocal adopted
-                adopted = self._pdf_import_service.adopt_staged(
+                result = self._pdf_import_service.adopt_staged(
                     project_id, staging, entries, source_label=f"{len(urls)} URLs"
                 )
-                return adopted
+                adopted = result
+                return result
 
             draft = await await_thread_worker(adopt)
             failed = len(urls) - downloaded

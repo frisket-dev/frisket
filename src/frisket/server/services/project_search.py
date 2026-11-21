@@ -218,7 +218,7 @@ def _evidence_navigation(
             candidates = [row for score, row in scored if score == best]
 
     row = candidates[0]
-    navigation = {
+    navigation: dict[str, Any] = {
         "kind": "evidence",
         "evidence_link_id": str(row["evidence_link_id"]),
         "span_id": str(row["span_id"]),

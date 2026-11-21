@@ -772,7 +772,7 @@ def _perceptual_sample(jpeg: bytes) -> tuple[int, ...]:
     from io import BytesIO
 
     with Image.open(BytesIO(jpeg)) as image:
-        return tuple(image.convert("L").resize((8, 8)).get_flattened_data())
+        return tuple(image.convert("L").resize((8, 8)).tobytes())
 
 
 def _deduplicate(

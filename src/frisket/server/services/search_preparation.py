@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
+from frisket.contracts.http.models import ActionJobProgress
 from frisket.contracts.http.search_preparation import (
     MAX_INDEXING_SHEET_NAMES,
     MAX_PDF_INDEXING_FILES,
@@ -2074,7 +2075,11 @@ class SearchPreparationService:
                         job_id=child.job_id,
                         status=state,
                         action_kind=child.kind,
-                        progress=progress,
+                        progress=(
+                            ActionJobProgress.model_validate(progress)
+                            if progress is not None
+                            else None
+                        ),
                     )
                 )
         current = setup.requirements_by_ref
