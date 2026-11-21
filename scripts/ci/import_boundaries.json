@@ -93,13 +93,12 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports.work_log; jobs -> server.provider_config/server.services.table_imports/team.control_plane). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (jobs -> server.provider_config/server.services.table_imports/team.control_plane). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
       ],
       "exclude": [
-        "frisket.engine.executor.action_families.exports",
         "frisket.engine.jobs.model_pull",
         "frisket.engine.jobs.worker",
         "frisket.engine.jobs.ports",

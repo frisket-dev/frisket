@@ -70,7 +70,7 @@ from frisket.exports.sheet_csv import (
     SheetExportLimits,
     iter_export_csv_bytes,
 )
-from frisket.server.exports.work_log import build_work_log_payload, work_log_markdown
+from frisket.exports.work_log import build_work_log_payload, work_log_markdown
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.notifications.emit import emit_notification_candidate
