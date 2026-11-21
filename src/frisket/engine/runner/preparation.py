@@ -102,7 +102,7 @@ def prepared_atomic_generated_columns_for_resume(
 
     placeholders = ",".join("?" for _ in prepared)
     rows = project.db.execute(
-        "SELECT id,sheet_id,name,type,format,ai_generated,hidden FROM columns "
+        "SELECT id,sheet_id,name,type,format,generated,hidden FROM columns "
         f"WHERE active=1 AND id IN ({placeholders})",
         tuple(prepared.values()),
     ).fetchall()
@@ -115,7 +115,7 @@ def prepared_atomic_generated_columns_for_resume(
             or int(row["sheet_id"]) != sheet_id
             or str(row["name"]) != name
             or bool(row["hidden"])
-            or not bool(row["ai_generated"])
+            or not bool(row["generated"])
             or str(row["type"]) != str(field["column_type"])
             or row["format"] != field.get("format")
         ):
@@ -149,7 +149,7 @@ def _validate_managed_resume(
     column_ids = sorted(binding.column_id for binding in bindings)
     placeholders = ",".join("?" for _ in column_ids)
     rows = project.db.execute(
-        "SELECT id,sheet_id,name,type,format,semantic_type,ai_generated,hidden "
+        "SELECT id,sheet_id,name,type,format,semantic_type,generated,hidden "
         "FROM columns "
         f"WHERE active=1 AND id IN ({placeholders}) ORDER BY id",
         column_ids,
@@ -214,7 +214,7 @@ def _validate_managed_resume(
             }
         if field is None or (
             int(row["sheet_id"]) != int(sheet_id)
-            or not bool(row["ai_generated"])
+            or not bool(row["generated"])
             or not descriptor_matches
             or bool(row["hidden"])
             != (int(row["id"]) in staged_columns or bool(field.get("hidden", False)))
@@ -250,7 +250,7 @@ def _require_compatible_hidden_managed_revival(
     """Refuse a hidden managed name before ``add_column`` can mutate it."""
 
     row = project.db.execute(
-        "SELECT id,type,format,semantic_type,ai_generated FROM columns "
+        "SELECT id,type,format,semantic_type,generated FROM columns "
         "WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
         (int(sheet_id), str(field["name"])),
     ).fetchone()
@@ -272,7 +272,7 @@ def _require_compatible_hidden_managed_revival(
 
     expected_key = _compatibility_key(field=field)
     if (
-        not bool(row["ai_generated"])
+        not bool(row["generated"])
         or str(row["type"]) != str(field["column_type"])
         or row["format"] != field.get("format")
         or row["semantic_type"] != field.get("semantic_type")
@@ -295,7 +295,7 @@ def is_generation_free_document_text_output(
     action_kind: str,
     params: Mapping[str, Any],
     output_names: Mapping[str, str],
-    expected_output_columns: Mapping[str, int | None] | None,
+    expected_generated_columns: Mapping[str, int | None] | None,
     output_name: str,
     column_id: int,
 ) -> bool:
@@ -304,9 +304,9 @@ def is_generation_free_document_text_output(
     if (
         action_kind not in {"media.read_pdf_text", "media.ocr"}
         or output_names.get("text") != output_name
-        or expected_output_columns is None
-        or type(expected_output_columns.get(output_name)) is not int
-        or expected_output_columns[output_name] != column_id
+        or expected_generated_columns is None
+        or type(expected_generated_columns.get(output_name)) is not int
+        or expected_generated_columns[output_name] != column_id
         or not isinstance(params.get("source"), str)
     ):
         return False
@@ -345,7 +345,7 @@ def _require_existing_ai_generation_history(
     placeholders = ",".join("?" for _ in names)
     rows = project.db.execute(
         "SELECT id,name,current_run_id FROM columns "
-        f"WHERE sheet_id=? AND active=1 AND ai_generated=1 AND name IN ({placeholders})",
+        f"WHERE sheet_id=? AND active=1 AND generated=1 AND name IN ({placeholders})",
         (int(sheet_id), *names),
     ).fetchall()
     for row in rows:
@@ -362,7 +362,7 @@ def _require_existing_ai_generation_history(
             and field["column_type"] == "text"
             and isinstance(spec.get("params"), Mapping)
             and isinstance(spec.get("output_names"), Mapping)
-            and isinstance(spec.get("expected_output_columns"), Mapping)
+            and isinstance(spec.get("expected_generated_columns"), Mapping)
             and isinstance(spec.get("output_target_preconditions"), Mapping)
             and spec["output_target_preconditions"].get(row["name"]) == int(row["id"])
             and is_generation_free_document_text_output(
@@ -371,7 +371,7 @@ def _require_existing_ai_generation_history(
                 action_kind=spec["action_kind"],
                 params=spec["params"],
                 output_names=spec["output_names"],
-                expected_output_columns=spec["expected_output_columns"],
+                expected_generated_columns=spec["expected_generated_columns"],
                 output_name=str(row["name"]),
                 column_id=int(row["id"]),
             )
@@ -545,7 +545,7 @@ def prepare_validated(
                     sheet_id,
                     output_name,
                     type=f["column_type"],
-                    ai_generated=True,
+                    generated=True,
                     format=f.get("format"),
                     hidden=bool(f.get("hidden", False)),
                     default_hidden=bool(f.get("default_hidden", False)),
@@ -577,7 +577,7 @@ def prepare_validated(
         if existing:
             # Source columns are never an output target, whatever the caller's
             # overwrite intent: only a generated column may be reused.
-            if not existing["ai_generated"]:
+            if not existing["generated"]:
                 raise ValueError(
                     f"output name '{f['name']}' collides with a source "
                     "column — AI output would hide original data. "
@@ -631,7 +631,7 @@ def prepare_validated(
             # Unmanaged reused outputs converge to the declared descriptor.
             if (
                 not generation_managed
-                and existing["ai_generated"]
+                and existing["generated"]
                 and existing["type"] != f["column_type"]
             ):
                 project.set_column_type(
@@ -641,7 +641,7 @@ def prepare_validated(
             declared_format = f.get("format")
             if (
                 not generation_managed
-                and existing["ai_generated"]
+                and existing["generated"]
                 and existing["format"] != declared_format
             ):
                 project.set_column_format(
@@ -655,7 +655,7 @@ def prepare_validated(
                 else None
             )
             if (
-                existing["ai_generated"]
+                existing["generated"]
                 and not generation_managed
                 and existing_semantic_type != declared_semantic_type
             ):
@@ -673,7 +673,7 @@ def prepare_validated(
                 sheet_id,
                 f["name"],
                 type=f["column_type"],
-                ai_generated=True,
+                generated=True,
                 format=f.get("format"),
                 hidden=bool(f.get("hidden", False)),
                 default_hidden=bool(f.get("default_hidden", False)),

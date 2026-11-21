@@ -46,7 +46,7 @@ def _fact(call_id: str, cost: float | None, **overrides) -> dict:
 
 def _seed(project: Project) -> tuple[RunResultStore, int, int, int]:
     sheet_id = project.add_sheet("Rows")
-    column_id = project.add_column(sheet_id, "out", type="text", ai_generated=True)
+    column_id = project.add_column(sheet_id, "out", type="text", generated=True)
     project.add_rows(sheet_id, [{"out": None}, {"out": None}], {"out": column_id})
     row_ids = [
         int(row["id"])

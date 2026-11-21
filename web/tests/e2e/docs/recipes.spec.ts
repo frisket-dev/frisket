@@ -306,7 +306,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await expect.poll(() => {
     const current = scoreRef.current;
     return [current?.expected?.[missedRow]?.plaintiff, current?.variants.find(variant => variant.key === 'A')?.verdicts?.[missedRow]?.plaintiff,
-      current?.link?.fields.find(field => field.logical_key === 'plaintiff')?.output_column_id];
+      current?.link?.fields.find(field => field.logical_key === 'plaintiff')?.generated_column_id];
   }, { timeout: 30_000 }).toEqual(['Mei Chen and proposed library patron class', 'miss', Number(actualColumns.plaintiff_2)]);
   const misses = fullComparison.getByRole('button', { name: 'Any miss', exact: true });
   await misses.click();

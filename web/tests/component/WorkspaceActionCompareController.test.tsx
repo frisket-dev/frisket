@@ -74,7 +74,7 @@ function comparisonContext({
         origin: { kind: 'source_cell', run_id: null, op_id: null, review_decision: null },
       },
     }])),
-    output_columns: [{
+    generated_columns: [{
       logical_key: 'party', column_id: runBasis ? 101 : null, current_name: 'pdf_party',
       column_type: 'text', format: null, hidden: false, schema: {},
     }],
@@ -550,7 +550,7 @@ it('caps all selected rows at 500 and reports the complete selected count', asyn
 });
 it('starts an expected comparison with a normal sample and allows choosing checked rows', async () => {
   const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12, 14, 16], total: 3 });
-  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ generated_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
   vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
   const view = renderController([], 0);
   act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
@@ -587,7 +587,7 @@ it('allows switching from a sample to all selected rows', async () => {
 
 it('resolves the expected scope independently of an active grid filter', async () => {
   const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12], total: 1 });
-  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ generated_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
   vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
   const filter = { story: { eq: 'not visible' } } as import('../../src/api/types').GridFilterSpec;
   const view = renderController([], 0, { filter });

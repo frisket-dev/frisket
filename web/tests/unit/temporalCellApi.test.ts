@@ -22,7 +22,7 @@ describe('temporal sheet-data values', () => {
         id: 7,
         name: 'cuts',
         type: 'timeline_points',
-        ai_generated: true,
+        generated: true,
         format: null,
         current_run_id: 9,
         transcript_status: null,

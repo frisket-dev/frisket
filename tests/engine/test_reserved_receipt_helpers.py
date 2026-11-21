@@ -516,7 +516,7 @@ def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
     )
     if not live_lease:
         project.db.execute(
-            "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+            "UPDATE generated_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
             (run,),
         )
     project.db.commit()
@@ -547,7 +547,7 @@ def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
         assert _receipt_row(project) is None
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+                "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=? AND status='active'",
                 (run,),
             ).fetchone()[0]
             == 0

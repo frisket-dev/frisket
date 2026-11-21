@@ -36,7 +36,7 @@ def validate_runner_output_family(names: Iterable[str]) -> list[str]:
     normalized = [validate_runner_output_name(name) for name in names]
     namespace = set(normalized)
     if len(normalized) != len(namespace):
-        raise ValueError("duplicate_output_column")
+        raise ValueError("duplicate_generated_column")
     if any(f"{name}_justification" in namespace for name in normalized):
-        raise ValueError("duplicate_output_column")
+        raise ValueError("duplicate_generated_column")
     return normalized

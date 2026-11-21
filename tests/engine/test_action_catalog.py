@@ -266,19 +266,19 @@ def test_generated_output_catalog_entries_advertise_claim_conflicts() -> None:
     for entry in payload["actions"]:
         error_codes = {error["code"] for error in entry["errors"]}
         if (
-            "output_column_exists" in error_codes
-            and "output_column_busy" not in error_codes
+            "generated_column_exists" in error_codes
+            and "generated_column_busy" not in error_codes
         ):
             missing_busy.append(entry["kind"])
 
     assert not missing_busy, (
-        "generated-output catalog entries must advertise output_column_busy "
-        f"when they can report output_column_exists: {missing_busy}"
+        "generated-output catalog entries must advertise generated_column_busy "
+        f"when they can report generated_column_exists: {missing_busy}"
     )
 
     run_backfill = _entry(payload, "run.backfill")
     run_backfill_error_codes = {error["code"] for error in run_backfill["errors"]}
-    assert "output_column_busy" in run_backfill_error_codes
+    assert "generated_column_busy" in run_backfill_error_codes
 
 
 def test_import_rows_action_catalog_schema_and_cli_validate(tmp_path: Path) -> None:

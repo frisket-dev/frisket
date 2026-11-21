@@ -62,7 +62,7 @@ test('an accepted preview keeps the drawer open beside its visible grid columns'
   await expect(page.getByTestId('action-drawer')).toBeVisible();
 });
 
-test('a server output_column_exists rejection keeps the drawer open (confirm flow)', async ({
+test('a server generated_column_exists rejection keeps the drawer open (confirm flow)', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-autoclose-collision'));

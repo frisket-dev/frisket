@@ -772,7 +772,7 @@ def test_coverage_reports_the_columns_current_run_honestly(tmp_path):
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     rows = project.add_rows(
@@ -889,7 +889,7 @@ def test_coverage_discloses_rows_added_after_the_extraction(tmp_path):
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     rows = project.add_rows(

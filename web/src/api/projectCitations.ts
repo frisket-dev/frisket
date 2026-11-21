@@ -50,7 +50,7 @@ function mapTextAnnotationLayer(raw: unknown): TextAnnotationLayer[] {
   const layerFamily = typeof raw.layer_family === 'string' ? raw.layer_family : '';
   if (!toggleKey || !layerFamily) return [];
   const producer = isRecord(raw.producer) ? raw.producer : {};
-  const generatedColumn = isRecord(raw.output_column) ? raw.output_column : {};
+  const generatedColumn = isRecord(raw.generated_column) ? raw.generated_column : {};
   const common = {
     toggleKey,
     layerFamily,

@@ -5,8 +5,8 @@ import json
 from typing import Any
 
 from frisket.sdk.replay import (
-    output_column_result_value_hash,
-    output_column_value_hash,
+    generated_column_result_value_hash,
+    generated_column_value_hash,
 )
 
 
@@ -43,7 +43,9 @@ def test_output_value_hash_is_byte_compatible_and_page_bounded() -> None:
     }
     project = _PagedProject(values)
 
-    actual = output_column_value_hash(project, sheet_id=1, column_id=2, row_ids=row_ids)
+    actual = generated_column_value_hash(
+        project, sheet_id=1, column_id=2, row_ids=row_ids
+    )
 
     assert actual == _legacy_hash(values, row_ids)
     assert max(len(page) for page in project.calls) == 128
@@ -70,7 +72,7 @@ def test_saved_result_hash_is_page_bounded_and_byte_compatible(monkeypatch) -> N
             execute=lambda *args: SimpleNamespace(fetchone=lambda: {"type": "text"})
         )
     )
-    actual = output_column_result_value_hash(
+    actual = generated_column_result_value_hash(
         project, run_id=7, sheet_id=1, column_id=2, row_ids=row_ids
     )
     assert actual == _legacy_hash(values, row_ids)

@@ -33,7 +33,7 @@ it('names every saved role independently without overwriting, including support 
   fireEvent.click(screen.getByRole('button', { name: 'Reapply results' }));
   await waitFor(() => expect(runAction).toHaveBeenCalledWith(expect.objectContaining({
     replace_existing: false, output_names: { answer: 'Answer_3', confidence: 'Confidence_2' },
-    expected_output_columns: { Answer_3: null, Confidence_2: null },
+    expected_generated_columns: { Answer_3: null, Confidence_2: null },
   })));
 });
 it('replaces only explicitly selected destinations with their expected identity', async () => {
@@ -44,7 +44,7 @@ it('replaces only explicitly selected destinations with their expected identity'
   fireEvent.click(screen.getByRole('button', { name: 'Reapply results' }));
   await waitFor(() => expect(runAction).toHaveBeenCalledWith(expect.objectContaining({
     replace_existing: true, output_names: { answer: 'Answer', confidence: 'Confidence_2' },
-    expected_output_columns: { Answer: 4, Confidence_2: null },
+    expected_generated_columns: { Answer: 4, Confidence_2: null },
   })));
 });
 it('blocks duplicate or blank destinations', async () => {

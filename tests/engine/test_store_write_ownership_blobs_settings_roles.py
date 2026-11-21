@@ -195,7 +195,7 @@ def test_commit_row_blob_plan_requires_and_rolls_back_with_caller_transaction(pr
 
 
 def test_set_undo_info_requires_and_rolls_back_with_caller_transaction(project):
-    col_id = project.add_column(_sheet_id(project), "generated", ai_generated=True)
+    col_id = project.add_column(_sheet_id(project), "generated", generated=True)
     op_id = project.append_change("map", {"recipe": "probe"})
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
@@ -324,8 +324,8 @@ class _RetireProgram(ActionProgram):
 def test_retire_dropped_generated_columns_requires_caller_txn_and_is_atomic(project):
     sheet_id = _sheet_id(project)
     op_id = project.append_change("map", {"action_kind": "map.fake"})
-    project.add_column(sheet_id, "out", ai_generated=True)
-    dropped = project.add_column(sheet_id, "out_confidence", ai_generated=True)
+    project.add_column(sheet_id, "out", generated=True)
+    dropped = project.add_column(sheet_id, "out_confidence", generated=True)
     columns = project.columns(sheet_id, include_hidden=True)
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
@@ -365,7 +365,7 @@ def test_retire_dropped_generated_columns_requires_caller_txn_and_is_atomic(proj
 
 def test_retire_unbound_created_columns_owns_and_rolls_back_atomically(project):
     sheet_id = _sheet_id(project)
-    draft_col = project.add_column(sheet_id, "draft", ai_generated=True)
+    draft_col = project.add_column(sheet_id, "draft", generated=True)
     op_id = project.append_change("map", {"action_kind": "map.fake"})
     with write_transaction(project.db):
         project.set_undo_info(op_id, {"created_columns": [draft_col]})

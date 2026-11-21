@@ -159,7 +159,7 @@ def test_run_backfill_creates_a_fresh_map_ner_generation(
 
     # A new row arrives; backfill creates a successor generation for it.
     entities_col = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-    assert entities_col["ai_generated"] == 1
+    assert entities_col["generated"] == 1
     body_col = next(c for c in project.columns(sheet_id) if c["name"] == "body")
     project.add_rows(
         sheet_id,

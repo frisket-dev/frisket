@@ -79,8 +79,8 @@ def test_sparse_strict_probes_fall_back_once_without_duplicate_bundles(
     project = make_project("sparse-sample")
     sheet_id = project.add_sheet("Rows")
     source = project.add_column(sheet_id, "source")
-    first = project.add_column(sheet_id, "answer", ai_generated=True)
-    second = project.add_column(sheet_id, "category", ai_generated=True)
+    first = project.add_column(sheet_id, "answer", generated=True)
+    second = project.add_column(sheet_id, "category", generated=True)
     all_rows = project.add_rows(
         sheet_id,
         [{"source": f"row {index}"} for index in range(90)],
@@ -140,9 +140,9 @@ def test_exact_rows_preserve_order_filter_fields_and_read_fresh_decisions(
     project = make_project("exact-sample")
     sheet_id = project.add_sheet("Rows")
     source = project.add_column(sheet_id, "source")
-    answer = project.add_column(sheet_id, "answer", ai_generated=True)
-    category = project.add_column(sheet_id, "category", ai_generated=True)
-    support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
+    answer = project.add_column(sheet_id, "answer", generated=True)
+    category = project.add_column(sheet_id, "category", generated=True)
+    support = project.add_column(sheet_id, "answer_confidence", generated=True)
     rows = project.add_rows(
         sheet_id,
         [{"source": f"row {index}"} for index in range(3)],
@@ -220,7 +220,7 @@ def test_map_find_sampling_uses_derived_result_rows(make_project) -> None:
     )[0]
 
     findings_sheet = project.add_sheet("Findings")
-    match = project.add_column(findings_sheet, "Match", ai_generated=True)
+    match = project.add_column(findings_sheet, "Match", generated=True)
     findings = project.add_rows(findings_sheet, [{}, {}], {})
     op_id = project.append_change("map", {"fixture": "derived review output"})
     store = RunResultStore(project)

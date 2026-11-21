@@ -149,7 +149,7 @@ def _inspect_bundle(db_path: Path, *, projects_root: Path) -> dict:
     connection = _read_only_bundle_connection(db_path)
     try:
         required_tables = {
-            "output_column_claims",
+            "generated_column_claims",
             "effect_checkpoints",
             "execution_attempts",
         }
@@ -165,7 +165,7 @@ def _inspect_bundle(db_path: Path, *, projects_root: Path) -> dict:
 
         claims_by_status = _grouped_counts(
             connection,
-            table="output_column_claims",
+            table="generated_column_claims",
             column="status",
         )
         effects_by_state = _grouped_counts(

@@ -15,7 +15,7 @@ from frisket.engine.executor.project_run_terminalization import (
     UnclaimedRunTerminalAuthority,
     terminalize_project_run_in_transaction,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -39,7 +39,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
         raise ProjectCutoverRefused("project cutover requires its own transaction")
     counts = dict(runs=0, receipts=0, attempts=0, claims=0, checkpoints=0, turns=0)
     receipts = ReceiptStore(project)
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     runs = RunResultStore(project)
     db.execute("BEGIN IMMEDIATE")
     try:
@@ -61,7 +61,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                 raise ProjectCutoverRefused(f"receipt {stored.id} identity mismatch")
 
         active_claims = db.execute(
-            "SELECT * FROM output_column_claims WHERE status='active'"
+            "SELECT * FROM generated_column_claims WHERE status='active'"
         ).fetchall()
         run_ids = {
             int(row[0])
@@ -208,7 +208,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                 claims.release_for_receipt(receipt_id=stored.id, status="cancelled")
         counts["receipts"] = len(open_receipts)
         if db.execute(
-            "SELECT 1 FROM output_column_claims WHERE status='active'"
+            "SELECT 1 FROM generated_column_claims WHERE status='active'"
         ).fetchone():
             raise ProjectCutoverRefused("unowned active output claims remain")
         counts["claims"] = len(active_claims)

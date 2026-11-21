@@ -238,7 +238,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         ).fetchall()
     }
     assert columns["entities"]["type"] == "json"
-    assert columns["entities"]["ai_generated"] == 1
+    assert columns["entities"]["generated"] == 1
     values = project.get_values(sheet_id, int(columns["entities"]["id"]))
     assert values
     assert values[min(values)][0]["text"] == "Ada Lovelace"
@@ -314,7 +314,7 @@ CASES = [
                     "invalid_input_ref",
                     "invalid_params",
                     "model_cost_requires_confirmation",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "idempotency_conflict",
                     "idempotency_in_progress",
                     "stale_replay",
@@ -334,9 +334,9 @@ CASES = [
             ),
             Gate("invalid_params", _empty_labels_action, "invalid_action_request"),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _colliding_output_action,
-                "output_column_exists",
+                "generated_column_exists",
             ),
         ),
         expect_counts={

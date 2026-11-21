@@ -14,7 +14,7 @@ def _seed_generation(
 ) -> tuple[int, int, int, int, int]:
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
-    output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
+    output_column_id = project.add_column(sheet_id, "generated", generated=True)
     project.add_rows(
         sheet_id,
         [{"source": "alpha"}, {"source": "beta"}],
@@ -386,7 +386,7 @@ def test_legacy_null_sibling_result_freezes_the_complete_declaration_set(
 ) -> None:
     sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(project)
     legacy_sibling_column_id = project.add_column(
-        sheet_id, "legacy-sibling", ai_generated=True
+        sheet_id, "legacy-sibling", generated=True
     )
     project.db.execute(
         "INSERT INTO results (run_id,row_id,column_id,value_kind,value) "

@@ -44,8 +44,8 @@ from helpers import replace_test_source_cell
 from frisket.sdk.ops import transcribe_engines
 from frisket.engine.runner import CostGate
 from frisket.sdk.replay import (
-    output_column_result_value_hash,
-    output_column_value_hash,
+    generated_column_result_value_hash,
+    generated_column_value_hash,
 )
 from frisket.server.app import create_app
 from http_test_helpers import (
@@ -458,7 +458,7 @@ def test_v1_queued_prepare_failures_use_action_specific_error_policy(
     )
     assert (
         markdown_project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -3118,14 +3118,14 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     details_ref = next(
         item["ref"] for item in receipt["outputs"] if item["name"] == details_name
     )
-    assert details_ref["value_hash"] == output_column_result_value_hash(
+    assert details_ref["value_hash"] == generated_column_result_value_hash(
         project,
         run_id=new_run_id,
         sheet_id=sheet_id,
         column_id=details_id,
         row_ids=[target_row],
     )
-    assert details_ref["value_hash"] != output_column_value_hash(
+    assert details_ref["value_hash"] != generated_column_value_hash(
         project,
         sheet_id=sheet_id,
         column_id=details_id,
@@ -3220,7 +3220,7 @@ def test_v1_queued_metadata_rerun_rechecks_output_identity_after_claim_acquisiti
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -3289,7 +3289,7 @@ def test_v1_queued_post_claim_preparation_exception_cleans_claim_and_reservation
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )

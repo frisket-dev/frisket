@@ -532,7 +532,7 @@ def test_atomic_map_preparation_failure_rolls_back_receipt_and_claims(
             assert project.db.execute("SELECT 1 FROM receipts").fetchone()
             if current != "reserve":
                 assert project.db.execute(
-                    "SELECT 1 FROM output_column_claims"
+                    "SELECT 1 FROM generated_column_claims"
                 ).fetchone()
             raise error
 

@@ -86,7 +86,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
         assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+                "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
             ).fetchone()[0]
             == 0
         )
@@ -201,7 +201,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
         )
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+                "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
             ).fetchone()[0]
             > 0
         )

@@ -17,7 +17,7 @@ reserved-MapRunner shape, not a weakening):
     of those columns.
   - Generated column type is statically "file" (the media cell still carries its
     mime); the old post-download type inference is gone.
-  - An existing generated column name is now an `output_column_exists` precheck
+  - An existing generated column name is now an `generated_column_exists` precheck
     error (like youtube_download), replacing the old
     `output_column_type_mismatch` / existing-column reuse path.
   - Per-row download attempts run as a concurrent MapRunner map, so we assert the
@@ -183,12 +183,12 @@ def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
         "text",
     ]
     # Reserved-MapRunner error surface: an existing generated column is now an
-    # output_column_exists precheck (replacing output_column_type_mismatch), and
+    # generated_column_exists precheck (replacing output_column_type_mismatch), and
     # reservation idempotency adds idempotency_in_progress.
     assert {error.code for error in entry.errors} >= {
         "invalid_input_ref",
         "invalid_params",
-        "output_column_exists",
+        "generated_column_exists",
         "stale_replay",
         "idempotency_conflict",
         "idempotency_in_progress",
@@ -331,7 +331,7 @@ def test_media_fetch_url_rejects_existing_generated_column_before_network(
     monkeypatch,
 ) -> None:
     # Reserved-MapRunner shape: an existing generated column name is refused by the
-    # precheck (output_column_exists) before any network call — replacing the old
+    # precheck (generated_column_exists) before any network call — replacing the old
     # output_column_type_mismatch / existing-column reuse path.
     project, sheet_id, _row_ids = _seed_url_project(make_project)
     project.add_column(sheet_id, "media", type="audio")
@@ -346,7 +346,7 @@ def test_media_fetch_url_rejects_existing_generated_column_before_network(
         ),
     )
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert direct_seen == []
     assert youtube_seen == []
 

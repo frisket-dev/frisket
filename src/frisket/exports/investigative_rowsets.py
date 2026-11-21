@@ -194,7 +194,7 @@ def _visible_columns(project: Project, sheet_id: int) -> list[dict[str, Any]]:
                 "name": name,
                 "type": str(column["type"]),
                 "position": int(column["position"]),
-                "ai_generated": bool(column["ai_generated"]),
+                "generated": bool(column["generated"]),
                 "format": column["format"],
                 "source_column_ref": {
                     "kind": "column",

@@ -217,7 +217,7 @@ def _attach_job_contexts(
         if context is not None:
             run_id = payload.get("run_id")
             context["sheet_name"] = names.get(context["sheet_id"])
-            context["output_columns"] = (
+            context["generated_columns"] = (
                 outputs.get(run_id, []) if isinstance(run_id, int) else []
             )
     return payloads
@@ -1262,7 +1262,7 @@ def _v1_action_result_http_status(result: V1ActionResult) -> int:
     if codes & {
         "idempotency_conflict",
         "output_claim_conflict",
-        "output_column_exists",
+        "generated_column_exists",
         "duplicate_sheet_name",
         "stale_replay",
         "plugin_code_integrity_mismatch",

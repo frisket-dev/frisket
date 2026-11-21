@@ -400,10 +400,10 @@ def test_media_download_overwrite_existing_intent_reuses_generated_column_but_pr
     )
     assert first.status == "completed", first.errors
     media_column = project.db.execute(
-        "SELECT ai_generated FROM columns WHERE sheet_id=? AND name='media'",
+        "SELECT generated FROM columns WHERE sheet_id=? AND name='media'",
         (sheet_id,),
     ).fetchone()
-    assert media_column is not None and media_column["ai_generated"] == 1
+    assert media_column is not None and media_column["generated"] == 1
 
     blocked = run_action_with_confirmation(
         project,
@@ -414,7 +414,7 @@ def test_media_download_overwrite_existing_intent_reuses_generated_column_but_pr
         project_id=PROJECT_ID,
     )
     assert blocked.status == "failed"
-    assert blocked.errors[0].code == "output_column_exists"
+    assert blocked.errors[0].code == "generated_column_exists"
 
     overwritten = run_action_with_confirmation(
         project,

@@ -527,7 +527,7 @@ def _model_rows_driver(kind: str) -> Driver:
                 # Use a real generated head, marked as an AI answer for this
                 # admission probe, without buying a provider call to seed it.
                 project.db.execute(
-                    "UPDATE columns SET ai_generated=1 WHERE sheet_id=? AND name='answer'",
+                    "UPDATE columns SET generated=1 WHERE sheet_id=? AND name='answer'",
                     (sheet_id,),
                 )
                 project.db.commit()

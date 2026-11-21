@@ -987,7 +987,7 @@ def write_document_convert_evidence(
             },
         )
         receipt_id = project.db.execute(
-            "SELECT DISTINCT receipt_id FROM output_column_claims "
+            "SELECT DISTINCT receipt_id FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()[0]

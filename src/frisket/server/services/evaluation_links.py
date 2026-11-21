@@ -93,7 +93,7 @@ def validate(project, raw, *, preview=False):
             )
     for field in body["fields"]:
         column(project, field["expected_column_id"], body["expected_sheet_id"])
-        column(project, field["output_column_id"], body["target_sheet_id"])
+        column(project, field["generated_column_id"], body["target_sheet_id"])
     return body
 
 
@@ -240,7 +240,7 @@ def projection(project, sheet_id, row_ids):
                     "id": virtual_id,
                     "link_id": link["id"],
                     "expected_column_id": field["expected_column_id"],
-                    "output_column_id": field["output_column_id"],
+                    "generated_column_id": field["generated_column_id"],
                     "logical_key": field["logical_key"],
                     "name": descriptor["name"],
                     "rule": field["rule"],

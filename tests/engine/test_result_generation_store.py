@@ -9,7 +9,7 @@ import pytest
 
 import frisket.engine.store.result_generations as result_generations_module
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
     GenerationSealedError,
@@ -45,7 +45,7 @@ def _seed_project(
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
     output_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     project.add_rows(
         sheet_id,
@@ -114,7 +114,7 @@ def _release(project: Project, claimed_run: _ClaimedRun) -> None:
     token = claimed_run.authority.claim_token
     assert token is not None
     with write_transaction(project.db):
-        assert OutputColumnClaimStore(project).release(claim_token=token) == 1
+        assert GeneratedColumnClaimStore(project).release(claim_token=token) == 1
 
 
 def _declare(
@@ -1465,7 +1465,7 @@ def test_seal_after_undo_cannot_publish_a_staged_generation(make_project) -> Non
 def test_seal_publishes_only_complete_output_families(make_project) -> None:
     project, sheet_id, first_column_id, row_ids = _seed_project(make_project)
     second_column_id = project.add_column(
-        sheet_id, "second", type="text", ai_generated=True
+        sheet_id, "second", type="text", generated=True
     )
     op_id = project.append_change("map.regex_extract", {"outputs": ["first", "second"]})
     store = RunResultStore(project)
@@ -1730,7 +1730,7 @@ def test_seal_partitions_projected_create_from_staged_output(
 ) -> None:
     project, sheet_id, active_column_id, row_ids = _seed_project(make_project)
     staged_column_id = project.add_column(
-        sheet_id, "generated_staged", type="text", ai_generated=True
+        sheet_id, "generated_staged", type="text", generated=True
     )
     op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="mixed publication"
@@ -1834,7 +1834,7 @@ def test_seal_partitions_projected_create_from_staged_output(
         )
     finally:
         with write_transaction(project.db):
-            assert OutputColumnClaimStore(project).release(claim_token=token) == 2
+            assert GeneratedColumnClaimStore(project).release(claim_token=token) == 2
 
 
 def test_subset_replacement_seal_refreshes_only_its_301_exact_rows(
@@ -2034,7 +2034,7 @@ def test_declaration_rejects_legacy_sibling_result_before_complete_binding_set(
 ) -> None:
     project, sheet_id, output_column_id, row_ids = _seed_project(make_project)
     legacy_sibling_column_id = project.add_column(
-        sheet_id, "legacy_sibling", type="text", ai_generated=True
+        sheet_id, "legacy_sibling", type="text", generated=True
     )
     generations = ResultGenerationStore(project)
     claimed = _start_claimed_run(
@@ -2062,10 +2062,10 @@ def test_multi_output_declarations_freeze_before_effect_and_seal_as_a_group(
 ) -> None:
     project, sheet_id, first_column_id, row_ids = _seed_project(make_project)
     second_column_id = project.add_column(
-        sheet_id, "generated_second", type="text", ai_generated=True
+        sheet_id, "generated_second", type="text", generated=True
     )
     late_column_id = project.add_column(
-        sheet_id, "generated_late", type="text", ai_generated=True
+        sheet_id, "generated_late", type="text", generated=True
     )
     op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="multi-output generation"

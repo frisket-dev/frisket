@@ -56,8 +56,8 @@ try:
     sheet_id = project.add_sheet("Docs")
     name_col = project.add_column(sheet_id, "Name", "text")
     source_col = project.add_column(sheet_id, "Source", "file")
-    summary_col = project.add_column(sheet_id, "Summary", "text", ai_generated=True)
-    value_col = project.add_column(sheet_id, "Contract value", "text", ai_generated=True)
+    summary_col = project.add_column(sheet_id, "Summary", "text", generated=True)
+    value_col = project.add_column(sheet_id, "Contract value", "text", generated=True)
     names = ["Acme Corp", "Beta LLC", "Gamma Inc"]
     row_ids = project.add_rows(
         sheet_id,
@@ -68,12 +68,12 @@ try:
     def write_column(col_id, output_name, values):
         op_id = project.append_change(
             "map.extract",
-            {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"output_column": output_name}},
+            {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"generated_column": output_name}},
             label=f"extract {output_name}",
         )
         run_id = run_store.start_run(
             op_id, sheet_id, "map.extract", model="provider/model",
-            params={"output_column": output_name}, total_rows=len(row_ids), row_ids=row_ids,
+            params={"generated_column": output_name}, total_rows=len(row_ids), row_ids=row_ids,
         )
         write_claimed_test_results(project, run_id, [
             {"row_id": rid, "column_id": col_id, "value": v, "confidence": 0.9}

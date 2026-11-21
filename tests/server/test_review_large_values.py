@@ -22,7 +22,7 @@ def _seed_large_review(
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("stories")
     source_id = project.add_column(sheet_id, "story")
-    output_id = project.add_column(sheet_id, "summary", ai_generated=True)
+    output_id = project.add_column(sheet_id, "summary", generated=True)
     large = "z" * _LARGE_BYTES
     [row_id] = project.add_rows(sheet_id, [{"story": large}], {"story": source_id})
     op_id = project.append_change(

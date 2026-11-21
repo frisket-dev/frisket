@@ -143,7 +143,7 @@ def test_refresh_renews_expiring_sheet_and_output_leases_while_provider_waits(
                     (sheet,),
                 )
                 project.db.execute(
-                    "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00+00:00' WHERE run_id=? AND status='active'",
+                    "UPDATE generated_column_claims SET lease_expires_at='2000-01-01T00:00:00+00:00' WHERE run_id=? AND status='active'",
                     (run_id,),
                 )
             await asyncio.sleep(0.02)

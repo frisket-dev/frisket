@@ -70,7 +70,7 @@ def test_missing_key_submission_recovers_settings_without_execution_authority(sc
     body.update(
         confirmation="unused",
         replace_existing=True,
-        expected_output_columns={"answer": None},
+        expected_generated_columns={"answer": None},
     )
     body["execution_context"] = {"api_key": "never-save-resolved-secret"}
     before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]

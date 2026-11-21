@@ -23,7 +23,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cell_pairs,
     refresh_current_cells,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
@@ -385,7 +385,7 @@ def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped(
             terminal_disposition="completed",
         )
     project.db.commit()
-    OutputColumnClaimStore(project).finish_current_writer(
+    GeneratedColumnClaimStore(project).finish_current_writer(
         fence=authority.fence(),
         attempt_state="effected",
     )

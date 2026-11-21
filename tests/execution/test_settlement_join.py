@@ -30,7 +30,7 @@ from frisket.engine.executor.project_run_terminalization import (
     terminalize_project_run,
 )
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.writer_fence import WriterFence
@@ -213,7 +213,7 @@ def project(make_project):
 @pytest.fixture()
 def consented_run(project):
     sheet_id = project.add_sheet("S")
-    project.add_column(sheet_id, "transcript", ai_generated=True)
+    project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(sheet_id, [{}, {}], {})
     op_id = project.db.execute(
         "INSERT INTO ops (kind, spec) VALUES (?,?)", ("transcribe", "{}")
@@ -228,7 +228,7 @@ def consented_run(project):
     )
     claim_token = f"output-claim:settlement:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["transcript"],
             action_kind="media.transcribe",
@@ -239,7 +239,7 @@ def consented_run(project):
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
             expected_output_names=["transcript"],
@@ -280,7 +280,7 @@ def _mint(project, run_id, *, scope=(1, 2)):
 
 def _claim_output_attempt(project, commitment) -> None:
     claims = project.db.execute(
-        "SELECT claim_token, column_id FROM output_column_claims "
+        "SELECT claim_token, column_id FROM generated_column_claims "
         "WHERE run_id=? AND status='active' ORDER BY id",
         (commitment.run_id,),
     ).fetchall()
@@ -307,7 +307,7 @@ def _writer_authority(
 ) -> dict[str, WriterFence]:
     row = project.db.execute(
         "SELECT r.current_attempt_id, c.claim_token "
-        "FROM runs r JOIN output_column_claims c ON c.run_id=r.id "
+        "FROM runs r JOIN generated_column_claims c ON c.run_id=r.id "
         "WHERE r.id=? AND c.status='active' LIMIT 1",
         (run_id,),
     ).fetchone()
@@ -1188,13 +1188,13 @@ def _terminalize_cancelled_attempt(project, run_id: int, attempt_id: str) -> Non
             )
         )
     claim = project.db.execute(
-        "SELECT claim_token FROM output_column_claims "
+        "SELECT claim_token FROM generated_column_claims "
         "WHERE run_id=? AND status='active' LIMIT 1",
         (run_id,),
     ).fetchone()
     assert claim is not None
     project.db.execute(
-        "UPDATE output_column_claims SET receipt_id=? "
+        "UPDATE generated_column_claims SET receipt_id=? "
         "WHERE run_id=? AND status='active'",
         (receipt_id, run_id),
     )
@@ -1721,7 +1721,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     """
     sheet_id = project.add_sheet("Forty files")
     source_column_id = project.add_column(sheet_id, "audio", type="audio")
-    output_column_id = project.add_column(sheet_id, "transcript", ai_generated=True)
+    output_column_id = project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"audio": {"duration_seconds": 60}} for _ in range(40)],
@@ -1740,7 +1740,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     )
     claim_token = f"output-claim:settlement-offering:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["transcript"],
             action_kind="media.transcribe",
@@ -1751,7 +1751,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
             expected_output_names=["transcript"],

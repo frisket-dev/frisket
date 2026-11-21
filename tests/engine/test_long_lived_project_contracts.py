@@ -55,7 +55,7 @@ def _seed_project(project: Project) -> tuple[int, int, int, list[int]]:
         [{"text": "alpha"}, {"text": "beta"}, {"text": "gamma"}],
         {"text": text_col},
     )
-    output_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    output_col = project.add_column(sheet_id, "topic", generated=True)
     return sheet_id, text_col, output_col, row_ids
 
 

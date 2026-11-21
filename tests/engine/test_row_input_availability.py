@@ -67,7 +67,7 @@ def test_dispatch_distinguishes_required_unavailable_from_optional_input(
     project = make_project("availability")
     sheet = project.add_sheet("source")
     source = project.add_column(
-        sheet, "source", type="integer", ai_generated=state != "invalid"
+        sheet, "source", type="integer", generated=state != "invalid"
     )
     [row] = project.add_rows(
         sheet,

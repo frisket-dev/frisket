@@ -300,7 +300,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
         ).fetchall()
     }
     assert list(columns) == ["name", "title"]
-    assert columns["name"]["ai_generated"] == 1
+    assert columns["name"]["generated"] == 1
     names = project.get_values(child_sheet_id, int(columns["name"]["id"]))
     titles = project.get_values(child_sheet_id, int(columns["title"]["id"]))
     assert list(names.values()) == [

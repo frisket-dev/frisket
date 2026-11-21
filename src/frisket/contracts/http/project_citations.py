@@ -77,7 +77,7 @@ class RowSourceDocumentsResponse(WireModel):
     documents: list[RowSourceDocument]
 
 
-class TextAnnotationOutputColumn(WireModel):
+class TextAnnotationGeneratedColumn(WireModel):
     id: int
     name: str | None
 
@@ -134,7 +134,7 @@ class TextAnnotationLayer(WireModel):
     toggle_key: str
     layer_family: str
     producer: TextAnnotationProducer
-    output_column: TextAnnotationOutputColumn
+    generated_column: TextAnnotationGeneratedColumn
     positioned: bool
     counts: TextAnnotationCounts | None = None
     spans: list[TextAnnotationSpan] | None = None
@@ -390,7 +390,7 @@ __all__ = [
     "RowSourceDocumentsResponse",
     "TextAnnotationCounts",
     "TextAnnotationLayer",
-    "TextAnnotationOutputColumn",
+    "TextAnnotationGeneratedColumn",
     "TextAnnotationProducer",
     "TextAnnotationSpan",
     "TextAnnotationSpanMetadata",

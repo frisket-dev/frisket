@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS columns (
   type TEXT NOT NULL DEFAULT 'text',
   position INTEGER NOT NULL DEFAULT 0,
   current_run_id INTEGER,
-  ai_generated INTEGER NOT NULL DEFAULT 0,
+  generated INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
   default_hidden INTEGER NOT NULL DEFAULT 0,
@@ -687,7 +687,7 @@ CREATE TABLE IF NOT EXISTS workbench_plugin_settings (
 
 -- Semantic claims for long-running generated-column actions. These are not
 -- SQLite locks: they protect column visibility/promotion while work runs.
-CREATE TABLE IF NOT EXISTS output_column_claims (
+CREATE TABLE IF NOT EXISTS generated_column_claims (
   id TEXT PRIMARY KEY,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   column_id INTEGER REFERENCES columns(id) ON DELETE CASCADE,
@@ -707,18 +707,18 @@ CREATE TABLE IF NOT EXISTS output_column_claims (
   released_at TEXT,
   details TEXT NOT NULL DEFAULT '{}'
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_name
-  ON output_column_claims(sheet_id, output_name)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_generated_column_claims_active_name
+  ON generated_column_claims(sheet_id, output_name)
   WHERE status='active';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_column
-  ON output_column_claims(column_id)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_generated_column_claims_active_column
+  ON generated_column_claims(column_id)
   WHERE status='active' AND column_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_output_claims_claim_token
-  ON output_column_claims(claim_token);
-CREATE INDEX IF NOT EXISTS idx_output_claims_run ON output_column_claims(run_id);
-CREATE INDEX IF NOT EXISTS idx_output_claims_receipt ON output_column_claims(receipt_id);
-CREATE INDEX IF NOT EXISTS idx_output_claims_status_expiry
-  ON output_column_claims(status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_claim_token
+  ON generated_column_claims(claim_token);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_run ON generated_column_claims(run_id);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_receipt ON generated_column_claims(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_status_expiry
+  ON generated_column_claims(status, lease_expires_at);
 
 -- One immutable output-generation declaration per run/output. A run may
 -- contain both a progressively visible fresh output (`create`) and an atomic
@@ -1966,7 +1966,7 @@ CREATE TABLE IF NOT EXISTS embedding_indexes (
   last_refresh_receipt_id TEXT,
   last_refresh_job_id TEXT,
   last_refreshed_at TEXT,
-  -- index-level refresh claim/lease (NOT output_column_claims: refresh writes no
+  -- index-level refresh claim/lease (NOT generated_column_claims: refresh writes no
   -- visible column). A non-null token past its lease is a crashed refresh and is
   -- reclaimable; two live refreshes of one index conflict on embedding_index_busy.
   refresh_claim_token TEXT,

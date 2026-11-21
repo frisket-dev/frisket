@@ -36,9 +36,9 @@ from frisket.engine.runner.validation import ClaimsGate
 from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import media_cell
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import encode_stored_value
@@ -282,7 +282,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
     if queued is not None:
         token = "output-claim:" + queued[2]["receipt_id"]
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=token,
                 run_id=run_id,
                 expected_output_names=[str(row["name"]) for row in columns],
@@ -290,7 +290,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
         return token, {int(row["id"]) for row in columns}
     token = f"output-claim:worker-route-verification:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=int(run["sheet_id"]),
             output_names=[str(row["name"]) for row in columns],
             action_kind=str(run["action_kind"]),
@@ -300,7 +300,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
     assert conflict is None
     assert len(claims) == len(columns)
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=token,
             run_id=run_id,
             expected_output_names=[str(row["name"]) for row in columns],
@@ -448,7 +448,7 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
         )
         assert (
             reopened.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
@@ -475,7 +475,7 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
     def fail_renewal(*_args, **_kwargs) -> int:
         raise sqlite3.OperationalError("injected claim renewal outage")
 
-    monkeypatch.setattr(OutputColumnClaimStore, "renew", fail_renewal)
+    monkeypatch.setattr(GeneratedColumnClaimStore, "renew", fail_renewal)
     with pytest.raises(
         ClaimLeaseRenewalFailed,
         match="claim renewal outage",
@@ -507,7 +507,7 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
         )
         assert (
             reopened.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]

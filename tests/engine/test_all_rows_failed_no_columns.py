@@ -23,7 +23,7 @@ from frisket.ops.base import ActionProgram
 from typed_model_fixtures import model_plan
 from frisket.engine.runner import MapRunner, validation
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import run_with_exact_confirmation, run_with_output_claim
 from frisket.engine.store.transactions import write_transaction
@@ -89,7 +89,7 @@ def _prepare_claimed_run(
 ):
     claim_token = f"output-claim:test:{id(runner)}"
     with write_transaction(runner.project.db):
-        claims, conflict = OutputColumnClaimStore(runner.project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(runner.project).acquire(
             sheet_id=int(spec["sheet_id"]),
             output_names=["relevance"],
             action_kind=str(spec["action_kind"]),
@@ -105,7 +105,7 @@ def _prepare_claimed_run(
     )
     with write_transaction(runner.project.db):
         assert (
-            OutputColumnClaimStore(runner.project).bind_to_run(
+            GeneratedColumnClaimStore(runner.project).bind_to_run(
                 claim_token=claim_token,
                 run_id=prepared.run_id,
                 expected_output_names=["relevance"],
@@ -366,7 +366,7 @@ class TestMapKindAllRowsFailed:
 
         first = asyncio.run(go_cancel())
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=claim_token, status="cancelled"
             )
         assert first.cancelled and first.done

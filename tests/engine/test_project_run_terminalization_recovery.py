@@ -24,7 +24,7 @@ from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
     EffectCheckpointStore,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -88,7 +88,7 @@ def _seed_orphaned_run(
         sheet_id,
         "extracted",
         type="text",
-        ai_generated=True,
+        generated=True,
     )
     [row_id] = project.add_rows(
         sheet_id,
@@ -151,7 +151,7 @@ def _seed_orphaned_run(
 
     claim_token = "custom:opaque-dead-writer-claim"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["extracted"],
             action_kind=action_kind,
@@ -196,7 +196,7 @@ def _seed_orphaned_run(
     # transaction, so expire it after that step to model the later dead writer.
     with write_transaction(project.db):
         project.db.execute(
-            "UPDATE output_column_claims SET lease_expires_at="
+            "UPDATE generated_column_claims SET lease_expires_at="
             "datetime('now', '-1 hour') WHERE claim_token=?",
             (claim_token,),
         )
@@ -237,7 +237,7 @@ def _durable_snapshot(project: Project, orphan: _OrphanedRun) -> dict[str, objec
         ),
         "claim": tuple(
             project.db.execute(
-                "SELECT status, released_at, claim_token FROM output_column_claims "
+                "SELECT status, released_at, claim_token FROM generated_column_claims "
                 "WHERE run_id=? AND receipt_id=?",
                 (orphan.run_id, orphan.receipt_id),
             ).fetchone()
@@ -268,7 +268,7 @@ def _seed_never_dispatched_run(
         sheet_id,
         "extracted",
         type="text",
-        ai_generated=True,
+        generated=True,
     )
     [row_id] = project.add_rows(
         sheet_id,
@@ -316,7 +316,7 @@ def _seed_never_dispatched_run(
     claim_token = "output-claim:never-dispatched"
     if include_claim:
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["extracted"],
                 action_kind=ACTION_KIND,
@@ -401,7 +401,7 @@ def _never_dispatched_snapshot(
             tuple(row)
             for row in project.db.execute(
                 "SELECT run_id, receipt_id, action_kind, status, released_at, "
-                "claim_token FROM output_column_claims "
+                "claim_token FROM generated_column_claims "
                 "WHERE run_id=? OR receipt_id=? ORDER BY id",
                 (run.run_id, run.receipt_id),
             ).fetchall()
@@ -568,7 +568,7 @@ def test_never_dispatched_created_attempt_converges_failed_tuple(project) -> Non
     assert parsed_receipt.status == "failed"
     assert [error.code for error in parsed_receipt.errors] == ["consent_missing"]
     claim = project.db.execute(
-        "SELECT status, released_at, claim_token FROM output_column_claims "
+        "SELECT status, released_at, claim_token FROM generated_column_claims "
         "WHERE run_id=?",
         (run.run_id,),
     ).fetchone()
@@ -655,7 +655,7 @@ def test_never_dispatched_zero_attempts_converges_failed_tuple(project) -> None:
     assert stored_receipt.status == "failed"
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE run_id=?",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=?",
             (run.run_id,),
         ).fetchone()[0]
         == 0
@@ -969,7 +969,7 @@ def test_never_dispatched_rolls_back_when_claim_release_refuses(
     run = _seed_never_dispatched_run(project, attempt_count=1)
     before = _never_dispatched_snapshot(project, run)
     monkeypatch.setattr(
-        OutputColumnClaimStore,
+        GeneratedColumnClaimStore,
         "release_for_run_receipt",
         lambda *_args, **_kwargs: 0,
     )
@@ -1094,7 +1094,7 @@ def test_abandoned_writer_cancel_recovery_converges_terminal_tuple(project) -> N
     assert stored_receipt.run_id == orphan.run_id
     assert stored_receipt.parsed().status == "cancelled"
     claim = project.db.execute(
-        "SELECT status, released_at, claim_token FROM output_column_claims "
+        "SELECT status, released_at, claim_token FROM generated_column_claims "
         "WHERE run_id=? AND receipt_id=?",
         (orphan.run_id, orphan.receipt_id),
     ).fetchone()
@@ -1244,7 +1244,7 @@ def test_reserved_effect_still_requires_reconciliation_after_claim_is_lost(
     orphan = _seed_orphaned_run(project, reserved_checkpoint=True)
     with write_transaction(project.db):
         assert (
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=orphan.claim_token, status="expired"
             )
             == 1
@@ -1312,7 +1312,7 @@ def test_run_terminalizes_when_existing_receipt_refuses_a_new_outcome(project) -
     )
     assert (
         project.db.execute(
-            "SELECT status FROM output_column_claims WHERE run_id=?",
+            "SELECT status FROM generated_column_claims WHERE run_id=?",
             (orphan.run_id,),
         ).fetchone()[0]
         == "cancelled"
@@ -1592,7 +1592,7 @@ def test_missing_receipt_refuses_before_any_terminal_projection(project) -> None
         ),
         "claim": tuple(
             project.db.execute(
-                "SELECT receipt_id, status, released_at FROM output_column_claims "
+                "SELECT receipt_id, status, released_at FROM generated_column_claims "
                 "WHERE run_id=?",
                 (orphan.run_id,),
             ).fetchone()
@@ -1624,7 +1624,7 @@ def test_missing_receipt_refuses_before_any_terminal_projection(project) -> None
         ),
         "claim": tuple(
             project.db.execute(
-                "SELECT receipt_id, status, released_at FROM output_column_claims "
+                "SELECT receipt_id, status, released_at FROM generated_column_claims "
                 "WHERE run_id=?",
                 (orphan.run_id,),
             ).fetchone()
@@ -1665,7 +1665,7 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_refuses(
     before = _durable_snapshot(project, orphan)
 
     monkeypatch.setattr(
-        OutputColumnClaimStore,
+        GeneratedColumnClaimStore,
         "release_for_run_receipt",
         lambda *_args, **_kwargs: 0,
     )
@@ -1752,7 +1752,7 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
         raise RuntimeError("injected claim release failure")
 
     monkeypatch.setattr(
-        OutputColumnClaimStore,
+        GeneratedColumnClaimStore,
         "release_for_run_receipt",
         fail_claim_release,
     )

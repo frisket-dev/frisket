@@ -32,7 +32,7 @@ function sheetDataWire(columnName = 'result') {
         id: 1,
         name: 'source',
         type: 'text',
-        ai_generated: false,
+        generated: false,
         format: null,
         current_run_id: null,
         transcript_status: null,
@@ -42,7 +42,7 @@ function sheetDataWire(columnName = 'result') {
         id: 2,
         name: columnName,
         type: 'text',
-        ai_generated: true,
+        generated: true,
         format: null,
         current_run_id: 77,
         transcript_status: null,
@@ -82,7 +82,7 @@ function runProgressWire(projectId: string, runId = 77, status = 'running') {
       failed_rows: 0,
       cost_actual: 0,
       cost_estimate: 0,
-      output_columns: [{ id: 2, name: 'Current output' }],
+      generated_columns: [{ id: 2, name: 'Current output' }],
       public_status: {
         run_id: runId,
         action_kind: 'map.extract',
@@ -142,7 +142,7 @@ function columnRunsWire(label: string, target: string, runId: number) {
     judge_scores: [],
   };
   return {
-    column: { id: 2, name: target, type: 'text', ai_generated: true, current_run_id: runId },
+    column: { id: 2, name: target, type: 'text', generated: true, current_run_id: runId },
     offset: 0, limit: 20, total: 1, has_more: false, next_offset: null,
     current_run: run, current_run_loaded: true, runs: [run],
   };
@@ -680,7 +680,7 @@ it('reads the durable output ID after reload despite a renamed output and reused
     if (path.endsWith('/actions/v1/run')) return jsonResponse(actionResult());
     if (path.endsWith('/actions/runs/77/status')) {
       const wire = runProgressWire(projectId);
-      wire.run.output_columns = [{ id: 2, name: 'Renamed output' }];
+      wire.run.generated_columns = [{ id: 2, name: 'Renamed output' }];
       return jsonResponse(wire);
     }
     throw new Error(`Unexpected request: ${path}`);

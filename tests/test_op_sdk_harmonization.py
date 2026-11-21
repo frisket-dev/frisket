@@ -32,7 +32,7 @@ def test_canonical_op_errors_helper_exists() -> None:
         "missing_capability",
         "missing_idempotency_key",
         "invalid_input_ref",
-        "output_column_exists",
+        "generated_column_exists",
         "idempotency_conflict",
         "stale_replay",
     } <= codes

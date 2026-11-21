@@ -32,7 +32,7 @@ from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
     EffectCheckpointStore,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
@@ -205,48 +205,48 @@ def _running_receipt(receipt_id: str, *, run_id: int | None = None) -> Receipt:
 # -- join-only writes require a caller transaction ---------------------------
 
 JOINING_WRITES = {
-    "claims.acquire": lambda project: OutputColumnClaimStore(project).acquire(
+    "claims.acquire": lambda project: GeneratedColumnClaimStore(project).acquire(
         sheet_id=_sheet_id(project),
         output_names=["value"],
         action_kind="map.test",
     ),
-    "claims.bind_to_run": lambda project: OutputColumnClaimStore(project).bind_to_run(
+    "claims.bind_to_run": lambda project: GeneratedColumnClaimStore(project).bind_to_run(
         claim_token="claim:none",
         run_id=1,
     ),
-    "claims.renew": lambda project: OutputColumnClaimStore(project).renew(
+    "claims.renew": lambda project: GeneratedColumnClaimStore(project).renew(
         claim_token="claim:none",
         lease_seconds=60,
     ),
-    "claims.abandon_stale": lambda project: OutputColumnClaimStore(
+    "claims.abandon_stale": lambda project: GeneratedColumnClaimStore(
         project
     ).abandon_stale_dispatching_attempts(
         run_id=1,
         cutoff="2020-01-01T00:00:00+00:00",
         lease_cutoff="2020-01-01T00:00:00+00:00",
     ),
-    "claims.release": lambda project: OutputColumnClaimStore(project).release(
+    "claims.release": lambda project: GeneratedColumnClaimStore(project).release(
         claim_token="claim:none",
     ),
-    "claims.release_for_receipt": lambda project: OutputColumnClaimStore(
+    "claims.release_for_receipt": lambda project: GeneratedColumnClaimStore(
         project
     ).release_for_receipt(
         receipt_id="receipt:none",
         status="failed",
     ),
-    "claims.release_for_run_receipt": lambda project: OutputColumnClaimStore(
+    "claims.release_for_run_receipt": lambda project: GeneratedColumnClaimStore(
         project
     ).release_for_run_receipt(
         run_id=1,
         receipt_id="receipt:none",
         status="failed",
     ),
-    "claims.discard_for_receipt": lambda project: OutputColumnClaimStore(
+    "claims.discard_for_receipt": lambda project: GeneratedColumnClaimStore(
         project
     ).discard_for_receipt(
         receipt_id="receipt:none",
     ),
-    "claims.release_stale": lambda project: OutputColumnClaimStore(
+    "claims.release_stale": lambda project: GeneratedColumnClaimStore(
         project
     ).release_stale(
         claim_id="claim:none",
@@ -394,7 +394,7 @@ def test_joined_claim_attempt_and_checkpoint_writes_roll_back_with_caller(projec
     store.complete(ref, payload={"ok": True})
 
     _open_caller_transaction(project)
-    claims, conflict = OutputColumnClaimStore(project).acquire(
+    claims, conflict = GeneratedColumnClaimStore(project).acquire(
         sheet_id=sheet_id,
         output_names=["value"],
         action_kind="map.test",
@@ -415,7 +415,7 @@ def test_joined_claim_attempt_and_checkpoint_writes_roll_back_with_caller(projec
     )
     project.db.rollback()
 
-    assert _committed_count(project, "output_column_claims") == 0
+    assert _committed_count(project, "generated_column_claims") == 0
     assert _committed_count(project, "execution_attempts") == 0
     assert (
         _committed(
@@ -443,7 +443,7 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
 
     owning_raising = {
         "set_attempt_state": lambda: set_attempt_state(project, attempt_id, "halted"),
-        "finish_current_writer": lambda: OutputColumnClaimStore(
+        "finish_current_writer": lambda: GeneratedColumnClaimStore(
             project
         ).finish_current_writer(
             fence=WriterFence.claimless(run_id=run_id, attempt_id=attempt_id),
@@ -599,14 +599,14 @@ def test_finish_current_writer_rolls_back_when_claim_release_fails(project):
     run_id = _seed_run(project)
     claim_token = "output-claim:atomic-finish"
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="map.test",
             run_id=run_id,
             claim_token=claim_token,
         )
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
         )
@@ -622,10 +622,10 @@ def test_finish_current_writer_rolls_back_when_claim_release_fails(project):
         fence=WriterFence(run_id=run_id, claim_token=claim_token),
         output_column_ids={_column_id(project)},
     )
-    _refuse(project, "UPDATE", "output_column_claims")
+    _refuse(project, "UPDATE", "generated_column_claims")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
-        OutputColumnClaimStore(project).finish_current_writer(
+        GeneratedColumnClaimStore(project).finish_current_writer(
             fence=WriterFence.claimed(
                 run_id=run_id,
                 writer_attempt_id=commitment.attempt_id,
@@ -646,7 +646,7 @@ def test_finish_current_writer_rolls_back_when_claim_release_fails(project):
     assert (
         _committed(
             project,
-            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            "SELECT status FROM generated_column_claims WHERE claim_token=?",
             (claim_token,),
         )[0][0]
         == "active"
@@ -662,7 +662,7 @@ def test_cleanup_queued_reservation_rolls_back_claim_discard_when_receipt_delete
     )
     with write_transaction(project.db):
         ReceiptStore(project).insert_queued(receipt)
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="map.test",
@@ -676,7 +676,7 @@ def test_cleanup_queued_reservation_rolls_back_claim_discard_when_receipt_delete
     )
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "output_column_claims") == 1
+    assert _committed_count(project, "generated_column_claims") == 1
     assert _committed_count(project, "receipts") == 1
 
 
@@ -691,7 +691,7 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
         ReceiptStore(project).insert_running_in_transaction(
             _running_receipt(receipt_id, run_id=run_id)
         )
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="map.test",
@@ -699,7 +699,7 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
             run_id=run_id,
             claim_token=claim_token,
         )
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
         )
@@ -715,7 +715,7 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
         fence=WriterFence(run_id=run_id, claim_token=claim_token),
         output_column_ids={_column_id(project)},
     )
-    _refuse(project, "UPDATE", "output_column_claims")
+    _refuse(project, "UPDATE", "generated_column_claims")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         terminalize_project_run(
@@ -751,7 +751,7 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
     assert (
         _committed(
             project,
-            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            "SELECT status FROM generated_column_claims WHERE claim_token=?",
             (claim_token,),
         )[0][0]
         == "active"
@@ -764,7 +764,7 @@ def test_abandon_stale_dispatching_attempts_is_atomic_on_run_pointer_failure(pro
     claim_token = "output-claim:stale-atomic"
     past = datetime.now(timezone.utc) - timedelta(hours=12)
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="map.test",
@@ -773,7 +773,7 @@ def test_abandon_stale_dispatching_attempts_is_atomic_on_run_pointer_failure(pro
             lease_seconds=1,
             now=past,
         )
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
         )
@@ -825,7 +825,7 @@ def test_acquire_rolls_back_partial_claims_on_second_output_integrity_error(proj
     # to "beta" so acquire(["alpha", "beta"]) passes the initial active-name
     # check, inserts "alpha", and hits idx_output_claims_active_column on "beta".
     with write_transaction(project.db):
-        existing_claims, conflict = OutputColumnClaimStore(project).acquire(
+        existing_claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["beta_old"],
             action_kind="map.other",
@@ -845,7 +845,7 @@ def test_acquire_rolls_back_partial_claims_on_second_output_integrity_error(proj
             "UPDATE sheets SET name='Caller kept' WHERE id=?",
             (sheet_id,),
         )
-        acquired, conflict = OutputColumnClaimStore(project).acquire(
+        acquired, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["alpha", "beta"],
             action_kind="map.test",
@@ -863,6 +863,6 @@ def test_acquire_rolls_back_partial_claims_on_second_output_integrity_error(proj
     )
     active = _committed(
         project,
-        "SELECT id, output_name, claim_token FROM output_column_claims WHERE status='active'",
+        "SELECT id, output_name, claim_token FROM generated_column_claims WHERE status='active'",
     )
     assert active == [(existing_claim_id, "beta_old", "claim:existing-holder")]

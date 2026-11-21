@@ -24,8 +24,8 @@ from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 def _review_run(make_project) -> tuple[Project, int, list[int], int, int]:
     project = make_project("confidence")
     sheet_id = project.add_sheet("Rows")
-    first = project.add_column(sheet_id, "first", ai_generated=True)
-    second = project.add_column(sheet_id, "second", ai_generated=True)
+    first = project.add_column(sheet_id, "first", generated=True)
+    second = project.add_column(sheet_id, "second", generated=True)
     row_ids = project.add_rows(sheet_id, [{} for _ in range(8)], {})
     op_id = project.append_change("map", {"fixture": "confidence ordering"})
     run_id = RunResultStore(project).start_run(

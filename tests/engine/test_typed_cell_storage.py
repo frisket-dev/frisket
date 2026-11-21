@@ -381,7 +381,7 @@ def test_decoded_result_rows_batches_coordinates_and_preserves_metadata(
 ) -> None:
     project = make_project("decoded")
     sheet = project.add_sheet("Sheet")
-    column = project.add_column(sheet, "value", type="number", ai_generated=True)
+    column = project.add_column(sheet, "value", type="number", generated=True)
     number_row, null_row = project.add_rows(sheet, [{}, {}], {})
     runs = RunResultStore(project)
     run = runs.start_run(project.append_change("map.test"), sheet, "map.test")
@@ -414,7 +414,7 @@ def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_ra
 ) -> None:
     project = make_project("legacy results")
     sheet = project.add_sheet("Sheet")
-    column = project.add_column(sheet, "value", ai_generated=True)
+    column = project.add_column(sheet, "value", generated=True)
     surrogate_row, malformed_row = project.add_rows(sheet, [{}, {}], {})
     run = RunResultStore(project).start_run(
         project.append_change("map.test"),

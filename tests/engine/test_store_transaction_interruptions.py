@@ -13,7 +13,7 @@ from frisket.engine.store.effect_checkpoints import (
 )
 from frisket.engine.store.leases import acquire_lease
 from frisket.engine.store.media_blobs import MediaBlobStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
 
@@ -106,11 +106,11 @@ def test_commit_flag_transaction_rolls_back_interrupted_claim(
     before = _snapshot(project.db)
     error = failure("interrupted after the claim INSERT")
     db = _interrupt_project_db(
-        project, monkeypatch, "INSERT INTO output_column_claims", error
+        project, monkeypatch, "INSERT INTO generated_column_claims", error
     )
 
     with pytest.raises(failure) as caught, write_transaction(project.db):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id, output_names=["value"], action_kind="derive.test"
         )
 
@@ -128,11 +128,11 @@ def test_commit_false_leaves_interrupted_caller_transaction_to_its_owner(
     project.db.execute("UPDATE sheets SET name='Caller edit'")
     error = failure("interrupted after the claim INSERT")
     db = _interrupt_project_db(
-        project, monkeypatch, "INSERT INTO output_column_claims", error
+        project, monkeypatch, "INSERT INTO generated_column_claims", error
     )
 
     with pytest.raises(failure):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="derive.test",

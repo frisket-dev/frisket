@@ -374,7 +374,7 @@ def _recover_abandoned_cluster(project, action, *, router, project_id):
         "UPDATE execution_attempts SET created_at='2000-01-01T00:00:00Z' WHERE state='dispatching'"
     )
     project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' WHERE status='active'"
+        "UPDATE generated_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' WHERE status='active'"
     )
     project.db.commit()
     recovered = run_action_spec(project, action, project_id=project_id, router=router)
@@ -1045,7 +1045,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.security.secrets import encrypt_secret, key_hint
 
@@ -1122,7 +1122,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
         ).fetchone()
         is None
     )
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         _, conflict = claims.acquire(
             sheet_id=seeded["sheet_id"],
@@ -1138,7 +1138,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
         router=router,
     )
     assert refused.status == "failed"
-    assert refused.errors[0].code == "output_column_busy"
+    assert refused.errors[0].code == "generated_column_busy"
     stored_receipt = project.db.execute(
         "SELECT id,run_id,status FROM receipts WHERE id=?",
         (original_receipt_id,),
@@ -1198,7 +1198,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     refused = [result for result in results if result.status == "failed"]
     assert len(completed) == 1
     assert len(refused) == 1
-    assert refused[0].errors[0].code == "output_column_busy"
+    assert refused[0].errors[0].code == "generated_column_busy"
     assert completed[0].receipt_id == original_receipt_id
     assert len(adapter.calls) == 1
     replay = run_action_spec(

@@ -132,7 +132,9 @@ def _action_body(
     if isinstance(effects, Mapping) and isinstance(
         effects.get("output_target_preconditions"), Mapping
     ):
-        body["expected_output_columns"] = dict(effects["output_target_preconditions"])
+        body["expected_generated_columns"] = dict(
+            effects["output_target_preconditions"]
+        )
     return body
 
 

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from frisket.actions.core import RegisteredAction
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.server.app import create_app
 from frisket.engine.store.transactions import write_transaction
 
@@ -134,16 +134,16 @@ def test_column_transform_estimate_runs_output_gate(project_client, gate: str) -
     project = client.app.state.workspace.get(project_id)
     if gate == "existing":
         project.add_column(sheet_id, "filled")
-        expected_code = "output_column_exists"
+        expected_code = "generated_column_exists"
     else:
         with write_transaction(project.db):
-            _claims, conflict = OutputColumnClaimStore(project).acquire(
+            _claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["filled"],
                 action_kind="test.blocker",
             )
         assert conflict is None
-        expected_code = "output_column_busy"
+        expected_code = "generated_column_busy"
 
     response = client.post(
         f"/api/projects/{project_id}/actions/v1/estimate",

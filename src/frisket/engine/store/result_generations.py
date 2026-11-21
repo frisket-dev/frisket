@@ -419,7 +419,7 @@ class ResultGenerationStore:
             "(SELECT MAX(head.run_id) FROM published_result_bases head "
             " WHERE head.column_id=column.id) AS current_head_run_id, "
             "run.status AS run_status, op.status AS op_status "
-            "FROM output_column_claims claim "
+            "FROM generated_column_claims claim "
             "JOIN columns column ON column.id=claim.column_id "
             "JOIN runs run ON run.id=claim.run_id "
             "JOIN ops op ON op.id=run.op_id "
@@ -1025,7 +1025,7 @@ class ResultGenerationStore:
             created = {int(column_id) for column_id in info.get("created_columns", ())}
             if created:
                 claims = self.db.execute(
-                    "SELECT column_id,details FROM output_column_claims "
+                    "SELECT column_id,details FROM generated_column_claims "
                     "WHERE run_id=? AND status='active'",
                     (int(run_id),),
                 ).fetchall()

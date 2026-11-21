@@ -78,7 +78,7 @@ def adopt_document_text_role(
           JOIN prepared_content_sets content ON content.id=ref.set_id
           JOIN ops producer_op ON producer_op.id=content.producing_op_id
           WHERE legacy.sheet_id=? AND legacy.id<>?
-            AND legacy.type='text' AND legacy.ai_generated=1
+            AND legacy.type='text' AND legacy.generated=1
             AND legacy.active=1 AND legacy.hidden=0
             AND source_row.sheet_id=? AND source_row.hidden=0
             AND head.origin_kind='run_result' AND head.validity='valid'

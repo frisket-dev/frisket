@@ -15,8 +15,8 @@ def test_research_review_roles_use_authored_outputs_and_selected_run(
     sheet_id = project.add_sheet("Companies")
     # The answer deliberately has a conventional support name, while the
     # sources have a name that used to look like an independent result.
-    answer = project.add_column(sheet_id, "source", ai_generated=True)
-    sources = project.add_column(sheet_id, "Web pages", ai_generated=True)
+    answer = project.add_column(sheet_id, "source", generated=True)
+    sources = project.add_column(sheet_id, "Web pages", generated=True)
     row_ids = project.add_rows(sheet_id, [{}], {})
     params = {"output_names": {"answer": "source", "sources": "Web pages"}}
     run_id = _managed_run(
@@ -79,7 +79,7 @@ def test_research_review_roles_use_authored_outputs_and_selected_run(
 def test_unmanaged_review_items_have_no_logical_output_key(make_project) -> None:
     project = make_project("unmanaged-review")
     sheet_id = project.add_sheet("Rows")
-    column = project.add_column(sheet_id, "result", ai_generated=True)
+    column = project.add_column(sheet_id, "result", generated=True)
     row_ids = project.add_rows(sheet_id, [{}], {})
     run_id = _managed_run(project, sheet_id=sheet_id, columns=[column], row_ids=row_ids)
     item = review_bundle_page(project, run_id=run_id)["bundles"][0]["items"][0]
@@ -98,7 +98,7 @@ def test_structured_research_reviews_authored_fields_not_name_heuristics(make_pr
         "sources": "Web pages",
     }
     columns = [
-        project.add_column(sheet, name, ai_generated=True) for name in names.values()
+        project.add_column(sheet, name, generated=True) for name in names.values()
     ]
     rows = project.add_rows(sheet, [{}], {})
     run = _managed_run(

@@ -27,7 +27,7 @@ from frisket.engine.runner.validation import (
     assert_provider_spend_cap,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import ActionProgram
@@ -108,7 +108,7 @@ def _age_silent_attempt(project: Project, attempt_id: str) -> None:
         (attempt_id,),
     )
     project.db.execute(
-        "UPDATE output_column_claims SET "
+        "UPDATE generated_column_claims SET "
         "lease_expires_at=datetime('now', '-1 second') "
         "WHERE run_id=(SELECT run_id FROM execution_attempts WHERE id=?) "
         "AND status='active'",
@@ -130,7 +130,7 @@ def _prepare_claimed_run(
     fields = [dict(field) for field in program.output_fields(spec)]
     token = f"output-claim:test:{progress.run_id}"
     with write_transaction(runner.project.db):
-        claims, conflict = OutputColumnClaimStore(runner.project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(runner.project).acquire(
             sheet_id=int(spec["sheet_id"]),
             output_names=[str(field["name"]) for field in fields],
             action_kind=str(spec["action_kind"]),
@@ -141,7 +141,7 @@ def _prepare_claimed_run(
     assert conflict is None
     assert len(claims) == len(fields)
     with write_transaction(runner.project.db):
-        OutputColumnClaimStore(runner.project).bind_to_run(
+        GeneratedColumnClaimStore(runner.project).bind_to_run(
             claim_token=token,
             run_id=progress.run_id,
             expected_output_names=[str(field["name"]) for field in fields],
@@ -670,7 +670,7 @@ def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
     )
     assert (
         project.db.execute(
-            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            "SELECT status FROM generated_column_claims WHERE claim_token=?",
             (claim_token,),
         ).fetchone()[0]
         == "active"
@@ -707,7 +707,7 @@ def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
         )
     )
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(
+        GeneratedColumnClaimStore(project).release(
             claim_token=claim_token, status="cancelled"
         )
     original_attempt = str(

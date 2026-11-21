@@ -675,7 +675,7 @@ def _seed_timestamped_transcripts(
         sheet_id,
         "transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     op_id = project.append_change(
         "media.transcribe",

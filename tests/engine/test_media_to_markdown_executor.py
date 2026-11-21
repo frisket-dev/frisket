@@ -269,9 +269,9 @@ CASES = [
                 "invalid_action_request",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _source_collision_action,
-                "output_column_exists",
+                "generated_column_exists",
             ),
         ),
         expect_counts={

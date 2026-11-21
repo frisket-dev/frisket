@@ -34,7 +34,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         "name": project.add_column(sheet_id, "name", "text"),
         "age": project.add_column(sheet_id, "age", "integer"),
         "profile": project.add_column(sheet_id, "profile", "json"),
-        "risk": project.add_column(sheet_id, "risk", "number", ai_generated=True),
+        "risk": project.add_column(sheet_id, "risk", "number", generated=True),
         "internal": project.add_column(sheet_id, "internal", "text"),
     }
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (columns["internal"],))

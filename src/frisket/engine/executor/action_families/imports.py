@@ -163,7 +163,7 @@ def _perform_import_rows_in_txn(
     for idx, column in enumerate(materialization.columns, start=1):
         cur.execute(
             "INSERT INTO columns (sheet_id, name, type, position, "
-            "ai_generated, hidden, default_hidden, format) "
+            "generated, hidden, default_hidden, format) "
             "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
             (
                 sheet_id,

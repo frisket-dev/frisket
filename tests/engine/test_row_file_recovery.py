@@ -101,7 +101,7 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
         attempt_a = checkpoint["authorized_attempt_id"]
         _age_silent_attempt(restored, attempt_a)
         claim = restored.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
+            "SELECT claim_token FROM generated_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
         runner = actions._default_map_runner_factory(restored, router)
         progress = asyncio.run(

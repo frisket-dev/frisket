@@ -294,8 +294,8 @@
    "src/frisket/engine/store/transcript_segment_stream.py::_loads"
   ],
   [
-   "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release",
-   "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release_for_receipt"
+   "src/frisket/engine/store/generated_column_claims.py::GeneratedColumnClaimStore.release",
+   "src/frisket/engine/store/generated_column_claims.py::GeneratedColumnClaimStore.release_for_receipt"
   ],
   [
    "src/frisket/execution/attempt.py::_decimal_text",

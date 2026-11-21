@@ -922,22 +922,24 @@ class EffectCheckpointStore:
             raise _stale_writer(
                 "a run-scoped checkpoint mutation supplied no writer attempt"
             )
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
 
-        OutputColumnClaimStore.require_current_writer(self.db, fence=fence)
+        GeneratedColumnClaimStore.require_current_writer(self.db, fence=fence)
         if fence.claim_token is None:
             return
         from frisket.execution.attempt import STALE_DISPATCHING_AGE
 
         try:
-            renewed = OutputColumnClaimStore.renew_in_transaction(
+            renewed = GeneratedColumnClaimStore.renew_in_transaction(
                 self.db,
                 claim_token=fence.claim_token,
                 run_id=fence.run_id,
                 lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
             )
         except sqlite3.OperationalError as exc:
-            from frisket.engine.store.output_claims import (
+            from frisket.engine.store.generated_column_claims import (
                 ClaimLeaseRenewalFailed,
             )
 

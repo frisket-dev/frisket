@@ -17,7 +17,7 @@ from executor_harness import (
     operation_action,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.citations import (
     list_cell_citations,
@@ -334,7 +334,7 @@ CASES = [
                     "invalid_action_request",
                     "review_target_not_found",
                     "review_complete",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
@@ -409,7 +409,7 @@ CASES = [
                     "invalid_action_request",
                     "review_target_not_found",
                     "review_complete",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
@@ -526,8 +526,8 @@ def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
 
     project = make_project("review-error-sibling")
     sheet_id = project.add_sheet("Rows")
-    answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
-    error_id = project.add_column(sheet_id, "other", ai_generated=True)
+    answer_id = project.add_column(sheet_id, "answer", generated=True)
+    error_id = project.add_column(sheet_id, "other", generated=True)
     row_id = project.add_rows(sheet_id, [{}], {})[0]
     op_id = project.append_change("map", {"fixture": "mixed review outcomes"})
     run_id = RunResultStore(project).start_run(
@@ -1340,7 +1340,7 @@ def test_review_note_undo_does_not_mutate_claimed_values(
         noted = env.run_primary()
         assert noted.status == "completed", noted.errors
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=seeded["sheet_id"],
                 output_names=["risk"],
                 action_kind="map.python",

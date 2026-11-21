@@ -275,7 +275,7 @@ def _prepared_tuple(project: Any, *, idempotency_key: str) -> dict[str, Any]:
     claims = project.db.execute(
         "SELECT c.*, col.name AS column_name, col.type AS column_type, "
         "col.semantic_type AS column_semantic_type, col.format AS column_format "
-        "FROM output_column_claims c "
+        "FROM generated_column_claims c "
         "JOIN columns col ON col.id=c.column_id "
         "WHERE c.run_id=? AND c.status='active' ORDER BY col.position",
         (run_id,),
@@ -454,7 +454,7 @@ def test_extract_metadata_atomic_output_family_semantics_remain_non_routed(
             "runs",
             "run_scopes",
             "receipts",
-            "output_column_claims",
+            "generated_column_claims",
             "routes",
             "execution_attempts",
         )
@@ -491,16 +491,16 @@ def test_extract_metadata_atomic_output_family_semantics_remain_non_routed(
     run_id = int(queued.payload["run_id"])
     receipt_id = str(queued.payload["receipt_id"])
     output_rows = project.db.execute(
-        "SELECT c.id,c.name,c.type,c.format,c.ai_generated,c.current_run_id,"
+        "SELECT c.id,c.name,c.type,c.format,c.generated,c.current_run_id,"
         "oc.claim_token,oc.run_id,oc.status "
-        "FROM columns c JOIN output_column_claims oc ON oc.column_id=c.id "
+        "FROM columns c JOIN generated_column_claims oc ON oc.column_id=c.id "
         "WHERE c.sheet_id=? AND oc.receipt_id=? ORDER BY c.position",
         (sheet_id, receipt_id),
     ).fetchall()
     assert [(row["name"], row["type"], row["format"]) for row in output_rows] == [
         (field["name"], field["column_type"], field.get("format")) for field in fields
     ]
-    assert all(bool(row["ai_generated"]) for row in output_rows)
+    assert all(bool(row["generated"]) for row in output_rows)
     assert all(int(row["current_run_id"]) == run_id for row in output_rows)
     assert {row["claim_token"] for row in output_rows} == {f"output-claim:{receipt_id}"}
     assert {int(row["run_id"]) for row in output_rows} == {run_id}
@@ -613,7 +613,9 @@ def test_competing_output_preparation_has_one_coherent_winner(
     assert len(loser) == 1
     # Typed actions require new output names, so the second preparation refuses
     # the already-created family before it can acquire any competing claims.
-    assert [error["code"] for error in loser[0]["errors"]] == ["output_column_exists"]
+    assert [error["code"] for error in loser[0]["errors"]] == [
+        "generated_column_exists"
+    ]
 
     project = workspace.get("authority")
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
@@ -628,7 +630,7 @@ def test_competing_output_preparation_has_one_coherent_winner(
         project.db.execute("SELECT COUNT(*) FROM execution_attempts").fetchone()[0] == 1
     )
     active_claims = project.db.execute(
-        "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+        "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
     ).fetchone()[0]
     assert active_claims == len(
         _typed_map_rows_plan(typed_action_for_request(first)).output_fields
@@ -694,7 +696,7 @@ def test_stale_prepared_attempt_resume_reuses_tuple_and_replaces_only_attempt(
         (before["attempt_id"], before["run_id"]),
     )
     project.db.execute(
-        "UPDATE output_column_claims SET renewed_at=?, lease_expires_at=? "
+        "UPDATE generated_column_claims SET renewed_at=?, lease_expires_at=? "
         "WHERE claim_token=?",
         (
             "2000-01-01T00:00:00+00:00",
@@ -719,7 +721,7 @@ def test_stale_prepared_attempt_resume_reuses_tuple_and_replaces_only_attempt(
         ),
     )
     project.db.execute(
-        "UPDATE output_column_claims SET job_id=NULL WHERE claim_token=?",
+        "UPDATE generated_column_claims SET job_id=NULL WHERE claim_token=?",
         (f"output-claim:{before['receipt_row']['id']}",),
     )
     project.db.commit()
@@ -812,7 +814,7 @@ def test_unacknowledged_job_replay_accepts_the_live_dispatching_attempt(
         ),
     )
     project.db.execute(
-        "UPDATE output_column_claims SET job_id=NULL WHERE claim_token=?",
+        "UPDATE generated_column_claims SET job_id=NULL WHERE claim_token=?",
         (f"output-claim:{prepared['receipt_row']['id']}",),
     )
     project.db.commit()
@@ -915,7 +917,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
             "SELECT COUNT(*) FROM execution_attempts"
         ).fetchone()[0],
         "claims": project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims"
+            "SELECT COUNT(*) FROM generated_column_claims"
         ).fetchone()[0],
     }
 
@@ -943,7 +945,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
             "SELECT COUNT(*) FROM execution_attempts"
         ).fetchone()[0],
         "claims": project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims"
+            "SELECT COUNT(*) FROM generated_column_claims"
         ).fetchone()[0],
     } == before
     assert (

@@ -66,9 +66,7 @@ def search_project(
                 "row_id": binding.row_id,
                 "column_id": binding.column_id,
                 "column_name": column["name"] if column is not None else None,
-                "ai_generated": bool(column["ai_generated"])
-                if column is not None
-                else False,
+                "generated": bool(column["generated"]) if column is not None else False,
                 "snip": hit.snippet or "",
                 "location": asdict(hit.part.locator),
             }

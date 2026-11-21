@@ -230,7 +230,7 @@ def run_writer_authority_fixture(
     direct-effect contract.
     """
 
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     column_ids = {int(column_id) for column_id in output_column_ids}
     if claimless_direct_effect and column_ids:
@@ -276,7 +276,7 @@ def run_writer_authority_fixture(
         project.db.commit()
 
     active_claims = project.db.execute(
-        "SELECT claim_token, column_id FROM output_column_claims "
+        "SELECT claim_token, column_id FROM generated_column_claims "
         "WHERE run_id=? AND status='active' ORDER BY claim_token, column_id",
         (int(run_id),),
     ).fetchall()
@@ -322,7 +322,7 @@ def run_writer_authority_fixture(
 
     token = f"output-claim:test-store-writer:{uuid.uuid4().hex}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=int(run["sheet_id"]),
             output_names=[str(column["name"]) for column in columns],
             action_kind=str(run["action_kind"]),
@@ -332,7 +332,7 @@ def run_writer_authority_fixture(
         )
         if conflict is not None or len(claims) != len(column_ids):
             raise AssertionError("could not acquire exact test output authority")
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=token,
             run_id=int(run_id),
             expected_output_names=[str(column["name"]) for column in columns],
@@ -384,7 +384,7 @@ def write_claimed_test_results(
         run_id,
         output_column_ids=output_column_ids,
     )
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     try:
         assert authority.claim_token is not None
@@ -473,13 +473,13 @@ def write_claimed_test_results(
                 terminal_disposition="completed",
             )
     except BaseException:
-        OutputColumnClaimStore(project).finish_current_writer(
+        GeneratedColumnClaimStore(project).finish_current_writer(
             fence=authority.fence(),
             attempt_state="halted",
         )
         raise
     project.db.commit()
-    OutputColumnClaimStore(project).finish_current_writer(
+    GeneratedColumnClaimStore(project).finish_current_writer(
         fence=authority.fence(),
         attempt_state="effected",
     )

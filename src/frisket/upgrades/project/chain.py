@@ -63,6 +63,11 @@ from frisket.upgrades.project.citations_migration import (
     CITATIONS_TO_DIGEST,
     migrate_citations,
 )
+from frisket.upgrades.project.generated_columns_migration import (
+    GENERATED_COLUMNS_FROM_DIGEST,
+    GENERATED_COLUMNS_TO_DIGEST,
+    apply_generated_columns_migration,
+)
 from frisket.upgrades.project.receipt_records_migration import (
     RECEIPT_RECORDS_TO_DIGEST,
     apply_receipt_records,
@@ -198,6 +203,12 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         CITATIONS_TO_DIGEST,
         RECEIPT_RECORDS_TO_DIGEST,
         apply_receipt_records,
+    )
+    run_step(
+        db,
+        GENERATED_COLUMNS_FROM_DIGEST,
+        GENERATED_COLUMNS_TO_DIGEST,
+        apply_generated_columns_migration,
     )
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.op_log import RestorationUnavailable
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -85,7 +85,7 @@ def test_undo_releases_owned_claim_then_redo_restores_every_managed_head(
     assert project.undo() == second.op_id
     assert (
         project.db.execute(
-            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            "SELECT status FROM generated_column_claims WHERE claim_token=?",
             (second.authority.claim_token,),
         ).fetchone()[0]
         == "released"
@@ -252,7 +252,7 @@ def test_direct_edit_undo_and_redo_preserve_values_with_claimed_column(
     _generations, _first = _publish_initial_generation(
         project, sheet_id, column_id, row_ids
     )
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     edit_op_id = project.apply_edits(
         [
             {

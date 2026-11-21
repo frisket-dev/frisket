@@ -117,4 +117,4 @@ def test_selected_row_replacement_refuses_an_incompatible_semantic_type(ner_proj
     )
 
     assert replacement.status == "failed"
-    assert replacement.errors[0].code == "output_column_exists"
+    assert replacement.errors[0].code == "generated_column_exists"

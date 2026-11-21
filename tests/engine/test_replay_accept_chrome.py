@@ -9,7 +9,7 @@ import pytest
 
 from frisket.engine.executor import actions as executor_actions
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
@@ -24,16 +24,14 @@ def _value_hash(value: Any) -> str:
 
 
 # --------------------------------------------------------------------------
-# fixture: an ai_generated column with a current run + human-edit overlays
+# fixture: an generated column with a current run + human-edit overlays
 # --------------------------------------------------------------------------
 class _Fixture:
     def __init__(self, project: Project) -> None:
         self.project = project
         self.sheet = project.add_sheet("stories")
         self.src = project.add_column(self.sheet, "story")
-        self.col = project.add_column(
-            self.sheet, "label", type="text", ai_generated=True
-        )
+        self.col = project.add_column(self.sheet, "label", type="text", generated=True)
         rows = [{"story": f"story {i}"} for i in range(6)]
         project.add_rows(self.sheet, rows, {"story": self.src})
         self.row_ids = project.visible_row_ids(self.sheet)
@@ -358,7 +356,7 @@ def test_replay_accept_checks_claim_identity_and_supports_undo_redo(fx):
     ]
 
     with write_transaction(fx.project.db):
-        _claims, conflict = OutputColumnClaimStore(fx.project).acquire(
+        _claims, conflict = GeneratedColumnClaimStore(fx.project).acquire(
             sheet_id=fx.sheet,
             output_names=["label"],
             action_kind="map.classify",
@@ -367,9 +365,9 @@ def test_replay_accept_checks_claim_identity_and_supports_undo_redo(fx):
         )
     assert conflict is None
     blocked = fx.run_action(request)
-    assert [error.code for error in blocked.errors] == ["output_column_busy"]
+    assert [error.code for error in blocked.errors] == ["generated_column_busy"]
     with write_transaction(fx.project.db):
-        OutputColumnClaimStore(fx.project).release(
+        GeneratedColumnClaimStore(fx.project).release(
             claim_token="claim:replay-test", status="released"
         )
 

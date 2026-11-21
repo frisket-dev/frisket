@@ -218,7 +218,7 @@ def test_cancel_after_inference_before_publication_closes_retained_run(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=? AND status='active'",
             (result.run_id,),
         ).fetchone()[0]
         == 0

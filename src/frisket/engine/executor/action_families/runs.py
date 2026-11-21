@@ -114,9 +114,9 @@ def _resolve_backfill_target(
             action_kind=action_kind,
             field="params.column",
         )
-    if not bool(column_row["ai_generated"]):
+    if not bool(column_row["generated"]):
         return ActionError(
-            code="column_not_ai_generated",
+            code="column_not_generated",
             message=f"column '{column_name}' is not a generated column",
             action_kind=action_kind,
             field="params.column",

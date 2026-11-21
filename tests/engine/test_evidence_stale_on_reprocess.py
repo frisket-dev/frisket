@@ -299,9 +299,7 @@ def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
     project = make_project("Hash mismatch")
     sheet_id = project.add_sheet("Docs")
     source_col = project.add_column(sheet_id, "source", type="file")
-    output_col = project.add_column(
-        sheet_id, "markdown", type="text", ai_generated=True
-    )
+    output_col = project.add_column(sheet_id, "markdown", type="text", generated=True)
     row_id = project.add_rows(
         sheet_id, [{"source": "doc.pdf"}], {"source": source_col}
     )[0]

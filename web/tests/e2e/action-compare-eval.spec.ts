@@ -424,7 +424,7 @@ test('Try several preserves engine and model selection and scores the chosen fie
   const linked = await page.request.post(`/api/projects/${scenario.projectId}/evaluation/links`, { data: {
     target_sheet_id: scenario.targetSheetId, expected_sheet_id: scenario.expectedSheetId, action_id: 'map.extract',
     keys: ['case_id', 'county'].map(name => ({ expected_column_id: expectedColumn(name), target_column_id: targetColumn(name) })),
-    fields: ['plaintiff', 'amount', 'parties', 'summary'].map(name => ({ expected_column_id: expectedColumn(name), output_column_id: targetColumn(name),
+    fields: ['plaintiff', 'amount', 'parties', 'summary'].map(name => ({ expected_column_id: expectedColumn(name), generated_column_id: targetColumn(name),
       logical_key: name, rule: name === 'summary' ? 'hand' : name === 'parties' ? 'set' : 'exact', hidden: false, source: 'import' })), hidden: false,
   } });
   expect(linked.ok()).toBeTruthy();

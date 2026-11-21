@@ -1235,9 +1235,11 @@ def test_requeued_claimless_attempt_recovers_original_handler_not_current_job(
             reopened = Project(project.path)
             if attached_queue:
                 reopened._frisket_run_queue = queue
-            from frisket.engine.store.output_claims import OutputColumnClaimStore
+            from frisket.engine.store.generated_column_claims import (
+                GeneratedColumnClaimStore,
+            )
 
-            claims = OutputColumnClaimStore(reopened)
+            claims = GeneratedColumnClaimStore(reopened)
             assert claims.attempt_handler_execution_stopped(original.attempt_id)
             with write_transaction(reopened.db):
                 assert abandon_stale_dispatching_attempts(reopened, run_id) == 1

@@ -157,7 +157,7 @@ function normalizePreviewResult(
 ): ActionCompareVariantResult {
   const logicalKeys = new Set<string>();
   const logicalKeyByCurrentName = new Map<string, string>();
-  for (const output of context.output_columns) {
+  for (const output of context.generated_columns) {
     if (logicalKeys.has(output.logical_key)) {
       throw new Error(`Comparison context repeats logical output ${JSON.stringify(output.logical_key)}.`);
     }
@@ -257,7 +257,7 @@ export function createActionCompareSession(
         ? { rowIds: [...next.capturedSelection.rowIds], totalCount: next.capturedSelection.totalCount }
         : null,
       variants: [firstVariant(next.context, createId(), dependencies.labelForDraft)],
-      hiddenColumnKeys: next.context.output_columns
+      hiddenColumnKeys: next.context.generated_columns
         .filter((column) => column.hidden)
         .map((column) => `output:${column.logical_key}`),
       highlightDifferences: true,

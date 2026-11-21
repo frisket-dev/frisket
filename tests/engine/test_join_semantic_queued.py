@@ -321,7 +321,7 @@ def test_queued_join_semantic_terminal_fence_blocks_replaced_writer(
     # write, so the receipt is still exactly where launch left it.
     assert receipt["status"] == "queued"
     claims = project.db.execute(
-        "SELECT status FROM output_column_claims WHERE receipt_id=?",
+        "SELECT status FROM generated_column_claims WHERE receipt_id=?",
         (launched.receipt_id,),
     ).fetchall()
     assert claims
@@ -461,7 +461,7 @@ def test_queued_provider_failure_uses_join_terminal_writer_fence(
     ).fetchone()
     assert receipt is not None
     claims = project.db.execute(
-        "SELECT status FROM output_column_claims WHERE receipt_id=? ORDER BY column_id",
+        "SELECT status FROM generated_column_claims WHERE receipt_id=? ORDER BY column_id",
         (launched.receipt_id,),
     ).fetchall()
     assert claims

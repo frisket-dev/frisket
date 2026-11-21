@@ -85,14 +85,14 @@ def test_revived_column_converges_its_semantic_marker(make_project) -> None:
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
     project.db.commit()
 
     # Re-created by a producer that declares no contract: marker must clear.
-    revived = project.add_column(sheet_id, "entities", type="text", ai_generated=True)
+    revived = project.add_column(sheet_id, "entities", type="text", generated=True)
     assert revived == column_id
     row = project.db.execute(
         "SELECT semantic_type FROM columns WHERE id=?", (column_id,)
@@ -107,7 +107,7 @@ def test_revived_column_converges_its_semantic_marker(make_project) -> None:
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     row = project.db.execute(

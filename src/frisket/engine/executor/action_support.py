@@ -95,7 +95,7 @@ _REFUSAL_FIELDS: tuple[tuple[type[Exception], _RefusalFields], ...] = (
     (
         OutputColumnExists,
         lambda exc, site: {
-            "code": "output_column_exists",
+            "code": "generated_column_exists",
             "message": str(exc),
             "field": site.output_claim_field,
             "details": {"columns": exc.columns},
@@ -104,7 +104,7 @@ _REFUSAL_FIELDS: tuple[tuple[type[Exception], _RefusalFields], ...] = (
     (
         GenerationDeclarationConflict,
         lambda exc, site: {
-            "code": "output_column_exists",
+            "code": "generated_column_exists",
             "message": str(exc),
             "field": site.output_claim_field,
         },

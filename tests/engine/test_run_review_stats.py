@@ -99,13 +99,11 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
         sheet_id = project.add_sheet("Scans")
         # "source" exercises the old name-based support heuristic: the authored
         # OCR text role still has to be the one review chore.
-        text = project.add_column(sheet_id, "source", ai_generated=True)
+        text = project.add_column(sheet_id, "source", generated=True)
         blocks = project.add_column(
-            sheet_id, "Geometry", type="json", ai_generated=True, default_hidden=True
+            sheet_id, "Geometry", type="json", generated=True, default_hidden=True
         )
-        pdf = project.add_column(
-            sheet_id, "Search copy", type="file", ai_generated=True
-        )
+        pdf = project.add_column(sheet_id, "Search copy", type="file", generated=True)
         row_ids = project.add_rows(sheet_id, [{}], {})
         run_id = _managed_run(
             project,
@@ -189,9 +187,9 @@ def test_review_stats_distinguish_resolved_unknown_from_human_decisions(
 ) -> None:
     project = make_project("review-stats")
     sheet_id = project.add_sheet("Rows")
-    first = project.add_column(sheet_id, "answer", ai_generated=True)
-    second = project.add_column(sheet_id, "category", ai_generated=True)
-    support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
+    first = project.add_column(sheet_id, "answer", generated=True)
+    second = project.add_column(sheet_id, "category", generated=True)
+    support = project.add_column(sheet_id, "answer_confidence", generated=True)
     row_ids = project.add_rows(sheet_id, [{}, {}], {})
     run_id = _managed_run(
         project,
@@ -274,7 +272,7 @@ def test_review_transition_serializes_prior_state_with_counter_delta(
     peer: Project | None = None
     try:
         sheet_id = project.add_sheet("Rows")
-        output = project.add_column(sheet_id, "answer", ai_generated=True)
+        output = project.add_column(sheet_id, "answer", generated=True)
         rows = project.add_rows(sheet_id, [{}, {}], {})
         run_id = _managed_run(
             project, sheet_id=sheet_id, columns=[output], row_ids=rows
@@ -362,7 +360,7 @@ def test_concurrent_review_stats_ensure_rechecks_ready_under_write_lock(
     release_first: threading.Event | None = None
     try:
         sheet_id = project.add_sheet("Rows")
-        output = project.add_column(sheet_id, "answer", ai_generated=True)
+        output = project.add_column(sheet_id, "answer", generated=True)
         rows = project.add_rows(sheet_id, [{}, {}], {})
         run_id = _managed_run(
             project, sheet_id=sheet_id, columns=[output], row_ids=rows
@@ -434,7 +432,7 @@ def test_concurrent_review_stats_ensure_rechecks_ready_under_write_lock(
 def test_ready_review_stats_ensure_does_not_take_write_lock(make_project) -> None:
     project = make_project("ready-read")
     sheet_id = project.add_sheet("Rows")
-    output = project.add_column(sheet_id, "answer", ai_generated=True)
+    output = project.add_column(sheet_id, "answer", generated=True)
     rows = project.add_rows(sheet_id, [{}], {})
     run_id = _managed_run(project, sheet_id=sheet_id, columns=[output], row_ids=rows)
     statements: list[str] = []
@@ -455,12 +453,12 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
 ) -> None:
     project = make_project("stable-review-run")
     sheet_id = project.add_sheet("Rows")
-    first = project.add_column(sheet_id, "answer", ai_generated=True)
+    first = project.add_column(sheet_id, "answer", generated=True)
     # Named-result columns can be hidden implementation details while
     # their outputs remain current and reviewable.
-    second = project.add_column(sheet_id, "category", ai_generated=True, hidden=True)
+    second = project.add_column(sheet_id, "category", generated=True, hidden=True)
     support = project.add_column(
-        sheet_id, "answer_confidence", ai_generated=True, hidden=True
+        sheet_id, "answer_confidence", generated=True, hidden=True
     )
     row_ids = project.add_rows(sheet_id, [{}, {}], {})
     original = _managed_run(
@@ -557,7 +555,7 @@ def test_review_stats_migration_backfills_history_and_rolls_back_as_one_unit(
     path = tmp_path / "migration.frisket"
     project = Project.create(path)
     sheet_id = project.add_sheet("Rows")
-    output = project.add_column(sheet_id, "answer", ai_generated=True)
+    output = project.add_column(sheet_id, "answer", generated=True)
     rows = project.add_rows(sheet_id, [{}, {}], {})
     run_id = _managed_run(project, sheet_id=sheet_id, columns=[output], row_ids=rows)
     _review(project, run_id, rows[0], output, "verified", "accept")
@@ -609,7 +607,7 @@ def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
     path = tmp_path / "migration-running.frisket"
     project = Project.create(path)
     sheet_id = project.add_sheet("Rows")
-    output = project.add_column(sheet_id, "answer", ai_generated=True)
+    output = project.add_column(sheet_id, "answer", generated=True)
     rows = project.add_rows(sheet_id, [{}, {}], {})
     op_id = project.append_change("map", {"fixture": "running migration"})
     store = RunResultStore(project)

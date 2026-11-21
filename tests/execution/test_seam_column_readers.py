@@ -243,12 +243,12 @@ SEAM_COLUMN_READERS: dict[str, object] = {
     "execution_attempts.id": ("frisket.execution.attempt", "claim"),
     "execution_attempts.run_id": ("frisket.execution.attempt", "claim"),
     "execution_attempts.job_id": (
-        "frisket.engine.store.output_claims",
-        "OutputColumnClaimStore.attempt_handler_execution_stopped",
+        "frisket.engine.store.generated_column_claims",
+        "GeneratedColumnClaimStore.attempt_handler_execution_stopped",
     ),
     "execution_attempts.handler_authority_id": (
-        "frisket.engine.store.output_claims",
-        "OutputColumnClaimStore.attempt_handler_execution_stopped",
+        "frisket.engine.store.generated_column_claims",
+        "GeneratedColumnClaimStore.attempt_handler_execution_stopped",
     ),
     "execution_attempts.receipt_id": (
         "frisket.execution.attempt",
@@ -286,8 +286,8 @@ SEAM_COLUMN_READERS: dict[str, object] = {
         "attempt_receipt",
     ),
     "execution_attempts.created_at": (
-        "frisket.engine.store.output_claims",
-        "OutputColumnClaimStore.abandon_stale_dispatching_attempts",
+        "frisket.engine.store.generated_column_claims",
+        "GeneratedColumnClaimStore.abandon_stale_dispatching_attempts",
     ),
 }
 

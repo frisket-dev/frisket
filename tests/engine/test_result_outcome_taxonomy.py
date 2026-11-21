@@ -53,7 +53,7 @@ class _LegacyOmissionProgram(ActionProgram):
 def _seed(project: Project) -> tuple[int, int, list[int], int]:
     sheet_id = project.add_sheet("Rows")
     text = project.add_column(sheet_id, "text", type="text")
-    out = project.add_column(sheet_id, "out", type="text", ai_generated=True)
+    out = project.add_column(sheet_id, "out", type="text", generated=True)
     project.add_rows(
         sheet_id,
         [{"text": t} for t in ("a", "b", "c", "d", "e", "f")],

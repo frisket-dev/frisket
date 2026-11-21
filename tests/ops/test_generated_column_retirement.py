@@ -1,6 +1,6 @@
 """The ONE output-retirement mechanism: recipes declare their
 dropped-role output names (`ActionProgram.retired_output_names`) and the generic
-`retire_dropped_generated_columns` hides any that still exist as ai_generated
+`retire_dropped_generated_columns` hides any that still exist as generated
 columns outside the current output set — hide-by-default + provenance on
 the op. Typed actions only touch their explicitly declared output names."""
 
@@ -64,7 +64,7 @@ class _DerivedDetectedProgram(ActionProgram):
 
 
 def _generated_column(p: Project, sheet_id: int, name: str) -> int:
-    return p.add_column(sheet_id, name, type="text", ai_generated=True)
+    return p.add_column(sheet_id, name, type="text", generated=True)
 
 
 def _column(p: Project, cid: int):

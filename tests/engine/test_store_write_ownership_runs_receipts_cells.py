@@ -457,7 +457,7 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
 def test_result_generation_writes_never_commit_caller_transaction(project):
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
-    output_col = project.add_column(sheet_id, "answer", ai_generated=True)
+    output_col = project.add_column(sheet_id, "answer", generated=True)
     _op_id, run_id = _seed_run(project)
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output_col}
@@ -517,7 +517,7 @@ def test_result_generation_writes_never_commit_caller_transaction(project):
 
 def test_result_generation_savepoint_failure_preserves_caller_transaction(project):
     sheet_id = _sheet_id(project)
-    output_col = project.add_column(sheet_id, "answer", ai_generated=True)
+    output_col = project.add_column(sheet_id, "answer", generated=True)
     _op_id, run_id = _seed_run(project)
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output_col}
@@ -547,7 +547,7 @@ def test_result_generation_savepoint_failure_preserves_caller_transaction(projec
 def test_write_results_and_publish_preserve_accounting_on_closed_change(project):
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
-    output_col = project.add_column(sheet_id, "answer", ai_generated=True)
+    output_col = project.add_column(sheet_id, "answer", generated=True)
     op_id, run_id = _seed_run(project)
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output_col}

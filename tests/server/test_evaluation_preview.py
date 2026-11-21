@@ -32,7 +32,7 @@ def test_evaluation_preview_reads_full_artifacts_and_checks_ownership(tmp_path: 
     context = {
         "sheet_id": 1,
         "action_id": "map.ask",
-        "output_columns": [
+        "generated_columns": [
             {"logical_key": "answer", "column_id": None, "current_name": "subject"}
         ],
         "row_ids": [1, 2, 3],
@@ -61,7 +61,7 @@ def test_evaluation_preview_reports_failure_and_cancelled_partial_rows(tmp_path:
     context = {
         "sheet_id": 1,
         "action_id": "map.ask",
-        "output_columns": [
+        "generated_columns": [
             {"logical_key": "answer", "column_id": None, "current_name": "subject"}
         ],
         "row_ids": [1, 2],

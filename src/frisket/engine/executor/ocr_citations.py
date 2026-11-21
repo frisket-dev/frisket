@@ -17,7 +17,7 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.writer_fence import WriterFence
 
@@ -153,9 +153,9 @@ def write_ocr_citations(
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
     )
-    OutputColumnClaimStore.require_current_writer(project.db, fence=fence)
+    GeneratedColumnClaimStore.require_current_writer(project.db, fence=fence)
     receipt_id = project.db.execute(
-        "SELECT DISTINCT receipt_id FROM output_column_claims "
+        "SELECT DISTINCT receipt_id FROM generated_column_claims "
         "WHERE run_id=? AND claim_token=? AND status='active'",
         (run_id, claim_token),
     ).fetchone()[0]

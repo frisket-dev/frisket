@@ -186,7 +186,7 @@ function compareColumns(
       };
     });
   const generatedColumns: OutputGridColumn[] = state.variants
-    .flatMap((variant) => state.context.output_columns.filter((column) => !hidden.has(`output:${column.logical_key}`)).map((column) => {
+    .flatMap((variant) => state.context.generated_columns.filter((column) => !hidden.has(`output:${column.logical_key}`)).map((column) => {
       const id = `output:${column.logical_key}:${variant.id}`;
       return {
         kind: 'output' as const,
@@ -203,7 +203,7 @@ function compareColumns(
       };
     }));
   const expectedColumns: ExpectedGridColumn[] = evaluation?.view === 'expected' && evaluation.response?.link
-    ? state.context.output_columns.filter((column) => column.logical_key === evaluation.field).map((column) => ({
+    ? state.context.generated_columns.filter((column) => column.logical_key === evaluation.field).map((column) => ({
       kind: 'expected', id: `expected:${column.logical_key}`, logicalKey: column.logical_key,
       column: { id: `expected:${column.logical_key}`, name: 'expected', type: 'text', format: null },
     })) : [];

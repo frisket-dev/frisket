@@ -1470,7 +1470,7 @@ class RunResultStore:
                 "precomputed results lost their running action authority"
             )
         claims = self.db.execute(
-            "SELECT column_id, sheet_id FROM output_column_claims "
+            "SELECT column_id, sheet_id FROM generated_column_claims "
             "WHERE claim_token=? AND run_id=? AND receipt_id=? AND action_kind=? "
             "AND status='active'",
             (claim_token, run_id, receipt_id, action_kind),
@@ -2034,9 +2034,11 @@ class RunResultStore:
                 for call in (item.get("model_calls") or ())
                 if isinstance(call, dict) and call.get("column_id") is not None
             )
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
 
-        claims = OutputColumnClaimStore(self.project)
+        claims = GeneratedColumnClaimStore(self.project)
         claims.require_current_writer(
             self.db,
             fence=run_fence,
@@ -2052,7 +2054,7 @@ class RunResultStore:
                 lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
             )
         except sqlite3.OperationalError as exc:
-            from frisket.engine.store.output_claims import (
+            from frisket.engine.store.generated_column_claims import (
                 ClaimLeaseRenewalFailed,
             )
 
@@ -3225,7 +3227,7 @@ class RunResultStore:
                     "prepared terminalization does not own the only open attempt"
                 )
             active_claims = self.db.execute(
-                "SELECT claim_token FROM output_column_claims "
+                "SELECT claim_token FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (int(run_id),),
             ).fetchall()

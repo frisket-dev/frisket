@@ -1413,13 +1413,13 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         sheet_id,
         "transcript",
         type="timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     alternate_column_id = project.add_column(
         sheet_id,
         "alternate_transcript",
         type="timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     runs = RunResultStore(project)
     transcript_op_id = project.append_change(

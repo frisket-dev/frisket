@@ -21,7 +21,7 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("stories")
     story_col = project.add_column(sheet_id, "story")
-    topic_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    topic_col = project.add_column(sheet_id, "topic", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"story": f"story {index}"} for index in range(5)],

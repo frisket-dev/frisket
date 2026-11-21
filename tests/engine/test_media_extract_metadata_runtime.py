@@ -27,8 +27,8 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
 from frisket.sdk.replay import (
-    output_column_result_value_hash,
-    output_column_value_hash,
+    generated_column_result_value_hash,
+    generated_column_value_hash,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
@@ -36,7 +36,7 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import (
     GenerationStateError,
     ResultGenerationStore,
@@ -917,7 +917,7 @@ def test_columns_mode_rejects_unrelated_ai_sibling_even_with_overwrite_intent(
         sheet_id,
         "meta_title",
         type="number",
-        ai_generated=True,
+        generated=True,
         format="filesize",
     )
     action = _action(
@@ -936,7 +936,7 @@ def test_columns_mode_rejects_unrelated_ai_sibling_even_with_overwrite_intent(
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert result.errors[0].details == {"columns": ["meta_title"]}
     sibling = project.get_column(sibling_id)
     assert sibling["type"] == "number"
@@ -999,7 +999,7 @@ def test_raw_maprunner_cannot_launch_metadata_without_action_lifecycle(
         sheet_id,
         "meta",
         type="json",
-        ai_generated=True,
+        generated=True,
     )
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -1072,7 +1072,7 @@ def test_atomic_metadata_prepare_failure_rolls_back_family_op_and_run(
     assert [column["name"] for column in project.columns(sheet_id)] == ["asset"]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -1102,7 +1102,7 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
         authority=UnroutedOnlyAuthority(project),
     )
     claim_token = "claim:metadata-resume"
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         acquired, conflict = claims.acquire(
             sheet_id=sheet_id,
@@ -1401,7 +1401,7 @@ def test_same_prefix_new_key_requires_explicit_replacement_of_complete_family(
             project_id=f"metadata-family-{mode}",
         )
         assert refused.status == "failed"
-        assert refused.errors[0].code == "output_column_exists"
+        assert refused.errors[0].code == "generated_column_exists"
 
         rerun = run_action_spec(
             project,
@@ -1664,14 +1664,14 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
         details_ref = next(
             item["ref"] for item in receipt["outputs"] if item["name"] == details_name
         )
-        assert details_ref["value_hash"] == output_column_result_value_hash(
+        assert details_ref["value_hash"] == generated_column_result_value_hash(
             project,
             run_id=new_run_id,
             sheet_id=sheet_id,
             column_id=details_id,
             row_ids=[target_row],
         )
-        assert details_ref["value_hash"] != output_column_value_hash(
+        assert details_ref["value_hash"] != generated_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=details_id,
@@ -1795,7 +1795,7 @@ def test_changed_family_does_not_implicitly_authorize_replacement(
         )
 
         assert rerun.status == "failed"
-        assert rerun.errors[0].code == "output_column_exists"
+        assert rerun.errors[0].code == "generated_column_exists"
         assert int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]) == (
             run_count
         )
@@ -1842,7 +1842,7 @@ def test_mixed_family_does_not_implicitly_authorize_replacement(
     )
 
     assert rerun.status == "failed"
-    assert rerun.errors[0].code == "output_column_exists"
+    assert rerun.errors[0].code == "generated_column_exists"
 
 
 def test_different_source_does_not_implicitly_authorize_replacement(
@@ -1880,7 +1880,7 @@ def test_different_source_does_not_implicitly_authorize_replacement(
     )
 
     assert rerun.status == "failed"
-    assert rerun.errors[0].code == "output_column_exists"
+    assert rerun.errors[0].code == "generated_column_exists"
 
 
 @pytest.mark.parametrize(
@@ -2071,7 +2071,7 @@ def test_direct_rerun_rechecks_output_identity_after_claim_acquisition(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -2110,7 +2110,7 @@ def test_post_claim_preparation_failure_cleans_claim_and_reservation(
     assert acquired == [True]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -2135,7 +2135,7 @@ def test_explicit_replacement_rejects_unmanaged_matching_columns(
             str(field["name"]),
             type=str(field["column_type"]),
             format=field.get("format"),
-            ai_generated=True,
+            generated=True,
         )
     action = _action(
         sheet_id=sheet_id,
@@ -2153,7 +2153,7 @@ def test_explicit_replacement_rejects_unmanaged_matching_columns(
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert result.errors[0].details["columns"] == [fields[0]["name"]]
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     assert len(project.columns(sheet_id)) == len(fields) + 1

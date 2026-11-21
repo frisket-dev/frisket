@@ -50,10 +50,8 @@ def _cell(read: dict, name: str) -> dict:
 def _seed_grounded_ocr(project: Project) -> dict[str, object]:
     sheet = project.add_sheet("Scans")
     source_column = project.add_column(sheet, "document", type="file")
-    text_column = project.add_column(sheet, "ocr_text", type="text", ai_generated=True)
-    blocks_column = project.add_column(
-        sheet, "ocr_blocks", type="json", ai_generated=True
-    )
+    text_column = project.add_column(sheet, "ocr_text", type="text", generated=True)
+    blocks_column = project.add_column(sheet, "ocr_blocks", type="json", generated=True)
     json_column = project.add_column(sheet, "review_metadata", type="json")
     blob = project.add_blob(
         b"%PDF-1.4\n% grounded Ask fixture\n",

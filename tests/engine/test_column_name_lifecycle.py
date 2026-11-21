@@ -2,7 +2,7 @@ import pytest
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.changes import start_change
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
 
 def test_undo_redo_preserves_internal_hidden_column(make_project):
@@ -33,7 +33,7 @@ def test_redo_cannot_take_name_reserved_by_queued_action(make_project):
         project.set_undo_info(op_id, {"created_columns": [column_id]})
         start_change(project.db, op_id)
     project.undo()
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         reserved, conflict = claims.acquire(
             sheet_id=sheet_id,
@@ -43,7 +43,7 @@ def test_redo_cannot_take_name_reserved_by_queued_action(make_project):
         )
     assert conflict is None
     assert reserved[0]["column_id"] is None
-    with pytest.raises(ValueError, match="output_column_busy"):
+    with pytest.raises(ValueError, match="generated_column_busy"):
         project.redo()
     assert project.get_column(column_id)["active"] == 0
     assert (

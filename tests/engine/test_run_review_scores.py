@@ -131,7 +131,7 @@ def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
         )
     runs.finish_run(source_run_id)
     project.db.execute(
-        "UPDATE columns SET ai_generated=1,current_run_id=? WHERE id=?",
+        "UPDATE columns SET generated=1,current_run_id=? WHERE id=?",
         (source_run_id, source_column_id),
     )
 

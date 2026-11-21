@@ -25,11 +25,9 @@ def _seed(ws: Path) -> dict[str, Any]:
         cols = {
             "name": project.add_column(sheet_id, "Name", type="text"),
             "amount": project.add_column(
-                sheet_id, "Amount", type="text", ai_generated=True
+                sheet_id, "Amount", type="text", generated=True
             ),
-            "notes": project.add_column(
-                sheet_id, "Notes", type="text", ai_generated=True
-            ),
+            "notes": project.add_column(sheet_id, "Notes", type="text", generated=True),
         }
         row_ids = project.add_rows(
             sheet_id,
@@ -81,9 +79,7 @@ def _seed(ws: Path) -> dict[str, Any]:
         # An evidence link on ANOTHER sheet's row/column — must not leak into
         # this sheet's signal even though it shares no FK constraint.
         other_sheet_id = project.add_sheet("Other")
-        other_col = project.add_column(
-            other_sheet_id, "y", type="text", ai_generated=True
-        )
+        other_col = project.add_column(other_sheet_id, "y", type="text", generated=True)
         other_row = project.add_rows(other_sheet_id, [{"y": "z"}], {"y": other_col})[0]
         with write_transaction(project.db):
             record_citation(

@@ -25,14 +25,14 @@ CREATE TABLE IF NOT EXISTS evaluation_judgments (
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   expected_column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
-  output_column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
+  generated_column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
   source_fingerprint TEXT NOT NULL,
   expected_hash TEXT NOT NULL,
   answer_hash TEXT NOT NULL,
   verdict TEXT NOT NULL CHECK (verdict IN ('match','miss')),
   actor TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (sheet_id,row_id,expected_column_id,output_column_id,
+  PRIMARY KEY (sheet_id,row_id,expected_column_id,generated_column_id,
                source_fingerprint,expected_hash,answer_hash)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS saved_compare_variants (
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS saved_compare_variants (
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   action_id TEXT NOT NULL,
   label TEXT NOT NULL,
-  output_columns_json TEXT NOT NULL CHECK (json_valid(output_columns_json)),
+  generated_columns_json TEXT NOT NULL CHECK (json_valid(generated_columns_json)),
   settings_json TEXT NOT NULL CHECK (json_valid(settings_json)),
   rows_json TEXT NOT NULL CHECK (json_valid(rows_json)),
   fingerprints_json TEXT NOT NULL CHECK (json_valid(fingerprints_json)),
@@ -180,7 +180,7 @@ def saved(project, saved_id):
         return None
     result = dict(row)
     for stored, public in (
-        ("output_columns_json", "output_columns"),
+        ("generated_columns_json", "generated_columns"),
         ("settings_json", "settings"),
         ("rows_json", "rows"),
         ("fingerprints_json", "source_fingerprints"),
@@ -198,19 +198,19 @@ def save_variant(
     sheet_id,
     action_id,
     label,
-    output_columns,
+    generated_columns,
     settings,
     rows,
     source_fingerprints,
     kept=True,
 ):
     cursor = project.db.execute(
-        "INSERT INTO saved_compare_variants(sheet_id,action_id,label,output_columns_json,settings_json,rows_json,fingerprints_json,kept,last_used_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
+        "INSERT INTO saved_compare_variants(sheet_id,action_id,label,generated_columns_json,settings_json,rows_json,fingerprints_json,kept,last_used_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
         (
             sheet_id,
             action_id,
             label,
-            dump(output_columns),
+            dump(generated_columns),
             dump(settings),
             dump(rows),
             dump(source_fingerprints),

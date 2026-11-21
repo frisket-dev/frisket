@@ -269,16 +269,18 @@ class _ColumnCreator(_CallOnce):
                 details={"sheet_id": sheet_id},
             )
         require_import_sheet_write(self._project.db, sheet_id)
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
 
         if (
-            OutputColumnClaimStore(self._project).active_for_output_name(
+            GeneratedColumnClaimStore(self._project).active_for_output_name(
                 sheet_id=sheet_id, output_name=name
             )
             is not None
         ):
             _refuse(
-                "output_column_busy",
+                "generated_column_busy",
                 "The target output column is claimed by a running action.",
                 action_kind=self._action.kind,
                 field="params.name",
@@ -316,7 +318,7 @@ class _ColumnCreator(_CallOnce):
                 (sheet_id, new_position),
             )
         self._cur.execute(
-            "INSERT INTO columns (sheet_id,name,type,position,ai_generated,hidden,format) "
+            "INSERT INTO columns (sheet_id,name,type,position,generated,hidden,format) "
             "VALUES (?,?,?,?,0,0,NULL)",
             (sheet_id, name, column_type, new_position),
         )

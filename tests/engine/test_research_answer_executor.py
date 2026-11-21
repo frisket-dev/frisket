@@ -507,7 +507,7 @@ CASES = [
                 {
                     "invalid_action_request",
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "model_cost_requires_confirmation",
                     "model_run_failed",
                     "idempotency_conflict",
@@ -528,7 +528,9 @@ CASES = [
                 "invalid_action_request",
             ),
             Gate("invalid_input_ref", _bad_input_action, "invalid_input_ref"),
-            Gate("output_column_exists", _collision_action, "output_column_exists"),
+            Gate(
+                "generated_column_exists", _collision_action, "generated_column_exists"
+            ),
             Gate(
                 "idempotency_conflict",
                 _conflict_action,

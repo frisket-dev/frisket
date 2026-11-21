@@ -31,7 +31,7 @@ from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner import CostGate, MapRunner, validation
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row, llm_row
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
@@ -197,7 +197,7 @@ def _prepare_claimed_runner_run(
     output_names = [str(field["name"]) for field in program.output_fields(spec)]
     claim_token = f"output-claim:test:{program.name}:{id(runner)}"
     with write_transaction(runner.project.db):
-        claims, conflict = OutputColumnClaimStore(runner.project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(runner.project).acquire(
             sheet_id=int(spec["sheet_id"]),
             output_names=output_names,
             action_kind=program.name,
@@ -213,7 +213,7 @@ def _prepare_claimed_runner_run(
         resume_run_id=None,
     )
     with write_transaction(runner.project.db):
-        assert OutputColumnClaimStore(runner.project).bind_to_run(
+        assert GeneratedColumnClaimStore(runner.project).bind_to_run(
             claim_token=claim_token,
             run_id=prepared.run_id,
             expected_output_names=output_names,
@@ -290,7 +290,7 @@ class TestHappyPath:
         )
         asyncio.run(run_with_output_claim(runner, spec))
         col = next(c for c in project.columns(sheet) if c["name"] == "relevance")
-        assert col["ai_generated"] == 1
+        assert col["generated"] == 1
 
     def test_subset_rerun_keeps_untouched_values_and_origins(self, project, tmp_path):
         sheet, _ = seed_sheet(project, ["alpha", "beta", "gamma"])
@@ -885,10 +885,10 @@ class TestCodexFinalReviewRegressions:
                 )
             )
         column = project.db.execute(
-            "SELECT id, ai_generated FROM columns WHERE sheet_id=? AND name='text'",
+            "SELECT id, generated FROM columns WHERE sheet_id=? AND name='text'",
             (sheet,),
         ).fetchone()
-        assert not column["ai_generated"]
+        assert not column["generated"]
         assert [
             row[0]
             for row in project.db.execute(

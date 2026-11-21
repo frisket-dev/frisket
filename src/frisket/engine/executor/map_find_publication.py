@@ -376,14 +376,14 @@ def write_find_result(
 
     columns = [
         AggregateColumnSpec(
-            name=params.output_names["match"], type="text", ai_generated=True
+            name=params.output_names["match"], type="text", generated=True
         )
     ]
     columns.extend(
         AggregateColumnSpec(
             name=params.output_names[field.name],
             type=field.column_type,
-            ai_generated=True,
+            generated=True,
         )
         for field in params.fields
     )
@@ -469,7 +469,9 @@ def write_find_result(
         )
         from frisket.engine.runner.publication import PUBLISH_NULL, PUBLISH_VALUE
         from frisket.engine.runner.result_generations import _compatibility_key
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
         from frisket.engine.store.result_generations import ResultGenerationStore
 
         run_store = RunResultStore(project)
@@ -502,7 +504,7 @@ def write_find_result(
             {"name": column.name, "column_type": column.type} for column in columns
         ]
         claim_token = f"output-claim:{receipt_id}"
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=write.sheet_id,
             output_names=[field["name"] for field in output_fields],
             action_kind=action.kind,

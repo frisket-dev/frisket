@@ -187,7 +187,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         ).fetchall()
     }
     assert columns["translation"]["type"] == "text"
-    assert columns["translation"]["ai_generated"] == 1
+    assert columns["translation"]["generated"] == 1
     assert columns["translation"]["current_run_id"] == result.run_id
     assert columns["translation_detected_language"]["type"] == "category"
     assert columns["translation_detected_language"]["current_run_id"] == result.run_id
@@ -280,7 +280,7 @@ CASES = [
                     "invalid_action_request",
                     "invalid_input_ref",
                     "invalid_params",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "model_cost_requires_confirmation",
                     "model_run_failed",
                     "idempotency_conflict",
@@ -307,9 +307,9 @@ CASES = [
                 expected_status="needs_confirmation",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _colliding_output_action,
-                "output_column_exists",
+                "generated_column_exists",
             ),
         ),
         expect_counts={

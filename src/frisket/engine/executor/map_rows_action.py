@@ -125,7 +125,7 @@ from frisket.sdk.capture import (
 )
 from frisket.sdk.provenance import Provenance, build_receipt_from_provenance
 from frisket.sdk.replay import (
-    output_columns_replay_error,
+    generated_columns_replay_error,
     replay_expected_row_ids,
 )
 
@@ -1871,12 +1871,12 @@ def _require_expected_generated_columns(
 ) -> None:
     """Refuse a named output target that changed after its caller prepared it."""
 
-    expected = request.expected_output_columns
+    expected = request.expected_generated_columns
     if expected is not None and dict(expected) != dict(actual):
         raise TypedMapRowsPlanError(
             "output_target_changed",
             "output targets changed after this action was prepared",
-            field="expected_output_columns",
+            field="expected_generated_columns",
             details={"expected": dict(expected), "actual": dict(actual)},
         )
 
@@ -1916,7 +1916,7 @@ def resolve_row_output_targets(
             ).fetchone()
             is not None
         )
-        if bool(column["ai_generated"]) and not generation_managed:
+        if bool(column["generated"]) and not generation_managed:
             from frisket.engine.runner.preparation import (
                 is_generation_free_document_text_output,
             )
@@ -1931,7 +1931,7 @@ def resolve_row_output_targets(
                     action_kind=request.action_id,
                     params=request.params,
                     output_names=request.output_names,
-                    expected_output_columns=request.expected_output_columns,
+                    expected_generated_columns=request.expected_generated_columns,
                     output_name=name,
                     column_id=column_id,
                 )
@@ -1939,12 +1939,12 @@ def resolve_row_output_targets(
         else:
             first_document_text = False
         if (
-            bool(column["ai_generated"])
+            bool(column["generated"])
             and not generation_managed
             and not first_document_text
         ):
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "only generation-managed output columns can be replaced",
                 details={"columns": [name]},
             )
@@ -1953,7 +1953,7 @@ def resolve_row_output_targets(
 
             if allow_idempotent_outputs or (
                 bool(column["hidden"])
-                and bool(column["ai_generated"])
+                and bool(column["generated"])
                 and (
                     str(column["type"]) == field.column_type
                     or (
@@ -1965,13 +1965,13 @@ def resolve_row_output_targets(
                 preconditions[name] = None
                 continue
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "output columns already exist",
                 details={"columns": [name]},
             )
-        if not bool(column["ai_generated"]):
+        if not bool(column["generated"]):
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "only generated columns can be replaced",
                 details={"columns": [name]},
             )
@@ -1992,7 +1992,7 @@ def resolve_row_output_targets(
             )
         ):
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "replacement output has an incompatible descriptor for this scope; "
                 "create a new column or replace the whole generated column",
                 details={"columns": [name]},
@@ -2051,7 +2051,7 @@ def bound_typed_program_request_from_runner_spec(
                 if not field.hidden
             },
             "replace_existing": runner_spec.get("replace_existing", False),
-            "expected_output_columns": runner_spec.get("expected_output_columns"),
+            "expected_generated_columns": runner_spec.get("expected_generated_columns"),
             "idempotency_key": "internal-run-backfill-program",
             **(
                 {
@@ -2125,7 +2125,7 @@ def typed_program_from_runner_spec(
         "input_columns",
         "params",
         "output_names",
-        "expected_output_columns",
+        "expected_generated_columns",
         "replace_existing",
         "model",
         "engine",
@@ -2413,7 +2413,7 @@ def validate_model_rows_project_inputs(
     try:
         references = validate_typed_project_references(project, sheet_id, params)
     except TypedMapRowsPlanError as exc:
-        if exc.code != "column_not_ai_generated" or terminal.evaluation is None:
+        if exc.code != "column_not_generated" or terminal.evaluation is None:
             raise
         columns = exc.details.get("columns")
         subject = (
@@ -2422,7 +2422,7 @@ def validate_model_rows_project_inputs(
             else getattr(params, terminal.evaluation.subject_param).name
         )
         raise TypedMapRowsPlanError(
-            "column_not_ai_generated",
+            "column_not_generated",
             f"{action_id} answer to grade must be an AI-generated column",
             field="params.judged_column",
             details={"column": subject},
@@ -2531,13 +2531,13 @@ def validate_row_project_references(
     not_generated = [
         reference.column
         for reference in declared_references
-        if reference.ai_generated_only
+        if reference.generated_only
         and reference.column in columns_by_name
-        and not bool(columns_by_name[reference.column]["ai_generated"])
+        and not bool(columns_by_name[reference.column]["generated"])
     ]
     if not_generated:
         raise TypedMapRowsPlanError(
-            "column_not_ai_generated",
+            "column_not_generated",
             "the selected column must be AI-generated",
             field="params.judged_column",
             details={"columns": not_generated},
@@ -2634,8 +2634,8 @@ def _typed_map_rows_plan(
         ]
     if target_preconditions:
         spec["output_target_preconditions"] = target_preconditions
-    if request.expected_output_columns is not None:
-        spec["expected_output_columns"] = dict(request.expected_output_columns)
+    if request.expected_generated_columns is not None:
+        spec["expected_generated_columns"] = dict(request.expected_generated_columns)
     spec["replace_existing"] = request.replace_existing
     if request.replace_existing:
         spec["overwrite"] = True
@@ -2758,8 +2758,8 @@ def normalized_typed_request_identity(
         "output_names": output_names,
         "replace_existing": request.replace_existing,
     }
-    if request.expected_output_columns is not None:
-        payload["expected_output_columns"] = dict(request.expected_output_columns)
+    if request.expected_generated_columns is not None:
+        payload["expected_generated_columns"] = dict(request.expected_generated_columns)
     if bound.implementation_identity is not None:
         payload["implementation_identity"] = bound.implementation_identity
     if request.sheet_name is not None:
@@ -2898,7 +2898,7 @@ def _typed_replay_error(
                     message="The recorded selection cohort is unavailable.",
                     action_kind=action.action_id,
                 )
-        return output_columns_replay_error(
+        return generated_columns_replay_error(
             project,
             receipt,
             output_kind="map_result_column",
@@ -2951,7 +2951,7 @@ def typed_map_rows_replay_result(
                     "SELECT 1 FROM execution_attempts a WHERE a.run_id=r.id "
                     "AND a.state='halted' AND a.seq=(SELECT MAX(last.seq) "
                     "FROM execution_attempts last WHERE last.run_id=r.id)) "
-                    "AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+                    "AND NOT EXISTS (SELECT 1 FROM generated_column_claims c "
                     "WHERE c.run_id=r.id AND c.status='active'))) LIMIT 1",
                     (run_id,),
                 ).fetchone()
@@ -3118,7 +3118,7 @@ def _typed_receipt(
             is_subject = subject_context is not None
             if subject_context is not None:
                 rich = {
-                    "ai_generated": True,
+                    "generated": True,
                     "source_run_id": subject_context.source_run_id,
                     "source_receipt_id": subject_context.source_receipt_id,
                 }
@@ -3133,7 +3133,7 @@ def _typed_receipt(
                 "column_id": input_ids[name],
                 "type": plan.source_column_types[name],
                 "row_ids": row_ids,
-                "ai_generated": rich["ai_generated"],
+                "generated": rich["generated"],
                 "source_run_id": rich["source_run_id"],
                 "source_receipt_id": rich["source_receipt_id"],
                 **(
@@ -3639,7 +3639,7 @@ def typed_queued_map_spec(
     this function again in the worker process to reconstruct the program.
     """
 
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     unresolved = initial_plan or _typed_map_rows_plan(bound)
     scope = require_sheet_rows(bound.request.scope)
@@ -3805,7 +3805,7 @@ def typed_queued_map_spec(
                 _enforce_expected_generated_columns=False,
             )
         except TypedMapRowsPlanError as exc:
-            input_error = exc.code in {"invalid_input_ref", "column_not_ai_generated"}
+            input_error = exc.code in {"invalid_input_ref", "column_not_generated"}
             return ActionError(
                 code="stale_input",
                 message=(
@@ -3951,7 +3951,7 @@ def typed_queued_map_spec(
         def release_output_claim():
             from frisket.execution.attempt import StaleAttemptWriter
 
-            if not OutputColumnClaimStore(project).release(
+            if not GeneratedColumnClaimStore(project).release(
                 claim_token=_output_claim_token(str(kwargs["receipt_id"])),
                 status="failed" if receipt.status == "failed" else "released",
             ):

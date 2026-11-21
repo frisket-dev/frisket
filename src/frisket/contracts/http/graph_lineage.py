@@ -18,14 +18,14 @@ class _OpenResponseModel(WireModel):
 
 class ProjectLineageNode(_OpenResponseModel):
     id: str
-    kind: Literal["source", "sheet", "ai_column"]
+    kind: Literal["source", "sheet", "generated_column"]
     name: str
 
 
 class ProjectLineageEdge(_OpenResponseModel):
     from_: str = Field(alias="from")
     to: str
-    kind: Literal["source", "derive", "ai_column"]
+    kind: Literal["source", "derive", "generated_column"]
     stale: bool
 
 

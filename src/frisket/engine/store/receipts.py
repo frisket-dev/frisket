@@ -192,14 +192,16 @@ class ReceiptStore:
         fence: WriterFence,
         provider_use_fact: dict[str, Any] | None = None,
     ) -> None:
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
 
         db = self.db
         db.execute("SAVEPOINT python_code_evidence")
         try:
-            OutputColumnClaimStore.require_current_writer(db, fence=fence)
+            GeneratedColumnClaimStore.require_current_writer(db, fence=fence)
             refs = db.execute(
-                "SELECT DISTINCT receipt_id FROM output_column_claims "
+                "SELECT DISTINCT receipt_id FROM generated_column_claims "
                 "WHERE run_id=? AND claim_token=? AND status='active'",
                 (fence.run_id, fence.claim_token),
             ).fetchall()

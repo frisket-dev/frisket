@@ -18,7 +18,7 @@ from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import PreparedContentRef
@@ -291,7 +291,7 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(first_op, text_column_id, first_run)
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=first_authority.claim_token)
+        GeneratedColumnClaimStore(project).release(claim_token=first_authority.claim_token)
 
     _second_op, second_run, second_authority = start("failed replacement")
     assert second_authority.claim_token is not None

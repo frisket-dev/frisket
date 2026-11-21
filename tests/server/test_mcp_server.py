@@ -33,7 +33,7 @@ from frisket.ai.llm import (
 from frisket.contracts.action import Receipt
 from frisket.engine.jobs import Worker
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.execution_routes import RouteStore
@@ -1758,7 +1758,7 @@ class TestRunAction:
             # so read it while the receipt is still queued: finalization
             # replaces the body's evidence with the op's own provenance, and
             # the durable authority moves to execution_attempts /
-            # output_column_claims, both asserted below.
+            # generated_column_claims, both asserted below.
             prepared = prepared_refs(started["run_id"])
             while backend._tasks:  # noqa: SLF001 - await the owned worker
                 await asyncio.gather(*tuple(backend._tasks))  # noqa: SLF001
@@ -1777,7 +1777,7 @@ class TestRunAction:
         assert int(prepared[0]["run_id"]) == int(started["run_id"])
         claim_token = f"output-claim:{receipt_row['id']}"
         claims = project.db.execute(
-            "SELECT * FROM output_column_claims WHERE run_id=?",
+            "SELECT * FROM generated_column_claims WHERE run_id=?",
             (started["run_id"],),
         ).fetchall()
         assert claims
@@ -1822,7 +1822,7 @@ class TestRunAction:
             )
         )
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet,
                 output_names=["uppercase"],
                 action_kind="map.python",
@@ -1836,7 +1836,7 @@ class TestRunAction:
                 0
             ],
             "claims": project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims"
+                "SELECT COUNT(*) FROM generated_column_claims"
             ).fetchone()[0],
             "columns": project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0],
             "ops": project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0],
@@ -1846,7 +1846,7 @@ class TestRunAction:
             idempotency_key="mcp-competing-authority@sha256:stable",
         )
 
-        with pytest.raises(ValueError, match="output_column_busy"):
+        with pytest.raises(ValueError, match="generated_column_busy"):
             asyncio.run(backend.run_action("demo", action, confirmed=True))
 
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
@@ -1860,13 +1860,13 @@ class TestRunAction:
                 0
             ],
             "claims": project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims"
+                "SELECT COUNT(*) FROM generated_column_claims"
             ).fetchone()[0],
             "columns": project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0],
             "ops": project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0],
         } == baseline
         active_claim = project.db.execute(
-            "SELECT claim_token, run_id, status FROM output_column_claims"
+            "SELECT claim_token, run_id, status FROM generated_column_claims"
         ).fetchone()
         assert active_claim is not None
         assert tuple(active_claim) == (

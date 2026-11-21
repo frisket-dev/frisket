@@ -32,7 +32,7 @@ def _seed_run_backed_column(project: Project):
     outcome: ok, model_error, invalid_output, empty_output, withheld."""
     sheet = project.add_sheet("data")
     text_col = project.add_column(sheet, "text", type="text")
-    ai_col = project.add_column(sheet, "result", type="text", ai_generated=True)
+    ai_col = project.add_column(sheet, "result", type="text", generated=True)
     rows = project.add_rows(
         sheet,
         [{"text": f"row {i}"} for i in range(5)],

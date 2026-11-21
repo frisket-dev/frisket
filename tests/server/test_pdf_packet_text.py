@@ -141,7 +141,7 @@ def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
     project = workspace.get(project_id)
     sheet = project.add_sheet("Rows")
     file_column = project.add_column(sheet, "File", type="file")
-    text_column = project.add_column(sheet, "Text", type="text", ai_generated=True)
+    text_column = project.add_column(sheet, "Text", type="text", generated=True)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
     value = {"blob": blob}
     row = project.add_rows(sheet, [{"File": value}], {"File": file_column})[0]

@@ -11,7 +11,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs import runs
 from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.runner import MapRunner, validation
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.ops import builtin
 from frisket.server.app import create_app
@@ -75,7 +75,7 @@ def test_prepared_translate_retry_recovery_and_backfill_keep_typed_authority(
         queued = client.post(endpoint, json=body).json()
         assert queued["status"] == "queued", queued
         claim_token = f"output-claim:{queued['receipt_id']}"
-        frozen = OutputColumnClaimStore(project).active_output_fields(
+        frozen = GeneratedColumnClaimStore(project).active_output_fields(
             claim_token=claim_token,
             run_id=queued["run_id"],
             require_frozen_descriptors=True,
@@ -95,7 +95,7 @@ def test_prepared_translate_retry_recovery_and_backfill_keep_typed_authority(
                 handler(deepcopy(payload), context)
         assert requests == []
         assert (
-            OutputColumnClaimStore(project).active_output_fields(
+            GeneratedColumnClaimStore(project).active_output_fields(
                 claim_token=claim_token,
                 run_id=queued["run_id"],
                 require_frozen_descriptors=True,
