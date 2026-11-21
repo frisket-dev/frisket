@@ -118,14 +118,14 @@ def export(
                     info = tarfile.TarInfo("bundle.json")
                     info.size = len(descriptor)
                     archive.addfile(info, io.BytesIO(descriptor))
-                    archive.members.clear()
+                    _clear_tar_members(archive)
                     manifest = _project_manifest_bytes(
                         json.loads((project.path / "manifest.json").read_text())
                     )
                     info = tarfile.TarInfo("manifest.json")
                     info.size = len(manifest)
                     archive.addfile(info, io.BytesIO(manifest))
-                    archive.members.clear()
+                    _clear_tar_members(archive)
                     _add_bundle_file(archive, snapshot_path, "project.db")
                     if include_media:
                         for (digest,) in snapshot.execute("SELECT hash FROM blobs"):
@@ -154,13 +154,19 @@ def export(
     return target
 
 
+def _clear_tar_members(archive: tarfile.TarFile) -> None:
+    # Python 3.12 retains member metadata even in streaming mode.
+    members = getattr(archive, "members", None)
+    if isinstance(members, list):
+        members.clear()
+
+
 def _add_bundle_file(archive: tarfile.TarFile, path: Path, name: str) -> None:
     with path.open("rb") as source:
         info = tarfile.TarInfo(name)
         info.size = os.fstat(source.fileno()).st_size
         archive.addfile(info, source)
-    # Python 3.12 retains member metadata even in streaming mode.
-    archive.members.clear()
+    _clear_tar_members(archive)
 
 
 def _project_manifest_bytes(manifest: dict[str, Any]) -> bytes:
@@ -304,9 +310,12 @@ def import_bundle(
                     ):
                         raise ValueError("bundle metadata exceeds 1 MiB")
                     require_disk_headroom(staging, info.size)
-                    with archive.extractfile(info) as source:
+                    source = archive.extractfile(info)
+                    if source is None:
+                        raise ValueError("bundle members must be regular files")
+                    with source:
                         _extract_bundle_file(staging, info.name, source)
-                    archive.members.clear()
+                    _clear_tar_members(archive)
             descriptor = json.loads((staging / "bundle.json").read_text())
             if (
                 not isinstance(descriptor, dict)

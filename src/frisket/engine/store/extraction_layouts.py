@@ -294,9 +294,11 @@ def _document_scope_read(project, *, sheet_id, source, scope):
     from frisket.engine.views.evaluate import open_selection
 
     validated = ExtractionScope.model_validate(values)
+    selection = validated.selection
     if (
-        validated.selection.scope.kind != "sheet"
-        or validated.selection.scope.sheet_id != sheet_id
+        selection is None
+        or selection.scope.kind != "sheet"
+        or selection.scope.sheet_id != sheet_id
     ):
         raise ValueError("Selection must target this sheet")
     with open_selection(project, definition) as selected:

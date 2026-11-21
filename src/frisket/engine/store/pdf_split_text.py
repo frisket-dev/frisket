@@ -192,9 +192,10 @@ def _publish_pdf_split_page(
         ),
     ).fetchone()
     if (
-        source != expected
-        or edited is not None
+        source is None
         or text is None
+        or source != expected
+        or edited is not None
         or source["origin_kind"] != "source_cell"
         or text["origin_kind"] != "source_cell"
         or source["producer_id"] != session.producer_id
@@ -215,9 +216,11 @@ def _publish_pdf_split_page(
         (original_artifact_id, original.source_artifact_id),
     ).fetchall()
     hashes = {int(row[0]): str(row[1]).removeprefix("sha256:") for row in artifacts}
-    if hashes.get(original_artifact_id) is None or hashes.get(
-        original_artifact_id
-    ) != hashes.get(original.source_artifact_id):
+    if (
+        original.source_artifact_id is None
+        or hashes.get(original_artifact_id) is None
+        or hashes.get(original_artifact_id) != hashes.get(original.source_artifact_id)
+    ):
         raise ValueError("finished page belongs to another original PDF")
     pin = original.pins[0]
     positions = dict(pin.positions or {})
