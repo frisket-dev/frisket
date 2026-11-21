@@ -21,9 +21,9 @@ if [ "${FRISKET_E2E_ISOLATED:-0}" = "1" ] && [ -d "$BASE_WS" ] && [ "$WS" != "$B
     exit 1
   fi
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete --exclude '.queue.db*' --exclude '.frisket-e2e-active.json' "$BASE_WS"/ "$WS"/
+    rsync -a --delete --exclude '.queue.db*' --exclude '.frisket-e2e-active.json' --exclude '.seed-publish-tmp-*' "$BASE_WS"/ "$WS"/
   else
-    (cd "$BASE_WS" && tar --exclude='.queue.db*' --exclude='.frisket-e2e-active.json' -cf - .) | (cd "$WS" && tar -xf -)
+    (cd "$BASE_WS" && tar --exclude='.queue.db*' --exclude='.frisket-e2e-active.json' --exclude='.seed-publish-tmp-*' -cf - .) | (cd "$WS" && tar -xf -)
   fi
 fi
 # Persist seeded project data, but never persist job-queue state between e2e
