@@ -9,6 +9,7 @@ import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
 import {
   ApiError,
+  ConfirmationRequiredError,
   type AlertInfo,
   type AlertPatchInput,
   type AlertCheck,
@@ -16,6 +17,7 @@ import {
   type AlertCheckResult,
   type AlertChecksPage,
 } from '../api/open';
+import { useJobsHandle } from '../bind/useJobsHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { dispatchNotificationsChanged, useNotificationSummary } from './notifications/useNotificationSummary';
 import { ConfirmDialog } from './Modal';
@@ -314,7 +316,9 @@ function useAlertsPanelController(canEdit: boolean) {
     alertCheckLinkHandle.ackCreateAlert(action);
   }, [invalidateAlertList, pendingCreateAction, alertCheckLinkHandle]);
 
-  const runAlertAction = useCallback((alertId: number, intent: 'run' | 'refresh_run', status: string, request: () => Promise<AlertCheckResult>) => {
+  const { requestCostConfirmation } = useJobsHandle();
+
+  const runAlertAction = useCallback((alertId: number, intent: 'run' | 'refresh_run', status: string, request: () => Promise<AlertCheckResult | null>) => {
     if (!canEdit) return;
     const claim = alertCheckLinkHandle.claimAlertAction(alertId, intent);
     if (!claim) return;
@@ -323,6 +327,16 @@ function useAlertsPanelController(canEdit: boolean) {
     let outcome!: AlertActionOutcome;
     void request()
       .then((result) => {
+        if (result === null) {
+          outcome = {
+            status: null,
+            error: null,
+            errorCode: null,
+            alert: null,
+            focusAlertId: alertId,
+          };
+          return;
+        }
         outcome = {
           status: `Finished checking ${result.alert.name}.`,
           error: null,
@@ -430,10 +444,34 @@ function useAlertsPanelController(canEdit: boolean) {
 
   // Refresh a blocked embedding alert's index, then re-run the alert.
   const refreshAlertIndex = useCallback((alertId: number, indexId: string) => {
-    runAlertAction(alertId, 'refresh_run', 'Refreshing index…', () => projectApi
-      .refreshEmbeddingIndex(indexId, 'incremental')
-      .then(() => projectApi.checkAlert(alertId)));
-  }, [projectApi, runAlertAction]);
+    runAlertAction(alertId, 'refresh_run', 'Refreshing index…', async () => {
+      let confirmation: string | undefined;
+      for (;;) {
+        try {
+          if (confirmation === undefined) {
+            await projectApi.refreshEmbeddingIndex(indexId, 'incremental');
+          } else {
+            await projectApi.refreshEmbeddingIndex(indexId, 'incremental', { confirmation });
+          }
+          break;
+        } catch (caught) {
+          if (
+            !(caught instanceof ConfirmationRequiredError)
+            || !caught.estimate.promise_set_hash
+          ) {
+            throw caught;
+          }
+          const confirmed = await requestCostConfirmation(
+            caught.estimate,
+            caught.message,
+          );
+          if (!confirmed) return null;
+          confirmation = caught.estimate.promise_set_hash;
+        }
+      }
+      return projectApi.checkAlert(alertId);
+    });
+  }, [projectApi, requestCostConfirmation, runAlertAction]);
 
   const toggleRuns = useCallback((alertId: number) => {
     const nextOpen = !expanded[alertId];

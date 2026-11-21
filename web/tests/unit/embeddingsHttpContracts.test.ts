@@ -200,6 +200,99 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
+  it('retains idempotency across a 402 refresh cost gate and echoes confirmation', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    let attempt = 0;
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      attempt += 1;
+      const body = requestBody(init);
+      bodies.push(body);
+      if (attempt === 1) {
+        return jsonResponse({
+          ...actionResult('embedding.index_refresh'),
+          status: 'needs_confirmation',
+          receipt_id: null,
+          errors: [{
+            schema_version: 'frisket.action_error.v1',
+            code: 'model_cost_requires_confirmation',
+            message: 'Confirm remote embedding refresh for openai/text-embedding-3-small before running.',
+            action_kind: 'embedding.index_refresh',
+            field: 'confirmation',
+            needs_confirmation: true,
+            details: {
+              reason: 'model_cost',
+              promise_set_hash: 'a'.repeat(64),
+              estimate: {
+                rows: 50,
+                cost: 0.05,
+                cost_source: 'pricing_data',
+                billed_cost: 50_000,
+                policy_id: 'frisket.pricing.identity.v1',
+              },
+            },
+          }],
+        }, 402);
+      }
+      return jsonResponse({
+        ...actionResult('embedding.index_refresh'),
+        status: 'queued',
+        job_id: 99,
+        receipt_id: 'refresh-confirmed-receipt',
+      });
+    }));
+    const { createProjectApi } = await import('../../src/api/real');
+    const { ConfirmationRequiredError } = await import('../../src/api/contractErrors');
+    const api = createProjectApi('embedding-refresh-402');
+
+    let caught: unknown;
+    try {
+      await api.refreshEmbeddingIndex('idx_remote', 'full');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ConfirmationRequiredError);
+    const gate = caught as InstanceType<typeof ConfirmationRequiredError>;
+    expect(gate.estimate.promise_set_hash).toBe('a'.repeat(64));
+    expect(gate.estimate.billed_cost).toBe(50_000);
+    expect(gate.estimate.rows).toBe(50);
+
+    await expect(
+      api.refreshEmbeddingIndex('idx_remote', 'full', { confirmation: gate.estimate.promise_set_hash }),
+    ).resolves.toEqual({ jobId: 99, status: 'queued' });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].confirmation).toBeUndefined();
+    expect(bodies[1].confirmation).toBe('a'.repeat(64));
+    expect(bodies[1].idempotency_key).toBe(bodies[0].idempotency_key);
+  });
+
+  it('surfaces a Cloud unpriceable_model refusal as ApiError without confirmation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...actionResult('embedding.index_refresh'),
+      status: 'failed',
+      receipt_id: null,
+      errors: [{
+        schema_version: 'frisket.action_error.v1',
+        code: 'unpriceable_model',
+        message: 'Remote embedding refresh with an unknown price is not allowed on Cloud.',
+        action_kind: 'embedding.index_refresh',
+        field: 'params.index_id',
+      }],
+    }, 400)));
+    const { createProjectApi } = await import('../../src/api/real');
+    const { ApiError, ConfirmationRequiredError } = await import('../../src/api/contractErrors');
+    const api = createProjectApi('embedding-refresh-cloud-refusal');
+
+    let caught: unknown;
+    try {
+      await api.refreshEmbeddingIndex('idx_unknown', 'full');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught).not.toBeInstanceOf(ConfirmationRequiredError);
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('unpriceable_model');
+  });
+
   it('runs both analyses as typed project requests and opens their materialized sheet', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
