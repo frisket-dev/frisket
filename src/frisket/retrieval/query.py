@@ -256,6 +256,15 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
         )
 
 
+class _PinnedScopeReader:
+    def __init__(self, reader: PinnedRetrievalReader) -> None:
+        self.db: sqlite3.Connection = reader.db
+        self._reader = reader
+
+    def columns(self, sheet_id: int, include_hidden: bool = False) -> list[sqlite3.Row]:
+        return self._reader.columns(sheet_id, include_hidden)
+
+
 class RetrievalQueryService:
     def __init__(self, project: Any, *, reranker: Reranker | None = None):
         self.project = project
@@ -291,7 +300,7 @@ class RetrievalQueryService:
                         lambda: int(cancel_event.is_set()), 1000
                     )
                 try:
-                    scope = compile_scope(reader, request.scope)
+                    scope = compile_scope(_PinnedScopeReader(reader), request.scope)
                     if request.mode == "lexical":
                         lexical, _query = self._lexical_candidates(
                             reader, request, scope, limit=rerank_pool
@@ -476,7 +485,7 @@ class RetrievalQueryService:
         if request.group_by != "row" or request.mode not in {"lexical", "semantic"}:
             raise ValueError("row matches require lexical or semantic row retrieval")
         with PinnedRetrievalReader(self.project) as reader:
-            scope = compile_scope(reader, request.scope)
+            scope = compile_scope(_PinnedScopeReader(reader), request.scope)
             channels = (
                 ("lexical",)
                 if request.mode == "lexical"
@@ -523,6 +532,10 @@ class RetrievalQueryService:
         limit: int,
         fusion: bool = False,
     ) -> tuple[list[_Candidate], str]:
+        if not isinstance(request.query, TextQuery):
+            raise RetrievalQueryError(
+                "invalid_query", "lexical retrieval requires a text query"
+            )
         rows, effective_query = self._lexical_cursor(
             reader, request, scope, limit=limit, fusion=fusion
         )
@@ -1324,7 +1337,7 @@ def read_pdf_indexing_progress(
     if not (Path(project.path) / RETRIEVAL_DB_NAME).is_file():
         return (), False
     with PinnedRetrievalReader(project) as reader:
-        scope = compile_scope(reader, RetrievalScope())
+        scope = compile_scope(_PinnedScopeReader(reader), RetrievalScope())
         rows = reader.db.execute(
             f"""WITH {scope.cte_sql}
             SELECT preparation.source_id,substr(blob.filename,1,200) AS filename,
@@ -1444,7 +1457,7 @@ def source_anchor_vectors(project: Any, request: SearchRequest) -> SemanticQuery
     """Read a prepared anchor within its explicit scope, independently of result filters."""
     with PinnedRetrievalReader(project) as reader:
         blob, _dimension, _part = _resolve_anchor_vector(
-            reader, request, compile_scope(reader, request.scope)
+            reader, request, compile_scope(_PinnedScopeReader(reader), request.scope)
         )
         return SemanticQueryVectors(
             term_vectors=(tuple(value[0] for value in struct.iter_unpack("<f", blob)),)

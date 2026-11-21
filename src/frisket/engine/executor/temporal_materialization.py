@@ -25,7 +25,7 @@ from frisket.actions.temporal_types import (
     TranscriptSelection,
     validate_transcript_selection_scope,
 )
-from frisket.actions.types import SheetRows, TableError
+from frisket.actions.types import SheetRows, TableError, discover_references
 from frisket.engine.store.artifact_timeline import (
     EphemeralMediaClock,
     TimelineAnchor,
@@ -127,15 +127,20 @@ def resolve_temporal_input_columns(
     """Resolve the capability's actual semantic arguments, not action Params."""
     from frisket.engine.executor.map_rows_action import (
         TypedMapRowsPlanError,
-        validate_typed_project_references,
+        validate_row_project_references,
     )
 
     try:
-        references = validate_typed_project_references(
-            project, scope.sheet_id, (source, selection)
+        references = validate_row_project_references(
+            project, scope.sheet_id, discover_references((source, selection))
         )
     except TypedMapRowsPlanError as exc:
-        return action_error(action_kind, exc.code, str(exc), details=exc.details)
+        return action_error(
+            action_kind,
+            exc.code,
+            str(exc),
+            details=dict(exc.details) if exc.details is not None else None,
+        )
     columns = {
         str(column["name"]): column for column in project.columns(scope.sheet_id)
     }
@@ -340,10 +345,16 @@ class CoreTemporalMediaMaterializer:
                 "renderer": rendered.receipt_metadata(),
             },
         )
+        anchor = committed.staged.source.lease.anchor
+        if not isinstance(anchor, TimelineAnchor):
+            raise TimelineError(
+                "invalid_input_ref",
+                "derived temporal publication requires a durable timeline anchor",
+            )
         segment = write_rate1_timeline_segment(
             project,
             derived_artifact_id=int(artifact["id"]),
-            source_artifact_id=committed.staged.source.lease.anchor.artifact_id,
+            source_artifact_id=anchor.artifact_id,
             source_start_ms=committed.staged.resolved_start_ms,
             source_end_ms=committed.staged.resolved_end_ms,
             precision=rendered.precision,
@@ -357,10 +368,8 @@ class CoreTemporalMediaMaterializer:
             "timeline_segment_id": int(segment.id),
             "blob_hash": committed.blob_hash,
             "blob_derivation_id": committed.blob_derivation_id,
-            "source_artifact_id": committed.staged.source.lease.anchor.artifact_id,
-            "source_artifact_stable_id": (
-                committed.staged.source.lease.anchor.artifact_stable_id
-            ),
+            "source_artifact_id": anchor.artifact_id,
+            "source_artifact_stable_id": anchor.artifact_stable_id,
             "requested_start_ms": committed.staged.requested.start_ms,
             "requested_end_ms": committed.staged.requested.end_ms,
             "resolved_start_ms": committed.staged.resolved_start_ms,
@@ -636,11 +645,14 @@ def revalidate_temporal_media_source(
     from frisket.engine.executor.temporal_transcripts import revalidate_transcript
 
     if resolved.topic_analysis is not None:
+        selection_column_id = resolved.source.selection_column_id
+        if selection_column_id is None:
+            raise TimelineError("stale_input", "topic analysis changed during action")
         current = resolve_topic_analysis_sidecar(
             project,
             sheet_id=resolved.source.sheet_id,
             row_id=resolved.source.row_id,
-            selection_column_id=resolved.source.selection_column_id,
+            selection_column_id=selection_column_id,
         )
         if (
             current is None

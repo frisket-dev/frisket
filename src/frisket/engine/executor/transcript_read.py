@@ -23,11 +23,12 @@ from frisket.actions.types import (
     RowSource,
     SheetRows,
     TableError,
+    discover_references,
 )
 from frisket.contracts.action import ActionError, ReceiptIO, ReceiptEvidence
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.map_rows_action import (
-    validate_typed_project_references,
+    validate_row_project_references,
     TypedMapRowsPlanError,
 )
 from frisket.engine.executor.temporal_materialization import (
@@ -60,6 +61,7 @@ from frisket.engine.executor.temporal_transcripts import (
     revalidate_transcript,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.artifact_timeline import (
     EphemeralMediaClock,
     TimelineAnchor,
@@ -201,7 +203,7 @@ def _lock_range_to_chunks(
 
 
 def resolve_transcript_segments_plan(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     scope: SheetRows,
     source: TranscriptColumn,
@@ -215,11 +217,15 @@ def resolve_transcript_segments_plan(
     if sheet is None:
         return _error("invalid_input_ref", "source sheet is not visible")
     try:
-        references = validate_typed_project_references(
-            project, sheet_id, (source, selection)
+        references = validate_row_project_references(
+            project, sheet_id, discover_references((source, selection))
         )
     except TypedMapRowsPlanError as exc:
-        return _error(exc.code, str(exc), details=exc.details)
+        return _error(
+            exc.code,
+            str(exc),
+            details=dict(exc.details) if exc.details is not None else None,
+        )
     source_column_id = references.source_column_ids[source.root]
     selection_name = selection.column.root if selection.kind == "column" else None
     selection_column_id = (
@@ -236,7 +242,7 @@ def resolve_transcript_segments_plan(
     selection_column = None
     selection_values: dict[int, Any] = {}
     selection_refs: dict[int, dict[str, Any]] = {}
-    if selection_column_id is not None:
+    if selection_column_id is not None and selection_name is not None:
         selection_column = {
             "id": selection_column_id,
             "type": references.source_column_types[selection_name],
@@ -322,7 +328,7 @@ def resolve_transcript_segments_plan(
                 if topic_analysis is not None
                 else None
             )
-            source = TranscriptSelectionSource(
+            selection_source = TranscriptSelectionSource(
                 transcript=transcript,
                 anchor=anchor,
                 selection_value=value,
@@ -344,7 +350,7 @@ def resolve_transcript_segments_plan(
                 ranges=ranges,
                 warnings=tuple(warnings),
             )
-            sources.append(source)
+            sources.append(selection_source)
             for item in ranges:
                 locked, selected_spans = _lock_range_to_chunks(
                     transcript,
@@ -371,7 +377,7 @@ def resolve_transcript_segments_plan(
                     )
                 segments.append(
                     TranscriptSegment(
-                        source=source,
+                        source=selection_source,
                         requested=item,
                         locked=locked,
                         projection=projection,

@@ -571,8 +571,9 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
 def _candidate_targets(
     source: Sequence[ExecutionTarget] | ExecutionTargetProvider,
 ) -> tuple[ExecutionTarget, ...]:
-    target_hook = getattr(source, "targets", None)
-    return tuple(target_hook()) if callable(target_hook) else tuple(source)
+    if isinstance(source, Sequence):
+        return tuple(source)
+    return tuple(source.targets())
 
 
 def canonical_model_route_id(
@@ -640,11 +641,14 @@ def _effective_model_route(
         return route
     hook = getattr(source, "model_route", None)
     selected = hook(engine, capability) if callable(hook) else None
-    if selected not in {None, "cloud", "own"}:
-        raise TypeError(
-            "execution provider model_route must return cloud, own, or None"
-        )
-    return selected
+    if selected is None:
+        return None
+    if isinstance(selected, str):
+        if selected == "cloud":
+            return "cloud"
+        if selected == "own":
+            return "own"
+    raise TypeError("execution provider model_route must return cloud, own, or None")
 
 
 def selected_route_missing_refusal(
@@ -682,7 +686,7 @@ def _configuration_rank(
     capability: str,
     engine: str,
 ) -> tuple[int, int]:
-    if not callable(getattr(source, "targets", None)):
+    if isinstance(source, Sequence):
         # Bare target sequences are retained solely for the SDK's semantic
         # fallback. Request providers implement the complete policy port.
         return (0, 0)
@@ -1011,8 +1015,17 @@ def route_row_facts_from_row(route: Any) -> RouteRowFacts:
     refusal.
     """
     snapshot = validated_target_snapshot(route.target_snapshot)
+    target_id = snapshot["target_id"]
+    if not isinstance(target_id, str):
+        raise ValueError("target_snapshot target_id must be a string")
+    cloud_payer: CloudPayerSubject | None = None
+    if "cloud_payer" in snapshot:
+        raw_cloud_payer = snapshot["cloud_payer"]
+        if not isinstance(raw_cloud_payer, Mapping):
+            raise ValueError("target_snapshot cloud_payer must be a mapping")
+        cloud_payer = CloudPayerSubject.from_snapshot(raw_cloud_payer)
     return RouteRowFacts(
-        target_id=snapshot["target_id"],
+        target_id=target_id,
         engine=route.engine,
         # Runtime strs off the row; typed at authoring, validated on
         # construction (a corrupt egress class refuses here).
@@ -1021,11 +1034,7 @@ def route_row_facts_from_row(route: Any) -> RouteRowFacts:
         region=route.region,
         credential_source=route.credential_source,
         cost_posture=route.cost_posture,
-        cloud_payer=(
-            CloudPayerSubject.from_snapshot(snapshot["cloud_payer"])
-            if "cloud_payer" in snapshot
-            else None
-        ),
+        cloud_payer=cloud_payer,
     )
 
 
