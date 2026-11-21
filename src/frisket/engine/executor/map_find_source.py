@@ -307,7 +307,10 @@ def resolve_find_sources(
             from frisket.engine.executor.temporal_transcripts import (
                 resolve_compatible_transcripts_for_anchor,
             )
-            from frisket.engine.store.artifact_timeline import TimelineError
+            from frisket.engine.store.artifact_timeline import (
+                TimelineAnchor,
+                TimelineError,
+            )
 
             try:
                 lease = resolve_source_timeline(
@@ -319,6 +322,14 @@ def resolve_find_sources(
                     current_value_ref=value_ref,
                 )
             except (KeyError, TimelineError, TypeError, ValueError):
+                return ActionError(
+                    code="source_not_addressable",
+                    message="The selected audio/video source has no stable timeline",
+                    action_kind=params.action_kind,
+                    field="params.source",
+                    details={"sheet_id": params.sheet_id, "row_id": row_id},
+                )
+            if not isinstance(lease.anchor, TimelineAnchor):
                 return ActionError(
                     code="source_not_addressable",
                     message="The selected audio/video source has no stable timeline",
@@ -463,7 +474,7 @@ def resolve_find_sources(
                     field="params.source",
                     details={"sheet_id": params.sheet_id, "row_id": row_id},
                 )
-            if prepared_units:
+            if prepared_units and selected is not None:
                 units = prepared_units
                 artifact_id = selected.source_artifact_id
                 snapshot = _hash_json(
@@ -550,7 +561,7 @@ def resolve_find_sources(
                     row_id=row_id,
                     blob_hash=blob_hash,
                 )
-                if not ocr_sources:
+                if len(ocr_sources) == 0:
                     return ActionError(
                         code="source_not_addressable",
                         message=(

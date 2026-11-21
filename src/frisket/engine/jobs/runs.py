@@ -14,7 +14,7 @@ import contextlib
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, cast
@@ -636,6 +636,109 @@ def _deferred_publication(project: Project, run_id: int) -> bool:
     return json.loads(row["spec"]).get("deferred_publication") is True
 
 
+def _queued_pre_run_error(
+    project: Project,
+    payload: dict[str, Any],
+    *,
+    raw_edition_snapshot: str | None,
+    run_local_endpoints: Sequence[LocalModelEndpointConfig],
+    admission: Any | None,
+) -> ActionError | None:
+    raw_endpoint_bindings = payload["v1_local_endpoint_bindings"]
+    if not isinstance(raw_endpoint_bindings, list):
+        raise ValueError("queued local endpoint bindings must be a list")
+    endpoints_by_id = {
+        endpoint.endpoint_id: endpoint for endpoint in run_local_endpoints
+    }
+    # The outer payload, v1 action, runner spec, and private marker must name
+    # one canonical action before edition policy or runner lookup sees the job.
+    pre_run_error = queued_v1_identity_error(payload, project=project)
+    action_kind = str(payload.get("action_kind") or "")
+    if pre_run_error is None:
+        pre_run_error = _queued_action_edition_error(
+            action_kind,
+            raw_edition_snapshot,
+        )
+    for binding in raw_endpoint_bindings if pre_run_error is None else ():
+        if not isinstance(binding, dict) or set(binding) != {
+            "endpoint_id",
+            "origin",
+        }:
+            raise ValueError("queued local endpoint binding is malformed")
+        endpoint = endpoints_by_id.get(binding["endpoint_id"])
+        if endpoint is None:
+            return ActionError(
+                code="local_endpoint_unavailable",
+                message=(
+                    "The queued local model endpoint no longer exists: "
+                    f"{binding['endpoint_id']}"
+                ),
+                action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
+                details={"endpoint_id": binding["endpoint_id"]},
+            )
+        if endpoint.origin != binding["origin"]:
+            return ActionError(
+                code="local_endpoint_changed",
+                message=(
+                    "The queued local model endpoint changed before execution: "
+                    f"{binding['endpoint_id']}"
+                ),
+                action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
+                details={
+                    "endpoint_id": binding["endpoint_id"],
+                    "queued_origin": binding["origin"],
+                    "current_origin": endpoint.origin,
+                },
+            )
+    if (
+        pre_run_error is None
+        and admission is not None
+        and admission.execution_denied(body=payload)
+    ):
+        return ActionError(
+            code="code_action_disabled",
+            message=(
+                "code-execution actions are disabled on Frisket Cloud; "
+                "run frisket locally to use them"
+            ),
+            action_kind=str(payload.get("action_kind") or "project.run"),
+        )
+    if pre_run_error is None:
+        return queued_v1_pre_run_error(project, payload)
+    return pre_run_error
+
+
+def _queued_consent_coverage(
+    project: Project,
+    run_id: int,
+    handler_context: JobHandlerContext,
+) -> ConsentCoverage | None:
+    actor_row = project.db.execute(
+        "SELECT consent_principal FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    principal = actor_row["consent_principal"] if actor_row is not None else None
+    if principal is None and isinstance(
+        handler_context.trusted_job_organization_id, int
+    ):
+        raise ExecutionRouteVerificationFailed(
+            "consent_missing", "queued run has no admitted user identity"
+        )
+    if principal is not None:
+        from frisket.engine.store.execution_routes import instance_principal
+
+        installation = instance_principal(project)
+        # Portable run/consent rows can agree on a foreign actor.
+        # Only this installation's admitted identities authorize egress.
+        if principal != installation and not principal.startswith(
+            f"{installation}:user:"
+        ):
+            raise ExecutionRouteVerificationFailed(
+                "consent_missing",
+                "queued run consent belongs to another installation",
+            )
+    return ConsentCoverage(principal, Decimal("0")) if principal else None
+
+
 def register_project_run_handler(
     registry: HandlerRegistry,
     *,
@@ -739,72 +842,15 @@ def register_project_run_handler(
                     project_root=project_root,
                 )
                 return result
-            raw_endpoint_bindings = payload["v1_local_endpoint_bindings"]
-            if not isinstance(raw_endpoint_bindings, list):
-                raise ValueError("queued local endpoint bindings must be a list")
             run_local_endpoints = resolve_run_local_endpoints(root, org_id=org_id)
-            endpoints_by_id = {
-                endpoint.endpoint_id: endpoint for endpoint in run_local_endpoints
-            }
-            # The outer payload, v1 action, runner spec, and private marker
-            # must name one canonical action before edition policy or runner
-            # lookup sees the job.
-            pre_run_error = queued_v1_identity_error(payload, project=project)
-            action_kind = str(payload.get("action_kind") or "")
             raw_edition_snapshot = None if row is None else row["edition_run_context"]
-            if pre_run_error is None:
-                pre_run_error = _queued_action_edition_error(
-                    action_kind,
-                    raw_edition_snapshot,
-                )
-            for binding in raw_endpoint_bindings if pre_run_error is None else ():
-                if not isinstance(binding, dict) or set(binding) != {
-                    "endpoint_id",
-                    "origin",
-                }:
-                    raise ValueError("queued local endpoint binding is malformed")
-                endpoint = endpoints_by_id.get(binding["endpoint_id"])
-                if endpoint is None:
-                    pre_run_error = ActionError(
-                        code="local_endpoint_unavailable",
-                        message=(
-                            "The queued local model endpoint no longer exists: "
-                            f"{binding['endpoint_id']}"
-                        ),
-                        action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
-                        details={"endpoint_id": binding["endpoint_id"]},
-                    )
-                    break
-                if endpoint.origin != binding["origin"]:
-                    pre_run_error = ActionError(
-                        code="local_endpoint_changed",
-                        message=(
-                            "The queued local model endpoint changed before execution: "
-                            f"{binding['endpoint_id']}"
-                        ),
-                        action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
-                        details={
-                            "endpoint_id": binding["endpoint_id"],
-                            "queued_origin": binding["origin"],
-                            "current_origin": endpoint.origin,
-                        },
-                    )
-                    break
-            if (
-                pre_run_error is None
-                and admission is not None
-                and admission.execution_denied(body=payload)
-            ):
-                pre_run_error = ActionError(
-                    code="code_action_disabled",
-                    message=(
-                        "code-execution actions are disabled on Frisket Cloud; "
-                        "run frisket locally to use them"
-                    ),
-                    action_kind=str(payload.get("action_kind") or "project.run"),
-                )
-            if pre_run_error is None:
-                pre_run_error = queued_v1_pre_run_error(project, payload)
+            pre_run_error = _queued_pre_run_error(
+                project,
+                payload,
+                raw_edition_snapshot=raw_edition_snapshot,
+                run_local_endpoints=run_local_endpoints,
+                admission=admission,
+            )
             cancel_requested = cancelled(run_id)
             if pre_run_error is not None or cancel_requested:
                 # Cancellation must dominate preparation too: starting the
@@ -952,33 +998,8 @@ def register_project_run_handler(
                     effective_router,
                     execution_context,
                 )
-            actor_row = project.db.execute(
-                "SELECT consent_principal FROM runs WHERE id=?", (run_id,)
-            ).fetchone()
-            principal = (
-                actor_row["consent_principal"] if actor_row is not None else None
-            )
-            if principal is None and isinstance(
-                handler_context.trusted_job_organization_id, int
-            ):
-                raise ExecutionRouteVerificationFailed(
-                    "consent_missing", "queued run has no admitted user identity"
-                )
-            if principal is not None:
-                from frisket.engine.store.execution_routes import instance_principal
-
-                installation = instance_principal(project)
-                # Portable run/consent rows can agree on a foreign actor.
-                # Only this installation's admitted identities authorize egress.
-                if principal != installation and not principal.startswith(
-                    f"{installation}:user:"
-                ):
-                    raise ExecutionRouteVerificationFailed(
-                        "consent_missing",
-                        "queued run consent belongs to another installation",
-                    )
-            consent_coverage = (
-                ConsentCoverage(principal, Decimal("0")) if principal else None
+            consent_coverage = _queued_consent_coverage(
+                project, run_id, handler_context
             )
             authority = build_attempt_authority(
                 project,
@@ -990,21 +1011,26 @@ def register_project_run_handler(
                 if executor_deps_factory is not None
                 else None
             )
-            search_service_factory = (
+            configured_search_service_factory = (
                 executor_deps.search_service_factory
                 if executor_deps is not None
                 else None
             )
-            if search_service_factory is None:
 
-                def search_service_factory():
-                    return build_run_search_service(
-                        root,
-                        handler_context=handler_context,
-                        ports=ports,
-                        control_database_url=db_url,
-                        allow_local_credentials=not require_storage_identity,
-                    )
+            def default_search_service_factory() -> Any:
+                return build_run_search_service(
+                    root,
+                    handler_context=handler_context,
+                    ports=ports,
+                    control_database_url=db_url,
+                    allow_local_credentials=not require_storage_identity,
+                )
+
+            search_service_factory = (
+                configured_search_service_factory
+                if configured_search_service_factory is not None
+                else default_search_service_factory
+            )
 
             def capture_progress(value: RunProgress) -> None:
                 # Retain the runner-owned object before dispatch. Its exact
@@ -1064,38 +1090,103 @@ def register_project_run_handler(
                 action_envelope = replace(
                     action_envelope, runner_spec=dict(payload["spec"])
                 )
-            terminal_run = run_store.get_run(progress.run_id)
-            cooperative_cancel = bool(
-                progress.cancel_requested
-                and progress.cancelled
-                and terminal_run["status"] == "running"
-            )
-            provider_error = _resumable_provider_error(
-                project,
-                run_id=progress.run_id,
-                action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
-                spec=spec,
-            )
-            if provider_error is not None and not cooperative_cancel:
-                # Ordinary maps have already sealed their generation and closed
-                # the run. Project the provider error onto the still-live receipt;
-                # only a deferred publisher retains current-writer authority.
-                action_result = queued_v1_terminal_receipt_result(
-                    project,
-                    payload,
-                    project_id=project_id,
-                    run_id=progress.run_id,
-                    error=provider_error,
-                    status="failed",
-                    repair_terminal_run_receipt=not defer_attempt_close,
-                    terminal_run_status=(
-                        terminal_run["status"] if not defer_attempt_close else None
-                    ),
-                    writer_attempt_id=(
-                        progress.writer_attempt_id if defer_attempt_close else None
-                    ),
-                    claim_token=(claim_token if defer_attempt_close else None),
+
+            def _finalize_progress(completed: RunProgress) -> dict[str, Any]:
+                terminal_run = run_store.get_run(completed.run_id)
+                terminal_run_status = (
+                    terminal_run["status"] if terminal_run is not None else None
                 )
+                cooperative_cancel = bool(
+                    completed.cancel_requested
+                    and completed.cancelled
+                    and terminal_run_status == "running"
+                )
+                provider_error = _resumable_provider_error(
+                    project,
+                    run_id=completed.run_id,
+                    action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
+                    spec=spec,
+                )
+                if provider_error is not None and not cooperative_cancel:
+                    # Ordinary maps have already sealed their generation and
+                    # closed the run. Project the provider error onto the
+                    # still-live receipt; only a deferred publisher retains
+                    # current-writer authority.
+                    action_result = queued_v1_terminal_receipt_result(
+                        project,
+                        payload,
+                        project_id=project_id,
+                        run_id=completed.run_id,
+                        error=provider_error,
+                        status="failed",
+                        repair_terminal_run_receipt=not defer_attempt_close,
+                        terminal_run_status=(
+                            terminal_run_status if not defer_attempt_close else None
+                        ),
+                        writer_attempt_id=(
+                            completed.writer_attempt_id if defer_attempt_close else None
+                        ),
+                        claim_token=(claim_token if defer_attempt_close else None),
+                    )
+                    _enqueue_search_index_after_completion(
+                        project,
+                        queue=queue,
+                        payload=payload,
+                        context=handler_context,
+                        project_id=project_id,
+                        project_root=project_root,
+                    )
+                    updated_run = run_store.get_run(completed.run_id)
+                    return {
+                        "project_id": project_id,
+                        "run_id": completed.run_id,
+                        "status": (
+                            updated_run["status"]
+                            if updated_run is not None
+                            else "unknown"
+                        ),
+                        "completed": completed.completed,
+                        "failed": completed.failed,
+                        "action_result": action_result.model_dump(mode="json"),
+                    }
+                if cooperative_cancel:
+                    action_result = queued_v1_terminal_receipt_result(
+                        project,
+                        payload,
+                        project_id=project_id,
+                        run_id=completed.run_id,
+                        status="cancelled",
+                        writer_attempt_id=(
+                            completed.writer_attempt_id
+                            if completed.writer_attempt_claimed
+                            else None
+                        ),
+                        claim_token=(
+                            claim_token if completed.writer_attempt_claimed else None
+                        ),
+                    )
+                else:
+                    action_result = queued_v1_finalize_action_result(
+                        project,
+                        payload,
+                        project_id=project_id,
+                        run_id=completed.run_id,
+                        envelope=action_envelope,
+                        writer_attempt_id=(
+                            completed.writer_attempt_id if defer_attempt_close else None
+                        ),
+                        claim_token=(claim_token if defer_attempt_close else None),
+                    )
+                updated_row = run_store.get_run(run_id)
+                result: dict[str, Any] = {
+                    "project_id": project_id,
+                    "run_id": completed.run_id,
+                    "status": updated_row["status"] if updated_row else "unknown",
+                    "completed": completed.completed,
+                    "failed": completed.failed,
+                }
+                if action_result is not None:
+                    result["action_result"] = action_result.model_dump(mode="json")
                 _enqueue_search_index_after_completion(
                     project,
                     queue=queue,
@@ -1104,62 +1195,9 @@ def register_project_run_handler(
                     project_id=project_id,
                     project_root=project_root,
                 )
-                return {
-                    "project_id": project_id,
-                    "run_id": progress.run_id,
-                    "status": run_store.get_run(progress.run_id)["status"],
-                    "completed": progress.completed,
-                    "failed": progress.failed,
-                    "action_result": action_result.model_dump(mode="json"),
-                }
-            row = run_store.get_run(run_id)
-            if cooperative_cancel:
-                action_result = queued_v1_terminal_receipt_result(
-                    project,
-                    payload,
-                    project_id=project_id,
-                    run_id=progress.run_id,
-                    status="cancelled",
-                    writer_attempt_id=(
-                        progress.writer_attempt_id
-                        if progress.writer_attempt_claimed
-                        else None
-                    ),
-                    claim_token=(
-                        claim_token if progress.writer_attempt_claimed else None
-                    ),
-                )
-            else:
-                action_result = queued_v1_finalize_action_result(
-                    project,
-                    payload,
-                    project_id=project_id,
-                    run_id=progress.run_id,
-                    envelope=action_envelope,
-                    writer_attempt_id=(
-                        progress.writer_attempt_id if defer_attempt_close else None
-                    ),
-                    claim_token=(claim_token if defer_attempt_close else None),
-                )
-            row = run_store.get_run(run_id)
-            result = {
-                "project_id": project_id,
-                "run_id": progress.run_id,
-                "status": row["status"] if row else "unknown",
-                "completed": progress.completed,
-                "failed": progress.failed,
-            }
-            if action_result is not None:
-                result["action_result"] = action_result.model_dump(mode="json")
-            _enqueue_search_index_after_completion(
-                project,
-                queue=queue,
-                payload=payload,
-                context=handler_context,
-                project_id=project_id,
-                project_root=project_root,
-            )
-            return result
+                return result
+
+            return _finalize_progress(progress)
         except StaleAttemptWriter as exc:
             # The provider may already have charged this losing invocation.
             # Complete the queue invocation without retrying or touching the
@@ -1240,8 +1278,8 @@ def register_project_run_handler(
                 "project_id": project_id,
                 "run_id": run_id,
                 "status": "failed",
-                "completed": row["completed_rows"],
-                "failed": row["failed_rows"],
+                "completed": row["completed_rows"] if row is not None else 0,
+                "failed": row["failed_rows"] if row is not None else 0,
                 "action_result": action_result.model_dump(mode="json"),
             }
         except Exception as exc:
@@ -1370,6 +1408,7 @@ def register_action_run_handler(
         )
         try:
             envelope = action_run_envelope_from_payload(payload)
+            denied = False
             if envelope is not None and admission is not None:
                 decision_body = dict(envelope.action)
                 decision_body.setdefault("action_kind", envelope.action_kind)
@@ -1385,40 +1424,27 @@ def register_action_run_handler(
                 capabilities.update(str(item) for item in envelope.capabilities)
                 decision_body["capabilities"] = sorted(capabilities)
                 decision_body["resolved_snapshot"] = envelope.resolved_snapshot
-                if admission.execution_denied(body=decision_body):
-                    result = action_job_failure_result(
-                        project,
-                        project_id=envelope.project_id,
-                        receipt_id=envelope.receipt_id,
+                denied = bool(admission.execution_denied(body=decision_body))
+            if denied and envelope is not None:
+                result = action_job_failure_result(
+                    project,
+                    project_id=envelope.project_id,
+                    receipt_id=envelope.receipt_id,
+                    action_kind=envelope.action_kind,
+                    error=ActionError(
+                        code="code_action_disabled",
+                        message=(
+                            "code-execution actions are disabled on Frisket "
+                            "Cloud; run frisket locally to use them"
+                        ),
                         action_kind=envelope.action_kind,
-                        error=ActionError(
-                            code="code_action_disabled",
-                            message=(
-                                "code-execution actions are disabled on Frisket "
-                                "Cloud; run frisket locally to use them"
-                            ),
-                            action_kind=envelope.action_kind,
-                        ),
-                        job_id=(
-                            int(payload["job_id"])
-                            if isinstance(payload.get("job_id"), int)
-                            else None
-                        ),
-                    )
-                else:
-                    result = run_action_run_job(
-                        project,
-                        dict(payload),
-                        executor_lookup=registry.action_executor,
-                        should_cancel=lambda: (
-                            queue is not None
-                            and handler_context.job_id is not None
-                            and (
-                                (job := queue.get(handler_context.job_id)) is None
-                                or job.status != "running"
-                            )
-                        ),
-                    )
+                    ),
+                    job_id=(
+                        int(payload["job_id"])
+                        if isinstance(payload.get("job_id"), int)
+                        else None
+                    ),
+                )
             else:
                 result = run_action_run_job(
                     project,
@@ -1451,12 +1477,14 @@ def register_action_run_handler(
         handle,
         origin="frisket.production.action_run",
     )
-    registry.register_recovery_hook(
-        lambda queue: reconcile_exhausted_action_run_jobs(
-            queue,
+
+    def _recover_exhausted_action_runs(recovery_queue: JobQueue) -> None:
+        reconcile_exhausted_action_run_jobs(
+            recovery_queue,
             workspace_root=root,
             workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             project_opener=project_opener,
         )
-    )
+
+    registry.register_recovery_hook(_recover_exhausted_action_runs)
     return registration
