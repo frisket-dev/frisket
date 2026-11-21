@@ -18,14 +18,12 @@ from frisket.preview.cluster import (
     resolve_cluster_preview,
     source_value_hash,
 )
-from frisket.engine.store import Project
 
 # reuse the hand-built stub embedder from the semantic op tests
 from tests.engine.test_cluster_semantic import StubEmbedder  # type: ignore
 
 
-def _seed(tmp_path, values, name="org"):
-    p = Project.create(tmp_path / "t.frisket", name="t")
+def _seed(p, values, name="org"):
     sheet = p.add_sheet("data")
     cols = {name: p.add_column(sheet, name)}
     p.add_rows(sheet, [{name: v} for v in values], cols)
@@ -42,8 +40,8 @@ ROWS = [
 ]
 
 
-def test_fingerprint_preview_returns_groups_and_hash(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_fingerprint_preview_returns_groups_and_hash(project):
+    p, sid = _seed(project, ROWS)
     preview = resolve_cluster_preview(
         p, sheet_id=sid, input_column="org", method="fingerprint"
     )
@@ -57,11 +55,10 @@ def test_fingerprint_preview_returns_groups_and_hash(tmp_path):
     # canonical shape the web + commit consume
     for cluster in payload["clusters"]:
         assert set(cluster) == {"key", "canonical", "size", "values", "row_ids"}
-    p.close()
 
 
-def test_value_hash_is_stable_and_changes_with_data(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_value_hash_is_stable_and_changes_with_data(project):
+    p, sid = _seed(project, ROWS)
     col_id = next(c["id"] for c in p.columns(sid) if c["name"] == "org")
     row_ids = [int(r) for r in p.visible_row_ids(sid)]
     h1 = source_value_hash(p, sid, col_id, row_ids)
@@ -71,16 +68,15 @@ def test_value_hash_is_stable_and_changes_with_data(tmp_path):
     p.add_rows(sid, [{"org": "Zebra Co"}], {"org": col_id})
     h3 = source_value_hash(p, sid, col_id, [int(r) for r in p.visible_row_ids(sid)])
     assert h3 != h1
-    p.close()
 
 
-def test_preview_reads_the_column_exactly_once(tmp_path):
+def test_preview_reads_the_column_exactly_once(project):
     """Single-read snapshot (regression): the value-hash and the clustering both
     derive from ONE read of the column, so a concurrent edit cannot tear the
     preview into a hash of one state and cards of another. A get_values proxy
     that mutates every call after the first proves it — there is only one read
     for a mutation to land between, so the clusters always match the hash."""
-    p, sid = _seed(tmp_path, ROWS)
+    p, sid = _seed(project, ROWS)
     col_id = next(int(c["id"]) for c in p.columns(sid) if c["name"] == "org")
     original = p.get_values
     calls = {"n": 0}
@@ -104,22 +100,20 @@ def test_preview_reads_the_column_exactly_once(tmp_path):
     assert all(
         "MUTATED" not in v["value"] for c in preview.clusters for v in c["values"]
     )
-    p.close()
 
 
-def test_ngram_preview_uses_ngram_key(tmp_path):
-    p, sid = _seed(tmp_path, ["Sao Paulo", "SaoPaulo", "sao paulo"])
+def test_ngram_preview_uses_ngram_key(project):
+    p, sid = _seed(project, ["Sao Paulo", "SaoPaulo", "sao paulo"])
     preview = resolve_cluster_preview(
         p, sheet_id=sid, input_column="org", method="ngram_fingerprint"
     )
     assert preview.method == "ngram_fingerprint"
     assert preview.ngram_size == 2
     assert preview.count == 1
-    p.close()
 
 
-def test_semantic_preview_with_injected_embedder(tmp_path):
-    p, sid = _seed(tmp_path, ["ACME Corp", "Acme Corporation", "ACME Inc."])
+def test_semantic_preview_with_injected_embedder(project):
+    p, sid = _seed(project, ["ACME Corp", "Acme Corporation", "ACME Inc."])
     clusters, envelope = compute_method_clusters(
         p,
         sid,
@@ -132,10 +126,9 @@ def test_semantic_preview_with_injected_embedder(tmp_path):
     assert envelope["semantic"] is True
     assert envelope["method"] == "semantic"
     assert len(clusters) == 1
-    p.close()
 
 
-def test_semantic_preview_never_resolves_a_remote_embedder(tmp_path, monkeypatch):
+def test_semantic_preview_never_resolves_a_remote_embedder(project, monkeypatch):
     """Compare/preview is the FREE surface (blind review 2026-07-26, F1).
 
     The old test here pinned the OPPOSITE: that the preview forwarded a router
@@ -156,7 +149,7 @@ def test_semantic_preview_never_resolves_a_remote_embedder(tmp_path, monkeypatch
     monkeypatch.setattr(
         "frisket.preview.cluster.embedding_backends.resolve_embedder", fake_resolve
     )
-    p, sid = _seed(tmp_path, ["ACME Corp", "Acme Corporation", "ACME Inc."])
+    p, sid = _seed(project, ["ACME Corp", "Acme Corporation", "ACME Inc."])
     preview = resolve_cluster_preview(
         p, sheet_id=sid, input_column="org", method="semantic"
     )
@@ -165,7 +158,6 @@ def test_semantic_preview_never_resolves_a_remote_embedder(tmp_path, monkeypatch
     assert seen["router"] is None
     assert seen["allow_remote"] is False
     assert preview.count == 1
-    p.close()
 
 
 def test_semantic_preview_entry_points_take_no_router(tmp_path):
@@ -182,17 +174,16 @@ def test_semantic_preview_entry_points_take_no_router(tmp_path):
         assert "router" not in inspect.signature(fn).parameters, fn.__name__
 
 
-def test_semantic_errors_when_no_embedder(tmp_path, monkeypatch):
+def test_semantic_errors_when_no_embedder(project, monkeypatch):
     """NO silent fingerprint fallback — unavailable is an error."""
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    p, sid = _seed(tmp_path, ["Jon Smith", "Smith, Jon"])
+    p, sid = _seed(project, ["Jon Smith", "Smith, Jon"])
     with pytest.raises(ClusterPreviewError) as exc:
         resolve_cluster_preview(p, sheet_id=sid, input_column="org", method="semantic")
     assert exc.value.code == "embedding_backend_unavailable"
-    p.close()
 
 
-def test_semantic_cache_miss_is_typed_unavailable(tmp_path, monkeypatch):
+def test_semantic_cache_miss_is_typed_unavailable(project, monkeypatch):
     from frisket.ai.embeddings.backends import LocalEmbeddingModelUnavailable
 
     def missing(_texts):
@@ -202,16 +193,15 @@ def test_semantic_cache_miss_is_typed_unavailable(tmp_path, monkeypatch):
         "frisket.preview.cluster.embedding_backends.resolve_embedder",
         lambda **_kwargs: (missing, "fastembed/missing"),
     )
-    p, sid = _seed(tmp_path, ["Jon Smith", "Smith, Jon"])
+    p, sid = _seed(project, ["Jon Smith", "Smith, Jon"])
     with pytest.raises(ClusterPreviewError) as exc:
         resolve_cluster_preview(p, sheet_id=sid, input_column="org", method="semantic")
     assert exc.value.code == "embedding_backend_unavailable"
     assert exc.value.field == "method"
-    p.close()
 
 
-def test_irrelevant_knobs_rejected_loudly(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_irrelevant_knobs_rejected_loudly(project):
+    p, sid = _seed(project, ROWS)
     with pytest.raises(ClusterPreviewError) as exc:
         resolve_cluster_preview(
             p, sheet_id=sid, input_column="org", method="fingerprint", threshold=0.9
@@ -223,11 +213,10 @@ def test_irrelevant_knobs_rejected_loudly(tmp_path):
             p, sheet_id=sid, input_column="org", method="semantic", ngram_size=3
         )
     assert exc2.value.field == "ngram_size"
-    p.close()
 
 
-def test_invalid_refs_and_method(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_invalid_refs_and_method(project):
+    p, sid = _seed(project, ROWS)
     with pytest.raises(ClusterPreviewError) as missing_col:
         resolve_cluster_preview(p, sheet_id=sid, input_column="nope")
     assert missing_col.value.code == "invalid_input_ref"
@@ -237,7 +226,6 @@ def test_invalid_refs_and_method(tmp_path):
     with pytest.raises(ClusterPreviewError) as bad_min:
         resolve_cluster_preview(p, sheet_id=sid, input_column="org", min_size=1)
     assert bad_min.value.field == "min_size"
-    p.close()
 
 
 # --- cluster-by-key (derived-key clustering) -------------------------------
@@ -255,8 +243,8 @@ KEYED_ROWS = [
 ]
 
 
-def test_cluster_by_key_merges_president_forms_display_stays_original(tmp_path):
-    p, sid = _seed(tmp_path, KEYED_ROWS)
+def test_cluster_by_key_merges_president_forms_display_stays_original(project):
+    p, sid = _seed(project, KEYED_ROWS)
     preview = resolve_cluster_preview(
         p,
         sheet_id=sid,
@@ -275,13 +263,12 @@ def test_cluster_by_key_merges_president_forms_display_stays_original(tmp_path):
     assert "President" not in {v["value"] for v in by_forms[vice]["values"]}
     # canonical is most-frequent -> shortest: "President" is the short stem.
     assert pres_cluster["canonical"] == "President"
-    p.close()
 
 
-def test_no_key_template_leaves_president_forms_unmerged(tmp_path):
+def test_no_key_template_leaves_president_forms_unmerged(project):
     # passthrough: without a key, the token fingerprint sees five distinct
     # strings (each fingerprint carries the country/"vice" tokens) -> no group.
-    p, sid = _seed(tmp_path, KEYED_ROWS)
+    p, sid = _seed(project, KEYED_ROWS)
     preview = resolve_cluster_preview(
         p, sheet_id=sid, input_column="org", method="fingerprint"
     )
@@ -291,11 +278,10 @@ def test_no_key_template_leaves_president_forms_unmerged(tmp_path):
         p, sheet_id=sid, input_column="org", method="fingerprint", key_template="   "
     )
     assert blank.count == 0
-    p.close()
 
 
-def test_cluster_by_key_unknown_transform_is_invalid_params(tmp_path):
-    p, sid = _seed(tmp_path, KEYED_ROWS)
+def test_cluster_by_key_unknown_transform_is_invalid_params(project):
+    p, sid = _seed(project, KEYED_ROWS)
     with pytest.raises(ClusterPreviewError) as exc:
         resolve_cluster_preview(
             p,
@@ -306,4 +292,3 @@ def test_cluster_by_key_unknown_transform_is_invalid_params(tmp_path):
         )
     assert exc.value.code == "invalid_params"
     assert exc.value.field == "key_template"
-    p.close()

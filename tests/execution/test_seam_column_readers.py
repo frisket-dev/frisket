@@ -29,9 +29,7 @@ Three checks:
 from __future__ import annotations
 
 import inspect
-import pathlib
 import re
-import tempfile
 
 import pytest
 
@@ -294,17 +292,12 @@ SEAM_COLUMN_READERS: dict[str, object] = {
 }
 
 
-def _live_columns() -> set[str]:
-    with tempfile.TemporaryDirectory() as tmp:
-        project = Project.create(pathlib.Path(tmp) / "schema.frisket")
-        try:
-            return {
-                f"{table}.{row[1]}"
-                for table in SEAM_TABLES
-                for row in project.db.execute(f"PRAGMA table_info({table})")
-            }
-        finally:
-            project.close()
+def _live_columns(project: Project) -> set[str]:
+    return {
+        f"{table}.{row[1]}"
+        for table in SEAM_TABLES
+        for row in project.db.execute(f"PRAGMA table_info({table})")
+    }
 
 
 def _resolve(module_path: str, symbol: str):
@@ -315,8 +308,8 @@ def _resolve(module_path: str, symbol: str):
     return target
 
 
-def test_every_seam_column_is_declared_and_no_declaration_is_stale():
-    live = _live_columns()
+def test_every_seam_column_is_declared_and_no_declaration_is_stale(project: Project):
+    live = _live_columns(project)
     declared = set(SEAM_COLUMN_READERS)
     assert declared == live, (
         "seam-column registry drifted from the schema. "
