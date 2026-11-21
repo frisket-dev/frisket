@@ -96,9 +96,7 @@ def _write_counts(project: Project) -> dict[str, int]:
     }
 
 
-def _seed_project(
-    target: Path | Any, name: str = "temporal-ingress"
-) -> dict[str, Any]:
+def _seed_project(target: Path | Any, name: str = "temporal-ingress") -> dict[str, Any]:
     project = (
         Project.create(target / f"{name}.frisket")
         if isinstance(target, Path)
