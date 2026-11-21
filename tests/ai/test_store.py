@@ -928,7 +928,6 @@ class TestConcurrentOpen:
     ):
         import shutil
         from concurrent.futures import ThreadPoolExecutor
-        from contextlib import closing
 
         from frisket.engine.store.execution_routes import (
             COST_CONSENT_ENV,
