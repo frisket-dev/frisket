@@ -19,6 +19,9 @@ afterEach(cleanup);
 describe('generated Extract grounding controls', () => {
   it('defaults a new form to visible optional citations from the served catalog', () => {
     const entry = syntheticActionCatalogEntry('map.extract');
+    if (!isGeneratedActionCatalogEntry(entry)) {
+      throw new Error('Extract test catalog is not generated');
+    }
     const template = generatedActionTemplateFromCatalogEntry(entry);
     if (!template) throw new Error('Extract test template is missing');
     render(<GeneratedActionForm catalogEntry={entry} actionTemplate={template}
@@ -35,6 +38,9 @@ describe('generated Extract grounding controls', () => {
 
   it('renders the typed source-document column selector in the grounding section', () => {
     const original = syntheticActionCatalogEntry('map.extract');
+    if (!isGeneratedActionCatalogEntry(original)) {
+      throw new Error('Extract test catalog is not generated');
+    }
     const entry = {
       ...original,
       input_schema: {
@@ -56,7 +62,7 @@ describe('generated Extract grounding controls', () => {
           source_document_columns: 'columns',
         },
         source_requirements: [
-          ...original.ui_hints.source_requirements,
+          ...(original.ui_hints.source_requirements ?? []),
           {
             id: 'source_document_columns',
             mode: 'columns' as const,
