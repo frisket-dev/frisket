@@ -254,7 +254,8 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             current[MEDIA_PROBE_NAMESPACE] = probe
             return current
 
-        return self.transactionally_update_document(digest, replace)
+        with write_transaction(self.db, what="blob probe metadata"):
+            return self.transactionally_update_document(digest, replace)
 
     def compare_and_swap_media_metadata_cache(
         self,
@@ -392,7 +393,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
                 self.transactionally_update_document(
                     digest,
                     lambda _current: dict(metadata),
-                    commit=False,
                 )
             else:
                 self.merge_metadata(digest, metadata)
@@ -402,7 +402,7 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             current.update(metadata)
             return current
 
-        self.transactionally_update_document(digest, merge, commit=False)
+        self.transactionally_update_document(digest, merge)
 
     @staticmethod
     def media_cell(

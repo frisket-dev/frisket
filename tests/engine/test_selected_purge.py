@@ -1097,10 +1097,10 @@ def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(proj
     child = project.add_blob(b"independent derived file")
     source = add(project, "source", {"blob": original})
     add(project, "saved", {"blob": child})
-    project.record_blob_derivation(
-        derived_hash=child, source_hash=original, op="render"
-    )
     with write_transaction(project.db):
+        project.record_blob_derivation(
+            derived_hash=child, source_hash=original, op="render"
+        )
         artifact = record_source_artifact(
             project,
             artifact_kind="file",

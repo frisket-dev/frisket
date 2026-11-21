@@ -24,7 +24,7 @@ from frisket.engine.executor.plugin_write_apply import (
     WritePlanValidationError,
 )
 from frisket.engine.store.blob_backend import BlobIntegrityError, BlobNotFoundError
-from frisket.engine.store.project_blobs import add_blob
+from frisket.engine.store.project_blobs import publish_prepared_blob
 from frisket.features.followthemoney import entities_available
 from frisket.features.investigations.rowsets import (
     resolve_investigative_rowset,
@@ -315,14 +315,21 @@ class FollowTheMoneyExportCapability:
         )
         ref = result.model_dump(mode="json")
 
+        invocation.context.check_cancelled()
+        stored_digest = invocation.project.blob_store.put(content)
+        if stored_digest != digest:
+            raise BlobIntegrityError(
+                "blob store returned a digest that does not match the submitted bytes"
+            )
+
         def publish():
             invocation.context.check_cancelled()
-            add_blob(
+            publish_prepared_blob(
                 invocation.project,
-                content,
+                digest=digest,
+                size=len(content),
                 filename=filename,
                 mime="application/zip",
-                commit=False,
             )
 
         invocation.record(

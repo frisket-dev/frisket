@@ -14,6 +14,7 @@ from frisket.engine.store import op_log
 from frisket.engine.store.blob_backend import BlobIntegrityError
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture(autouse=True)
@@ -365,13 +366,15 @@ def test_publication_requires_transaction_and_wrapper_pins_digest(make_project):
                 receipt_id="none",
             )
         with pytest.raises(BlobIntegrityError):
-            project.add_blob_from_path(plan.blobs[0].path, expected_digest="0" * 64)
-        assert (
-            project.add_blob_from_path(
-                plan.blobs[0].path, expected_digest=stager.lower(handle)["blob"]
+            with write_transaction(project.db):
+                project.add_blob_from_path(plan.blobs[0].path, expected_digest="0" * 64)
+        with write_transaction(project.db):
+            assert (
+                project.add_blob_from_path(
+                    plan.blobs[0].path, expected_digest=stager.lower(handle)["blob"]
+                )
+                == stager.lower(handle)["blob"]
             )
-            == stager.lower(handle)["blob"]
-        )
 
 
 def test_backend_rechecks_stage_bytes_after_project_prehash(make_project, monkeypatch):

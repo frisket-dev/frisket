@@ -19,6 +19,7 @@ from frisket.engine.store.blob_backend import (
     S3ProjectBlobStore,
 )
 from frisket.engine.store.media_blobs import owned_media_metadata_document
+from frisket.engine.store.transactions import write_transaction
 
 
 class _MissingObject(Exception):
@@ -161,7 +162,8 @@ def test_failed_s3_path_upload_does_not_publish_blob_reference(
     source.write_bytes(b"unpublished bytes")
     project = make_project("failure", blob_store=store)
     with pytest.raises(BlobStoreError):
-        project.add_blob_from_path(source)
+        with write_transaction(project.db):
+            project.add_blob_from_path(source)
     assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
     assert not client.objects
 
@@ -195,15 +197,16 @@ def test_project_add_blob_from_path_streams_and_records_metadata(
         return original_read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", reject_whole_file_read)
-    digest = project.add_blob_from_path(
-        source,
-        filename="clip.mp4",
-        mime="video/mp4",
-        source_url="https://example.test/source",
-        metadata=owned_media_metadata_document(
-            probe={"kind": "video", "duration_seconds": 2.5}
-        ),
-    )
+    with write_transaction(project.db):
+        digest = project.add_blob_from_path(
+            source,
+            filename="clip.mp4",
+            mime="video/mp4",
+            source_url="https://example.test/source",
+            metadata=owned_media_metadata_document(
+                probe={"kind": "video", "duration_seconds": 2.5}
+            ),
+        )
     assert digest == expected
     row = project.db.execute(
         "SELECT filename, mime, size, source_url, metadata FROM blobs WHERE hash=?",
@@ -265,7 +268,6 @@ def test_add_blob_from_path_commit_false_obeys_caller_transaction(
         source,
         filename="clip.bin",
         metadata={"renderer": "exact"},
-        commit=False,
     )
     assert digest == expected
     assert project.db.in_transaction
@@ -336,5 +338,6 @@ def test_project_rejects_a_path_store_that_returns_the_wrong_digest(
         "wrong", blob_store=WrongDigestStore(root=tmp_path / "wrong-blobs")
     )
     with pytest.raises(BlobIntegrityError, match="does not match"):
-        project.add_blob_from_path(source)
+        with write_transaction(project.db):
+            project.add_blob_from_path(source)
     assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0

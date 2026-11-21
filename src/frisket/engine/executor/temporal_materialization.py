@@ -291,14 +291,12 @@ class CoreTemporalMediaMaterializer:
             filename=rendered.filename,
             mime=rendered.mime,
             metadata=metadata,
-            commit=False,
         )
         derivation_id = project.record_blob_derivation(
             derived_hash=blob_hash,
             source_hash=staged.source.lease.blob_hash,
             op="ffmpeg_exact_temporal_splice",
             params=rendered.receipt_metadata(),
-            commit=False,
         )
         cell_value = MediaBlobStore.media_cell(
             blob_hash,
