@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 
 
 PLUGIN_ID = "demo.env_settings"

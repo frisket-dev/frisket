@@ -93,7 +93,7 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports.work_log; jobs -> server.provider_config/server.services.table_imports/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports.work_log; jobs -> server.provider_config/server.services.table_imports/team.control_plane). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
@@ -103,8 +103,7 @@
         "frisket.engine.jobs.model_pull",
         "frisket.engine.jobs.worker",
         "frisket.engine.jobs.ports",
-        "frisket.engine.jobs.runs",
-        "frisket.engine.store.credentials"
+        "frisket.engine.jobs.runs"
       ],
       "forbidden_imports": [
         "frisket.server",
@@ -113,6 +112,21 @@
         "frisket.team.*"
       ],
       "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "security-does-not-import-server-or-team",
+      "comment": "frisket.security holds envelope encryption primitives shared by the engine credential store, authoring workbench, server, and team. It must not depend on the server or team layers.",
+      "modules": [
+        "frisket.security",
+        "frisket.security.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": true
     },
     {
       "id": "notifications-core-does-not-import-server",

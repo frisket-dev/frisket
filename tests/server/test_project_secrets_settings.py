@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 
 
 def test_project_secrets_are_write_only_redacted_and_deletable(client) -> None:

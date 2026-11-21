@@ -52,7 +52,7 @@ from frisket.contracts.http.local_providers import (
 from frisket.local_model_ids import format_local_model_id, validate_local_endpoint_id
 from frisket.provider_definitions import PROVIDERS, provider_definition, providers_for
 from frisket.redaction import redact_text
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 
 # Env parsing and origin validation live in the LLM layer so server, worker,
 # and team composition share one canonical endpoint record and model grammar.

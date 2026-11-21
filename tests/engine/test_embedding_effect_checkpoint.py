@@ -19,7 +19,7 @@ from frisket.ai.embeddings import EmbeddingStore, build_batch_result
 from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.retrieval.store import RetrievalStore
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-embedding-effects"

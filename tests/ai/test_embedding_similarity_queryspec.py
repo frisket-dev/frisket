@@ -19,7 +19,7 @@ from frisket.ai.embeddings.similarity import SimilarityError
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 from frisket.retrieval.store import RetrievalStore
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from helpers import replace_test_source_cell
 from frisket.engine.store.transactions import write_transaction
 

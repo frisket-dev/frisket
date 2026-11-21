@@ -25,7 +25,7 @@ from collections.abc import Callable, Mapping
 import sqlalchemy as sa
 
 from frisket.provider_definitions import providers_for
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 from frisket.team.schema import org_keys
 
 # The providers a run's model router can be keyed for. Mirrors the provider

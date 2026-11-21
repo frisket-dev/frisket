@@ -20,7 +20,7 @@ from frisket.ai.models.gateway_config import (
 from frisket.contracts.http.models_gateway import ModelsGatewayEngineCapability
 from frisket.redaction import redact_text
 from frisket.server import provider_config
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 
 MODELS_GATEWAY_PROBE_TIMEOUT_SECONDS = 10.0
 MODELS_GATEWAY_PROBE_CONNECT_TIMEOUT_SECONDS = 2.0

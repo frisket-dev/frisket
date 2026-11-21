@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 from frisket.project_settings import (
     ProjectSettings,
     read_project_settings,

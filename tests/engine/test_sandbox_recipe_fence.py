@@ -367,7 +367,7 @@ def test_files_outside_the_fence_are_refused_in_both_directions(tmp_path):
 def test_etc_is_not_a_granted_root_because_a_key_can_live_there():
     """`/etc` is six named files, not a directory grant. Here is why.
 
-    `team/security/secrets.py:_generated_key_path` honours
+    `security/secrets.py:_generated_key_path` honours
     FRISKET_SECRETS_KEY_DIR / FRISKET_DATA_DIR / FRISKET_HOME, so an operator
     can legitimately put the master key under `/etc/frisket`. Granting `/etc`
     as a read root -- the obvious way to make glibc's loader cache, timezone

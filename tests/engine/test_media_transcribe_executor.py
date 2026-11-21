@@ -587,7 +587,7 @@ def test_a_remote_transcription_meters_settles_and_accrues_against_the_key(
     from frisket.ai.llm import ModelRouter
     from frisket.engine.jobs.runs import _router_for
     from frisket.execution.attempt import run_attempt_receipts
-    from frisket.team.security.secrets import encrypt_secret
+    from frisket.security.secrets import encrypt_secret
 
     audio_seconds = 10.64
 
@@ -681,7 +681,7 @@ def test_over_cap_remote_transcription_is_refused_before_provider_egress(
     import httpx
 
     from frisket.ai.llm import ModelRouter
-    from frisket.team.security.secrets import encrypt_secret
+    from frisket.security.secrets import encrypt_secret
 
     provider_requests: list[str] = []
 
@@ -793,7 +793,7 @@ def test_remote_transcription_records_only_response_proven_provider_calls(
     import httpx
 
     from frisket.ai.llm import ModelRouter
-    from frisket.team.security.secrets import encrypt_secret
+    from frisket.security.secrets import encrypt_secret
 
     responses = 0
     requests = 0

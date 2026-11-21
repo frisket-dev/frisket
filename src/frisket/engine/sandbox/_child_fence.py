@@ -269,7 +269,7 @@ _FRISKET_FENCE_SYSTEM_READ_ROOTS = (
 # Individual files rather than the directories holding them. `/etc` in
 # particular is NOT granted as a root: an operator can point
 # FRISKET_SECRETS_KEY_DIR or FRISKET_DATA_DIR at a path under it
-# (`team/security/secrets.py:_generated_key_path`), so granting the directory
+# (`security/secrets.py:_generated_key_path`), so granting the directory
 # would hand the master key to a recipe on exactly the deployments most likely
 # to care. These six are what glibc and CPython actually open -- the loader
 # cache for every dlopen, the local timezone, and the nsswitch/passwd/group

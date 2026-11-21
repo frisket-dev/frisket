@@ -20,7 +20,7 @@ from frisket.contracts.action import ActionResult
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.credentials import missing_required_credentials, resolve_credential
 from frisket.ai.llm import ModelRouter
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from frisket.server.action_enqueue import MISSING_ACTION_CREDENTIAL_ERROR_CODE
 from frisket.server.app import create_app
 from frisket.server.services.action_runs import v1_action_result_http_status

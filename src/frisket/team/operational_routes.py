@@ -50,7 +50,7 @@ from frisket.contracts.http.error_intake import (
     ClientErrorReportRequest,
 )
 from frisket.server.route_errors import http_error_responses
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 from frisket.team.admin_browser_service import (
     AdminMembershipConflict,
     AdminMembershipError,

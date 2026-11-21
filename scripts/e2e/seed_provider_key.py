@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store import Project
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 
 E2E_ACTIVE_MARKER = ".frisket-e2e-active.json"
 PLACEHOLDER_KEY = "e2e-placeholder-not-a-provider-key"

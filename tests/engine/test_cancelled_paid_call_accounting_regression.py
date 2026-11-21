@@ -13,7 +13,7 @@ from frisket.ai.llm import LLMResponse
 from frisket.engine.jobs.runs import project_scoped_router
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, run_with_output_claim
 from frisket.engine.store.transactions import write_transaction
 

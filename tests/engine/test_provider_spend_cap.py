@@ -45,7 +45,7 @@ from frisket.engine.runner import (
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from helpers import run_writer_authority_fixture, write_claimless_test_model_calls
 from typed_model_fixtures import prepare_model_run
 from frisket.engine.store.transactions import write_transaction

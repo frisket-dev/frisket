@@ -33,7 +33,7 @@ from frisket.retrieval.preparation import (
 )
 from frisket.retrieval.preparation_policy import write_preparation_policy_patch
 from frisket.server.route_errors import RouteError
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from frisket.server import provider_config
 from frisket.engine.store.project import SUPPORTED_RETENTION_VALUES
 from frisket.engine.store.sheet_lifecycle import (

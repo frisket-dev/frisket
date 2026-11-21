@@ -7,9 +7,9 @@ import sys
 
 import pytest
 
-from frisket.team.security import secrets
+from frisket.security import secrets
 
-from frisket.team.security.secrets import decrypt_secret, encrypt_secret, key_hint
+from frisket.security.secrets import decrypt_secret, encrypt_secret, key_hint
 
 
 def test_envelope_roundtrip_and_never_stores_plaintext():
@@ -47,7 +47,7 @@ def test_two_processes_load_or_create_secret_key_converge_on_same_bytes(tmp_path
     key_path = tmp_path / "master.key"
     code = (
         "import sys\n"
-        "from frisket.team.security.secrets import load_or_create_secret_key\n"
+        "from frisket.security.secrets import load_or_create_secret_key\n"
         "key = load_or_create_secret_key(sys.argv[1])\n"
         "sys.stdout.buffer.write(key)\n"
     )

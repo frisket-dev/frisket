@@ -20,7 +20,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.ai.llm import ModelRouter
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from frisket.engine.store.transactions import write_transaction
 
 

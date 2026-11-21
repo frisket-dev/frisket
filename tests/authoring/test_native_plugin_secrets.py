@@ -17,7 +17,7 @@ from frisket.authoring.workbench.native_plugin_secrets import HostPluginSecrets
 from frisket.engine.store import Project
 from frisket.plugins.manifest_generate import generate_manifest_text
 from frisket.server.app import create_app
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 
 
 SECRET_NAME = "DEMO_API_KEY"

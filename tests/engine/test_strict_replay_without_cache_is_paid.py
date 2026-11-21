@@ -44,7 +44,7 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from helpers import write_claimless_test_model_calls
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, prepare_model_run, run_with_output_claim
 from frisket.engine.store.transactions import write_transaction
 

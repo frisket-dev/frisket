@@ -75,7 +75,7 @@ jobs:
           # the native engine workers, the CLI and its signal handling, the
           # model-server environment, and the modules that branch on the OS
           # for process trees, file locking, reserved names and app paths.
-          platform_code='src/frisket/(runtime|engine/sandbox|engine/_workers|cli|data/model-server)/|src/frisket/(engine/recipe_fence_posture|retrieval/native|operability/diagnostics|cloud_connection|project_identity|server/workspace|team/security/secrets|ops/ytdlp|ops/media_metadata|ops/integrations/mcp_stdio)\.py$'
+          platform_code='src/frisket/(runtime|engine/sandbox|engine/_workers|cli|data/model-server)/|src/frisket/(engine/recipe_fence_posture|retrieval/native|operability/diagnostics|cloud_connection|project_identity|server/workspace|security/secrets|ops/ytdlp|ops/media_metadata|ops/integrations/mcp_stdio)\.py$'
           # A changed Python line anywhere under src/ that branches on the OS
           # or starts, signals or confines a process, the same in all four.
           platform_lines='sys\.platform|os\.name|platform\.(system|machine)\(|(import|from) +(fcntl|msvcrt|winreg|_winapi|termios|pwd|grp|resource)\b|creationflags|start_new_session|preexec_fn|os\.(kill|killpg|setsid|setpgrp|fork|getpgid)\(|signal\.(SIG|signal\()|subprocess\.(Popen|run|call|check_call|check_output)\(|create_subprocess_|multiprocessing|ctypes'

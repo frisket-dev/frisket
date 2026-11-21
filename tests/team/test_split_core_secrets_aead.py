@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 PKG = SRC / "frisket"
 
-NEW_MODULE = "frisket.team.security.secrets"
+NEW_MODULE = "frisket.security.secrets"
 OLD_MODULE_PATH = PKG / "hosted" / "secrets_store.py"
 
 # Built by concatenation so a text scan for the forbidden literal never
@@ -51,14 +51,14 @@ def _purge_module_cache() -> None:
     for name in list(sys.modules):
         if (
             name == NEW_MODULE
-            or name == "frisket.team.security"
-            or name.startswith("frisket.team.security.")
+            or name == "frisket.security"
+            or name.startswith("frisket.security.")
         ):
             sys.modules.pop(name, None)
 
 
 def _import_secrets_module(*, fresh: bool = True):
-    """Import frisket.team.security.secrets inside the test body.
+    """Import frisket.security.secrets inside the test body.
 
     Guarded with pytest.fail (NOT a bare import at module top and NOT inside
     a fixture) so a missing module reports as a plain in-test assertion

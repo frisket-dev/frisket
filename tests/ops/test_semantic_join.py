@@ -1041,7 +1041,7 @@ def test_remote_semantic_join_refuses_exhausted_project_key_before_queue_or_embe
     project key's budget.  Lowering the key to an exhausted cap between the
     402 and its bound retry must refuse before a job or provider call exists."""
     from frisket.server.app import create_app
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setattr(
         "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
@@ -1129,7 +1129,7 @@ def test_remote_semantic_join_completes_through_the_async_router_bridge(
     event loop and preserve unknown provider cost in durable facts and receipt.
     """
     from frisket.server.app import create_app
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setattr(
         "frisket.ai.embeddings.backends.resolve_embedder", _REAL_RESOLVE_EMBEDDER
@@ -1220,7 +1220,7 @@ def test_remote_semantic_join_persists_each_call_and_receipts_actual_cost(
     import json
 
     from frisket.server.app import create_app
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     paid_results = _patch_paid_remote_result(monkeypatch)
@@ -1330,7 +1330,7 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
     spend truthfully.
     """
     from frisket.retrieval.store import RetrievalStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     paid_results = _patch_paid_remote_result(monkeypatch)
@@ -1478,7 +1478,7 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
     from frisket.engine.store import Project
     from frisket.engine.store.runs import RunResultStore
     from frisket.execution.attempt import abandon_stale_dispatching_attempts
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     _patch_paid_remote_result(monkeypatch)

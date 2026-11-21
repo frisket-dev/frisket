@@ -5,7 +5,7 @@ import json
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.staleness import sheet_freshness
 from frisket.execution.attempt import abandon_stale_dispatching_attempts
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from test_reduce_effect_checkpoint import (
     project,  # noqa: F401 - shared real project fixture
     _action,

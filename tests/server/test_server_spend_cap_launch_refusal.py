@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.app import create_app
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from http_test_helpers import post_v1_action_with_exact_confirmation
 from helpers import write_claimless_test_model_calls
 from frisket.engine.store.transactions import write_transaction
