@@ -19,7 +19,7 @@ from frisket.contracts.temporal_values import (
     TimelineRangesValue,
     canonical_temporal_hash,
 )
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     BetweenUnits,
     BoundaryCandidate,
     DialogueUnit,

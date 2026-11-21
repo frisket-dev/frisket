@@ -45,7 +45,7 @@ def test_identity_response_is_strict_json_with_open_edition_fields() -> None:
             "welcome_message": None,
             "support_contact": None,
         },
-        "cost_preapproval_usd": None,
+        "allowance_usd": None,
         "balance_credits": 2.0,
         "edition_posture": {"features": ["billing", None], "ready": True},
     }
@@ -63,11 +63,11 @@ def test_identity_response_is_strict_json_with_open_edition_fields() -> None:
 def test_profile_patch_model_preserves_tolerant_request_behavior() -> None:
     assert ProfilePatchRequest.model_validate({}).model_dump() == {
         "display_name": None,
-        "cost_preapproval_usd": None,
+        "allowance_usd": None,
     }
     assert ProfilePatchRequest.model_validate(
         {"display_name": " Owner ", "producer_extension": True}
-    ).model_dump() == {"display_name": " Owner ", "cost_preapproval_usd": None}
+    ).model_dump() == {"display_name": " Owner ", "allowance_usd": None}
     with pytest.raises(ValidationError):
         ProfilePatchRequest.model_validate({"display_name": 7})
     with pytest.raises(ValidationError):
@@ -87,7 +87,7 @@ def test_live_team_identity_profile_wire_auth_and_validation(tmp_path: Path) -> 
             "welcome_message": None,
             "support_contact": None,
         },
-        "cost_preapproval_usd": None,
+        "allowance_usd": None,
     }
     response = owner.get("/api/me")
     assert response.status_code == 200, response.text
@@ -108,21 +108,20 @@ def test_live_team_identity_profile_wire_auth_and_validation(tmp_path: Path) -> 
     assert changed.status_code == 200, changed.text
     expected["display_name"] = "Owner Name"
     assert changed.content == _wire_bytes(expected)
-    preapproved = owner.patch("/api/me/profile", json={"cost_preapproval_usd": "2.50"})
-    assert preapproved.status_code == 200, preapproved.text
-    assert float(preapproved.json()["cost_preapproval_usd"]) == 2.5
-    assert preapproved.json()["display_name"] == "Owner Name"
+    updated_allowance = owner.patch("/api/me/profile", json={"allowance_usd": "2.50"})
+    assert updated_allowance.status_code == 200, updated_allowance.text
+    assert float(updated_allowance.json()["allowance_usd"]) == 2.5
+    assert updated_allowance.json()["display_name"] == "Owner Name"
     renamed = owner.patch("/api/me/profile", json={"display_name": "Renamed"})
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["display_name"] == "Renamed"
-    assert float(renamed.json()["cost_preapproval_usd"]) == 2.5
+    assert float(renamed.json()["allowance_usd"]) == 2.5
     assert (
-        owner.patch("/api/me/profile", json={"cost_preapproval_usd": "NaN"}).status_code
-        == 400
+        owner.patch("/api/me/profile", json={"allowance_usd": "NaN"}).status_code == 400
     )
     assert (
         owner.patch(
-            "/api/me/profile", json={"cost_preapproval_usd": "1000000000000"}
+            "/api/me/profile", json={"allowance_usd": "1000000000000"}
         ).status_code
         == 400
     )

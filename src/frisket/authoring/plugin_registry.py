@@ -425,7 +425,7 @@ class PluginRegistry:
                     if spec.plugin != plugin_id
                 }
             column_types.unregister_plugin_column_types(plugin_id)
-            from frisket.features.url_classification.plugin_matchers import (
+            from frisket.url_classification.plugin_matchers import (
                 unregister_plugin_matchers,
             )
 
@@ -477,7 +477,7 @@ class PluginRegistry:
             removed_column_types = column_types.unregister_plugin_column_types(
                 plugin_id
             )
-            from frisket.features.url_classification.plugin_matchers import (
+            from frisket.url_classification.plugin_matchers import (
                 unregister_plugin_matchers,
             )
 

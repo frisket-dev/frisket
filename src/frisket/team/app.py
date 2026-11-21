@@ -846,9 +846,7 @@ def create_team_app(
             project = core.state.workspace.get(_project_id)
             with engine.connect() as connection:
                 threshold = connection.execute(
-                    sa.select(users.c.cost_preapproval_usd).where(
-                        users.c.id == user["id"]
-                    )
+                    sa.select(users.c.allowance_usd).where(users.c.id == user["id"])
                 ).scalar_one()
             coverage = ConsentCoverage(
                 f"{instance_principal(project)}:user:{user['id']}",

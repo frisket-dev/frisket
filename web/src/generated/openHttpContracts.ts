@@ -7495,12 +7495,12 @@ type HttpIdentityProfileResponse_IdentityInstance = ({
 type HttpIdentityProfileResponse_JsonValue = JsonValue;
 
 export type HttpIdentityProfileResponse = ({
+  "allowance_usd": (((string)) | ((null)));
   "avatar_seed": (string);
-  "cost_preapproval_usd": (((string)) | ((null)));
   "display_name": (((string)) | ((null)));
   "email": (string);
   "instance": (HttpIdentityProfileResponse_IdentityInstance);
-  [key: string]: (HttpIdentityProfileResponse_IdentityEditionValue) | (string) | (((string)) | ((null))) | (HttpIdentityProfileResponse_IdentityInstance);
+  [key: string]: (HttpIdentityProfileResponse_IdentityEditionValue) | (((string)) | ((null))) | (string) | (HttpIdentityProfileResponse_IdentityInstance);
 });
 
 export type HttpImportCsvResponse = ({
@@ -11625,7 +11625,7 @@ export type HttpProductTelemetryRequest = ({
 });
 
 export type HttpProfilePatchRequest = ({
-  "cost_preapproval_usd"?: (((string)) | ((null)));
+  "allowance_usd"?: (((string)) | ((null)));
   "display_name"?: (((string)) | ((null)));
   [key: string]: JsonValue | (((string)) | ((null))) | undefined;
 });
@@ -12998,11 +12998,11 @@ type HttpRuntimeConfigResponse_OIDCAuthMethod = ({
 });
 
 export type HttpRuntimeConfigResponse = ({
+  "allowance_editable": (boolean);
+  "allowance_usd": (string);
   "auth_methods": (HttpRuntimeConfigResponse_AuthMethods);
   "cache_mode": ("replay" | "fresh" | "replay_strict" | "off") & (string);
   "cache_mode_editable": (boolean);
-  "cost_preapproval_editable": (boolean);
-  "cost_preapproval_usd": (string);
   "email_from_address": (((string)) | ((null)));
   "email_from_name": (((string)) | ((null)));
   "in_container"?: (((boolean)) | ((null)));
@@ -13014,9 +13014,9 @@ export type HttpRuntimeConfigResponse = ({
 });
 
 export type HttpRuntimeConfigUpdateRequest = ({
+  "allowance_usd"?: (((string)) | ((null)));
   "cache_mode"?: ((("replay" | "fresh" | "replay_strict" | "off") & (string)) | ((null)));
   "confirmed"?: (boolean);
-  "cost_preapproval_usd"?: (((string)) | ((null)));
 });
 
 type HttpRuntimeProjectionArtifactRequest_JsonValue = JsonValue;

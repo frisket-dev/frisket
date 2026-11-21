@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import Any
 
-from frisket.features.url_classification import YTDLP_DOWNLOAD_ACTION_KIND, classify_url
+from frisket.url_classification import YTDLP_DOWNLOAD_ACTION_KIND, classify_url
 
 # A sample, not the whole column — cheap and matches "applied to a sample of
 # the imported column's values".

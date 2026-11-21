@@ -14,23 +14,23 @@ from __future__ import annotations
 import pytest
 
 from frisket.contracts.plugin import PluginManifest, PluginManifestLoadError
-from frisket.features.url_classification import (
+from frisket.url_classification import (
     classify_url,
     registered_matchers,
     unregister_matcher,
 )
-from frisket.features.url_classification.matchers import (
+from frisket.url_classification.matchers import (
     MAX_REGEX_PATTERN_LENGTH,
     PLUGIN_PRIORITY_CEILING,
     MatcherRegistrationError,
     UrlMatcher,
 )
-from frisket.features.url_classification.plugin_matchers import (
+from frisket.url_classification.plugin_matchers import (
     plugin_matchers_from_manifest,
     register_plugin_matchers,
     unregister_plugin_matchers,
 )
-from frisket.features.url_classification.psl import (
+from frisket.url_classification.psl import (
     registered_domain,
 )
 
@@ -287,7 +287,7 @@ def test_direct_registration_rejects_priority_ceiling() -> None:
         origin_plugin_id="x.plugin",
     )
     with pytest.raises(MatcherRegistrationError):
-        from frisket.features.url_classification import register_matcher
+        from frisket.url_classification import register_matcher
 
         register_matcher(bad)
     unregister_matcher("plugin.raw.ceiling")

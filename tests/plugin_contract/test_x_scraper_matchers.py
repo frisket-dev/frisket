@@ -30,11 +30,11 @@ from fastapi.testclient import TestClient
 
 from frisket.authoring.plugin_registry import _reset_default_registry_for_tests
 from frisket.server.app import create_app
-from frisket.features.url_classification import classify_url
+from frisket.url_classification import classify_url
 from frisket.authoring.workbench.plugin_runtime_capabilities import (
     enabled_workbench_plugin_ids,
 )
-from frisket.features.url_classification.plugin_matchers import (
+from frisket.url_classification.plugin_matchers import (
     unregister_plugin_matchers,
 )
 

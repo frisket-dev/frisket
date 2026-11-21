@@ -156,15 +156,15 @@ class IdentitySessionService:
         *,
         display_name: str | None,
         update_display_name: bool = True,
-        cost_preapproval_usd: str | None = None,
+        allowance_usd: str | None = None,
     ) -> dict[str, Any]:
         clean_name = (display_name or "").strip() or None
         if clean_name is not None and len(clean_name) > 200:
             raise ValueError("display name must be 200 characters or fewer")
         threshold: Decimal | None = None
-        if cost_preapproval_usd is not None:
+        if allowance_usd is not None:
             try:
-                threshold = Decimal(cost_preapproval_usd.strip())
+                threshold = Decimal(allowance_usd.strip())
             except (InvalidOperation, ValueError) as exc:
                 raise ValueError("allowance must be a decimal") from exc
             if not threshold.is_finite() or threshold < 0:

@@ -34,7 +34,7 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.engine.runner.validation import ExecutionResolutionRefused
-from frisket.engine.store.execution_routes import CONSENT_BASIS_PREAPPROVED
+from frisket.engine.store.execution_routes import CONSENT_BASIS_ALLOWANCE
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.runs import RunResultStore
@@ -267,7 +267,7 @@ def test_scene5_free_gateway_uses_allowance_for_its_selected_provider(
     assert validated.est["billed_cost"] == 0
     assert validated.est["requires_confirmation"] is False
     assert validated.consent_required is True
-    assert validated.consent_basis == CONSENT_BASIS_PREAPPROVED
+    assert validated.consent_basis == CONSENT_BASIS_ALLOWANCE
     assert validated.resolved_execution is not None
     claims = [
         promise

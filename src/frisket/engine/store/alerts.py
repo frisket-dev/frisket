@@ -12,7 +12,7 @@ from typing import Any
 from collections.abc import Iterable
 from itertools import groupby
 
-from frisket.features.alerts.events import (
+from frisket.alerts.events import (
     count_changed_event,
     event_json,
     row_changed_event,

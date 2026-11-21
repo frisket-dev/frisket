@@ -10,29 +10,29 @@ Importing this package registers the first-party matcher table.
 
 Regenerate the exported snapshot after changing the table::
 
-    uv run python -m frisket.features.url_classification
+    uv run python -m frisket.url_classification
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection
 
-from frisket.features.url_classification.contract import (
+from frisket.url_classification.contract import (
     ClassificationHandler,
     ExpansionHint,
     UrlClassification,
 )
-from frisket.features.url_classification.first_party import (
+from frisket.url_classification.first_party import (
     YTDLP_DOWNLOAD_ACTION_KIND,
     YTDLP_SINGLE_MEDIA_MATCHER_IDS,
     YTDLP_SINGLE_MEDIA_PROVIDERS,
     register_first_party_matchers,
 )
-from frisket.features.url_classification.matchers import (
+from frisket.url_classification.matchers import (
     MatcherRegistrationError,
     UrlMatcher,
 )
-from frisket.features.url_classification.registry import (
+from frisket.url_classification.registry import (
     classify_url,
     register_matcher,
     registered_matchers,

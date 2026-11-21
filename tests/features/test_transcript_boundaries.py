@@ -4,13 +4,13 @@ from collections.abc import Iterable
 
 import pytest
 
-from frisket.features.temporal.transcript_boundaries import (
+from frisket.temporal.transcript_boundaries import (
     LOCKING_POLICY_VERSION,
     TranscriptBoundaryError,
     lock_transcript_boundaries,
 )
 from frisket.contracts.temporal_values import canonical_temporal_hash
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     BetweenUnits,
     BoundaryCandidate,
     DialogueUnit,

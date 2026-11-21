@@ -81,8 +81,8 @@ def register_runtime_config_routes(
                 "cache_mode": mode,
                 "live_calls_possible": live_calls_possible(mode),
                 "cache_mode_editable": allow_updates,
-                "cost_preapproval_usd": workspace.cost_preapproval_usd,
-                "cost_preapproval_editable": allow_updates,
+                "allowance_usd": workspace.allowance_usd,
+                "allowance_editable": allow_updates,
                 "in_container": in_container(),
                 "recipe_fence_posture": recipe_fence_posture(),
                 "email_from_address": None,
@@ -114,7 +114,7 @@ def register_runtime_config_routes(
         def update_runtime_config(
             body: RuntimeConfigUpdateRequest,
         ) -> RuntimeConfigResponse:
-            if body.cache_mode is None and body.cost_preapproval_usd is None:
+            if body.cache_mode is None and body.allowance_usd is None:
                 raise HTTPException(422, "choose a runtime setting to update")
             current = workspace.cache_mode
             # Saving the preference does not itself spend. It does select the
@@ -133,9 +133,9 @@ def register_runtime_config_routes(
                 )
             if body.cache_mode is not None:
                 workspace.set_local_cache_mode(body.cache_mode)
-            if body.cost_preapproval_usd is not None:
+            if body.allowance_usd is not None:
                 try:
-                    workspace.set_local_allowance_usd(body.cost_preapproval_usd)
+                    workspace.set_local_allowance_usd(body.allowance_usd)
                 except ValueError as exc:
                     raise HTTPException(422, str(exc)) from exc
             return response()

@@ -1047,7 +1047,7 @@ def entities_report() -> dict[str, Any]:
     not an error: base
     install/doctor stay green without it."""
     try:
-        from frisket.features.followthemoney import entities_available
+        from frisket.followthemoney import entities_available
 
         ok, err = entities_available()
     except Exception as exc:  # noqa: BLE001 -- report, never raise

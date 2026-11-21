@@ -14,14 +14,14 @@ import time
 
 import pytest
 
-from frisket.features.url_classification import (
+from frisket.url_classification import (
     UrlMatcher,
     classify_url,
     register_matcher,
     registered_matchers,
     unregister_matcher,
 )
-from frisket.features.url_classification.matchers import (
+from frisket.url_classification.matchers import (
     MatcherRegistrationError,
     PLUGIN_PRIORITY_CEILING,
     normalize_url,
@@ -62,7 +62,7 @@ def test_normalize_drops_tracking_query_params() -> None:
 
 
 def test_registered_domain_collapses_subdomains_but_not_public_suffixes() -> None:
-    from frisket.features.url_classification.psl import registered_domain
+    from frisket.url_classification.psl import registered_domain
 
     assert registered_domain("music.youtube.com") == "youtube.com"
     assert registered_domain("www.m.youtube.com") == "youtube.com"

@@ -315,7 +315,7 @@ def test_create_rejects_alert_sheet_mismatching_index_sheet(tmp_path):
 def test_evaluator_blocks_legacy_cross_sheet_alert(tmp_path):
     # a directly-stored (legacy) alert whose sheet != the index sheet must block in
     # the evaluator, never recording cross-sheet hits.
-    from frisket.features.alerts.service import check_alert
+    from frisket.alerts.service import check_alert
 
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)

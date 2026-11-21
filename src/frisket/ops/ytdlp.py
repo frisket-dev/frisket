@@ -283,7 +283,7 @@ def download_media(
     carries the boolean fact ``proxied`` — never the URL itself.
     """
     from frisket.plugins.media import run_media_download
-    from frisket.features.url_classification import (
+    from frisket.url_classification import (
         YTDLP_DOWNLOAD_ACTION_KIND,
         classify_url,
     )

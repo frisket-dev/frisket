@@ -29,7 +29,7 @@ stdio. Hosted MCP uses the connection's configured `FRISKET_BASE_URL` and
 
 Stay within the user's requested data, operation, and spending constraints.
 Use the narrowest row scope that satisfies the task. Frisket's configured
-preapproval covers under-limit cost and declared external egress; do not add
+allowance covers under-limit cost and declared external egress; do not add
 a redundant generic prompt. It does not authorize unrelated actions or waive
 the user's restrictions. Never bypass a server refusal or cost challenge.
 

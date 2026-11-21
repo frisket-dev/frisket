@@ -9,7 +9,7 @@ check.cmd's ``git diff --exit-code`` guard pin the two together (§3, §7 item 2
 
 Regenerate the snapshot after changing the first-party matcher table with::
 
-    uv run python -m frisket.features.url_classification
+    uv run python -m frisket.url_classification
 
 and commit ``src/frisket/data/url_classification_matchers.json``. The command
 is deterministic (sorted keys, sorted matchers, trailing newline).
@@ -23,11 +23,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from frisket.features.url_classification.psl import PSL_SNAPSHOT_VERSION
+from frisket.url_classification.psl import PSL_SNAPSHOT_VERSION
 
 SNAPSHOT_SCHEMA_VERSION = "frisket.url_classification_matchers.v1"
 SNAPSHOT_PATH = (
-    Path(__file__).resolve().parents[2] / "data" / "url_classification_matchers.json"
+    Path(__file__).resolve().parents[1] / "data" / "url_classification_matchers.json"
 )
 
 
@@ -85,7 +85,7 @@ def build_snapshot() -> dict[str, Any]:
     Plugin matchers are runtime-only and never exported (they load per-install
     from their manifests, not this checked-in artifact).
     """
-    from frisket.features.url_classification.registry import registered_matchers
+    from frisket.url_classification.registry import registered_matchers
 
     matchers = sorted(
         (m for m in registered_matchers() if m.source == "first_party"),

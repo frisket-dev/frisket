@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.features.alerts.service import (
+from frisket.alerts.service import (
     AlertBindingError,
     check_alert,
     alert_query,

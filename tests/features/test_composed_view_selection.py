@@ -181,7 +181,7 @@ def test_manual_similarity_needs_explicit_query_preparation(tmp_path):
 
 
 def test_incomplete_search_check_never_invents_departures(data):
-    from frisket.features.alerts.service import check_alert
+    from frisket.alerts.service import check_alert
 
     project, sheet, text, _, rows = data
     drain_index(project)

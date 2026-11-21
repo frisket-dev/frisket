@@ -52,7 +52,7 @@ def test_cloud_model_estimate_and_run_price_the_same_uncapped_purchase(
     from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
     from frisket.engine.runner import validation
     from frisket.engine.store.execution_routes import (
-        CONSENT_BASIS_PREAPPROVED,
+        CONSENT_BASIS_ALLOWANCE,
         instance_principal,
     )
     from frisket.engine.store.runs import RunResultStore
@@ -185,7 +185,7 @@ def test_cloud_model_estimate_and_run_price_the_same_uncapped_purchase(
         project, router, RunResultStore(project), spec, **kwargs
     )
     assert approved.consent_required is True
-    assert approved.consent_basis == CONSENT_BASIS_PREAPPROVED
+    assert approved.consent_basis == CONSENT_BASIS_ALLOWANCE
     assert approved.est["requires_confirmation"] is False
     assert "claims" not in approved.est
     for settings in (

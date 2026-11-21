@@ -19,7 +19,7 @@ from frisket.engine.store.artifact_timeline import (
 )
 from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.execution.provider import ExecutionLimits, enforce_media_duration_limit
-from frisket.features.temporal.visual_cuts import visual_cuts_value
+from frisket.temporal.visual_cuts import visual_cuts_value
 from frisket.contracts.temporal_values import TimelinePointsValue
 
 

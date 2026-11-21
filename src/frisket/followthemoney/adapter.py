@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from frisket.features.followthemoney._sdk_import import require_followthemoney_sdk
+from frisket.followthemoney._sdk_import import require_followthemoney_sdk
 
 with require_followthemoney_sdk():
     from followthemoney import model
