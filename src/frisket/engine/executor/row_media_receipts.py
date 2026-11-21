@@ -32,7 +32,7 @@ def project_row_media_receipt(project, plan, facts, receipt):
     observations = (
         [
             item.ref
-            for item in stored.evidence
+            for item in stored.records
             if item.ref.get("kind") == "row_file_output"
             and item.ref.get("run_id") == facts.run_id
         ]

@@ -10,7 +10,7 @@ from typing import Any
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
@@ -363,7 +363,7 @@ def _write_extract_in_transaction(
     annotation_row_ids: dict[int, list[int]] = {
         source_column_id: [] for source_column_id in annotation_names
     }
-    receipt_evidence: list[ReceiptEvidence] = []
+    receipt_records: list[ReceiptRecord] = []
     for item, stored_clip in zip(staged, committed, strict=True):
         source = item.clip.source
         lineage = materializer.attach_lineage(
@@ -374,12 +374,12 @@ def _write_extract_in_transaction(
             output_column_id=output_column_id,
             receipt_id=receipt_id,
         )
-        receipt_evidence.extend(
+        receipt_records.extend(
             [
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref=staged_receipt_ref(stored_clip), retention="materialized"
                 ),
-                ReceiptEvidence(ref=lineage, retention="materialized"),
+                ReceiptRecord(ref=lineage, retention="materialized"),
             ]
         )
         derived_anchor = resolve_artifact_timeline(project, int(lineage["artifact_id"]))
@@ -409,8 +409,8 @@ def _write_extract_in_transaction(
                 close_change=False,
             )
             annotation_row_ids[annotation.column_id].append(source.row_id)
-            receipt_evidence.append(
-                ReceiptEvidence(
+            receipt_records.append(
+                ReceiptRecord(
                     ref={
                         "kind": "temporal_annotation_projection",
                         "source": annotation.input_ref(),
@@ -444,8 +444,8 @@ def _write_extract_in_transaction(
                 op_id=op_id,
             )
             if transcript_citations is not None:
-                receipt_evidence.append(
-                    ReceiptEvidence(
+                receipt_records.append(
+                    ReceiptRecord(
                         ref=transcript_citations,
                         retention="materialized",
                     )
@@ -550,9 +550,9 @@ def _write_extract_in_transaction(
             "status": "completed",
             "inputs": receipt_inputs,
             "outputs": receipt_outputs,
-            "evidence": [
-                *prior.evidence,
-                ReceiptEvidence(
+            "records": [
+                *prior.records,
+                ReceiptRecord(
                     ref={
                         "kind": "temporal_extract_summary",
                         "source_count": len(staged),
@@ -560,7 +560,7 @@ def _write_extract_in_transaction(
                     },
                     retention="pinned",
                 ),
-                *receipt_evidence,
+                *receipt_records,
             ],
             "warnings": warnings,
             "errors": [],

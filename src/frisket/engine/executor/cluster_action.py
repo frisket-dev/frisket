@@ -38,7 +38,7 @@ from frisket.engine.executor.value_cluster import (
     cluster_source_snapshot,
     validate_cluster_source,
 )
-from frisket.contracts.action import ActionError, ReceiptEvidence
+from frisket.contracts.action import ActionError, ReceiptRecord
 from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
@@ -407,9 +407,9 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             )
         receipt = receipt.model_copy(
             update={
-                "evidence": [
-                    *receipt.evidence,
-                    ReceiptEvidence(ref=fact, retention="pinned"),
+                "records": [
+                    *receipt.records,
+                    ReceiptRecord(ref=fact, retention="pinned"),
                 ],
                 "provider_use": provider_use or receipt.provider_use,
             }

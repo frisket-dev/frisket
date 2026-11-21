@@ -10,7 +10,7 @@ from typing import Any
 
 from frisket.actions.temporal_types import topic_sidecar_names
 from frisket.actions.types import ColumnRef, DynamicOutput, Outcome, Row, RowError
-from frisket.contracts.action import ReceiptEvidence
+from frisket.contracts.action import ReceiptRecord
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.artifact_timeline import (
@@ -431,7 +431,7 @@ def topic_supporting_records(project, facts, output_refs, hidden_refs):
                 }
             )
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "topic_segmentation_analysis",
                     "run_id": facts.run_id,

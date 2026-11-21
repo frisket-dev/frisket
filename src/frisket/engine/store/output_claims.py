@@ -902,7 +902,7 @@ class OutputColumnClaimStore:
                 "SELECT job_id FROM output_column_claims WHERE run_id=? "
                 "AND job_id IS NOT NULL UNION "
                 "SELECT json_extract(e.value, '$.ref.job_id') "
-                "FROM receipts r, json_each(r.body, '$.evidence') e "
+                "FROM receipts r, json_each(r.body, '$.records') e "
                 "WHERE r.run_id=? "
                 "AND json_type(e.value, '$.ref.job_id')='integer' "
                 "AND (json_extract(e.value, '$.ref.queue_kind')='project.run' "

@@ -62,7 +62,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families.exports import (
@@ -653,12 +653,12 @@ def _export_column_tables_receipt(
             )
         ],
         outputs=[ReceiptIO(name="column_tables", ref=artifact_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={"kind": "column_tables_export_manifest", **manifest},
                 retention="pinned",
             ),
-            ReceiptEvidence(ref=summary, retention="pinned"),
+            ReceiptRecord(ref=summary, retention="pinned"),
         ],
         exports=[artifact_ref],
     )

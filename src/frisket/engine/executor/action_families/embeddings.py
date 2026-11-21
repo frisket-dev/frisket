@@ -57,7 +57,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.ai.embeddings import (
@@ -338,9 +338,9 @@ def _embedding_update_policy_replay_error(
         != {"kind": "embedding_index_ref", "index_id": index_id, "space_id": space_id}
         or len(receipt.outputs) != 1
         or receipt.outputs[0].name != index_id
-        or len(receipt.evidence) != 1
-        or receipt.evidence[0].retention != "pinned"
-        or receipt.evidence[0].ref != {"kind": "embedding_index_policy", **policy}
+        or len(receipt.records) != 1
+        or receipt.records[0].retention != "pinned"
+        or receipt.records[0].ref != {"kind": "embedding_index_policy", **policy}
     ):
         return _embedding_stale_replay_error(
             receipt, "embedding policy replay receipt has inconsistent policy evidence"
@@ -1399,7 +1399,7 @@ def _embedding_create_existing_state(
     egress_reservation = next(
         (
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "embedding_dimension_probe_egress_reservation"
         ),
         None,
@@ -1407,7 +1407,7 @@ def _embedding_create_existing_state(
     checkpoint = next(
         (
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "embedding_dimension_probe_checkpoint"
         ),
         None,
@@ -1457,7 +1457,7 @@ def _embedding_create_existing_state(
     fact = next(
         (
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("fact_version") == "frisket.model-call-fact.v1"
         ),
         None,
@@ -1528,11 +1528,11 @@ def _mark_embedding_probe_egress_reserved(
     receipt = stored.parsed()
     supporting_records = [
         item
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") != "embedding_dimension_probe_egress_reservation"
     ]
     supporting_records.append(
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "embedding_dimension_probe_egress_reservation",
                 "run_id": run_id,
@@ -1545,7 +1545,7 @@ def _mark_embedding_probe_egress_reserved(
         )
     )
     receipt = receipt.model_copy(
-        update={"run_id": run_id, "op_ids": [op_id], "evidence": supporting_records}
+        update={"run_id": run_id, "op_ids": [op_id], "records": supporting_records}
     )
     with write_transaction(project.db, what="embedding probe egress reservation"):
         landed = ReceiptStore(project).update_body_status_in_transaction(
@@ -1842,9 +1842,9 @@ def _run_paid_embedding_dimension_probe(
                 "cost_actual": _provider_fact_cost_actual(provider_fact),
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=checkpoint_ref, retention="pinned"),
-            ReceiptEvidence(ref=provider_fact, retention="pinned"),
+        records=[
+            ReceiptRecord(ref=checkpoint_ref, retention="pinned"),
+            ReceiptRecord(ref=provider_fact, retention="pinned"),
         ],
     )
     try:
@@ -2331,10 +2331,10 @@ def _create_index(
                         "cost_actual": _provider_fact_cost_actual(probe_fact),
                     }
                 ],
-                evidence=[
-                    ReceiptEvidence(ref=output_ref, retention="pinned"),
+                records=[
+                    ReceiptRecord(ref=output_ref, retention="pinned"),
                     *(
-                        [ReceiptEvidence(ref=probe_fact, retention="pinned")]
+                        [ReceiptRecord(ref=probe_fact, retention="pinned")]
                         if probe_fact is not None
                         else []
                     ),
@@ -3487,11 +3487,11 @@ def _refresh_receipt(
                 "cost_actual": _provider_fact_cost_actual(provider_fact),
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=output_ref, retention="pinned"),
-            ReceiptEvidence(ref=item_evidence, retention="pinned"),
+        records=[
+            ReceiptRecord(ref=output_ref, retention="pinned"),
+            ReceiptRecord(ref=item_evidence, retention="pinned"),
             *(
-                [ReceiptEvidence(ref=provider_fact, retention="pinned")]
+                [ReceiptRecord(ref=provider_fact, retention="pinned")]
                 if provider_fact is not None
                 else []
             ),
@@ -3833,8 +3833,8 @@ def _perform_index_update_policy_in_txn(
             )
         ],
         outputs=[ReceiptIO(name=result.index_id, ref=output_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "embedding_index_policy",
                     "maintenance_policy": result.maintenance_policy,

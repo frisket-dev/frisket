@@ -25,7 +25,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families._errors import receipt_stale_replay_error
@@ -479,11 +479,11 @@ def _receipt(
                 "cost_actual": 0.0,
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=request_ref),
-            ReceiptEvidence(ref=source_ref),
-            ReceiptEvidence(ref=output_ref),
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(ref=request_ref),
+            ReceiptRecord(ref=source_ref),
+            ReceiptRecord(ref=output_ref),
+            ReceiptRecord(
                 ref={
                     "kind": "column_transform_counts",
                     "total_rows": len(source["row_ids"]),

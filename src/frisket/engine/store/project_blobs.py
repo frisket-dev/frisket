@@ -320,15 +320,15 @@ def _retained_payload_hashes(db: sqlite3.Connection):
                 raise ValueError("invalid retained receipt")
             # Inputs and descriptive metadata merely mention bytes. Ownership
             # belongs to published files, even if their handler later failed.
-            evidence_items = payload.get("evidence", [])
-            if not isinstance(evidence_items, list):
-                raise ValueError("invalid retained evidence")
-            for evidence in evidence_items:
-                if not isinstance(evidence, dict):
-                    raise ValueError("invalid retained evidence item")
-                ref = evidence.get("ref", {})
+            record_items = payload.get("records", [])
+            if not isinstance(record_items, list):
+                raise ValueError("invalid retained receipt records")
+            for record in record_items:
+                if not isinstance(record, dict):
+                    raise ValueError("invalid retained receipt record")
+                ref = record.get("ref", {})
                 if not isinstance(ref, dict):
-                    raise ValueError("invalid retained evidence reference")
+                    raise ValueError("invalid retained receipt record reference")
                 if ref.get("kind") == "row_file_output":
                     yield from _file_output_hashes(ref)
             exports = payload.get("exports", [])

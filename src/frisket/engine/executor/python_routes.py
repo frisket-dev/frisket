@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from frisket.contracts.action import ReceiptEvidence
+from frisket.contracts.action import ReceiptRecord
 from frisket.engine.executor.recordsets import (
     DERIVE_TABLE_FROM_LIST,
     feedable_named_result_ref,
@@ -46,9 +46,7 @@ def project_routed_outputs(plan, facts, refs, *, project):
         projection = field.route
         route, target = projection.route, projection.route.target
         if field.hidden:
-            evidence.append(
-                ReceiptEvidence(ref={**base, "kind": "typed_hidden_output"})
-            )
+            evidence.append(ReceiptRecord(ref={**base, "kind": "typed_hidden_output"}))
         if target.kind == "column":
             columns.append(
                 {
@@ -79,9 +77,9 @@ def project_routed_outputs(plan, facts, refs, *, project):
             )
         else:
             evidence.append(
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
-                        "kind": "map_python_receipt_evidence",
+                        "kind": "map_python_receipt_record",
                         "route": route.name,
                         "path": route.path,
                         "sheet_id": facts.sheet_id,

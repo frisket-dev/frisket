@@ -372,7 +372,7 @@ def _feed_poll_summary_from_result(
     receipt = json.loads(body)
     refs = [
         item.get("ref") or {}
-        for item in [*receipt.get("outputs", []), *receipt.get("evidence", [])]
+        for item in [*receipt.get("outputs", []), *receipt.get("records", [])]
         if isinstance(item, dict)
     ]
     feed_check = next(

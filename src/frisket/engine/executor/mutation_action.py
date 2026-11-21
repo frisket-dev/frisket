@@ -50,7 +50,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.contracts.actions.schemas._base import (
@@ -1325,7 +1325,7 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name=returned.column_name, ref=ref)]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "column_format_transition",
                     "sheet_id": returned.sheet_id,
@@ -1363,7 +1363,7 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name=returned.name, ref=ref)]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "added_column",
                     "sheet_id": returned.sheet_id,
@@ -1396,7 +1396,7 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name="added_rows", ref=ref)]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "added_row",
                     "sheet_id": returned.sheet_id,
@@ -1406,7 +1406,7 @@ def _result_and_receipt(
                 retention="pinned",
             ),
             *(
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "source_cell",
                         "sheet_id": returned.sheet_id,
@@ -1446,7 +1446,7 @@ def _result_and_receipt(
         if returned.source:
             inputs.append(ReceiptIO(name="import_source", ref=dict(returned.source)))
         outputs = [ReceiptIO(name="appended_rows", ref=ref)]
-        supporting_records = [ReceiptEvidence(ref=ref, retention="pinned")]
+        supporting_records = [ReceiptRecord(ref=ref, retention="pinned")]
     elif isinstance(returned, DeletedRows):
         ref = {
             "kind": "deleted_rows",
@@ -1471,7 +1471,7 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name="deleted_rows", ref=ref)]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "deleted_row",
                     "sheet_id": returned.sheet_id,
@@ -1517,7 +1517,7 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name=returned.column_name, ref=ref)]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "column_type_transition",
                     "sheet_id": returned.sheet_id,
@@ -1528,7 +1528,7 @@ def _result_and_receipt(
                 },
                 retention="pinned",
             ),
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "classified_column_values",
                     "sheet_id": returned.sheet_id,
@@ -1578,7 +1578,7 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name="manual_edits", ref=ref)]
         supporting_records = [
-            ReceiptEvidence(ref=dict(edit_ref), retention="pinned")
+            ReceiptRecord(ref=dict(edit_ref), retention="pinned")
             for edit_ref in capability._edit_refs
         ]
     else:
@@ -1668,9 +1668,9 @@ def _result_and_receipt(
         ]
         outputs = [ReceiptIO(name="query_manual_edits", ref=ref)]
         supporting_records = [
-            ReceiptEvidence(ref=rowset_ref, retention="pinned"),
+            ReceiptRecord(ref=rowset_ref, retention="pinned"),
             *(
-                ReceiptEvidence(ref=dict(edit_ref), retention="pinned")
+                ReceiptRecord(ref=dict(edit_ref), retention="pinned")
                 for edit_ref in capability._edit_refs
             ),
         ]
@@ -1695,7 +1695,7 @@ def _result_and_receipt(
         inputs=inputs,
         outputs=outputs,
         provider_use=provider_use,
-        evidence=supporting_records,
+        records=supporting_records,
     )
     result = ActionResult(
         action=ActionIdentity(kind=action.kind, action_id=action_id),

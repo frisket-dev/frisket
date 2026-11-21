@@ -252,7 +252,7 @@ def output_columns_replay_error(
     if hidden_output_kind is not None:
         outputs.extend(
             ReceiptIO(name=item.ref["name"], ref=item.ref)
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == hidden_output_kind
         )
     for output in outputs:

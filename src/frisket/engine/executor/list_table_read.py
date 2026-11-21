@@ -354,7 +354,7 @@ class AdmittedListTableReader:
                 continue
             producer_kind = candidate.action_kind
             producer_params_hash = candidate.params_hash
-            for item in candidate.evidence:
+            for item in candidate.records:
                 if (
                     item.ref.get("kind") == "backfill_source_generation"
                     and item.ref.get("successor_run_id") == source.run_id

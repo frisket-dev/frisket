@@ -28,7 +28,7 @@ from frisket.actions.types import (
     TableResult,
     TableRow,
 )
-from frisket.contracts.action import ReceiptEvidence
+from frisket.contracts.action import ReceiptRecord
 from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
 from frisket.engine.pdf_page_source import (
     PdfPageSourceError,
@@ -879,7 +879,7 @@ class AdmittedPositionedDocumentReader:
                     producer={"action_kind": "media.extract_document"},
                 )
                 supporting_records.append(
-                    ReceiptEvidence(
+                    ReceiptRecord(
                         ref={
                             "kind": "evidence_link",
                             "id": link["id"],

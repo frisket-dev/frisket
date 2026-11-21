@@ -15,7 +15,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.ai.llm.types import LLMError
@@ -690,7 +690,7 @@ def _reserve_running_action_receipt_in_transaction(
 
 
 def _queued_receipt_job_id(receipt: Receipt) -> int | None:
-    for item in receipt.evidence:
+    for item in receipt.records:
         ref = item.ref
         if ref.get("queue_kind") != "project.run":
             continue
@@ -932,7 +932,7 @@ def _queued_receipt_prepared_link(receipt: Receipt) -> Mapping[str, Any] | None:
         return None
     matches = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == QUEUED_ACTION_RUN_PREPARED_RECORD_KIND
         and item.ref.get("queue_kind") == "project.run"
         and item.ref.get("run_id") == receipt.run_id
@@ -1410,13 +1410,13 @@ def _bind_receipt_to_prepared_run(
     receipt = Receipt.model_validate(json.loads(row["body"]))
     supporting_records = [
         item
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") != QUEUED_ACTION_RUN_PREPARED_RECORD_KIND
     ]
     if prepared_ref is not None:
-        supporting_records.append(ReceiptEvidence(ref=prepared_ref))
+        supporting_records.append(ReceiptRecord(ref=prepared_ref))
     receipt = receipt.model_copy(
-        update={"run_id": run_id, "evidence": supporting_records}
+        update={"run_id": run_id, "records": supporting_records}
     )
     if not ReceiptStore(project).update_body_status_in_transaction(
         receipt, require_status=receipt_status
@@ -1460,10 +1460,10 @@ def _mark_queued_action_enqueued(
         return
     receipt = Receipt.model_validate(json.loads(row["body"]))
     supporting_records = [
-        item for item in receipt.evidence if item.ref.get("kind") != spec.queue_job_kind
+        item for item in receipt.records if item.ref.get("kind") != spec.queue_job_kind
     ]
     supporting_records.append(
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": spec.queue_job_kind,
                 "queue_kind": "project.run",
@@ -1473,7 +1473,7 @@ def _mark_queued_action_enqueued(
         )
     )
     receipt = receipt.model_copy(
-        update={"run_id": run_id, "evidence": supporting_records}
+        update={"run_id": run_id, "records": supporting_records}
     )
     try:
         with write_transaction(project.db):

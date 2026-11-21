@@ -13,7 +13,7 @@ from frisket.contracts.action import (
     ActionIdentity,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.project_opener import ProjectOpener
@@ -516,7 +516,7 @@ def _mark_action_job_receipt_queued_for_retry(
 
 
 def _action_job_receipt_job_id(receipt: Receipt) -> int | None:
-    for item in receipt.evidence:
+    for item in receipt.records:
         ref = item.ref
         if ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND:
             continue
@@ -896,11 +896,11 @@ def mark_action_job_enqueued(
             )
         supporting_records = [
             item
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND
         ]
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": ACTION_JOB_ENQUEUED_RECORD_KIND,
                     "queue_kind": job_kind,
@@ -908,7 +908,7 @@ def mark_action_job_enqueued(
                 }
             )
         )
-        updated_receipt = receipt.model_copy(update={"evidence": supporting_records})
+        updated_receipt = receipt.model_copy(update={"records": supporting_records})
         updated = receipts.update_body_status_in_transaction(
             updated_receipt,
             require_status=receipt.status,

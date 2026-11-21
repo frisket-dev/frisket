@@ -16,7 +16,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families._errors import (
@@ -843,7 +843,7 @@ def _reduce_group_summary_receipt(
     model_call_ids = [call["id"] for call in model_calls]
     receipt_cost_actual = model_calls_cost_actual(model_calls)
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_groups",
                 "sheet_id": resolved["sheet_id"],
@@ -860,7 +860,7 @@ def _reduce_group_summary_receipt(
             },
             retention="materialized",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_output_roles",
                 "columns": {
@@ -880,7 +880,7 @@ def _reduce_group_summary_receipt(
                 },
             }
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_model_calls",
                 "model_call_ids": model_call_ids,
@@ -891,7 +891,7 @@ def _reduce_group_summary_receipt(
             },
             retention="pinned",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_prompt",
                 "instruction_hash": _text_hash(params.instruction),
@@ -903,7 +903,7 @@ def _reduce_group_summary_receipt(
             },
             retention="pinned",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_run_counts",
                 "total_groups": len(computations),
@@ -914,7 +914,7 @@ def _reduce_group_summary_receipt(
                 "run_id": run_id,
             }
         ),
-        ReceiptEvidence(ref=membership_ref, retention="pinned"),
+        ReceiptRecord(ref=membership_ref, retention="pinned"),
     ]
     errors = []
     if status == "failed":
@@ -984,7 +984,7 @@ def _reduce_group_summary_receipt(
             model=params.model,
             run=run,
         ),
-        evidence=supporting_records,
+        records=supporting_records,
         errors=errors,
     )
 
