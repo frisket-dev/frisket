@@ -61,6 +61,7 @@ from frisket.authoring.action_registry import ActionRegistryStore
 from frisket.authoring.action_metadata import PRODUCT_EDITION_SNAPSHOT_KEY
 from frisket.engine.runner import RunProgress
 from frisket.server.route_errors import RouteError
+from frisket.server.services.table_imports import run_table_analysis
 from frisket.engine.store import BundleSchemaMismatch, Project, delete_bundle
 from frisket.engine.store.blob_backend import ProjectBlobStore
 from frisket.authoring.workbench.plugin_runtime import (
@@ -325,6 +326,7 @@ class Workspace:
                 else None
             ),
             prepare_enclosures_for_search=self.edition != "cloud",
+            run_table_analysis=run_table_analysis,
         )
         if enable_local_model_pull:
             # Local-tier-only: deliberately

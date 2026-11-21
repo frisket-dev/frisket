@@ -526,6 +526,9 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         embedding_runtime = EmbeddingRuntime()
         registration_options["embedding_runtime"] = embedding_runtime
         registration_options["prepare_enclosures_for_search"] = True
+        registration_options["run_table_analysis"] = _load(
+            "frisket.server.services.table_imports:run_table_analysis"
+        )
     cloud_client = None
     if not hosted and not database_url:
         from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
