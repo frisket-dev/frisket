@@ -238,7 +238,7 @@ class _PurchaseExecution:
                 self.observe_error(error) if self.observe_error is not None else None
             )
         except Exception as observation_error:
-            error.purchase_observation_error = observation_error
+            setattr(error, "purchase_observation_error", observation_error)
             self._fail(error)
             return
         if known is None:
@@ -247,8 +247,8 @@ class _PurchaseExecution:
         try:
             self.policy.record_purchase(self.request, self.admission, known)
         except Exception as accounting_error:
-            error.observation = known
-            error.purchase_recording_error = accounting_error
+            setattr(error, "observation", known)
+            setattr(error, "purchase_recording_error", accounting_error)
             self._fail(error)
 
     def returned(self, result):
@@ -276,10 +276,10 @@ class _PurchaseExecution:
             import asyncio
 
             if isinstance(error, asyncio.CancelledError):
-                error.provider_result = result
-                error.observation = observation
-                error.purchase_request = self.request
-                error.purchase_admission = self.admission
+                setattr(error, "provider_result", result)
+                setattr(error, "observation", observation)
+                setattr(error, "purchase_request", self.request)
+                setattr(error, "purchase_admission", self.admission)
                 raise
             raise recording_error from error
         return result
