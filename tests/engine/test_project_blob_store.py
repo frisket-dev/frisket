@@ -184,7 +184,7 @@ def _storage_key(
     project_slug: str = "project-a",
 ) -> Any:
     return api.project_storage_key(
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_org_id,
         project_slug=project_slug,
     )
 
