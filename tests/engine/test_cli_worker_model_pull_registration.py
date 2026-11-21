@@ -25,7 +25,7 @@ def test_local_worker_command_registers_model_pull(tmp_path, monkeypatch) -> Non
     monkeypatch.setenv("FRISKET_NO_WORKER", "1")
 
     workspace = tmp_path / "ws"
-    rc = _run_worker(["--drain", str(workspace)], hosted=False)
+    rc = _run_worker(["--drain", str(workspace)], cloud=False)
 
     assert rc == 0
     assert len(calls) == 1
@@ -47,7 +47,7 @@ def test_hosted_worker_command_never_calls_model_pull_registration(
     # worker loop -- which is exactly the assertion: model.pull registration
     # is never attempted on this path, regardless of how far it gets.
     try:
-        _run_worker(["--database-url", "postgresql://nope/db"], hosted=True)
+        _run_worker(["--database-url", "postgresql://nope/db"], cloud=True)
     except Exception:
         pass
 

@@ -305,7 +305,7 @@ def _execution_route(
         sends_data_to = label
         account_id = payer.account_id
     elif (
-        composition.facts.edition == "hosted"
+        composition.facts.edition == "cloud"
         and (
             credential_source == "platform"
             or credential_source in {None, "missing"}

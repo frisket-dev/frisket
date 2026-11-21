@@ -890,7 +890,7 @@ def test_hosted_edition_resolves_funding_into_the_route_facts():
     metered = resolve(
         ResolutionRequest(engine="faster_whisper"),
         StaticExecutionTargetProvider(),
-        CompositionFacts(edition="hosted", funding=PlatformMetered()),
+        CompositionFacts(edition="cloud", funding=PlatformMetered()),
     )
     assert isinstance(metered, Resolution)
     assert metered.facts.cost_posture == "platform_metered"
@@ -899,7 +899,7 @@ def test_hosted_edition_resolves_funding_into_the_route_facts():
     byok = resolve(
         ResolutionRequest(engine="faster_whisper"),
         StaticExecutionTargetProvider(),
-        CompositionFacts(edition="hosted", funding=ByokZero()),
+        CompositionFacts(edition="cloud", funding=ByokZero()),
     )
     assert isinstance(byok, Resolution)
     assert byok.facts.cost_posture == "org_key"

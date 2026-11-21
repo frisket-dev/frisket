@@ -59,8 +59,8 @@ if TYPE_CHECKING:
     from frisket.execution.resolver import ModelRoute, ResolutionRequest
 
 # Composition edition vocabulary. ``CompositionFacts`` makes operator and
-# egress *resolved* facts for both open and hosted editions.
-Edition = Literal["open", "hosted"]
+# egress *resolved* facts for both open and cloud editions.
+Edition = Literal["open", "cloud"]
 TargetConfiguration = Literal["configured", "not_configured"]
 
 

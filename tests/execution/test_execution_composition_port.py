@@ -89,7 +89,7 @@ def test_request_context_is_typed_detached_and_passed_by_identity(make_project) 
 
 def test_request_context_refuses_untyped_state() -> None:
     request = SimpleNamespace(
-        state=SimpleNamespace(execution_composition_context={"edition": "hosted"})
+        state=SimpleNamespace(execution_composition_context={"edition": "cloud"})
     )
     with pytest.raises(TypeError, match="ExecutionCompositionContext"):
         Workspace.execution_composition_context_for(request)
@@ -312,7 +312,7 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
             )
         return ExecutionComposition(
             facts=CompositionFacts(
-                edition="hosted",
+                edition="cloud",
                 org_id="org-a",
                 funding=funding,
             ),

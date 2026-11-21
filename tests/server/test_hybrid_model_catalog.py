@@ -16,7 +16,7 @@ HYBRID_MODEL_ACTIONS = ROUTED_HYBRID_MODEL_ACTIONS | {"map.ner"}
 def _platform_composition_without_execution_offers() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-hybrid-catalog",
             funding=PlatformMetered(),
         ),
