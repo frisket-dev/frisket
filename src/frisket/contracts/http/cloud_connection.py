@@ -271,7 +271,7 @@ CloudMediaExecutionMetadata = Annotated[
 ]
 
 
-class CloudExecutionQuote(WireModel):
+class CloudExecutionEstimate(WireModel):
     account_id: int = Field(gt=0)
     route_revision: str = Field(min_length=1)
     lane: CloudLane
@@ -282,10 +282,10 @@ class CloudExecutionQuote(WireModel):
     expires_at: str
 
 
-class CloudQuoteChallenge(WireModel):
+class CloudEstimateChallenge(WireModel):
     error: Literal["needs_confirmation"]
     confirmation: str = Field(min_length=1)
-    quote: CloudExecutionQuote
+    estimate: CloudExecutionEstimate
 
 
 class CloudLLMToolCall(WireModel):

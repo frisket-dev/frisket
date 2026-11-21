@@ -1207,7 +1207,7 @@ def _comparison_estimate_response(estimate: dict[str, Any]) -> ActionPreviewRunR
     return ActionPreviewRunResponse(
         status_code=200,
         payload={
-            "schema_version": "frisket.action_compare_quote.v1",
+            "schema_version": "frisket.action_compare_estimate.v1",
             "estimate": closed_estimate,
         },
     )
