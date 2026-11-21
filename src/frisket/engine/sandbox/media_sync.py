@@ -22,17 +22,21 @@ def run_media_sync(
     Only renderer data (paths, policies and captured projection facts) may enter
     ``operation``. Its sandbox retains sole ownership of timeout/tree teardown.
     """
+
+    async def _run_operation(cancel_check: Callable[[], bool] | None) -> T:
+        return await operation(cancel_check)
+
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(operation(cancelled))
+        return asyncio.run(_run_operation(cancelled))
 
     stop, done = threading.Event(), threading.Event()
     results, errors = [], []
 
     def render():
         try:
-            results.append(asyncio.run(operation(stop.is_set)))
+            results.append(asyncio.run(_run_operation(stop.is_set)))
         except BaseException as exc:
             errors.append(exc)
         finally:

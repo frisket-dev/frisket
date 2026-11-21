@@ -11,7 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { WorkspaceAiProvidersSettings } from '../../src/settings/AiProviderSettings';
-import type { LocalHttpEndpointEntry, LocalProviderCatalog, ModelPullDto } from '../../src/api/types';
+import type { LocalHttpEndpointEntry, LocalProviderCatalog, LocalProviderEntry, ModelPullDto } from '../../src/api/types';
 
 vi.mock('../../src/api/modelsGateway', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/api/modelsGateway')>(),

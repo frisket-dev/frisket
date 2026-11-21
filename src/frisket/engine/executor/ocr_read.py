@@ -328,8 +328,14 @@ class _BoundOcrReader:
             # the recognized document can be materialized or published.
             accounting = owner.accounting_by_row.get(self._row_id)
             if accounting is not None:
-                exc.accounting = copy.deepcopy(
-                    merge_accounting_meta(getattr(exc, "accounting", None), accounting)
+                setattr(
+                    exc,
+                    "accounting",
+                    copy.deepcopy(
+                        merge_accounting_meta(
+                            getattr(exc, "accounting", None), accounting
+                        )
+                    ),
                 )
             raise
 

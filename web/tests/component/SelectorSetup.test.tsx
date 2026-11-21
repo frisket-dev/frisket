@@ -25,7 +25,8 @@ function choice(setup: Setup | null, configurationActions: ConfigurationAction[]
     processing_destination: { kind: 'external', label: 'Provider' }, resolved_target: null,
     is_current: false, is_default: false, can_author: true, can_run: false,
     status: setup ? 'needs_setup' : 'ready', blocker: null, active_operation: null,
-    model_card_url: null, setup, configuration_actions: configurationActions };
+    model_card_url: null, execution_route: null, route_selection: null,
+    setup, configuration_actions: configurationActions };
 }
 const accepted = { provider: 'openai', ok: true, reachable: true, status: 200,
   detail: null, validation_token: 'signed-key-receipt' };

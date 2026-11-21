@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProjectApi } from '../../src/api/real';
-import type { ActionCatalogEntry, ActionProposal, GeneratedActionDraft } from '../../src/api/types';
+import {
+  isGeneratedActionCatalogEntry,
+  type ActionCatalogEntry,
+  type ActionProposal,
+  type GeneratedActionDraft,
+} from '../../src/api/types';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { hasTestPython } from '../support/testPython';
 
@@ -14,7 +19,7 @@ const KINDS = [
 
 function proposalFor(entry: ActionCatalogEntry): ActionProposal {
   const example = entry.examples[0] as { params?: GeneratedActionDraft['params'] } | undefined;
-  if (!example?.params || entry.ui_hints.form !== 'generated') throw new Error(`Missing typed example for ${entry.kind}`);
+  if (!example?.params || !isGeneratedActionCatalogEntry(entry)) throw new Error(`Missing typed example for ${entry.kind}`);
   const params = structuredClone(example.params);
   const createsSheet = entry.ui_hints.typed_action?.creates_sheet === true;
   const fields = params.fields as Array<{ name: string }> | undefined;

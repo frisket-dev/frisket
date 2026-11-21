@@ -2,12 +2,25 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PdfPacketReview } from '../../src/components/importWorkspace/pdfPacket/PdfPacketReview';
-import type { PdfPacketSplitSnapshot } from '../../src/api/pdfPacketSplits';
+import type { PdfPacketMatchResult, PdfPacketSplitSnapshot } from '../../src/api/pdfPacketSplits';
 
 Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
 Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
 
-const matcher = vi.hoisted(() => vi.fn(async () => ({ analysis_revision: 1, pages: [], suggested_pages: [], unsure_pages: [], phrase_counts: {} })));
+const matchResult = vi.hoisted(() => (overrides: Partial<PdfPacketMatchResult> = {}): PdfPacketMatchResult => ({
+  schema_version: 'frisket.pdf_packet_split.v1',
+  split_id: 's',
+  analysis_revision: 1,
+  clusters: [],
+  pages: [],
+  suggested_pages: [],
+  unsure_pages: [],
+  phrase_counts: {},
+  accept_all_scope: 'packet',
+  ...overrides,
+}));
+
+const matcher = vi.hoisted(() => vi.fn(async (): Promise<PdfPacketMatchResult> => matchResult()));
 vi.mock('../../src/components/importWorkspace/pdfPacket/PacketLargePageView', () => ({ PacketLargePageView: () => null }));
 vi.mock('../../src/api/pdfPacketSplits', () => ({
   matchPdfPacketCandidates: matcher,
@@ -24,7 +37,7 @@ const snapshot = {
   prepare: { native_text_pages: [1, 2, 3] }, jobs: [],
 } as unknown as PdfPacketSplitSnapshot;
 
-afterEach(() => { cleanup(); matcher.mockReset(); matcher.mockResolvedValue({ analysis_revision: 1, pages: [], suggested_pages: [], unsure_pages: [], phrase_counts: {} }); });
+afterEach(() => { cleanup(); matcher.mockReset(); matcher.mockResolvedValue(matchResult()); });
 describe('combined PDF review', () => {
   it('submits only confirmed interior starts with original-local fixed starts', async () => {
     const onReviewed = vi.fn();
@@ -82,7 +95,7 @@ describe('combined PDF review', () => {
     expect(screen.queryByRole('dialog', { name: 'Discard this split?' })).toBeNull();
   });
   it('does not commit an unaccepted suggestion', async () => {
-    matcher.mockResolvedValue({ analysis_revision: 1, pages: [], suggested_pages: [4], unsure_pages: [], phrase_counts: {} });
+    matcher.mockResolvedValue(matchResult({ suggested_pages: [4] }));
     const onReviewed = vi.fn();
     render(<PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={onReviewed} onBack={() => {}} />);
     await screen.findByRole('button', { name: 'Accept all 1 suggested' });
@@ -90,7 +103,7 @@ describe('combined PDF review', () => {
     await waitFor(() => expect(onReviewed).toHaveBeenCalledWith({ a: [1], b: [4] }));
   });
   it('applies suggested boundaries only after accepting them', async () => {
-    matcher.mockResolvedValue({ analysis_revision: 1, pages: [], suggested_pages: [4], unsure_pages: [], phrase_counts: {} });
+    matcher.mockResolvedValue(matchResult({ suggested_pages: [4] }));
     const onReviewed = vi.fn();
     render(<PdfPacketReview projectId="p" snapshot={snapshot} onReviewed={onReviewed} onBack={() => {}} />);
     const accept = await screen.findByRole('button', { name: 'Accept all 1 suggested' });

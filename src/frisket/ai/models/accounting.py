@@ -25,7 +25,7 @@ def wire_accounting_meta(
     calls: list[dict[str, Any]] = []
     execution_receipts: list[dict[str, Any]] = []
     for wire in wire_responses:
-        units = {
+        units: dict[str, float | int | str | bool | None] = {
             "tokens_in": wire.tokens_in if wire.usage_available else None,
             "tokens_out": wire.tokens_out if wire.usage_available else None,
         }

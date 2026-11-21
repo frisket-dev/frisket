@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
 
-import type { ActionCatalogPayload, GeneratedActionDraft, GeneratedActionRequest, SheetMeta } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type ActionCatalogPayload, type ActionParamResolution, type GeneratedActionDraft, type GeneratedActionRequest, type SheetMeta } from '../../src/api/types';
 import { decodeSavedActionSpec, encodeSavedActionSpec } from '../../src/actions/savedActionSpec';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
@@ -98,17 +98,23 @@ function renderPanel({
 }) {
   const stores = createWorkspaceStores(PROJECT, api);
   mountedStores.push(stores);
-  vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params, scope }) => {
+  vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params, scope }): Promise<ActionParamResolution> => {
     const selection = params.selection as { kind?: string; repeat_for_rows?: boolean; items?: unknown[] } | undefined;
     const literal = selection?.kind !== 'column';
     const rowIds = scope.kind === 'sheet_rows' ? scope.row_ids : undefined;
     const valid = selection && (!literal || (rowIds?.length
       && (rowIds.length === 1 || selection.repeat_for_rows)
       && (!selection.kind?.startsWith('draft_') || selection.items?.length)));
+    const transcriptOutputs = isGeneratedActionCatalogEntry(transcriptEntry)
+      ? transcriptEntry.ui_hints.logical_outputs
+      : [];
+    const mediaOutputs = isGeneratedActionCatalogEntry(mediaEntry)
+      ? mediaEntry.ui_hints.logical_outputs
+      : [];
     return { diagnostics: valid ? {} : { selection: { ok: false, message: 'Choose rows and a valid selection; acknowledge repetition for multiple rows.' } },
       logical_outputs: params.source === 'timestamped_transcript'
-        ? [...transcriptEntry.ui_hints.logical_outputs!, { key: 'speaker', column_type: 'text' }]
-        : mediaEntry.ui_hints.logical_outputs! };
+        ? [...transcriptOutputs, { key: 'speaker', column_type: 'text' }]
+        : mediaOutputs };
   });
   stores.actionCatalog.store.set(() => ({
     status: 'ready',

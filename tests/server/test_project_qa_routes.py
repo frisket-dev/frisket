@@ -1,13 +1,12 @@
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-from fastapi.testclient import TestClient
 
 from frisket.ai.llm.router import ModelRouter
-from frisket.server.app import create_app
 from frisket.engine.store.transactions import write_transaction
+from helpers import make_client
 
 
-def test_shared_history_revision_and_project_boundary(tmp_path):
-    with TestClient(create_app(tmp_path / "ws")) as client:
+def test_shared_history_revision_and_project_boundary(client):
+    with client:
         pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
         other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
         path = f"/api/projects/{pid}/qa/threads"
@@ -44,8 +43,8 @@ def test_shared_history_revision_and_project_boundary(tmp_path):
         assert client.get(path).json() == []
 
 
-def test_missing_scope_is_rejected_before_admission(tmp_path):
-    with TestClient(create_app(tmp_path / "ws")) as client:
+def test_missing_scope_is_rejected_before_admission(client):
+    with client:
         pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
         path = f"/api/projects/{pid}/qa/threads"
         missing = {"kind": "sources", "sources": [{"kind": "sheet", "sheet_id": 999}]}
@@ -70,11 +69,11 @@ def test_missing_scope_is_rejected_before_admission(tmp_path):
         assert result["history"]["events"] == []
 
 
-def test_citation_resolves_saved_value_and_refuses_another_thread(tmp_path):
+def test_citation_resolves_saved_value_and_refuses_another_thread(client):
     from frisket.engine.store.project_qa import ProjectQAStore
     from frisket.server.services.project_qa_tools import ProjectQATools
 
-    with TestClient(create_app(tmp_path / "ws")) as client:
+    with client:
         pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("Evidence")
@@ -112,11 +111,11 @@ def test_citation_resolves_saved_value_and_refuses_another_thread(tmp_path):
         assert client.get(path).json()["status"] == "unavailable"
 
 
-def test_empty_cell_citation_remains_current_until_the_cell_changes(tmp_path):
+def test_empty_cell_citation_remains_current_until_the_cell_changes(client):
     from frisket.engine.store.project_qa import ProjectQAStore
     from frisket.server.services.project_qa_tools import ProjectQATools
 
-    with TestClient(create_app(tmp_path / "ws")) as client:
+    with client:
         pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("Evidence")
@@ -139,7 +138,7 @@ def test_empty_cell_citation_remains_current_until_the_cell_changes(tmp_path):
         assert client.get(path).json()["status"] == "changed"
 
 
-def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
+def test_query_and_prepared_evidence_citations_reopen_current_sources(client):
     from frisket.engine.store.evidence import (
         record_citation,
         record_source_artifact,
@@ -148,7 +147,7 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
     from frisket.engine.store.project_qa import ProjectQAStore
     from frisket.server.services.project_qa_tools import ProjectQATools
 
-    with TestClient(create_app(tmp_path / "ws")) as client:
+    with client:
         pid = client.post("/api/projects", json={"name": "Sources"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("Evidence")
@@ -250,8 +249,8 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
         )
 
 
-def test_patch_null_scope_does_not_broaden_and_blank_title_is_friendly(tmp_path):
-    with TestClient(create_app(tmp_path / "ws")) as client:
+def test_patch_null_scope_does_not_broaden_and_blank_title_is_friendly(client):
+    with client:
         pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("Scope")
@@ -279,7 +278,7 @@ def test_project_deletion_refuses_active_ask(tmp_path):
         keys={"anthropic": "test"},
         use_env_keys=False,
     )
-    with TestClient(create_app(tmp_path / "ws", router=router)) as client:
+    with make_client(tmp_path, router=router) as client:
 
         async def runner(*args):
             await asyncio.Event().wait()

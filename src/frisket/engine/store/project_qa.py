@@ -12,7 +12,8 @@ import sqlite3
 import uuid
 from collections.abc import Callable, Collection, Mapping
 from datetime import datetime, timezone
-from typing import Any
+from enum import Enum
+from typing import Any, Final
 
 from statemachine import State, StateMachine
 from statemachine.exceptions import TransitionNotAllowed
@@ -71,7 +72,13 @@ EVENT_KINDS = frozenset(
 SKILL_CONTENT_EVENT_KINDS = frozenset({"skill_proposal", "skill_save_attempt"})
 MAX_SKILL_CONTENT_BYTES = 128 * 1024
 MAX_SKILL_EVENT_ENVELOPE_BYTES = 1024 * 1024
-_UNSET = object()
+
+
+class _Unset(Enum):
+    VALUE = object()
+
+
+_UNSET: Final = _Unset.VALUE
 
 
 class ProjectQAStoreError(RuntimeError):
@@ -364,11 +371,11 @@ class ProjectQAStore:
         *,
         expected_revision: int,
         title: str | None = None,
-        scope: Mapping[str, Any] | None | object = _UNSET,
-        model: str | None | object = _UNSET,
+        scope: Mapping[str, Any] | None | _Unset = _UNSET,
+        model: str | None | _Unset = _UNSET,
         web: bool | None = None,
         suggest_actions: bool | None = None,
-        research: Mapping[str, Any] | None | object = _UNSET,
+        research: Mapping[str, Any] | None | _Unset = _UNSET,
     ) -> dict[str, Any]:
         if (
             isinstance(expected_revision, bool)
@@ -1278,7 +1285,7 @@ class ProjectQAStore:
         *,
         status: str,
         usage: Mapping[str, Any] | None = None,
-        cost_actual: float | None | object = _UNSET,
+        cost_actual: float | None | _Unset = _UNSET,
         error_summary: str | None = None,
     ) -> dict[str, Any]:
         if status not in TERMINAL_TURN_STATUSES:

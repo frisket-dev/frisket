@@ -2,6 +2,7 @@ import '../PanelPrimitives.css';
 import '../ActionPanel.css';
 import { TextInput, TextArea } from '../FormControls';
 import { MultiColumnPicker } from '../MultiColumnPicker';
+import { PanelSelect } from '../PanelSelect';
 import { useEffect, useRef, useState } from 'react';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 
@@ -54,10 +55,10 @@ export function ListTableParamsBody({ sheet, params, setParams }:
       </p>
     </> : <>
       <label className="form-label" htmlFor="list-table-column">List</label>
-      <select id="list-table-column" className="form-input" data-testid="derive-source-column-select"
-        disabled={!sheet} value={liveSource?.column_id ?? ''} onChange={(event) => {
+      <PanelSelect id="list-table-column" data-testid="derive-source-column-select"
+        disabled={!sheet} value={liveSource?.column_id ?? ''} onValueChange={(value) => {
           if (!sheet) return;
-          const columnId = Number(event.target.value);
+          const columnId = Number(value);
           setParams({ ...params,
             source: { ...liveSource, kind: 'column', sheet_id: Number(sheet.id), column_id: columnId },
             parent_columns: parentColumns.filter((column) => column.column_id !== columnId),
@@ -65,7 +66,7 @@ export function ListTableParamsBody({ sheet, params, setParams }:
         }}>
         <option value="" disabled>Choose a JSON list column</option>
         {listColumns.map((column) => <option key={column.id} value={column.id}>{column.name}</option>)}
-      </select>
+      </PanelSelect>
       <p className="form-hint">Each list item becomes a row. Columns are discovered from the stored values.</p>
       {liveSource && <>
         <label className="form-label" htmlFor="list-table-properties">Include properties</label>

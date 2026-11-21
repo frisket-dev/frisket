@@ -158,10 +158,10 @@ describe('preview grid interactions', () => {
       rowIndexes: [0, 1],
       cachedAnchors: [{ index: 0, rowId: '1' }, { index: 1, rowId: '2' }],
     });
-    expect(editor.props?.gridSelection.rows.toArray()).toEqual([0, 1]);
-    expect(editor.props?.gridSelection.current).toBeUndefined();
+    expect(editor.props?.gridSelection?.rows.toArray()).toEqual([0, 1]);
+    expect(editor.props?.gridSelection?.current).toBeUndefined();
 
-    act(() => grid.onVisibleRegionChanged?.({ x: 0, y: 3, width: 1, height: 2 }));
+    act(() => grid.onVisibleRegionChanged?.({ x: 0, y: 3, width: 1, height: 2 }, 0, 0, {}));
     expect(visibleRowsChanged).not.toHaveBeenCalled();
   });
 

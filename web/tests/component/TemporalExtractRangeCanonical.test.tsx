@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
 
-import type { ActionCatalogPayload, GeneratedActionRequest, SheetMeta } from '../../src/api/types';
+import type { ActionCatalogPayload, ActionParamResolution, GeneratedActionRequest, SheetMeta } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -71,7 +71,7 @@ function renderPanel({
 }) {
   const stores = createWorkspaceStores(PROJECT, api);
   mountedStores.push(stores);
-  vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params, scope }) => {
+  vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params, scope }): Promise<ActionParamResolution> => {
     const selection = params.selection as { kind?: string; start_ms?: number; end_ms?: number; repeat_for_rows?: boolean };
     const rows = scope.kind === 'sheet_rows' ? scope.row_ids : undefined;
     const valid = selection?.kind === 'column' || (rows?.length

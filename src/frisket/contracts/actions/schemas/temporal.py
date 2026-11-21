@@ -109,7 +109,10 @@ class TemporalTypedValueSelection(ContractModel):
         try:
             if not is_json_value(value):
                 raise ValueError("invalid_temporal_value")
-            type_name = _TEMPORAL_TYPE_BY_SCHEMA_VERSION[value.get("schema_version")]
+            schema_version = value.get("schema_version")
+            if not isinstance(schema_version, str):
+                raise ValueError("invalid_temporal_value")
+            type_name = _TEMPORAL_TYPE_BY_SCHEMA_VERSION[schema_version]
             # Structural canonicalization is safe at the contract boundary: it
             # expands only schema defaults and makes no claim that the timeline
             # anchor exists in the current project. Contextual binding remains

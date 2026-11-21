@@ -136,7 +136,11 @@ def build_graph_neighborhood(
 
     ok, err = entities_available()
     if not ok:
-        raise GraphNeighborhoodError("entities_extra_missing", err, status_code=503)
+        raise GraphNeighborhoodError(
+            "entities_extra_missing",
+            err or "entities extra unavailable",
+            status_code=503,
+        )
 
     clean_anchor_id = str(anchor_id or "").strip()
     if not clean_anchor_id:

@@ -92,12 +92,15 @@ def _has_unexplained_ink(image: NDArray[np.uint8], boxes: list[_PageBox]) -> boo
 
     scale = min(1.0, _MAX_EDGE / max(image.shape))
     if scale < 1.0:
-        image = cv2.resize(
-            image,
-            None,
-            fx=scale,
-            fy=scale,
-            interpolation=cv2.INTER_AREA,
+        image = np.asarray(
+            cv2.resize(
+                image,
+                None,
+                fx=scale,
+                fy=scale,
+                interpolation=cv2.INTER_AREA,
+            ),
+            dtype=np.uint8,
         )
     image_height, image_width = image.shape
     pixel_boxes = [
@@ -118,7 +121,7 @@ def _has_unexplained_ink(image: NDArray[np.uint8], boxes: list[_PageBox]) -> boo
         image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
     component_count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
-        ink, 8
+        ink, connectivity=8
     )
     min_area = max(3, round(0.018 * median_height * median_height))
     max_area = max(min_area + 1, round(40.0 * median_height * median_height))
@@ -137,7 +140,7 @@ def _has_unexplained_ink(image: NDArray[np.uint8], boxes: list[_PageBox]) -> boo
             continue
         eligible_labels[label] = 1
 
-    eligible = eligible_labels[labels]
+    eligible = eligible_labels[np.asarray(labels, dtype=np.int32)]
     box_mask = np.zeros_like(eligible)
     padding = max(2, round(0.45 * median_height))
     for x0, y0, x1, y1 in pixel_boxes:

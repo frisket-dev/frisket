@@ -5,8 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
-import type { GeneratedActionCatalogEntry, GeneratedActionDraft } from '../../src/api/types';
-import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
+import type { ActionParamResolution, GeneratedActionCatalogEntry, GeneratedActionDraft } from '../../src/api/types';
+import { GeneratedActionForm, type GeneratedActionFormProps } from '../../src/components/action-panel/GeneratedActionForm';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
@@ -45,7 +45,7 @@ function mount(options: {
   const template = generatedActionTemplateFromCatalogEntry(entry);
   if (!template) throw new Error('Missing source picker template');
   const onExecute = vi.fn();
-  const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }) => ({
+  const resolveParams = vi.fn<GeneratedActionFormProps['resolveParams']>(async ({ params }): Promise<ActionParamResolution> => ({
     diagnostics: Array.isArray(params.source) && params.source.length === 0
       ? { source: { ok: false, message: SOURCE_ERROR } } : {},
     logical_outputs: [{ key: 'value', column_type: 'text' }],

@@ -12,7 +12,7 @@ let sequence = 0;
 let projectId: string;
 let layoutStore: ExtractionLayoutStoreHandle;
 let serverLayout: SavedExtractionTemplate;
-function saveDraft(pid: string, body: HttpExtractionTemplateSave) {
+function saveDraft(_pid: string, body: HttpExtractionTemplateSave) {
   serverLayout = { ...serverLayout, ...body, id: 1 };
   return structuredClone(serverLayout);
 }

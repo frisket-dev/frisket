@@ -192,7 +192,7 @@ def classify_llm_error(
         if endpoint_origin:
             details["endpoint_origin"] = endpoint_origin
         bare = bare_model_name(model) if model else None
-        if bare:
+        if model and bare:
             endpoint_id, _ = parse_local_model_id(model)
             pull_command = f"ollama pull {bare}"
             details["model"] = model

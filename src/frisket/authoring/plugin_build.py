@@ -44,6 +44,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Set as AbstractSet
 from importlib import resources
 from pathlib import Path
 
@@ -307,7 +308,7 @@ def _missing_component_export_bindings(
     workbench_components: list[dict],
     module_rel_path: str,
     exports: set[str],
-    exact_contributions: set[str] = frozenset(),
+    exact_contributions: AbstractSet[str] = frozenset(),
 ) -> list[dict]:
     """Bindings whose component_key resolves to no export the host would find.
 

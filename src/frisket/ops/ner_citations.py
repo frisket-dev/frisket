@@ -354,7 +354,7 @@ def _write_entity_spans(
                             "value_ref": surface_spec["value_ref"],
                         },
                     }
-                    if captured_text is not None
+                    if captured_text is not None and surface_spec is not None
                     else {}
                 ),
                 **(

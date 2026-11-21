@@ -256,15 +256,16 @@ def start_publication(workspace, intake, project_id, frozen, *, request_context=
     while occurrences := frozen.page_occurrences(after=after, limit=256):
         for occurrence in occurrences:
             order.append(occurrence.occurrence_id)
+            occurrence_sha256 = occurrence.sha256
             opener = (
                 None
-                if occurrence.sha256 is None
-                else lambda item=occurrence: _borrow_source(
+                if occurrence_sha256 is None
+                else lambda item=occurrence, digest=occurrence_sha256: _borrow_source(
                     intake,
                     project_id,
                     frozen.draft_id,
                     item.occurrence_id,
-                    item.sha256,
+                    digest,
                     item.size,
                 )
             )
@@ -272,11 +273,13 @@ def start_publication(workspace, intake, project_id, frozen, *, request_context=
                 occurrence.mime == "application/pdf"
                 and occurrence.page_count
                 and not occurrence.error
+                and occurrence_sha256 is not None
+                and opener is not None
             ):
                 sources.append(
                     AdmittedPacketSource(
                         key=occurrence.occurrence_id,
-                        sha256=occurrence.sha256,
+                        sha256=occurrence_sha256,
                         filename=occurrence.filename,
                         size=occurrence.size,
                         page_count=occurrence.page_count,

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
 from contextlib import nullcontext, closing
+from dataclasses import dataclass
+from typing import Any, Literal
 from weakref import WeakSet, WeakKeyDictionary
 from .table_read_stage import JoinReadStage
 
@@ -97,9 +99,13 @@ def _projection(keys, picks, left, right, indicator):
             "left": {pair.left_column for pair in keys},
             "right": {pair.right_column for pair in keys},
         }
+        sides: tuple[tuple[Literal["left", "right"], Mapping[str, Any]], ...] = (
+            ("left", left),
+            ("right", right),
+        )
         picks = [
             JoinColumnPick(side=side, column=name)
-            for side, columns in (("left", left), ("right", right))
+            for side, columns in sides
             for name in columns
             if name not in key_sets[side]
         ]

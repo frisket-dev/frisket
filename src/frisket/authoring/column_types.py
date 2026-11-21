@@ -341,7 +341,7 @@ def _is_linear_ring(value: Any) -> bool:
 def _is_polygon_coordinates(value: Any) -> bool:
     return (
         isinstance(value, list)
-        and value
+        and len(value) > 0
         and all(_is_linear_ring(item) for item in value)
     )
 
@@ -369,13 +369,13 @@ def _is_geo_shape(v: Any) -> bool:
     if geometry_type == "MultiLineString":
         return (
             isinstance(coordinates, list)
-            and coordinates
+            and len(coordinates) > 0
             and all(_is_position_list(item, minimum=2) for item in coordinates)
         )
     if geometry_type == "MultiPolygon":
         return (
             isinstance(coordinates, list)
-            and coordinates
+            and len(coordinates) > 0
             and all(_is_polygon_coordinates(item) for item in coordinates)
         )
     return False

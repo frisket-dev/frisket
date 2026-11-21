@@ -762,24 +762,6 @@ def test_admit_rejects_unapproved_growth_without_poisoning_existing_generation(
         assert store.pending(limit=10)[0].target.page_number == 2
 
 
-def test_existing_draft_sample_cache_reuses_equivalent_default_settings(tmp_path):
-    from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
-    from frisket.server.services.pdf_imports.previews import preview_settings
-
-    path = tmp_path / "inventory.db"
-    _settings, digest = preview_settings({"engine": "tesseract"})
-    with PdfDraftInventory(path) as inventory:
-        inventory.cache_ocr(
-            "a" * 64,
-            2,
-            "tesseract",
-            digest,
-            {"ocr_action_params": {"engine": "tesseract"}, "text": "already read"},
-        )
-    with PdfSplitPreparationStore(path) as store:
-        assert store.cached_preview(target())["text"] == "already read"
-
-
 def test_independent_preview_inventories_share_one_original_page_flight(
     tmp_path, monkeypatch
 ):

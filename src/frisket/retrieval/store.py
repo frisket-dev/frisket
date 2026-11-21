@@ -1308,6 +1308,8 @@ def _preparation_state(row: sqlite3.Row) -> PreparationState:
 
 def _preparation_work(row: sqlite3.Row) -> PreparationWork:
     state = _preparation_state(row)
+    if state.status != "pending" and state.status != "preparing":
+        raise ValueError(f"unexpected preparation work status: {state.status!r}")
     return PreparationWork(
         source_revision=SourceRevision(
             source_id=state.source_id,

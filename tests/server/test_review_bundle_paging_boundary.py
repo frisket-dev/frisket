@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.runner import review as review_runner
 from frisket.engine.store.transactions import write_transaction
-from frisket.server.app import create_app
 from frisket.engine.runner.review import queue_count, review_bundle_page
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.evidence import record_source_artifact
@@ -32,8 +31,7 @@ def _assert_no_recipe_keys(value: object) -> None:
             _assert_no_recipe_keys(child)
 
 
-def _seed_review_history(tmp_path: Path) -> tuple[TestClient, str, list[int]]:
-    client = TestClient(create_app(tmp_path / "ws"))
+def _seed_review_history(client: TestClient) -> tuple[TestClient, str, list[int]]:
     project_id = client.post(
         "/api/projects", json={"name": "Review bundle paging"}
     ).json()["id"]
@@ -104,9 +102,9 @@ def _seed_review_history(tmp_path: Path) -> tuple[TestClient, str, list[int]]:
 
 
 def test_review_bundles_return_bounded_pages_with_action_metadata(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+    client, project_id, row_ids = _seed_review_history(client)
 
     count_response = client.get(f"/api/projects/{project_id}/review/count")
     assert count_response.status_code == 200, count_response.text
@@ -227,9 +225,9 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
 
 
 def test_review_bundle_page_batches_source_reads_for_all_rows(
-    tmp_path: Path, monkeypatch
+    client: TestClient, monkeypatch
 ) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+    client, project_id, row_ids = _seed_review_history(client)
     project = client.app.state.workspace.get(project_id)
     run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
     story_id = int(
@@ -279,8 +277,10 @@ def test_review_bundle_page_batches_source_reads_for_all_rows(
     ]
 
 
-def test_selected_run_keeps_frozen_hidden_and_renamed_outputs(tmp_path: Path) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+def test_selected_run_keeps_frozen_hidden_and_renamed_outputs(
+    client: TestClient,
+) -> None:
+    client, project_id, row_ids = _seed_review_history(client)
     project = client.app.state.workspace.get(project_id)
     run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
     initial = review_bundle_page(project, run_id=run_id, limit=100)
@@ -310,8 +310,8 @@ def test_selected_run_keeps_frozen_hidden_and_renamed_outputs(tmp_path: Path) ->
     assert {item["column_name"] for item in first["evidence"]} == {"risk_justification"}
 
 
-def test_review_bundle_page_params_are_validated(tmp_path: Path) -> None:
-    client, project_id, _row_ids = _seed_review_history(tmp_path)
+def test_review_bundle_page_params_are_validated(client: TestClient) -> None:
+    client, project_id, _row_ids = _seed_review_history(client)
     for params in (
         {"offset": -1, "limit": 25},
         {"offset": 0, "limit": 0},
@@ -325,9 +325,9 @@ def test_review_bundle_page_params_are_validated(tmp_path: Path) -> None:
 
 
 def test_review_runs_report_decisions_and_persist_workflow_status(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+    client, project_id, row_ids = _seed_review_history(client)
     project = client.app.state.workspace.get(project_id)
     run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
     columns = {
@@ -394,9 +394,9 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
 
 
 def test_review_run_picker_includes_completed_results_of_running_runs(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+    client, project_id, row_ids = _seed_review_history(client)
     project = client.app.state.workspace.get(project_id)
     sheet_id = int(project.db.execute("SELECT id FROM sheets").fetchone()[0])
     risk_id = int(
@@ -430,8 +430,10 @@ def test_review_run_picker_includes_completed_results_of_running_runs(
     assert queue_count(project) == len(row_ids) * 2 + 1
 
 
-def test_review_bundle_row_cursor_pages_without_offset_rescans(tmp_path: Path) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+def test_review_bundle_row_cursor_pages_without_offset_rescans(
+    client: TestClient,
+) -> None:
+    client, project_id, row_ids = _seed_review_history(client)
     project = client.app.state.workspace.get(project_id)
     run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
 
@@ -476,8 +478,8 @@ def test_review_bundle_row_cursor_pages_without_offset_rescans(tmp_path: Path) -
     assert tail_body["next_cursor"] is None
 
 
-def test_random_review_batches_and_exact_history(tmp_path: Path) -> None:
-    client, project_id, row_ids = _seed_review_history(tmp_path)
+def test_random_review_batches_and_exact_history(client: TestClient) -> None:
+    client, project_id, row_ids = _seed_review_history(client)
     project = client.app.state.workspace.get(project_id)
     run_id = int(project.db.execute("SELECT id FROM runs").fetchone()[0])
     url = f"/api/projects/{project_id}/review/bundles"
@@ -530,8 +532,8 @@ def test_random_review_batches_and_exact_history(tmp_path: Path) -> None:
     _assert_no_recipe_keys(exact.json())
 
 
-def test_review_batch_request_validation(tmp_path: Path) -> None:
-    client, project_id, _ = _seed_review_history(tmp_path)
+def test_review_batch_request_validation(client: TestClient) -> None:
+    client, project_id, _ = _seed_review_history(client)
     url = f"/api/projects/{project_id}/review/bundles"
     for body in (
         {"kind": "sample", "run_id": 0},

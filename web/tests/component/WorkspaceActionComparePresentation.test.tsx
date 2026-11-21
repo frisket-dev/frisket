@@ -15,24 +15,25 @@ function query(model: string): HttpSelectorChoicesQuery {
 }
 
 function response(model: string, label: string): HttpSelectorChoicesResponse {
-  const choice = {
+  const choice: SelectorChoice = {
     choice_id: model,
     authored_selection: { kind: 'engine_model', engine: 'llm', model },
     label,
     summary: '', description: '', facts: [], resolved_target: null,
     processing_destination: { kind: 'unknown', label: 'Test target' },
-    execution_route: null, status: 'ready', can_author: true, can_run: true,
+    execution_route: null, route_selection: null, status: 'ready', can_author: true, can_run: true,
     blocker: null, setup: null, configuration_actions: [], active_operation: null,
     model_card_url: null,
     is_current: true,
-  } as SelectorChoice;
+    is_default: true,
+  };
   return {
-    schema_version: 'frisket.selector_choices.v2', project_id: 'project-a',
+    schema_version: 'frisket.selector_choices.v3', project_id: 'project-a',
     subject: { kind: 'action', action_id: 'map.extract', field: 'engine' },
     depends_on: ['engine', 'model'], current_choice_id: model, default_choice_id: null,
     groups: [{ group_id: 'provider', kind: 'provider', label: 'Provider', status: 'ready', choices: [choice] }],
     orphaned_current: null, cloud_setup: null,
-  } as HttpSelectorChoicesResponse;
+  };
 }
 
 function deferred<T>() {

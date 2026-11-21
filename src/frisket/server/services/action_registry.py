@@ -26,7 +26,7 @@ class ActionRegistryService:
     def publish_artifact(
         self,
         *,
-        saved_action_id: str | None,
+        saved_action_id: int | None,
         spec: dict[str, Any] | None,
         name: str | None,
         description: str | None,
@@ -61,7 +61,7 @@ class ActionRegistryService:
             artifact = build_action_artifact(
                 name=artifact_name,
                 spec=artifact_spec,
-                description=description,
+                description=description or "",
                 publisher=publisher,
                 dataset=dataset,
                 checks=checks,

@@ -84,7 +84,7 @@ class _ClusterEmbeddingBatch:
             claim_token=ctx.extras["claim_token"],
         )
 
-    async def __call__(self, texts):
+    async def __call__(self, texts: list[str]) -> embedding_backends.EmbeddingResult:
         from frisket.engine.store.effect_checkpoints import is_operator_attestation
 
         checkpoint = self.store.get(self.id)
@@ -133,9 +133,15 @@ class _ClusterEmbeddingBatch:
                     "Returned embeddings do not cover the missing vectors",
                 ) from exc
         async_embed = getattr(self.embed, "embed_batch_async", None)
-        result = async_embed(texts) if callable(async_embed) else self.embed(texts)
-        if inspect.isawaitable(result):
-            result = await result
+        raw = async_embed(texts) if callable(async_embed) else self.embed(texts)
+        if inspect.isawaitable(raw):
+            raw = await raw
+        if not isinstance(raw, (list, dict)):
+            raise ActionProgramInvocationHalt(
+                "invalid_embedding_response",
+                "Embedding backend returned an unexpected result",
+            )
+        result: embedding_backends.EmbeddingResult = raw
         vectors = result.get("vectors") if isinstance(result, dict) else result
         payload = {"returned_inputs": texts, "vectors": vectors}
         try:

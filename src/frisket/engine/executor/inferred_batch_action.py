@@ -15,7 +15,13 @@ from types import MappingProxyType
 
 from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.types import Row, Rows, RowError, RowResult
-from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
+from frisket.contracts.action import (
+    ActionError,
+    ActionIdentity,
+    ActionResult,
+    ActionResultStatus,
+)
+from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
@@ -31,6 +37,12 @@ from frisket.engine.executor.map_rows_action import (
     typed_request_hash,
     typed_map_rows_replay_result,
 )
+
+
+def _terminal_receipt_status(status: ActionResultStatus) -> ReceiptStatus:
+    if status == "needs_confirmation":
+        raise RuntimeError("cannot terminalize a run with needs_confirmation status")
+    return status
 
 
 def scalar_kind(value):
@@ -219,7 +231,12 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
             terminal.handler(plan.program._params, Rows(values)) if values else {}
         )
         if inspect.isawaitable(produced):
-            produced = asyncio.run(produced)
+            awaitable = produced
+
+            async def _resolve_batch_result():
+                return await awaitable
+
+            produced = asyncio.run(_resolve_batch_result())
         if set(produced) != set(values):
             raise ValueError(
                 "inferred batch must return exactly one result for each input row"
@@ -641,7 +658,7 @@ def _publish(
                 project,
                 run_id=run_id,
                 receipt_id=receipt_id,
-                status=receipt.status,
+                status=_terminal_receipt_status(receipt.status),
                 run_status=terminal_status,
                 authority=CurrentWriterTerminalAuthority(
                     writer_attempt_id=writer, claim_token=claim

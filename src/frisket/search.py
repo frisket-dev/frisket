@@ -11,6 +11,7 @@ from typing import Any
 
 from frisket.retrieval.contracts import (
     RankingPolicy,
+    RerankMode,
     RetrievalScope,
     SearchRequest,
     SheetScope,
@@ -26,7 +27,7 @@ from frisket.search_index import (
 
 
 def search_project(
-    project: Any, query: str, limit: int = 50, rerank: str = "auto"
+    project: Any, query: str, limit: int = 50, rerank: RerankMode = "auto"
 ) -> list[dict[str, Any]]:
     """Return current located keyword matches; signal incomplete preparation."""
     response = search_with_encoding(
@@ -54,7 +55,11 @@ def search_project(
                 int(column["id"]): column
                 for column in project.columns(binding.sheet_id)
             }
-        column = columns[binding.sheet_id].get(binding.column_id)
+        column = (
+            columns[binding.sheet_id].get(binding.column_id)
+            if binding.column_id is not None
+            else None
+        )
         hits.append(
             {
                 "sheet_id": binding.sheet_id,

@@ -7557,50 +7557,48 @@ export type HttpImportSessionCreateBody = ({
 });
 
 type HttpImportSessionList_ImportPreparationChild = ({
-  "action_id": ("media.read_pdf_text" | "media.ocr") & (string);
+  "action_id": ("media.ocr") & (string);
   "completed_rows": (number);
-  "job_id"?: (((number)) | ((null)));
-  "receipt_id"?: (((string)) | ((null)));
+  "receipt_id": (((string)) | ((null)));
   "row_count": (number);
-  "run_id"?: (((number)) | ((null)));
   "status": (string);
 });
 
 type HttpImportSessionList_ImportSessionStatus = ({
   "admitted_bytes": (number);
   "admitted_files": (number);
-  "can_rerun_workbook"?: (boolean);
+  "can_rerun_workbook": (boolean);
   "cancel_requested": (boolean);
-  "committed_bytes"?: (number);
-  "committed_rows"?: (number);
-  "error"?: (((string)) | ((null)));
-  "estimated_rows"?: (((number)) | ((null)));
-  "failed_pages"?: (number);
+  "committed_bytes": (number);
+  "committed_rows": (number);
+  "error": (((string)) | ((null)));
+  "estimated_rows": (((number)) | ((null)));
+  "failed_pages": (number);
   "import_ref": (string);
-  "intake_kind"?: ("files" | "table") & (string);
-  "ocr_completed"?: (number);
-  "ocr_total"?: (number);
-  "preparation_children"?: (Array<(HttpImportSessionList_ImportPreparationChild)>);
-  "preparation_completed"?: (number);
-  "preparation_stopped"?: (boolean);
-  "preparation_total"?: (number);
-  "problem_count"?: (number);
-  "processed_rows"?: (number);
-  "reading_row_ids"?: (Array<(number)>);
+  "intake_kind": ("files" | "table") & (string);
+  "ocr_completed": (number);
+  "ocr_total": (number);
+  "preparation_children": (Array<(HttpImportSessionList_ImportPreparationChild)>);
+  "preparation_completed": (number);
+  "preparation_stopped": (boolean);
+  "preparation_total": (number);
+  "problem_count": (number);
+  "processed_rows": (number);
+  "reading_row_ids": (Array<(number)>);
   "sealed": (boolean);
-  "search_preparation_batch_id"?: (((string)) | ((null)));
+  "search_preparation_batch_id": (((string)) | ((null)));
   "search_preparation_status": ("pending" | "available" | "none") & (string);
-  "selected_total"?: (((number)) | ((null)));
-  "semantic_preparation_error"?: (((string)) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
+  "selected_total": (((number)) | ((null)));
+  "semantic_preparation_error": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
   "sheet_name": (string);
-  "skipped_duplicates"?: (number);
-  "source_error_groups"?: (Array<(HttpImportSessionList_ImportSourceErrorGroup)>);
-  "source_label"?: (((string)) | ((null)));
+  "skipped_duplicates": (number);
+  "source_error_groups": (Array<(HttpImportSessionList_ImportSourceErrorGroup)>);
+  "source_label": (((string)) | ((null)));
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
-  "unreadable_total"?: (number);
-  "waiting_row_ids"?: (Array<(number)>);
+  "unreadable_total": (number);
+  "waiting_row_ids": (Array<(number)>);
 });
 
 type HttpImportSessionList_ImportSourceErrorExample = ({
@@ -7627,12 +7625,10 @@ export type HttpImportSessionResolveBody = ({
 });
 
 type HttpImportSessionStatus_ImportPreparationChild = ({
-  "action_id": ("media.read_pdf_text" | "media.ocr") & (string);
+  "action_id": ("media.ocr") & (string);
   "completed_rows": (number);
-  "job_id"?: (((number)) | ((null)));
-  "receipt_id"?: (((string)) | ((null)));
+  "receipt_id": (((string)) | ((null)));
   "row_count": (number);
-  "run_id"?: (((number)) | ((null)));
   "status": (string);
 });
 
@@ -7654,38 +7650,38 @@ type HttpImportSessionStatus_ImportSourceErrorGroup = ({
 export type HttpImportSessionStatus = ({
   "admitted_bytes": (number);
   "admitted_files": (number);
-  "can_rerun_workbook"?: (boolean);
+  "can_rerun_workbook": (boolean);
   "cancel_requested": (boolean);
-  "committed_bytes"?: (number);
-  "committed_rows"?: (number);
-  "error"?: (((string)) | ((null)));
-  "estimated_rows"?: (((number)) | ((null)));
-  "failed_pages"?: (number);
+  "committed_bytes": (number);
+  "committed_rows": (number);
+  "error": (((string)) | ((null)));
+  "estimated_rows": (((number)) | ((null)));
+  "failed_pages": (number);
   "import_ref": (string);
-  "intake_kind"?: ("files" | "table") & (string);
-  "ocr_completed"?: (number);
-  "ocr_total"?: (number);
-  "preparation_children"?: (Array<(HttpImportSessionStatus_ImportPreparationChild)>);
-  "preparation_completed"?: (number);
-  "preparation_stopped"?: (boolean);
-  "preparation_total"?: (number);
-  "problem_count"?: (number);
-  "processed_rows"?: (number);
-  "reading_row_ids"?: (Array<(number)>);
+  "intake_kind": ("files" | "table") & (string);
+  "ocr_completed": (number);
+  "ocr_total": (number);
+  "preparation_children": (Array<(HttpImportSessionStatus_ImportPreparationChild)>);
+  "preparation_completed": (number);
+  "preparation_stopped": (boolean);
+  "preparation_total": (number);
+  "problem_count": (number);
+  "processed_rows": (number);
+  "reading_row_ids": (Array<(number)>);
   "sealed": (boolean);
-  "search_preparation_batch_id"?: (((string)) | ((null)));
+  "search_preparation_batch_id": (((string)) | ((null)));
   "search_preparation_status": ("pending" | "available" | "none") & (string);
-  "selected_total"?: (((number)) | ((null)));
-  "semantic_preparation_error"?: (((string)) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
+  "selected_total": (((number)) | ((null)));
+  "semantic_preparation_error": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
   "sheet_name": (string);
-  "skipped_duplicates"?: (number);
-  "source_error_groups"?: (Array<(HttpImportSessionStatus_ImportSourceErrorGroup)>);
-  "source_label"?: (((string)) | ((null)));
+  "skipped_duplicates": (number);
+  "source_error_groups": (Array<(HttpImportSessionStatus_ImportSourceErrorGroup)>);
+  "source_label": (((string)) | ((null)));
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
-  "unreadable_total"?: (number);
-  "waiting_row_ids"?: (Array<(number)>);
+  "unreadable_total": (number);
+  "waiting_row_ids": (Array<(number)>);
 });
 
 export type HttpImportXlsxResponse = ({

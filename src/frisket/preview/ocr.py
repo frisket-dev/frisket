@@ -133,9 +133,10 @@ async def compare_ocr_preview(
     ]
     try:
         with project.materialize_blob(source.blob_hash) as path:
-            materialized = replace(source, path=Path(path))
+            materialized_path = Path(path)
+            materialized = replace(source, path=materialized_path)
             if not _is_pdf_source(
-                materialized.path,
+                materialized_path,
                 filename=materialized.filename,
                 mime=materialized.mime,
             ):
@@ -477,9 +478,9 @@ async def render_selected_pdf_pages(
         scratch,
         engine=engine,
     )
-    if page_count is None and not is_pdf:
-        page_count = len(page_paths)
     if not is_pdf:
+        if page_count is None:
+            page_count = len(page_paths)
         _reject_pages_past_page_count(pages, page_count)
     rendered = []
     for page, page_path in zip(pages, page_paths, strict=True):

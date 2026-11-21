@@ -28,6 +28,8 @@ def open_sheet_selection(project, sheet_id, selection, view_id, *, legacy_scope=
             definition = (
                 json.loads(selection) if isinstance(selection, str) else selection
             )
+        if not isinstance(definition, dict):
+            raise ValueError("Selection must be a JSON object")
         validated = ViewSelection.model_validate(definition)
         if validated.scope.kind != "sheet" or validated.scope.sheet_id != sheet_id:
             raise ValueError("Selection must target this sheet")

@@ -174,16 +174,14 @@ class _BoundMediaDownloader:
                     media_type=media,
                 )
 
-        values = {key: Outcome.ok(None) for key in active if key != media_type}
-        values.update(
-            {
-                media_type: stage(
-                    result,
-                    role="download",
-                    media=media_type,
-                    metadata=owned_media_metadata_document(acquisition=acquisition),
-                )
-            }
+        values: dict[str, object] = {
+            key: Outcome.ok(None) for key in active if key != media_type
+        }
+        values[media_type] = stage(
+            result,
+            role="download",
+            media=media_type,
+            metadata=owned_media_metadata_document(acquisition=acquisition),
         )
         found_subtitles = False
         for sidecar in result.sidecars:
@@ -192,7 +190,7 @@ class _BoundMediaDownloader:
                 "subtitles": "subtitles",
                 "info_json": "info",
             }.get(sidecar.kind)
-            if key not in active:
+            if key is None or key not in active:
                 continue
             if key == "subtitles":
                 found_subtitles = True
@@ -215,7 +213,7 @@ class _BoundMediaDownloader:
             )
             values["subtitles"] = missing
             values["subtitles_text"] = missing
-        return DownloadedFiles(**values)
+        return DownloadedFiles.model_validate(values)
 
 
 def publish_download_channel_facts(

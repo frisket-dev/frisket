@@ -12,6 +12,7 @@ from frisket.engine.jobs.pdf_split import register_pdf_split_handler
 from frisket.engine.store.pdf_split_intake import pdf_split_status, read_pdf_split_plan
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports.service import PdfImportService
+from frisket.server.services.pdf_packet_ocr import packet_ocr_params
 from frisket.server.workspace import Workspace
 from tests.server.test_pdf_split_preparation import _runtime
 
@@ -420,7 +421,8 @@ def test_organized_paid_ocr_persists_exact_page_claims_across_choice_revision(
             from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
             from frisket.server.services.pdf_imports.previews import preview_settings
 
-            _, settings_hash = preview_settings({"engine": selection["engine"]})
+            params = packet_ocr_params(selection)
+            _, settings_hash = preview_settings(params)
             with PdfDraftInventory(
                 service._root / status.draft_id / "inventory.db"
             ) as inventory:
@@ -433,7 +435,7 @@ def test_organized_paid_ocr_persists_exact_page_claims_across_choice_revision(
                     {
                         "text": "Accepted sample",
                         "engine": selection["engine"],
-                        "ocr_action_params": {"engine": selection["engine"]},
+                        "ocr_action_params": params,
                         "blocks": [],
                     },
                 )
@@ -537,9 +539,8 @@ def test_organized_publication_stages_known_page_text_before_draft_cleanup(
         selection={"kind": "engine", "engine": engine},
     )
     if text_source == "sample_ocr":
-        # This is the exact settings form written by the shipped upload sample
-        # reader, before the page coordinator normalizes its OcrParams defaults.
-        _, settings_hash = preview_settings({"engine": engine})
+        params = packet_ocr_params({"kind": "engine", "engine": engine})
+        _, settings_hash = preview_settings(params)
         with PdfDraftInventory(
             service._root / status.draft_id / "inventory.db"
         ) as inventory:
@@ -553,7 +554,7 @@ def test_organized_publication_stages_known_page_text_before_draft_cleanup(
                         "page": page,
                         "text": f"Accepted OCR page {page}",
                         "engine": engine,
-                        "ocr_action_params": {"engine": engine},
+                        "ocr_action_params": params,
                         "blocks": [],
                     },
                 )

@@ -201,7 +201,7 @@ def resolve(project, link, row_ids):
         )
         for target_row_id in row_ids:
             expected_row_id = mapping.get(target_row_id)
-            read = values.get(expected_row_id)
+            read = values.get(expected_row_id) if expected_row_id is not None else None
             value = read.value if read is not None and read.value_present else None
             rows[str(target_row_id)][field["logical_key"]] = {
                 "value": value,

@@ -79,10 +79,13 @@ def run_sandboxed_sync(
 
 
 def _run_awaitable_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
+    async def _run_factory() -> _T:
+        return await factory()
+
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(factory())
+        return asyncio.run(_run_factory())
 
     result: _T | None = None
     error: BaseException | None = None
@@ -90,7 +93,7 @@ def _run_awaitable_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
     def target() -> None:
         nonlocal result, error
         try:
-            result = asyncio.run(factory())
+            result = asyncio.run(_run_factory())
         except BaseException as exc:  # noqa: BLE001 - re-raised in caller
             error = exc
 

@@ -130,11 +130,12 @@ class RunTerminalization:
         }.get(reason, action_job_retry_exhausted_result)
 
         try:
-            project = (
-                Project(project_path)
-                if self._project_opener is None
-                else self._project_opener(storage_key, project_path)
-            )
+            if self._project_opener is None:
+                project = Project(project_path)
+            elif storage_key is not None:
+                project = self._project_opener(storage_key, project_path)
+            else:
+                return
         except FileNotFoundError:
             return
         try:
