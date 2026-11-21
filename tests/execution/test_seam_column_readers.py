@@ -106,7 +106,7 @@ SEAM_COLUMN_READERS: dict[str, object] = {
     # record's rated projection — the pricing policy that produced the billed
     # figure belongs to the deployment and is deliberately not wired into
     # dispatch, so the figure has to be persisted rather than re-derived.
-    "consents.quote_json": (
+    "consents.estimate_json": (
         "frisket.execution.attempt_authority",
         "AttemptAuthority._proving_consent",
     ),

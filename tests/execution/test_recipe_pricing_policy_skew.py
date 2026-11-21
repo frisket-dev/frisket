@@ -99,7 +99,7 @@ def test_a_reinstalled_tariff_refuses_the_dispatch_and_names_both_policies(
     )
     action = _classify_action(sheet_id)
     run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
-    estimated = json.loads(_consent_rows(project)[0]["quote_json"])
+    estimated = json.loads(_consent_rows(project)[0]["estimate_json"])
     assert estimated["policy_id"] == "test.tariff.v1"
 
     _reprice(_Tariff("test.tariff.v2", 4))
@@ -174,13 +174,13 @@ def test_a_sibling_estimated_under_the_current_policy_still_proves(
     )
 
     (row,) = _consent_rows(project)
-    stale = json.loads(row["quote_json"])
+    stale = json.loads(row["estimate_json"])
     stale["policy_id"] = "test.tariff.v0"
     # Ordered AHEAD of the real consent, so a run-fatal fence would fire first.
     project.db.execute(
         "INSERT INTO consents (id, subject_kind, subject_id, "
         "action_identity_hash, promise_set_hash, standing_policy, actor, "
-        "granted_at, grant_basis, quote_json) "
+        "granted_at, grant_basis, estimate_json) "
         "SELECT 'consent_stale_tariff', subject_kind, subject_id, "
         "action_identity_hash, promise_set_hash, standing_policy, actor, "
         "'1970-01-01T00:00:00+00:00', grant_basis, ? "

@@ -2016,12 +2016,12 @@ CREATE TABLE IF NOT EXISTS consents (
                                      -- worker fence and its future
                                      -- backfills/reconsents can read it.
                                      -- NULL for standing consents.
-  quote_json TEXT,                   -- THE quote this consent approved, as the
-                                     -- dumped ConsentQuote
+  estimate_json TEXT,                -- THE estimate this consent approved, as
+                                     -- the dumped ConsentEstimate
                                      -- (engine/runner/confirmation_context).
                                      -- Written by the unrouted 402 path, which
                                      -- is the only one that mints a
-                                     -- ConsentQuote; NULL for standing
+                                     -- ConsentEstimate; NULL for standing
                                      -- consents and for routed/claims consents,
                                      -- whose authority is the promise-set chain.
                                      -- Dispatch reads the RATED projection back
