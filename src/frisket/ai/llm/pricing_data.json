@@ -4,7 +4,7 @@
     "openrouter": "https://openrouter.ai/api/v1/models",
     "opendocrouter": "https://www.opendocrouter.ai/v1/models"
   },
-  "updated": "2026-11-20",
+  "updated": "2026-11-21",
   "text": {
     "claude-sonnet-5-5": [
       2.0,
@@ -212,7 +212,7 @@
     ],
     "qwen/qwen3.8-27b": [
       0.06,
-      2.2
+      1.96
     ],
     "z-ai/glm-5.3-flashx": [
       0.37,
@@ -267,8 +267,8 @@
       1.0
     ],
     "qwen/qwen3.5-27b": [
-      0.26,
-      2.6
+      0.195,
+      1.56
     ],
     "qwen/qwen3.5-9b": [
       0.17,
