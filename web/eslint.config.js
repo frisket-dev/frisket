@@ -84,7 +84,7 @@ const KEEPS_LIVENESS_FLAG = [
   'src/components/SkillsSettings.tsx', // load seeds an editable draft; writes are generation-guarded
   'src/components/TopNav.tsx', // OAuth connections load seeds the editable connection choice
   'src/components/action-panel/GeneratedActionForm.tsx', // debounced validation and output resolution
-  'src/components/evidence/CitationDocumentSource.tsx', // IntersectionObserver subscription
+  'src/components/citations/CitationDocumentSource.tsx', // IntersectionObserver subscription
   'src/components/importWorkspace/tableImport/TableImportFlow.tsx', // generation-guarded draft lifecycle
   'src/components/pdfSplit/PdfSplitSetup.tsx', // admission effect with delete-on-abort cleanup
   'src/components/project-ask/AskSourcePicker.tsx', // load-more appends pages

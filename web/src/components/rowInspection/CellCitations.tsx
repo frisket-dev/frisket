@@ -3,7 +3,7 @@ import type { CellCitationsPayload } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import './CellCitations.css';
 import { Button } from '../Button';
-import { CitationChip } from '../evidence/CitationChip';
+import { CitationChip } from '../citations/CitationChip';
 
 type CitationBlockState =
   | { phase: 'loading' | 'empty' | 'error'; payload?: null }
