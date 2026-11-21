@@ -1,7 +1,7 @@
 """Open identity control-plane access for the worker.
 
 Organization BYOK provider keys are CONTROL-PLANE rows, not project rows: they live in
-`frisket.team.schema.org_keys` (open identity), envelope-encrypted with the open
+`frisket.team.schema.organization_keys` (open identity), envelope-encrypted with the open
 AEAD module `frisket.security.secrets`. The open team worker genuinely needs
 them — a queued run for organization N must resolve that organization's Anthropic/OpenAI key
 before it can call a model, and the per-project seam
@@ -26,7 +26,7 @@ import sqlalchemy as sa
 
 from frisket.provider_definitions import providers_for
 from frisket.security.secrets import decrypt_secret
-from frisket.team.schema import org_keys
+from frisket.team.schema import organization_keys
 
 # The providers a run's model router can be keyed for. Mirrors the provider
 # names written by the organization-BYOK routes.
@@ -63,7 +63,7 @@ def control_plane_engine(database_url: str) -> sa.Engine:
 def organization_provider_key_plaintext(
     engine: sa.Engine,
     *,
-    org_id: int,
+    organization_id: int,
     provider: str,
     decryptor: Callable[[str], str] = decrypt_secret,
 ) -> str | None:
@@ -71,9 +71,9 @@ def organization_provider_key_plaintext(
     provider = provider.strip().lower()
     with engine.connect() as cx:
         row = cx.execute(
-            sa.select(org_keys.c.encrypted).where(
-                org_keys.c.org_id == org_id,
-                org_keys.c.provider == provider,
+            sa.select(organization_keys.c.encrypted).where(
+                organization_keys.c.organization_id == organization_id,
+                organization_keys.c.provider == provider,
             )
         ).first()
     if row is None:
@@ -84,7 +84,7 @@ def organization_provider_key_plaintext(
 def organization_provider_keys(
     engine: sa.Engine,
     *,
-    org_id: int,
+    organization_id: int,
     providers: tuple[str, ...] = MODEL_KEY_PROVIDERS,
     decryptor: Callable[[str], str] = decrypt_secret,
 ) -> dict[str, str]:
@@ -92,7 +92,10 @@ def organization_provider_keys(
     keys: dict[str, str] = {}
     for provider in providers:
         key = organization_provider_key_plaintext(
-            engine, org_id=org_id, provider=provider, decryptor=decryptor
+            engine,
+            organization_id=organization_id,
+            provider=provider,
+            decryptor=decryptor,
         )
         if key:
             keys[provider] = key
@@ -112,7 +115,7 @@ class TeamOrganizationKeyCredentialPort:
             return {}
         return organization_provider_keys(
             control_plane_engine(control_database_url),
-            org_id=org_id,
+            organization_id=org_id,
             decryptor=self._decryptor,
         )
 
@@ -130,7 +133,7 @@ class TeamOrganizationSearchKeyCredentialPort:
             return {}
         return organization_provider_keys(
             control_plane_engine(control_database_url),
-            org_id=org_id,
+            organization_id=org_id,
             providers=SEARCH_KEY_PROVIDERS,
             decryptor=self._decryptor,
         )

@@ -43,17 +43,17 @@ def _token(argv: list[str]) -> int:
     import sqlalchemy as sa
 
     from frisket.team.bootstrap import PreSplitSchemaError
-    from frisket.team.schema import orgs
+    from frisket.team.schema import organizations
     from frisket.team.team_bootstrap import preflight_team_schema
 
     engine = sa.create_engine(database_url, future=True)
     try:
         preflight_team_schema(engine)
         with engine.connect() as cx:
-            org_id = cx.execute(
-                sa.select(orgs.c.id).order_by(orgs.c.id).limit(1)
+            organization_id = cx.execute(
+                sa.select(organizations.c.id).order_by(organizations.c.id).limit(1)
             ).scalar_one_or_none()
-        if org_id is None:
+        if organization_id is None:
             print(
                 "frisket-control token: the server has not initialized its "
                 "control database yet; start the server first",
@@ -61,7 +61,7 @@ def _token(argv: list[str]) -> int:
             )
             return 1
         raw, token_id = mint_operator_token(
-            engine, org_id=int(org_id), label=args.label
+            engine, organization_id=int(organization_id), label=args.label
         )
     except OperatorTokenError as exc:
         print(f"frisket-control token: {exc}", file=sys.stderr)

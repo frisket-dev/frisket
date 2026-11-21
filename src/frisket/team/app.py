@@ -101,7 +101,7 @@ from frisket.team.schema import (
     api_tokens,
     audit_log,
     memberships,
-    orgs,
+    organizations,
     project_creation_intents,
     project_invites,
     project_roles,
@@ -542,7 +542,7 @@ def _valid_project_bundle(bundle, *, slug: str) -> bool:
 
 
 def _sync_project_network_policy(
-    cx: sa.Connection, workspace: Any, *, org_id: int, slug: str
+    cx: sa.Connection, workspace: Any, *, organization_id: int, slug: str
 ) -> None:
     """Materialize the control-plane network settings into the bundle
     (following the `sensitive` sync precedent): the gate reads
@@ -550,12 +550,15 @@ def _sync_project_network_policy(
     control-plane handle exists — so both the project's mode and the organization
     default live there, reconciled on drift."""
     organization_default = cx.execute(
-        sa.select(orgs.c.network_default).where(orgs.c.id == org_id)
+        sa.select(organizations.c.network_default).where(
+            organizations.c.id == organization_id
+        )
     ).scalar_one_or_none()
     mode = (
         cx.execute(
             sa.select(projects.c.network).where(
-                projects.c.org_id == org_id, projects.c.slug == slug
+                projects.c.organization_id == organization_id,
+                projects.c.slug == slug,
             )
         ).scalar_one_or_none()
         or "inherit"
@@ -617,14 +620,15 @@ def _complete_project_intent(
             made = project.project_metadata()
         exists = cx.execute(
             sa.select(projects.c.id).where(
-                projects.c.org_id == intent.org_id, projects.c.slug == slug
+                projects.c.organization_id == intent.organization_id,
+                projects.c.slug == slug,
             )
         ).scalar_one_or_none()
         if exists is None:
             cx.execute(
                 projects.insert().values(
-                    org_id=intent.org_id,
-                    storage_org_id=intent.org_id,
+                    organization_id=intent.organization_id,
+                    storage_organization_id=intent.organization_id,
                     slug=slug,
                     name=intent.name,
                     sensitive=requested_sensitive,
@@ -637,18 +641,18 @@ def _complete_project_intent(
                 .values(sensitive=requested_sensitive)
             )
         _sync_project_network_policy(
-            cx, workspace, org_id=int(intent.org_id), slug=slug
+            cx, workspace, organization_id=int(intent.organization_id), slug=slug
         )
         atomic_upsert(
             cx,
             table=project_roles,
             values={
-                "org_id": intent.org_id,
+                "organization_id": intent.organization_id,
                 "slug": slug,
                 "user_id": intent.creator_user_id,
                 "role": "owner",
             },
-            conflict_columns=("org_id", "slug", "user_id"),
+            conflict_columns=("organization_id", "slug", "user_id"),
             update_values={"role": "owner"},
         )
         audit_detail = f"{slug}:sensitive=true" if requested_sensitive else str(slug)
@@ -662,7 +666,7 @@ def _complete_project_intent(
             record_audit(
                 cx,
                 user_id=intent.creator_user_id,
-                org_id=intent.org_id,
+                organization_id=intent.organization_id,
                 action="project_created",
                 detail=audit_detail,
             )
@@ -677,8 +681,8 @@ def _complete_project_intent(
 class TeamProjectAccess:
     ROLES = ("viewer", "reviewer", "editor", "owner")
 
-    def __init__(self, engine: sa.Engine, org_id: int):
-        self.engine, self.org_id = engine, org_id
+    def __init__(self, engine: sa.Engine, organization_id: int):
+        self.engine, self.organization_id = engine, organization_id
 
     def resolve_project_for_user_id(
         self,
@@ -688,24 +692,29 @@ class TeamProjectAccess:
         preferred_organization_id: int | None = None,
         scope_organization_id: int | None = None,
     ) -> dict[str, Any] | None:
-        if scope_organization_id not in (None, self.org_id):
+        if scope_organization_id not in (None, self.organization_id):
             return None
         with self.engine.connect() as cx:
             exists = cx.execute(
                 sa.select(projects.c.id).where(
-                    projects.c.org_id == self.org_id, projects.c.slug == slug
+                    projects.c.organization_id == self.organization_id,
+                    projects.c.slug == slug,
                 )
             ).scalar_one_or_none()
         return (
             None
             if exists is None
-            else {"org_id": self.org_id, "storage_org_id": self.org_id, "slug": slug}
+            else {
+                "organization_id": self.organization_id,
+                "storage_organization_id": self.organization_id,
+                "slug": slug,
+            }
         )
 
     def _role(self, cx: sa.Connection, user_id: int, slug: str) -> str | None:
         explicit = cx.execute(
             sa.select(project_roles.c.role).where(
-                project_roles.c.org_id == self.org_id,
+                project_roles.c.organization_id == self.organization_id,
                 project_roles.c.slug == slug,
                 project_roles.c.user_id == user_id,
             )
@@ -714,7 +723,8 @@ class TeamProjectAccess:
             return str(explicit)
         membership = cx.execute(
             sa.select(memberships.c.role).where(
-                memberships.c.org_id == self.org_id, memberships.c.user_id == user_id
+                memberships.c.organization_id == self.organization_id,
+                memberships.c.user_id == user_id,
             )
         ).scalar_one_or_none()
         return "owner" if membership == "owner" else None
@@ -722,7 +732,7 @@ class TeamProjectAccess:
     def can_on_project(
         self, organization_id: int, slug: str, user_id: int, need: str
     ) -> bool:
-        if organization_id != self.org_id or need not in self.ROLES:
+        if organization_id != self.organization_id or need not in self.ROLES:
             return False
         with self.engine.connect() as cx:
             role = self._role(cx, user_id, slug)
@@ -787,7 +797,7 @@ def create_team_app(
         oidc_exchange = production_oidc_exchange(config)
     if validate_provider_key is None:
         validate_provider_key = validate_provider_credential
-    org_id = initialize_team_schema_and_organization(
+    organization_id = initialize_team_schema_and_organization(
         engine, organization_name=config.organization_name
     )
     secret_box = TeamSecretBox(config)
@@ -827,14 +837,14 @@ def create_team_app(
         if provider.strip().lower() != "google":
             return None
         return oauth_connection_service.connection(
-            org_id, "google", connection_id, include_refresh_token=True
+            organization_id, "google", connection_id, include_refresh_token=True
         )
 
     def _team_executor_deps_factory(
         _project_id: str, _request: Request
     ) -> ExecutorDeps:
-        # This composition is single-organization (org_id fixed above at server
-        # startup, not per-request — see the run-queue/org_id comments
+        # This composition is single-organization (organization_id fixed above at server
+        # startup, not per-request — see the run-queue/organization_id comments
         # around `core = create_app(...)` below), so the resolver closes
         # over it directly; project_id/request are unused but required by
         # the `executor_deps_factory` contract (server/app.py).
@@ -861,10 +871,10 @@ def create_team_app(
         )
 
     def uow_factory() -> TeamUnitOfWork:
-        return TeamUnitOfWork(engine, org_id=org_id)
+        return TeamUnitOfWork(engine, organization_id=organization_id)
 
     auth = IdentityAuthService(uow_factory)
-    access = TeamProjectAccess(engine, org_id)
+    access = TeamProjectAccess(engine, organization_id)
 
     def resolve_token(token: str) -> dict[str, Any] | None:
         if not token.startswith("frisket_pat_"):
@@ -875,7 +885,7 @@ def create_team_app(
                 sa.select(
                     api_tokens.c.id,
                     api_tokens.c.user_id,
-                    api_tokens.c.org_id,
+                    api_tokens.c.organization_id,
                     users.c.email,
                 )
                 .join(users, users.c.id == api_tokens.c.user_id)
@@ -883,12 +893,12 @@ def create_team_app(
                     memberships,
                     sa.and_(
                         memberships.c.user_id == api_tokens.c.user_id,
-                        memberships.c.org_id == api_tokens.c.org_id,
+                        memberships.c.organization_id == api_tokens.c.organization_id,
                     ),
                 )
                 .where(
                     api_tokens.c.token_hash == digest,
-                    api_tokens.c.org_id == org_id,
+                    api_tokens.c.organization_id == organization_id,
                     api_tokens.c.revoked_at.is_(None),
                 )
             ).first()
@@ -898,7 +908,7 @@ def create_team_app(
             else {
                 "id": row.user_id,
                 "email": row.email,
-                "org_id": row.org_id,
+                "organization_id": row.organization_id,
                 "auth": "pat",
                 "pat_id": row.id,
             }
@@ -916,7 +926,7 @@ def create_team_app(
             _membership_role(engine, user_id, oid) == "owner"
         ),
     )
-    operator_service = OperatorTokenService(engine, org_id=org_id)
+    operator_service = OperatorTokenService(engine, organization_id=organization_id)
 
     def resolve_request(request: Request) -> dict[str, Any] | None:
         return identity_session.resolve_user(
@@ -963,7 +973,7 @@ def create_team_app(
         request: Request | BackgroundAskContext, *, browser: bool = False
     ) -> dict[str, Any]:
         user = require_user(request, browser=browser)
-        if _membership_role(engine, int(user["id"]), org_id) is None:
+        if _membership_role(engine, int(user["id"]), organization_id) is None:
             raise HTTPException(403, "organization membership required")
         return user
 
@@ -985,13 +995,15 @@ def create_team_app(
         if not actor:
             return SelectorCapabilities()
         user_id = int(actor["id"])
-        can_edit = access.can_on_project(org_id, pid, user_id, "editor")
-        organization_owner = _membership_role(engine, user_id, org_id) == "owner"
+        can_edit = access.can_on_project(organization_id, pid, user_id, "editor")
+        organization_owner = (
+            _membership_role(engine, user_id, organization_id) == "owner"
+        )
         return SelectorCapabilities(
             may_author_actions=can_edit,
             may_run_actions=can_edit,
             configure_project_credentials=access.can_on_project(
-                org_id, pid, user_id, "owner"
+                organization_id, pid, user_id, "owner"
             ),
             configure_organization_credentials=organization_owner,
             manage_model_downloads=organization_owner and model_pull_enabled,
@@ -1000,7 +1012,7 @@ def create_team_app(
 
     gateway_service = team_models_gateway_service(
         engine,
-        org_id=org_id,
+        organization_id=organization_id,
         encrypt=secret_box.encrypt,
         decrypt=secret_box.decrypt,
     )
@@ -1019,14 +1031,17 @@ def create_team_app(
             raise ValueError(
                 "Organization action credentials require trusted job identity"
             )
-        if isinstance(trusted_organization, int) and trusted_organization != org_id:
+        if (
+            isinstance(trusted_organization, int)
+            and trusted_organization != organization_id
+        ):
             raise ValueError("Queued organization does not match this Team server")
         return open_execution_composition(
             project,
             router,
             context,
             action_credential_resolver=document_credentials.action_credential_resolver(
-                org_id=org_id,
+                org_id=organization_id,
                 control_database_url=config.database_url,
             ),
             models_gateway_resolver=gateway_service.resolve_connection,
@@ -1037,15 +1052,15 @@ def create_team_app(
         config.data_dir,
         queue=open_queue(database_url=config.run_queue_database_url, cloud=False),
         control_database_url=config.database_url,
-        queue_payload_extra={"org_id": org_id},
+        queue_payload_extra={"org_id": organization_id},
         executor_deps_factory=_team_executor_deps_factory,
         execution_composition_factory=team_execution_composition,
         provider_keys_resolver=lambda: organization_provider_keys(
-            engine, org_id=org_id, decryptor=secret_box.decrypt
+            engine, organization_id=organization_id, decryptor=secret_box.decrypt
         ),
         search_provider_keys_resolver=lambda: organization_provider_keys(
             engine,
-            org_id=org_id,
+            organization_id=organization_id,
             providers=SEARCH_KEY_PROVIDERS,
             decryptor=secret_box.decrypt,
         ),
@@ -1087,7 +1102,7 @@ def create_team_app(
         pending_slugs = list(
             cx.execute(
                 sa.select(project_creation_intents.c.slug).where(
-                    project_creation_intents.c.org_id == org_id
+                    project_creation_intents.c.organization_id == organization_id
                 )
             ).scalars()
         )
@@ -1095,9 +1110,11 @@ def create_team_app(
         _complete_project_intent(engine, core.state.workspace, slug=pending_slug)
 
     # This Team server is single-organization today, but skill material remains below
-    # an explicit active-org root so the trusted runtime seam cannot silently
+    # an explicit active-organization root so the trusted runtime seam cannot silently
     # turn into a process-wide library when the composition grows tenants.
-    team_skill_library = SkillLibrary(config.data_dir / "organizations" / str(org_id))
+    team_skill_library = SkillLibrary(
+        config.data_dir / "organizations" / str(organization_id)
+    )
     core.state.skill_library = team_skill_library
 
     def require_skill_manager(request: Request) -> None:
@@ -1116,7 +1133,9 @@ def create_team_app(
             if exc.status_code not in {401, 403}:
                 raise
             raise PermissionError("Your project access changed.") from exc
-        if not access.can_on_project(org_id, project_id, int(actor["id"]), "editor"):
+        if not access.can_on_project(
+            organization_id, project_id, int(actor["id"]), "editor"
+        ):
             raise PermissionError("Project editor access is required.")
 
     def authorize_skill_management(
@@ -1132,7 +1151,7 @@ def create_team_app(
             ) from exc
         actor_id = actor.get("id")
         if actor_id is None or not access.can_on_project(
-            org_id, project_id, int(actor_id), "editor"
+            organization_id, project_id, int(actor_id), "editor"
         ):
             raise PermissionError(
                 "Project editor and organization administrator access are required."
@@ -1157,7 +1176,7 @@ def create_team_app(
                     sa.select(users.c.email)
                     .join(memberships, memberships.c.user_id == users.c.id)
                     .where(
-                        memberships.c.org_id == org_id,
+                        memberships.c.organization_id == organization_id,
                         memberships.c.role == "owner",
                     )
                 )
@@ -1173,7 +1192,7 @@ def create_team_app(
     app = FastAPI(title="frisket team", version="0.1.0")
     app.router.route_class = UnitOfWorkRoute
     app.state.control_engine = engine
-    app.state.team_organization_id = org_id
+    app.state.team_organization_id = organization_id
     app.state.workspace = core.state.workspace
     app.state.skill_library = core.state.skill_library
     app.state.project_qa_service = core.state.project_qa_service
@@ -1192,7 +1211,7 @@ def create_team_app(
     app.router.add_event_handler("shutdown", _shutdown_action_preview_jobs)
     app.state.identity_session_service = identity_session
     app.state.setup_claim_token = None
-    if owner_count(engine, org_id=org_id) == 0:
+    if owner_count(engine, organization_id=organization_id) == 0:
         app.state.setup_claim_token = secrets.token_urlsafe(32)
         _emit_setup_code(app.state.setup_claim_token)
 
@@ -1218,7 +1237,7 @@ def create_team_app(
     def setup_page() -> Response:
         if (
             app.state.setup_claim_token is None
-            or owner_count(engine, org_id=org_id) > 0
+            or owner_count(engine, organization_id=organization_id) > 0
         ):
             app.state.setup_claim_token = None
             raise HTTPException(404, "setup is unavailable")
@@ -1304,7 +1323,7 @@ def create_team_app(
         workspace_name = workspace_name.strip() or "workspace"
         if (
             app.state.setup_claim_token is None
-            or owner_count(engine, org_id=org_id) > 0
+            or owner_count(engine, organization_id=organization_id) > 0
         ):
             app.state.setup_claim_token = None
             raise HTTPException(
@@ -1343,7 +1362,7 @@ def create_team_app(
         try:
             result = claim_first_owner(
                 engine,
-                org_id=org_id,
+                organization_id=organization_id,
                 claim_token=claim_token,
                 expected_claim_token=app.state.setup_claim_token,
                 workspace_name=workspace_name,
@@ -1420,7 +1439,7 @@ def create_team_app(
                 cx.execute(
                     project_creation_intents.insert().values(
                         slug=slug,
-                        org_id=org_id,
+                        organization_id=organization_id,
                         creator_user_id=user["id"],
                         name=body.name.strip(),
                         sensitive=body.sensitive,
@@ -1430,7 +1449,9 @@ def create_team_app(
 
         workspace = core.state.workspace
         digest = hashlib.sha256(
-            json.dumps([org_id, int(user["id"]), key], separators=(",", ":")).encode()
+            json.dumps(
+                [organization_id, int(user["id"]), key], separators=(",", ":")
+            ).encode()
         ).hexdigest()
         receipt_root = workspace.root / ".team-project-creation-operations"
         receipt_root.mkdir(parents=True, exist_ok=True)
@@ -1464,7 +1485,8 @@ def create_team_app(
                 ).scalar_one_or_none()
                 registered = cx.execute(
                     sa.select(projects.c.id).where(
-                        projects.c.org_id == org_id, projects.c.slug == slug
+                        projects.c.organization_id == organization_id,
+                        projects.c.slug == slug,
                     )
                 ).scalar_one_or_none()
                 if receipt["storage_identity"] is not None and registered is None:
@@ -1475,14 +1497,14 @@ def create_team_app(
                     cx.execute(
                         project_creation_intents.insert().values(
                             slug=slug,
-                            org_id=org_id,
+                            organization_id=organization_id,
                             creator_user_id=user["id"],
                             name=receipt["name"],
                             sensitive=receipt["sensitive"],
                         )
                     )
             if registered is not None and not access.can_on_project(
-                org_id, slug, int(user["id"]), "viewer"
+                organization_id, slug, int(user["id"]), "viewer"
             ):
                 raise HTTPException(403, "Project access required")
             if receipt["storage_identity"] is not None:
@@ -1519,12 +1541,15 @@ def create_team_app(
         the record of which projects are protected disagreed with the bundle
         the egress gate actually reads."""
         actor = require_user(request)
-        if not access.can_on_project(org_id, pid, int(actor["id"]), "owner"):
+        if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
             raise HTTPException(403, "project owner required")
         with engine.begin() as cx:
             written = cx.execute(
                 projects.update()
-                .where(projects.c.org_id == org_id, projects.c.slug == pid)
+                .where(
+                    projects.c.organization_id == organization_id,
+                    projects.c.slug == pid,
+                )
                 .values(sensitive=body.sensitive)
             )
             if written.rowcount == 0:
@@ -1535,7 +1560,7 @@ def create_team_app(
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="project_sensitivity_updated",
                 detail=f"{pid}:{str(body.sensitive).lower()}",
             )
@@ -1555,25 +1580,28 @@ def create_team_app(
         projects.network AND the bundle in one step (the sensitivity-route
         precedent), so intent recovery re-materializes the same value."""
         actor = require_user(request)
-        if not access.can_on_project(org_id, pid, int(actor["id"]), "owner"):
+        if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
             raise HTTPException(403, "project owner required")
         if body.mode not in ("inherit", "on", "off"):
             raise HTTPException(400, f"unsupported network mode: {body.mode}")
         with engine.begin() as cx:
             updated = cx.execute(
                 projects.update()
-                .where(projects.c.org_id == org_id, projects.c.slug == pid)
+                .where(
+                    projects.c.organization_id == organization_id,
+                    projects.c.slug == pid,
+                )
                 .values(network=body.mode)
             )
             if updated.rowcount == 0:
                 raise HTTPException(404, f"no project '{pid}'")
             _sync_project_network_policy(
-                cx, core.state.workspace, org_id=org_id, slug=pid
+                cx, core.state.workspace, organization_id=organization_id, slug=pid
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="project_network_updated",
                 detail=f"{pid}:{body.mode}",
             )
@@ -1603,7 +1631,7 @@ def create_team_app(
         )
 
         actor = require_user(request)
-        if not access.can_on_project(org_id, pid, int(actor["id"]), "owner"):
+        if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
             raise HTTPException(403, "project owner required")
         service = ProjectLifecycleService(core.state.workspace)
         try:
@@ -1617,17 +1645,21 @@ def create_team_app(
         with engine.begin() as cx:
             for table in (project_roles, project_invites, project_creation_intents):
                 cx.execute(
-                    table.delete().where(table.c.org_id == org_id, table.c.slug == pid)
+                    table.delete().where(
+                        table.c.organization_id == organization_id,
+                        table.c.slug == pid,
+                    )
                 )
             cx.execute(
                 projects.delete().where(
-                    projects.c.org_id == org_id, projects.c.slug == pid
+                    projects.c.organization_id == organization_id,
+                    projects.c.slug == pid,
                 )
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="project_deleted",
                 detail=pid,
             )
@@ -1638,7 +1670,9 @@ def create_team_app(
         require_organization_member(request, browser=True)
         with engine.connect() as cx:
             network_default = cx.execute(
-                sa.select(orgs.c.network_default).where(orgs.c.id == org_id)
+                sa.select(organizations.c.network_default).where(
+                    organizations.c.id == organization_id
+                )
             ).scalar_one_or_none()
         return {
             "network_default": network_default,
@@ -1659,23 +1693,28 @@ def create_team_app(
             )
         with engine.begin() as cx:
             cx.execute(
-                orgs.update()
-                .where(orgs.c.id == org_id)
+                organizations.update()
+                .where(organizations.c.id == organization_id)
                 .values(network_default=body.network_default)
             )
             slugs = list(
                 cx.execute(
-                    sa.select(projects.c.slug).where(projects.c.org_id == org_id)
+                    sa.select(projects.c.slug).where(
+                        projects.c.organization_id == organization_id
+                    )
                 ).scalars()
             )
             for slug in slugs:
                 _sync_project_network_policy(
-                    cx, core.state.workspace, org_id=org_id, slug=slug
+                    cx,
+                    core.state.workspace,
+                    organization_id=organization_id,
+                    slug=slug,
                 )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="organization_network_default_updated",
                 detail=str(body.network_default),
             )
@@ -1706,7 +1745,7 @@ def create_team_app(
             "configured": resolved.url is not None,
             "connected": connected,
             "can_configure": (
-                _membership_role(engine, int(user["id"]), org_id) == "owner"
+                _membership_role(engine, int(user["id"]), organization_id) == "owner"
             ),
         }
 
@@ -1717,7 +1756,7 @@ def create_team_app(
         with engine.connect() as cx:
             rows = cx.execute(
                 sa.select(projects.c.slug, projects.c.name).where(
-                    projects.c.org_id == org_id
+                    projects.c.organization_id == organization_id
                 )
             ).all()
             allowed = [
@@ -1757,12 +1796,12 @@ def create_team_app(
     ) -> dict[str, Any]:
         actor = require_user(request)
         if (
-            not access.can_on_project(org_id, pid, int(actor["id"]), "owner")
+            not access.can_on_project(organization_id, pid, int(actor["id"]), "owner")
             or body.role not in access.ROLES
         ):
             raise HTTPException(403, "project owner required")
         with locked_transaction(
-            engine, lock_scope=("project-membership", org_id, pid)
+            engine, lock_scope=("project-membership", organization_id, pid)
         ) as cx:
             if access._role(cx, int(actor["id"]), pid) != "owner":
                 raise HTTPException(403, "project owner required")
@@ -1773,7 +1812,7 @@ def create_team_app(
                 raise HTTPException(404, "user not found")
             existing = cx.execute(
                 sa.select(project_roles.c.role).where(
-                    project_roles.c.org_id == org_id,
+                    project_roles.c.organization_id == organization_id,
                     project_roles.c.slug == pid,
                     project_roles.c.user_id == user_id,
                 )
@@ -1783,7 +1822,7 @@ def create_team_app(
                     sa.select(sa.func.count())
                     .select_from(project_roles)
                     .where(
-                        project_roles.c.org_id == org_id,
+                        project_roles.c.organization_id == organization_id,
                         project_roles.c.slug == pid,
                         project_roles.c.role == "owner",
                     )
@@ -1794,18 +1833,18 @@ def create_team_app(
                 cx,
                 table=project_roles,
                 values={
-                    "org_id": org_id,
+                    "organization_id": organization_id,
                     "slug": pid,
                     "user_id": user_id,
                     "role": body.role,
                 },
-                conflict_columns=("org_id", "slug", "user_id"),
+                conflict_columns=("organization_id", "slug", "user_id"),
                 update_values={"role": body.role},
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="project_member_set",
                 detail=f"{pid}:{body.email.lower().strip()}:{body.role}",
             )
@@ -1819,13 +1858,16 @@ def create_team_app(
     )
     def list_members(pid: str, request: Request) -> list[dict[str, Any]]:
         actor = require_user(request)
-        if not access.can_on_project(org_id, pid, int(actor["id"]), "owner"):
+        if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
             raise HTTPException(403, "project owner required")
         with engine.connect() as cx:
             rows = cx.execute(
                 sa.select(users.c.id, users.c.email, project_roles.c.role)
                 .join(project_roles, project_roles.c.user_id == users.c.id)
-                .where(project_roles.c.org_id == org_id, project_roles.c.slug == pid)
+                .where(
+                    project_roles.c.organization_id == organization_id,
+                    project_roles.c.slug == pid,
+                )
             ).all()
         return [
             {
@@ -1844,10 +1886,10 @@ def create_team_app(
     )
     def remove_member(pid: str, email: str, request: Request) -> dict[str, bool]:
         actor = require_user(request)
-        if not access.can_on_project(org_id, pid, int(actor["id"]), "owner"):
+        if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
             raise HTTPException(403, "project owner required")
         with locked_transaction(
-            engine, lock_scope=("project-membership", org_id, pid)
+            engine, lock_scope=("project-membership", organization_id, pid)
         ) as cx:
             if access._role(cx, int(actor["id"]), pid) != "owner":
                 raise HTTPException(403, "project owner required")
@@ -1858,7 +1900,7 @@ def create_team_app(
                 raise HTTPException(404, "user not found")
             role = cx.execute(
                 sa.select(project_roles.c.role).where(
-                    project_roles.c.org_id == org_id,
+                    project_roles.c.organization_id == organization_id,
                     project_roles.c.slug == pid,
                     project_roles.c.user_id == user_id,
                 )
@@ -1868,7 +1910,7 @@ def create_team_app(
                     sa.select(sa.func.count())
                     .select_from(project_roles)
                     .where(
-                        project_roles.c.org_id == org_id,
+                        project_roles.c.organization_id == organization_id,
                         project_roles.c.slug == pid,
                         project_roles.c.role == "owner",
                     )
@@ -1877,7 +1919,7 @@ def create_team_app(
                     raise HTTPException(409, "cannot remove the last project owner")
             result = cx.execute(
                 project_roles.delete().where(
-                    project_roles.c.org_id == org_id,
+                    project_roles.c.organization_id == organization_id,
                     project_roles.c.slug == pid,
                     project_roles.c.user_id == user_id,
                 )
@@ -1886,7 +1928,7 @@ def create_team_app(
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="project_member_removed",
                     detail=f"{pid}:{email.lower().strip()}",
                 )
@@ -1909,7 +1951,7 @@ def create_team_app(
             token_id = inserted_id(
                 cx.execute(
                     api_tokens.insert().values(
-                        org_id=org_id,
+                        organization_id=organization_id,
                         user_id=user["id"],
                         name=token_name,
                         token_hash=hashlib.sha256(token.encode()).hexdigest(),
@@ -1920,7 +1962,7 @@ def create_team_app(
             record_audit(
                 cx,
                 user_id=user["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="pat_created",
                 detail=str(token_id),
             )
@@ -1951,7 +1993,7 @@ def create_team_app(
                     api_tokens.c.created_at,
                     api_tokens.c.last_used_at,
                 ).where(
-                    api_tokens.c.org_id == org_id,
+                    api_tokens.c.organization_id == organization_id,
                     api_tokens.c.user_id == user["id"],
                     api_tokens.c.revoked_at.is_(None),
                 )
@@ -1994,7 +2036,7 @@ def create_team_app(
                 api_tokens.update()
                 .where(
                     api_tokens.c.id == token_id,
-                    api_tokens.c.org_id == org_id,
+                    api_tokens.c.organization_id == organization_id,
                     api_tokens.c.user_id == user["id"],
                 )
                 .values(revoked_at=datetime.now(UTC))
@@ -2003,7 +2045,7 @@ def create_team_app(
                 record_audit(
                     cx,
                     user_id=user["id"],
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="pat_revoked",
                     detail=str(token_id),
                 )
@@ -2015,12 +2057,14 @@ def create_team_app(
     async def unavailable_invite_mail(_email: str, _link: str) -> bool:
         raise HTTPException(503, "invite email transport is not configured")
 
-    invite_service = InviteService(engine, org_id=org_id, access=access)
-    admin_membership = AdminMembershipService(engine, org_id=org_id)
+    invite_service = InviteService(
+        engine, organization_id=organization_id, access=access
+    )
+    admin_membership = AdminMembershipService(engine, organization_id=organization_id)
     register_admin_api_routes(
         app,
         engine=engine,
-        org_id=org_id,
+        organization_id=organization_id,
         invites=invite_service,
         auth=auth,
         operator_service=operator_service,
@@ -2082,7 +2126,9 @@ def create_team_app(
                 headers={"Cache-Control": "no-store"},
             )
         try:
-            redeem_password_reset(engine, org_id=org_id, token=token, password=password)
+            redeem_password_reset(
+                engine, organization_id=organization_id, token=token, password=password
+            )
         except ResetTokenInvalid as exc:
             raise HTTPException(
                 404,
@@ -2111,7 +2157,7 @@ def create_team_app(
     register_admin_browser_routes(
         app,
         engine=engine,
-        org_id=org_id,
+        organization_id=organization_id,
         invites=invite_service,
         auth=auth,
         membership=admin_membership,
@@ -2141,7 +2187,7 @@ def create_team_app(
     register_observability_routes(
         app,
         engine=engine,
-        org_id=org_id,
+        organization_id=organization_id,
         require_user=require_user,
     )
 
@@ -2153,13 +2199,13 @@ def create_team_app(
         ),
         require_owner=lambda request: require_user(request, browser=True, admin=True),
         member_can_mutate=lambda actor: (
-            _membership_role(engine, int(actor["id"]), org_id) == "owner"
+            _membership_role(engine, int(actor["id"]), organization_id) == "owner"
         ),
     )
     register_operational_routes(
         app,
         engine=engine,
-        org_id=org_id,
+        organization_id=organization_id,
         require_user=require_user,
         resolve_user=resolve_request,
         membership_role=lambda user_id, oid: _membership_role(engine, user_id, oid),
@@ -2217,7 +2263,7 @@ def create_team_app(
     app.mount("/", core)
     app.add_middleware(
         SetupGate,
-        claimed=lambda: owner_count(engine, org_id=org_id) > 0,
+        claimed=lambda: owner_count(engine, organization_id=organization_id) > 0,
         operator_probe=lambda authorization: (
             operator_service.authenticate(authorization) is not None
         ),
@@ -2225,11 +2271,14 @@ def create_team_app(
     return app
 
 
-def _membership_role(engine: sa.Engine, user_id: int, org_id: int) -> str | None:
+def _membership_role(
+    engine: sa.Engine, user_id: int, organization_id: int
+) -> str | None:
     with engine.connect() as cx:
         return cx.execute(
             sa.select(memberships.c.role).where(
-                memberships.c.user_id == user_id, memberships.c.org_id == org_id
+                memberships.c.user_id == user_id,
+                memberships.c.organization_id == organization_id,
             )
         ).scalar_one_or_none()
 

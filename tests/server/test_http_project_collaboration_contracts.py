@@ -287,7 +287,10 @@ def test_real_team_collaboration_shapes_permissions_history_and_effects(
     assert first["role"] == "viewer"
     assert first["accepted_at"] is None
     assert first["revoked_at"] is None
-    assert not ({"token", "token_hash", "org_id", "invited_by_user_id"} & set(first))
+    assert not (
+        {"token", "token_hash", "org_id", "organization_id", "invited_by_user_id"}
+        & set(first)
+    )
     assert sent_mail == [("first@example.com", sent_mail[0][1])]
     assert "/auth/project-invites/" in sent_mail[0][1]
     assert _audits(app, action="project_invited") == invite_before + [

@@ -4,8 +4,8 @@ from frisket.team import control_plane
 def test_team_search_port_requests_only_search_provider_keys(monkeypatch) -> None:
     seen = []
 
-    def provider_keys(_engine, *, org_id, providers, decryptor):
-        seen.append((org_id, providers, decryptor("ciphertext")))
+    def provider_keys(_engine, *, organization_id, providers, decryptor):
+        seen.append((organization_id, providers, decryptor("ciphertext")))
         return {"exa": "tenant-key"}
 
     monkeypatch.setattr(control_plane, "control_plane_engine", lambda _url: object())

@@ -4,7 +4,7 @@ from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
 from frisket.team.enforcement import protect_core_app
 
-ACTOR = {"id": 7, "email": "proof@example.com", "org_id": 1, "auth": "session"}
+ACTOR = {"id": 7, "email": "proof@example.com", "organization_id": 1, "auth": "session"}
 
 
 class Access:
@@ -13,9 +13,13 @@ class Access:
     asked = None
 
     def resolve_project_for_user_id(self, user_id, slug, **kwargs):
-        return {"org_id": 1, "storage_org_id": 1, "slug": slug} if self.found else None
+        return (
+            {"organization_id": 1, "storage_organization_id": 1, "slug": slug}
+            if self.found
+            else None
+        )
 
-    def can_on_project(self, org_id, slug, user_id, need):
+    def can_on_project(self, organization_id, slug, user_id, need):
         self.asked = need
         return ("viewer", "reviewer", "editor", "owner").index(self.role) >= (
             "viewer",

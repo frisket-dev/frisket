@@ -102,7 +102,7 @@ def test_team_bootstrap_accepts_a_database_carrying_model_pulls_created_by_anoth
 
         with engine.connect() as cx2:
             tables = set(sa.inspect(cx2).get_table_names())
-        assert "orgs" in tables
+        assert "organizations" in tables
         assert "model_pulls" in tables
         """
     )

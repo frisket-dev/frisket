@@ -19,11 +19,11 @@ _DOCUMENT_ENV = {
 
 @dataclass(frozen=True)
 class OrganizationDocumentCredentials:
-    org_id: int
+    organization_id: int
     keys: Mapping[str, str] = field(repr=False)
 
     def __post_init__(self):
-        if type(self.org_id) is not int or self.org_id <= 0:
+        if type(self.organization_id) is not int or self.organization_id <= 0:
             raise ValueError("document credentials require a trusted organization ID")
         object.__setattr__(self, "keys", MappingProxyType(dict(self.keys)))
 
@@ -41,7 +41,7 @@ class OrganizationDocumentCredentials:
         value = self.keys.get(provider)
         return (
             ResolvedCredential(
-                value, "org_byok", CredentialOwner.organization(self.org_id)
+                value, "org_byok", CredentialOwner.organization(self.organization_id)
             )
             if value
             else None
@@ -58,7 +58,7 @@ class TeamOrganizationDocumentCredentialPort:
         keys = (
             organization_provider_keys(
                 control_plane_engine(control_database_url),
-                org_id=org_id,
+                organization_id=org_id,
                 providers=tuple(_DOCUMENT_ENV.values()),
                 decryptor=self._decryptor,
             )

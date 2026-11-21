@@ -68,7 +68,7 @@ class TeamOAuthConnectionService:
     def connect_google_account(
         self,
         *,
-        org_id: int,
+        organization_id: int,
         user_id: int,
         external_subject: str,
         refresh_token: str,
@@ -95,7 +95,7 @@ class TeamOAuthConnectionService:
         with self._engine.begin() as cx:
             existing = cx.execute(
                 sa.select(oauth_connections.c.id).where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == "google",
                     oauth_connections.c.connection_id == connection_id,
                 )
@@ -103,7 +103,7 @@ class TeamOAuthConnectionService:
             if existing is None:
                 cx.execute(
                     oauth_connections.insert().values(
-                        org_id=org_id,
+                        organization_id=organization_id,
                         provider="google",
                         connection_id=connection_id,
                         created_at=now,
@@ -117,11 +117,14 @@ class TeamOAuthConnectionService:
                     .values(**values)
                 )
             record_audit(
-                cx, user_id=user_id, org_id=org_id, action="oauth_connection_google"
+                cx,
+                user_id=user_id,
+                organization_id=organization_id,
+                action="oauth_connection_google",
             )
             row = cx.execute(
                 sa.select(oauth_connections).where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == "google",
                     oauth_connections.c.connection_id == connection_id,
                 )
@@ -129,10 +132,10 @@ class TeamOAuthConnectionService:
         return self._metadata(row)
 
     def list_connections(
-        self, org_id: int, *, provider: str | None = None
+        self, organization_id: int, *, provider: str | None = None
     ) -> list[dict[str, Any]]:
         query = sa.select(oauth_connections).where(
-            oauth_connections.c.org_id == org_id,
+            oauth_connections.c.organization_id == organization_id,
             oauth_connections.c.revoked_at.is_(None),
         )
         if provider:
@@ -147,7 +150,7 @@ class TeamOAuthConnectionService:
 
     def connection(
         self,
-        org_id: int,
+        organization_id: int,
         provider: str,
         connection_id: str,
         *,
@@ -165,7 +168,7 @@ class TeamOAuthConnectionService:
         with self._engine.connect() as cx:
             row = cx.execute(
                 sa.select(oauth_connections).where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == provider,
                     oauth_connections.c.connection_id == connection_id,
                     oauth_connections.c.revoked_at.is_(None),
@@ -179,7 +182,12 @@ class TeamOAuthConnectionService:
         return out
 
     def revoke_connection(
-        self, org_id: int, provider: str, connection_id: str, *, user_id: int
+        self,
+        organization_id: int,
+        provider: str,
+        connection_id: str,
+        *,
+        user_id: int,
     ) -> bool:
         provider = provider.strip().lower()
         connection_id = connection_id.strip()
@@ -189,7 +197,7 @@ class TeamOAuthConnectionService:
             result = cx.execute(
                 oauth_connections.update()
                 .where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == provider,
                     oauth_connections.c.connection_id == connection_id,
                     oauth_connections.c.revoked_at.is_(None),
@@ -201,7 +209,7 @@ class TeamOAuthConnectionService:
                 record_audit(
                     cx,
                     user_id=user_id,
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action=f"oauth_connection_revoked:{provider}",
                 )
         return revoked
@@ -267,7 +275,9 @@ def register_oauth_connection_routes(
     ) -> dict[str, Any]:
         user = require_browser_user(request)
         return {
-            "connections": service.list_connections(user["org_id"], provider=provider)
+            "connections": service.list_connections(
+                user["organization_id"], provider=provider
+            )
         }
 
     @app.delete("/api/organization/oauth/connections/{provider}/{connection_id}")
@@ -277,7 +287,7 @@ def register_oauth_connection_routes(
         user = require_browser_user(request)
         return {
             "revoked": service.revoke_connection(
-                user["org_id"], provider, connection_id, user_id=user["id"]
+                user["organization_id"], provider, connection_id, user_id=user["id"]
             )
         }
 
@@ -364,7 +374,7 @@ def register_oauth_connection_routes(
             if isinstance(value, str) and value.strip()
         ]
         service.connect_google_account(
-            org_id=user["org_id"],
+            organization_id=user["organization_id"],
             user_id=user["id"],
             external_subject=subject,
             external_email=str(connected.get("external_email") or "").strip() or None,

@@ -18,7 +18,7 @@ from frisket.team.operator_service import mint_operator_token
 from frisket.team.schema import (
     audit_log,
     memberships,
-    org_keys,
+    organization_keys,
     pending_invites,
     users,
 )
@@ -46,7 +46,9 @@ def _claimed_app(tmp_path: Path, **overrides: Any) -> tuple[Any, TestClient]:
 
 
 def _operator(app) -> dict[str, str]:
-    raw, _ = mint_operator_token(app.state.control_engine, org_id=1, label="laptop")
+    raw, _ = mint_operator_token(
+        app.state.control_engine, organization_id=1, label="laptop"
+    )
     return {"Authorization": f"Bearer {raw}"}
 
 
@@ -368,11 +370,11 @@ def test_email_role_update_rechecks_stale_browser_owner_inside_membership_lock(
         nonlocal revoked
         scopes.append(lock_scope)
         with original_lock(engine, lock_scope=lock_scope) as cx:
-            if not revoked and lock_scope == ("org-membership", 1):
+            if not revoked and lock_scope == ("organization-membership", 1):
                 cx.execute(
                     memberships.update()
                     .where(
-                        memberships.c.org_id == 1,
+                        memberships.c.organization_id == 1,
                         memberships.c.user_id == ids["owner@example.com"],
                     )
                     .values(role="member")
@@ -388,12 +390,12 @@ def test_email_role_update_rechecks_stale_browser_owner_inside_membership_lock(
     )
 
     assert denied.status_code == 403, denied.text
-    assert scopes == [("org-membership", 1)]
+    assert scopes == [("organization-membership", 1)]
     with app.state.control_engine.connect() as cx:
         assert (
             cx.execute(
                 sa.select(memberships.c.role).where(
-                    memberships.c.org_id == 1,
+                    memberships.c.organization_id == 1,
                     memberships.c.user_id == ids["target@example.com"],
                 )
             ).scalar_one()
@@ -479,7 +481,9 @@ def test_admin_secrets_bridge_and_its_denials(tmp_path: Path) -> None:
     assert stored.json()["hint"] == "...1234"
     with app.state.control_engine.connect() as cx:
         encrypted = cx.execute(
-            sa.select(org_keys.c.encrypted).where(org_keys.c.provider == "anthropic")
+            sa.select(organization_keys.c.encrypted).where(
+                organization_keys.c.provider == "anthropic"
+            )
         ).scalar_one()
     assert "sk-ant-test-1234" not in encrypted
 

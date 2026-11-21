@@ -362,7 +362,7 @@ def test_worker_action_port_uses_only_trusted_organization_identity():
         ports=ports,
         control_database_url="sqlite:///control",
     )
-    assert resolver.org_id == 17 and seen == [17]
+    assert resolver.organization_id == 17 and seen == [17]
     with pytest.raises(ValueError, match="trusted job identity"):
         resolve_run_action_credentials(
             handler_context=JobHandlerContext.without_job_row(),

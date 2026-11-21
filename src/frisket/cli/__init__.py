@@ -312,7 +312,7 @@ def _write_model_pull_finished_audit(
             cx.execute(
                 audit_log.insert().values(
                     user_id=None,
-                    org_id=org_id,
+                    organization_id=org_id,
                     action="model_pull_finished",
                     detail=detail,
                 )

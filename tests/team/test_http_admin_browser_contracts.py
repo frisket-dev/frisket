@@ -202,7 +202,7 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
         assert (
             cx.execute(
                 sa.select(memberships.c.role).where(
-                    memberships.c.org_id == org_id,
+                    memberships.c.organization_id == org_id,
                     memberships.c.user_id == member_id,
                 )
             ).scalar_one()
@@ -325,7 +325,7 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
             [
                 {
                     "user_id": owner_id,
-                    "org_id": org_id,
+                    "organization_id": org_id,
                     "action": "organization_key_set",
                     "detail": "openai",
                     "created_at": datetime.now(UTC),
@@ -337,7 +337,7 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
             [
                 {
                     "user_id": owner_id,
-                    "org_id": org_id,
+                    "organization_id": org_id,
                     "action": "organization_env_set",
                     "detail": f"RECENT_{index}",
                     "created_at": datetime.now(UTC),
@@ -349,7 +349,7 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
             client_errors.insert(),
             [
                 {
-                    "org_id": org_id,
+                    "organization_id": org_id,
                     "user_id": owner_id,
                     "source": "browser",
                     "severity": "error",
@@ -449,7 +449,7 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
         )
 
     operator_token, _label = mint_operator_token(
-        app.state.control_engine, org_id=org_id, label="browser-v1"
+        app.state.control_engine, organization_id=org_id, label="browser-v1"
     )
     operator_headers = {"Authorization": f"Bearer {operator_token}"}
     assert (
@@ -470,7 +470,7 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
             cx.execute(
                 sa.select(sa.func.count())
                 .select_from(memberships)
-                .where(memberships.c.org_id == org_id)
+                .where(memberships.c.organization_id == org_id)
             ).scalar_one()
             == 2
         )
@@ -482,7 +482,7 @@ def test_operator_token_can_create_and_revoke_invites_on_the_browser_wire(
     app, _owner = _claimed_app(tmp_path)
     org_id = app.state.team_organization_id
     operator_token, _label = mint_operator_token(
-        app.state.control_engine, org_id=org_id, label="invite-wires"
+        app.state.control_engine, organization_id=org_id, label="invite-wires"
     )
     headers = {"Authorization": f"Bearer {operator_token}"}
 

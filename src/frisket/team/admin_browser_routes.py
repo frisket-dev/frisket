@@ -52,7 +52,7 @@ from frisket.team.observability_routes import _blob_probe
 from frisket.team.schema import (
     audit_log,
     client_errors,
-    orgs,
+    organizations,
     pending_invites,
     projects,
     record_audit,
@@ -191,7 +191,7 @@ def register_admin_browser_routes(
     app: FastAPI,
     *,
     engine: sa.Engine,
-    org_id: int,
+    organization_id: int,
     invites: InviteService,
     auth: IdentityAuthService,
     membership: AdminMembershipService,
@@ -295,14 +295,14 @@ def register_admin_browser_routes(
         with engine.connect() as cx:
             expires_at = cx.execute(
                 sa.select(pending_invites.c.expires_at).where(
-                    pending_invites.c.org_id == org_id,
+                    pending_invites.c.organization_id == organization_id,
                     pending_invites.c.email == invited["email"],
                 )
             ).scalar_one()
         return {
             "ok": True,
             "sent": sent,
-            "organization_id": org_id,
+            "organization_id": organization_id,
             "email": invited["email"],
             "role": invited["role"],
             "expires_at": iso_z(expires_at),
@@ -328,7 +328,7 @@ def register_admin_browser_routes(
             )
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
-        return {"ok": True, "organization_id": org_id, **result}
+        return {"ok": True, "organization_id": organization_id, **result}
 
     @app.delete(
         "/api/admin/browser/users/invites/{email}",
@@ -361,7 +361,7 @@ def register_admin_browser_routes(
             raise HTTPException(404, "pending invite not found")
         return {
             "ok": True,
-            "organization_id": org_id,
+            "organization_id": organization_id,
             "email": clean_email,
             "revoked": True,
         }
@@ -388,7 +388,7 @@ def register_admin_browser_routes(
             )
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
-        return {"ok": True, "organization_id": org_id, **result}
+        return {"ok": True, "organization_id": organization_id, **result}
 
     @app.get(
         "/api/admin/browser/jobs",
@@ -457,7 +457,7 @@ def register_admin_browser_routes(
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="admin_job_cancel_requested",
                     detail=str(job_id),
                 )
@@ -512,9 +512,11 @@ def register_admin_browser_routes(
         user_filter = (query.user or "").strip().lower()
         action_filter = (query.action or "").strip().lower()
         project_filter = (query.project_id or "").strip()
-        audit_predicates = [audit_log.c.org_id == org_id]
+        audit_predicates = [audit_log.c.organization_id == organization_id]
         if query.organization_id is not None:
-            audit_predicates.append(audit_log.c.org_id == query.organization_id)
+            audit_predicates.append(
+                audit_log.c.organization_id == query.organization_id
+            )
         if action_filter:
             audit_predicates.append(sa.func.lower(audit_log.c.action) == action_filter)
         if user_filter:
@@ -538,20 +540,20 @@ def register_admin_browser_routes(
             )
         with engine.connect() as cx:
             organization_rows = cx.execute(
-                sa.select(orgs.c.id, orgs.c.name)
-                .where(orgs.c.id == org_id)
-                .order_by(orgs.c.id)
+                sa.select(organizations.c.id, organizations.c.name)
+                .where(organizations.c.id == organization_id)
+                .order_by(organizations.c.id)
             ).all()
             project_rows = cx.execute(
-                sa.select(projects.c.org_id, projects.c.slug, projects.c.name)
-                .where(projects.c.org_id == org_id)
+                sa.select(projects.c.organization_id, projects.c.slug, projects.c.name)
+                .where(projects.c.organization_id == organization_id)
                 .order_by(projects.c.slug)
             ).all()
             audit_rows = cx.execute(
                 sa.select(
                     audit_log.c.id,
                     audit_log.c.user_id,
-                    audit_log.c.org_id,
+                    audit_log.c.organization_id,
                     audit_log.c.action,
                     audit_log.c.detail,
                     audit_log.c.created_at,
@@ -567,7 +569,7 @@ def register_admin_browser_routes(
             action_rows = (
                 cx.execute(
                     sa.select(audit_log.c.action)
-                    .where(audit_log.c.org_id == org_id)
+                    .where(audit_log.c.organization_id == organization_id)
                     .distinct()
                     .order_by(audit_log.c.action)
                 )
@@ -576,7 +578,8 @@ def register_admin_browser_routes(
             )
         organization_names = {int(row.id): str(row.name) for row in organization_rows}
         project_names = {
-            (int(row.org_id), str(row.slug)): str(row.name) for row in project_rows
+            (int(row.organization_id), str(row.slug)): str(row.name)
+            for row in project_rows
         }
         events: list[dict[str, Any]] = []
         for row in audit_rows:
@@ -592,16 +595,18 @@ def register_admin_browser_routes(
                     if row.user_id is not None
                     else None,
                     "actor_email": str(row.actor_email) if row.actor_email else None,
-                    "organization_id": int(row.org_id)
-                    if row.org_id is not None
+                    "organization_id": int(row.organization_id)
+                    if row.organization_id is not None
                     else None,
-                    "organization_name": organization_names.get(int(row.org_id))
-                    if row.org_id
+                    "organization_name": organization_names.get(
+                        int(row.organization_id)
+                    )
+                    if row.organization_id
                     else None,
                     "project_id": project_id,
                     "project_name": (
-                        project_names.get((int(row.org_id), str(project_id)))
-                        if row.org_id is not None and project_id is not None
+                        project_names.get((int(row.organization_id), str(project_id)))
+                        if row.organization_id is not None and project_id is not None
                         else None
                     ),
                     "action": str(row.action),
@@ -625,7 +630,7 @@ def register_admin_browser_routes(
                 ],
                 "projects": [
                     {
-                        "organization_id": int(row.org_id),
+                        "organization_id": int(row.organization_id),
                         "project_id": str(row.slug),
                         "name": str(row.name),
                     }
@@ -650,7 +655,7 @@ def register_admin_browser_routes(
         with engine.connect() as cx:
             rows = cx.execute(
                 sa.select(client_errors)
-                .where(client_errors.c.org_id == org_id)
+                .where(client_errors.c.organization_id == organization_id)
                 .order_by(client_errors.c.id.desc())
                 .limit(query.limit)
             ).all()
@@ -667,8 +672,8 @@ def register_admin_browser_routes(
                     "message": str(row.message),
                     "stack": str(row.stack) if row.stack is not None else None,
                     "route": str(row.route) if row.route is not None else None,
-                    "organization_id": int(row.org_id)
-                    if row.org_id is not None
+                    "organization_id": int(row.organization_id)
+                    if row.organization_id is not None
                     else None,
                     "user_id": int(row.user_id) if row.user_id is not None else None,
                     "project_id": (

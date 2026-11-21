@@ -9,7 +9,9 @@ The identity/commerce split was a pre-release clean cut: a database that
 predates it (identity and commerce fused on one `orgs` table) is still
 REJECTED rather than guessed at.  Once the split schema exists, however,
 versioned upgrades preserve its data in place (v6 -> v7 adds the user
-allowance column; v7 -> v8 renames it to `allowance_usd`).
+allowance column; v7 -> v8 renames it to `allowance_usd`; v8 -> v9 renames
+the organization tables and foreign-key columns to `organizations` /
+`organization_id`).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
 external hosted composition runs it too, via its own bootstrap module, so
@@ -27,7 +29,7 @@ from frisket.team.schema import metadata
 # Bumped only when the identity schema changes shape in a way that an existing
 # database cannot serve. The split itself is version 1: there is no version 0
 # to upgrade from, because pre-split databases are dropped, not migrated.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 TEAM_EDITION = "team"
 
@@ -125,6 +127,77 @@ def _upgrade_v7_to_v8(engine: sa.Engine, *, edition: str | None) -> bool:
     return True
 
 
+_V8_TO_V9_TABLE_RENAMES: tuple[tuple[str, str], ...] = (
+    ("orgs", "organizations"),
+    ("org_keys", "organization_keys"),
+    ("org_env_vars", "organization_env_vars"),
+)
+
+_V8_TO_V9_COLUMN_RENAMES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    ("users", (("default_org_id", "default_organization_id"),)),
+    ("memberships", (("org_id", "organization_id"),)),
+    (
+        "projects",
+        (
+            ("org_id", "organization_id"),
+            ("storage_org_id", "storage_organization_id"),
+        ),
+    ),
+    ("pending_invites", (("org_id", "organization_id"),)),
+    ("project_invites", (("org_id", "organization_id"),)),
+    ("project_roles", (("org_id", "organization_id"),)),
+    ("project_creation_intents", (("org_id", "organization_id"),)),
+    ("api_tokens", (("org_id", "organization_id"),)),
+    ("operator_tokens", (("org_id", "organization_id"),)),
+    ("audit_log", (("org_id", "organization_id"),)),
+    ("client_errors", (("org_id", "organization_id"),)),
+    ("organization_keys", (("org_id", "organization_id"),)),
+    ("organization_env_vars", (("org_id", "organization_id"),)),
+    ("oauth_connections", (("org_id", "organization_id"),)),
+)
+
+
+def _upgrade_v8_to_v9(engine: sa.Engine, *, edition: str | None) -> bool:
+    """Rename organization tables and columns in place without losing data."""
+
+    with engine.begin() as cx:
+        marker = cx.execute(sa.select(schema_marker)).all()
+        if (
+            len(marker) != 1
+            or marker[0].id != 1
+            or marker[0].schema_version != 8
+            or (edition is not None and marker[0].edition != edition)
+        ):
+            return False
+        tables = set(sa.inspect(cx).get_table_names())
+        if "users" not in tables:
+            return False
+        for old_table, new_table in _V8_TO_V9_TABLE_RENAMES:
+            if old_table in tables and new_table not in tables:
+                cx.execute(sa.text(f"ALTER TABLE {old_table} RENAME TO {new_table}"))
+                tables.remove(old_table)
+                tables.add(new_table)
+        for table, renames in _V8_TO_V9_COLUMN_RENAMES:
+            if table not in tables:
+                continue
+            columns = {column["name"] for column in sa.inspect(cx).get_columns(table)}
+            for old_col, new_col in renames:
+                if old_col in columns and new_col not in columns:
+                    cx.execute(
+                        sa.text(
+                            f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col}"
+                        )
+                    )
+                    columns.remove(old_col)
+                    columns.add(new_col)
+        cx.execute(
+            schema_marker.update()
+            .where(schema_marker.c.id == 1)
+            .values(schema_version=9, stamped_at=datetime.now(UTC))
+        )
+    return True
+
+
 def ensure_clean_control_plane_schema(
     engine: sa.Engine, *, edition: str | None = None
 ) -> None:
@@ -154,6 +227,8 @@ def ensure_clean_control_plane_schema(
             if version == 6 and _upgrade_v6_to_v7(engine, edition=edition):
                 version = 7
             if version == 7 and _upgrade_v7_to_v8(engine, edition=edition):
+                version = 8
+            if version == 8 and _upgrade_v8_to_v9(engine, edition=edition):
                 return
     raise PreSplitSchemaError(
         "control-plane database was not created by the current schema "
