@@ -224,109 +224,104 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         return [{"text": "Ada", "type": "person", "start": 0, "end": 3, "score": 0.9}]
 
     monkeypatch.setattr(LocalNerExtractor, "extract", execute)
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _action(sheet_id, ["body"]),
-            project_id=PROJECT_ID,
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
-        assert result.status == "partial", result.errors
-        run_id = int(result.run_id)
-        run = project.db.execute(
-            "SELECT op_id FROM runs WHERE id=?", (run_id,)
-        ).fetchone()
-        op_id = int(run["op_id"])
-        output = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-        output_column_id = int(output["id"])
-        assert int(output["current_run_id"]) == run_id
-        generation = project.db.execute(
-            "SELECT state,terminal_disposition FROM run_output_generations "
-            "WHERE run_id=? AND column_id=?",
-            (run_id, output_column_id),
-        ).fetchone()
-        assert tuple(generation) == ("sealed", "completed")
+    result = executor_actions.run_action_spec(
+        project,
+        _action(sheet_id, ["body"]),
+        project_id=PROJECT_ID,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
+    assert result.status == "partial", result.errors
+    run_id = int(result.run_id)
+    run = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
+    op_id = int(run["op_id"])
+    output = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    output_column_id = int(output["id"])
+    assert int(output["current_run_id"]) == run_id
+    generation = project.db.execute(
+        "SELECT state,terminal_disposition FROM run_output_generations "
+        "WHERE run_id=? AND column_id=?",
+        (run_id, output_column_id),
+    ).fetchone()
+    assert tuple(generation) == ("sealed", "completed")
 
-        heads = project.db.execute(
-            "SELECT head.row_id,result.publication_effect "
-            "FROM generated_result_candidates head JOIN results result "
-            "ON result.run_id=head.run_id AND result.row_id=head.row_id "
-            "AND result.column_id=head.column_id WHERE head.column_id=? "
-            "ORDER BY head.row_id",
+    heads = project.db.execute(
+        "SELECT head.row_id,result.publication_effect "
+        "FROM generated_result_candidates head JOIN results result "
+        "ON result.run_id=head.run_id AND result.row_id=head.row_id "
+        "AND result.column_id=head.column_id WHERE head.column_id=? "
+        "ORDER BY head.row_id",
+        (output_column_id,),
+    ).fetchall()
+    assert [(int(row[0]), row[1]) for row in heads] == [
+        (row_ids[0], "publish_value"),
+        (row_ids[1], "publish_value"),
+        (row_ids[2], "publish_error"),
+    ]
+    result_rows = project.db.execute(
+        "SELECT row_id,justification FROM results WHERE run_id=? "
+        "AND column_id=? ORDER BY row_id",
+        (run_id, output_column_id),
+    ).fetchall()
+    assert [(int(row[0]), row[1]) for row in result_rows] == [
+        (row_ids[0], None),
+        (row_ids[1], None),
+        (row_ids[2], None),
+    ]
+    link = project.db.execute(
+        "SELECT subject_ref_json FROM evidence_links WHERE row_id=? "
+        "AND column_id=? AND status='active'",
+        (row_ids[0], output_column_id),
+    ).fetchone()
+    assert json.loads(link["subject_ref_json"]) == {
+        "kind": "run_result",
+        "op_id": op_id,
+        "row_id": row_ids[0],
+        "column_id": output_column_id,
+        "run_id": run_id,
+    }
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        project.db.execute(
+            "UPDATE results SET justification='changed' WHERE run_id=? "
+            "AND row_id=? AND column_id=?",
+            (run_id, row_ids[0], output_column_id),
+        )
+    project.db.rollback()
+
+    assert project.undo() == op_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
             (output_column_id,),
-        ).fetchall()
-        assert [(int(row[0]), row[1]) for row in heads] == [
-            (row_ids[0], "publish_value"),
-            (row_ids[1], "publish_value"),
-            (row_ids[2], "publish_error"),
-        ]
-        result_rows = project.db.execute(
-            "SELECT row_id,justification FROM results WHERE run_id=? "
-            "AND column_id=? ORDER BY row_id",
-            (run_id, output_column_id),
-        ).fetchall()
-        assert [(int(row[0]), row[1]) for row in result_rows] == [
-            (row_ids[0], None),
-            (row_ids[1], None),
-            (row_ids[2], None),
-        ]
-        link = project.db.execute(
-            "SELECT subject_ref_json FROM evidence_links WHERE row_id=? "
-            "AND column_id=? AND status='active'",
-            (row_ids[0], output_column_id),
-        ).fetchone()
-        assert json.loads(link["subject_ref_json"]) == {
-            "kind": "run_result",
-            "op_id": op_id,
-            "row_id": row_ids[0],
-            "column_id": output_column_id,
-            "run_id": run_id,
-        }
-
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            project.db.execute(
-                "UPDATE results SET justification='changed' WHERE run_id=? "
-                "AND row_id=? AND column_id=?",
-                (run_id, row_ids[0], output_column_id),
-            )
-        project.db.rollback()
-
-        assert project.undo() == op_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
-                (output_column_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            list_cell_citations(
-                project,
-                sheet_id=sheet_id,
-                row_id=row_ids[0],
-                column_id=output_column_id,
-            )["links"]
-            == []
-        )
-
-        assert project.redo() == op_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
-                (output_column_id,),
-            ).fetchone()[0]
-            == 3
-        )
-        assert list_cell_citations(
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_ids[0],
             column_id=output_column_id,
         )["links"]
-    finally:
-        project.close()
+        == []
+    )
+
+    assert project.redo() == op_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
+            (output_column_id,),
+        ).fetchone()[0]
+        == 3
+    )
+    assert list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_ids[0],
+        column_id=output_column_id,
+    )["links"]
 
 
 def test_evidence_failure_rolls_back_result_head_and_evidence(

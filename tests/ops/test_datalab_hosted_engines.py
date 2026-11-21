@@ -1019,14 +1019,11 @@ def test_datalab_ocr_estimate_is_unknown_cost_not_free(make_project, monkeypatch
         ],
         {"page": column},
     )
-    try:
-        result = _run_ocr(project, sheet, confirm=False)
-        assert result.status == "needs_confirmation", result.errors
-        assert result.errors[0].details["promise_set_hash"]
-        assert result.errors[0].details["estimate"]["cost"] is None
-        assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 0
-    finally:
-        project.close()
+    result = _run_ocr(project, sheet, confirm=False)
+    assert result.status == "needs_confirmation", result.errors
+    assert result.errors[0].details["promise_set_hash"]
+    assert result.errors[0].details["estimate"]["cost"] is None
+    assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize(

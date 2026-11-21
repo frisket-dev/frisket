@@ -19,6 +19,7 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -428,8 +429,9 @@ def _map_classify_action(sheet_id: int, *, idempotency_key: str) -> dict[str, An
 
 
 def _seed_classify_project(project_path: Path) -> int:
-    project = Project.create(project_path, name="Map Classify Missing Key")
-    try:
+    with closing(
+        Project.create(project_path, name="Map Classify Missing Key")
+    ) as project:
         sheet_id = project.add_sheet("Stories")
         columns = {
             "story": project.add_column(sheet_id, "story", type="text"),
@@ -440,8 +442,6 @@ def _seed_classify_project(project_path: Path) -> int:
             columns,
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path):
@@ -460,8 +460,7 @@ def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path
         def _prepare(self, *_args: Any, **_kwargs: Any) -> Any:
             raise MissingProviderKey("anthropic")
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         failed = run_action_with_exact_confirmation(
             project,
             action,
@@ -484,8 +483,6 @@ def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path
             ("map_classify@sha256:missing-key",),
         ).fetchone()
         assert stuck is None
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------

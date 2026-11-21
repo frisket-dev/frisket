@@ -1393,110 +1393,102 @@ def test_source_hit_counts_other_authorized_bindings(make_project):
     (("source", 1, 4), ("row", 2, 4), ("part", 2, 2)),
 )
 def test_semantic_group_aggregation_preserves_global_binding_counts_and_channels(
-    tmp_path, group_by, group_count, hits_per_group
+    make_project, group_by, group_count, hits_per_group
 ):
-    project = Project.create(tmp_path / f"aggregate-{group_by}.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        body = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet,
-            [{"body": "shared target"}, {"body": "shared target"}],
-            {"body": body},
+    project = make_project(f"aggregate-{group_by}")
+    sheet = project.add_sheet("Documents")
+    body = project.add_column(sheet, "body")
+    rows = project.add_rows(
+        sheet,
+        [{"body": "shared target"}, {"body": "shared target"}],
+        {"body": body},
+    )
+    revisions = [
+        read_binding_revision(project.db, row_id=row, column_id=body) for row in rows
+    ]
+    assert None not in revisions
+    revision = SourceRevision(
+        f"cell:{rows[0]}:{body}",
+        "text",
+        "retrieval_revision",
+        revisions[0],
+        input_hash("shared target"),
+    )
+    locator = SourceLocator(kind="row_composite")
+    parts = tuple(
+        StoredPart(f"part:{index}", "text_passage", locator) for index in range(2)
+    )
+    representations = tuple(
+        CachedRepresentation(
+            f"representation:{index}",
+            "space:test",
+            f"input:{index}",
+            native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
+            3,
         )
-        revisions = [
-            read_binding_revision(project.db, row_id=row, column_id=body)
-            for row in rows
-        ]
-        assert None not in revisions
-        revision = SourceRevision(
-            f"cell:{rows[0]}:{body}",
-            "text",
-            "retrieval_revision",
-            revisions[0],
-            input_hash("shared target"),
-        )
-        locator = SourceLocator(kind="row_composite")
-        parts = tuple(
-            StoredPart(f"part:{index}", "text_passage", locator) for index in range(2)
-        )
-        representations = tuple(
-            CachedRepresentation(
-                f"representation:{index}",
-                "space:test",
-                f"input:{index}",
-                native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
-                3,
-            )
-            for index in range(2)
-        )
-        attachments = tuple(
-            PartRepresentation(part.part_id, representation.representation_id, channel)
-            for part, representation in zip(parts, representations, strict=True)
-            for channel in ("text", "transcript")
-        )
-        with RetrievalStore(project).open() as store:
-            store.begin_preparation(revision, recipe_id="ties:v1", channel="text")
-            assert store.publish_source(
-                SourcePublication(
-                    source_revision=revision,
-                    recipe_id="ties:v1",
-                    channel="text",
-                    parts=parts,
-                    bindings=(
-                        StoredBinding(
-                            "binding:z",
-                            sheet,
-                            rows[0],
-                            column_id=body,
-                            dependencies=(
-                                BindingDependency(rows[0], body, revisions[0]),
-                            ),
-                        ),
-                        StoredBinding(
-                            "binding:a",
-                            sheet,
-                            rows[1],
-                            column_id=body,
-                            dependencies=(
-                                BindingDependency(rows[1], body, revisions[1]),
-                            ),
-                        ),
+        for index in range(2)
+    )
+    attachments = tuple(
+        PartRepresentation(part.part_id, representation.representation_id, channel)
+        for part, representation in zip(parts, representations, strict=True)
+        for channel in ("text", "transcript")
+    )
+    with RetrievalStore(project).open() as store:
+        store.begin_preparation(revision, recipe_id="ties:v1", channel="text")
+        assert store.publish_source(
+            SourcePublication(
+                source_revision=revision,
+                recipe_id="ties:v1",
+                channel="text",
+                parts=parts,
+                bindings=(
+                    StoredBinding(
+                        "binding:z",
+                        sheet,
+                        rows[0],
+                        column_id=body,
+                        dependencies=(BindingDependency(rows[0], body, revisions[0]),),
                     ),
-                    representations=representations,
-                    attachments=attachments,
-                )
+                    StoredBinding(
+                        "binding:a",
+                        sheet,
+                        rows[1],
+                        column_id=body,
+                        dependencies=(BindingDependency(rows[1], body, revisions[1]),),
+                    ),
+                ),
+                representations=representations,
+                attachments=attachments,
             )
-
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope((SheetScope(sheet),)),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by=group_by,
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
         )
 
-        assert len(response.results) == group_count
-        for group in response.results:
-            hits = (group.primary, *group.supporting)
-            assert len(hits) == hits_per_group
-            assert {hit.contributions[0].channel for hit in hits} == {
-                "text",
-                "transcript",
-            }
-            assert {hit.additional_binding_count for hit in hits} == {1}
-            assert group.additional_count == 0
-        if group_by != "row":
-            assert {group.primary.binding.binding_id for group in response.results} == {
-                "binding:a"
-            }
-    finally:
-        project.close()
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope((SheetScope(sheet),)),
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by=group_by,
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    assert len(response.results) == group_count
+    for group in response.results:
+        hits = (group.primary, *group.supporting)
+        assert len(hits) == hits_per_group
+        assert {hit.contributions[0].channel for hit in hits} == {
+            "text",
+            "transcript",
+        }
+        assert {hit.additional_binding_count for hit in hits} == {1}
+        assert group.additional_count == 0
+    if group_by != "row":
+        assert {group.primary.binding.binding_id for group in response.results} == {
+            "binding:a"
+        }
 
 
 def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(make_project):
@@ -1646,68 +1638,65 @@ def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
     (("file", "application/pdf"), ("audio", "audio/wav")),
 )
 def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
-    tmp_path, column_type, mime_type
+    make_project, column_type, mime_type
 ):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / f"unprepared-{column_type}.frisket")
-    try:
-        sheet = project.add_sheet("Media")
-        status = project.add_column(sheet, "status", type="category")
-        media = project.add_column(sheet, "media", type=column_type)
-        digest = project.add_blob(b"media", mime=mime_type)
-        project.add_rows(
-            sheet,
-            [
-                {
-                    "status": "included",
-                    "media": {"blob": digest, "mime": mime_type},
-                },
-                {
-                    "status": "excluded",
-                    "media": {"blob": digest, "mime": mime_type},
-                },
-            ],
-            {"status": status, "media": media},
-        )
-        drain_index(project)
+    project = make_project(f"unprepared-{column_type}")
+    sheet = project.add_sheet("Media")
+    status = project.add_column(sheet, "status", type="category")
+    media = project.add_column(sheet, "media", type=column_type)
+    digest = project.add_blob(b"media", mime=mime_type)
+    project.add_rows(
+        sheet,
+        [
+            {
+                "status": "included",
+                "media": {"blob": digest, "mime": mime_type},
+            },
+            {
+                "status": "excluded",
+                "media": {"blob": digest, "mime": mime_type},
+            },
+        ],
+        {"status": status, "media": media},
+    )
+    drain_index(project)
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(
-                    sheets=(
-                        SheetScope(
-                            sheet,
-                            column_ids=(media,),
-                            filter_json='{"status":{"eq":"included"}}',
-                        ),
-                    )
-                ),
-                query=TextQuery("needle"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(
+                sheets=(
+                    SheetScope(
+                        sheet,
+                        column_ids=(media,),
+                        filter_json='{"status":{"eq":"included"}}',
+                    ),
+                )
             ),
-        )
+            query=TextQuery("needle"),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        assert response.coverage.state == "partial"
-        assert response.coverage.searched_channels == ("lexical",)
-        gap = next(
-            item
-            for item in response.coverage.channels
-            if item.channel == "search_preparation"
-        )
-        assert gap == ChannelCoverage(
-            channel="search_preparation",
-            state="unavailable",
-            eligible_count=1,
-            prepared_count=0,
-            failed_count=0,
-            reason="media_needs_preparation",
-            gap_sheet_ids=(sheet,),
-        )
-    finally:
-        project.close()
+    assert response.coverage.state == "partial"
+    assert response.coverage.searched_channels == ("lexical",)
+    gap = next(
+        item
+        for item in response.coverage.channels
+        if item.channel == "search_preparation"
+    )
+    assert gap == ChannelCoverage(
+        channel="search_preparation",
+        state="unavailable",
+        eligible_count=1,
+        prepared_count=0,
+        failed_count=0,
+        reason="media_needs_preparation",
+        gap_sheet_ids=(sheet,),
+    )
 
 
 def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(make_project):

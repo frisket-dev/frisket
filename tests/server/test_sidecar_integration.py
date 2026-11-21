@@ -23,6 +23,7 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 import asyncio
 import json
+from contextlib import closing
 import math
 import struct
 import subprocess
@@ -106,8 +107,7 @@ def _transcribe_action(
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     path = _wav(tmp_path / "a.wav")
-    project = Project.create(tmp_path / "transcribe.frisket")
-    try:
+    with closing(Project.create(tmp_path / "transcribe.frisket")) as project:
         sheet = project.add_sheet("Audio")
         column = project.add_column(sheet, "audio", type="audio")
         digest = project.add_blob(path.read_bytes(), filename="a.wav", mime="audio/wav")
@@ -143,8 +143,6 @@ def _transcribe_action(
             RunResultStore(project).model_calls(result.run_id) if result.run_id else []
         )
         return result, values, calls
-    finally:
-        project.close()
 
 
 def _routed_gateway_ctx(handler) -> ActionContext:

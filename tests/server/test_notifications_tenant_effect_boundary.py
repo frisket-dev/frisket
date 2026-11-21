@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -71,8 +72,7 @@ def _seed_request(
     kind: str = "email",
 ) -> int:
     bundle = root / str(key.storage_org_id) / f"{key.project_slug}.frisket"
-    project = Project.create(bundle, name=key.project_slug)
-    try:
+    with closing(Project.create(bundle, name=key.project_slug)) as project:
         channel = project.create_notification_channel(
             kind=kind,
             name=f"{kind} channel",
@@ -86,8 +86,6 @@ def _seed_request(
             dedupe_key=f"delivery:{key.storage_org_id}",
         )
         return int(request["id"])
-    finally:
-        project.close()
 
 
 def _opener(_key: ProjectStorageKey, path: Path) -> Project:

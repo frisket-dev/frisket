@@ -2,6 +2,7 @@
 
 import json
 import tarfile
+from contextlib import closing
 
 import pytest
 from hypothesis import given, settings
@@ -379,8 +380,7 @@ def op_sequences(draw):
 @given(seq=op_sequences(), undos=st.integers(min_value=1, max_value=8))
 def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos):
     tmp = tmp_path_factory.mktemp("prop")
-    p = Project.create(tmp / "p.frisket")
-    try:
+    with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
         col = p.add_column(sheet, "out", ai_generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
@@ -407,16 +407,13 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
         for _ in range(n_undone):
             assert p.redo() is not None
         assert p.get_values(sheet, col) == snapshot
-    finally:
-        p.close()
 
 
 @settings(max_examples=25, deadline=None)
 @given(seq=op_sequences())
 def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
     tmp = tmp_path_factory.mktemp("prop2")
-    p = Project.create(tmp / "p.frisket")
-    try:
+    with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
         col = p.add_column(sheet, "out", ai_generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
@@ -439,8 +436,6 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
         while p.op_cursor > seeded_op_cursor:
             assert p.undo() is not None
         assert p.get_values(sheet, col) == baseline
-    finally:
-        p.close()
 
 
 class TestBundle:

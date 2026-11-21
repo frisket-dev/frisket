@@ -55,7 +55,6 @@ from frisket.execution.targets import (
     ToMarkdownOptionSupport,
     TranslateOptionSupport,
 )
-from frisket.engine.store import Project
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.validation import ClaimsGate
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -623,7 +622,7 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(
     ],
 )
 def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
-    tmp_path, target_id, egress_class, blocked
+    tmp_path, make_project, target_id, egress_class, blocked
 ):
     class Provider:
         target = ExecutionTarget(
@@ -654,7 +653,7 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
             del candidate_id, capability, engine
             return 0
 
-    project = Project.create(tmp_path / f"{target_id}.frisket", name="Document")
+    project = make_project(target_id)
     write_project_settings(
         project,
         ProjectSettings(
@@ -668,22 +667,19 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
         provider=Provider(),
         credential_use_context=CredentialUseContext.open(),
     )
-    try:
-        composition = cloud_execution_composition(
-            base,
-            project,
-            store=CloudConnectionStore(tmp_path / "profile"),
-            client=object(),
-        )
-        outcome = resolve(
-            ResolutionRequest(
-                engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
-            ),
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        base,
+        project,
+        store=CloudConnectionStore(tmp_path / "profile"),
+        client=object(),
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     if blocked:
         assert isinstance(outcome, Refusal)
@@ -1576,7 +1572,6 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         )
     finally:
         asyncio.run(runner.router.aclose())
-        project.close()
 
 
 def test_blocked_cloud_first_route_does_not_fall_back_to_local():

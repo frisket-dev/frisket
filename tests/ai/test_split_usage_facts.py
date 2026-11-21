@@ -8,6 +8,7 @@ import inspect
 import json
 import re
 from collections.abc import Mapping
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -56,8 +57,7 @@ def _stub_router():
 def _seed_project(project_path: Path) -> int:
     from frisket.engine.store import Project
 
-    project = Project.create(project_path, name="Usage Facts")
-    try:
+    with closing(Project.create(project_path, name="Usage Facts")) as project:
         sheet_id = project.add_sheet("Stories")
         columns = {
             "story": project.add_column(sheet_id, "story", type="text"),
@@ -71,8 +71,6 @@ def _seed_project(project_path: Path) -> int:
             columns,
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 def _map_classify_action(sheet_id: int) -> dict[str, Any]:
@@ -185,7 +183,7 @@ def test_run_fact_rows_are_neutral_and_carry_credential_provenance(
     from frisket.engine.store.runs import RunResultStore
 
     project, run_id = _run_stub_action(tmp_path)
-    try:
+    with closing(project):
         rows = RunResultStore(project).model_calls(run_id)
         assert len(rows) == 2
 
@@ -252,8 +250,6 @@ def test_run_fact_rows_are_neutral_and_carry_credential_provenance(
             "runs.cost_actual must equal the sum of per-call provider cost "
             "(2 stub calls x 0.004), never a marked-up customer price"
         )
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------

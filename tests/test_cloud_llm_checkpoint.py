@@ -387,9 +387,8 @@ def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(tmp
     asyncio.run(scenario())
 
 
-def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
+def test_router_selects_cloud_only_inside_exact_bound_model_scope(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         transport = _Transport([_response(execution_id="exec-1")])
         coordinator = _coordinator(project, transport)
         router = ModelRouter(
@@ -411,7 +410,6 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
                 )
         finally:
             await router.aclose()
-            project.close()
 
         assert response.content == "answer"
         assert len(transport.calls) == 1
@@ -454,58 +452,52 @@ def test_pending_accounting_does_not_block_next_approved_call(tmp_path, ceiling)
 
 
 def test_pending_pdf_without_page_metadata_refuses_budget_continuation_clearly(
-    tmp_path,
+    project,
 ):
     async def scenario():
-        project = Project.create(tmp_path / "pending-pdf.frisket")
-        try:
-            pending = _response(execution_id="first").model_copy(
-                update={
-                    "receipt": None,
-                    "accounting": CloudExecutionAccounting(
-                        status="pending",
-                        usage=CloudLLMUsage(
-                            kind="llm.complete", tokens_in=2, tokens_out=1
-                        ),
-                    ),
-                }
-            )
-            transport = _Transport([pending, _response(execution_id="second")])
-            coordinator = _coordinator(project, transport, ceiling=100)
-            pdf = _request().model_copy(
-                update={
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "document",
-                                    "media_type": "application/pdf",
-                                    "data": "cGRm",
-                                }
-                            ],
-                        }
-                    ]
-                }
-            )
-            await coordinator.execute(pdf)
-            with pytest.raises(CloudExecutionRefused) as caught:
-                await coordinator.execute(_request(message="next call"))
-            assert caught.value.code == "external_effect_reconciliation_required"
-            assert "research budget" in str(caught.value)
-            assert "accounting" in str(caught.value)
-            assert caught.value.retryable is False
-            assert len(transport.calls) == 1
-            assert len(coordinator.returned_checkpoints) == 1
-            assert coordinator.returned_accounting[0]["cloud_receipt"] is None
-        finally:
-            project.close()
+        pending = _response(execution_id="first").model_copy(
+            update={
+                "receipt": None,
+                "accounting": CloudExecutionAccounting(
+                    status="pending",
+                    usage=CloudLLMUsage(kind="llm.complete", tokens_in=2, tokens_out=1),
+                ),
+            }
+        )
+        transport = _Transport([pending, _response(execution_id="second")])
+        coordinator = _coordinator(project, transport, ceiling=100)
+        pdf = _request().model_copy(
+            update={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "document",
+                                "media_type": "application/pdf",
+                                "data": "cGRm",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        await coordinator.execute(pdf)
+        with pytest.raises(CloudExecutionRefused) as caught:
+            await coordinator.execute(_request(message="next call"))
+        assert caught.value.code == "external_effect_reconciliation_required"
+        assert "research budget" in str(caught.value)
+        assert "accounting" in str(caught.value)
+        assert caught.value.retryable is False
+        assert len(transport.calls) == 1
+        assert len(coordinator.returned_checkpoints) == 1
+        assert coordinator.returned_accounting[0]["cloud_receipt"] is None
 
     asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("pending", [False, True])
-def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(tmp_path, pending):
+def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(project, pending):
     import json
 
     def response(execution_id):
@@ -539,33 +531,27 @@ def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(tmp_path, pending
         return owner
 
     async def scenario():
-        project = Project.create(tmp_path / "checkpoint.frisket")
-        try:
-            original = response("old-ocr")
-            first = coordinator(project, _Transport([original]))
-            original_attempt, _ = await first.execute(_request())
-            row = project.db.execute(
-                "SELECT id,payload FROM effect_checkpoints"
-            ).fetchone()
-            payload = json.loads(row["payload"])
-            for key in ("receipt", "accounting"):
-                if payload["response"].get(key):
-                    payload["response"][key]["usage"].pop("meter")
-            project.db.execute(
-                "UPDATE effect_checkpoints SET payload=? WHERE id=?",
-                (json.dumps(payload), row["id"]),
-            )
-            project.db.commit()
+        original = response("old-ocr")
+        first = coordinator(project, _Transport([original]))
+        original_attempt, _ = await first.execute(_request())
+        row = project.db.execute("SELECT id,payload FROM effect_checkpoints").fetchone()
+        payload = json.loads(row["payload"])
+        for key in ("receipt", "accounting"):
+            if payload["response"].get(key):
+                payload["response"][key]["usage"].pop("meter")
+        project.db.execute(
+            "UPDATE effect_checkpoints SET payload=? WHERE id=?",
+            (json.dumps(payload), row["id"]),
+        )
+        project.db.commit()
 
-            transport = _Transport([response("next-ocr")])
-            resumed = coordinator(project, transport)
-            replay_attempt, recovered = await resumed.execute(_request())
-            assert recovered == original
-            assert replay_attempt.request_id == original_attempt.request_id
-            assert transport.calls == []
-            await resumed.execute(_request(message="next page"))
-            assert len(transport.calls) == 1
-        finally:
-            project.close()
+        transport = _Transport([response("next-ocr")])
+        resumed = coordinator(project, transport)
+        replay_attempt, recovered = await resumed.execute(_request())
+        assert recovered == original
+        assert replay_attempt.request_id == original_attempt.request_id
+        assert transport.calls == []
+        await resumed.execute(_request(message="next page"))
+        assert len(transport.calls) == 1
 
     asyncio.run(scenario())

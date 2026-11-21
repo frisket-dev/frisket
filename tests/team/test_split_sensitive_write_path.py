@@ -347,47 +347,44 @@ def test_turning_sensitive_off_does_not_opt_in_and_offline_export_is_truthful(
     Contributor, TrainingExporter = _correction_api()
     project = make_project("Toggle")
     destination, sender = _Destination(), _CorrectionSender()
+    project.set_project_sensitivity(True)
+    project.set_meta("truthful_fixture", "before and after remain user-owned")
+
+    # This explicit, user-owned local action remains available even while
+    # the project is sensitive; it is not an outbound contribution.
+    training_path = tmp_path / "corrections.jsonl"
+    TrainingExporter(project_lookup=lambda _pid: project).export(
+        project_id="p",
+        pairs_factory=lambda: [
+            {
+                "before": "original spelling",
+                "after": "corrected spelling",
+            }
+        ],
+        target=training_path,
+    )
+    assert json.loads(training_path.read_text().strip()) == {
+        "before": "original spelling",
+        "after": "corrected spelling",
+    }
+    assert sender.attempts == []
+
+    project.set_project_sensitivity(False)
+
+    contributor = Contributor(
+        enabled=False, sender=sender, project_lookup=lambda _pid: project
+    )
+    assert contributor.contribute(project_id="p", pairs_factory=lambda: []) is False
+    assert destination.attempts == sender.attempts == []
+
+    # A deliberate user-owned bundle export is neither telemetry nor a
+    # Frisket contribution and remains byte/content truthful.
+    archive = project.export(tmp_path / "toggle.frisket.zip")
+    restored = Project.import_bundle(archive, tmp_path / "copy.frisket")
     try:
-        project.set_project_sensitivity(True)
-        project.set_meta("truthful_fixture", "before and after remain user-owned")
-
-        # This explicit, user-owned local action remains available even while
-        # the project is sensitive; it is not an outbound contribution.
-        training_path = tmp_path / "corrections.jsonl"
-        TrainingExporter(project_lookup=lambda _pid: project).export(
-            project_id="p",
-            pairs_factory=lambda: [
-                {
-                    "before": "original spelling",
-                    "after": "corrected spelling",
-                }
-            ],
-            target=training_path,
+        assert restored.get_meta("truthful_fixture") == (
+            "before and after remain user-owned"
         )
-        assert json.loads(training_path.read_text().strip()) == {
-            "before": "original spelling",
-            "after": "corrected spelling",
-        }
-        assert sender.attempts == []
-
-        project.set_project_sensitivity(False)
-
-        contributor = Contributor(
-            enabled=False, sender=sender, project_lookup=lambda _pid: project
-        )
-        assert contributor.contribute(project_id="p", pairs_factory=lambda: []) is False
-        assert destination.attempts == sender.attempts == []
-
-        # A deliberate user-owned bundle export is neither telemetry nor a
-        # Frisket contribution and remains byte/content truthful.
-        archive = project.export(tmp_path / "toggle.frisket.zip")
-        restored = Project.import_bundle(archive, tmp_path / "copy.frisket")
-        try:
-            assert restored.get_meta("truthful_fixture") == (
-                "before and after remain user-owned"
-            )
-            assert restored.project_metadata()["sensitive"] is False
-        finally:
-            restored.close()
+        assert restored.project_metadata()["sensitive"] is False
     finally:
-        project.close()
+        restored.close()

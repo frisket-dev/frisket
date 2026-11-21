@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 
 from fastapi.testclient import TestClient
 
@@ -84,8 +85,7 @@ def test_unreadable_retention_policy_fails_closed_and_is_never_rewritten(
     otherwise. Retention gates a destructive operation; it fails closed.
     """
     project_path = tmp_path / "corrupt.frisket"
-    project = Project.create(project_path, name="Corrupt")
-    try:
+    with closing(Project.create(project_path, name="Corrupt")) as project:
         project.set_retention_policy(default_evidence="pinned", no_compact=True)
         project.db.execute(
             "INSERT INTO meta (key, value) VALUES ('retention_policy', '{oops') "
@@ -106,12 +106,9 @@ def test_unreadable_retention_policy_fails_closed_and_is_never_rewritten(
             "SELECT value FROM meta WHERE key='retention_policy'"
         ).fetchone()[0]
         assert stored == "{oops"
-    finally:
-        project.close()
 
     # a reopen does not heal-and-persist it either
-    reopened = Project(project_path)
-    try:
+    with closing(Project(project_path)) as reopened:
         assert reopened.retention_policy()["no_compact"] is True
         assert (
             reopened.db.execute(
@@ -130,5 +127,3 @@ def test_unreadable_retention_policy_fails_closed_and_is_never_rewritten(
             )["no_compact"]
             is False
         )
-    finally:
-        reopened.close()
