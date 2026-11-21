@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
@@ -695,8 +696,7 @@ def test_transcript_prompt_and_evidence_use_captured_version(
     )
 
     seeded = _seed_transcript_project(tmp_path)
-    project = seeded["project"]
-    try:
+    with closing(seeded["project"]) as project:
         _run_transcribe(seeded, monkeypatch)
         sheet, row = seeded["sheet_id"], seeded["row_ids"][0]
         column = next(c for c in project.columns(sheet) if c["name"] == source_name)
@@ -782,5 +782,3 @@ def test_transcript_prompt_and_evidence_use_captured_version(
         assert (
             _captured_transcript(project, captured, sheet_id=sheet, row_id=row) is None
         )
-    finally:
-        project.close()

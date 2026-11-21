@@ -111,8 +111,8 @@ def _agent_spec(sheet_id: int) -> dict:
     }
 
 
-def _project(tmp_path, name: str, *, cap_micro: int | None = CAP_MICRO) -> Project:
-    project = Project.create(tmp_path / f"{name}.frisket", name=name)
+def _project(make_project, name: str, *, cap_micro: int | None = CAP_MICRO) -> Project:
+    project = make_project(name)
     with write_transaction(project.db):
         project.set_provider_key(
             provider="anthropic",
@@ -277,35 +277,31 @@ def test_research_answer_stays_paid_when_only_its_model_call_replays(tmp_path) -
 # Authority 2: validation's confirmation gate.
 
 
-def test_cacheless_strict_replay_requires_confirmation(tmp_path, monkeypatch) -> None:
+def test_cacheless_strict_replay_requires_confirmation(
+    make_project, monkeypatch
+) -> None:
     """Consent is not misleading when confirming really does buy the call."""
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = _project(tmp_path, "confirm", cap_micro=None)
-    try:
-        sheet_id = _seed_rows(project)
-        router, _ = _strict_router(cache=None)
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        with pytest.raises(CostGate):
-            prepare_model_run(runner, _spec(sheet_id), confirmed=False)
-    finally:
-        project.close()
+    project = _project(make_project, "confirm", cap_micro=None)
+    sheet_id = _seed_rows(project)
+    router, _ = _strict_router(cache=None)
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    with pytest.raises(CostGate):
+        prepare_model_run(runner, _spec(sheet_id), confirmed=False)
 
 
-def test_cached_strict_replay_still_skips_confirmation(tmp_path) -> None:
+def test_cached_strict_replay_still_skips_confirmation(make_project, tmp_path) -> None:
     """Confirming a cache-only posture cannot make a miss call the provider,
     so the prompt stays suppressed — the exemption's original point."""
-    project = _project(tmp_path, "confirm-cached", cap_micro=None)
-    try:
-        sheet_id = _seed_rows(project)
-        router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        prepare_model_run(runner, _spec(sheet_id), confirmed=False)  # does not raise
-    finally:
-        project.close()
+    project = _project(make_project, "confirm-cached", cap_micro=None)
+    sheet_id = _seed_rows(project)
+    router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    prepare_model_run(runner, _spec(sheet_id), confirmed=False)  # does not raise
 
 
 def test_cached_strict_replay_still_confirms_a_composite_recipe(
-    tmp_path, monkeypatch
+    make_project, tmp_path, monkeypatch
 ) -> None:
     """The confirmation exemption is scoped to the MODEL subeffect too.
 
@@ -318,22 +314,19 @@ def test_cached_strict_replay_still_confirms_a_composite_recipe(
     MapRunner's row-effect fence (correctly) still treated the row as paid.
     """
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = _project(tmp_path, "confirm-agent", cap_micro=None)
-    try:
-        sheet_id = _seed_rows(project)
-        router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        with pytest.raises(CostGate) as excinfo:
-            prepare_model_run(runner, _agent_spec(sheet_id), confirmed=False)
-        details = excinfo.value.estimate_details or {}
-        assert details.get("requires_confirmation") is True
-        assert details.get("remote_capability") == "external:http_fetch"
-    finally:
-        project.close()
+    project = _project(make_project, "confirm-agent", cap_micro=None)
+    sheet_id = _seed_rows(project)
+    router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    with pytest.raises(CostGate) as excinfo:
+        prepare_model_run(runner, _agent_spec(sheet_id), confirmed=False)
+    details = excinfo.value.estimate_details or {}
+    assert details.get("requires_confirmation") is True
+    assert details.get("remote_capability") == "external:http_fetch"
 
 
 def test_cached_strict_replay_backfill_confirms_a_composite_recipe(
-    tmp_path, monkeypatch
+    make_project, tmp_path, monkeypatch
 ) -> None:
     """Same correction on the backfill branch: a resume that EXTENDS the run
     to new rows re-gates them, and the model-only proof must not exempt the
@@ -343,71 +336,62 @@ def test_cached_strict_replay_backfill_confirms_a_composite_recipe(
     from frisket.execution.pricing_policy import default_pricing_policy
 
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = _project(tmp_path, "confirm-agent-backfill", cap_micro=None)
-    try:
-        sheet_id = _seed_rows(project)
-        cols = {c["name"]: c["id"] for c in project.columns(sheet_id)}
-        project.add_rows(sheet_id, [{"text": "a newly visible row"}], cols)
-        router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
-        store = RunResultStore(project)
-        op_id = project.append_change(
-            "map", {"action_kind": "research.answer"}, label="agent"
-        )
-        run_id = store.start_run(op_id, sheet_id, "research.answer", row_ids=[1])
+    project = _project(make_project, "confirm-agent-backfill", cap_micro=None)
+    sheet_id = _seed_rows(project)
+    cols = {c["name"]: c["id"] for c in project.columns(sheet_id)}
+    project.add_rows(sheet_id, [{"text": "a newly visible row"}], cols)
+    router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
+    store = RunResultStore(project)
+    op_id = project.append_change(
+        "map", {"action_kind": "research.answer"}, label="agent"
+    )
+    run_id = store.start_run(op_id, sheet_id, "research.answer", row_ids=[1])
 
-        spec = {**_agent_spec(sheet_id), "row_ids": [2]}
-        plan = model_plan(spec, project)
-        with pytest.raises(CostGate) as excinfo:
-            validation.validate_spec(
-                project,
-                router,
-                store,
-                plan.spec_dict(),
-                program=plan.program,
-                confirmed=False,
-                resume_run_id=run_id,
-                pricing_policy=default_pricing_policy(),
-                composition=open_execution_composition(
-                    project, router, ExecutionCompositionContext.direct()
-                ),
-            )
-        details = excinfo.value.estimate_details or {}
-        assert details.get("requires_confirmation") is True
-        assert details.get("remote_capability") == "external:http_fetch"
-    finally:
-        project.close()
+    spec = {**_agent_spec(sheet_id), "row_ids": [2]}
+    plan = model_plan(spec, project)
+    with pytest.raises(CostGate) as excinfo:
+        validation.validate_spec(
+            project,
+            router,
+            store,
+            plan.spec_dict(),
+            program=plan.program,
+            confirmed=False,
+            resume_run_id=run_id,
+            pricing_policy=default_pricing_policy(),
+            composition=open_execution_composition(
+                project, router, ExecutionCompositionContext.direct()
+            ),
+        )
+    details = excinfo.value.estimate_details or {}
+    assert details.get("requires_confirmation") is True
+    assert details.get("remote_capability") == "external:http_fetch"
 
 
 # ---------------------------------------------------------------------------
 # Authority 3: validation's provider spend cap.
 
 
-def test_cacheless_strict_replay_refuses_on_the_cap(tmp_path) -> None:
+def test_cacheless_strict_replay_refuses_on_the_cap(make_project) -> None:
     """$26 spent against a $25 cap, and this posture really does bill.  The
     cap must answer.  Restore the mode-only ``live_provider_effect`` and the
     run launches and buys past the journalist's ceiling."""
-    project = _project(tmp_path, "cap")
-    try:
-        _spend_to(project, 26_000_000)
-        sheet_id = _seed_rows(project)
-        router, _ = _strict_router(cache=None)
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        with pytest.raises(ProviderSpendCapExceeded):
-            _prepare_after_exact_confirmation(runner, _spec(sheet_id))
-    finally:
-        project.close()
+    project = _project(make_project, "cap")
+    _spend_to(project, 26_000_000)
+    sheet_id = _seed_rows(project)
+    router, _ = _strict_router(cache=None)
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    with pytest.raises(ProviderSpendCapExceeded):
+        _prepare_after_exact_confirmation(runner, _spec(sheet_id))
 
 
-def test_cached_strict_replay_keeps_its_cap_exemption(tmp_path) -> None:
-    project = _project(tmp_path, "cap-cached")
-    try:
-        _spend_to(project, 26_000_000)
-        sheet_id = _seed_rows(project)
-        router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        _prepare_after_exact_confirmation(runner, _spec(sheet_id))  # does not raise
-    finally:
-        project.close()
+def test_cached_strict_replay_keeps_its_cap_exemption(make_project, tmp_path) -> None:
+    project = _project(make_project, "cap-cached")
+    _spend_to(project, 26_000_000)
+    sheet_id = _seed_rows(project)
+    router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    _prepare_after_exact_confirmation(runner, _spec(sheet_id))  # does not raise
 
 
 # ---------------------------------------------------------------------------
@@ -415,90 +399,84 @@ def test_cached_strict_replay_keeps_its_cap_exemption(tmp_path) -> None:
 
 
 def test_cacheless_strict_replay_reserves_a_row_effect_checkpoint(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     """The crash-window fence.  Without a reservation, a process death between
     the provider's return and the result transaction leaves nothing durable,
     and the resume buys the row a second time."""
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = _project(tmp_path, "fence", cap_micro=None)
+    project = _project(make_project, "fence", cap_micro=None)
+    sheet_id = _seed_rows(project)
+    router, adapter = _strict_router(cache=None)
+    runner = MapRunner(
+        project,
+        router,
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    spec = _spec(sheet_id)
     try:
-        sheet_id = _seed_rows(project)
-        router, adapter = _strict_router(cache=None)
-        runner = MapRunner(
-            project,
-            router,
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-        )
-        spec = _spec(sheet_id)
-        try:
-            prepare_model_run(runner, spec, confirmed=False)
-        except CostGate as gate:
-            spec = {**spec, "consented_promise_set_hash": gate.promise_set_hash}
+        prepare_model_run(runner, spec, confirmed=False)
+    except CostGate as gate:
+        spec = {**spec, "consented_promise_set_hash": gate.promise_set_hash}
 
-        # A completed row-effect checkpoint is CONSUMED (deleted) in the result
-        # transaction, so counting surviving rows proves nothing about a
-        # successful run. Count the reserve — the first durable write, and the
-        # thing whose absence lets a post-response crash re-buy the row.
-        reserve_calls = 0
-        durable_reserve = runner.run_store.reserve_row_effect_checkpoint
+    # A completed row-effect checkpoint is CONSUMED (deleted) in the result
+    # transaction, so counting surviving rows proves nothing about a
+    # successful run. Count the reserve — the first durable write, and the
+    # thing whose absence lets a post-response crash re-buy the row.
+    reserve_calls = 0
+    durable_reserve = runner.run_store.reserve_row_effect_checkpoint
 
-        def counting_reserve(*args, **kwargs):  # noqa: ANN002, ANN003
-            nonlocal reserve_calls
-            reserve_calls += 1
-            return durable_reserve(*args, **kwargs)
+    def counting_reserve(*args, **kwargs):  # noqa: ANN002, ANN003
+        nonlocal reserve_calls
+        reserve_calls += 1
+        return durable_reserve(*args, **kwargs)
 
-        runner.run_store.reserve_row_effect_checkpoint = counting_reserve  # type: ignore[method-assign]
-        progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
-        assert progress.failed == 0, "the run should complete against the fake adapter"
-        assert adapter.calls == 1, "the provider really was called"
-        assert reserve_calls == 1, "the billed row ran under a durable reservation"
-    finally:
-        project.close()
+    runner.run_store.reserve_row_effect_checkpoint = counting_reserve  # type: ignore[method-assign]
+    progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
+    assert progress.failed == 0, "the run should complete against the fake adapter"
+    assert adapter.calls == 1, "the provider really was called"
+    assert reserve_calls == 1, "the billed row ran under a durable reservation"
 
 
-def test_cached_strict_replay_writes_no_checkpoint(tmp_path) -> None:
+def test_cached_strict_replay_writes_no_checkpoint(make_project, tmp_path) -> None:
     """A genuinely cache-only run is $0 stakes: zero durable checkpoint
     writes, per Lane 2.1."""
-    project = _project(tmp_path, "fence-cached", cap_micro=None)
-    try:
-        sheet_id = _seed_rows(project)
-        cache = ResponseCache(tmp_path / "cache.db")
-        router, adapter = _strict_router(cache=cache)
-        runner = MapRunner(
-            project,
-            router,
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-        )
-        reserve_calls = 0
-        durable_reserve = runner.run_store.reserve_row_effect_checkpoint
+    project = _project(make_project, "fence-cached", cap_micro=None)
+    sheet_id = _seed_rows(project)
+    cache = ResponseCache(tmp_path / "cache.db")
+    router, adapter = _strict_router(cache=cache)
+    runner = MapRunner(
+        project,
+        router,
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    reserve_calls = 0
+    durable_reserve = runner.run_store.reserve_row_effect_checkpoint
 
-        def counting_reserve(*args, **kwargs):  # noqa: ANN002, ANN003
-            nonlocal reserve_calls
-            reserve_calls += 1
-            return durable_reserve(*args, **kwargs)
+    def counting_reserve(*args, **kwargs):  # noqa: ANN002, ANN003
+        nonlocal reserve_calls
+        reserve_calls += 1
+        return durable_reserve(*args, **kwargs)
 
-        runner.run_store.reserve_row_effect_checkpoint = counting_reserve  # type: ignore[method-assign]
-        # Every row misses -> CacheMiss -> the row fails, spending nothing.
-        asyncio.run(
-            run_with_output_claim(
-                runner,
-                _spec(sheet_id),
-                confirmed=True,
-            )
+    runner.run_store.reserve_row_effect_checkpoint = counting_reserve  # type: ignore[method-assign]
+    # Every row misses -> CacheMiss -> the row fails, spending nothing.
+    asyncio.run(
+        run_with_output_claim(
+            runner,
+            _spec(sheet_id),
+            confirmed=True,
         )
-        assert adapter.calls == 0
-        assert reserve_calls == 0, "a $0 cache-only run writes no checkpoint"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect'"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    )
+    assert adapter.calls == 0
+    assert reserve_calls == 0, "a $0 cache-only run writes no checkpoint"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 # ---------------------------------------------------------------------------

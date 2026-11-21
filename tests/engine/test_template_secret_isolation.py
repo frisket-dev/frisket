@@ -53,7 +53,6 @@ def request_project(make_project, monkeypatch, _allow_egress):
         yield project, sent, run
     finally:
         asyncio.run(router._client.aclose())
-        project.close()
 
 
 @pytest.mark.parametrize("location", ["url", "headers", "query_params", "body"])

@@ -6,6 +6,7 @@ enqueued.
 """
 
 from __future__ import annotations
+from contextlib import closing
 
 import json
 import logging
@@ -106,11 +107,8 @@ SWEEPS: dict[str, tuple[cli._Sweep, Callable[[Project], None], str]] = {
 
 def _workspace(root: Path, make_due: Callable[[Project], None]) -> None:
     for slug in GOOD:
-        project = Project.create(root / f"{slug}.frisket", name=slug)
-        try:
+        with closing(Project.create(root / f"{slug}.frisket", name=slug)) as project:
             make_due(project)
-        finally:
-            project.close()
     unreadable = root / f"{UNREADABLE}.frisket"
     unreadable.mkdir()
     (unreadable / "manifest.json").write_text(json.dumps({"name": UNREADABLE}))

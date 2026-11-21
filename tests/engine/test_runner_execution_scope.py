@@ -312,7 +312,6 @@ def test_local_publication_batches_keep_row_errors_and_committed_progress(
         assert "bad source row" in failed[0]["error"]
     finally:
         reader.close()
-        project.close()
 
 
 def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(

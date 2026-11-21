@@ -947,7 +947,7 @@ def test_transcript_failure_preserves_error_facts_by_value(make_project) -> None
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])
 def test_transcript_failure_preserves_prior_terminal_receipt(
-    tmp_path: Path,
+    make_project,
     prior_status: str,
 ) -> None:
     from frisket.engine.executor.action_reservations import (
@@ -955,7 +955,7 @@ def test_transcript_failure_preserves_prior_terminal_receipt(
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / f"transcript-prior-{prior_status}.frisket")
+    project = make_project(f"transcript-prior-{prior_status}")
     receipt_id = f"receipt_transcript_prior_{prior_status}"
     prior_error = ActionError(
         code="prior_failure",
@@ -963,33 +963,30 @@ def test_transcript_failure_preserves_prior_terminal_receipt(
         action_kind=ACTION_KIND,
         details={"attempt": 1},
     )
-    try:
-        prior = _insert_transcript_failure_receipt(
-            project,
-            receipt_id=receipt_id,
-            status=prior_status,
-            errors=[prior_error] if prior_status == "failed" else None,
-        )
-        result = _terminalize_claimless_direct_failure(
-            project,
-            project_id="project-transcript-terminalization",
+    prior = _insert_transcript_failure_receipt(
+        project,
+        receipt_id=receipt_id,
+        status=prior_status,
+        errors=[prior_error] if prior_status == "failed" else None,
+    )
+    result = _terminalize_claimless_direct_failure(
+        project,
+        project_id="project-transcript-terminalization",
+        action_kind=ACTION_KIND,
+        stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
+        error=ActionError(
+            code="late_failure",
+            message="late failure must not rewrite the receipt",
             action_kind=ACTION_KIND,
-            stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
-            error=ActionError(
-                code="late_failure",
-                message="late failure must not rewrite the receipt",
-                action_kind=ACTION_KIND,
-            ),
-            project_write_failed_message="Transcript segments receipt could not be finalized.",
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+        ),
+        project_write_failed_message="Transcript segments receipt could not be finalized.",
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.status == prior_status
-        assert result.receipt_id == prior.receipt_id
-        assert result.errors == prior.errors
-        assert stored == prior
-    finally:
-        project.close()
+    assert result.status == prior_status
+    assert result.receipt_id == prior.receipt_id
+    assert result.errors == prior.errors
+    assert stored == prior
 
 
 def test_queued_transcript_failure_leaves_worker_owned_receipt_untouched(

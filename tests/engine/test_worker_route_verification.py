@@ -7,6 +7,7 @@ is literal: the stub records every invocation.
 """
 
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
@@ -305,8 +306,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
 
 
 def _handle(root: Path, run_id: int, spec: dict) -> dict:
-    project = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as project:
         action_body, request, reservation = _PREPARED_QUEUES[
             (str(project.path), run_id)
         ]
@@ -368,8 +368,6 @@ def _handle(root: Path, run_id: int, spec: dict) -> dict:
                 run_id=run_id,
             ),
         }
-    finally:
-        project.close()
     registry = HandlerRegistry()
     register_project_run_handler(
         registry,
@@ -392,13 +390,10 @@ def _delete_route_artifacts(project, run_id: int) -> None:
 
 
 def _run_row(root: Path, run_id: int):
-    reopened = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as reopened:
         return reopened.db.execute(
             "SELECT * FROM runs WHERE id=?", (run_id,)
         ).fetchone()
-    finally:
-        reopened.close()
 
 
 def _error_code(result: dict) -> str:
@@ -432,8 +427,7 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
     assert result["status"] == "stale_attempt_writer"
     assert result["error"]["code"] == "stale_attempt_writer"
     assert adapter_stub
-    reopened = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as reopened:
         run = reopened.db.execute(
             "SELECT status, current_attempt_id FROM runs WHERE id=?",
             (run_id,),
@@ -463,8 +457,6 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
         assert receipt is not None
         assert receipt["status"] == "queued"
         assert json.loads(receipt["body"])["errors"] == []
-    finally:
-        reopened.close()
 
 
 def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
@@ -487,8 +479,7 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
         _handle(root, run_id, spec)
 
     assert adapter_stub
-    reopened = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as reopened:
         run = reopened.db.execute(
             "SELECT status, current_attempt_id FROM runs WHERE id=?",
             (run_id,),
@@ -525,8 +516,6 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
             ).fetchone()[0]
             == "queued"
         )
-    finally:
-        reopened.close()
 
 
 def test_consented_gateway_run_verifies_and_executes(
