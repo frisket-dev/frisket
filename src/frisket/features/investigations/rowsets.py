@@ -9,7 +9,6 @@ current cell values into source-aware records that later mappers can consume.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import closing
 from typing import Any, TypedDict
 
 from frisket.engine.store.evidence import list_cell_citations
@@ -408,12 +407,11 @@ def _materialized_membership_by_row(
 ) -> dict[int, list[dict[str, Any]]]:
     from frisket.engine.store.materialization import active_materialized_row_sources
 
-    with closing(project.db.cursor()) as cur:
-        rows = active_materialized_row_sources(
-            cur,
-            materialized_row_ids=row_ids,
-            roles=("edge_source", "edge_target", "aggregate_source"),
-        )
+    rows = active_materialized_row_sources(
+        project.db,
+        materialized_row_ids=row_ids,
+        roles=("edge_source", "edge_target", "aggregate_source"),
+    )
     by_row: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
         by_row.setdefault(int(row["materialized_row_id"]), []).append(row)
