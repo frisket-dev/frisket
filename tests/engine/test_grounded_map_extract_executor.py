@@ -65,59 +65,57 @@ def _table_count(project: Project, table: str) -> int:
     return int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
-def _seed_document_project(tmp_path: Path, name: str) -> tuple[Path, int, int]:
-    project_path = tmp_path / f"{name}.frisket"
-    with closing(Project.create(project_path, name=name)) as project:
-        sheet_id = project.add_sheet("Documents")
-        filename_column_id = project.add_column(sheet_id, "filename", "text")
-        document_column_id = project.add_column(sheet_id, "document", "file")
-        # Model FILE inputs require an explicit To markdown / OCR step first;
-        # the model reads the converted TEXT column while the file column
-        # stays the grounding document (``source_document_columns``). This
-        # column is that conversion's output for the seeded page text.
-        document_text_column_id = project.add_column(sheet_id, "document_text", "text")
-        pdf_hash = project.add_blob(
-            b"%PDF-1.4 public contract amount $1,250,000",
-            "contract.pdf",
-            "application/pdf",
-            metadata=owned_media_metadata_document(
-                probe={"kind": "pdf", "pages": 4},
-                owner={
-                    "page_images": {
-                        "3": {
-                            "blob_hash": project.add_blob(
-                                b"fake page image", "contract-p3.png", "image/png"
-                            ),
-                            "width": 1200,
-                            "height": 1600,
-                        }
-                    },
-                    "text_pages": {
-                        "3": "The total contract amount is $1,250,000 payable in March."
-                    },
+def _seed_document_project(project: Project) -> tuple[int, int]:
+    sheet_id = project.add_sheet("Documents")
+    filename_column_id = project.add_column(sheet_id, "filename", "text")
+    document_column_id = project.add_column(sheet_id, "document", "file")
+    # Model FILE inputs require an explicit To markdown / OCR step first;
+    # the model reads the converted TEXT column while the file column
+    # stays the grounding document (``source_document_columns``). This
+    # column is that conversion's output for the seeded page text.
+    document_text_column_id = project.add_column(sheet_id, "document_text", "text")
+    pdf_hash = project.add_blob(
+        b"%PDF-1.4 public contract amount $1,250,000",
+        "contract.pdf",
+        "application/pdf",
+        metadata=owned_media_metadata_document(
+            probe={"kind": "pdf", "pages": 4},
+            owner={
+                "page_images": {
+                    "3": {
+                        "blob_hash": project.add_blob(
+                            b"fake page image", "contract-p3.png", "image/png"
+                        ),
+                        "width": 1200,
+                        "height": 1600,
+                    }
                 },
-            ),
-        )
-        row_id = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "filename": "contract.pdf",
-                    "document": media_cell(
-                        pdf_hash, mime="application/pdf", filename="contract.pdf"
-                    ),
-                    "document_text": (
-                        "The total contract amount is $1,250,000 payable in March."
-                    ),
-                }
-            ],
-            {
-                "filename": filename_column_id,
-                "document": document_column_id,
-                "document_text": document_text_column_id,
+                "text_pages": {
+                    "3": "The total contract amount is $1,250,000 payable in March."
+                },
             },
-        )[0]
-        return project_path, sheet_id, row_id
+        ),
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "filename": "contract.pdf",
+                "document": media_cell(
+                    pdf_hash, mime="application/pdf", filename="contract.pdf"
+                ),
+                "document_text": (
+                    "The total contract amount is $1,250,000 payable in March."
+                ),
+            }
+        ],
+        {
+            "filename": filename_column_id,
+            "document": document_column_id,
+            "document_text": document_text_column_id,
+        },
+    )[0]
+    return sheet_id, row_id
 
 
 def _seed_http_document_project(client: TestClient) -> tuple[str, int]:
@@ -361,7 +359,7 @@ def test_grounded_map_extract_estimate_accepts_params_without_writes(
 
 
 def test_grounded_map_extract_writes_canonical_evidence_and_replays(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.actions.system import root_action_catalog, validate_root_action
 
@@ -371,128 +369,126 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
     assert "evidence_policy" in entry.input_schema["properties"]
     assert not any(item.kind == "document.extract_grounded" for item in catalog.actions)
 
-    project_path, sheet_id, row_id = _seed_document_project(
-        tmp_path, "grounded-map-extract"
-    )
+    project = make_project("grounded-map-extract")
+    sheet_id, row_id = _seed_document_project(project)
     action = _map_extract_action(sheet_id, key="map_extract@sha256:grounded-optional")
     validation = validate_root_action(action)
     assert validation.ok is True, validation.error
 
     router, adapter = _stub_router(_grounded_reply())
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed"
-        assert result.receipt_id is not None
-        assert len(adapter.requests) == 1
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed"
+    assert result.receipt_id is not None
+    assert len(adapter.requests) == 1
 
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=?", (sheet_id,)
-            ).fetchall()
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=?", (sheet_id,)
+        ).fetchall()
+    }
+    amount_column_id = int(columns["contract_amount"]["id"])
+    vendor_column_id = int(columns["vendor"]["id"])
+    assert (
+        project.get_values(sheet_id, amount_column_id, row_ids=[row_id])[row_id]
+        == "$1,250,000"
+    )
+    assert (
+        project.get_values(sheet_id, vendor_column_id, row_ids=[row_id])[row_id]
+        == "Acme Civic Works"
+    )
+
+    evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=amount_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert evidence["stale_count"] == 0
+    assert len(evidence["links"]) == 1
+    link_summary = evidence["links"][0]
+    assert link_summary["stable_id"].startswith("evidence_link:")
+    # extract-model-bbox-verification-v1: an UNVERIFIED model_bbox with no
+    # resolvable OCR word stream fails closed -> page_range, never an
+    # authoritative region (PT 10.2 SILENTLY-WRONG #1).
+    assert link_summary["evidence_kind"] == "page_range"
+    assert link_summary["viewer_href"].endswith(
+        f"/evidence/links/{link_summary['stable_id']}/viewer"
+    )
+
+    viewer = resolve_citation_viewer(
+        project, link_summary["stable_id"], project_id=PROJECT_ID
+    )
+    assert viewer["link"]["row_id"] == row_id
+    assert viewer["link"]["column_id"] == amount_column_id
+    assert viewer["link"]["run_id"] == result.run_id
+    assert viewer["link"]["op_id"] == result.op_ids[0]
+    assert viewer["link"]["receipt_id"] == result.receipt_id
+    assert viewer["link"]["producer"]["source_action_kind"] == "map.extract"
+    assert viewer["link"]["producer"]["field"] == "contract_amount"
+    assert viewer["artifacts"][0]["artifact_ref"]["blob"]["filename"] == "contract.pdf"
+    # Fail-closed downgrade: the page anchor is kept (honest coarse rung),
+    # but no unverified region box is drawn, and the reason is legible.
+    assert viewer["artifacts"][0]["pages"][0]["page"] == 3
+    assert viewer["artifacts"][0]["pages"][0]["regions"] == []
+    assert "model_bbox_unverified" in viewer["warnings"]
+
+    vendor_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=vendor_column_id,
+    )
+    assert vendor_evidence["links"] == []
+    assert _table_count(project, "source_spans") == 1
+
+    receipt = _receipt(project, result.receipt_id)
+    grounding = _grounding_facts(receipt)
+    assert grounding["link_refs"] == [
+        {
+            "id": viewer["link"]["id"],
+            "stable_id": viewer["link"]["stable_id"],
+            "row_id": row_id,
+            "column_id": amount_column_id,
+            "field": "contract_amount",
         }
-        amount_column_id = int(columns["contract_amount"]["id"])
-        vendor_column_id = int(columns["vendor"]["id"])
-        assert (
-            project.get_values(sheet_id, amount_column_id, row_ids=[row_id])[row_id]
-            == "$1,250,000"
-        )
-        assert (
-            project.get_values(sheet_id, vendor_column_id, row_ids=[row_id])[row_id]
-            == "Acme Civic Works"
-        )
-
-        evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=amount_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert evidence["stale_count"] == 0
-        assert len(evidence["links"]) == 1
-        link_summary = evidence["links"][0]
-        assert link_summary["stable_id"].startswith("evidence_link:")
-        # extract-model-bbox-verification-v1: an UNVERIFIED model_bbox with no
-        # resolvable OCR word stream fails closed -> page_range, never an
-        # authoritative region (PT 10.2 SILENTLY-WRONG #1).
-        assert link_summary["evidence_kind"] == "page_range"
-        assert link_summary["viewer_href"].endswith(
-            f"/evidence/links/{link_summary['stable_id']}/viewer"
-        )
-
-        viewer = resolve_citation_viewer(
-            project, link_summary["stable_id"], project_id=PROJECT_ID
-        )
-        assert viewer["link"]["row_id"] == row_id
-        assert viewer["link"]["column_id"] == amount_column_id
-        assert viewer["link"]["run_id"] == result.run_id
-        assert viewer["link"]["op_id"] == result.op_ids[0]
-        assert viewer["link"]["receipt_id"] == result.receipt_id
-        assert viewer["link"]["producer"]["source_action_kind"] == "map.extract"
-        assert viewer["link"]["producer"]["field"] == "contract_amount"
-        assert (
-            viewer["artifacts"][0]["artifact_ref"]["blob"]["filename"] == "contract.pdf"
-        )
-        # Fail-closed downgrade: the page anchor is kept (honest coarse rung),
-        # but no unverified region box is drawn, and the reason is legible.
-        assert viewer["artifacts"][0]["pages"][0]["page"] == 3
-        assert viewer["artifacts"][0]["pages"][0]["regions"] == []
-        assert "model_bbox_unverified" in viewer["warnings"]
-
-        vendor_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=vendor_column_id,
-        )
-        assert vendor_evidence["links"] == []
-        assert _table_count(project, "source_spans") == 1
-
-        receipt = _receipt(project, result.receipt_id)
-        grounding = _grounding_facts(receipt)
-        assert grounding["link_refs"] == [
-            {
-                "id": viewer["link"]["id"],
-                "stable_id": viewer["link"]["stable_id"],
-                "row_id": row_id,
-                "column_id": amount_column_id,
-                "field": "contract_amount",
-            }
-        ]
-        assert grounding["unsupported_values"] == [
-            {
-                "row_id": row_id,
-                "field": "vendor",
-                "column_id": vendor_column_id,
-                "item_index": None,
-                "reason": "evidence_missing",
-                "citation_required": False,
-            }
-        ]
-        assert "artifacts" not in grounding
-        before_replay = {
-            table: _table_count(project, table)
-            for table in (
-                "source_artifacts",
-                "source_spans",
-                "evidence_links",
-                "evidence_link_spans",
-                "receipts",
-                "results",
-            )
+    ]
+    assert grounding["unsupported_values"] == [
+        {
+            "row_id": row_id,
+            "field": "vendor",
+            "column_id": vendor_column_id,
+            "item_index": None,
+            "reason": "evidence_missing",
+            "citation_required": False,
         }
-        first_receipt_id = result.receipt_id
+    ]
+    assert "artifacts" not in grounding
+    before_replay = {
+        table: _table_count(project, table)
+        for table in (
+            "source_artifacts",
+            "source_spans",
+            "evidence_links",
+            "evidence_link_spans",
+            "receipts",
+            "results",
+        )
+    }
+    first_receipt_id = result.receipt_id
+    project_path = project.path
+    project.close()
 
     replay_router, replay_adapter = _stub_router(_grounded_reply())
-    with closing(Project(project_path)) as project:
+    with closing(Project(project_path)) as reopened:
         replay = run_action_with_confirmation(
-            project,
+            reopened,
             action,
             project_id=PROJECT_ID,
             router=replay_router,
@@ -501,7 +497,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         assert replay.receipt_id == first_receipt_id
         assert replay_adapter.requests == []
         assert {
-            table: _table_count(project, table)
+            table: _table_count(reopened, table)
             for table in (
                 "source_artifacts",
                 "source_spans",
@@ -513,7 +509,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         } == before_replay
 
         edit = run_action_with_confirmation(
-            project,
+            reopened,
             _cell_edit_action(
                 row_id=row_id,
                 column_id=amount_column_id,
@@ -523,7 +519,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         )
         assert edit.status == "completed"
         stale_evidence = list_cell_citations(
-            project,
+            reopened,
             sheet_id=sheet_id,
             row_id=row_id,
             column_id=amount_column_id,
@@ -534,173 +530,162 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
 
 
 def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-
-    project_path, sheet_id, row_id = _seed_document_project(
-        tmp_path, "grounded-map-extract-bbox-spaces"
-    )
+    sheet_id, row_id = _seed_document_project(project)
     action = _map_extract_action(
         sheet_id,
         key="map_extract@sha256:grounded-bbox-spaces",
     )
     router, _adapter = _stub_router(_grounded_bbox_spaces_reply())
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed"
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=?", (sheet_id,)
-            ).fetchall()
-        }
-        amount_column_id = int(columns["contract_amount"]["id"])
-        vendor_column_id = int(columns["vendor"]["id"])
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed"
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=?", (sheet_id,)
+        ).fetchall()
+    }
+    amount_column_id = int(columns["contract_amount"]["id"])
+    vendor_column_id = int(columns["vendor"]["id"])
 
-        amount_link = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=amount_column_id,
-        )["links"][0]
-        amount_viewer = resolve_citation_viewer(
-            project,
-            amount_link["stable_id"],
-            project_id=PROJECT_ID,
-        )
-        # extract-model-bbox-verification-v1: both provider-space model_bbox
-        # guesses (pixel + page_1000) fail closed with no OCR stream to verify
-        # against -> page_range + model_bbox_unverified, NOT an authoritative
-        # region (PT 10.2 SILENTLY-WRONG #1). The provider coordinate-space
-        # NORMALIZATION itself is unit-covered by
-        # test_ocr_grounding_spans::test_normalize_bbox_preserves_map_extract_provider_spaces;
-        # this executor test now pins the trust policy, not the geometry.
-        amount_page = amount_viewer["artifacts"][0]["pages"][0]
-        assert amount_page["regions"] == []
-        assert "model_bbox_unverified" in amount_viewer["warnings"]
+    amount_link = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=amount_column_id,
+    )["links"][0]
+    amount_viewer = resolve_citation_viewer(
+        project,
+        amount_link["stable_id"],
+        project_id=PROJECT_ID,
+    )
+    # extract-model-bbox-verification-v1: both provider-space model_bbox
+    # guesses (pixel + page_1000) fail closed with no OCR stream to verify
+    # against -> page_range + model_bbox_unverified, NOT an authoritative
+    # region (PT 10.2 SILENTLY-WRONG #1). The provider coordinate-space
+    # NORMALIZATION itself is unit-covered by
+    # test_ocr_grounding_spans::test_normalize_bbox_preserves_map_extract_provider_spaces;
+    # this executor test now pins the trust policy, not the geometry.
+    amount_page = amount_viewer["artifacts"][0]["pages"][0]
+    assert amount_page["regions"] == []
+    assert "model_bbox_unverified" in amount_viewer["warnings"]
 
-        vendor_link = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=vendor_column_id,
-        )["links"][0]
-        vendor_viewer = resolve_citation_viewer(
-            project,
-            vendor_link["stable_id"],
-            project_id=PROJECT_ID,
-        )
-        vendor_page = vendor_viewer["artifacts"][0]["pages"][0]
-        assert vendor_page["regions"] == []
-        assert "model_bbox_unverified" in vendor_viewer["warnings"]
-        assert _table_count(project, "source_spans") == 2
+    vendor_link = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=vendor_column_id,
+    )["links"][0]
+    vendor_viewer = resolve_citation_viewer(
+        project,
+        vendor_link["stable_id"],
+        project_id=PROJECT_ID,
+    )
+    vendor_page = vendor_viewer["artifacts"][0]["pages"][0]
+    assert vendor_page["regions"] == []
+    assert "model_bbox_unverified" in vendor_viewer["warnings"]
+    assert _table_count(project, "source_spans") == 2
 
 
 def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-
-    project_path, sheet_id, row_id = _seed_document_project(
-        tmp_path, "grounded-map-extract-required"
-    )
+    sheet_id, row_id = _seed_document_project(project)
     action = _map_extract_action(
         sheet_id,
         key="map_extract@sha256:grounded-required",
         citation_required=True,
     )
     router, adapter = _stub_router(_grounded_reply())
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed"
-        assert result.receipt_id is not None
-        assert len(adapter.requests) == 1
-        assert {error.code for error in result.errors} == {"evidence_required"}
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed"
+    assert result.receipt_id is not None
+    assert len(adapter.requests) == 1
+    assert {error.code for error in result.errors} == {"evidence_required"}
 
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=?", (sheet_id,)
-            ).fetchall()
-        }
-        amount_column_id = int(columns["contract_amount"]["id"])
-        vendor_column_id = int(columns["vendor"]["id"])
-        assert (
-            project.get_values(sheet_id, amount_column_id, row_ids=[row_id])[row_id]
-            == "$1,250,000"
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=?", (sheet_id,)
+        ).fetchall()
+    }
+    amount_column_id = int(columns["contract_amount"]["id"])
+    vendor_column_id = int(columns["vendor"]["id"])
+    assert (
+        project.get_values(sheet_id, amount_column_id, row_ids=[row_id])[row_id]
+        == "$1,250,000"
+    )
+    assert (
+        project.get_values(sheet_id, vendor_column_id, row_ids=[row_id])[row_id] is None
+    )
+    # The withheld cell is outcome=withheld_unverified (terminal, NOT a failure): the
+    # reason is kept as a display message but it does not inflate failed_rows.
+    withheld = project.db.execute(
+        "SELECT error, outcome FROM results "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (result.run_id, row_id, vendor_column_id),
+    ).fetchone()
+    assert withheld["error"] == "map.extract: evidence_required"
+    assert withheld["outcome"] == "withheld_unverified"
+    assert (
+        int(
+            project.db.execute(
+                "SELECT failed_rows FROM runs WHERE id=?", (result.run_id,)
+            ).fetchone()["failed_rows"]
         )
-        assert (
-            project.get_values(sheet_id, vendor_column_id, row_ids=[row_id])[row_id]
-            is None
-        )
-        # The withheld cell is outcome=withheld_unverified (terminal, NOT a failure): the
-        # reason is kept as a display message but it does not inflate failed_rows.
-        withheld = project.db.execute(
-            "SELECT error, outcome FROM results "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (result.run_id, row_id, vendor_column_id),
-        ).fetchone()
-        assert withheld["error"] == "map.extract: evidence_required"
-        assert withheld["outcome"] == "withheld_unverified"
-        assert (
-            int(
-                project.db.execute(
-                    "SELECT failed_rows FROM runs WHERE id=?", (result.run_id,)
-                ).fetchone()["failed_rows"]
-            )
-            == 0
-        )
-        assert (
-            len(
-                list_cell_citations(
-                    project,
-                    sheet_id=sheet_id,
-                    row_id=row_id,
-                    column_id=amount_column_id,
-                )["links"]
-            )
-            == 1
-        )
-        assert (
+        == 0
+    )
+    assert (
+        len(
             list_cell_citations(
                 project,
                 sheet_id=sheet_id,
                 row_id=row_id,
-                column_id=vendor_column_id,
+                column_id=amount_column_id,
             )["links"]
-            == []
         )
-        receipt = _receipt(project, result.receipt_id)
-        assert _grounding_facts(receipt)["unsupported_values"] == [
-            {
-                "row_id": row_id,
-                "field": "vendor",
-                "column_id": vendor_column_id,
-                "item_index": None,
-                "reason": "evidence_missing",
-                "citation_required": True,
-            }
-        ]
+        == 1
+    )
+    assert (
+        list_cell_citations(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=vendor_column_id,
+        )["links"]
+        == []
+    )
+    receipt = _receipt(project, result.receipt_id)
+    assert _grounding_facts(receipt)["unsupported_values"] == [
+        {
+            "row_id": row_id,
+            "field": "vendor",
+            "column_id": vendor_column_id,
+            "item_index": None,
+            "reason": "evidence_missing",
+            "citation_required": True,
+        }
+    ]
 
 
 def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fails(
-    tmp_path: Path,
+    project: Project,
     monkeypatch,
 ) -> None:
     from frisket.engine.store.receipts import ReceiptStore
 
-    project_path, sheet_id, _row_id = _seed_document_project(
-        tmp_path, "grounded-map-extract-rollback"
-    )
+    sheet_id, _row_id = _seed_document_project(project)
     action = _map_extract_action(
         sheet_id,
         key="map_extract@sha256:grounded-rollback",
@@ -725,56 +710,53 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
         ReceiptStore, "_record_writer_supporting_record", fail_after_grounding
     )
 
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        # Settlement contract: the paid work stays accounted under a durable
-        # FAILED receipt (no repurchase on replay), while everything the batch
-        # published — results, heads, artifacts, spans, links — is rolled back
-        # and the output generations are sealed.
-        assert result.status == "failed"
-        assert [error.code for error in result.errors] == ["project_write_failed"]
-        assert result.receipt_id is not None
-        assert result.run_id is not None
-        assert len(_adapter.requests) == 1
-        run = project.db.execute("SELECT * FROM runs").fetchone()
-        assert run["status"] == "failed"
-        assert run["current_attempt_id"] is None
-        assert _table_count(project, "receipts") == 1
-        assert (
-            project.db.execute("SELECT status FROM receipts").fetchone()[0] == "failed"
-        )
-        assert _table_count(project, "model_calls") == 1
-        assert {
-            str(row[0])
-            for row in project.db.execute("SELECT state FROM run_output_generations")
-        } == {"sealed"}
-        for table in (
-            "results",
-            "cell_result_heads",
-            "source_artifacts",
-            "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
-        ):
-            assert _table_count(project, table) == 0, table
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    # Settlement contract: the paid work stays accounted under a durable
+    # FAILED receipt (no repurchase on replay), while everything the batch
+    # published — results, heads, artifacts, spans, links — is rolled back
+    # and the output generations are sealed.
+    assert result.status == "failed"
+    assert [error.code for error in result.errors] == ["project_write_failed"]
+    assert result.receipt_id is not None
+    assert result.run_id is not None
+    assert len(_adapter.requests) == 1
+    run = project.db.execute("SELECT * FROM runs").fetchone()
+    assert run["status"] == "failed"
+    assert run["current_attempt_id"] is None
+    assert _table_count(project, "receipts") == 1
+    assert project.db.execute("SELECT status FROM receipts").fetchone()[0] == "failed"
+    assert _table_count(project, "model_calls") == 1
+    assert {
+        str(row[0])
+        for row in project.db.execute("SELECT state FROM run_output_generations")
+    } == {"sealed"}
+    for table in (
+        "results",
+        "cell_result_heads",
+        "source_artifacts",
+        "source_spans",
+        "evidence_links",
+        "evidence_link_spans",
+    ):
+        assert _table_count(project, table) == 0, table
 
-        # Same key, writer healthy again: the failed receipt is replayed as-is
-        # and no second paid call is made.
-        monkeypatch.setattr(
-            ReceiptStore, "_record_writer_supporting_record", original_record
-        )
-        before = tuple(project.db.iterdump())
-        replay = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert replay.model_dump() == result.model_dump()
-        assert len(_adapter.requests) == 1
-        assert tuple(project.db.iterdump()) == before
+    # Same key, writer healthy again: the failed receipt is replayed as-is
+    # and no second paid call is made.
+    monkeypatch.setattr(
+        ReceiptStore, "_record_writer_supporting_record", original_record
+    )
+    before = tuple(project.db.iterdump())
+    replay = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert replay.model_dump() == result.model_dump()
+    assert len(_adapter.requests) == 1
+    assert tuple(project.db.iterdump()) == before

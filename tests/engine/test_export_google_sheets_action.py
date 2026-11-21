@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from contextlib import closing
 import logging
 from pathlib import Path
 from typing import Any
@@ -27,22 +26,21 @@ from helpers import replace_test_source_cell
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _seed_project(path: Path) -> int:
-    with closing(Project.create(path, name="Google Sheets Export")) as project:
-        sheet_id = project.add_sheet("Stories")
-        column_ids = {
-            "name": project.add_column(sheet_id, "name", "text"),
-            "status": project.add_column(sheet_id, "status", "text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [
-                {"name": "Ada", "status": "ready"},
-                {"name": "Grace", "status": "blocked"},
-            ],
-            column_ids,
-        )
-        return sheet_id
+def _seed_project(project: Project) -> int:
+    sheet_id = project.add_sheet("Stories")
+    column_ids = {
+        "name": project.add_column(sheet_id, "name", "text"),
+        "status": project.add_column(sheet_id, "status", "text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [
+            {"name": "Ada", "status": "ready"},
+            {"name": "Grace", "status": "blocked"},
+        ],
+        column_ids,
+    )
+    return sheet_id
 
 
 def _google_export_action(
@@ -183,176 +181,170 @@ def _resolver(provider: str, connection_id: str) -> dict[str, Any] | None:
 
 
 def test_export_google_sheets_uses_fake_client_receipts_and_idempotency(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "google-sheets.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = FakeGoogleSheetsClient()
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
         google_sheets_client=fake_client,
     )
 
-    with closing(Project(project_path)) as project:
-        ada_row_id = project.visible_row_ids(sheet_id)[0]
-        action = _google_export_action(
-            sheet_id=sheet_id,
-            source={
-                "kind": "current_view",
-                "sheet_id": sheet_id,
-                "query": {
-                    "schema_version": "frisket.query.v1",
-                    "kind": "sheet.filter",
-                    "scope": {"kind": "sheet", "sheet_id": sheet_id},
-                    "filter": {"status": {"eq": "ready"}},
-                    "sort": [{"column": "name", "dir": "asc"}],
-                },
-                "scope_row_ids": [ada_row_id],
+    ada_row_id = project.visible_row_ids(sheet_id)[0]
+    action = _google_export_action(
+        sheet_id=sheet_id,
+        source={
+            "kind": "current_view",
+            "sheet_id": sheet_id,
+            "query": {
+                "schema_version": "frisket.query.v1",
+                "kind": "sheet.filter",
+                "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                "filter": {"status": {"eq": "ready"}},
+                "sort": [{"column": "name", "dir": "asc"}],
             },
-        )
-        result = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert result.status == "completed", result.errors
-        assert result.receipt_id is not None
-        assert len(fake_client.calls) == 1
-        call = fake_client.calls[0]
-        assert call["connection"]["id"] == "conn-google-1"
-        assert call["write_policy"] == "replace_managed_tabs"
-        assert call["tabs"][0]["columns"] == ["name", "status"]
-        assert call["tabs"][0]["rows"] == [["Ada", "ready"]]
-        assert call["tabs"][0]["query_hash"].startswith("sha256:")
+            "scope_row_ids": [ada_row_id],
+        },
+    )
+    result = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert result.status == "completed", result.errors
+    assert result.receipt_id is not None
+    assert len(fake_client.calls) == 1
+    call = fake_client.calls[0]
+    assert call["connection"]["id"] == "conn-google-1"
+    assert call["write_policy"] == "replace_managed_tabs"
+    assert call["tabs"][0]["columns"] == ["name", "status"]
+    assert call["tabs"][0]["rows"] == [["Ada", "ready"]]
+    assert call["tabs"][0]["query_hash"].startswith("sha256:")
 
-        receipt_row = project.db.execute(
-            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-        ).fetchone()
-        assert receipt_row is not None
-        receipt = json.loads(receipt_row["body"])
-        assert "refresh-secret-1" not in json.dumps(receipt)
-        assert "refresh_token" not in json.dumps(receipt)
-        assert receipt["action_kind"] == "export.google_sheets"
-        assert receipt["provider_use"] == [
-            {
-                "provider": "google_sheets",
-                "connection_id": "conn-google-1",
-                "external_subject": "google-user-123",
-                "external_email": "reporter@example.com",
-            }
-        ]
-        assert receipt["exports"][0]["spreadsheet_id"] == "sheet-created-1"
-        assert any(e["ref"]["kind"] == "exported_query" for e in receipt["evidence"])
+    receipt_row = project.db.execute(
+        "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    assert receipt_row is not None
+    receipt = json.loads(receipt_row["body"])
+    assert "refresh-secret-1" not in json.dumps(receipt)
+    assert "refresh_token" not in json.dumps(receipt)
+    assert receipt["action_kind"] == "export.google_sheets"
+    assert receipt["provider_use"] == [
+        {
+            "provider": "google_sheets",
+            "connection_id": "conn-google-1",
+            "external_subject": "google-user-123",
+            "external_email": "reporter@example.com",
+        }
+    ]
+    assert receipt["exports"][0]["spreadsheet_id"] == "sheet-created-1"
+    assert any(e["ref"]["kind"] == "exported_query" for e in receipt["evidence"])
 
-        replay = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-        assert len(fake_client.calls) == 1
+    replay = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
+    assert len(fake_client.calls) == 1
 
-        conflict_action = _google_export_action(
-            sheet_id=sheet_id,
-            destination={
-                "kind": "google_sheets",
-                "mode": "update_existing",
-                "spreadsheet_id": "different",
-            },
-        )
-        conflict = run_action_spec(
-            project,
-            conflict_action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-        assert len(fake_client.calls) == 1
+    conflict_action = _google_export_action(
+        sheet_id=sheet_id,
+        destination={
+            "kind": "google_sheets",
+            "mode": "update_existing",
+            "spreadsheet_id": "different",
+        },
+    )
+    conflict = run_action_spec(
+        project,
+        conflict_action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
+    assert len(fake_client.calls) == 1
 
 
 def test_export_google_sheets_fails_without_connection_or_client(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "google-sheets-missing.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     action = _google_export_action(sheet_id=sheet_id)
-    with closing(Project(project_path)) as project:
-        no_client = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=ExecutorDeps(connected_account_resolver=_resolver),
-        )
-        assert no_client.status == "failed"
-        assert no_client.errors[0].code == "google_sheets_client_unavailable"
+    no_client = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=ExecutorDeps(connected_account_resolver=_resolver),
+    )
+    assert no_client.status == "failed"
+    assert no_client.errors[0].code == "google_sheets_client_unavailable"
 
-        missing_connection = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                connection_id="missing",
-                key="google_sheets_export@sha256:missing-connection",
-            ),
-            project_id="project-google-sheets",
-            deps=ExecutorDeps(
-                connected_account_resolver=_resolver,
-                google_sheets_client=FakeGoogleSheetsClient(),
-            ),
-        )
-        assert missing_connection.status == "failed"
-        assert missing_connection.errors[0].code == "connected_account_not_found"
+    missing_connection = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            connection_id="missing",
+            key="google_sheets_export@sha256:missing-connection",
+        ),
+        project_id="project-google-sheets",
+        deps=ExecutorDeps(
+            connected_account_resolver=_resolver,
+            google_sheets_client=FakeGoogleSheetsClient(),
+        ),
+    )
+    assert missing_connection.status == "failed"
+    assert missing_connection.errors[0].code == "connected_account_not_found"
 
-        failing_client = FailingGoogleSheetsClient()
-        provider_failure = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                key="google_sheets_export@sha256:provider-failure",
-            ),
-            project_id="project-google-sheets",
-            deps=ExecutorDeps(
-                connected_account_resolver=_resolver,
-                google_sheets_client=failing_client,
-            ),
-        )
-        assert provider_failure.status == "failed"
-        assert (
-            provider_failure.errors[0].code == "external_effect_reconciliation_required"
-        )
-        assert provider_failure.errors[0].details["reconciliation_required"] is True
-        assert provider_failure.receipt_id is not None
-        assert failing_client.calls == 1
-        receipt_row = project.db.execute(
-            "SELECT status, body FROM receipts WHERE id=?",
-            (provider_failure.receipt_id,),
-        ).fetchone()
-        assert receipt_row["status"] == "failed"
-        assert "refresh-secret-1" not in receipt_row["body"]
-        assert "refresh_token" not in receipt_row["body"]
+    failing_client = FailingGoogleSheetsClient()
+    provider_failure = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            key="google_sheets_export@sha256:provider-failure",
+        ),
+        project_id="project-google-sheets",
+        deps=ExecutorDeps(
+            connected_account_resolver=_resolver,
+            google_sheets_client=failing_client,
+        ),
+    )
+    assert provider_failure.status == "failed"
+    assert provider_failure.errors[0].code == "external_effect_reconciliation_required"
+    assert provider_failure.errors[0].details["reconciliation_required"] is True
+    assert provider_failure.receipt_id is not None
+    assert failing_client.calls == 1
+    receipt_row = project.db.execute(
+        "SELECT status, body FROM receipts WHERE id=?",
+        (provider_failure.receipt_id,),
+    ).fetchone()
+    assert receipt_row["status"] == "failed"
+    assert "refresh-secret-1" not in receipt_row["body"]
+    assert "refresh_token" not in receipt_row["body"]
 
-        replay_failure = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                key="google_sheets_export@sha256:provider-failure",
-            ),
-            project_id="project-google-sheets",
-            deps=ExecutorDeps(
-                connected_account_resolver=_resolver,
-                google_sheets_client=failing_client,
-            ),
-        )
-        assert replay_failure.status == "failed"
-        assert replay_failure.receipt_id == provider_failure.receipt_id
-        assert failing_client.calls == 1
+    replay_failure = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            key="google_sheets_export@sha256:provider-failure",
+        ),
+        project_id="project-google-sheets",
+        deps=ExecutorDeps(
+            connected_account_resolver=_resolver,
+            google_sheets_client=failing_client,
+        ),
+    )
+    assert replay_failure.status == "failed"
+    assert replay_failure.receipt_id == provider_failure.receipt_id
+    assert failing_client.calls == 1
 
 
 def test_export_google_sheets_stale_clear_retry_replays_instead_of_rewriting(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """Defect 2 regression: client.export_tabs is an external WRITE between
     receipt reserve and finalize with no checkpoint machinery. A crash right
@@ -370,8 +362,7 @@ def test_export_google_sheets_stale_clear_retry_replays_instead_of_rewriting(
         RUNNING_RECEIPT_STALE_AFTER_SECONDS,
     )
 
-    project_path = tmp_path / "google-sheets-stale-clear.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = FakeGoogleSheetsClient()
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
@@ -380,149 +371,141 @@ def test_export_google_sheets_stale_clear_retry_replays_instead_of_rewriting(
     idempotency_key = "google_sheets_export@sha256:stale-clear-replay"
     action = _google_export_action(sheet_id=sheet_id, key=idempotency_key)
 
-    with closing(Project(project_path)) as project:
-        first = run_action_spec(
-            project, action, project_id="project-google-sheets", deps=deps
-        )
-        assert first.status == "completed", first.errors
-        assert len(fake_client.calls) == 1
-        first_spreadsheet_id = first.outputs[0].ref["spreadsheet_id"]
-        assert first_spreadsheet_id == "sheet-created-1"
+    first = run_action_spec(
+        project, action, project_id="project-google-sheets", deps=deps
+    )
+    assert first.status == "completed", first.errors
+    assert len(fake_client.calls) == 1
+    first_spreadsheet_id = first.outputs[0].ref["spreadsheet_id"]
+    assert first_spreadsheet_id == "sheet-created-1"
 
-        # The effect checkpoint is already 'returned' (its own transaction
-        # committed the instant client.export_tabs returned) -- exactly what
-        # a crash right after the write, before THIS action's own finalize,
-        # leaves behind. Simulate that shape by reverting only the ACTION
-        # receipt to the never-finalized 'running' state a hard crash would
-        # leave, aged past the stale-clear window; the checkpoint is left
-        # untouched.
-        checkpoint_before = project.db.execute(
-            "SELECT state FROM effect_checkpoints WHERE family=?",
-            ("export_google_sheets_egress",),
-        ).fetchone()
-        assert checkpoint_before is not None
-        assert checkpoint_before["state"] == "returned"
+    # The effect checkpoint is already 'returned' (its own transaction
+    # committed the instant client.export_tabs returned) -- exactly what
+    # a crash right after the write, before THIS action's own finalize,
+    # leaves behind. Simulate that shape by reverting only the ACTION
+    # receipt to the never-finalized 'running' state a hard crash would
+    # leave, aged past the stale-clear window; the checkpoint is left
+    # untouched.
+    checkpoint_before = project.db.execute(
+        "SELECT state FROM effect_checkpoints WHERE family=?",
+        ("export_google_sheets_egress",),
+    ).fetchone()
+    assert checkpoint_before is not None
+    assert checkpoint_before["state"] == "returned"
 
+    project.db.execute(
+        "UPDATE receipts SET status='running', "
+        "created_at=datetime('now', ?) WHERE id=?",
+        (f"-{RUNNING_RECEIPT_STALE_AFTER_SECONDS + 60} seconds", first.receipt_id),
+    )
+    project.db.commit()
+
+    # Attempt 1: finds the stale 'running' receipt, clears it, asks for
+    # a retry (the same two-step stale-clear contract every reserved
+    # action shares).
+    cleared = run_action_spec(
+        project, action, project_id="project-google-sheets", deps=deps
+    )
+    assert cleared.status == "failed"
+    assert [error.code for error in cleared.errors] == ["idempotency_stale_running"]
+    assert (
         project.db.execute(
-            "UPDATE receipts SET status='running', "
-            "created_at=datetime('now', ?) WHERE id=?",
-            (f"-{RUNNING_RECEIPT_STALE_AFTER_SECONDS + 60} seconds", first.receipt_id),
-        )
-        project.db.commit()
+            "SELECT 1 FROM receipts WHERE id=?", (first.receipt_id,)
+        ).fetchone()
+        is None
+    )
 
-        # Attempt 1: finds the stale 'running' receipt, clears it, asks for
-        # a retry (the same two-step stale-clear contract every reserved
-        # action shares).
-        cleared = run_action_spec(
-            project, action, project_id="project-google-sheets", deps=deps
-        )
-        assert cleared.status == "failed"
-        assert [error.code for error in cleared.errors] == ["idempotency_stale_running"]
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM receipts WHERE id=?", (first.receipt_id,)
-            ).fetchone()
-            is None
-        )
-
-        # Attempt 2 (the actual retry): must replay the returned checkpoint,
-        # not call export_tabs again -- a second new_spreadsheet call would
-        # create a second, distinct spreadsheet.
-        resumed = run_action_spec(
-            project, action, project_id="project-google-sheets", deps=deps
-        )
-        assert resumed.status == "completed", resumed.errors
-        assert len(fake_client.calls) == 1  # never called again
-        assert resumed.outputs[0].ref["spreadsheet_id"] == first_spreadsheet_id
+    # Attempt 2 (the actual retry): must replay the returned checkpoint,
+    # not call export_tabs again -- a second new_spreadsheet call would
+    # create a second, distinct spreadsheet.
+    resumed = run_action_spec(
+        project, action, project_id="project-google-sheets", deps=deps
+    )
+    assert resumed.status == "completed", resumed.errors
+    assert len(fake_client.calls) == 1  # never called again
+    assert resumed.outputs[0].ref["spreadsheet_id"] == first_spreadsheet_id
 
 
 def test_ambiguous_export_refuses_equivalent_fresh_key_without_second_call(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "google-sheets-ambiguous-cross-key.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = SequencedGoogleSheetsClient(error=TimeoutError("provider timeout"))
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
         google_sheets_client=fake_client,
     )
 
-    with closing(Project(project_path)) as project:
-        omitted_default = _google_export_action(
-            sheet_id=sheet_id,
-            key="ambiguous@sha256:first",
-        )
-        omitted_default["params"].pop("write_policy")
-        omitted_default["params"]["destination"].pop("spreadsheet_title")
-        _confirm_google_action(omitted_default)
-        first = run_action_spec(
-            project,
-            omitted_default,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert first.status == "failed"
-        assert first.errors[0].code == "external_effect_reconciliation_required"
-        checkpoint_id = first.errors[0].details["checkpoint_id"]
+    omitted_default = _google_export_action(
+        sheet_id=sheet_id,
+        key="ambiguous@sha256:first",
+    )
+    omitted_default["params"].pop("write_policy")
+    omitted_default["params"]["destination"].pop("spreadsheet_title")
+    _confirm_google_action(omitted_default)
+    first = run_action_spec(
+        project,
+        omitted_default,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert first.status == "failed"
+    assert first.errors[0].code == "external_effect_reconciliation_required"
+    checkpoint_id = first.errors[0].details["checkpoint_id"]
 
-        fresh_key = run_action_spec(
-            project,
-            _google_export_action(sheet_id=sheet_id, key="ambiguous@sha256:second"),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert fresh_key.status == "failed"
-        assert fresh_key.errors[0].code == "external_effect_reconciliation_required"
-        assert fresh_key.errors[0].details == {
-            "checkpoint_code": "ambiguous_reserved",
-            "checkpoint_id": checkpoint_id,
-            "possible_external_effect": True,
-            "reconciliation_required": True,
-            "retryable": False,
-        }
-        assert len(fake_client.calls) == 1
-        rows = project.db.execute(
-            "SELECT id, state FROM effect_checkpoints WHERE family=?",
-            ("export_google_sheets_egress",),
-        ).fetchall()
-        assert [(row["id"], row["state"]) for row in rows] == [
-            (checkpoint_id, "reserved")
-        ]
+    fresh_key = run_action_spec(
+        project,
+        _google_export_action(sheet_id=sheet_id, key="ambiguous@sha256:second"),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert fresh_key.status == "failed"
+    assert fresh_key.errors[0].code == "external_effect_reconciliation_required"
+    assert fresh_key.errors[0].details == {
+        "checkpoint_code": "ambiguous_reserved",
+        "checkpoint_id": checkpoint_id,
+        "possible_external_effect": True,
+        "reconciliation_required": True,
+        "retryable": False,
+    }
+    assert len(fake_client.calls) == 1
+    rows = project.db.execute(
+        "SELECT id, state FROM effect_checkpoints WHERE family=?",
+        ("export_google_sheets_egress",),
+    ).fetchall()
+    assert [(row["id"], row["state"]) for row in rows] == [(checkpoint_id, "reserved")]
 
 
 def test_export_refuses_legacy_envelope_extras_without_provider_calls(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "strict-export.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake = FakeGoogleSheetsClient()
-    with closing(Project(project_path)) as project:
-        for field, value in (
-            ("capabilities", ["project:read", "external:google_sheets"]),
-            ("input_refs", [{"kind": "unrelated"}]),
-            ("output_intent", [{"kind": "unrelated"}]),
-        ):
-            body = _google_export_action(sheet_id=sheet_id, key=field)
-            body[field] = value
-            result = run_action_spec(
-                project,
-                body,
-                project_id="strict",
-                deps=ExecutorDeps(
-                    connected_account_resolver=_resolver, google_sheets_client=fake
-                ),
-            )
-            assert result.status == "failed"
-            assert result.errors[0].code == "invalid_action_request"
-        assert fake.calls == []
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    for field, value in (
+        ("capabilities", ["project:read", "external:google_sheets"]),
+        ("input_refs", [{"kind": "unrelated"}]),
+        ("output_intent", [{"kind": "unrelated"}]),
+    ):
+        body = _google_export_action(sheet_id=sheet_id, key=field)
+        body[field] = value
+        result = run_action_spec(
+            project,
+            body,
+            project_id="strict",
+            deps=ExecutorDeps(
+                connected_account_resolver=_resolver, google_sheets_client=fake
+            ),
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "invalid_action_request"
+    assert fake.calls == []
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
 
 def test_ambiguous_export_identity_ignores_planned_confirmation_plumbing(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "google-sheets-confirmation-invariance.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = SequencedGoogleSheetsClient(error=TimeoutError("provider timeout"))
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
@@ -538,74 +521,68 @@ def test_ambiguous_export_identity_ignores_planned_confirmation_plumbing(
         key="confirmation@sha256:confirmed",
     )
 
-    with closing(Project(project_path)) as project:
-        first = run_action_spec(
-            project, first_body, project_id="project-google-sheets", deps=deps
-        )
-        assert first.status == "failed"
-        checkpoint_id = first.errors[0].details["checkpoint_id"]
+    first = run_action_spec(
+        project, first_body, project_id="project-google-sheets", deps=deps
+    )
+    assert first.status == "failed"
+    checkpoint_id = first.errors[0].details["checkpoint_id"]
 
-        refused = run_action_spec(
-            project, confirmed_body, project_id="project-google-sheets", deps=deps
-        )
-        assert refused.status == "failed"
-        assert refused.errors[0].details["checkpoint_id"] == checkpoint_id
-        assert len(fake_client.calls) == 1
+    refused = run_action_spec(
+        project, confirmed_body, project_id="project-google-sheets", deps=deps
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].details["checkpoint_id"] == checkpoint_id
+    assert len(fake_client.calls) == 1
 
 
 def test_operator_accept_refuses_equivalent_effect_until_proven_discard(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "google-sheets-operator-resolution.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = SequencedGoogleSheetsClient(error=TimeoutError("provider timeout"))
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
         google_sheets_client=fake_client,
     )
 
-    with closing(Project(project_path)) as project:
-        first = run_action_spec(
-            project,
-            _google_export_action(sheet_id=sheet_id, key="operator@sha256:first"),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        checkpoint_id = first.errors[0].details["checkpoint_id"]
-        store = EffectCheckpointStore(project.db)
-        assert store.operator_accept_charged(checkpoint_id)["state"] == "consumed"
+    first = run_action_spec(
+        project,
+        _google_export_action(sheet_id=sheet_id, key="operator@sha256:first"),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    checkpoint_id = first.errors[0].details["checkpoint_id"]
+    store = EffectCheckpointStore(project.db)
+    assert store.operator_accept_charged(checkpoint_id)["state"] == "consumed"
 
-        accepted = run_action_spec(
-            project,
-            _google_export_action(sheet_id=sheet_id, key="operator@sha256:accepted"),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert accepted.status == "failed"
-        assert accepted.errors[0].details["checkpoint_code"] == (
-            "invalid_checkpoint_state"
-        )
-        assert accepted.errors[0].details["checkpoint_id"] == checkpoint_id
-        assert len(fake_client.calls) == 1
+    accepted = run_action_spec(
+        project,
+        _google_export_action(sheet_id=sheet_id, key="operator@sha256:accepted"),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert accepted.status == "failed"
+    assert accepted.errors[0].details["checkpoint_code"] == "invalid_checkpoint_state"
+    assert accepted.errors[0].details["checkpoint_id"] == checkpoint_id
+    assert len(fake_client.calls) == 1
 
-        discarded = store.operator_discard(checkpoint_id, expected_state="consumed")
-        assert discarded["id"] == checkpoint_id
-        fake_client.error = None
-        released = run_action_spec(
-            project,
-            _google_export_action(sheet_id=sheet_id, key="operator@sha256:discarded"),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert released.status == "completed", released.errors
-        assert len(fake_client.calls) == 2
+    discarded = store.operator_discard(checkpoint_id, expected_state="consumed")
+    assert discarded["id"] == checkpoint_id
+    fake_client.error = None
+    released = run_action_spec(
+        project,
+        _google_export_action(sheet_id=sheet_id, key="operator@sha256:discarded"),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert released.status == "completed", released.errors
+    assert len(fake_client.calls) == 2
 
 
 def test_returned_effect_replays_cross_key_but_changed_query_or_value_is_new(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "google-sheets-cross-key-returned.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = SequencedGoogleSheetsClient()
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
@@ -623,118 +600,114 @@ def test_returned_effect_replays_cross_key_but_changed_query_or_value_is_new(
         "filter": {"status": {"eq": "blocked"}},
     }
 
-    with closing(Project(project_path)) as project:
-        first = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                source={
-                    "kind": "current_view",
-                    "sheet_id": sheet_id,
-                    "query": ready_query,
-                },
-                key="returned@sha256:first",
-            ),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert first.status == "completed", first.errors
-        assert first.outputs[0].ref["spreadsheet_id"] == "sheet-created-1"
+    first = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            source={
+                "kind": "current_view",
+                "sheet_id": sheet_id,
+                "query": ready_query,
+            },
+            key="returned@sha256:first",
+        ),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert first.status == "completed", first.errors
+    assert first.outputs[0].ref["spreadsheet_id"] == "sheet-created-1"
 
-        equivalent_fresh_key = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                source={
-                    "kind": "current_view",
-                    "sheet_id": sheet_id,
-                    "query": ready_query,
-                },
-                key="returned@sha256:equivalent-fresh-key",
-            ),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert equivalent_fresh_key.status == "completed", equivalent_fresh_key.errors
-        assert (
-            equivalent_fresh_key.outputs[0].ref["spreadsheet_id"] == "sheet-created-1"
-        )
-        assert len(fake_client.calls) == 1
+    equivalent_fresh_key = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            source={
+                "kind": "current_view",
+                "sheet_id": sheet_id,
+                "query": ready_query,
+            },
+            key="returned@sha256:equivalent-fresh-key",
+        ),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert equivalent_fresh_key.status == "completed", equivalent_fresh_key.errors
+    assert equivalent_fresh_key.outputs[0].ref["spreadsheet_id"] == "sheet-created-1"
+    assert len(fake_client.calls) == 1
 
-        changed_query = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                source={
-                    "kind": "current_view",
-                    "sheet_id": sheet_id,
-                    "query": blocked_query,
-                },
-                key="returned@sha256:changed-query",
-            ),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert changed_query.status == "completed", changed_query.errors
-        assert changed_query.outputs[0].ref["spreadsheet_id"] == "sheet-created-2"
-        assert len(fake_client.calls) == 2
+    changed_query = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            source={
+                "kind": "current_view",
+                "sheet_id": sheet_id,
+                "query": blocked_query,
+            },
+            key="returned@sha256:changed-query",
+        ),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert changed_query.status == "completed", changed_query.errors
+    assert changed_query.outputs[0].ref["spreadsheet_id"] == "sheet-created-2"
+    assert len(fake_client.calls) == 2
 
-        name_column_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='name'",
-                (sheet_id,),
-            ).fetchone()["id"]
-        )
-        ada_row_id = int(
-            project.db.execute(
-                "SELECT row_id FROM current_cell_values "
-                "WHERE column_id=? AND value_kind='text' AND value=?",
-                (name_column_id, "Ada"),
-            ).fetchone()["row_id"]
-        )
-        replace_test_source_cell(
-            project,
-            row_id=ada_row_id,
-            column_id=name_column_id,
-            value="Ada Lovelace",
-        )
+    name_column_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='name'",
+            (sheet_id,),
+        ).fetchone()["id"]
+    )
+    ada_row_id = int(
+        project.db.execute(
+            "SELECT row_id FROM current_cell_values "
+            "WHERE column_id=? AND value_kind='text' AND value=?",
+            (name_column_id, "Ada"),
+        ).fetchone()["row_id"]
+    )
+    replace_test_source_cell(
+        project,
+        row_id=ada_row_id,
+        column_id=name_column_id,
+        value="Ada Lovelace",
+    )
 
-        changed_live_value = run_action_spec(
-            project,
-            _google_export_action(
-                sheet_id=sheet_id,
-                source={
-                    "kind": "current_view",
-                    "sheet_id": sheet_id,
-                    "query": ready_query,
-                },
-                key="returned@sha256:changed-live-value",
-            ),
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert changed_live_value.status == "completed", changed_live_value.errors
-        assert changed_live_value.outputs[0].ref["spreadsheet_id"] == "sheet-created-3"
-        assert len(fake_client.calls) == 3
+    changed_live_value = run_action_spec(
+        project,
+        _google_export_action(
+            sheet_id=sheet_id,
+            source={
+                "kind": "current_view",
+                "sheet_id": sheet_id,
+                "query": ready_query,
+            },
+            key="returned@sha256:changed-live-value",
+        ),
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert changed_live_value.status == "completed", changed_live_value.errors
+    assert changed_live_value.outputs[0].ref["spreadsheet_id"] == "sheet-created-3"
+    assert len(fake_client.calls) == 3
 
-        checkpoints = project.db.execute(
-            "SELECT group_key, identity, payload FROM effect_checkpoints WHERE family=? "
-            "ORDER BY id",
-            ("export_google_sheets_egress",),
-        ).fetchall()
-        assert len(checkpoints) == 3
-        assert len({row["identity"] for row in checkpoints}) == 3
-        assert all(row["group_key"] == row["identity"] for row in checkpoints)
-        assert all(row["identity"].startswith("sha256:") for row in checkpoints)
-        assert "Ada Lovelace" not in "".join(row["payload"] for row in checkpoints)
+    checkpoints = project.db.execute(
+        "SELECT group_key, identity, payload FROM effect_checkpoints WHERE family=? "
+        "ORDER BY id",
+        ("export_google_sheets_egress",),
+    ).fetchall()
+    assert len(checkpoints) == 3
+    assert len({row["identity"] for row in checkpoints}) == 3
+    assert all(row["group_key"] == row["identity"] for row in checkpoints)
+    assert all(row["identity"].startswith("sha256:") for row in checkpoints)
+    assert "Ada Lovelace" not in "".join(row["payload"] for row in checkpoints)
 
 
 def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
-    tmp_path: Path,
+    project: Project,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    project_path = tmp_path / "google-sheets-provider-redaction.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     refresh_secret = "refresh-super-secret-value"
     access_secret = "access-super-secret-value"
     client_secret = "client-super-secret-value"
@@ -768,48 +741,42 @@ def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
     )
     caplog.set_level(logging.DEBUG, logger="frisket.executor")
 
-    with closing(Project(project_path)) as project:
-        failed = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert failed.status == "failed"
-        assert failed.errors[0].code == "external_effect_reconciliation_required"
-        assert failed.errors[0].details["reconciliation_required"] is True
-        assert len(json.dumps(failed.model_dump(mode="json"))) < 4_000
+    failed = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert failed.status == "failed"
+    assert failed.errors[0].code == "external_effect_reconciliation_required"
+    assert failed.errors[0].details["reconciliation_required"] is True
+    assert len(json.dumps(failed.model_dump(mode="json"))) < 4_000
 
-        replay = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert replay.status == "failed"
-        assert replay.receipt_id == failed.receipt_id
-        assert replay.model_dump(mode="json") == failed.model_dump(mode="json")
-        assert len(fake_client.calls) == 1
+    replay = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert replay.status == "failed"
+    assert replay.receipt_id == failed.receipt_id
+    assert replay.model_dump(mode="json") == failed.model_dump(mode="json")
+    assert len(fake_client.calls) == 1
 
-        persisted = "\n".join(
-            [
-                caplog.text,
-                *(
-                    row["body"]
-                    for row in project.db.execute("SELECT body FROM receipts")
-                ),
-                *(
-                    str(row["payload"])
-                    for row in project.db.execute(
-                        "SELECT payload FROM effect_checkpoints"
-                    )
-                ),
-            ]
-        )
-        for secret in (refresh_secret, access_secret, client_secret):
-            assert secret not in persisted
-        assert oversized not in persisted
-        assert "Traceback (most recent call last)" not in caplog.text
+    persisted = "\n".join(
+        [
+            caplog.text,
+            *(row["body"] for row in project.db.execute("SELECT body FROM receipts")),
+            *(
+                str(row["payload"])
+                for row in project.db.execute("SELECT payload FROM effect_checkpoints")
+            ),
+        ]
+    )
+    for secret in (refresh_secret, access_secret, client_secret):
+        assert secret not in persisted
+    assert oversized not in persisted
+    assert "Traceback (most recent call last)" not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -828,12 +795,11 @@ def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
     ],
 )
 def test_malformed_provider_result_stays_ambiguous_and_never_completes(
-    tmp_path: Path,
+    project: Project,
     provider_result: Any,
     destination: dict[str, Any] | None,
 ) -> None:
-    project_path = tmp_path / "google-sheets-malformed-result.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     fake_client = RawResultGoogleSheetsClient(provider_result)
     deps = ExecutorDeps(
         connected_account_resolver=_resolver,
@@ -845,33 +811,30 @@ def test_malformed_provider_result_stays_ambiguous_and_never_completes(
         key="malformed-result@sha256:stable-replay",
     )
 
-    with closing(Project(project_path)) as project:
-        failed = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert failed.status == "failed"
-        assert failed.outputs == []
-        assert failed.errors[0].code == "external_effect_reconciliation_required"
-        assert failed.errors[0].details["checkpoint_code"] == (
-            "provider_result_invalid"
-        )
-        checkpoint = EffectCheckpointStore(project.db).get(
-            failed.errors[0].details["checkpoint_id"]
-        )
-        assert checkpoint is not None
-        assert checkpoint["state"] == "reserved"
-        assert "provider_result" not in checkpoint["payload"]
-        assert fake_client.calls == 1
+    failed = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert failed.status == "failed"
+    assert failed.outputs == []
+    assert failed.errors[0].code == "external_effect_reconciliation_required"
+    assert failed.errors[0].details["checkpoint_code"] == "provider_result_invalid"
+    checkpoint = EffectCheckpointStore(project.db).get(
+        failed.errors[0].details["checkpoint_id"]
+    )
+    assert checkpoint is not None
+    assert checkpoint["state"] == "reserved"
+    assert "provider_result" not in checkpoint["payload"]
+    assert fake_client.calls == 1
 
-        replay = run_action_spec(
-            project,
-            action,
-            project_id="project-google-sheets",
-            deps=deps,
-        )
-        assert replay.status == "failed"
-        assert replay.receipt_id == failed.receipt_id
-        assert fake_client.calls == 1
+    replay = run_action_spec(
+        project,
+        action,
+        project_id="project-google-sheets",
+        deps=deps,
+    )
+    assert replay.status == "failed"
+    assert replay.receipt_id == failed.receipt_id
+    assert fake_client.calls == 1

@@ -19,8 +19,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
-from contextlib import closing
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -428,30 +426,26 @@ def _map_classify_action(sheet_id: int, *, idempotency_key: str) -> dict[str, An
     }
 
 
-def _seed_classify_project(project_path: Path) -> int:
-    with closing(
-        Project.create(project_path, name="Map Classify Missing Key")
-    ) as project:
-        sheet_id = project.add_sheet("Stories")
-        columns = {
-            "story": project.add_column(sheet_id, "story", type="text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [{"story": "City hall awarded a no-bid contract"}],
-            columns,
-        )
-        return sheet_id
+def _seed_classify_project(project: Project) -> int:
+    sheet_id = project.add_sheet("Stories")
+    columns = {
+        "story": project.add_column(sheet_id, "story", type="text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [{"story": "City hall awarded a no-bid contract"}],
+        columns,
+    )
+    return sheet_id
 
 
-def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path):
+def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(project):
     from tests.execution_composition_helpers import open_attempt_authority
     from executor_harness import (
         run_action_with_confirmation as run_action_with_exact_confirmation,
     )
 
-    project_path = tmp_path / "classify-missing-key.frisket"
-    sheet_id = _seed_classify_project(project_path)
+    sheet_id = _seed_classify_project(project)
     action = _map_classify_action(
         sheet_id, idempotency_key="map_classify@sha256:missing-key"
     )
@@ -460,29 +454,28 @@ def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path
         def _prepare(self, *_args: Any, **_kwargs: Any) -> Any:
             raise MissingProviderKey("anthropic")
 
-    with closing(Project(project_path)) as project:
-        failed = run_action_with_exact_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                map_runner_factory=lambda project, router: NoKeyMapRunner(
-                    project,
-                    router,
-                    authority=open_attempt_authority(project),
-                )
-            ),
-        )
-        assert failed.status == "failed"
-        assert failed.errors[0].code == "missing_provider_key"
-        assert "anthropic" in failed.errors[0].message
-        assert failed.errors[0].details.get("provider") == "anthropic"
-        # no stuck running reservation left behind
-        stuck = project.db.execute(
-            "SELECT status FROM receipts WHERE idempotency_key=?",
-            ("map_classify@sha256:missing-key",),
-        ).fetchone()
-        assert stuck is None
+    failed = run_action_with_exact_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            map_runner_factory=lambda project, router: NoKeyMapRunner(
+                project,
+                router,
+                authority=open_attempt_authority(project),
+            )
+        ),
+    )
+    assert failed.status == "failed"
+    assert failed.errors[0].code == "missing_provider_key"
+    assert "anthropic" in failed.errors[0].message
+    assert failed.errors[0].details.get("provider") == "anthropic"
+    # no stuck running reservation left behind
+    stuck = project.db.execute(
+        "SELECT status FROM receipts WHERE idempotency_key=?",
+        ("map_classify@sha256:missing-key",),
+    ).fetchone()
+    assert stuck is None
 
 
 # ---------------------------------------------------------------------------

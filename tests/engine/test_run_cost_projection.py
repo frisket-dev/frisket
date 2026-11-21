@@ -13,7 +13,6 @@ patched.
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 import pytest
 
@@ -45,8 +44,7 @@ def _fact(call_id: str, cost: float | None, **overrides) -> dict:
     return fact
 
 
-def _seed(tmp_path: Path) -> tuple[Project, RunResultStore, int, int, int]:
-    project = Project.create(tmp_path / "cost.frisket", name="Cost")
+def _seed(project: Project) -> tuple[RunResultStore, int, int, int]:
     sheet_id = project.add_sheet("Rows")
     column_id = project.add_column(sheet_id, "out", type="text", ai_generated=True)
     project.add_rows(sheet_id, [{"out": None}, {"out": None}], {"out": column_id})
@@ -61,7 +59,7 @@ def _seed(tmp_path: Path) -> tuple[Project, RunResultStore, int, int, int]:
     )
     store = RunResultStore(project)
     run_id = store.start_run(op_id, sheet_id, "map.classify", total_rows=len(row_ids))
-    return project, store, run_id, row_ids[0], column_id
+    return store, run_id, row_ids[0], column_id
 
 
 def _run_cost(project: Project, run_id: int):
@@ -79,13 +77,13 @@ def _writer(project: Project, run_id: int, column_id: int) -> dict:
 
 
 def test_cached_call_never_accrues_even_when_the_batch_cost_disagrees(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """Former divergence 1: cached calls zeroed in one computation, not the
     other.  A cache fact may retain historical price provenance in
     ``provider_cost_usd``; the run figure must follow the facts' cache
     exclusion even when the batch's per-row ``cost`` field claims otherwise."""
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     store.write_results(
         run_id,
         [
@@ -111,29 +109,27 @@ def test_cached_call_never_accrues_even_when_the_batch_cost_disagrees(
         **_writer(project, run_id, column_id),
     )
     assert _run_cost(project, run_id) == pytest.approx(0.01)
-    project.close()
 
 
-def test_batch_cost_without_a_fact_never_lands(tmp_path: Path) -> None:
+def test_batch_cost_without_a_fact_never_lands(project: Project) -> None:
     """The second computation is dead: a per-row ``cost`` with no durable
     fact behind it cannot move the run figure."""
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     store.write_results(
         run_id,
         [{"row_id": row_id, "column_id": column_id, "value": "x", "cost": 5.0}],
         **_writer(project, run_id, column_id),
     )
     assert _run_cost(project, run_id) == 0.0
-    project.close()
 
 
-def test_multi_fact_run_accumulates_instead_of_overwriting(tmp_path: Path) -> None:
+def test_multi_fact_run_accumulates_instead_of_overwriting(project: Project) -> None:
     """Former divergence 2: ``embeddings.py`` overwrote ``cost_actual`` with
     each batch's single fact, so a multi-batch refresh kept only the LAST
     batch's cost.  Two sequential fact writes (the embeddings shape:
     ``write_model_calls`` once per provider batch) must project the sum, and
     the overwrite lever itself is gone."""
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     for call_id, cost in (("batch-1", 0.002), ("batch-2", 0.003)):
         store.write_model_calls(
             run_id,
@@ -150,13 +146,12 @@ def test_multi_fact_run_accumulates_instead_of_overwriting(tmp_path: Path) -> No
     assert _run_cost(project, run_id) == pytest.approx(0.005)
     # The blind-overwrite entry point must not come back.
     assert not hasattr(RunResultStore, "set_cost_actual")
-    project.close()
 
 
-def test_replayed_facts_do_not_double_count(tmp_path: Path) -> None:
+def test_replayed_facts_do_not_double_count(project: Project) -> None:
     """A crash-replayed batch re-inserts the same call ids; the projection
     recomputes the same value instead of accruing a second time."""
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     batch = [
         {
             "row_id": row_id,
@@ -174,18 +169,17 @@ def test_replayed_facts_do_not_double_count(tmp_path: Path) -> None:
         **_writer(project, run_id, column_id),
     )
     assert _run_cost(project, run_id) == pytest.approx(0.01)
-    project.close()
 
 
 def test_unknown_live_cost_projects_null_and_recovers_on_reconciliation(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """A run with one live unknown-cost call must present NULL, never a
     confident figure built from the calls we could price.  When the provider
     later reports the meter for the SAME call id, the projection recomputes
     and the run figure becomes exact again — an increment-only rollup could
     never leave NULL."""
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     store.write_model_calls(
         run_id,
         [
@@ -217,14 +211,13 @@ def test_unknown_live_cost_projects_null_and_recovers_on_reconciliation(
     )
     project.db.commit()
     assert _run_cost(project, run_id) == pytest.approx(0.03)
-    project.close()
 
 
-def test_projection_matches_the_receipt_derivation(tmp_path: Path) -> None:
+def test_projection_matches_the_receipt_derivation(project: Project) -> None:
     """Parity fence: the SQL projection and the receipts' Python derivation
     (``model_calls_cost_actual``) are two spellings of one rule; they must
     answer identically over the same durable facts."""
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     store.write_model_calls(
         run_id,
         [
@@ -261,11 +254,10 @@ def test_projection_matches_the_receipt_derivation(tmp_path: Path) -> None:
     project.db.commit()
     assert model_calls_cost_actual(store.model_calls(run_id)) is None
     assert _run_cost(project, run_id) is None
-    project.close()
 
 
 def test_the_cost_domain_refuses_values_it_will_not_treat_as_money(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """One domain, applied where costs are WRITTEN.
 
@@ -274,7 +266,7 @@ def test_the_cost_domain_refuses_values_it_will_not_treat_as_money(
     storing it for four downstream surfaces to reinterpret independently. NULL
     stays legal: it is the honest unknown, not a bad value.
     """
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
 
     def _write(call_id: str, cost: float) -> None:
         store.write_model_calls(
@@ -307,10 +299,9 @@ def test_the_cost_domain_refuses_values_it_will_not_treat_as_money(
     _write("honest-unknown", None)
     project.db.commit()
     assert _run_cost(project, run_id) is None
-    project.close()
 
 
-def test_sql_and_python_share_one_upper_bound(tmp_path: Path) -> None:
+def test_sql_and_python_share_one_upper_bound(project: Project) -> None:
     """The two derivations used to pick their own limits.
 
     SQL treated anything above 1e308 as unknown; the Python derivation
@@ -319,7 +310,7 @@ def test_sql_and_python_share_one_upper_bound(tmp_path: Path) -> None:
     read the same way on both sides, so the SQL spelling binds the SAME
     constant the Python rule uses.
     """
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     store.write_model_calls(
         run_id,
         [
@@ -355,7 +346,6 @@ def test_sql_and_python_share_one_upper_bound(tmp_path: Path) -> None:
     project.db.commit()
     assert _run_cost(project, run_id) is None
     assert model_calls_cost_actual(store.model_calls(run_id)) is None
-    project.close()
 
 
 def _facts_over_the_total_bound() -> list[float]:
@@ -386,14 +376,14 @@ def test_the_domain_bounds_the_sum_and_not_only_each_fact() -> None:
     assert PROVIDER_COST_MAX_USD < PROVIDER_COST_TOTAL_MAX_USD
 
 
-def test_sql_and_python_agree_on_an_absurd_total(tmp_path: Path) -> None:
+def test_sql_and_python_agree_on_an_absurd_total(project: Project) -> None:
     """Parity for the AGGREGATE clause specifically.
 
     Both costs are individually acceptable, so the per-fact clause cannot
     reach this case; only bounded addition can, and both spellings must
     answer unknown together.
     """
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     costs = _facts_over_the_total_bound()
     assert all(provider_cost_value(cost) is not None for cost in costs)
     project.db.executemany(
@@ -419,11 +409,10 @@ def test_sql_and_python_agree_on_an_absurd_total(tmp_path: Path) -> None:
     project.db.commit()
     assert _run_cost(project, run_id) is None
     assert model_calls_cost_actual(store.model_calls(run_id)) is None
-    project.close()
 
 
 def test_two_absurd_costs_cannot_reach_inf_through_the_writer(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """Regression coverage for the reproduced failure.
 
@@ -432,7 +421,7 @@ def test_two_absurd_costs_cannot_reach_inf_through_the_writer(
     ``inf`` in Python. A cost that large is a corrupt meter reading, so it
     refuses at the write, naming the knob — and nothing lands.
     """
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+    store, run_id, row_id, column_id = _seed(project)
     with pytest.raises(ValueError, match="provider_cost_usd"):
         store.write_model_calls(
             run_id,
@@ -449,4 +438,3 @@ def test_two_absurd_costs_cannot_reach_inf_through_the_writer(
     assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
     assert _run_cost(project, run_id) == pytest.approx(0.0)
     assert model_calls_cost_actual(store.model_calls(run_id)) == pytest.approx(0.0)
-    project.close()

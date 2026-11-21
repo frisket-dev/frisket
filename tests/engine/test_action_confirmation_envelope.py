@@ -17,8 +17,6 @@ non-confirmation ActionErrors still fail 400.
 from __future__ import annotations
 
 import itertools
-from contextlib import closing
-from pathlib import Path
 from typing import Any
 
 from frisket.contracts.actions.schemas._base import ActionError
@@ -31,19 +29,18 @@ PROJECT_ID = "project-confirmation-envelope"
 _KEYGEN = itertools.count(1)
 
 
-def _seed_fanout(project_path: Path) -> dict[str, Any]:
-    with closing(Project.create(project_path, name="Fanout")) as project:
-        left_id = project.add_sheet("Left")
-        left_cols = {"k": project.add_column(left_id, "k", type="integer")}
-        # key 6 appears twice, key 1 once
-        project.add_rows(left_id, [{"k": 6}, {"k": 6}, {"k": 1}], left_cols)
-        right_id = project.add_sheet("Right")
-        right_cols = {"k": project.add_column(right_id, "k", type="integer")}
-        # key 6 appears 3x, key 1 twice -> inner fan-out == 2*3 + 1*2 = 8
-        project.add_rows(
-            right_id, [{"k": 6}, {"k": 6}, {"k": 6}, {"k": 1}, {"k": 1}], right_cols
-        )
-        return {"left_sheet_id": left_id, "right_sheet_id": right_id}
+def _seed_fanout(project: Project) -> dict[str, Any]:
+    left_id = project.add_sheet("Left")
+    left_cols = {"k": project.add_column(left_id, "k", type="integer")}
+    # key 6 appears twice, key 1 once
+    project.add_rows(left_id, [{"k": 6}, {"k": 6}, {"k": 1}], left_cols)
+    right_id = project.add_sheet("Right")
+    right_cols = {"k": project.add_column(right_id, "k", type="integer")}
+    # key 6 appears 3x, key 1 twice -> inner fan-out == 2*3 + 1*2 = 8
+    project.add_rows(
+        right_id, [{"k": 6}, {"k": 6}, {"k": 6}, {"k": 1}, {"k": 1}], right_cols
+    )
+    return {"left_sheet_id": left_id, "right_sheet_id": right_id}
 
 
 def _join_action(
@@ -133,85 +130,83 @@ def test_failed_result_marker_maps_deterministic_write_onto_needs_confirmation()
 # ---------------------------------------------------------------------------
 
 
-def test_derive_join_fanout_emits_unified_402_envelope(tmp_path: Path) -> None:
-    seed = _seed_fanout(tmp_path / "p.frisket")
-    with closing(Project(tmp_path / "p.frisket")) as project:
-        gated = _run(
-            project,
-            _join_action(
-                left_sheet_id=seed["left_sheet_id"],
-                right_sheet_id=seed["right_sheet_id"],
-                target_sheet_name="Guarded",
-                max_output_rows=5,
-            ),
-        )
-        # UNIFIED: needs_confirmation (was "failed"/400 before this slice).
-        assert gated.status == "needs_confirmation", gated.status
-        assert v1_action_result_http_status(gated) == 402
-        err = gated.errors[0]
-        assert err.needs_confirmation is True
-        assert err.code == "join_fanout_requires_confirmation"
-        assert err.field == "confirmation"
-        # Envelope body preserves the cost-gate detail shape.
-        assert err.details.get("estimated_rows") == 8
-        assert err.details.get("max_output_rows") == 5
-        assert err.details.get("top_fanout_keys")
-        promise_set_hash = err.details.get("promise_set_hash")
-        assert isinstance(promise_set_hash, str)
-        assert len(promise_set_hash) == 64
-        # Nothing materialized on the gate.
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM sheets WHERE name='Guarded'"
-            ).fetchone()[0]
-            == 0
-        )
+def test_derive_join_fanout_emits_unified_402_envelope(project: Project) -> None:
+    seed = _seed_fanout(project)
+    gated = _run(
+        project,
+        _join_action(
+            left_sheet_id=seed["left_sheet_id"],
+            right_sheet_id=seed["right_sheet_id"],
+            target_sheet_name="Guarded",
+            max_output_rows=5,
+        ),
+    )
+    # UNIFIED: needs_confirmation (was "failed"/400 before this slice).
+    assert gated.status == "needs_confirmation", gated.status
+    assert v1_action_result_http_status(gated) == 402
+    err = gated.errors[0]
+    assert err.needs_confirmation is True
+    assert err.code == "join_fanout_requires_confirmation"
+    assert err.field == "confirmation"
+    # Envelope body preserves the cost-gate detail shape.
+    assert err.details.get("estimated_rows") == 8
+    assert err.details.get("max_output_rows") == 5
+    assert err.details.get("top_fanout_keys")
+    promise_set_hash = err.details.get("promise_set_hash")
+    assert isinstance(promise_set_hash, str)
+    assert len(promise_set_hash) == 64
+    # Nothing materialized on the gate.
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM sheets WHERE name='Guarded'"
+        ).fetchone()[0]
+        == 0
+    )
 
-        bare_confirmed = _run(
-            project,
-            _join_action(
-                left_sheet_id=seed["left_sheet_id"],
-                right_sheet_id=seed["right_sheet_id"],
-                target_sheet_name="Guarded",
-                max_output_rows=5,
-                confirmation="wrong-token",
-            ),
-        )
-        assert bare_confirmed.status == "needs_confirmation"
+    bare_confirmed = _run(
+        project,
+        _join_action(
+            left_sheet_id=seed["left_sheet_id"],
+            right_sheet_id=seed["right_sheet_id"],
+            target_sheet_name="Guarded",
+            max_output_rows=5,
+            confirmation="wrong-token",
+        ),
+    )
+    assert bare_confirmed.status == "needs_confirmation"
 
-        confirmed = _run(
-            project,
-            _join_action(
-                left_sheet_id=seed["left_sheet_id"],
-                right_sheet_id=seed["right_sheet_id"],
-                target_sheet_name="Guarded",
-                max_output_rows=5,
-                confirmation=promise_set_hash,
-            ),
-        )
-        assert confirmed.status == "completed", confirmed.errors
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM sheets WHERE name='Guarded' AND hidden=0"
-            ).fetchone()[0]
-            == 1
-        )
+    confirmed = _run(
+        project,
+        _join_action(
+            left_sheet_id=seed["left_sheet_id"],
+            right_sheet_id=seed["right_sheet_id"],
+            target_sheet_name="Guarded",
+            max_output_rows=5,
+            confirmation=promise_set_hash,
+        ),
+    )
+    assert confirmed.status == "completed", confirmed.errors
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM sheets WHERE name='Guarded' AND hidden=0"
+        ).fetchone()[0]
+        == 1
+    )
 
 
-def test_plain_validation_error_still_400(tmp_path: Path) -> None:
+def test_plain_validation_error_still_400(project: Project) -> None:
     """A non-confirmation ActionError must NOT start returning 402: unify does
     not mean every validation failure becomes a confirmation gate."""
-    seed = _seed_fanout(tmp_path / "p.frisket")
-    with closing(Project(tmp_path / "p.frisket")) as project:
-        # Self-join on the same sheet id is an invalid input ref (validation).
-        result = _run(
-            project,
-            _join_action(
-                left_sheet_id=seed["left_sheet_id"],
-                right_sheet_id=seed["left_sheet_id"],
-                target_sheet_name="Invalid",
-            ),
-        )
-        assert result.status == "failed", result.status
-        assert v1_action_result_http_status(result) == 400
-        assert result.errors[0].needs_confirmation is False
+    seed = _seed_fanout(project)
+    # Self-join on the same sheet id is an invalid input ref (validation).
+    result = _run(
+        project,
+        _join_action(
+            left_sheet_id=seed["left_sheet_id"],
+            right_sheet_id=seed["left_sheet_id"],
+            target_sheet_name="Invalid",
+        ),
+    )
+    assert result.status == "failed", result.status
+    assert v1_action_result_http_status(result) == 400
+    assert result.errors[0].needs_confirmation is False

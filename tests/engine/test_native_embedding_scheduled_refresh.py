@@ -32,7 +32,6 @@ from frisket.engine.jobs import (
     find_scheduled_indexes,
     register_embedding_refresh_handler,
 )
-from frisket.engine.store import Project
 
 NOW = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
 
@@ -55,24 +54,21 @@ class FakeGateway:
 
 
 @pytest.fixture
-def env(tmp_path):
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
+def env(tmp_path, make_project):
     project_id = "proj"
-    project = Project.create(workspace / f"{project_id}.frisket", name="proj")
+    project = make_project(project_id)
     sheet = project.add_sheet("feed")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], cols)
-    queue = SqliteJobQueue(workspace / ".queue.db")
+    queue = SqliteJobQueue(tmp_path / ".queue.db")
     yield SimpleNamespace(
-        workspace=workspace,
+        workspace=tmp_path,
         project_id=project_id,
         project=project,
         sheet=sheet,
         cols=cols,
         queue=queue,
     )
-    project.close()
     queue.close()
 
 

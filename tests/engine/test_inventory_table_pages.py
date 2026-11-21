@@ -1,4 +1,3 @@
-from contextlib import closing
 import json
 
 import pytest
@@ -8,7 +7,6 @@ from frisket.contracts.action import Receipt
 from frisket.engine.executor.file_inventory_read import FileInventoryAdmission
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.table_action import run_inventory_table_page
-from frisket.engine.store import Project
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_sessions import ImportSessionConflict
 from frisket.engine.store.receipts import ReceiptStore
@@ -16,12 +14,9 @@ from frisket.engine.store.streaming_import import StreamingSheetWriter
 
 
 def test_inventory_pages_share_action_receipt_and_resume_without_rereading(
-    tmp_path, monkeypatch
+    tmp_path, project, monkeypatch
 ):
-    with (
-        closing(Project.create(tmp_path / "p.frisket")) as project,
-        ImportInventory(tmp_path / "inventory.db") as inventory,
-    ):
+    with ImportInventory(tmp_path / "inventory.db") as inventory:
         digest = project.blob_store.put(b"original")
         inventory.append(
             {

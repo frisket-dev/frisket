@@ -7,7 +7,6 @@ JSON-RPC framing, which belongs to the runtime-client boundary.
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-from contextlib import closing
 
 import asyncio
 import json
@@ -222,8 +221,7 @@ def _router(adapter: Any) -> ModelRouter:
     return router
 
 
-def _seed(tmp_path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "mcp-extract.frisket")
+def _seed(project: Project) -> tuple[int, list[int]]:
     sheet_id = project.add_sheet("Companies")
     columns = {"company": project.add_column(sheet_id, "company")}
     project.add_rows(
@@ -237,7 +235,7 @@ def _seed(tmp_path) -> tuple[Project, int, list[int]]:
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    return project, sheet_id, row_ids
+    return sheet_id, row_ids
 
 
 def _spec(sheet_id: int) -> dict[str, Any]:
@@ -369,106 +367,103 @@ def test_domain_cancellation_closes_sessions_without_observing_or_retrying_it():
 
 
 def test_rows_are_serial_and_isolated_while_sessions_are_run_shared(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sessions = _SelectedSessions()
     factory = _install_program(monkeypatch, sessions)
     adapter = _TwoPhaseAdapter(fail_second_row=True)
-    project, sheet_id, row_ids = _seed(tmp_path)
-    with closing(project):
-        result = _execute(project, _spec(sheet_id), adapter)
-        assert result.run_id is not None, result
-        progress = project.db.execute(
-            "SELECT * FROM runs WHERE id=?", (result.run_id,)
-        ).fetchone()
-        assert factory.selections == [("crm", "taxonomy")]
-        assert sessions.entries == sessions.exits == 1
-        assert len(sessions.calls) == 2
-        # Every selected server contributes all currently discovered tools.
-        first_tool_request = next(req for req in adapter.requests if req.tools)
-        assert len(first_tool_request.tools or []) == len(TOOLS)
+    sheet_id, row_ids = _seed(project)
+    result = _execute(project, _spec(sheet_id), adapter)
+    assert result.run_id is not None, result
+    progress = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (result.run_id,)
+    ).fetchone()
+    assert factory.selections == [("crm", "taxonomy")]
+    assert sessions.entries == sessions.exits == 1
+    assert len(sessions.calls) == 2
+    # Every selected server contributes all currently discovered tools.
+    first_tool_request = next(req for req in adapter.requests if req.tools)
+    assert len(first_tool_request.tools or []) == len(TOOLS)
 
-        first_turns = []
-        for row in ("alpha", "beta"):
-            first_turns.append(
-                next(
-                    req
-                    for req in adapter.requests
-                    if req.tools and row in adapter._wire_text(req)
-                )
+    first_turns = []
+    for row in ("alpha", "beta"):
+        first_turns.append(
+            next(
+                req
+                for req in adapter.requests
+                if req.tools and row in adapter._wire_text(req)
             )
-        assert "beta" not in adapter._wire_text(first_turns[0])
-        assert "alpha" not in adapter._wire_text(first_turns[1])
-
-        # Alpha required one strict repair and committed. Beta remained
-        # invalid after its sole repair; none of its partial candidate landed.
-        assert adapter.structured_by_row == {"alpha": 2, "beta": 2}
-        assert all(req.tools is None for req in adapter.requests if req.schema)
-        assert progress["completed_rows"] == 2
-        assert progress["failed_rows"] == 1
-        assert progress["status"] == "completed"
-        values = {
-            str(row["name"]): project.get_values(
-                sheet_id, int(row["id"]), row_ids=row_ids
-            )
-            for row in project.db.execute(
-                "SELECT id, name FROM columns WHERE sheet_id=?", (sheet_id,)
-            )
-        }
-        assert values["company_name"] == {row_ids[0]: "Alpha", row_ids[1]: None}
-        assert values["risk"] == {row_ids[0]: 7, row_ids[1]: None}
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM evidence_links WHERE run_id=?", (result.run_id,)
-            ).fetchone()[0]
-            == 0
         )
+    assert "beta" not in adapter._wire_text(first_turns[0])
+    assert "alpha" not in adapter._wire_text(first_turns[1])
+
+    # Alpha required one strict repair and committed. Beta remained
+    # invalid after its sole repair; none of its partial candidate landed.
+    assert adapter.structured_by_row == {"alpha": 2, "beta": 2}
+    assert all(req.tools is None for req in adapter.requests if req.schema)
+    assert progress["completed_rows"] == 2
+    assert progress["failed_rows"] == 1
+    assert progress["status"] == "completed"
+    values = {
+        str(row["name"]): project.get_values(sheet_id, int(row["id"]), row_ids=row_ids)
+        for row in project.db.execute(
+            "SELECT id, name FROM columns WHERE sheet_id=?", (sheet_id,)
+        )
+    }
+    assert values["company_name"] == {row_ids[0]: "Alpha", row_ids[1]: None}
+    assert values["risk"] == {row_ids[0]: 7, row_ids[1]: None}
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM evidence_links WHERE run_id=?", (result.run_id,)
+        ).fetchone()[0]
+        == 0
+    )
 
 
-def test_agent_tool_loop_is_bounded(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agent_tool_loop_is_bounded(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sessions = _SelectedSessions()
     _install_program(monkeypatch, sessions)
     adapter = _EndlessToolsAdapter()
-    project, sheet_id, row_ids = _seed(tmp_path)
-    with closing(project):
-        spec = _spec(sheet_id)
-        spec["scope"]["row_ids"] = row_ids[:1]
-        result = _execute(project, spec, adapter)
-        assert result.run_id is not None, result
-        progress = project.db.execute(
-            "SELECT * FROM runs WHERE id=?", (result.run_id,)
-        ).fetchone()
-        assert progress["failed_rows"] == 1
-        assert 1 <= len(adapter.requests) <= 10
-        assert 1 <= len(sessions.calls) < len(adapter.requests)
+    sheet_id, row_ids = _seed(project)
+    spec = _spec(sheet_id)
+    spec["scope"]["row_ids"] = row_ids[:1]
+    result = _execute(project, spec, adapter)
+    assert result.run_id is not None, result
+    progress = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (result.run_id,)
+    ).fetchone()
+    assert progress["failed_rows"] == 1
+    assert 1 <= len(adapter.requests) <= 10
+    assert 1 <= len(sessions.calls) < len(adapter.requests)
 
 
 def test_ambiguous_tool_dispatch_is_not_automatically_retried(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sessions = _SelectedSessions()
     sessions.ambiguous = True
     _install_program(monkeypatch, sessions)
     adapter = _TwoPhaseAdapter()
-    project, sheet_id, row_ids = _seed(tmp_path)
-    with closing(project):
-        spec = _spec(sheet_id)
-        spec["scope"]["row_ids"] = row_ids[:1]
-        result = _execute(project, spec, adapter)
-        progress = project.db.execute(
-            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert result.status == "failed", result
-        assert progress["halted_code"] == "external_effect_reconciliation_required"
-        assert progress["completed_rows"] == 0
-        assert len(sessions.calls) == 1
-        checkpoint = project.db.execute(
-            "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
-            "AND group_key=CAST(? AS TEXT)",
-            (progress["id"],),
-        ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "reserved"
+    sheet_id, row_ids = _seed(project)
+    spec = _spec(sheet_id)
+    spec["scope"]["row_ids"] = row_ids[:1]
+    result = _execute(project, spec, adapter)
+    progress = project.db.execute(
+        "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert result.status == "failed", result
+    assert progress["halted_code"] == "external_effect_reconciliation_required"
+    assert progress["completed_rows"] == 0
+    assert len(sessions.calls) == 1
+    checkpoint = project.db.execute(
+        "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
+        "AND group_key=CAST(? AS TEXT)",
+        (progress["id"],),
+    ).fetchone()
+    assert checkpoint is not None
+    assert checkpoint["state"] == "reserved"
 
 
 def test_catalog_exposes_mcp_extract_only_in_solo(tmp_path) -> None:

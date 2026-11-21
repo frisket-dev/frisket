@@ -4,7 +4,6 @@ quote evidence but claims no renderable coordinate surface.
 """
 
 from __future__ import annotations
-from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
@@ -17,7 +16,6 @@ import frisket.ops.ner_citations as ner_module
 from frisket.ops.ner_local import LocalNerExtractor
 from typed_model_fixtures import model_request, render_ner
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
     list_cell_citations,
@@ -77,23 +75,17 @@ def _action(
     ).model_dump(mode="json", exclude_none=True)
 
 
-def _run(
-    tmp_path, monkeypatch, *, columns, row, entities, input_columns, template=None
-):
+def _run(project, monkeypatch, *, columns, row, entities, input_columns, template=None):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     from frisket.engine.executor import actions as executor_actions
 
-    path = tmp_path / "ner-surface.frisket"
-    project = Project.create(path, name="s")
     sheet_id = project.add_sheet("data")
     col_ids = {
         name: project.add_column(sheet_id, name, type="text") for name in columns
     }
     project.add_rows(sheet_id, [row], col_ids)
-    project.close()
 
-    project = Project(path)
     result = executor_actions.run_action_spec(
         project,
         _action(sheet_id, input_columns, template),
@@ -101,7 +93,7 @@ def _run(
         router=_router_with(entities),
     )
     assert result.status == "completed", result.errors
-    return project, sheet_id, col_ids
+    return sheet_id, col_ids
 
 
 def _surfaces(project) -> list[dict]:
@@ -112,89 +104,87 @@ def _spans(project) -> list[dict]:
     return [dict(r) for r in project.db.execute("SELECT * FROM source_spans")]
 
 
-def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
-    project, sheet_id, col_ids = _run(
-        tmp_path,
+def test_single_column_writes_cell_surface(project, monkeypatch):
+    sheet_id, col_ids = _run(
+        project,
         monkeypatch,
         columns=["body"],
         row={"body": "Ada Lovelace"},
         input_columns=["body"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 0, "end": 12}],
     )
-    with closing(project):
-        surfaces = _surfaces(project)
-        assert len(surfaces) == 1
-        s = surfaces[0]
-        assert s["surface_kind"] == "cell"
-        assert s["text_sheet_id"] == sheet_id
-        assert s["text_column_id"] == col_ids["body"]
-        assert s["content_hash"] == _text_hash("Ada Lovelace")
-        assert s["offset_unit"] == "unicode_codepoint"
-        # the span references the surface
-        spans = _spans(project)
-        assert spans and all(sp["text_surface_id"] == s["id"] for sp in spans)
-        # the link is an annotation layer
-        link = project.db.execute(
-            "SELECT layer_family FROM evidence_links WHERE layer_family IS NOT NULL"
-        ).fetchone()
-        assert link["layer_family"] == "entities"
-        roles = {
-            r["span_role"]
-            for r in project.db.execute("SELECT span_role FROM evidence_link_spans")
-        }
-        assert roles == {"annotation"}
-        evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=project.visible_row_ids(sheet_id)[0],
-            column_id=next(
-                int(column["id"])
-                for column in project.columns(sheet_id)
-                if column["name"] == "entities"
-            ),
-        )
-        viewer = resolve_citation_viewer(
-            project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        assert viewer["artifacts"][0]["text_context"] == {
-            "text": "Ada Lovelace",
-            "offset_unit": "utf16_code_unit",
-            "ranges": [
-                {
-                    "span_id": viewer["artifacts"][0]["spans"][0]["stable_id"],
-                    "start": 0,
-                    "end": 12,
-                }
-            ],
-        }
-        assert viewer["artifacts"][0]["spans"][0]["raw"] == {
-            "item_index": 0,
-            "entity_type": "person",
-        }
-        assert (
-            project.db.execute("SELECT justification FROM results").fetchone()[
-                "justification"
-            ]
-            is None
-        )
+    surfaces = _surfaces(project)
+    assert len(surfaces) == 1
+    s = surfaces[0]
+    assert s["surface_kind"] == "cell"
+    assert s["text_sheet_id"] == sheet_id
+    assert s["text_column_id"] == col_ids["body"]
+    assert s["content_hash"] == _text_hash("Ada Lovelace")
+    assert s["offset_unit"] == "unicode_codepoint"
+    # the span references the surface
+    spans = _spans(project)
+    assert spans and all(sp["text_surface_id"] == s["id"] for sp in spans)
+    # the link is an annotation layer
+    link = project.db.execute(
+        "SELECT layer_family FROM evidence_links WHERE layer_family IS NOT NULL"
+    ).fetchone()
+    assert link["layer_family"] == "entities"
+    roles = {
+        r["span_role"]
+        for r in project.db.execute("SELECT span_role FROM evidence_link_spans")
+    }
+    assert roles == {"annotation"}
+    evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=project.visible_row_ids(sheet_id)[0],
+        column_id=next(
+            int(column["id"])
+            for column in project.columns(sheet_id)
+            if column["name"] == "entities"
+        ),
+    )
+    viewer = resolve_citation_viewer(
+        project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    assert viewer["artifacts"][0]["text_context"] == {
+        "text": "Ada Lovelace",
+        "offset_unit": "utf16_code_unit",
+        "ranges": [
+            {
+                "span_id": viewer["artifacts"][0]["spans"][0]["stable_id"],
+                "start": 0,
+                "end": 12,
+            }
+        ],
+    }
+    assert viewer["artifacts"][0]["spans"][0]["raw"] == {
+        "item_index": 0,
+        "entity_type": "person",
+    }
+    assert (
+        project.db.execute("SELECT justification FROM results").fetchone()[
+            "justification"
+        ]
+        is None
+    )
 
 
-def test_capture_sidecar_never_lingers_in_justification(tmp_path, monkeypatch):
+def test_capture_sidecar_never_lingers_in_justification(project, monkeypatch):
     """Private evidence transport never enters the result justification."""
-    project, _, _ = _run(
-        tmp_path,
+    _run(
+        project,
         monkeypatch,
         columns=["body"],
         row={"body": "Ada Lovelace"},
         input_columns=["body"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 0, "end": 12}],
     )
-    with closing(project):
-        lingering = project.db.execute(
-            "SELECT COUNT(*) AS c FROM results WHERE substr(justification, 1, ?) = ?",
-            (len(_NER_CAPTURE_PREFIX), _NER_CAPTURE_PREFIX),
-        ).fetchone()["c"]
-        assert lingering == 0
+    lingering = project.db.execute(
+        "SELECT COUNT(*) AS c FROM results WHERE substr(justification, 1, ?) = ?",
+        (len(_NER_CAPTURE_PREFIX), _NER_CAPTURE_PREFIX),
+    ).fetchone()["c"]
+    assert lingering == 0
 
 
 def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
@@ -384,30 +374,29 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(
     assert tuple(project.db.iterdump()) == before
 
 
-def test_multi_column_degrades_to_quote_only(tmp_path, monkeypatch):
+def test_multi_column_degrades_to_quote_only(project, monkeypatch):
     # _text joins the two columns with "\n": "Ada Lovelace\nBabbage".
-    project, _, _ = _run(
-        tmp_path,
+    _run(
+        project,
         monkeypatch,
         columns=["first", "second"],
         row={"first": "Ada Lovelace", "second": "Babbage"},
         input_columns=["first", "second"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 0, "end": 12}],
     )
-    with closing(project):
-        assert _surfaces(project) == []
-        spans = _spans(project)
-        assert len(spans) == 1
-        assert spans[0]["quote"] == "Ada Lovelace"
-        assert spans[0]["char_start"] is None
-        assert spans[0]["text_surface_id"] is None
+    assert _surfaces(project) == []
+    spans = _spans(project)
+    assert len(spans) == 1
+    assert spans[0]["quote"] == "Ada Lovelace"
+    assert spans[0]["char_start"] is None
+    assert spans[0]["text_surface_id"] is None
 
 
 def test_template_input_is_rendered_once_and_degrades_to_quote_only(
-    tmp_path, monkeypatch
+    project, monkeypatch
 ):
-    project, _, _ = _run(
-        tmp_path,
+    _run(
+        project,
         monkeypatch,
         columns=["body"],
         row={"body": "Ada Lovelace"},
@@ -415,11 +404,10 @@ def test_template_input_is_rendered_once_and_degrades_to_quote_only(
         template="Name: {{body}}",
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 6, "end": 18}],
     )
-    with closing(project):
-        assert _surfaces(project) == []
-        span = _spans(project)[0]
-        assert span["quote"] == "Ada Lovelace"
-        assert span["char_start"] is None
+    assert _surfaces(project) == []
+    span = _spans(project)[0]
+    assert span["quote"] == "Ada Lovelace"
+    assert span["char_start"] is None
 
 
 def test_ner_template_is_not_rendered_twice():
@@ -486,12 +474,12 @@ def test_llm_capture_uses_all_exact_quotes_not_model_offsets(
     assert payload["positions"] == expected
 
 
-def test_offset_mismatch_entity_is_not_positioned_but_kept(tmp_path, monkeypatch):
+def test_offset_mismatch_entity_is_not_positioned_but_kept(project, monkeypatch):
     # Two entities; the second's offsets (0:7) slice "Ada Lov", not "Babbage". Both
     # keep a span (capability refinement evidence), but only the matching one gets a surface + the
     # annotation role.
-    project, _, _ = _run(
-        tmp_path,
+    _run(
+        project,
         monkeypatch,
         columns=["body"],
         row={"body": "Ada Lovelace"},
@@ -501,32 +489,29 @@ def test_offset_mismatch_entity_is_not_positioned_but_kept(tmp_path, monkeypatch
             {"text": "Babbage", "label": "person", "start": 0, "end": 7},
         ],
     )
-    with closing(project):
-        spans = _spans(project)
-        assert (
-            len(spans) == 2
-        )  # capability refinement preserved: both entities keep a span
-        by_quote = {sp["quote"]: sp for sp in spans}
-        assert by_quote["Ada Lovelace"]["text_surface_id"] is not None
-        assert by_quote["Babbage"]["text_surface_id"] is None  # not positionable
-        roles = {
-            r["quote"]: r["span_role"]
-            for r in project.db.execute(
-                "SELECT sp.quote, els.span_role FROM source_spans sp "
-                "JOIN evidence_link_spans els ON els.span_id = sp.id"
-            )
-        }
-        assert roles == {"Ada Lovelace": "annotation", "Babbage": "support"}
+    spans = _spans(project)
+    assert len(spans) == 2  # capability refinement preserved: both entities keep a span
+    by_quote = {sp["quote"]: sp for sp in spans}
+    assert by_quote["Ada Lovelace"]["text_surface_id"] is not None
+    assert by_quote["Babbage"]["text_surface_id"] is None  # not positionable
+    roles = {
+        r["quote"]: r["span_role"]
+        for r in project.db.execute(
+            "SELECT sp.quote, els.span_role FROM source_spans sp "
+            "JOIN evidence_link_spans els ON els.span_id = sp.id"
+        )
+    }
+    assert roles == {"Ada Lovelace": "annotation", "Babbage": "support"}
 
 
 def test_duplicate_text_entities_each_keep_a_span_when_unpositioned(
-    tmp_path, monkeypatch
+    project, monkeypatch
 ):
     # Templated input degrades to quote-only (unpositioned): every entity's
     # position is None. Three distinct "Ada" mentions must each keep their own
     # span -- the stored entity list and evidence spans agree.
-    project, _, _ = _run(
-        tmp_path,
+    _run(
+        project,
         monkeypatch,
         columns=["body"],
         row={"body": "Ada and Ada and Ada"},
@@ -538,29 +523,27 @@ def test_duplicate_text_entities_each_keep_a_span_when_unpositioned(
             {"text": "Ada", "label": "person", "start": 16, "end": 19},
         ],
     )
-    with closing(project):
-        stored = json.loads(
-            project.db.execute("SELECT value FROM results").fetchone()["value"]
-        )
-        assert len(stored) == 3
-        spans = _spans(project)
-        assert len(spans) == len(stored)
-        assert all(sp["quote"] == "Ada" for sp in spans)
-        assert all(sp["char_start"] is None for sp in spans)
+    stored = json.loads(
+        project.db.execute("SELECT value FROM results").fetchone()["value"]
+    )
+    assert len(stored) == 3
+    spans = _spans(project)
+    assert len(spans) == len(stored)
+    assert all(sp["quote"] == "Ada" for sp in spans)
+    assert all(sp["char_start"] is None for sp in spans)
 
 
-def test_no_positionable_entities_writes_spans_without_a_layer(tmp_path, monkeypatch):
+def test_no_positionable_entities_writes_spans_without_a_layer(project, monkeypatch):
     """Invalid deterministic geometry remains quote evidence, never a layer."""
-    project, _, _ = _run(
-        tmp_path,
+    _run(
+        project,
         monkeypatch,
         columns=["body"],
         row={"body": "Ada Lovelace"},
         input_columns=["body"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 5, "end": 40}],
     )
-    with closing(project):
-        assert len(_spans(project)) == 1
-        assert _surfaces(project) == []
-        link = project.db.execute("SELECT layer_family FROM evidence_links").fetchone()
-        assert link["layer_family"] is None
+    assert len(_spans(project)) == 1
+    assert _surfaces(project) == []
+    link = project.db.execute("SELECT layer_family FROM evidence_links").fetchone()
+    assert link["layer_family"] is None
