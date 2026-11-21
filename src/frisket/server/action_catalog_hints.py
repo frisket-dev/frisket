@@ -70,12 +70,16 @@ def _table_decls(
 
 
 def _sidecar_engine(
-    capabilities: dict[str, Any], *, route: str, name: str
+    capabilities: dict[str, Any], *, route: str | None, name: str
 ) -> tuple[bool, str | None, list[str]]:
     for engine in capabilities.get("engines", []):
         if not isinstance(engine, dict):
             continue
-        if engine.get("route") == route and engine.get("name") == name:
+        if (
+            route is not None
+            and engine.get("route") == route
+            and engine.get("name") == name
+        ):
             models = engine.get("models", [])
             if capabilities.get("managed_roster") is True:
                 return True, None, []
@@ -729,7 +733,7 @@ def _project_execution_composition_engines(
                 or use_decision_declaration
             ):
                 available, error = projected_liveness(preferred_target.id)
-                engine_update = {"available": available}
+                engine_update: dict[str, Any] = {"available": available}
                 if preferred_offer is not None:
                     engine_update.update(
                         {
@@ -1872,19 +1876,7 @@ def project_action_catalog_launcher_hints(
         and routed_capability(registered.definition.run.direct) is not None
     }
 
-    providers = [
-        (
-            spec.action_kind,
-            spec.program.name,
-            bool(spec.program.llm),
-            spec.program.params(),
-            getattr(spec.program, "execution_capability", None),
-        )
-        for spec in default_registry().action_program_specs()
-        if spec.action_kind
-        and (action_kinds is None or spec.action_kind in action_kinds)
-    ]
-    providers.extend(
+    providers: list[tuple[str, str, bool, list[dict[str, Any]], str | None]] = [
         (
             registered.action_id,
             registered.action_id.rsplit(".", 1)[-1],
@@ -1896,7 +1888,7 @@ def project_action_catalog_launcher_hints(
         )
         for registered in ACTION_REGISTRY.actions
         if isinstance(registered.definition.run, ModelRows)
-    )
+    ]
     providers.extend(
         (registered.action_id, "media.ytdlp_download", False, [], None)
         for registered in ACTION_REGISTRY.actions

@@ -303,7 +303,7 @@ def test_busy_lease_is_a_typed_resumable_halt(
         (RapidOCRRowError("bad image"), RuntimeError, None),
     ],
 )
-def test_pool_errors_map_at_recipe_boundary(
+def test_pool_errors_map_at_action_boundary(
     error: BaseException,
     expected: type[BaseException],
     code: str | None,

@@ -76,15 +76,25 @@ class ImportCsvUploadService:
         encoding: str | None,
         force_text_columns: bool = False,
     ) -> import_csv_analysis.CsvFileScan:
-        upload.source.seek(0)
-        scan = import_csv_analysis.scan_csv_stream(
-            upload.source,
-            logical_path=upload.filename or "imported.csv",
-            encoding=encoding,
-            force_text_columns=force_text_columns,
-        )
-        upload.source.seek(0)
-        return scan
+        if upload.source is not None:
+            upload.source.seek(0)
+            scan = import_csv_analysis.scan_csv_stream(
+                upload.source,
+                logical_path=upload.filename or "imported.csv",
+                encoding=encoding,
+                force_text_columns=force_text_columns,
+            )
+            upload.source.seek(0)
+            return scan
+        if upload.open_source is None:
+            raise ValueError("admitted upload requires a readable source")
+        with upload.open_source() as source:
+            return import_csv_analysis.scan_csv_stream(
+                source,
+                logical_path=upload.filename or "imported.csv",
+                encoding=encoding,
+                force_text_columns=force_text_columns,
+            )
 
     def upload_csv(
         self,

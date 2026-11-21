@@ -1,15 +1,10 @@
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
-import { createProject, importCsv, runAndWait, sheetColumns, sheetData, setProjectModelRoute, uniqueName } from './helpers';
+import { createProject, importCsv, primeMapRowsReplies, runAndWait, sheetColumns, sheetData, setProjectModelRoute, uniqueName } from './helpers';
 import { exposeReplayModel, prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
-import { testPython } from '../support/testPython';
 
 const ALTERNATE_REPLAY_MODEL = 'anthropic/claude-haiku-4-5';
 
-const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 export const EVALUATION_ROW_COUNT = 38;
 const EVALUATION_FIELDS = [
   { name: 'plaintiff', type: 'text', description: 'Name of the plaintiff in the public notice.' },
@@ -49,10 +44,10 @@ const EVALUATION_EXPECTED_CSV = csv(['county', 'case_id', ...EVALUATION_FIELDS.m
   ['West', 'UNMATCHED-1', 'Unmatched answer 1', '100.00', '[]', 'Retained in expected sheet.'],
   ['West', 'UNMATCHED-2', 'Unmatched answer 2', '200.00', '[]', 'Retained in expected sheet.'],
 ]);
-function action(sheetId: number, context: string) {
+function action(sheetId: number, context: string, model = REPLAY_MODEL) {
   return {
     action_id: 'map.extract', scope: { kind: 'sheet_rows' as const, sheet_id: sheetId },
-    params: { source: ['case_text'], engine: 'llm', model: REPLAY_MODEL,
+    params: { source: ['case_text'], engine: 'llm', model,
       instruction: 'Extract the requested public docket facts.', context, fields: EVALUATION_FIELDS,
       include_confidence: false, grounding: { enabled: false } },
     output_names: Object.fromEntries(EVALUATION_FIELDS.map(field => [field.name, field.name])),
@@ -61,57 +56,13 @@ function action(sheetId: number, context: string) {
 }
 /** Prime exact plan keys, never call a provider. Product HTTP/worker paths remain real. */
 function primeEvaluationReplies(projectId: string, sheetId: number, alternateModel: boolean): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = String.raw`
-import asyncio, json, sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMResponse, ModelRouter, ResponseCache, StructuredCompleter, StructuredRequest
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-from frisket.execution.dispatch_control import STANDALONE
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-class FixtureAdapter:
-    reply = None
-    async def complete(self, request, client):
-        return LLMResponse(content=json.dumps(self.reply), data=self.reply, tokens_in=20, tokens_out=10, cost=0.0, model=request.model)
-
-workspace, pid, action_raw = sys.argv[1:]
-action, variants = json.loads(action_raw), json.load(sys.stdin)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    sheet_id = action['scope']['sheet_id']
-    source_id = next(c['id'] for c in project.columns(sheet_id) if c['name'] == 'case_text')
-    values, row_ids = project.get_values(sheet_id, source_id), project.visible_row_ids(sheet_id)
-    cache = ResponseCache(project.path / 'project.cache.db')
-    adapter = FixtureAdapter()
-    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={'gemini': 'fixture-only', 'anthropic': 'fixture-only'}, cache=cache, cache_mode='fresh')
-    router._adapters['gemini'] = adapter
-    router._adapters['anthropic'] = adapter
-    recording_router = router.for_execution(STANDALONE)
-    async def record():
-        for variant in variants:
-            action['params']['context'] = variant['context']
-            action['params']['model'] = variant.get('model', action['params']['model'])
-            plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-            spec = plan.spec_dict()
-            if len(row_ids) != len(variant['rows']): raise RuntimeError('Fixture row count changed')
-            for row_id, data in zip(row_ids, variant['rows'], strict=True):
-                call = plan.program.render({'case_text': values.get(row_id)}, spec)
-                adapter.reply = data
-                await StructuredCompleter(recording_router).complete(StructuredRequest(
-                    model=spec['model'], messages=call.messages, schema=call.schema, max_tokens=call.max_tokens), recipe_version=plan.program.version)
-    try:
-        asyncio.run(record())
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), ['-c', script, workspace, projectId, JSON.stringify(action(sheetId, EVALUATION_VARIANTS[0].context))], {
-    cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000, input: JSON.stringify(alternateModel ? [...EVALUATION_VARIANTS, { ...EVALUATION_VARIANTS[3], context: EVALUATION_VARIANTS[0].context, model: ALTERNATE_REPLAY_MODEL }] : EVALUATION_VARIANTS),
-    env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
-  });
+  const variants = alternateModel
+    ? [...EVALUATION_VARIANTS, { ...EVALUATION_VARIANTS[3], context: EVALUATION_VARIANTS[0].context, model: ALTERNATE_REPLAY_MODEL }]
+    : EVALUATION_VARIANTS;
+  for (const variant of variants) {
+    const model = 'model' in variant ? variant.model : REPLAY_MODEL;
+    primeMapRowsReplies(projectId, action(sheetId, variant.context, model), variant.rows);
+  }
 }
 export async function createEvaluationScenario(page: Page, options: { alternateModel?: boolean } = {}) {
   const projectId = await createProject(page.request, uniqueName('e2e-expected-answers'));

@@ -321,7 +321,7 @@ def _register_catalog_package_into_registry(
             install_source=install_source,
         )
         if register_executable
-        else _empty_runtime_bindings()
+        else None
     )
     with _PLUGIN_ACTIVATION_LOCK:
         existing = {item.manifest.id: item for item in registry.plugin_manifests()}.get(
@@ -334,7 +334,7 @@ def _register_catalog_package_into_registry(
         _register_backend_contribution_metadata(
             loaded, manifest_ref=manifest_ref, validated=validated_metadata
         )
-        if register_executable:
+        if runtime_bindings is not None:
             if job_handlers:
                 _register_executable_job_handlers(loaded, job_handlers)
             _register_executable_runtime_bindings(loaded, runtime_bindings)
@@ -903,7 +903,7 @@ def _activate_workbench_plugin_backend_contributions_locked(
             install_source=install_source,
         )
         if executable_handlers_allowed
-        else _empty_runtime_bindings()
+        else None
     )
     validated_metadata = _validated_backend_contribution_metadata(
         loaded, manifest_ref=manifest_ref
@@ -914,9 +914,9 @@ def _activate_workbench_plugin_backend_contributions_locked(
         item.manifest.id: item for item in registry.plugin_manifests()
     }.get(plugin_id)
     previous_executable_grant = int(
-        install_state.get("executable_handlers_allowed") or 0
+        (install_state or {}).get("executable_handlers_allowed") or 0
     )
-    previous_updated_at = str(install_state.get("updated_at") or "")
+    previous_updated_at = str((install_state or {}).get("updated_at") or "")
     try:
         _register_loaded_manifest_for_backend_activation(loaded)
         registered = _register_backend_contribution_metadata(
@@ -931,7 +931,7 @@ def _activate_workbench_plugin_backend_contributions_locked(
         )
         registered_runtime_bindings = (
             _register_executable_runtime_bindings(loaded, executable_runtime_bindings)
-            if executable_handlers_allowed
+            if executable_runtime_bindings is not None
             else _empty_runtime_bindings()
         )
         _record_backend_activation_executable_handlers_grant(

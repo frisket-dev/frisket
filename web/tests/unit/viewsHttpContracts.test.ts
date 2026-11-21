@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createViewsApi } from '../../src/api/viewsLenses';
+import { createViewsApi } from '../../src/api/views';
 import type { ViewCreateInput } from '../../src/api/types';
 const definition: ViewCreateInput = { name: 'Top contracts', selection: { scope: { kind: 'sheet', sheet_id: 3, row_ids: [7, 8] }, filters: [{ column_id: 2, condition: { gte: 10 } }], order: [{ column_id: 2, dir: 'desc' }], limit: 20 }, presentation: { columns: [2] } };
 const view = { id: 4, name: definition.name, sheet_id: 3, spec: { selection: definition.selection, presentation: definition.presentation }, op_id: 11, created_at: '2026-11-15', updated_at: '2026-11-15', unavailable_reason: null };

@@ -356,11 +356,11 @@ def _reason_key(
 
 def _feed_health_reason_key(
     status: str,
-    source_run_id: int | None,
+    feed_check_id: int | None,
     stale_reason: str | None,
 ) -> str:
-    if source_run_id is not None:
-        return f"{status}:{int(source_run_id)}"
+    if feed_check_id is not None:
+        return f"{status}:{int(feed_check_id)}"
     if stale_reason:
         return f"{status}:{stale_reason}"
     return status

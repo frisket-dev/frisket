@@ -1,9 +1,9 @@
-"""What a code recipe is actually confined by -- the true perimeter, pinned.
+"""What a `map.python` code action is actually confined by -- the true perimeter, pinned.
 
 This file is the successor to `test_sandbox_is_not_a_security_boundary.py`,
 which pinned the perimeter as it stood before the kernel fence: an audit hook
 over two Python surfaces, nothing below them, and no filesystem confinement at
-all. Those holes are closed for `map.python` recipes on Linux, so the pins are
+all. Those holes are closed for `map.python` actions on Linux, so the pins are
 inverted here rather than deleted -- the same five lines of `ctypes` that used
 to reach the network are still executed below, and the same absolute-path read
 of a secret is still attempted. What changed is the expected answer.
@@ -21,18 +21,18 @@ Executed against the real `map.python` path (`run_python_op`) with the default
          directory are refused, `~/.frisket/secrets/master.key` included
   HOLDS  the CPython audit hook is still there underneath, as defense in depth
   HOLDS  the environment is scrubbed of provider keys (`SCRUB_PREFIXES`)
-  HOLDS  a recipe that only needs to compute still works -- stdlib, C
+  HOLDS  an action that only needs to compute still works -- stdlib, C
          extensions, site-packages, threads, timezones and temporary files
   HOLDS  a kernel that cannot install the fence, or a syscall number that is
-         wrong for it, REFUSES the recipe; no recipe code runs
+         wrong for it, REFUSES the action; no user code runs
 
-  DOES NOT HOLD  where a BROKERED recipe's AF_UNIX socket may connect. Only
+  DOES NOT HOLD  where a BROKERED action's AF_UNIX socket may connect. Only
          the audit hook guards that, and ctypes walks past it. Kept out of
          production by a closure test in this file, not by the kernel.
-  DOES NOT HOLD  file metadata. Landlock does not govern `stat`/`access`, so a
-         recipe can still learn a path exists. It cannot read it.
+  DOES NOT HOLD  file metadata. Landlock does not govern `stat`/`access`, so an
+         action can still learn a path exists. It cannot read it.
   DOES NOT HOLD  source secrecy. `sys.path` is readable by construction, so
-         recipe code can read site-packages and, on an editable install, the
+         action code can read site-packages and, on an editable install, the
          project's own `src/` tree. Data and keys are still refused.
 
 Linux-only by construction: macOS gets the `sandbox-exec` network wall and no
@@ -75,7 +75,7 @@ def test_ctypes_libc_egress_is_refused_by_the_kernel_filter():
     """The bypass that used to work: five lines of libc, straight past Python.
 
     A loopback listener owned by this test is the target, so the proof is
-    hermetic and needs no internet. The recipe asks libc for an AF_INET socket
+    hermetic and needs no internet. The action asks libc for an AF_INET socket
     exactly as before; the seccomp filter refuses at `socket()`, which is why
     there is no fd to connect with. The parent's failed `accept()` is the
     second half of the assertion: nothing arrived.
@@ -130,7 +130,7 @@ def test_ctypes_libc_egress_is_refused_by_the_kernel_filter():
 
 
 def test_stdlib_socket_and_execve_are_refused_below_python():
-    """Both walls, in the order a recipe meets them.
+    """Both walls, in the order an action meets them.
 
     `socket.socket()` now fails at creation with EPERM from the kernel rather
     than at `connect()` with the audit hook's message -- the wall moved down a
@@ -147,7 +147,7 @@ def test_stdlib_socket_and_execve_are_refused_below_python():
         "except OSError as e:\n"
         "    res['socket'] = [type(e).__name__, e.errno]\n"
         "try:\n"
-        "    subprocess.run([sys.executable, '-c', 'pass'])\n"  # subprocess-boundary: the recipe child trying to spawn is the subject
+        "    subprocess.run([sys.executable, '-c', 'pass'])\n"  # subprocess-boundary: the child action trying to spawn is the subject
         "    res['subprocess'] = 'spawned'\n"
         "except PermissionError as e:\n"
         "    res['subprocess'] = str(e)\n"
@@ -180,10 +180,10 @@ def test_audit_hook_is_the_only_thing_guarding_the_brokers_af_unix_socket(caplog
 
     Reachability, and why this is a pin and not a fix: no production caller
     passes a broker to `run_python_op` (pinned below by
-    `test_no_production_code_recipe_is_given_a_key_broker`), so no shipped path
+    `test_no_production_code_action_is_given_a_key_broker`), so no shipped path
     creates a socket of any family. Closing it properly means either Landlock
     ABI 6 (`LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET`, kernel 6.12+) or handing the
-    recipe a socket the trusted prelude already connected -- which needs the
+    child a socket the trusted prelude already connected -- which needs the
     broker's one-request-per-connection protocol to change first. Invert this
     test when that lands; do not delete it.
     """
@@ -248,14 +248,14 @@ def test_audit_hook_is_the_only_thing_guarding_the_brokers_af_unix_socket(caplog
     assert any(
         "AF_UNIX" in r.getMessage() and "audit hook alone" in r.getMessage()
         for r in caplog.records
-    ), "a brokered recipe ran without warning that one wall is unenforced"
+    ), "a brokered action ran without warning that one wall is unenforced"
 
 
-def test_no_production_code_recipe_is_given_a_key_broker():
+def test_no_production_code_action_is_given_a_key_broker():
     """The closure test that keeps the hole above out of production.
 
-    `run_python_op(broker_endpoint=...)` is the only way to make a recipe
-    child able to create a socket at all, and its AF_UNIX confinement is
+    `run_python_op(broker_endpoint=...)` is the only way to make a child
+    able to create a socket at all, and its AF_UNIX confinement is
     audit-hook-only (see above). Rather than promise that nobody will wire one
     up, assert it: this goes red the day a production call site appears, and
     the reader is sent here instead of discovering the gap in an incident.
@@ -289,7 +289,7 @@ def test_no_production_code_recipe_is_given_a_key_broker():
         if "/engine/sandbox/" not in line
     ]
     assert offenders == [], (
-        "a production call site now hands a key broker to a code recipe, which "
+        "a production call site now hands a key broker to a code action, which "
         "makes AF_UNIX sockets creatable inside the fence with only the CPython "
         "audit hook confining them (see "
         "test_audit_hook_is_the_only_thing_guarding_the_brokers_af_unix_socket). "
@@ -302,7 +302,7 @@ def test_no_socket_of_any_family_exists_without_a_broker():
     """The default `map.python` run has no broker, so it gets no sockets at all.
 
     This is what closes the one hole AF_UNIX would otherwise leave open on
-    Landlock ABI 4 (which does not govern unix-socket connects): a recipe with
+    Landlock ABI 4 (which does not govern unix-socket connects): an action with
     no broker to talk to cannot create the socket in the first place.
     """
     out = _run(
@@ -323,15 +323,15 @@ def test_files_outside_the_fence_are_refused_in_both_directions(tmp_path):
     """The filesystem hole, closed. Same probe as before, opposite answer.
 
     `tmp_path` stands in for `~/.frisket/secrets/master.key`: an absolute path
-    outside the child's scratch cwd and outside any granted root. The recipe
+    outside the child's scratch cwd and outside any granted root. The action
     reads it, writes next to it, and lists the directory; Landlock refuses all
     three. `cwd` is still the scratch directory, and is still writable --
-    a fence that stopped a recipe writing its own temporary files would be
+    a fence that stopped an action writing its own temporary files would be
     useless.
     """
     secret = tmp_path / "master.key"
     secret.write_bytes(b"\x01" * 32)
-    dropped = tmp_path / "written-by-recipe.txt"
+    dropped = tmp_path / "written-by-action.txt"
 
     out = _run(
         "import json, os, pathlib\n"
@@ -347,7 +347,7 @@ def test_files_outside_the_fence_are_refused_in_both_directions(tmp_path):
         "    except OSError as e:\n"
         "        res[label] = [type(e).__name__, e.errno]\n"
         "cwd = pathlib.Path.cwd()\n"
-        "(cwd / 'scratch-write.txt').write_text('recipes still need scratch')\n"
+        "(cwd / 'scratch-write.txt').write_text('actions still need scratch')\n"
         "res['scratch'] = (cwd / 'scratch-write.txt').read_text()\n"
         "res['cwd_is_scratch'] = 'frisket-op-' in str(cwd)\n"
         "res['home_below_cwd'] = str(cwd) in os.environ['HOME']\n"
@@ -359,7 +359,7 @@ def test_files_outside_the_fence_are_refused_in_both_directions(tmp_path):
     assert out["list"] == ["PermissionError", errno.EACCES]
     assert secret.read_bytes() == b"\x01" * 32
     assert not dropped.exists()
-    assert out["scratch"] == "recipes still need scratch"
+    assert out["scratch"] == "actions still need scratch"
     assert out["cwd_is_scratch"] is True
     assert out["home_below_cwd"] is True
 
@@ -371,7 +371,7 @@ def test_etc_is_not_a_granted_root_because_a_key_can_live_there():
     FRISKET_SECRETS_KEY_DIR / FRISKET_DATA_DIR / FRISKET_HOME, so an operator
     can legitimately put the master key under `/etc/frisket`. Granting `/etc`
     as a read root -- the obvious way to make glibc's loader cache, timezone
-    and passwd lookups work -- would hand that key to every recipe on exactly
+    and passwd lookups work -- would hand that key to every action on exactly
     the deployments most likely to have configured it. So the fence names the
     files instead, and this test is what keeps the shortcut from creeping back.
     """
@@ -404,10 +404,10 @@ def test_metadata_is_still_visible_which_landlock_does_not_govern(tmp_path):
     """The limit that survives, written down so nobody has to rediscover it.
 
     Landlock (ABI 4) restricts opening, reading, writing and executing. It does
-    not restrict `stat`, `access` or `readlink`. A recipe can therefore still
-    probe for the existence and size of a file it will never be able to read.
-    If a future kernel or a future ruleset closes this, invert the assertion --
-    do not delete it.
+    not restrict `stat`, `access` or `readlink`. A code action can therefore
+    still probe for the existence and size of a file it will never be able to
+    read. If a future kernel or a future ruleset closes this, invert the
+    assertion -- do not delete it.
     """
     secret = tmp_path / "master.key"
     secret.write_bytes(b"\x01" * 32)
@@ -436,7 +436,7 @@ def test_environment_is_scrubbed_of_provider_keys(monkeypatch):
     assert out["leaked"] == []
 
 
-def test_a_recipe_that_only_computes_still_works():
+def test_an_action_that_only_computes_still_works():
     """A fence so tight nothing runs is as useless as no fence.
 
     This is the derived read set, exercised: the stdlib (including C extension
@@ -477,7 +477,7 @@ def test_raw_fork_is_refused_but_threads_are_not(monkeypatch):
     """`clone` splits: a new thread is allowed, a new process is not.
 
     The audit hook refuses `os.fork`, but `ctypes` walks past it -- so before
-    the filter learned to read clone's flags, a recipe could fork freely and
+    the filter learned to read clone's flags, a code action could fork freely and
     fork-bomb the host. CLONE_THREAD is a bit in a scalar argument, which is
     exactly what seccomp CAN read, so the two cases are separable: threads
     (which numpy and friends genuinely need) still work, processes do not.
@@ -510,13 +510,13 @@ def test_raw_fork_is_refused_but_threads_are_not(monkeypatch):
         "    res['os_fork'] = str(e)\n"
         "print(json.dumps(res))\n"
     )
-    assert out["thread"] is True, "the fence broke threading, which recipes use"
+    assert out["thread"] is True, "the fence broke threading, which actions use"
     assert out["libc_fork"] == [-1, errno.EPERM]
     assert out["raw_clone"] == [-1, errno.EPERM]
     assert out["os_fork"] == "subprocesses are disabled by the Frisket sandbox netwall"
 
 
-def test_recipe_cannot_signal_its_guardian():
+def test_code_action_cannot_signal_its_guardian():
     """The kernel denies both Python and ctypes same-uid signal paths.
 
     If this regresses, the target can only signal its dedicated guardian, not
@@ -549,7 +549,7 @@ def test_recipe_cannot_signal_its_guardian():
     }
 
 
-def test_a_networked_code_recipe_is_refused_outright():
+def test_a_networked_code_action_is_refused_outright():
     """There is no unfenced shape of this entry point to fall back to."""
     with pytest.raises(ValueError, match="does not run code recipes with network"):
         asyncio.run(
@@ -637,7 +637,7 @@ def test_refusal_reason_reads_only_its_own_marker():
 
 
 def test_json_round_trip_still_works_through_the_fence():
-    """The one thing every recipe does, end to end, with the fence installed."""
+    """The one thing every code action does, end to end, with the fence installed."""
     assert _run(
         "import json, sys; d = json.load(sys.stdin); print(json.dumps({'n': d['n'] + 1}))",
         {"n": 41},

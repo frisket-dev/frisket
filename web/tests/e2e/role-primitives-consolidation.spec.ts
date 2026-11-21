@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  REPO_ROOT,
   addRow,
   createProject,
   importCsv,
@@ -220,9 +221,6 @@ test('DocumentView list scroll follows arrow-key selection', async ({ page }) =>
 interface SeededAnswersSheet {
   sheetId: number;
 }
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 function seedAnswersSheet(pid: string): SeededAnswersSheet {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');

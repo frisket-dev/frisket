@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { REPO_ROOT, createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
 import { testPython } from '../support/testPython';
 
 // All cited spans must receive the initial highlight. The root cause of only
@@ -23,9 +23,6 @@ import { testPython } from '../support/testPython';
 // (tests/engine/test_citation_span_runs.py covers the server contract; this spec
 // drives the actual click-to-download path against the live stack, mirroring
 // provenance-download-clip.spec.ts's real-ffmpeg pattern).
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 type SeededRow = {
   sheetId: number;

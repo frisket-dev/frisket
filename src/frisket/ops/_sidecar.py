@@ -26,9 +26,12 @@ from __future__ import annotations
 import asyncio
 import math
 import os
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from frisket.execution.dispatch_control import DispatchControl
+
+if TYPE_CHECKING:
+    from frisket.execution.provider import ConnectionConfig
 
 MAX_ATTEMPTS = 4
 BACKOFF_SECONDS = 1.5  # 429 backoff: 1.5s, 3.0s, 4.5s between the 4 attempts
@@ -172,7 +175,7 @@ def ephemeral_gateway_connection(
     data: dict[str, str] | None = None,
     engine: str | None = None,
     light_engine: str | None = None,
-) -> Any:
+) -> ConnectionConfig:
     """Persistence-free gateway ``ConnectionConfig`` for an UNROUTED call
     (the env fallback was removed). Previews and the non-routed callers
     (ocr/convert/ner) deref the models-gateway target through the same
@@ -206,7 +209,7 @@ async def sidecar_post(
     light_engine: str | None = None,
     timeout: Any | None = None,
     structured_errors: bool = False,
-    connection: Any | None = None,
+    connection: ConnectionConfig | None = None,
     dispatch: DispatchControl,
     quantity: dict[str, float | None] | None = None,
 ) -> dict:
@@ -257,32 +260,31 @@ async def sidecar_post(
             elif route == "/to-markdown":
                 documents = body.get("documents", body.get("results"))
                 documents = documents if isinstance(documents, list) else [body]
-                pages = [
+                raw_pages = [
                     doc.get("ocr_used") for doc in documents if isinstance(doc, dict)
                 ]
-                if (
-                    len(pages) == len(documents)
-                    and pages
-                    and all(isinstance(value, list) for value in pages)
-                ):
+                pages = [value for value in raw_pages if isinstance(value, list)]
+                if len(pages) == len(documents) and pages:
                     usage["pages"] = sum(len(value) for value in pages)
             elif (
                 route == "/v1/transcribe"
                 and isinstance(body.get("results"), list)
                 and body["results"]
             ):
-                durations = [
+                raw_durations = [
                     item.get("duration")
                     for item in body["results"]
                     if isinstance(item, dict)
                 ]
-                if len(durations) == len(body["results"]) and all(
-                    isinstance(value, (int, float))
+                durations: list[int | float] = [
+                    value
+                    for value in raw_durations
+                    if isinstance(value, (int, float))
                     and not isinstance(value, bool)
                     and math.isfinite(value)
                     and value >= 0
-                    for value in durations
-                ):
+                ]
+                if len(durations) == len(body["results"]):
                     usage["audio_seconds"] = sum(durations)
                 elif measured.get("audio_seconds") is not None:
                     usage["audio_seconds"] = measured["audio_seconds"]
@@ -325,7 +327,7 @@ async def _sidecar_post_transport(
     light_engine: str | None = None,
     timeout: Any | None = None,
     structured_errors: bool = False,
-    connection: Any | None = None,
+    connection: ConnectionConfig | None = None,
     dispatch: DispatchControl,
 ) -> dict:
     """POST a route on the frisket-models sidecar and return the JSON body.

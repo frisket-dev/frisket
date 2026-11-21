@@ -29,9 +29,13 @@ describe('local Playwright stack edition', () => {
       const stack = localStack();
 
       expect(process.env.FRISKET_EDITION).toBe('local');
+      expect(stack.webServer[0].command).not.toContain('FRISKET_E2E_ALLOW_LIVE_SPEND=1');
       expect(stack.webServer[1].command).toContain(
         "FRISKET_EDITION=local FRISKET_BACKEND_URL='http://127.0.0.1:48000'",
       );
+
+      const liveStack = localStack({ allowLiveSpend: true });
+      expect(liveStack.webServer[0].command).toContain('FRISKET_E2E_ALLOW_LIVE_SPEND=1');
     } finally {
       rmSync(runRoot, { recursive: true, force: true });
     }

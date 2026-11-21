@@ -197,7 +197,8 @@ def _attach_job_contexts(
             )
         }
     for payload in payloads:
-        sheet_id = run_sheets.get(payload.get("run_id"))
+        run_id = payload.get("run_id")
+        sheet_id = run_sheets.get(run_id) if isinstance(run_id, int) else None
         if sheet_id is not None:
             payload["context"] = {"sheet_id": sheet_id}
     sheet_ids = sorted({p["context"]["sheet_id"] for p in payloads if p.get("context")})
@@ -214,8 +215,11 @@ def _attach_job_contexts(
     for payload in payloads:
         context = payload.get("context")
         if context is not None:
+            run_id = payload.get("run_id")
             context["sheet_name"] = names.get(context["sheet_id"])
-            context["output_columns"] = outputs.get(payload.get("run_id"), [])
+            context["output_columns"] = (
+                outputs.get(run_id, []) if isinstance(run_id, int) else []
+            )
     return payloads
 
 
@@ -408,10 +412,12 @@ class ActionRunService:
         ):
             try:
                 project = state.get("project")
-                receipt = ReceiptStore(project).find_by_id(
-                    response.payload["receipt_id"]
+                receipt = (
+                    ReceiptStore(project).find_by_id(response.payload["receipt_id"])
+                    if project is not None
+                    else None
                 )
-                if receipt is not None:
+                if project is not None and receipt is not None:
                     run = (
                         project.db.execute(
                             "SELECT * FROM runs WHERE id=?", (receipt.run_id,)
@@ -431,7 +437,8 @@ class ActionRunService:
                             run_id=receipt.run_id,
                             job_id=job_id,
                             status=receipt.status,
-                            created_at=parse_status_time(receipt.created_at),
+                            created_at=parse_status_time(receipt.created_at)
+                            or started_at,
                             started_at=started_at if measured_inline else None,
                             finished_at=finished_at if measured_inline else None,
                             duration_ms=(time.monotonic() - started) * 1000
@@ -1214,21 +1221,22 @@ class ActionRunService:
             )
         from frisket.engine.jobs.alerts import enqueue_keyword_alert_evaluations
 
+        def _enqueue_keyword_alerts(alerts: list[Any], materialization: Any) -> None:
+            enqueue_keyword_alert_evaluations(
+                self._workspace.queue,
+                alerts=alerts,
+                project_id=project_id,
+                workspace_root=self._workspace.root,
+                storage_org_id=self._workspace.queue_storage_organization_id,
+                trigger_ref={"source_run_id": materialization["source_run_id"]},
+            )
+
         return len(
             trigger_completed_feed_poll_alerts(
                 project,
                 project_id=project_id,
                 receipt_id=result.receipt_id,
-                enqueue_keyword_alerts=lambda alerts, materialization: (
-                    enqueue_keyword_alert_evaluations(
-                        self._workspace.queue,
-                        alerts=alerts,
-                        project_id=project_id,
-                        workspace_root=self._workspace.root,
-                        storage_org_id=self._workspace.queue_storage_organization_id,
-                        trigger_ref={"source_run_id": materialization["source_run_id"]},
-                    )
-                ),
+                enqueue_keyword_alerts=_enqueue_keyword_alerts,
             )
         )
 

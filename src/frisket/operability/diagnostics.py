@@ -85,10 +85,14 @@ def provider_report(router: Any | None = None) -> dict[str, Any]:
     are a key-broker concern, doctor/diagnose never sees or reports them)."""
     from frisket.ai.llm import ModelRouter
 
-    router = router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-    provs = router.providers()
+    active_router = (
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+        if router is None
+        else router
+    )
+    provs = active_router.providers()
     keyed = [x for x in provs if x != "ollama"]
-    local_configured = bool(router.local_endpoints)
+    local_configured = bool(active_router.local_endpoints)
     configured = [*keyed, *(["local endpoints"] if local_configured else [])]
     return {
         "configured": keyed,
@@ -197,9 +201,15 @@ def provider_key_validation_report(router: Any | None = None) -> dict[str, Any]:
     from frisket.ai.llm import ModelRouter
     from frisket.server.provider_config import probe_provider
 
-    router = router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    active_router = (
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+        if router is None
+        else router
+    )
     keys = {
-        name: key for name, key in router.configured_keys().items() if name != "ollama"
+        name: key
+        for name, key in active_router.configured_keys().items()
+        if name != "ollama"
     }
     if not keys:
         return {

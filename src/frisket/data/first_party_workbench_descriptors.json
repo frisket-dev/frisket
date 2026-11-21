@@ -164,7 +164,7 @@
     },
     {
       "schemaVersion": "frisket.workbench.panel.v1",
-      "id": "frisket.core.panel.saved_views",
+      "id": "frisket.core.panel.views",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
       "title": "Views",
@@ -278,7 +278,7 @@
         },
         {
           "kind": "hostCapability",
-          "id": "embedding.lens.open"
+          "id": "embedding.view.open"
         },
         {
           "kind": "hostCapability",

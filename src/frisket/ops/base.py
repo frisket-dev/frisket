@@ -482,6 +482,8 @@ class ActionProgram:
         project: Any,
         spec: dict,
         rows: list[dict[str, Any]],
+        *,
+        resolution: Any = None,
     ) -> dict[str, Any] | None:
         """Optional non-LLM cost estimate hook.
 

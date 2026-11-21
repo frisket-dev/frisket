@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
+  REPO_ROOT,
   clickHeaderMenu,
   createProject,
   selectRow,
@@ -77,9 +78,6 @@ test('the transcribe deep link resets every explicit launch while a same-launch 
   await expect(page.getByTestId('field-output-text')).toHaveValue('transcript');
   await expect(page.getByTestId('field-output-text')).not.toHaveValue('dirty-b-edit');
 });
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 function mutateColumn(
   pid: string,

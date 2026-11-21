@@ -142,7 +142,7 @@ def _json_ids(value: object) -> Iterator[tuple[str, int]]:
 
 
 def _allocation_floors(db: sqlite3.Connection) -> dict[str, int]:
-    floors = dict.fromkeys(IDENTITY_TABLES, 0)
+    floors: dict[str, int] = dict.fromkeys(IDENTITY_TABLES, 0)
     tables = [
         str(row[0])
         for row in db.execute(

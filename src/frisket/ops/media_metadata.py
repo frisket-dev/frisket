@@ -1891,7 +1891,7 @@ def _bounded_tag_value(
                 count=len(items) - MAX_REPEATED_VALUES,
             )
             items = items[:MAX_REPEATED_VALUES]
-        out: list[Any] = []
+        bounded_items: list[Any] = []
         for index, item in enumerate(items):
             bounded = _bounded_tag_value(
                 item,
@@ -1900,8 +1900,8 @@ def _bounded_tag_value(
                 depth=depth + 1,
             )
             if bounded is not _POLICY_OMITTED:
-                out.append(bounded)
-        return out
+                bounded_items.append(bounded)
+        return bounded_items
     if isinstance(value, Mapping):
         out: dict[str, Any] = {}
         keys = sorted(

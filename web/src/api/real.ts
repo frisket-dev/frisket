@@ -70,7 +70,7 @@ import { createOrganizationOperationsApi } from './organizationOperations';
 import { createProjectAttemptsApi } from './projectAttempts';
 import { createProjectFeedsApi } from './projectFeeds';
 import { createTeamLocalModelsApi } from './teamLocalModels';
-import { createViewsApi } from './viewsLenses';
+import { createViewsApi } from './views';
 import { createAlertsApi } from './alerts';
 import { createNotificationsApi } from './notifications';
 import type { RequestOptions } from './httpContract';

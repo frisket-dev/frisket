@@ -21,11 +21,12 @@ import { IconButton } from '../IconButton';
 // (paste text and the unmatched policy); everything column-scoped
 // lives in the body below, keyed on `${sheet.id}:${column}` so a switch
 // remounts (and thereby resets) it.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
 import { SegmentedToggle } from '../PanelPrimitives';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
+import { useMergedParams } from '../action-panel/paramsBodyHooks';
 import { sheetRequired, type SheetBoundParamsBodyProps } from '../action-panel/sheetRequiredParamsBody';
 import {
   useColumnValuesPreview,
@@ -238,13 +239,7 @@ function SubstituteFormForSheet({
     ? canonical.source
     : undefined;
   const activeColumn = typeof canonical.source === 'string' ? canonical.source : '';
-  const paramsRef = useRef(canonical);
-  useEffect(() => {
-    paramsRef.current = canonical;
-  }, [canonical]);
-  const mergeParams = useCallback<SubstituteFormProps['setParams']>((owned) => {
-    setParams({ ...paramsRef.current, ...owned });
-  }, [setParams]);
+  const mergeParams = useMergedParams(canonical, setParams);
   // Cross-column state — a column switch keeps these.
   const [pasteText, setPasteText] = useState('');
   const [unmatched, setUnmatched] = useState<'keep' | 'null'>(() => (

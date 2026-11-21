@@ -41,11 +41,11 @@ import type {
   HttpRunTraceRowEvidence,
   HttpRuntimeProjectionBuildPlan,
   HttpRuntimeProjectionStatus,
-  HttpSavedViewResolved,
   HttpSheetGraphResponse,
   HttpSpendReport,
   HttpTopicSegmentationCompareScratchResponse,
   HttpTranslateComparisonResponse,
+  HttpViewResolved,
   HttpWorkbenchPluginActivation,
   HttpWorkbenchPluginBackendActivation,
   HttpWorkbenchPluginInstallExecution,
@@ -1937,9 +1937,9 @@ export interface SheetDataOptions {
   parentRowId?: string | null;
   filter?: GridFilterSpec | null;
   sort?: GridSortSpec | null;
-  /** Lens-view scope: page EXACTLY these row ids, in THIS ranked order
+  /** Ranked view scope: page EXACTLY these row ids, in THIS ranked order
    *  (distance/score order from the resolver). When set, the grid ignores
-   *  column filter/sort — the lens already defines the row-set + order. */
+   *  column filter/sort — the view already defines the row-set + order. */
   rowIds?: number[] | null;
   selection?: ViewSelection | null;
   viewId?: number | null;
@@ -2269,7 +2269,7 @@ export interface ViewCreateInput extends ViewDefinitionInput { name: string; }
 export interface ViewRenameInput { name: string; }
 export type ViewDefinitionReplaceInput = ViewDefinitionInput;
 
-export type ViewResolved = HttpSavedViewResolved;
+export type ViewResolved = HttpViewResolved;
 
 export interface ViewAlertConditions {
   kind: 'conditions';

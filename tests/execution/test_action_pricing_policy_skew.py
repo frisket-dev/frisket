@@ -1,6 +1,6 @@
 """A consent minted under one tariff cannot authorize dispatch under another.
 
-The recipe lane's sibling of ``tests/authoring/test_paid_plugin_pricing_policy_skew``.
+The action lane's sibling of ``tests/authoring/test_paid_plugin_pricing_policy_skew``.
 There the app quotes and a worker claims, two processes, and the envelope
 carries the policy id across; here one deployment quotes, persists the consent,
 and dispatches later — but the rated half of that consent (``billed_cost``,

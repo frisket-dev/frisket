@@ -7,7 +7,6 @@ from typing import Any
 
 
 from frisket.ai.llm import ModelRouter
-from helpers import install_action_program, remove_action_program
 from frisket.ops.base import ActionContext, ActionProgram
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.publication import PUBLISH_VALUE
@@ -102,6 +101,7 @@ def _bind_resume_claim(
     run_id: int,
     output_name: str,
     action_kind: str,
+    program: ActionProgram,
 ) -> str:
     claim_token = f"output-claim:test:paged-resume:{run_id}:{output_name}"
     with write_transaction(project.db):
@@ -135,38 +135,27 @@ def _bind_resume_claim(
             }
         ],
         claim_token=claim_token,
+        program=program,
     )
     return claim_token
 
 
-def _install_probe_program() -> None:
-    install_action_program(
-        _WindowProbeProgram(
-            name=_WindowProbeProgram.PROGRAM_NAME,
-            llm=False,
-            description="test-only row-local recipe for bounded executor checks",
-        ),
-        action_kind=_WindowProbeProgram.PROGRAM_NAME,
-        plugin="test",
-    )
+def _probe_program() -> _WindowProbeProgram:
     _WINDOW_PROBE_STATE.update({"active": 0, "peak": 0, "seen": []})
-
-
-def _install_batch_probe_program() -> None:
-    install_action_program(
-        _BatchProbeProgram(
-            name=_BatchProbeProgram.PROGRAM_NAME,
-            llm=False,
-            description="test-only batch recipe for bounded executor checks",
-        ),
-        action_kind=_BatchProbeProgram.PROGRAM_NAME,
-        plugin="test",
+    return _WindowProbeProgram(
+        name=_WindowProbeProgram.PROGRAM_NAME,
+        llm=False,
+        description="test-only row-local recipe for bounded executor checks",
     )
+
+
+def _batch_probe_program() -> _BatchProbeProgram:
     _BATCH_PROBE_STATE.update({"seen": []})
-
-
-def _restore_program(name: str) -> None:
-    remove_action_program(name)
+    return _BatchProbeProgram(
+        name=_BatchProbeProgram.PROGRAM_NAME,
+        llm=False,
+        description="test-only batch recipe for bounded executor checks",
+    )
 
 
 class _ExecuteGuard:
@@ -209,7 +198,7 @@ def _batch_spec(sheet_id: int) -> dict[str, Any]:
 def test_row_local_runs_keep_scheduled_work_bounded(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_probe_program()
+    program = _probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=72)
     gather_sizes: list[int] = []
     original_gather = asyncio.gather
@@ -234,6 +223,7 @@ def test_row_local_runs_keep_scheduled_work_bounded(
             run_with_output_claim(
                 runner,
                 _spec(sheet_id),
+                program=program,
                 confirmed=True,
             )
         )
@@ -250,13 +240,12 @@ def test_row_local_runs_keep_scheduled_work_bounded(
         assert result_count == len(row_ids)
     finally:
         project.close()
-        _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_queued_resume_pages_stored_scope_without_full_scope_load(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_probe_program()
+    program = _probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=40)
     try:
         runner = MapRunner(
@@ -277,7 +266,7 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
             )
         assert conflict is None
         assert len(claims) == 1
-        prepared = runner.prepare_run(_spec(sheet_id), confirmed=True)
+        prepared = runner.prepare_run(_spec(sheet_id), program=program, confirmed=True)
         with write_transaction(project.db):
             assert (
                 OutputColumnClaimStore(project).bind_to_run(
@@ -309,6 +298,7 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
                 authority=UnroutedOnlyAuthority(project),
             ).run(
                 _spec(sheet_id),
+                program=program,
                 confirmed=True,
                 resume_run_id=prepared.run_id,
                 claim_token=claim_token,
@@ -329,13 +319,12 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
         )
     finally:
         project.close()
-        _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_partial_row_local_resume_pages_pending_without_done_row_materialization(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_probe_program()
+    program = _probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=24)
     prior_conn: Any | None = None
     guarded_conn = False
@@ -346,7 +335,7 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
             authority=UnroutedOnlyAuthority(project),
-        ).prepare_run(_spec(sheet_id), confirmed=True)
+        ).prepare_run(_spec(sheet_id), program=program, confirmed=True)
         output_col = project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name='out'",
             (sheet_id,),
@@ -357,6 +346,7 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
             run_id=prepared.run_id,
             output_name="out",
             action_kind=_WindowProbeProgram.PROGRAM_NAME,
+            program=program,
         )
         write_claimed_test_results(
             project,
@@ -400,6 +390,7 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
                     authority=UnroutedOnlyAuthority(project),
                 ),
                 successor_spec,
+                program=program,
                 confirmed=True,
             )
         )
@@ -419,13 +410,12 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
         if guarded_conn:
             project._local.conn = prior_conn  # noqa: SLF001
         project.close()
-        _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_batch_resume_uses_pending_scope_without_full_scope_reload(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_batch_probe_program()
+    program = _batch_probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=16)
     try:
         prepared = MapRunner(
@@ -434,7 +424,7 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
             authority=UnroutedOnlyAuthority(project),
-        ).prepare_run(_batch_spec(sheet_id), confirmed=True)
+        ).prepare_run(_batch_spec(sheet_id), program=program, confirmed=True)
         output_col = project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name='batch_out'",
             (sheet_id,),
@@ -445,6 +435,7 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
             run_id=prepared.run_id,
             output_name="batch_out",
             action_kind=_BatchProbeProgram.PROGRAM_NAME,
+            program=program,
         )
         write_claimed_test_results(
             project,
@@ -483,6 +474,7 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
                     authority=UnroutedOnlyAuthority(project),
                 ),
                 successor_spec,
+                program=program,
                 confirmed=True,
             )
         )
@@ -500,4 +492,3 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
         )
     finally:
         project.close()
-        _restore_program(_BatchProbeProgram.PROGRAM_NAME)

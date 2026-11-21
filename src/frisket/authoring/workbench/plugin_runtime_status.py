@@ -204,6 +204,18 @@ class AdmittedPlugin:
     package_sha256: str
 
 
+def _resolve_admit_install_state(
+    project: Project,
+    plugin_id: str,
+    install_state: dict[str, Any] | None | object,
+) -> dict[str, Any] | None:
+    if install_state is _INSTALL_STATE_UNREAD:
+        return _workbench_plugin_install_state(project, plugin_id=plugin_id)
+    if install_state is None or isinstance(install_state, dict):
+        return install_state
+    raise TypeError("install_state must be a dict or None")
+
+
 def admit_project_plugin(
     project: Project,
     plugin_id: str,
@@ -225,11 +237,12 @@ def admit_project_plugin(
     ``WorkbenchPluginActivationError`` from ``_loaded_manifest_from_ref``.
     Callers that already read this project's install rows pass ``install_state``.
     """
-    if install_state is _INSTALL_STATE_UNREAD:
-        install_state = _workbench_plugin_install_state(project, plugin_id=plugin_id)
+    resolved_install_state = _resolve_admit_install_state(
+        project, plugin_id, install_state
+    )
     if install_states is not None and (
-        install_state is None
-        or install_state.get("install_state") not in install_states
+        resolved_install_state is None
+        or resolved_install_state.get("install_state") not in install_states
     ):
         raise PluginAdmissionRefusal("not_installed")
     catalog = catalog or plugin_package_catalog_for_project(project)
@@ -261,11 +274,11 @@ def admit_project_plugin(
             ref_sha256=recorded_package_sha256,
         )
     if install_states is not None and not project_accepts_current_plugin_capabilities(
-        install_state, loaded.manifest
+        resolved_install_state, loaded.manifest
     ):
         raise PluginAdmissionRefusal("permissions_missing")
     return AdmittedPlugin(
-        install_state=install_state,
+        install_state=resolved_install_state,
         catalog_entry=entry,
         manifest_ref=manifest_ref,
         loaded=loaded,
@@ -279,7 +292,8 @@ def plugin_admission_error(
     refusal: PluginAdmissionRefusal,
     errors: Mapping[str, tuple[str, str, int]],
     *,
-    error_type: type[ValueError] = WorkbenchPluginActivationError,
+    error_type: type[WorkbenchPluginActivationError]
+    | type[WorkbenchPluginLifecycleError] = WorkbenchPluginActivationError,
 ) -> ValueError:
     """Map a refusal to an entry point's own (code, message, status) wording."""
     if refusal.reason == "identity_corrupt":
@@ -448,7 +462,9 @@ def workbench_plugin_frontend_component_module(
                 },
             ) from refusal
         raise plugin_admission_error(refusal, _FRONTEND_MODULE_REFUSALS) from refusal
-    if _safe_bool(admitted.install_state.get("arbitrary_package_load_allowed")):
+    if admitted.install_state is not None and _safe_bool(
+        admitted.install_state.get("arbitrary_package_load_allowed")
+    ):
         raise WorkbenchPluginActivationError(
             "plugin_frontend_module_arbitrary_package_load_blocked",
             "frontend module serving does not allow arbitrary package loading",

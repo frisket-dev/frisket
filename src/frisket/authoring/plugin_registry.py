@@ -1,8 +1,8 @@
-"""Narrow plugin registry seams for recipes, column types, importers, and jobs.
+"""Narrow plugin registry seams for column types, importers, job handlers, and runtime bindings.
 
-Existing runtime owners still do the real work: recipes are ``ActionProgram`` objects,
-column types are registered in ``frisket.column_types``, and job handlers
-install into the queue worker's ``HandlerRegistry``.
+Existing runtime owners still do the real work: column types are registered in
+``frisket.column_types``, and job handlers install into the queue worker's
+``HandlerRegistry``.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from frisket.engine.jobs import (
     JobHandlerContext,
 )
 from frisket.engine.jobs.worker import ECHO_KIND
-from frisket.ops.base import ActionProgram
 
 PluginJobHandler = Callable[[dict], object]
 
@@ -44,23 +43,6 @@ class ImporterSpec:
             "description": self.description,
             "plugin": self.plugin,
             "has_handler": self.handler is not None,
-        }
-
-
-@dataclass(frozen=True)
-class ActionProgramSpec:
-    action_kind: str
-    program: ActionProgram
-    plugin: str = "core"
-
-    def to_public(self) -> dict[str, Any]:
-        return {
-            "name": self.action_kind,
-            "version": self.program.version,
-            "description": self.program.description,
-            "llm": self.program.llm,
-            "params": self.program.params(),
-            "plugin": self.plugin,
         }
 
 
@@ -109,7 +91,6 @@ class PluginRegistry:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._action_programs: dict[str, ActionProgramSpec] = {}
         self._importers: dict[str, ImporterSpec] = {}
         self._job_handlers: dict[str, JobHandlerSpec] = {}
         self._plugin_manifests: dict[str, LoadedPluginManifest] = {}
@@ -161,17 +142,6 @@ class PluginRegistry:
             return [
                 self._plugin_manifests[plugin_id]
                 for plugin_id in sorted(self._plugin_manifests)
-            ]
-
-    def get_action_program(self, name: str) -> ActionProgram | None:
-        with self._lock:
-            spec = self._action_programs.get(name)
-            return spec.program if spec is not None else None
-
-    def action_program_specs(self) -> list[ActionProgramSpec]:
-        with self._lock:
-            return [
-                self._action_programs[name] for name in sorted(self._action_programs)
             ]
 
     def register_column_type(
@@ -464,7 +434,6 @@ class PluginRegistry:
     def unload_plugin_entries(self, plugin_id: str) -> dict[str, list[str]]:
         """Remove process-local entries owned by one plugin id."""
         removed_manifests: list[str] = []
-        removed_programs: list[str] = []
         removed_importers: list[str] = []
         removed_job_handlers: list[str] = []
         removed_runtime_bindings: dict[str, list[str]] = {
@@ -480,11 +449,6 @@ class PluginRegistry:
             # uses it after deleting the catalog authority.
             if self._plugin_manifests.pop(plugin_id, None) is not None:
                 removed_manifests.append(plugin_id)
-            program_names = [
-                name
-                for name, spec in self._action_programs.items()
-                if spec.plugin == plugin_id
-            ]
             importer_names = [
                 name
                 for name, spec in self._importers.items()
@@ -495,9 +459,6 @@ class PluginRegistry:
                 for kind, spec in self._job_handlers.items()
                 if spec.plugin == plugin_id
             ]
-            for name in program_names:
-                self._action_programs.pop(name, None)
-                removed_programs.append(name)
             for name in importer_names:
                 self._importers.pop(name, None)
                 removed_importers.append(name)
@@ -521,7 +482,6 @@ class PluginRegistry:
             removed_matchers = unregister_plugin_matchers(plugin_id)
         return {
             "manifests": sorted(removed_manifests),
-            "recipes": sorted(removed_programs),
             "columnTypes": sorted(removed_column_types),
             "matchers": sorted(removed_matchers),
             "importers": sorted(removed_importers),
@@ -543,7 +503,6 @@ class PluginRegistry:
                 }
                 for loaded in self.plugin_manifests()
             ],
-            "recipes": [spec.to_public() for spec in self.action_program_specs()],
             "column_types": [spec.to_public() for spec in self.column_type_specs()],
             "importers": [spec.to_public() for spec in self.importer_specs()],
             "job_handlers": [spec.to_public() for spec in self.job_handler_specs()],
@@ -669,10 +628,6 @@ def unregister_trusted_backend_handler(key: str) -> None:
 def get_trusted_backend_handler(key: str) -> PluginJobHandler | None:
     with _TRUSTED_BACKEND_HANDLERS_LOCK:
         return _TRUSTED_BACKEND_HANDLERS.get(key)
-
-
-def get_action_program(name: str) -> ActionProgram | None:
-    return default_registry().get_action_program(name)
 
 
 def registry_snapshot() -> dict[str, Any]:

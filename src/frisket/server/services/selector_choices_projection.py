@@ -948,7 +948,9 @@ def _execution_presentation(
             )
             setup = (
                 cloud_account_key_setup(payer.provider)
-                if account_key_required and cloud_account_key_setup is not None
+                if account_key_required
+                and payer is not None
+                and cloud_account_key_setup is not None
                 else cloud_setup_for_lane(payer.lane if payer is not None else None)
                 if cloud_setup_for_lane is not None
                 else None
@@ -1277,11 +1279,13 @@ def _engine_facts(
         single_download = engine.get("downloadable_model")
         if isinstance(single_download, Mapping):
             downloads = [single_download]
-        sizes = [row.get("size") for row in downloads if isinstance(row, Mapping)]
-        if sizes and all(
-            isinstance(size, int) and not isinstance(size, bool) and size >= 0
-            for size in sizes
-        ):
+        raw_sizes = [row.get("size") for row in downloads if isinstance(row, Mapping)]
+        sizes = [
+            size
+            for size in raw_sizes
+            if isinstance(size, int) and not isinstance(size, bool) and size >= 0
+        ]
+        if raw_sizes and len(sizes) == len(raw_sizes):
             facts.append(
                 {
                     "kind": "text",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import ExitStack
 from copy import deepcopy
 import hashlib
@@ -84,15 +84,14 @@ class AdmittedRuntimeImporter:
         errors = plan.get("errors")
         first = errors[0] if isinstance(errors, list) and errors else {}
         first = first if isinstance(first, dict) else {}
+        raw_details = first.get("details")
         raise TableReadRefused(
             ActionError(
                 code=str(first.get("code") or "runtime_importer_handler_failed"),
                 message=str(first.get("message") or "Trusted importer failed"),
                 action_kind=self._action_id,
                 field=str(first.get("field") or "params.importer_kind"),
-                details=deepcopy(first.get("details"))
-                if isinstance(first.get("details"), dict)
-                else {},
+                details=deepcopy(raw_details) if isinstance(raw_details, dict) else {},
             )
         )
 
@@ -145,6 +144,11 @@ class AdmittedRuntimeImporter:
                 cancelled=self._cancelled,
             )
         else:
+            if binding.handler is None:
+                raise TableError(
+                    "runtime_importer_handler_failed",
+                    "Trusted importer handler failed",
+                )
             try:
                 plan = binding.handler(
                     {
@@ -183,6 +187,8 @@ class AdmittedRuntimeImporter:
                 "streaming",
             }
             or plan.get("schemaVersion") != "frisket.runtime_importer_plan.v1"
+            or isinstance(raw_rows, (str, bytes))
+            or not isinstance(raw_rows, Iterable)
             or (not subprocess and not isinstance(raw_rows, list))
         ):
             raise TableError(

@@ -299,8 +299,8 @@ test('grid header: the funnel opens an inline filter row that filters live via t
   // the caret/sidebar and toolbar-overflow homes.
   await openFriendlyFilterSidebar(page, columns, 'status');
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('views-panel')).toBeVisible();
 });
 

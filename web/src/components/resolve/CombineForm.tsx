@@ -15,7 +15,6 @@ import { FormField, SearchInput, TextInput } from '../FormControls';
 // column-scoped lives in the body below, keyed on `${sheet.id}:${column}`
 // so a switch remounts (and thereby resets) it.
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -29,6 +28,7 @@ import {
 } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
+import { useMergedParams } from '../action-panel/paramsBodyHooks';
 import { sheetRequired, type SheetBoundParamsBodyProps } from '../action-panel/sheetRequiredParamsBody';
 import { GroupCard } from './GroupCard';
 import { SelectionBar } from './SelectionBar';
@@ -100,15 +100,9 @@ function CombineFormForSheet({
     ? canonical.source
     : undefined;
   const activeColumn = typeof canonical.source === 'string' ? canonical.source : '';
-  const paramsRef = useRef(canonical);
-  useEffect(() => {
-    paramsRef.current = canonical;
-  }, [canonical]);
-  const mergeParams = useCallback<CombineFormProps['setParams']>((owned) => {
-    const next = { ...paramsRef.current, ...owned };
+  const mergeParams = useMergedParams(canonical, setParams, (next, owned) => {
     if (owned.unmatched !== 'value') delete next.unmatched_value;
-    setParams(next);
-  }, [setParams]);
+  });
   // Cross-column state — a column switch keeps these.
   const [unmatched, setUnmatched] = useState<UnmatchedPolicy>(saved?.unmatched ?? 'keep');
   const [unmatchedValue, setUnmatchedValue] = useState(saved?.unmatchedValue ?? '');

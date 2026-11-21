@@ -336,7 +336,7 @@ async def parse_document(
             raise HostedEngineError("timeout", "OpenDocRouter processing timed out.")
 
     def notify_accounting():
-        if on_accounting:
+        if on_accounting and accounting is not None:
             try:
                 on_accounting(accounting)
             except Exception as exc:
@@ -346,10 +346,14 @@ async def parse_document(
                 ) from exc
 
     def record(body):
+        if accounting is None:
+            raise RuntimeError("OpenDocRouter accounting was not initialized")
         _enrich(accounting, body, started)
         notify_accounting()
 
     async def read(*, expand=False, cursor=None):
+        if job_url is None:
+            raise RuntimeError("OpenDocRouter job URL was not initialized")
         params = {}
         if expand:
             params["expand"] = "markdown,layout" if layout else "markdown"

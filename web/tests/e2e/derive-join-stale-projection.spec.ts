@@ -5,10 +5,8 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { clickRunButton, createProject, openAction, openProject, sheetColumns, uniqueName } from './helpers';
+import { REPO_ROOT, clickRunButton, createProject, openAction, openProject, sheetColumns, uniqueName } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 async function importNamedCsv(
   request: APIRequestContext,

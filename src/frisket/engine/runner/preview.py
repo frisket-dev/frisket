@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.llm.types import LLMResponse
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import cloud_llm_execution_scope
 from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
@@ -486,7 +487,7 @@ async def run_preview(
                     else call
                     for call in cell.get("model_calls", ())
                 ]
-        if coordinator is not None:
+        if cloud_binding is not None and coordinator is not None:
             for entry in coordinator.returned_accounting:
                 calls = [
                     bind_fact_to_route(cloud_binding.route, call)
@@ -520,11 +521,12 @@ async def run_preview(
                 "outcome": "cancelled" if is_cancelled() else "empty",
             }
         ]
-        run_store.write_receipt_row_outcomes(
-            attempt.receipt_id,
-            outcomes,
-            writer_attempt_id=attempt.attempt_id,
-        )
+        if attempt.receipt_id is not None:
+            run_store.write_receipt_row_outcomes(
+                attempt.receipt_id,
+                outcomes,
+                writer_attempt_id=attempt.attempt_id,
+            )
         if coordinator is not None:
             coordinator.retire_returned()
         accounted_rows.add(row_id)
@@ -682,7 +684,10 @@ async def run_preview(
                             )
                     except asyncio.CancelledError as exc:
                         cells = {}
-                        calls = list(getattr(exc, "wire_calls", ()) or ())
+                        raw_calls = getattr(exc, "wire_calls", ()) or ()
+                        calls: list[LLMResponse] = [
+                            call for call in raw_calls if isinstance(call, LLMResponse)
+                        ]
                         if field_names:
                             cells[field_names[0]] = {
                                 "value": None,
@@ -750,7 +755,7 @@ async def run_preview(
                 for row_id in row_ids
                 if row_id not in accounted_rows
             ]
-            if remainder:
+            if remainder and attempt.receipt_id is not None:
                 try:
                     roll_back_failed_work(project.db, before="preview row outcomes")
                     run_store.write_receipt_row_outcomes(

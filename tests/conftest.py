@@ -294,7 +294,6 @@ def _plugin_registry_state() -> tuple[Any, ...] | None:
     with registry._lock:
         return (
             registry,
-            dict(registry._action_programs),
             dict(registry._importers),
             dict(registry._job_handlers),
             dict(registry._plugin_manifests),
@@ -314,10 +313,8 @@ def _restore_plugin_registry_state(snapshot: tuple[Any, ...] | None) -> None:
         with _plugin_registry._DEFAULT_LOCK:
             _plugin_registry._DEFAULT = None
         return
-    registry, recipes, importers, job_handlers, manifests, runtime_bindings = snapshot
+    registry, importers, job_handlers, manifests, runtime_bindings = snapshot
     with registry._lock:
-        registry._action_programs.clear()
-        registry._action_programs.update(recipes)
         registry._importers.clear()
         registry._importers.update(importers)
         registry._job_handlers.clear()
@@ -338,7 +335,7 @@ def restore_plugin_registry():
     """Undo any plugin registration a test leaves in the global registry.
 
     ``frisket.authoring.plugin_registry._DEFAULT`` is a process-wide singleton
-    holding recipes, importers, job handlers, loaded plugin manifests and the
+    holding importers, job handlers, loaded plugin manifests and the
     runtime-binding table. It has to be process-global: plugin activation
     happens inside one request and dispatch reads it from a dozen unrelated
     call sites (querysets, action catalog, map points, projections) that have
@@ -392,7 +389,6 @@ def _global_registry_census() -> dict[str, tuple[str, ...]]:
     registry = _plugin_registry.default_registry()
     with registry._lock:
         census = {
-            "recipes": tuple(sorted(registry._action_programs)),
             "importers": tuple(sorted(registry._importers)),
             "job handlers": tuple(sorted(registry._job_handlers)),
             "plugin manifests": tuple(sorted(registry._plugin_manifests)),

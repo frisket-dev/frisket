@@ -1,7 +1,7 @@
-"""`GET /api/config` tells the browser what confines a `map.python` recipe.
+"""`GET /api/config` tells the browser what confines a `map.python` code action.
 
 The editor's trust line was wrong in both directions inside one day: a green
-"sandboxed" badge for a recipe `ctypes` walked out of, then an unconditional
+"sandboxed" badge for an action `ctypes` walked out of, then an unconditional
 "not sandboxed" warning that survived the seccomp+Landlock fence landing and
 made Linux -- the platform Frisket deploys on -- look unprotected. The browser
 cannot know the server's platform, so the server says it, once, from the
