@@ -21,6 +21,7 @@ from frisket.ai.external_pricing import (
     OPENAI_DECISIONS_INPUT_TOKEN,
     external_unit_price_usd,
 )
+from frisket.ai.llm.types import validate_credential_source
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.contracts.clef import clef_questions, clef_values, validate_clef_request
 from frisket.contracts.classification import DECISION_ENGINE_IDS
@@ -83,15 +84,20 @@ class _BoundDecisionClassifier:
             raise RowError("classify_input_empty", "Classifier input must contain text")
         field_specs = [field.model_dump() for field in fields]
         openai = owner.engine == "openai-decisions"
-        questions = (
-            decisions_questions(field_specs, owner.context)
-            if openai
-            else clef_questions(field_specs, owner.context)
-        )
-        try:
-            validate_clef_request(owner.engine, questions, text=text)
-        except ValueError as error:
-            raise RowError("classify_input_invalid", str(error)) from None
+        decision_question_list: list[dict[str, Any]] | None = None
+        clef_question_map: dict[str, dict[str, Any]] | None = None
+        if openai:
+            decision_question_list = decisions_questions(field_specs, owner.context)
+            questions: list[dict[str, Any]] | dict[str, dict[str, Any]] = (
+                decision_question_list
+            )
+        else:
+            clef_question_map = clef_questions(field_specs, owner.context)
+            questions = clef_question_map
+            try:
+                validate_clef_request(owner.engine, clef_question_map, text=text)
+            except ValueError as error:
+                raise RowError("classify_input_invalid", str(error)) from None
         admission = routed_admission_in_scope(ctx.extras)
         preview = preview_resolution_in_scope(ctx.extras)
         transport = (
@@ -128,7 +134,10 @@ class _BoundDecisionClassifier:
             )
         source = normalize_resolved_credential(
             ResolvedCredential(
-                connection.token, connection.extra.get("credential_source", "local")
+                connection.token,
+                validate_credential_source(
+                    connection.extra.get("credential_source", "local")
+                ),
             ),
             context=ctx.credential_use_context,
         ).source
@@ -147,7 +156,7 @@ class _BoundDecisionClassifier:
         owner._called_rows.add(self.row_id)
 
         def record(tokens=None, usage=None, rejected_status=None):
-            units = {"requests": 1}
+            units: dict[str, float | int | str | bool | None] = {"requests": 1}
             if tokens is not None or owner.engine != "clef-flash":
                 units["input_tokens"] = tokens
             if owner.engine == "clef-flash":
@@ -275,9 +284,11 @@ class _BoundDecisionClassifier:
                 from frisket.contracts.decisions import estimate_decisions_tokens
                 from frisket.contracts.clef import estimate_clef_input_tokens
 
-                tokens = (
-                    estimate_decisions_tokens if openai else estimate_clef_input_tokens
-                )(text, questions)
+                if decision_question_list is not None:
+                    tokens = estimate_decisions_tokens(text, decision_question_list)
+                else:
+                    assert clef_question_map is not None
+                    tokens = estimate_clef_input_tokens(text, clef_question_map)
                 rate = external_unit_price_usd(
                     OPENAI_DECISIONS_INPUT_TOKEN
                     if openai

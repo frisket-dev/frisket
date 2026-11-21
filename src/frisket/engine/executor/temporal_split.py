@@ -177,10 +177,10 @@ def resolve_temporal_split_plan(
         return _empty_selection_error(resolved)
 
     source_plans: list[SplitSourcePlan] = []
-    for source in resolved:
+    for resolved_source in resolved:
         try:
             with project.read_snapshot() as snapshot:
-                media_source = resolve_temporal_media_source(snapshot, source)
+                media_source = resolve_temporal_media_source(snapshot, resolved_source)
                 from frisket.engine.store.consumed_sources import (
                     capture_read_scope,
                     merge_captures,
@@ -192,11 +192,14 @@ def resolve_temporal_split_plan(
                 columns.update(item.column_id for item in media_source.annotations)
                 if media_source.topic_analysis is not None:
                     columns.add(media_source.topic_analysis.sidecar_column_id)
-                captures = [source.consumed_capture]
+                captures = [resolved_source.consumed_capture]
                 if columns:
                     captures.append(
                         capture_read_scope(
-                            snapshot, source.sheet_id, sorted(columns), [source.row_id]
+                            snapshot,
+                            resolved_source.sheet_id,
+                            sorted(columns),
+                            [resolved_source.row_id],
                         )
                     )
                 consumed_capture = merge_captures(captures)
@@ -204,7 +207,7 @@ def resolve_temporal_split_plan(
             return _error(
                 exc.code,
                 exc.message,
-                details={"row_id": source.row_id},
+                details={"row_id": resolved_source.row_id},
             )
         topic_span_ids_by_item: dict[str, frozenset[str]] = {}
         if media_source.topic_analysis is not None:
@@ -218,7 +221,7 @@ def resolve_temporal_split_plan(
             )
             locked_ids = resolve_topic_section_unit_ids(
                 media_source.topic_analysis,
-                source.selection_value,
+                resolved_source.selection_value,
             )
             if locked_ids is not None:
                 available_ids = {
@@ -229,12 +232,12 @@ def resolve_temporal_split_plan(
                     return _error(
                         "selection_unmappable",
                         "locked topic chunks no longer match the producing transcript",
-                        details={"row_id": source.row_id},
+                        details={"row_id": resolved_source.row_id},
                     )
                 topic_span_ids_by_item = locked_ids
         source_plans.append(
             SplitSourcePlan(
-                source=source,
+                source=resolved_source,
                 transcripts=media_source.transcripts,
                 annotations=media_source.annotations,
                 topic_analysis=media_source.topic_analysis,

@@ -29,8 +29,25 @@ from frisket.engine.executor.semantic_join_program import (
 from frisket.engine.runner.row_inputs import row_source_snapshot
 from frisket.engine.store.cell_writes import create_base_cell_producer
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt import StaleAttemptWriter
+
+
+def _as_receipt_status(status: str) -> ReceiptStatus:
+    if status == "queued":
+        return "queued"
+    if status == "running":
+        return "running"
+    if status == "completed":
+        return "completed"
+    if status == "partial":
+        return "partial"
+    if status == "failed":
+        return "failed"
+    if status == "cancelled":
+        return "cancelled"
+    raise ValueError(f"unsupported receipt status for terminalization: {status!r}")
 
 
 def _resolve(project, bound, spec, router, *, admission=True):
@@ -454,12 +471,22 @@ def finalize_semantic_join(
     writer = kwargs.get("writer_attempt_id")
     terminal_status = kwargs.get("terminal_status", "completed")
     receipt_id = kwargs["receipt_id"]
-    if writer is None or claim != _output_claim_token(receipt_id):
+    if (
+        not isinstance(writer, str)
+        or not isinstance(claim, str)
+        or claim != _output_claim_token(receipt_id)
+    ):
         raise StaleAttemptWriter(
             "semantic join finalization needs its exact writer claim"
         )
 
-    def abort(code, message, *, status="failed", commit=True):
+    def abort(
+        code: str | None,
+        message: str | None,
+        *,
+        status: ReceiptStatus = "failed",
+        commit: bool = True,
+    ):
         from frisket.engine.executor.project_run_terminalization import (
             CurrentWriterTerminalAuthority,
             terminalize_project_run,
@@ -474,7 +501,13 @@ def finalize_semantic_join(
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=writer, claim_token=claim
             ),
-            errors=[ActionError(code=code, message=message, action_kind=action.kind)]
+            errors=[
+                ActionError(
+                    code=code,
+                    message=message or "",
+                    action_kind=action.kind,
+                )
+            ]
             if code
             else [],
             commit=commit,
@@ -585,7 +618,11 @@ def finalize_semantic_join(
                     ),
                 },
             }
-        if existing_child_id is not None and not state["source"]["row_ids"]:
+        if (
+            existing_child_id is not None
+            and origin_receipt is not None
+            and not state["source"]["row_ids"]
+        ):
             edges = next(
                 dict(item.ref)
                 for item in origin_receipt.outputs
@@ -731,7 +768,7 @@ def finalize_semantic_join(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
-            status=receipt.status,
+            status=_as_receipt_status(receipt.status),
             run_status=terminal_status,
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=writer, claim_token=claim
@@ -1027,7 +1064,7 @@ def recover_typed_semantic_join_publication(project, project_id, bound):
             project,
             run_id=receipt.run_id,
             receipt_id=receipt.receipt_id,
-            status=completed.status,
+            status=_as_receipt_status(completed.status),
             run_status=durable_run["status"],
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=run["current_attempt_id"],

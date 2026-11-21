@@ -205,10 +205,11 @@ def _ocr_pages(
         for token in resolved.stream.tokens:
             if not token.text or token.page is None or token.page < 1:
                 continue
+            if token.box is None:
+                continue
             try:
-                region = Box(
-                    **dict(zip(("x0", "y0", "x1", "y1"), token.box, strict=True))
-                )
+                x0, y0, x1, y1 = token.box
+                region = Box(x0=x0, y0=y0, x1=x1, y1=y1)
             except (KeyError, ValueError, TypeError):
                 continue
             tokens.setdefault(token.page, []).append(
@@ -229,11 +230,13 @@ def _ocr_pages(
                     raise ValueError("Invalid page geometry")
                 width = image.get("source_width") or image.get("width")
                 height = image.get("source_height") or image.get("height")
+                if width is None or height is None:
+                    raise ValueError("Invalid page geometry")
                 pages.append(
                     PositionedPage(
                         page=int(number),
-                        width=width,
-                        height=height,
+                        width=float(width),
+                        height=float(height),
                         tokens=tokens.get(int(number), []),
                     )
                 )

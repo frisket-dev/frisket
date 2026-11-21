@@ -7,7 +7,7 @@ import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from email.header import decode_header, make_header
-from email.message import Message
+from email.message import MIMEPart, Message
 from email.parser import BytesParser
 from email.policy import default
 from html.parser import HTMLParser
@@ -182,13 +182,14 @@ class _MboxStream:
     _READ_CHUNK_BYTES = 64 * 1024
 
     def __init__(self, source: str | Path | BinaryIO) -> None:
-        if hasattr(source, "read"):
+        self._stream: BinaryIO
+        if isinstance(source, (str, Path)):
+            self._stream = Path(source).open("rb")
+            self._owns_stream = True
+        else:
             self._stream = source
             self._owns_stream = False
             self._stream.seek(0)
-        else:
-            self._stream = Path(source).open("rb")
-            self._owns_stream = True
 
     def __iter__(self) -> Iterator[bytes]:
         payload = bytearray()
@@ -531,25 +532,34 @@ def _attachment_bytes(part: Message) -> bytes:
         if isinstance(payload, Message):
             return payload.as_bytes(policy=default)
     data = part.get_payload(decode=True)
-    if data is not None:
+    if isinstance(data, bytes):
         return data
     content = part.get_payload()
     return content.encode("utf-8") if isinstance(content, str) else b""
 
 
-def _text_part(part: Message) -> str:
-    try:
-        content = part.get_content()
-    except LookupError:
-        payload = part.get_payload(decode=True) or b""
-        return payload.decode("utf-8", errors="replace")
-    except UnicodeError:
-        payload = part.get_payload(decode=True) or b""
+def _decode_payload_bytes(part: Message, *, use_charset: bool) -> str:
+    raw = part.get_payload(decode=True)
+    payload = raw if isinstance(raw, bytes) else b""
+    if use_charset:
         charset = part.get_content_charset() or "utf-8"
         try:
             return payload.decode(charset, errors="replace")
         except LookupError:
             return payload.decode("utf-8", errors="replace")
+    return payload.decode("utf-8", errors="replace")
+
+
+def _text_part(part: Message) -> str:
+    try:
+        if isinstance(part, MIMEPart):
+            content: object = part.get_content()
+        else:
+            content = _decode_payload_bytes(part, use_charset=True)
+    except LookupError:
+        return _decode_payload_bytes(part, use_charset=False)
+    except UnicodeError:
+        return _decode_payload_bytes(part, use_charset=True)
     value = content if isinstance(content, str) else str(content)
     return value.rstrip("\r\n")
 

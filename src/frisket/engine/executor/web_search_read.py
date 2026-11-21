@@ -58,11 +58,15 @@ class AdmittedWebSearcher:
         self._owner = self
         self._calls = set()
         factory = ctx.extras.get("search_service_factory")
-        self._service = (
-            search_service
-            or (factory() if callable(factory) else None)
-            or SearchService(preference="ddgs", effective_keys={})
-        )
+        factory_service = factory() if callable(factory) else None
+        if search_service is not None:
+            self._service: SearchService = search_service
+        elif isinstance(factory_service, SearchService):
+            self._service = factory_service
+        elif factory_service is None:
+            self._service = SearchService(preference="ddgs", effective_keys={})
+        else:
+            raise TypeError("search_service_factory must return a SearchService")
         self._check_active()
 
     def secret_values(self) -> tuple[str, ...]:

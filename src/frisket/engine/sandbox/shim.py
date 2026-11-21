@@ -136,7 +136,7 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import IO, Any, BinaryIO
 from urllib.parse import unquote, urlsplit
 
 from frisket.runtime.supervisor import guard_exit_proves_cleanup, windows_cleanup_proved
@@ -284,6 +284,8 @@ def _assign_windows_job(
     POSIX never touches this plumbing. Returns an opaque job handle, or None if
     any step failed — the caller (``ProcessTreeController``) then FAILS CLOSED rather
     than running an unownable tree."""
+    if sys.platform != "win32":
+        return None
     import ctypes
     from ctypes import wintypes
 
@@ -386,6 +388,8 @@ def _assign_windows_job(
 
 
 def _terminate_windows_job(job) -> bool:
+    if sys.platform != "win32":
+        return False
     import ctypes
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -414,6 +418,8 @@ def _job_active_processes(job) -> int | None:
     """Live process count in the Job via QueryInformationJobObject
     (JobObjectBasicAccountingInformation). Returns ActiveProcesses, or None if
     the query failed. Only ``ActiveProcesses`` is read."""
+    if sys.platform != "win32":
+        return None
     import ctypes
     from ctypes import wintypes
 
@@ -455,6 +461,8 @@ def _job_active_processes(job) -> int | None:
 
 
 def _close_windows_job(job) -> None:
+    if sys.platform != "win32":
+        return
     import ctypes
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -1370,7 +1378,7 @@ async def _spawn_owned_process(
     *,
     scratch: Path,
     env: dict[str, str],
-    stdin: object,
+    stdin: int | IO[Any] | None,
     policy: SandboxPolicy,
     stream_limit: int = 64 * 1024,
 ) -> tuple[asyncio.subprocess.Process, ProcessTreeController, bool]:
@@ -1415,7 +1423,7 @@ async def _spawn_owned_process(
             limit=stream_limit,
             **(
                 {"creationflags": subprocess.CREATE_NO_WINDOW}
-                if guard_control is not None
+                if sys.platform == "win32" and guard_control is not None
                 else _process_group_kwargs()
             ),
         )
@@ -1476,6 +1484,7 @@ async def _communicate_stdin_file(
 
     if proc.stdin is None or proc.stdout is None or proc.stderr is None:
         raise RuntimeError("sandbox file communication requires three pipes")
+    proc_stdin = proc.stdin
 
     async def feed() -> None:
         try:
@@ -1489,14 +1498,14 @@ async def _communicate_stdin_file(
                     return
                 if not isinstance(chunk, bytes):
                     raise TypeError("sandbox stdin_file must be opened in binary mode")
-                proc.stdin.write(chunk)
-                await proc.stdin.drain()
+                proc_stdin.write(chunk)
+                await proc_stdin.drain()
         except (BrokenPipeError, ConnectionResetError):
             return
         finally:
-            proc.stdin.close()
+            proc_stdin.close()
             with contextlib.suppress(BrokenPipeError, ConnectionResetError):
-                await proc.stdin.wait_closed()
+                await proc_stdin.wait_closed()
 
     feed_task: asyncio.Future = asyncio.ensure_future(feed())
     stdout_task: asyncio.Future = asyncio.ensure_future(proc.stdout.read())

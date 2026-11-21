@@ -272,6 +272,7 @@ class RowError(Exception):
         # failed; the row owner records them instead of minting new ones.
         self.accounting: dict[str, Any] | None = None
         self.wire_calls: Sequence[LLMResponse] = ()
+        self.status_code: int | None = None
 
 
 class MediaMetadataReader(Protocol):

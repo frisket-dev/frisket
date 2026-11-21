@@ -11,8 +11,16 @@ from typing import Any
 import httpx
 import jwt
 
-from frisket.team.config import TeamConfig
+from frisket.team.config import OIDCProviderConfig, TeamConfig
 from frisket.server.unit_of_work import ends_unit_of_work
+
+
+def _open_smtp(config: TeamConfig, context: ssl.SSLContext) -> smtplib.SMTP:
+    if config.smtp_ssl:
+        return smtplib.SMTP_SSL(
+            str(config.smtp_host), config.smtp_port, timeout=15, context=context
+        )
+    return smtplib.SMTP(str(config.smtp_host), config.smtp_port, timeout=15)
 
 
 def smtp_sender(config: TeamConfig):
@@ -24,11 +32,7 @@ def smtp_sender(config: TeamConfig):
             message["Subject"] = "Your frisket sign-in link"
             message.set_content(f"Sign in to frisket:\n\n{link}\n")
             context = ssl.create_default_context()
-            smtp_type = smtplib.SMTP_SSL if config.smtp_ssl else smtplib.SMTP
-            kwargs = {"context": context} if config.smtp_ssl else {}
-            with smtp_type(
-                str(config.smtp_host), config.smtp_port, timeout=15, **kwargs
-            ) as smtp:
+            with _open_smtp(config, context) as smtp:
                 if config.smtp_starttls:
                     smtp.starttls(context=context)
                 if config.smtp_username:
@@ -45,7 +49,7 @@ def production_oidc_exchange(config: TeamConfig):
     async def exchange(
         provider: str, code: str, redirect_uri: str, expected_nonce: str
     ) -> dict[str, Any]:
-        definition = config.oidc_providers[provider]
+        definition = OIDCProviderConfig.from_value(config.oidc_providers[provider])
         async with httpx.AsyncClient(timeout=15) as client:
             token_response = await client.post(
                 definition.token_endpoint,
