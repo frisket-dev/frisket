@@ -666,7 +666,7 @@ def _is_positive_finite_number(value: object) -> TypeGuard[int | float]:
 
 
 def _automatic_cost_gate(
-    action, params, index, space, project_id, *, to_embed: list[dict[str, Any]]
+    req: _RefreshRequest, index: Any, space: Any, *, to_embed: list[dict[str, Any]]
 ):
     """Allowance gate for automatic remote refresh, BEFORE any provider call.
 
@@ -674,7 +674,7 @@ def _automatic_cost_gate(
     unattended remote refresh starts only when its estimate is at or under it;
     no allowance, an estimate over it, or no known unit price refuses with
     embedding_cost_requires_confirmation, so the refresh is asked for instead."""
-    if not to_embed or not _is_automatic_refresh(params):
+    if not to_embed or not _is_automatic_refresh(req.params):
         return None
     if space["provider_kind"] not in REMOTE_PROVIDER_KINDS:
         return None
@@ -682,8 +682,8 @@ def _automatic_cost_gate(
     allowance = provider_policy.get("max_cost_usd_per_refresh")
     if not _is_positive_finite_number(allowance):
         return _error(
-            action,
-            project_id,
+            req.action,
+            req.project_id,
             "embedding_cost_requires_confirmation",
             (
                 "automatic remote refresh requires provider policy "
@@ -713,8 +713,8 @@ def _automatic_cost_gate(
         )
     )
     return _error(
-        action,
-        project_id,
+        req.action,
+        req.project_id,
         "embedding_cost_requires_confirmation",
         message,
         field="params.index_id",
@@ -910,13 +910,14 @@ def _plan_refresh_items(
                 continue
             to_publish.append(planned)
         cached: dict[str, Any] = {}
-        hashes = [item.input_hash for item in to_publish]
-        for offset in range(0, len(hashes), 1000):
-            cached.update(
-                active_retrieval.get_representations(
-                    str(space["id"]), hashes[offset : offset + 1000]
+        if not full:
+            hashes = [item.input_hash for item in to_publish]
+            for offset in range(0, len(hashes), 1000):
+                cached.update(
+                    active_retrieval.get_representations(
+                        str(space["id"]), hashes[offset : offset + 1000]
+                    )
                 )
-            )
         to_embed = [
             payload_by_key[planned.source_key]
             for planned in to_publish
@@ -1502,6 +1503,7 @@ def prepare_embedding_create(
     bound: BoundTypedActionRequest,
     *,
     project_id: str,
+    router: Any | None = None,
     consent_coverage: ConsentCoverage | None = None,
     edition: str | None = None,
 ) -> _PreparedCreate | ActionError:
@@ -1518,7 +1520,7 @@ def prepare_embedding_create(
             edition=edition,
         ),
     )
-    prepared = _prepare_create_plan(project, req, has_checkpoint=False)
+    prepared = _prepare_create_plan(project, req, router=router, has_checkpoint=False)
     if isinstance(prepared, ActionResult):
         return prepared.errors[0]
     return prepared
@@ -1592,11 +1594,9 @@ def reserve_typed_embedding_refresh_action_job(
         return prepared
     if prepared.automatic:
         gate = _automatic_cost_gate(
-            req.action,
-            req.params,
+            req,
             prepared.index,
             prepared.space,
-            project_id,
             to_embed=prepared.to_embed,
         )
     else:
@@ -2888,11 +2888,6 @@ def _do_refresh(
         refreshed = 0
         batch_result: dict[str, Any] | None = None
         if to_embed:
-            cost_block = _automatic_cost_gate(
-                action, params, index, space, project_id, to_embed=to_embed
-            )
-            if cost_block is not None:
-                return cost_block
             live_req = _RefreshRequest(
                 action=action,
                 params=params,
@@ -2900,6 +2895,9 @@ def _do_refresh(
                 params_hash=params_hash,
                 consent=consent or _EmbeddingConsent(),
             )
+            cost_block = _automatic_cost_gate(live_req, index, space, to_embed=to_embed)
+            if cost_block is not None:
+                return cost_block
             live_cost = _assess_manual_refresh_cost(
                 project,
                 live_req,

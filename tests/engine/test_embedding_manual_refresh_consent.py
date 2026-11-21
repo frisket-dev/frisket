@@ -9,7 +9,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from frisket.ai.embeddings import build_batch_result
+from frisket.ai.embeddings import EmbeddingStore, build_batch_result
 from frisket.ai.llm import ModelRouter
 from frisket.authoring.action_metadata import PRODUCT_EDITION_SNAPSHOT_KEY
 from frisket.engine.executor import ExecutorDeps, run_action_spec
@@ -753,3 +753,78 @@ def test_incremental_refresh_estimate_matches_live_staleness_without_creating_si
     assert len(gw.calls) == 2 and len(gw.calls[1][0]) == 1
     assert second.outputs[0].ref["refreshed"] == 1
     assert second.outputs[0].ref["skipped_current"] == 2
+
+
+def test_retry_persisted_paid_probe_checkpoint_finishes_without_confirmation_or_reprobe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reconciling a durable paid-probe checkpoint never re-gates or re-probes."""
+    client = _create_app_client(tmp_path, edition="solo", allowance_usd="0")
+    pid, project, sheet_id, _col = _seed_sheet(client, ["alpha"])
+    probe_req = {
+        "action_id": "embedding.index_create",
+        "scope": {"kind": "project"},
+        "params": {
+            "sheet_id": sheet_id,
+            "source_columns": ["headline"],
+            "modality": "text",
+            "provider": "openrouter",
+            "model": "mistralai/mistral-embed-2312",
+            "source_policy": {"kind": "text_cell"},
+            "provider_policy": {"allow_remote": True},
+        },
+        "idempotency_key": "create-probe-checkpoint-retry@1",
+    }
+    gw = _RecordingGateway(dim=1024)
+    challenge = run_action_spec(
+        project,
+        probe_req,
+        project_id=pid,
+        deps=ExecutorDeps(
+            embedding_gateway=gw,
+            consent_coverage=ConsentCoverage("user:local", Decimal("0")),
+        ),
+    )
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert gw.calls == []
+    token = challenge.errors[0].details["promise_set_hash"]
+
+    original_create_space = EmbeddingStore.create_space_in_transaction
+    failed_once = False
+
+    def fail_first_metadata_write(self: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
+            raise RuntimeError("injected metadata write failure after paid probe")
+        return original_create_space(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        EmbeddingStore, "create_space_in_transaction", fail_first_metadata_write
+    )
+    first = run_action_spec(
+        project,
+        {**probe_req, "confirmation": token},
+        project_id=pid,
+        deps=ExecutorDeps(
+            embedding_gateway=gw,
+            consent_coverage=ConsentCoverage("user:local", Decimal("0")),
+        ),
+    )
+    assert first.status == "failed"
+    assert first.errors[0].code == "project_write_failed"
+    assert len(gw.calls) == 1
+
+    # Retrying without `confirmation` reconciles the checkpoint cleanly with zero re-probe.
+    resumed = run_action_spec(
+        project,
+        probe_req,
+        project_id=pid,
+        deps=ExecutorDeps(
+            embedding_gateway=gw,
+            consent_coverage=ConsentCoverage("user:local", Decimal("0")),
+        ),
+    )
+    assert resumed.status == "completed", resumed.errors
+    assert len(gw.calls) == 1
+    assert resumed.outputs[0].ref["dimension"] == 1024

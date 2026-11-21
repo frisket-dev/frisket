@@ -46,6 +46,22 @@ def _probe_action(project, key: str) -> dict[str, Any]:
     )
 
 
+def _confirmed_probe_action(project, key: str, *, gateway: Any) -> dict[str, Any]:
+    action = _probe_action(project, key)
+    challenge = run_action_spec(
+        project,
+        action,
+        project_id="p",
+        deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
+    )
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert not gateway.calls
+    return {
+        **action,
+        "confirmation": challenge.errors[0].details["promise_set_hash"],
+    }
+
+
 def test_embedding_probe_releases_its_reservation_after_failed_change(
     project, monkeypatch
 ):
@@ -58,10 +74,11 @@ def test_embedding_probe_releases_its_reservation_after_failed_change(
 
     monkeypatch.setattr(Project, "append_change", failing_probe_change)
     gateway = FakeProbeGateway(dim=1024)
+    action = _confirmed_probe_action(project, "failed-probe-change", gateway=gateway)
 
     result = run_action_spec(
         project,
-        _probe_action(project, "failed-probe-change"),
+        action,
         project_id="p",
         deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
     )
@@ -119,10 +136,11 @@ def test_embedding_probe_closes_its_run_after_refused_work_left_writes_pending(
         embeddings, "mint_direct_effect_attempt", refuse_after_a_pending_write
     )
     gateway = FakeProbeGateway(dim=1024)
+    action = _confirmed_probe_action(project, "refused-probe", gateway=gateway)
 
     result = run_action_spec(
         project,
-        _probe_action(project, "refused-probe"),
+        action,
         project_id="p",
         deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
     )

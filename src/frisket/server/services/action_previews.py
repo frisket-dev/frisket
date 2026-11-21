@@ -255,6 +255,7 @@ class ActionPreviewService:
                         get_project(),
                         typed,
                         project_id=project_id,
+                        router=self._workspace.router_for(get_project()),
                         consent_coverage=coverage,
                         edition=self._workspace.edition,
                     )
