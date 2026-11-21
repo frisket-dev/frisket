@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -16,8 +17,9 @@ PROJECT_ID = "citedcols"
 
 
 def _seed(ws: Path) -> dict[str, Any]:
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Cited Columns")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Cited Columns")
+    ) as project:
         sheet_id = project.add_sheet("Filings")
         cols = {
             "name": project.add_column(sheet_id, "Name", type="text"),
@@ -104,8 +106,6 @@ def _seed(ws: Path) -> dict[str, Any]:
             "cols": cols,
             "row_ids": row_ids,
         }
-    finally:
-        project.close()
 
 
 def _list_sheets(client: TestClient) -> dict[int, dict[str, Any]]:
@@ -159,8 +159,7 @@ def test_helper_is_distinct_ascending_and_sheet_scoped(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     ws.mkdir()
     ids = _seed(ws)
-    project = Project(ws / f"{PROJECT_ID}.frisket")
-    try:
+    with closing(Project(ws / f"{PROJECT_ID}.frisket")) as project:
         assert sheet_cited_column_ids(project, ids["sheet_id"]) == [
             ids["cols"]["amount"]
         ]
@@ -172,5 +171,3 @@ def test_helper_is_distinct_ascending_and_sheet_scoped(tmp_path: Path) -> None:
                 (ids["other_sheet_id"],),
             ).fetchone()["column_id"]
         ]
-    finally:
-        project.close()

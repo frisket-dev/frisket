@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 import json
 import sqlite3
 import threading
@@ -304,10 +305,11 @@ def test_resolve_timeline_carries_unambiguous_media_kind(
     metadata_kind: str,
     expected_kind: str,
 ) -> None:
-    project = Project.create(
-        tmp_path / f"timeline-media-kind-{column_type}-{expected_kind}.frisket"
-    )
-    try:
+    with closing(
+        Project.create(
+            tmp_path / f"timeline-media-kind-{column_type}-{expected_kind}.frisket"
+        )
+    ) as project:
         sheet_id = project.add_sheet("Media")
         column_id = project.add_column(sheet_id, "media", column_type)
         blob_hash = project.add_blob(
@@ -337,8 +339,6 @@ def test_resolve_timeline_carries_unambiguous_media_kind(
         )
 
         assert lease.media_kind == expected_kind
-    finally:
-        project.close()
 
 
 def test_resolve_timeline_rejects_duration_only_opaque_file(make_project) -> None:
@@ -417,8 +417,7 @@ def test_concurrent_first_media_ensure_is_atomic_and_survives_reopen(
     tmp_path: Path,
 ) -> None:
     bundle = tmp_path / "timeline-concurrent.frisket"
-    seed = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as seed:
         blob_hash = seed.add_blob(
             b"one immutable timeline",
             filename="source.mp4",
@@ -427,8 +426,6 @@ def test_concurrent_first_media_ensure_is_atomic_and_survives_reopen(
                 probe={"kind": "video", "duration_seconds": 12.5}
             ),
         )
-    finally:
-        seed.close()
 
     first = Project(bundle)
     second = Project(bundle)
@@ -447,13 +444,11 @@ def test_concurrent_first_media_ensure_is_atomic_and_survives_reopen(
         )
         assert first.db.in_transaction
         observer = sqlite3.connect(bundle / "project.db")
-        try:
+        with closing(observer):
             assert (
                 observer.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0]
                 == 0
             )
-        finally:
-            observer.close()
 
         attempted_write_lock = threading.Event()
 
@@ -496,8 +491,7 @@ def test_concurrent_first_media_ensure_is_atomic_and_survives_reopen(
         first.close()
         second.close()
 
-    reopened = Project(bundle)
-    try:
+    with closing(Project(bundle)) as reopened:
         assert first_anchor is not None
         assert second_anchor is not None
         assert (
@@ -508,8 +502,6 @@ def test_concurrent_first_media_ensure_is_atomic_and_survives_reopen(
             resolve_artifact_timeline(reopened, first_anchor.artifact_id)
             == first_anchor
         )
-    finally:
-        reopened.close()
 
 
 def test_media_ensure_rejects_duplicate_stable_id_without_partial_commit(
@@ -811,10 +803,11 @@ def test_selection_mapping_accepts_equivalent_root_fingerprints(
     value_body: dict,
     expected_ranges: list[tuple[int, int]],
 ) -> None:
-    project = Project.create(
-        tmp_path / f"timeline-selection-equivalence-{selection_type}.frisket"
-    )
-    try:
+    with closing(
+        Project.create(
+            tmp_path / f"timeline-selection-equivalence-{selection_type}.frisket"
+        )
+    ) as project:
         _, _, typed_clip, target_clip = _equivalent_root_clips(project)
         typed_anchor = resolve_artifact_timeline(project, typed_clip["id"])
         target_anchor = resolve_artifact_timeline(project, target_clip["id"])
@@ -831,8 +824,6 @@ def test_selection_mapping_accepts_equivalent_root_fingerprints(
 
         assert [(item.start_ms, item.end_ms) for item in ranges] == expected_ranges
         assert warnings == []
-    finally:
-        project.close()
 
 
 def test_traversal_rejects_cycles_multi_segments_and_non_rate1_corruption(

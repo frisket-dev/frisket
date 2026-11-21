@@ -418,8 +418,8 @@ class TestMapKindAllRowsFailed:
 
 
 class TestMediaKindAllRowsFailed:
-    def _seed_media_project(self, tmp_path) -> tuple[Project, int, list[int]]:
-        project = Project.create(tmp_path / "media-all-failed.frisket")
+    def _seed_media_project(self, make_project) -> tuple[Project, int, list[int]]:
+        project = make_project("media-all-failed")
         sheet_id = project.add_sheet("Episodes")
         cols = {"media": project.add_column(sheet_id, "media", type="audio")}
         blobs = [
@@ -457,133 +457,127 @@ class TestMediaKindAllRowsFailed:
         return project, sheet_id, row_ids
 
     def test_transcribe_all_rows_failed_creates_no_visible_columns(
-        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+        self, make_project, monkeypatch: pytest.MonkeyPatch
     ):
         from frisket.engine.executor import run_action_spec
 
-        project, sheet_id, row_ids = self._seed_media_project(tmp_path)
-        try:
+        project, sheet_id, row_ids = self._seed_media_project(make_project)
 
-            async def fail_faster_whisper(
-                self: transcribe_engines.FasterWhisperAdapter,
-                path: str,
-                spec: dict[str, Any],
-                *,
-                should_cancel: Any = None,
-            ) -> dict[str, Any]:
-                del self, path, spec
-                raise RuntimeError("ASR provider unavailable")
+        async def fail_faster_whisper(
+            self: transcribe_engines.FasterWhisperAdapter,
+            path: str,
+            spec: dict[str, Any],
+            *,
+            should_cancel: Any = None,
+        ) -> dict[str, Any]:
+            del self, path, spec
+            raise RuntimeError("ASR provider unavailable")
 
-            monkeypatch.setattr(
-                transcribe_engines.FasterWhisperAdapter,
-                "transcribe",
-                fail_faster_whisper,
-            )
+        monkeypatch.setattr(
+            transcribe_engines.FasterWhisperAdapter,
+            "transcribe",
+            fail_faster_whisper,
+        )
 
-            action = {
-                "action_id": "media.transcribe",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": sheet_id,
-                    "row_ids": row_ids,
-                },
-                "output_names": {
-                    "text": "transcript",
-                    "segments": "transcript_segments",
-                },
-                "params": {
-                    "source": "media",
-                    "engine": "faster_whisper",
-                },
-                "idempotency_key": "media_transcribe@sha256:all-failed",
-            }
-            result = run_action_spec(
-                project,
-                action,
-                project_id="project-media-all-failed",
-            )
+        action = {
+            "action_id": "media.transcribe",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": row_ids,
+            },
+            "output_names": {
+                "text": "transcript",
+                "segments": "transcript_segments",
+            },
+            "params": {
+                "source": "media",
+                "engine": "faster_whisper",
+            },
+            "idempotency_key": "media_transcribe@sha256:all-failed",
+        }
+        result = run_action_spec(
+            project,
+            action,
+            project_id="project-media-all-failed",
+        )
 
-            # the existing per-row-failure contract is unchanged: a receipt
-            # still records the failure (tests/test_media_transcribe_
-            # executor.py's single-row-failure case asserts the same shape).
-            assert result.status == "failed"
-            assert result.receipt_id is not None
-            assert result.errors[0].code == "external_rows_failed"
+        # the existing per-row-failure contract is unchanged: a receipt
+        # still records the failure (tests/test_media_transcribe_
+        # executor.py's single-row-failure case asserts the same shape).
+        assert result.status == "failed"
+        assert result.receipt_id is not None
+        assert result.errors[0].code == "external_rows_failed"
 
-            visible_names = [c["name"] for c in project.columns(sheet_id)]
-            assert "transcript" not in visible_names
-            assert "transcript_segments" not in visible_names
-            assert "detected_language" not in visible_names
+        visible_names = [c["name"] for c in project.columns(sheet_id)]
+        assert "transcript" not in visible_names
+        assert "transcript_segments" not in visible_names
+        assert "detected_language" not in visible_names
 
-            for name in ("transcript", "transcript_segments", "detected_language"):
-                col = project.db.execute(
-                    "SELECT * FROM columns WHERE sheet_id=? AND name=?",
-                    (sheet_id, name),
-                ).fetchone()
-                assert col is not None, name
-                assert col["hidden"] == 1, name
-        finally:
-            project.close()
+        for name in ("transcript", "transcript_segments", "detected_language"):
+            col = project.db.execute(
+                "SELECT * FROM columns WHERE sheet_id=? AND name=?",
+                (sheet_id, name),
+            ).fetchone()
+            assert col is not None, name
+            assert col["hidden"] == 1, name
 
     def test_transcribe_partial_success_keeps_columns_visible(
-        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+        self, make_project, monkeypatch: pytest.MonkeyPatch
     ):
         from frisket.engine.executor import run_action_spec
 
-        project, sheet_id, row_ids = self._seed_media_project(tmp_path)
-        try:
-            calls = {"n": 0}
+        project, sheet_id, row_ids = self._seed_media_project(make_project)
+        calls = {"n": 0}
 
-            async def flaky_faster_whisper(
-                self: transcribe_engines.FasterWhisperAdapter,
-                path: str,
-                spec: dict[str, Any],
-                *,
-                should_cancel: Any = None,
-            ) -> dict[str, Any]:
-                del self, spec
-                calls["n"] += 1
-                if calls["n"] == 1:
-                    return {
-                        "text": "hello world",
-                        "segments": [],
-                        "language": "en",
-                    }
-                raise RuntimeError("ASR provider unavailable")
+        async def flaky_faster_whisper(
+            self: transcribe_engines.FasterWhisperAdapter,
+            path: str,
+            spec: dict[str, Any],
+            *,
+            should_cancel: Any = None,
+        ) -> dict[str, Any]:
+            del self, spec
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {
+                    "text": "hello world",
+                    "segments": [],
+                    "language": "en",
+                }
+            raise RuntimeError("ASR provider unavailable")
 
-            monkeypatch.setattr(
-                transcribe_engines.FasterWhisperAdapter,
-                "transcribe",
-                flaky_faster_whisper,
-            )
+        monkeypatch.setattr(
+            transcribe_engines.FasterWhisperAdapter,
+            "transcribe",
+            flaky_faster_whisper,
+        )
 
-            action = {
-                "action_id": "media.transcribe",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": sheet_id,
-                    "row_ids": row_ids,
-                },
-                "output_names": {
-                    "text": "transcript",
-                    "segments": "transcript_segments",
-                },
-                "params": {
-                    "source": "media",
-                    "engine": "faster_whisper",
-                },
-                "idempotency_key": "media_transcribe@sha256:partial",
-            }
-            result = run_action_spec(
-                project,
-                action,
-                project_id="project-media-partial",
-            )
+        action = {
+            "action_id": "media.transcribe",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": row_ids,
+            },
+            "output_names": {
+                "text": "transcript",
+                "segments": "transcript_segments",
+            },
+            "params": {
+                "source": "media",
+                "engine": "faster_whisper",
+            },
+            "idempotency_key": "media_transcribe@sha256:partial",
+        }
+        result = run_action_spec(
+            project,
+            action,
+            project_id="project-media-partial",
+        )
 
-            assert result.status == "partial"
-            assert result.receipt_id is not None
+        assert result.status == "partial"
+        assert result.receipt_id is not None
 
-            visible_names = [c["name"] for c in project.columns(sheet_id)]
-            assert "transcript" in visible_names
-        finally:
-            project.close()
+        visible_names = [c["name"] for c in project.columns(sheet_id)]
+        assert "transcript" in visible_names

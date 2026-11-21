@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -74,8 +75,7 @@ def _failing_router() -> tuple[ModelRouter, _FailingAdapter]:
 
 
 def _seed_project(project_path: Path) -> int:
-    project = Project.create(project_path, name="Confirmation Contract")
-    try:
+    with closing(Project.create(project_path, name="Confirmation Contract")) as project:
         sheet_id = project.add_sheet("Stories")
         columns = {
             "story": project.add_column(sheet_id, "story", type="text"),
@@ -102,8 +102,6 @@ def _seed_project(project_path: Path) -> int:
             columns,
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 def _reduce_action(sheet_id: int, *, model: str, key: str) -> dict[str, Any]:
@@ -169,8 +167,7 @@ def test_unconfirmed_model_action_pauses_with_generic_reason_and_no_durable_stat
     project_path = tmp_path / "model.frisket"
     sheet_id = _seed_project(project_path)
     router, adapter = _summary_router()
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         before = _counts(project)
         result = executor_actions.run_action_spec(
             project,
@@ -189,8 +186,6 @@ def test_unconfirmed_model_action_pauses_with_generic_reason_and_no_durable_stat
         assert adapter.requests == []
         # unpriced model => the gate cannot certify "cheap" => unknown_estimate.
         assert _confirmation_reason(result) == "unknown_estimate"
-    finally:
-        project.close()
 
 
 def test_confirmed_model_action_proceeds_and_creates_state(tmp_path: Path) -> None:
@@ -199,8 +194,7 @@ def test_confirmed_model_action_proceeds_and_creates_state(tmp_path: Path) -> No
     project_path = tmp_path / "confirmed.frisket"
     sheet_id = _seed_project(project_path)
     router, adapter = _summary_router()
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         before = _counts(project)
         # Quote first, then echo the exact token: the only consent there is.
         result = run_action_with_confirmation(
@@ -214,8 +208,6 @@ def test_confirmed_model_action_proceeds_and_creates_state(tmp_path: Path) -> No
         assert result.status == "completed", result.errors
         assert _counts(project) != before
         assert adapter.requests, "confirmed run must reach the provider"
-    finally:
-        project.close()
 
 
 def test_post_provider_failure_is_terminal_not_confirmation(tmp_path: Path) -> None:
@@ -224,8 +216,7 @@ def test_post_provider_failure_is_terminal_not_confirmation(tmp_path: Path) -> N
     project_path = tmp_path / "failure.frisket"
     sheet_id = _seed_project(project_path)
     router, adapter = _failing_router()
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             _reduce_action(sheet_id, model="anthropic/claude-haiku-4-5", key="failure"),
@@ -237,8 +228,6 @@ def test_post_provider_failure_is_terminal_not_confirmation(tmp_path: Path) -> N
         assert result.status != "needs_confirmation"
         assert result.status in {"failed", "partial"}
         assert adapter.requests, "the provider should have been called"
-    finally:
-        project.close()
 
 
 # --- builder-level reason vocabulary ---------------------------------------

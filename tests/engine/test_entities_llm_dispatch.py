@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import partial
+from contextlib import closing
 
 from model_doubles import canned_reply_router
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
@@ -97,8 +98,7 @@ def _seed_project(
     *,
     body: str = "Ada Lovelace wrote notes for Charles Babbage.",
 ) -> int:
-    project = Project.create(project_path, name="NER LLM Dispatch")
-    try:
+    with closing(Project.create(project_path, name="NER LLM Dispatch")) as project:
         sheet_id = project.add_sheet("Docs")
         columns = {"body": project.add_column(sheet_id, "body", type="text")}
         project.add_rows(
@@ -107,15 +107,12 @@ def _seed_project(
             columns,
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 def test_estimate_prices_llm_engine_as_a_real_model_call(tmp_path: Path) -> None:
     project_path = tmp_path / "ner-llm-estimate.frisket"
     sheet_id = _seed_project(project_path)
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         runner = MapRunner(
             project,
             ModelRouter(
@@ -140,8 +137,6 @@ def test_estimate_prices_llm_engine_as_a_real_model_call(tmp_path: Path) -> None
         gliner_est = runner.estimate(gliner.spec_dict(), program=gliner.program)
         assert "avg_input_tokens" in llm_est
         assert gliner_est["cost"] == 0.0
-    finally:
-        project.close()
 
 
 def test_llm_engine_declares_model_cost_while_local_engine_is_free():
@@ -250,8 +245,7 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
         }
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -307,8 +301,6 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
         assert span["quote"] == "Ada Lovelace"
         assert span["selector"]["char_start"] == 0
         assert span["selector"]["char_end"] == 12
-    finally:
-        project.close()
 
 
 def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
@@ -340,7 +332,7 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_evidence_rollback@sha256:stable"
     )
-    try:
+    with closing(project):
         result = run_action_with_confirmation(
             project, action, project_id=PROJECT_ID, router=router
         )
@@ -377,8 +369,6 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
         assert replay.model_dump() == result.model_dump()
         assert len(adapter.requests) == 1
         assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
 
 
 def test_map_ner_llm_engine_drops_malformed_model_entities(tmp_path: Path) -> None:
@@ -399,8 +389,7 @@ def test_map_ner_llm_engine_drops_malformed_model_entities(tmp_path: Path) -> No
         }
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project, action, project_id=PROJECT_ID, router=router
         )
@@ -417,8 +406,6 @@ def test_map_ner_llm_engine_drops_malformed_model_entities(tmp_path: Path) -> No
                 "fingerprint": "ada lovelace",
             }
         ]
-    finally:
-        project.close()
 
 
 def test_map_ner_llm_highlights_every_exact_repeated_mention(tmp_path: Path) -> None:
@@ -442,8 +429,7 @@ def test_map_ner_llm_highlights_every_exact_repeated_mention(tmp_path: Path) -> 
         }
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project, action, project_id=PROJECT_ID, router=router
         )
@@ -464,5 +450,3 @@ def test_map_ner_llm_highlights_every_exact_repeated_mention(tmp_path: Path) -> 
             (span["selector"]["char_start"], span["selector"]["char_end"])
             for span in spans
         ] == [(0, 3), (8, 11)]
-    finally:
-        project.close()

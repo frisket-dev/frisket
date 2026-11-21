@@ -1,6 +1,8 @@
 """Actual read partitions and immutable identity, through real store seams."""
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
+from pathlib import Path
+from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.changes import ChangeStore, start_change
@@ -13,8 +15,12 @@ from frisket.engine.store.consumed_sources import (
 )
 
 
-def _seed(tmp_path, count=4):
-    project = Project.create(tmp_path / "sources.frisket")
+def _seed(target: Path | Any, count=4):
+    project = (
+        Project.create(target / "sources.frisket")
+        if isinstance(target, Path)
+        else target("sources")
+    )
     sheet = project.add_sheet("source")
     column = project.add_column(sheet, "input")
     unrelated = project.add_column(sheet, "unrelated")
@@ -44,184 +50,162 @@ def _transition(project, op, column, row, *, restore=False):
 
 
 def test_mixed_batches_compare_the_actual_consumed_state_and_undo_restores_it(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project, sheet, column, _, rows, owner = _seed(tmp_path)
-    try:
-        read_snapshot = project.read_snapshot
-        reads = 0
-        changes = []
+    project, sheet, column, _, rows, owner = _seed(make_project)
+    read_snapshot = project.read_snapshot
+    reads = 0
+    changes = []
 
-        @contextmanager
-        def interleaved_read():
-            nonlocal reads
-            with read_snapshot() as snapshot:
-                yield snapshot
-            reads += 1
-            if reads == 1:
-                changes.append(
-                    project.apply_edits(
-                        [
-                            {
-                                "row_id": rows[0],
-                                "column_id": column,
-                                "value": "late first",
-                            }
-                        ]
-                    )
+    @contextmanager
+    def interleaved_read():
+        nonlocal reads
+        with read_snapshot() as snapshot:
+            yield snapshot
+        reads += 1
+        if reads == 1:
+            changes.append(
+                project.apply_edits(
+                    [
+                        {
+                            "row_id": rows[0],
+                            "column_id": column,
+                            "value": "late first",
+                        }
+                    ]
                 )
-                changes.append(
-                    project.apply_edits(
-                        [{"row_id": rows[-1], "column_id": column, "value": "new last"}]
-                    )
+            )
+            changes.append(
+                project.apply_edits(
+                    [{"row_id": rows[-1], "column_id": column, "value": "new last"}]
                 )
+            )
 
-        monkeypatch.setattr(project, "read_snapshot", interleaved_read)
-        _, values, capture = read_consumed_source(
-            project, sheet, [column], batch_size=2
-        )
-        monkeypatch.setattr(project, "read_snapshot", read_snapshot)
-        assert values[column][rows[0]] == "v0"
-        assert values[column][rows[-1]] == "new last"
-        assert capture["coherent"] is False
-        bundle = _save(project, capture, sheet, owner)
-        assert verify_bundle(project, bundle) == "stale"
-        _transition(project, changes[0], column, rows[0])
-        assert verify_bundle(project, bundle) == "fresh"
-        _transition(project, changes[1], column, rows[-1])
-        assert verify_bundle(project, bundle) == "stale"
-        _transition(project, changes[1], column, rows[-1], restore=True)
-        assert verify_bundle(project, bundle) == "fresh"
-    finally:
-        project.close()
+    monkeypatch.setattr(project, "read_snapshot", interleaved_read)
+    _, values, capture = read_consumed_source(project, sheet, [column], batch_size=2)
+    monkeypatch.setattr(project, "read_snapshot", read_snapshot)
+    assert values[column][rows[0]] == "v0"
+    assert values[column][rows[-1]] == "new last"
+    assert capture["coherent"] is False
+    bundle = _save(project, capture, sheet, owner)
+    assert verify_bundle(project, bundle) == "stale"
+    _transition(project, changes[0], column, rows[0])
+    assert verify_bundle(project, bundle) == "fresh"
+    _transition(project, changes[1], column, rows[-1])
+    assert verify_bundle(project, bundle) == "stale"
+    _transition(project, changes[1], column, rows[-1], restore=True)
+    assert verify_bundle(project, bundle) == "fresh"
 
 
 def test_equal_text_new_contribution_is_stale_and_unrelated_column_is_clean(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project, sheet, column, unrelated, rows, owner = _seed(tmp_path)
-    try:
-        _, _, capture = read_consumed_source(project, sheet, [column])
-        bundle = _save(project, capture, sheet, owner)
-        project.apply_edits(
-            [{"row_id": rows[0], "column_id": unrelated, "value": "different"}]
-        )
-        # Clean guards share the same optimization for refs and fingerprints.
-        import frisket.engine.store.consumed_sources as captures
+    project, sheet, column, unrelated, rows, owner = _seed(make_project)
+    _, _, capture = read_consumed_source(project, sheet, [column])
+    bundle = _save(project, capture, sheet, owner)
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": unrelated, "value": "different"}]
+    )
+    # Clean guards share the same optimization for refs and fingerprints.
+    import frisket.engine.store.consumed_sources as captures
 
-        monkeypatch.setattr(
-            captures,
-            "_verify_aggregate",
-            lambda *_: (_ for _ in ()).throw(AssertionError("clean capture scanned")),
-        )
-        assert bundle_state(project, bundle) == "fresh"
-        monkeypatch.undo()
-        edit = project.apply_edits(
-            [{"row_id": rows[0], "column_id": column, "value": "v0"}]
-        )
-        assert verify_bundle(project, bundle) == "stale"
-        _transition(project, edit, column, rows[0])
-        assert verify_bundle(project, bundle) == "fresh"
-    finally:
-        project.close()
+    monkeypatch.setattr(
+        captures,
+        "_verify_aggregate",
+        lambda *_: (_ for _ in ()).throw(AssertionError("clean capture scanned")),
+    )
+    assert bundle_state(project, bundle) == "fresh"
+    monkeypatch.undo()
+    edit = project.apply_edits(
+        [{"row_id": rows[0], "column_id": column, "value": "v0"}]
+    )
+    assert verify_bundle(project, bundle) == "stale"
+    _transition(project, edit, column, rows[0])
+    assert verify_bundle(project, bundle) == "fresh"
 
 
-def test_whole_scope_and_explicit_cohort_have_distinct_append_policy(tmp_path):
-    project, sheet, column, _, rows, owner = _seed(tmp_path)
-    try:
-        _, _, whole = read_consumed_source(project, sheet, [column])
-        _, _, selected = read_consumed_source(
-            project, sheet, [column], row_ids=rows, scope_intent="selected"
-        )
-        whole_id = _save(project, whole, sheet, owner)
-        second_owner = project.append_change("test.selected", {})
-        selected_id = _save(project, selected, sheet, second_owner)
-        project.add_rows(sheet, [{"input": "appended"}], {"input": column})
-        assert verify_bundle(project, whole_id) == "stale"
-        assert verify_bundle(project, selected_id) == "fresh"
-    finally:
-        project.close()
+def test_whole_scope_and_explicit_cohort_have_distinct_append_policy(make_project):
+    project, sheet, column, _, rows, owner = _seed(make_project)
+    _, _, whole = read_consumed_source(project, sheet, [column])
+    _, _, selected = read_consumed_source(
+        project, sheet, [column], row_ids=rows, scope_intent="selected"
+    )
+    whole_id = _save(project, whole, sheet, owner)
+    second_owner = project.append_change("test.selected", {})
+    selected_id = _save(project, selected, sheet, second_owner)
+    project.add_rows(sheet, [{"input": "appended"}], {"input": column})
+    assert verify_bundle(project, whole_id) == "stale"
+    assert verify_bundle(project, selected_id) == "fresh"
 
 
-def test_capture_rolls_back_with_result_transaction(tmp_path):
-    project, sheet, column, _, _, owner = _seed(tmp_path)
-    try:
-        _, _, capture = read_consumed_source(project, sheet, [column])
-        project.db.execute("BEGIN IMMEDIATE")
-        store_capture(project, capture, owner_op_id=owner, output_sheet_id=sheet)
-        project.db.rollback()
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM consumed_source_bundles"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+def test_capture_rolls_back_with_result_transaction(make_project):
+    project, sheet, column, _, _, owner = _seed(make_project)
+    _, _, capture = read_consumed_source(project, sheet, [column])
+    project.db.execute("BEGIN IMMEDIATE")
+    store_capture(project, capture, owner_op_id=owner, output_sheet_id=sheet)
+    project.db.rollback()
+    assert (
+        project.db.execute("SELECT count(*) FROM consumed_source_bundles").fetchone()[0]
+        == 0
+    )
 
 
-def test_earlier_writer_publishing_after_capture_invalidates_actual_identity(tmp_path):
+def test_earlier_writer_publishing_after_capture_invalidates_actual_identity(
+    make_project,
+):
     from frisket.engine.store.cell_writes import (
         BaseCellWrite,
         create_base_cell_producer,
         replace_base_cells,
     )
 
-    project, sheet, column, _, rows, owner = _seed(tmp_path)
-    try:
-        writer = project.append_change("test.delayed_writer", {})
-        project.db.execute("BEGIN IMMEDIATE")
-        start_change(project.db, writer, writing=True)
-        producer = create_base_cell_producer(
-            project.db, stage_id="delayed", op_id=writer
-        )
-        project.db.commit()
-        capture_owner = project.append_change("test.later_capture", {})
-        assert writer < capture_owner
-        _, _, capture = read_consumed_source(project, sheet, [column])
-        bundle = _save(project, capture, sheet, capture_owner)
-        assert bundle_state(project, bundle) == "fresh"
-        project.db.execute("BEGIN IMMEDIATE")
-        replace_base_cells(
-            project.db,
-            producer_id=producer,
-            column_ids=[column],
-            row_ids=[rows[0]],
-            cells=[BaseCellWrite(rows[0], column, "published late")],
-        )
-        project.db.commit()
-        assert project.get_values(sheet, column)[rows[0]] == "published late"
-        assert bundle_state(project, bundle) == "stale"
-        _transition(project, writer, column, rows[0])
-        assert bundle_state(project, bundle) == "fresh"
-    finally:
-        project.close()
+    project, sheet, column, _, rows, owner = _seed(make_project)
+    writer = project.append_change("test.delayed_writer", {})
+    project.db.execute("BEGIN IMMEDIATE")
+    start_change(project.db, writer, writing=True)
+    producer = create_base_cell_producer(project.db, stage_id="delayed", op_id=writer)
+    project.db.commit()
+    capture_owner = project.append_change("test.later_capture", {})
+    assert writer < capture_owner
+    _, _, capture = read_consumed_source(project, sheet, [column])
+    bundle = _save(project, capture, sheet, capture_owner)
+    assert bundle_state(project, bundle) == "fresh"
+    project.db.execute("BEGIN IMMEDIATE")
+    replace_base_cells(
+        project.db,
+        producer_id=producer,
+        column_ids=[column],
+        row_ids=[rows[0]],
+        cells=[BaseCellWrite(rows[0], column, "published late")],
+    )
+    project.db.commit()
+    assert project.get_values(sheet, column)[rows[0]] == "published late"
+    assert bundle_state(project, bundle) == "stale"
+    _transition(project, writer, column, rows[0])
+    assert bundle_state(project, bundle) == "fresh"
 
 
-def test_equal_descriptor_value_from_new_owner_is_stale_until_reverted(tmp_path):
+def test_equal_descriptor_value_from_new_owner_is_stale_until_reverted(make_project):
     from frisket.engine.store.column_descriptors import record_descriptor_changes
 
-    project, sheet, column, _, rows, owner = _seed(tmp_path)
-    try:
-        _, _, capture = read_consumed_source(project, sheet, [column])
-        bundle = _save(project, capture, sheet, owner)
-        descriptor_change = project.append_change("column.retype", {})
-        project.db.execute("BEGIN IMMEDIATE")
-        start_change(project.db, descriptor_change, writing=True)
-        info = {
-            "column_types": {str(column): "text"},
-            "column_types_after": {str(column): "text"},
-        }
-        project.set_undo_info(descriptor_change, info, commit=False)
-        record_descriptor_changes(project.db, descriptor_change, info)
-        refresh_current_cells(project.db, column_ids=[column], row_ids=rows)
-        ChangeStore(project).close(descriptor_change)
-        project.db.commit()
-        assert bundle_state(project, bundle) == "stale"
-        _transition(project, descriptor_change, column, rows[0])
-        assert bundle_state(project, bundle) == "fresh"
-    finally:
-        project.close()
+    project, sheet, column, _, rows, owner = _seed(make_project)
+    _, _, capture = read_consumed_source(project, sheet, [column])
+    bundle = _save(project, capture, sheet, owner)
+    descriptor_change = project.append_change("column.retype", {})
+    project.db.execute("BEGIN IMMEDIATE")
+    start_change(project.db, descriptor_change, writing=True)
+    info = {
+        "column_types": {str(column): "text"},
+        "column_types_after": {str(column): "text"},
+    }
+    project.set_undo_info(descriptor_change, info, commit=False)
+    record_descriptor_changes(project.db, descriptor_change, info)
+    refresh_current_cells(project.db, column_ids=[column], row_ids=rows)
+    ChangeStore(project).close(descriptor_change)
+    project.db.commit()
+    assert bundle_state(project, bundle) == "stale"
+    _transition(project, descriptor_change, column, rows[0])
+    assert bundle_state(project, bundle) == "fresh"
 
 
 def test_pending_and_successful_null_share_result_address_but_not_consumed_state(
@@ -236,7 +220,7 @@ def test_pending_and_successful_null_share_result_address_but_not_consumed_state
     )
 
     project, sheet, column, rows = _seed_project(tmp_path, row_count=1)
-    try:
+    with closing(project):
         run = _start_claimed_run(
             project,
             sheet_id=sheet,
@@ -268,5 +252,3 @@ def test_pending_and_successful_null_share_result_address_but_not_consumed_state
 
         _seal(ResultGenerationStore(project), run, column)
         assert verify_bundle(project, bundle) == "stale"
-    finally:
-        project.close()

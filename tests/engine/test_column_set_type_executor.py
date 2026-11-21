@@ -395,7 +395,6 @@ def test_set_type_requires_plugin_enablement_then_accepts_valid_values(
         assert enabled.status == "completed", enabled.errors
         assert _column_type(project, column_id) == plugin_type
     finally:
-        project.close()
         column_types.unregister_column_type(plugin_type)
 
 

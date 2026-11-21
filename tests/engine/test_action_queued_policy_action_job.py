@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from contextlib import closing
 
 import pytest
 from action_test_helpers import legacy_params_hash
@@ -113,8 +114,7 @@ def _reserve_action_job_receipt(project_path, project_id, *, kind, receipt_id):
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(project_path, name="ActionJob")
-    try:
+    with closing(Project.create(project_path, name="ActionJob")) as project:
         ReceiptStore(project).insert_running(
             Receipt(
                 receipt_id=receipt_id,
@@ -126,8 +126,6 @@ def _reserve_action_job_receipt(project_path, project_id, *, kind, receipt_id):
                 status="running",
             )
         )
-    finally:
-        project.close()
 
 
 def _envelope(project_id, *, kind, receipt_id):
@@ -500,12 +498,9 @@ def _receipt_status(project_path, receipt_id):
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         stored = ReceiptStore(project).find_by_id(receipt_id)
         return stored.parsed() if stored is not None else None
-    finally:
-        project.close()
 
 
 def test_exhausted_lease_reconciliation_matches_only_the_canonical_error(
@@ -581,8 +576,7 @@ def _insert_action_job_receipt(project_path, project_id, *, kind, receipt_id, st
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(project_path, name="ActionJob")
-    try:
+    with closing(Project.create(project_path, name="ActionJob")) as project:
         ReceiptStore(project).insert(
             Receipt(
                 receipt_id=receipt_id,
@@ -594,8 +588,6 @@ def _insert_action_job_receipt(project_path, project_id, *, kind, receipt_id, st
                 status=status,
             )
         )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("executor_status", ["completed", "running"])
@@ -677,8 +669,7 @@ def test_action_run_stale_writer_refusal_leaves_shared_receipt_untouched(
     def raise_stale_writer(_project, _envelope, *, execution):
         raise StaleAttemptWriter("attempt A lost its effect-site fence")
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_run_job(
             project,
             {
@@ -698,8 +689,6 @@ def test_action_run_stale_writer_refusal_leaves_shared_receipt_untouched(
         assert receipt.status == "running"
         assert receipt.run_id is None
         assert receipt.errors == []
-    finally:
-        project.close()
 
 
 def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
@@ -725,8 +714,7 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
     def raise_renewal_failure(_project, _envelope, *, execution):
         raise ClaimLeaseRenewalFailed("injected claim renewal outage")
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         with pytest.raises(
             ClaimLeaseRenewalFailed,
             match="claim renewal outage",
@@ -748,8 +736,6 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
         assert receipt.status == "running"
         assert receipt.run_id is None
         assert receipt.errors == []
-    finally:
-        project.close()
 
 
 def test_action_run_job_missing_executor_terminalizes_failed(tmp_path) -> None:
@@ -987,8 +973,7 @@ def test_action_job_cancelled_receipt_is_finished_insert_compatible(tmp_path) ->
         project_path, project_id, kind=kind, receipt_id=receipt_id
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = action_job_cancelled_result(
             project,
             project_id=project_id,
@@ -1007,8 +992,6 @@ def test_action_job_cancelled_receipt_is_finished_insert_compatible(tmp_path) ->
         )
         ReceiptStore(project).insert_finished(replay)
         assert ReceiptStore(project).status_by_id(replay.receipt_id) == "cancelled"
-    finally:
-        project.close()
 
 
 def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
@@ -1029,8 +1012,7 @@ def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
         status="cancelled",
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = action_job_success_result(
             project,
             project_id=project_id,
@@ -1038,8 +1020,6 @@ def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
             action_kind=kind,
             job_id=99,
         )
-    finally:
-        project.close()
 
     assert result.status == "cancelled"
     stored = _receipt_status(project_path, receipt_id)
@@ -1086,8 +1066,7 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
         receipt_id=receipt_id,
         status="running",
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = project.add_sheet("Claims")
         claims, conflict = OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
@@ -1125,8 +1104,6 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
         ).fetchone()
         assert stored is not None and stored.status == "running"
         assert claim is not None and claim["status"] == "active"
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("terminal_status", ["completed", "partial"])
@@ -1149,8 +1126,7 @@ def test_action_job_success_releases_claim_for_every_success_status(
         receipt_id=receipt_id,
         status="running",
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = project.add_sheet("Claims")
         claims, conflict = OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
@@ -1175,8 +1151,6 @@ def test_action_job_success_releases_claim_for_every_success_status(
         ).fetchone()
         assert result.status == terminal_status
         assert claim is not None and claim["status"] == "released"
-    finally:
-        project.close()
 
 
 def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
@@ -1202,8 +1176,7 @@ def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
         action_kind=action_kind,
         details={"invoice_id": "inv_fixture", "cost_actual": 4.75},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = action_job_failure_result(
             project,
             project_id=project_id,
@@ -1216,8 +1189,6 @@ def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
         assert result.errors == [error]
         assert stored is not None
         assert stored.errors == [error]
-    finally:
-        project.close()
 
 
 def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:

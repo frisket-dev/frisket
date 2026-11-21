@@ -102,8 +102,7 @@ def inject_channel_provider(monkeypatch: pytest.MonkeyPatch):
 
 
 def _seed_source_cell(project_path: Path, url: str = CHANNEL_URL) -> dict[str, int]:
-    project = Project.create(project_path, name="Channels")
-    try:
+    with closing(Project.create(project_path, name="Channels")) as project:
         sheet_id = project.add_sheet("Channels")
         col_id = project.add_column(sheet_id, "channel_url", type="link")
         row_ids = project.add_rows(
@@ -114,8 +113,6 @@ def _seed_source_cell(project_path: Path, url: str = CHANNEL_URL) -> dict[str, i
             "column_id": col_id,
             "row_id": int(row_ids[0]) if isinstance(row_ids, list) else int(row_ids),
         }
-    finally:
-        project.close()
 
 
 def _expand_action(
@@ -160,8 +157,7 @@ def test_channel_expands_to_child_sheet_with_lineage(
 ) -> None:
     inject_channel_provider(entry_count=3, preview_count=3)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _expand_action(
@@ -188,8 +184,6 @@ def test_channel_expands_to_child_sheet_with_lineage(
         assert len(rows) == 3
         # Every child row's parent is the single source cell's row (lineage).
         assert all(int(r["parent_row_id"]) == seed["row_id"] for r in rows)
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +197,7 @@ def test_over_default_cap_without_confirmed_gates_at_402(
     # preview_count 150 exceeds default_cap (100); Solo has no hard cap.
     inject_channel_provider(entry_count=150, preview_count=150)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         gated = _run(
             project,
             _expand_action(
@@ -233,8 +226,6 @@ def test_over_default_cap_without_confirmed_gates_at_402(
             ).fetchone()[0]
             == 0
         )
-    finally:
-        project.close()
 
 
 def test_confirmed_completes_over_default_cap(
@@ -242,8 +233,7 @@ def test_confirmed_completes_over_default_cap(
 ) -> None:
     inject_channel_provider(entry_count=150, preview_count=150)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         action = _expand_action(
             source_sheet_id=seed["sheet_id"],
             source_column_id=seed["column_id"],
@@ -269,8 +259,6 @@ def test_confirmed_completes_over_default_cap(
             "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (int(child["id"]),)
         ).fetchone()[0]
         assert count == 150
-    finally:
-        project.close()
 
 
 def test_confirmation_hash_rejects_same_count_after_source_collection_changes(
@@ -280,8 +268,7 @@ def test_confirmation_hash_rejects_same_count_after_source_collection_changes(
 
     inject_channel_provider(entry_count=150, preview_count=150)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         action = _expand_action(
             source_sheet_id=seed["sheet_id"],
             source_column_id=seed["column_id"],
@@ -313,8 +300,6 @@ def test_confirmation_hash_rejects_same_count_after_source_collection_changes(
             ).fetchone()[0]
             == 0
         )
-    finally:
-        project.close()
 
 
 def test_confirmed_solo_expansion_completes_legacy_hard_cap_plus_one(
@@ -322,8 +307,7 @@ def test_confirmed_solo_expansion_completes_legacy_hard_cap_plus_one(
 ) -> None:
     provider_calls = inject_channel_provider(entry_count=1001, preview_count=1001)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         action = _expand_action(
             source_sheet_id=seed["sheet_id"],
             source_column_id=seed["column_id"],
@@ -371,8 +355,6 @@ def test_confirmed_solo_expansion_completes_legacy_hard_cap_plus_one(
             ).fetchone()[0]
             == 1
         )
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +369,7 @@ def test_non_collection_url_is_an_honest_error(
     seed = _seed_source_cell(
         tmp_path / "p.frisket", url="https://www.youtube.com/watch?v=vid0000001"
     )
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _expand_action(
@@ -401,8 +382,6 @@ def test_non_collection_url_is_an_honest_error(
         assert result.status == "failed", result.status
         assert result.errors[0].code == "invalid_input_ref"
         assert result.errors[0].needs_confirmation is False
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +394,7 @@ def test_idempotent_replay_returns_the_same_sheet(
 ) -> None:
     calls = inject_channel_provider(entry_count=3, preview_count=3)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         key = "collection_expand_replay@sha256:v1"
         first = _run(
             project,
@@ -447,8 +425,6 @@ def test_idempotent_replay_returns_the_same_sheet(
         assert sheet_count == 1
         assert first.receipt_id == second.receipt_id
         assert len(calls) == 1
-    finally:
-        project.close()
 
 
 def _request_for(seed, *, name="Videos", key="collection"):

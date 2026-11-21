@@ -4,6 +4,7 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -95,8 +96,14 @@ def _write_counts(project: Project) -> dict[str, int]:
     }
 
 
-def _seed_project(make_project, name: str = "temporal-ingress") -> dict[str, Any]:
-    project = make_project(name)
+def _seed_project(
+    target: Path | Any, name: str = "temporal-ingress"
+) -> dict[str, Any]:
+    project = (
+        Project.create(target / f"{name}.frisket")
+        if isinstance(target, Path)
+        else target(name)
+    )
     sheet_id = project.add_sheet("Media")
     columns = {
         "label": project.add_column(sheet_id, "label", "text"),

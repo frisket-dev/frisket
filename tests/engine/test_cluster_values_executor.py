@@ -775,7 +775,7 @@ def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
 
 @pytest.mark.parametrize("sidecar_commit_landed", [False, True])
 def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
-    tmp_path: Path, monkeypatch, sidecar_commit_landed: bool
+    tmp_path: Path, make_project, monkeypatch, sidecar_commit_landed: bool
 ) -> None:
     """A paid batch can return before the rebuildable vector sidecar commits.
 
@@ -788,140 +788,134 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(
-        tmp_path / f"cluster-values-sidecar-failure-{sidecar_commit_landed}.frisket"
+    project = make_project(f"cluster-values-sidecar-failure-{sidecar_commit_landed}")
+    seeded = _seed(project, tmp_path)
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:sidecar-failure-reconcile",
+        method="semantic",
     )
-    try:
-        seeded = _seed(project, tmp_path)
-        with write_transaction(project.db):
-            project.set_provider_key(
-                provider="openai",
-                encrypted=encrypt_secret("sk-project-openai"),
-                hint=key_hint("sk-project-openai"),
-                spend_cap_micro=1_000_000,
-            )
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:sidecar-failure-reconcile",
-            method="semantic",
-        )
-        estimate = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-sidecar-failure",
-            router=router,
-        )
-        confirmed = copy.deepcopy(action)
-        confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
+    estimate = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-sidecar-failure",
+        router=router,
+    )
+    confirmed = copy.deepcopy(action)
+    confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
 
-        real_put = RetrievalStore.put_representations
-        fail_next = True
+    real_put = RetrievalStore.put_representations
+    fail_next = True
 
-        def fail_first_put(self, representations):
-            nonlocal fail_next
-            if not fail_next:
-                return real_put(self, representations)
-            fail_next = False
-            if sidecar_commit_landed:
-                real_put(self, representations)
-            raise sqlite3.OperationalError("injected vector sidecar commit failure")
+    def fail_first_put(self, representations):
+        nonlocal fail_next
+        if not fail_next:
+            return real_put(self, representations)
+        fail_next = False
+        if sidecar_commit_landed:
+            real_put(self, representations)
+        raise sqlite3.OperationalError("injected vector sidecar commit failure")
 
-        monkeypatch.setattr(RetrievalStore, "put_representations", fail_first_put)
-        original_context = {
-            "funding_account_id": 17,
-            "reservation_id": "embedding-reservation",
-        }
+    monkeypatch.setattr(RetrievalStore, "put_representations", fail_first_put)
+    original_context = {
+        "funding_account_id": 17,
+        "reservation_id": "embedding-reservation",
+    }
 
-        def assert_context_precedes_provider_egress() -> None:
-            checkpoint = project.db.execute(
-                "SELECT state, payload FROM effect_checkpoints "
-                "WHERE family='model_call'"
-            ).fetchone()
-            assert checkpoint is not None and checkpoint["state"] == "reserved"
-            receipt = project.db.execute(
-                "SELECT edition_run_context FROM receipts WHERE status='running'"
-            ).fetchone()
-            assert receipt is not None
-            assert json.loads(receipt["edition_run_context"]) == original_context
-
-        adapter.on_embed = assert_context_precedes_provider_egress
-
-        with pytest.raises(
-            sqlite3.OperationalError,
-            match="injected vector sidecar commit failure",
-        ):
-            run_action_spec(
-                project,
-                confirmed,
-                project_id="cluster-values-sidecar-failure",
-                router=router,
-                edition_run_context=original_context,
-            )
-
-        assert len(adapter.calls) == 1
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE status='completed'"
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM columns WHERE sheet_id=? AND name='name_canonical' "
-                "AND hidden=0",
-                (seeded["sheet_id"],),
-            ).fetchone()
-            is None
-        )
+    def assert_context_precedes_provider_egress() -> None:
         checkpoint = project.db.execute(
             "SELECT state, payload FROM effect_checkpoints WHERE family='model_call'"
         ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "returned"
-        checkpoint_payload = json.loads(checkpoint["payload"])
-        assert len(checkpoint_payload["vectors"]) == 4
-        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
-
-        _recover_abandoned_cluster(
-            project,
-            confirmed,
-            router=router,
-            project_id="cluster-values-sidecar-failure",
-        )
-        retried = run_action_spec(
-            project,
-            confirmed,
-            project_id="cluster-values-sidecar-failure",
-            router=router,
-            edition_run_context={"reservation_id": "replacement-must-not-win"},
-        )
-
-        assert retried.status == "completed", retried.errors
-        assert len(adapter.calls) == 1
-        assert len(project.db.execute("SELECT id FROM model_calls").fetchall()) == 1
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
-            ).fetchone()[0]
-            == 0
-        )
-        spend = project.provider_spend_state("openai")
-        assert spend is not None
-        assert spend.spent_micro == round(_RemoteEmbeddingAdapter.COST_USD * 1_000_000)
-        receipt_row = project.db.execute(
-            "SELECT body, edition_run_context FROM receipts WHERE id=?",
-            (retried.receipt_id,),
+        assert checkpoint is not None and checkpoint["state"] == "reserved"
+        receipt = project.db.execute(
+            "SELECT edition_run_context FROM receipts WHERE status='running'"
         ).fetchone()
-        receipt_body = json.loads(receipt_row["body"])
-        provider_use = receipt_body["provider_use"]
-        assert json.loads(receipt_row["edition_run_context"]) == original_context
-        assert "edition_run_context" not in receipt_body
-        assert provider_use[0]["external_api"] is True
-        assert provider_use[0]["model_call_count"] == 1
-        assert provider_use[0]["cost_actual"] == _RemoteEmbeddingAdapter.COST_USD
-    finally:
-        project.close()
+        assert receipt is not None
+        assert json.loads(receipt["edition_run_context"]) == original_context
+
+    adapter.on_embed = assert_context_precedes_provider_egress
+
+    with pytest.raises(
+        sqlite3.OperationalError,
+        match="injected vector sidecar commit failure",
+    ):
+        run_action_spec(
+            project,
+            confirmed,
+            project_id="cluster-values-sidecar-failure",
+            router=router,
+            edition_run_context=original_context,
+        )
+
+    assert len(adapter.calls) == 1
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE status='completed'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM columns WHERE sheet_id=? AND name='name_canonical' "
+            "AND hidden=0",
+            (seeded["sheet_id"],),
+        ).fetchone()
+        is None
+    )
+    checkpoint = project.db.execute(
+        "SELECT state, payload FROM effect_checkpoints WHERE family='model_call'"
+    ).fetchone()
+    assert checkpoint is not None
+    assert checkpoint["state"] == "returned"
+    checkpoint_payload = json.loads(checkpoint["payload"])
+    assert len(checkpoint_payload["vectors"]) == 4
+    assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+
+    _recover_abandoned_cluster(
+        project,
+        confirmed,
+        router=router,
+        project_id="cluster-values-sidecar-failure",
+    )
+    retried = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-sidecar-failure",
+        router=router,
+        edition_run_context={"reservation_id": "replacement-must-not-win"},
+    )
+
+    assert retried.status == "completed", retried.errors
+    assert len(adapter.calls) == 1
+    assert len(project.db.execute("SELECT id FROM model_calls").fetchall()) == 1
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+        == 0
+    )
+    spend = project.provider_spend_state("openai")
+    assert spend is not None
+    assert spend.spent_micro == round(_RemoteEmbeddingAdapter.COST_USD * 1_000_000)
+    receipt_row = project.db.execute(
+        "SELECT body, edition_run_context FROM receipts WHERE id=?",
+        (retried.receipt_id,),
+    ).fetchone()
+    receipt_body = json.loads(receipt_row["body"])
+    provider_use = receipt_body["provider_use"]
+    assert json.loads(receipt_row["edition_run_context"]) == original_context
+    assert "edition_run_context" not in receipt_body
+    assert provider_use[0]["external_api"] is True
+    assert provider_use[0]["model_call_count"] == 1
+    assert provider_use[0]["cost_actual"] == _RemoteEmbeddingAdapter.COST_USD
 
 
 def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
