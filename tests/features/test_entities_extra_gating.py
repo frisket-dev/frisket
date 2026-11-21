@@ -15,7 +15,6 @@ import importlib.util
 import subprocess
 import sys
 import tempfile
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -175,7 +174,7 @@ def test_ftm_migration_harness_gates_gracefully_when_entities_extra_missing(
     ],
 )
 def test_native_ftm_actions_name_missing_extra_remediation(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     definition_name: str,
     params: dict[str, object],
@@ -205,8 +204,8 @@ def test_native_ftm_actions_name_missing_extra_remediation(
             idempotency_key=definition.name,
         ),
     )
-    with closing(Project.create(tmp_path / "project", name="FtM")) as project:
-        result = run_typed_callable_action(project, "p", request)
+    project = make_project("FtM")
+    result = run_typed_callable_action(project, "p", request)
 
     assert result.status == "failed"
     assert result.errors[0].code == "followthemoney_unavailable"
