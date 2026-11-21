@@ -241,8 +241,7 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
         lambda router=None, **_kw: (_fake_embed(embed_calls), "stub/edge-materializer"),
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         )
@@ -394,5 +393,3 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
         )
         assert stale.status == "failed"
         assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()

@@ -24,6 +24,7 @@ B. The closure guard for the workspace-level claim "replay_strict means no
 """
 
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import ast
@@ -241,7 +242,7 @@ def test_router_for_strict_replay_implies_a_cache(tmp_path, strict_env, composit
     while losing the cache, which is the regression this goes red on.
     """
     workspace, project = _build(tmp_path, composition)
-    try:
+    with closing(project):
         router = workspace.router_for(project)
         assert router.cache_mode == "replay_strict", composition.label
 
@@ -250,8 +251,6 @@ def test_router_for_strict_replay_implies_a_cache(tmp_path, strict_env, composit
             assert router.cache is base.cache, composition.label
         else:
             assert router.cache is not None, composition.label
-    finally:
-        project.close()
 
 
 def test_router_for_branch_closure(tmp_path, strict_env):
@@ -279,10 +278,8 @@ def test_router_for_branch_closure(tmp_path, strict_env):
     reached: set[int] = set()
     for composition in COMPOSITIONS:
         workspace, project = _build(tmp_path, composition)
-        try:
+        with closing(project):
             reached.add(_branch_line_reached(workspace, project))
-        finally:
-            project.close()
     assert reached == {site.lineno for site in return_sites}
 
 

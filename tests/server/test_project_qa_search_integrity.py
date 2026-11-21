@@ -4,7 +4,6 @@ from typing import Literal
 
 import frisket.retrieval.service as retrieval_service
 from frisket.contracts.http.project_qa import AskCitation
-from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.retrieval.contracts import (
     BindingRevision,
@@ -83,8 +82,8 @@ def _response(
     )
 
 
-def _ask_project(tmp_path):
-    project = Project.create(tmp_path / "race.frisket", name="Race")
+def _ask_project(make_project):
+    project = make_project("Race")
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "Text")
     [row] = project.add_rows(sheet, [{"Text": "oldneedle"}], {"Text": column})
@@ -102,9 +101,9 @@ def _ask_project(tmp_path):
 
 
 def test_keyword_search_does_not_pair_stale_excerpt_with_new_value_ref(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
 
     def search_then_edit(_project, request, **_kwargs):
         assert isinstance(request.query, TextQuery)
@@ -114,61 +113,57 @@ def test_keyword_search_does_not_pair_stale_excerpt_with_new_value_ref(
         return _response(sheet, row, column, revision)
 
     monkeypatch.setattr(retrieval_service, "search_with_encoding", search_then_edit)
-    try:
-        result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
-        assert result["hits"] == []
-        assert result["partial"] is True
-        assert result["coverage"]["reason"] == "source_changed"
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM project_qa_citations WHERE turn_id=?",
-                (turn["id"],),
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
+    assert result["hits"] == []
+    assert result["partial"] is True
+    assert result["coverage"]["reason"] == "source_changed"
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM project_qa_citations WHERE turn_id=?",
+            (turn["id"],),
+        ).fetchone()[0]
+        == 0
+    )
 
 
-def test_keyword_search_mints_citation_after_dependency_recheck(tmp_path, monkeypatch):
-    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+def test_keyword_search_mints_citation_after_dependency_recheck(
+    make_project, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
     monkeypatch.setattr(
         retrieval_service,
         "search_with_encoding",
         lambda _project, _request, **_kwargs: _response(sheet, row, column, revision),
     )
-    try:
-        result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
-        [hit] = result["hits"]
-        citation = store.get_citation(hit["citation_id"])
-        assert citation["source_kind"] == "cell"
-        assert citation["locator"]["sheet_id"] == sheet
-        assert citation["locator"]["row_id"] == row
-        assert citation["locator"]["column_id"] == column
-        assert citation["locator"]["retrieval_source"] == {
-            "source_id": f"cell:{row}:{column}",
-            "source_kind": "text",
-            "version_kind": "retrieval_revision",
-            "version_value": revision,
-        }
+    result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
+    [hit] = result["hits"]
+    citation = store.get_citation(hit["citation_id"])
+    assert citation["source_kind"] == "cell"
+    assert citation["locator"]["sheet_id"] == sheet
+    assert citation["locator"]["row_id"] == row
+    assert citation["locator"]["column_id"] == column
+    assert citation["locator"]["retrieval_source"] == {
+        "source_id": f"cell:{row}:{column}",
+        "source_kind": "text",
+        "version_kind": "retrieval_revision",
+        "version_value": revision,
+    }
 
-        def whole_source_read(*_args, **_kwargs):
-            raise AssertionError("citation resolution loaded the whole source")
+    def whole_source_read(*_args, **_kwargs):
+        raise AssertionError("citation resolution loaded the whole source")
 
-        monkeypatch.setattr(project, "get_values_with_refs", whole_source_read)
-        assert (
-            resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
-            == "current"
-        )
-        assert result["partial"] is False
-    finally:
-        project.close()
+    monkeypatch.setattr(project, "get_values_with_refs", whole_source_read)
+    assert (
+        resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
+        == "current"
+    )
+    assert result["partial"] is False
 
 
 def test_semantic_search_uses_shared_runtime_and_mints_a_citation(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
     runtime = object()
     observed = []
 
@@ -177,32 +172,29 @@ def test_semantic_search_uses_shared_runtime_and_mints_a_citation(
         return _response(sheet, row, column, revision, mode="semantic")
 
     monkeypatch.setattr(retrieval_service, "search_with_encoding", semantic_search)
-    try:
-        result = ProjectQATools(
-            project,
-            turn,
-            store,
-            embedding_runtime=runtime,
-            setup_scope="workspace",
-        ).search_cells("oldneedle", sheet, mode="semantic")
+    result = ProjectQATools(
+        project,
+        turn,
+        store,
+        embedding_runtime=runtime,
+        setup_scope="workspace",
+    ).search_cells("oldneedle", sheet, mode="semantic")
 
-        assert observed == [("semantic", runtime)]
-        [hit] = result["hits"]
-        assert store.get_citation(hit["citation_id"])["source_kind"] == "cell"
-        assert result["coverage"]["requested_mode"] == "semantic"
-        assert result["partial"] is False
-    finally:
-        project.close()
+    assert observed == [("semantic", runtime)]
+    [hit] = result["hits"]
+    assert store.get_citation(hit["citation_id"])["source_kind"] == "cell"
+    assert result["coverage"]["requested_mode"] == "semantic"
+    assert result["partial"] is False
 
 
-def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypatch):
+def test_located_media_hit_mints_navigable_evidence_citation(make_project, monkeypatch):
     from frisket.engine.store.evidence import (
         record_citation,
         record_source_artifact,
         record_source_span,
     )
 
-    project, store, turn, sheet, row, column, _revision = _ask_project(tmp_path)
+    project, store, turn, sheet, row, column, _revision = _ask_project(make_project)
     _, refs = project.get_values_with_refs(sheet, column, [row])
     with write_transaction(project.db):
         artifact = record_source_artifact(
@@ -252,25 +244,22 @@ def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypat
             sheet, row, column, revision, locator=located
         ),
     )
-    try:
-        result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
-        citation = store.get_citation(result["hits"][0]["citation_id"])
-        assert citation["source_kind"] == "evidence"
-        assert citation["locator"]["evidence_link_id"] == link["stable_id"]
-        assert citation["locator"]["artifact_id"] == artifact["stable_id"]
-        assert citation["locator"]["span_id"] == span["stable_id"]
-        assert citation["locator"]["location"]["time"] == {
-            "start_seconds": 4.25,
-            "end_seconds": 9.5,
-        }
-    finally:
-        project.close()
+    result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
+    citation = store.get_citation(result["hits"][0]["citation_id"])
+    assert citation["source_kind"] == "evidence"
+    assert citation["locator"]["evidence_link_id"] == link["stable_id"]
+    assert citation["locator"]["artifact_id"] == artifact["stable_id"]
+    assert citation["locator"]["span_id"] == span["stable_id"]
+    assert citation["locator"]["location"]["time"] == {
+        "start_seconds": 4.25,
+        "end_seconds": 9.5,
+    }
 
 
 def test_page_time_hit_without_evidence_keeps_document_navigation(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
     located = SourceLocator(
         kind="video_clip",
         pages=PageRange(3, 3),
@@ -283,40 +272,35 @@ def test_page_time_hit_without_evidence_keeps_document_navigation(
             sheet, row, column, revision, locator=located
         ),
     )
-    try:
-        [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
-            "hits"
-        ]
-        citation = store.get_citation(hit["citation_id"])
-        assert citation["source_kind"] == "cell"
+    [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
+        "hits"
+    ]
+    citation = store.get_citation(hit["citation_id"])
+    assert citation["source_kind"] == "cell"
 
-        current = resolve_citation(project, turn["thread_id"], hit["citation_id"])
-        assert current["status"] == "current"
-        typed = AskCitation.model_validate(current)
-        assert typed.target is not None
-        assert current["target"]["navigation"] == {
-            "kind": "document",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": column,
-            "page": 3,
-            "time_seconds": 12.5,
-        }
+    current = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+    assert current["status"] == "current"
+    typed = AskCitation.model_validate(current)
+    assert typed.target is not None
+    assert current["target"]["navigation"] == {
+        "kind": "document",
+        "sheet_id": sheet,
+        "row_id": row,
+        "column_id": column,
+        "page": 3,
+        "time_seconds": 12.5,
+    }
 
-        project.apply_edits(
-            [{"row_id": row, "column_id": column, "value": "replacement"}]
-        )
-        changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
-        assert changed["status"] == "changed"
-        assert "navigation" not in changed["target"]
-    finally:
-        project.close()
+    project.apply_edits([{"row_id": row, "column_id": column, "value": "replacement"}])
+    changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+    assert changed["status"] == "changed"
+    assert "navigation" not in changed["target"]
 
 
 def test_citation_becomes_stale_when_any_binding_dependency_changes(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project, store, turn, sheet, row, column, revision = _ask_project(tmp_path)
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
     context_column = project.add_column(sheet, "Context")
     project.apply_edits(
         [{"row_id": row, "column_id": context_column, "value": "supporting"}]
@@ -344,20 +328,17 @@ def test_citation_becomes_stale_when_any_binding_dependency_changes(
             dependencies=dependencies,
         ),
     )
-    try:
-        [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
-            "hits"
-        ]
-        assert (
-            resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
-            == "current"
-        )
+    [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
+        "hits"
+    ]
+    assert (
+        resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
+        == "current"
+    )
 
-        project.apply_edits(
-            [{"row_id": row, "column_id": context_column, "value": "changed"}]
-        )
-        changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
-        assert changed["status"] == "changed"
-        assert "navigation" not in changed["target"]
-    finally:
-        project.close()
+    project.apply_edits(
+        [{"row_id": row, "column_id": context_column, "value": "changed"}]
+    )
+    changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+    assert changed["status"] == "changed"
+    assert "navigation" not in changed["target"]
