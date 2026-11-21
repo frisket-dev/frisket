@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-from typing import Any
+from typing import Any, Literal
 
 from frisket.actions.types import Row, RowError
 from frisket.execution.dispatch_control import dispatch_for_context
@@ -19,19 +19,23 @@ from frisket.ops.ner_local import LocalNerExtractor
 
 class AdmittedNerExtractor:
     def __init__(self, ctx, *, engine: str):
-        if engine not in ("spacy", "gliner"):
+        if engine == "spacy":
+            resolved_engine: Literal["spacy", "gliner"] = "spacy"
+        elif engine == "gliner":
+            resolved_engine = "gliner"
+        else:
             raise ValueError("unsupported local NER engine")
         self._ctx = ctx
-        self._engine = engine
+        self._engine: Literal["spacy", "gliner"] = resolved_engine
         self._closed = False
         self._tasks: set[asyncio.Task] = set()
         self._spacy_session = None
-        if engine == "spacy" and importlib.util.find_spec("spacy") is None:
+        if resolved_engine == "spacy" and importlib.util.find_spec("spacy") is None:
             from frisket.engine._workers.spacy_session import SpacySession
 
             cancelled = ctx.extras.get("cancelled")
             self._spacy_session = SpacySession(
-                cancelled=cancelled if callable(cancelled) else None
+                cancelled=(lambda: bool(cancelled())) if callable(cancelled) else None
             )
 
     def _check_active(self, ctx) -> None:
@@ -72,7 +76,8 @@ class _BoundNerExtractor:
             raise ValueError("NER threshold must be between zero and one")
         if not text.strip():
             return []
-        if owner._spacy_session is not None:
+        spacy_session = owner._spacy_session
+        if spacy_session is not None:
             extraction = execute_purchase(
                 PurchaseRequest(
                     provider="local",
@@ -85,7 +90,7 @@ class _BoundNerExtractor:
                 ),
                 policy=policy_for_context(self._ctx),
                 dispatch=dispatch_for_context(self._ctx),
-                invoke=lambda: owner._spacy_session.extract(text, labels),
+                invoke=lambda: spacy_session.extract(text, labels),
                 observe=lambda result: PurchaseObservation(
                     result, {"input_count": 1}, 0
                 ),
