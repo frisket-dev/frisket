@@ -1,13 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createAdminBrowserApi } from '../../src/api/adminBrowser';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 afterEach(() => vi.unstubAllGlobals());
 

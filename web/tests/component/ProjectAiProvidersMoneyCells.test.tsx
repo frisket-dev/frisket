@@ -124,4 +124,48 @@ describe('AI Providers money cells', () => {
     expect(screen.getAllByText('$0.00')).toHaveLength(2);
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
+
+  it('masks the project key input, forwards spend cap and receipt on save, and never renders raw keys', async () => {
+    const initial = page([
+      providerRow('anthropic', { configured: false, hint: null, spend_cap_usd: null }),
+    ]);
+    const saved = page([
+      providerRow('anthropic', { configured: true, hint: '...cret', spend_cap_usd: 3.25 }),
+    ]);
+    mockApi.getProjectProviderKeys.mockResolvedValueOnce(initial).mockResolvedValue(saved);
+    vi.spyOn(api, 'validateProjectProviderKey').mockResolvedValue({
+      provider: 'anthropic',
+      ok: true,
+      reachable: true,
+      status: 200,
+      detail: null,
+      validation_token: 'project-token',
+    });
+    const save = vi.spyOn(api, 'setProjectProviderKey').mockResolvedValue(saved);
+
+    render(<ProjectAiProvidersSettings project={OWNER} />);
+    await screen.findByText('ANTHROPIC_API_KEY');
+    await userEvent.click(screen.getByRole('button', { name: 'Add new key' }));
+
+    const keyInput = screen.getByLabelText('Project provider key');
+    expect(keyInput).toHaveAttribute('type', 'password');
+    await userEvent.type(keyInput, 'sk-project-secret');
+    await userEvent.type(screen.getByLabelText('Spend cap in US dollars'), '3.25');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
+    expect(await screen.findByTestId('provider-validation-message')).toHaveTextContent(/accepted|valid/i);
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith(
+      'anthropic',
+      'sk-project-secret',
+      3.25,
+      'project-token',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    expect(await screen.findByText(/\.\.\.cret/)).toBeInTheDocument();
+    expect(screen.getByText('$3.25')).toBeInTheDocument();
+    expect(screen.queryByText('sk-project-secret')).not.toBeInTheDocument();
+  });
 });

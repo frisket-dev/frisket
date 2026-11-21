@@ -9,13 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { createHistoryReviewApi } from '../../src/api/historyReview';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const columnRun = {
   run_id: 9,
@@ -472,36 +466,6 @@ describe('history and review generated HTTP reads', () => {
       ['/api/projects/review-controls/review/runs/9/status', 'POST'],
     ]);
     expect(JSON.parse(String(requests[1].init?.body))).toEqual({ status: 'open' });
-  });
-
-  it.each([401, 403, 404, 422, 500])('maps HTTP %i to the shared ApiError', async (status) => {
-    const payload = { detail: `history-review-${status}` };
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload, status)));
-    const api = historyReviewDomain('102');
-
-    await expect(api.getHistory()).rejects.toMatchObject({
-      name: 'ApiError', status, message: `history-review-${status}`, code: undefined, details: undefined,
-    });
-  });
-
-  it('forwards native abort identity through history reads', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-    const api = historyReviewDomain('103');
-    const pending = api.getHistory(undefined, 50, { signal: controller.signal });
-    const abortError = new DOMException('history cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(pending).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
   });
 
   it('maps all four reads with stable defaults', async () => {

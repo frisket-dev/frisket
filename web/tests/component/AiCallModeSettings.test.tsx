@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as apiModule from '../../src/api/open';
 import type { RuntimeConfig } from '../../src/api/types';
-import { AiCallModeSettings } from '../../src/settings/PersonalSettings';
+import { AiCallModeSettings, PersonalPreferencesSettings } from '../../src/settings/PersonalSettings';
 import { runtimeConfig } from '../support/domainFixtures';
 
 
@@ -113,5 +113,17 @@ describe('AI call mode', () => {
     fireEvent.click(confirm);
 
     await waitFor(() => expect(update).toHaveBeenCalledWith('off', true));
+  });
+
+  it('persists personal theme selection locally and updates data-frisket-theme', async () => {
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-frisket-theme');
+    stubConfig({});
+    render(<PersonalPreferencesSettings />);
+
+    fireEvent.change(screen.getByTestId('personal-pref-theme'), { target: { value: 'dark' } });
+    expect(screen.getByText('Preferences saved')).toBeVisible();
+    expect(document.documentElement.dataset.frisketTheme).toBe('dark');
+    expect(localStorage.getItem('frisket.personal_preferences.v1')).toContain('"theme":"dark"');
   });
 });

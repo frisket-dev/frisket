@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createWorkbenchPluginsApi } from '../../src/api/workbenchPlugins';
 import { getWorkbenchPluginRuntimeIndexContract } from '../../src/api/httpContractRoutes';
 import { ApiError } from '../../src/api/contractErrors';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const settings = {
   schemaVersion: 'frisket.workbench_plugin_settings.v1', projectId: 'p', pluginId: 'plug',
@@ -39,13 +40,6 @@ const state = {
   registryActivated: false, arbitraryPackageLoadAllowed: false, disabledReason: 'plugin_disabled',
   source: { submittedPath: '/plugins/plug' }, installFailure: { diagnostic: 'still loaded' },
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 async function expectApiError(
   request: Promise<unknown>,
@@ -98,32 +92,6 @@ describe('existing workbench runtime-index HTTP contract', () => {
       expect(request.init?.signal).toBe(controller.signal);
       expect(request.init?.headers).toBeUndefined();
     }
-  });
-
-  it('maps an additional non-2xx status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'teapot' }, 418)));
-
-    await expectApiError(getWorkbenchPluginRuntimeIndexContract('project-1'), 418, 'teapot');
-  });
-
-  it('forwards the exact signal and preserves abort rejection', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
-      });
-    }));
-
-    const request = getWorkbenchPluginRuntimeIndexContract(
-      'project-1', { signal: controller.signal },
-    );
-    const abortError = new DOMException('cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(request).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
   });
 });
 

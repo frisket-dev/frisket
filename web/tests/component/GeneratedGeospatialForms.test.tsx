@@ -83,6 +83,8 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
     fireEvent.change(screen.getByTestId('field-output-geo_point'), { target: { value: 'location' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('cost-estimate')).toHaveTextContent('No provider/API charge');
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent(/OpenCage|Nominatim|public API|external API|provider\/API/i);
+    expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent(/runs locally, no model call/i);
     expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent(/\$|UNKNOWN/);
     expect(screen.getByTestId('cost-estimate')).not.toHaveClass('cost-paid');
     expect(screen.getByTestId('action-output-summary')).toHaveTextContent('latitude and longitude');

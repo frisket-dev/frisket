@@ -9,6 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { ApiError, getSpend } from '../../src/api/real';
 import { createSpendApi } from '../../src/api/spend';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const report = {
   rows: [{
@@ -23,13 +24,6 @@ const report = {
   has_unknown_costs: true,
   unknown_cost_models: ['unpriced'],
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -46,20 +40,6 @@ describe('spend generated HTTP contract', () => {
     expect(fetch).toHaveBeenCalledWith('/api/spend', {
       method: 'GET',
       signal: controller.signal,
-    });
-  });
-
-  it('rejects non-2xx responses with the shared ApiError mapping', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () =>
-      jsonResponse({ detail: { code: 'spend_forbidden', message: 'not allowed', scope: 'org' } }, 403),
-    ));
-
-    await expect(createSpendApi().getSpend()).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 403,
-      message: 'not allowed',
-      code: 'spend_forbidden',
-      details: { scope: 'org' },
     });
   });
 

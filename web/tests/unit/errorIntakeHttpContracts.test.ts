@@ -1,13 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createErrorIntakeApi } from '../../src/api/errorIntake';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 describe('error intake HTTP contracts', () => {
   afterEach(() => vi.unstubAllGlobals());

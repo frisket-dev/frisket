@@ -8,6 +8,7 @@ vi.mock('pluralize', () => ({
 }));
 
 import { createProjectCitationsApi } from '../../src/api/projectCitations';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const linkSummary = {
   id: 11,
@@ -179,13 +180,6 @@ const viewerJsonLeavesFixture = {
     runs: [],
   }],
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -10,6 +10,7 @@ vi.mock('pluralize', () => ({
 import { cancelImportSession, chunkImportFiles, createImportSession, importCsv, importFiles, importXlsx, listImportSessions, prepareImportFiles, prepareImportUrls, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles, type ImportSessionStatus } from '../../src/api/open';
 import { createOnboardingImportsApi } from '../../src/api/onboardingImports';
 import type { RequestOptions } from '../../src/api/httpContract';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 function importSessionStatus(overrides: Partial<ImportSessionStatus> = {}): ImportSessionStatus {
   return {
@@ -49,13 +50,6 @@ function importSessionStatus(overrides: Partial<ImportSessionStatus> = {}): Impo
     failed_pages: 0,
     ...overrides,
   };
-}
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
 }
 
 afterEach(() => {

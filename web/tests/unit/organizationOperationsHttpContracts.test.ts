@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 vi.mock('pluralize', () => ({
   default: Object.assign((word: string) => word, {
@@ -6,13 +7,6 @@ vi.mock('pluralize', () => ({
     addUncountableRule: vi.fn(),
   }),
 }));
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();

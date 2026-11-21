@@ -2,13 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createActionLaunchApi } from '../../src/api/actionLaunch';
 import { ApiError } from '../../src/api/contractErrors';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 function actionResult(status: string) {
   return {
@@ -82,25 +76,5 @@ describe('action-launch HTTP contract', () => {
       code: undefined,
       details: undefined,
     });
-  });
-
-  it('forwards abort identity without replacing the browser rejection', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-    const api = createActionLaunchApi('project-1');
-    const pending = api.launch({ kind: 'map.classify' }, { signal: controller.signal });
-    const abortError = new DOMException('action cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(pending).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
   });
 });

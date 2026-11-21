@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 vi.mock('pluralize', () => ({
   default: Object.assign((word: string) => word, {
@@ -6,7 +7,6 @@ vi.mock('pluralize', () => ({
     addUncountableRule: vi.fn(),
   }),
 }));
-
 
 const page = {
   schema_version: 'frisket.attempt_receipts.v1' as const,
@@ -68,13 +68,6 @@ const page = {
     created_at: '2026-08-13T00:00:00Z',
   }],
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();
