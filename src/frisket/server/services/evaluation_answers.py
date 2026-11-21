@@ -102,17 +102,16 @@ def save_expected_answer(service, pid, raw):
             while name in existing_names:
                 name = f"{base} {index}"
                 index += 1
-            expected_sheet = project.add_sheet(name, commit=False)
+            expected_sheet = project.add_sheet_in_transaction(name)
             created_sheets.append(expected_sheet)
-            row_key = project.add_column(
+            row_key = project.add_column_in_transaction(
                 expected_sheet,
                 "_target_row_id",
                 "integer",
                 default_hidden=True,
-                commit=False,
             )
-            expected_column = project.add_column(
-                expected_sheet, output["current_name"], commit=False
+            expected_column = project.add_column_in_transaction(
+                expected_sheet, output["current_name"]
             )
             created_columns.extend([row_key, expected_column])
             link = {
@@ -139,8 +138,8 @@ def save_expected_answer(service, pid, raw):
         )
         if field is None:
             field = {
-                "expected_column_id": project.add_column(
-                    link["expected_sheet_id"], output["current_name"], commit=False
+                "expected_column_id": project.add_column_in_transaction(
+                    link["expected_sheet_id"], output["current_name"]
                 ),
                 "output_column_id": output["column_id"],
                 "logical_key": body["logical_key"],

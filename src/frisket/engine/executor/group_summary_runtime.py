@@ -608,9 +608,8 @@ def _write_reduce_group_summary_result(
             [summary_column_id],
             claim_token=claim_token,
             terminal_disposition=run_status,
-            commit=False,
         )
-        run_store.point_column_at_run(op_id, summary_column_id, run_id, commit=False)
+        run_store.point_column_at_run(op_id, summary_column_id, run_id)
         action_status = receipt_status_from_failures(failed_groups, len(computations))
         outputs = _reduce_group_summary_outputs(
             params=params,

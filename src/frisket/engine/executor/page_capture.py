@@ -573,10 +573,9 @@ def _finalize_web_capture_page_failed_receipt(
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        updated = ReceiptStore(project).update_body_status(
+        updated = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not updated:
             raise RuntimeError(f"{action.kind} running receipt could not be finalized")
@@ -719,10 +718,9 @@ def _finalize_web_capture_page(
             status_counts=status_counts,
             errors=errors,
         )
-        updated = ReceiptStore(project).update_body_status(
+        updated = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not updated:
             raise RuntimeError(f"{action.kind} running receipt could not be finalized")
@@ -831,10 +829,9 @@ def _finalize_web_capture_page_links(
             status_counts=status_counts,
             errors=errors,
         )
-        updated = ReceiptStore(project).update_body_status(
+        updated = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not updated:
             raise RuntimeError(f"{action.kind} running receipt could not be finalized")

@@ -28,7 +28,7 @@ from frisket.engine.store.result_generations import (
     RunOutputGeneration,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction
 
 PREPARED_ATOMIC_GENERATED_COLUMNS_KEY = "prepared_atomic_output_columns"
 
@@ -400,8 +400,8 @@ def prepare_validated(
     *,
     validated: _ValidatedSpec,
     resume_run_id: int | None,
-    defer_commits: bool,
 ) -> PreparedRun:
+    require_transaction(project.db, "prepare_validated")
     program = validated.program
     est = validated.est
     sheet_id = validated.sheet_id
@@ -541,7 +541,7 @@ def prepare_validated(
                     field=f,
                     allow_empty_retirement=False,
                 )
-                revived_column_id = project.add_column(
+                revived_column_id = project.add_column_in_transaction(
                     sheet_id,
                     output_name,
                     type=f["column_type"],
@@ -550,7 +550,6 @@ def prepare_validated(
                     hidden=bool(f.get("hidden", False)),
                     default_hidden=bool(f.get("default_hidden", False)),
                     semantic_type=f.get("semantic_type"),
-                    commit=not defer_commits,
                 )
                 if revived_column_id != expected_column_id:
                     raise ValueError(
@@ -638,7 +637,6 @@ def prepare_validated(
                 project.set_column_type(
                     existing["id"],
                     f["column_type"],
-                    commit=not defer_commits,
                 )
             declared_format = f.get("format")
             if (
@@ -649,7 +647,6 @@ def prepare_validated(
                 project.set_column_format(
                     existing["id"],
                     declared_format,
-                    commit=not defer_commits,
                 )
             declared_semantic_type = f.get("semantic_type")
             existing_semantic_type = (
@@ -665,7 +662,6 @@ def prepare_validated(
                 project.set_column_semantic_type(
                     existing["id"],
                     declared_semantic_type,
-                    commit=not defer_commits,
                 )
         else:
             _require_compatible_hidden_managed_revival(
@@ -673,7 +669,7 @@ def prepare_validated(
                 sheet_id=sheet_id,
                 field=f,
             )
-            cid = project.add_column(
+            cid = project.add_column_in_transaction(
                 sheet_id,
                 f["name"],
                 type=f["column_type"],
@@ -682,7 +678,6 @@ def prepare_validated(
                 hidden=bool(f.get("hidden", False)),
                 default_hidden=bool(f.get("default_hidden", False)),
                 semantic_type=f.get("semantic_type"),
-                commit=not defer_commits,
             )
             out_cols[f["name"]] = cid
             created_columns.append(cid)
@@ -711,11 +706,8 @@ def prepare_validated(
             if has_stored_run_scope and explicit_resume_scope is not None:
                 assert stored_run_scope_count is not None
                 if len(row_ids) != stored_run_scope_count:
-                    with write_transaction(
-                        project.db, commit=not defer_commits, what="resumed run scope"
-                    ):
-                        run_store.record_run_row_scope(run_id, row_ids)
-                        run_store.set_total_rows(run_id, len(row_ids))
+                    run_store.record_run_row_scope(run_id, row_ids)
+                    run_store.set_total_rows(run_id, len(row_ids))
             if row_ids:
                 row_ids = [r for r in row_ids if r not in done_rows]
             if (
@@ -723,10 +715,7 @@ def prepare_validated(
                 and row_ids
                 and run_row["completed_rows"] >= run_row["total_rows"]
             ):
-                with write_transaction(
-                    project.db, commit=not defer_commits, what="resumed run total"
-                ):
-                    run_store.increment_total_rows(run_id, len(row_ids))
+                run_store.increment_total_rows(run_id, len(row_ids))
     else:
         persisted_spec = persistable_spec(spec)
         from frisket.engine.store.source_dependencies import (
@@ -744,11 +733,10 @@ def prepare_validated(
                 column_ids=[col_map[name] for name in program.source_columns(spec)],
             )
         )
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "map",
             operation_spec,
             label=f"{program.name}: {', '.join(out_cols)}",
-            commit=not defer_commits,
         )
         undo_info: dict[str, Any] = {}
         if program.atomic_output_columns:
@@ -757,11 +745,8 @@ def prepare_validated(
         if created_columns:
             undo_info["created_columns"] = created_columns
         if undo_info:
-            with write_transaction(
-                project.db, commit=not defer_commits, what="change undo info"
-            ):
-                project.set_undo_info(op_id, undo_info)
-        run_id = run_store.start_run(
+            project.set_undo_info(op_id, undo_info)
+        run_id = run_store.start_run_in_transaction(
             op_id,
             sheet_id,
             spec["action_kind"],
@@ -773,43 +758,32 @@ def prepare_validated(
             total_rows=len(row_ids),
             cost_estimate=est["cost"] if est is not None else None,
             row_ids=row_ids,
-            commit=not defer_commits,
         )
         # Point only fresh columns early for streaming; reused columns retain
         # their prior values until terminal publication.
         if created_columns:
-            with write_transaction(
-                project.db, commit=not defer_commits, what="fresh column pointers"
-            ):
-                for created_cid in created_columns:
-                    # Managed history publishes its compatibility pointer
-                    # atomically.
-                    has_managed_history = (
-                        project.db.execute(
-                            "SELECT 1 FROM run_output_generations "
-                            "WHERE column_id=? LIMIT 1",
-                            (int(created_cid),),
-                        ).fetchone()
-                        is not None
-                    )
-                    if not has_managed_history:
-                        run_store.point_column_at_run(
-                            op_id, created_cid, run_id, commit=False
-                        )
+            for created_cid in created_columns:
+                # Managed history publishes its compatibility pointer
+                # atomically.
+                has_managed_history = (
+                    project.db.execute(
+                        "SELECT 1 FROM run_output_generations "
+                        "WHERE column_id=? LIMIT 1",
+                        (int(created_cid),),
+                    ).fetchone()
+                    is not None
+                )
+                if not has_managed_history:
+                    run_store.point_column_at_run(op_id, created_cid, run_id)
         # Retire dropped output roles instead of exposing stale values.
-        with write_transaction(
-            project.db,
-            commit=not defer_commits,
-            what="retire dropped generated columns",
-        ):
-            retire_dropped_generated_columns(
-                project,
-                op_id=op_id,
-                program=program,
-                spec=spec,
-                columns=columns,
-                current_output_names=set(out_cols),
-            )
+        retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=program,
+            spec=spec,
+            columns=columns,
+            current_output_names=set(out_cols),
+        )
     run_scope_run_id = run_id if run_store.has_run_row_scope(run_id) else None
     if run_scope_run_id is not None and resume_run_id is not None and not row_ids:
         row_count = run_store.pending_run_row_scope_count(

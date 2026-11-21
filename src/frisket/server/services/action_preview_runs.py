@@ -535,8 +535,8 @@ class ActionPreviewRunService:
                     "effected" if status == "completed" else "halted",
                     commit=False,
                 )
-            if not ReceiptStore(project).update_body_status(
-                finished, require_status="running", commit=False
+            if not ReceiptStore(project).update_body_status_in_transaction(
+                finished, require_status="running"
             ):
                 raise RuntimeError("preview lost its running receipt")
         receipt.status = finished.status

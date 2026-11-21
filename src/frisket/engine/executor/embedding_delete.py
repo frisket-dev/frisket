@@ -127,7 +127,7 @@ class _IndexDeleter:
 
 
 def _insert_receipt(project: Project, receipt: Receipt) -> None:
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
 
 
 def _perform_delete_in_txn(

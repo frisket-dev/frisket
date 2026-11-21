@@ -89,10 +89,9 @@ def read_project_settings(project: Any) -> ProjectSettings:
 
 def write_project_settings(project: Any, settings: ProjectSettings) -> ProjectSettings:
     """Persist ``settings`` whole inside the caller's transaction and return what was stored."""
-    project.set_meta(
+    project.set_meta_in_transaction(
         PROJECT_SETTINGS_META_KEY,
         settings.model_dump_json(),
-        commit=False,
     )
     return settings
 
@@ -135,6 +134,6 @@ def read_project_mcp_servers(project: Any) -> list[dict[str, Any]]:
 
 def write_project_mcp_servers(project: Any, servers: list[dict[str, Any]]) -> None:
     """Persist already-validated MCP server configuration in the caller's transaction."""
-    project.set_meta(
-        PROJECT_MCP_SERVERS_META_KEY, json.dumps(servers, sort_keys=True), commit=False
+    project.set_meta_in_transaction(
+        PROJECT_MCP_SERVERS_META_KEY, json.dumps(servers, sort_keys=True)
     )

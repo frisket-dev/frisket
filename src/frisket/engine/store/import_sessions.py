@@ -422,7 +422,7 @@ def invalidate_import_generation(project: Any, *, op_id: int) -> None:
         "AND json_extract(child.spec,'$.import_execution_owner.op_id')=?",
         (int(op_id),),
     ).fetchall():
-        RunResultStore(project).request_cancel(int(child[0]), commit=False)
+        RunResultStore(project).request_cancel_in_transaction(int(child[0]))
         close_run_change(project, int(child[0]))
 
 

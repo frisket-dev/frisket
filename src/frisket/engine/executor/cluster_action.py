@@ -329,7 +329,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             claim_token=claim,
             terminal_disposition=terminal_status,
             publish=True,
-            commit=False,
         )
         for column_id in json.loads(op["undo_info"] or "{}").get("created_columns", []):
             if column_id in column_ids:
@@ -384,7 +383,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 raise StaleAttemptWriter(
                     "Cluster embedding checkpoint is missing or belongs to another run"
                 )
-            checkpoints.consume_and_retire(
+            checkpoints.consume_and_retire_in_transaction(
                 checkpoint_id,
                 family="model_call",
                 group_key=str(run_id),
@@ -394,7 +393,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 run_id=run_id,
                 writer_attempt_id=writer,
                 claim_token=claim,
-                commit=False,
             )
         receipt = receipt.model_copy(
             update={

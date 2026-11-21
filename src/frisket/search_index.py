@@ -138,9 +138,9 @@ def bind_retrieval_sidecar(project: Project) -> str:
     with project.transaction_scope():
         if not retrieval_binding_is_current(project, sidecar_id):
             enqueue_dirty_scope(project.db)
-            project.set_meta(RETRIEVAL_SIDECAR_META_KEY, sidecar_id, commit=False)
-            project.set_meta(
-                RETRIEVAL_SPACE_META_KEY, DEFAULT_TEXT_SPACE.identity, commit=False
+            project.set_meta_in_transaction(RETRIEVAL_SIDECAR_META_KEY, sidecar_id)
+            project.set_meta_in_transaction(
+                RETRIEVAL_SPACE_META_KEY, DEFAULT_TEXT_SPACE.identity
             )
     return sidecar_id
 

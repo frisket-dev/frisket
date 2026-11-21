@@ -566,10 +566,9 @@ def _write_extract_in_transaction(
             "errors": [],
         }
     )
-    updated = ReceiptStore(project).update_body_status(
+    updated = ReceiptStore(project).update_body_status_in_transaction(
         receipt,
         require_status="running",
-        commit=False,
     )
     if not updated:
         raise RuntimeError("temporal extract receipt update did not land")

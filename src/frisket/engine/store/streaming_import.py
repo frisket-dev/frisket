@@ -271,7 +271,7 @@ class StreamingSheetWriter:
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
                 column_ids[name] = _insert_column(db, sheet_id, name, column, position)
-            op_id = op_log.append_change(
+            op_id = op_log.append_change_in_transaction(
                 project,
                 operation_kind or action_kind,
                 spec={
@@ -284,7 +284,6 @@ class StreamingSheetWriter:
                 },
                 label=f"import {requested_name}",
                 barrier=True,
-                commit=False,
             )
             ChangeStore(project).start(op_id)
             op_log.set_undo_info(project, op_id, {"created_sheets": [sheet_id]})
@@ -303,7 +302,7 @@ class StreamingSheetWriter:
                     status="running",
                     inputs=[ReceiptIO(name="source", ref=dict(source_ref))],
                 )
-                receipt_store.insert_running(receipt, commit=False)
+                receipt_store.insert_running_in_transaction(receipt)
             else:
                 if reserved_receipt.project_id != project_id:
                     raise ImportSessionConflict(
@@ -319,8 +318,8 @@ class StreamingSheetWriter:
                         ],
                     }
                 )
-                if not receipt_store.update_body_status(
-                    receipt, require_status=stored_receipt.status, commit=False
+                if not receipt_store.update_body_status_in_transaction(
+                    receipt, require_status=stored_receipt.status
                 ):
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
@@ -459,7 +458,7 @@ class StreamingSheetWriter:
                     )
 
             requested_name = str(sheet["name"])
-            op_id = op_log.append_change(
+            op_id = op_log.append_change_in_transaction(
                 project,
                 operation_kind or action_kind,
                 spec={
@@ -481,7 +480,6 @@ class StreamingSheetWriter:
                     ),
                     "created_columns": created_column_ids,
                 },
-                commit=False,
             )
             if created_column_ids:
                 ChangeStore(project).start(op_id)
@@ -500,7 +498,7 @@ class StreamingSheetWriter:
                     status="running",
                     inputs=[ReceiptIO(name="source", ref=dict(source_ref))],
                 )
-                receipt_store.insert_running(receipt, commit=False)
+                receipt_store.insert_running_in_transaction(receipt)
             else:
                 if reserved_receipt.project_id != project_id:
                     raise ImportSessionConflict(
@@ -516,8 +514,8 @@ class StreamingSheetWriter:
                         ],
                     }
                 )
-                if not receipt_store.update_body_status(
-                    receipt, require_status=stored_receipt.status, commit=False
+                if not receipt_store.update_body_status_in_transaction(
+                    receipt, require_status=stored_receipt.status
                 ):
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
@@ -625,12 +623,11 @@ class StreamingSheetWriter:
             return []
         db = self.project.db
         with write_transaction(db):
-            row_ids = self.project.add_rows(
+            row_ids = self.project.add_rows_in_transaction(
                 self.sheet_id,
                 batch,
                 self._column_ids,
                 producer_id=self._producer_id,
-                commit=False,
             )
         self._row_count += len(batch)
         if self._first_row_id is None and row_ids:
@@ -660,12 +657,11 @@ class StreamingSheetWriter:
                 expected_cursor,
             )
             ImportSessionStore(self.project).upgrade_append_undo(session)
-            row_ids = self.project.add_rows(
+            row_ids = self.project.add_rows_in_transaction(
                 self.sheet_id,
                 batch,
                 self._column_ids,
                 producer_id=self._producer_id,
-                commit=False,
             )
             db.executemany(
                 "INSERT INTO import_session_rows(session_id,ordinal,row_id) "
@@ -769,8 +765,8 @@ class StreamingSheetWriter:
                         ],
                     }
                 )
-            if not ReceiptStore(self.project).update_body_status(
-                receipt, require_status="running", commit=False
+            if not ReceiptStore(self.project).update_body_status_in_transaction(
+                receipt, require_status="running"
             ):
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
             ChangeStore(self.project).close(resumable.change_id)
@@ -830,8 +826,8 @@ class StreamingSheetWriter:
         receipt = self._completed_session_receipt(
             stored.parsed(), row_count=0, status="cancelled"
         )
-        if not ReceiptStore(self.project).update_body_status(
-            receipt, require_status="running", commit=False
+        if not ReceiptStore(self.project).update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise ImportSessionConflict("import receipt cancellation lost its CAS")
         ChangeStore(self.project).close(self._op_id)
@@ -1017,13 +1013,12 @@ class StreamingSheetWriter:
                         },
                     }
                 )
-                op_id = op_log.append_change(
+                op_id = op_log.append_change_in_transaction(
                     self.project,
                     self._action_kind,
                     spec=action_spec,
                     label=f"import {sheet_name}",
                     barrier=False,
-                    commit=False,
                 )
                 op_log.set_undo_info(
                     self.project,

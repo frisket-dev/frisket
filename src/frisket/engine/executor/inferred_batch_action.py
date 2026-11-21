@@ -613,7 +613,6 @@ def _publish(
                 claim_token=claim,
                 terminal_disposition=terminal_status,
                 publish=True,
-                commit=False,
             )
             op = project.db.execute(
                 "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)

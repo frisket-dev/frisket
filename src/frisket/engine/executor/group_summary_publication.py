@@ -239,8 +239,8 @@ class GroupPublication:
                     ],
                 }
             )
-            if not receipts.update_body_status(
-                receipt, require_status="running", commit=False
+            if not receipts.update_body_status_in_transaction(
+                receipt, require_status="running"
             ):
                 raise ValueError("Grouped receipt reservation was lost")
             ChangeStore(project).start(op_id)

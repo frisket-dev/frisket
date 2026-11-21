@@ -977,8 +977,8 @@ class ProjectQAStore:
                 return None
             from frisket.engine.store.runs import RunResultStore
 
-            RunResultStore(self._project).write_unscoped_model_calls(
-                calls, row_id=None, column_id=None, commit=False
+            RunResultStore(self._project).write_unscoped_model_calls_in_transaction(
+                calls, row_id=None, column_id=None
             )
             event = self._append_event(
                 db,
