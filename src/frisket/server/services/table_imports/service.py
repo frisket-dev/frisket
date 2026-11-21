@@ -38,6 +38,7 @@ from frisket.engine.store.table_import_intake import (
 )
 from frisket.server.services.import_uploads import AdmittedUpload
 from frisket.table_import import (
+    SourceKind,
     TableReadError,
     TableReadSettings,
     inspect_source,
@@ -47,6 +48,7 @@ from .analysis import (
     build_complete_scan,
     build_prefix_scan,
     default_choices,
+    parse_target_type,
     public_columns,
     zero_issue_counts,
 )
@@ -70,6 +72,18 @@ from .source import (
 
 
 EnqueueAnalysis = Callable[[str, str, int], int | None]
+
+
+def _parse_source_kind(value: str) -> SourceKind:
+    if value == "delimited":
+        return "delimited"
+    if value == "xlsx":
+        return "xlsx"
+    if value == "xls":
+        return "xls"
+    if value == "ods":
+        return "ods"
+    raise ValueError(f"unsupported table import source kind: {value!r}")
 
 
 class TableImportService:
@@ -786,7 +800,7 @@ class TableImportService:
                     source_index=source_index,
                     source_name=str(stats_by_index[source_index]["name"]),
                     target_name=target_name,
-                    target_type=str(choice["target_type"]),
+                    target_type=parse_target_type(str(choice["target_type"])),
                     target_column_id=target_column_id,
                     date_order=choice.get("date_order"),
                 )
@@ -982,7 +996,7 @@ class TableImportService:
                     filename=str(source["filename"]),
                     size=int(source["size"]),
                     sha256=str(source["sha256"]),
-                    kind=str(source["format"]),
+                    kind=_parse_source_kind(str(source["format"])),
                     retain_for_workbook_reuse=True,
                 ),
                 settings=TableReadSettings(**resolved),

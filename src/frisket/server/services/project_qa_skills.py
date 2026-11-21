@@ -337,6 +337,8 @@ class ProjectQASkillAdapter:
                 if target_skill_id is None:
                     skill = library.create(content, enabled=True)
                 else:
+                    if expected_revision is None:
+                        raise ValueError("Skill updates require an expected revision.")
                     skill = library.update(
                         str(target_skill_id),
                         expected_revision=int(expected_revision),
