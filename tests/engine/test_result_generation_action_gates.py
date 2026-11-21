@@ -77,7 +77,7 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
         ).fetchone()[0]
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("document_text.seed", commit=False)
+    op_id = project.append_change_in_transaction("document_text.seed")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

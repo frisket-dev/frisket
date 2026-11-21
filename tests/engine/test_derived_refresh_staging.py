@@ -48,7 +48,7 @@ def test_partial_refresh_keeps_prior_members_and_undo_restores_complete_batch(tm
         ).fetchone()
         config = refresh_config(parent)
         project.db.execute("BEGIN IMMEDIATE")
-        op = project.append_change("sheet.refresh", {"sheet_id": child}, commit=False)
+        op = project.append_change_in_transaction("sheet.refresh", {"sheet_id": child})
         ChangeStore(project).start(op)
         project.db.commit()
         with DerivedRefreshStage(keyed=False) as stage:

@@ -11,6 +11,7 @@ from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
 from helpers import run_writer_authority_fixture, write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_project(
@@ -150,7 +151,8 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
         writer_attempt_id=authority.writer_attempt_id,
         claim_token=authority.claim_token,
     )
-    store.point_column_at_run(op_id, columns["score"], run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, columns["score"], run_id)
     assert project.get_column(columns["score"])["current_run_id"] == run_id
     project.undo()
     assert project.get_column(columns["score"])["current_run_id"] is None

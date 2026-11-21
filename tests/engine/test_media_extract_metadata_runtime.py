@@ -1050,7 +1050,7 @@ def test_atomic_metadata_prepare_failure_rolls_back_family_op_and_run(
     def fail_start_run(*_args: Any, **_kwargs: Any) -> int:
         raise RuntimeError("forced metadata run preparation failure")
 
-    monkeypatch.setattr(RunResultStore, "start_run", fail_start_run)
+    monkeypatch.setattr(RunResultStore, "start_run_in_transaction", fail_start_run)
     result = run_action_spec(
         project,
         _action(
@@ -1729,7 +1729,8 @@ def test_metadata_replay_rejects_declared_output_format_drift(
 
     size_column = _column(project, sheet_id, "meta_size_bytes")
     assert size_column["format"] == "filesize"
-    project.set_column_format(int(size_column["id"]), None)
+    with write_transaction(project.db):
+        project.set_column_format(int(size_column["id"]), None)
 
     run_count = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
     replay = run_action_spec(project, action, project_id="metadata-format-drift")

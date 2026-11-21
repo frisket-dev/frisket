@@ -20,14 +20,13 @@ from test_result_generation_store import (
 
 def _reject_clear(project, *, row_id: int, column_id: int) -> int:
     with write_transaction(project.db):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "review.decision",
             {
                 "action_id": "review.decision",
                 "params": {"decision": "reject_clear"},
             },
             label="reject generated value",
-            commit=False,
         )
         insert_edits(
             project.db,

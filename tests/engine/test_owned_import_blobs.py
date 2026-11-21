@@ -49,8 +49,8 @@ def test_owned_inventory_reuses_bytes_and_preserves_distinct_occurrences(
             ]
             prepared = prepare_import_blobs(project, plan)
             with write_transaction(project.db):
-                op = op_log.append_change(
-                    project, "import.files", spec={}, commit=False
+                op = op_log.append_change_in_transaction(
+                    project, "import.files", spec={}
                 )
                 refs = publish_import_blobs(
                     project,

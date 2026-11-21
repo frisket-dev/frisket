@@ -31,7 +31,8 @@ try:
     run_id = runs.start_run(op_id, sheet_id, "media.ocr", model="local/fixture", params={"output_name": "Text"}, total_rows=1, row_ids=[row_id])
     write_claimed_test_results(project, run_id, [{"row_id": row_id, "column_id": text_column_id, "value": "page one page two total 42", "confidence": 0.9, "justification": "fixture"}])
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, text_column_id, run_id)
+    with write_transaction(project.db):
+        runs.point_column_at_run(op_id, text_column_id, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, text_column_id, row_ids=[row_id])
     with write_transaction(project.db):
         artifact = record_source_artifact(

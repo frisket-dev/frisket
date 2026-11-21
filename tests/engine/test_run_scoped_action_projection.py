@@ -639,7 +639,6 @@ def test_queued_terminal_reentry_projects_halt_or_operator_cancel(
         [binding.column_id for binding in bindings],
         claim_token=bindings[0].claim_token,
         terminal_disposition="cancelled",
-        commit=False,
     )
     project.db.commit()
 

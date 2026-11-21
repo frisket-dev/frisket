@@ -126,11 +126,12 @@ def _seed_media(
             ],
         )
         runs.finish_run(transcript_run_id)
-        runs.point_column_at_run(
-            transcript_op_id,
-            columns["transcript"],
-            transcript_run_id,
-        )
+        with write_transaction(runs.db):
+            runs.point_column_at_run(
+                transcript_op_id,
+                columns["transcript"],
+                transcript_run_id,
+            )
     return {
         "sheet_id": sheet_id,
         "columns": columns,
@@ -1271,11 +1272,12 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         ],
     )
     runs.finish_run(alternate_run_id)
-    runs.point_column_at_run(
-        alternate_op_id,
-        alternate_column_id,
-        alternate_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            alternate_op_id,
+            alternate_column_id,
+            alternate_run_id,
+        )
     with write_transaction(project.db):
         alternate_span = record_source_span(
             project,
@@ -1410,8 +1412,10 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         ],
     )
     runs.finish_run(topic_run_id)
-    runs.point_column_at_run(topic_op_id, topic_column_id, topic_run_id)
-    runs.point_column_at_run(topic_op_id, sidecar_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(topic_op_id, topic_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(topic_op_id, sidecar_column_id, topic_run_id)
     params = _request(
         seeded,
         {"kind": "column", "column": "Topic sections"},

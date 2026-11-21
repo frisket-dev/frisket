@@ -330,7 +330,9 @@ def test_handler_and_receipt_failure_roll_back_every_write(
         raise RuntimeError("receipt failed")
 
     monkeypatch.setattr(
-        column_transform_action.ReceiptStore, "update_body_status", fail_insert
+        column_transform_action.ReceiptStore,
+        "update_body_status_in_transaction",
+        fail_insert,
     )
     receipt_result = run_action_spec(
         project,

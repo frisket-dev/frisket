@@ -435,7 +435,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -450,7 +450,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
             PreparedPageDraft(2, "The council approved the bluewharf repair."),
         ),
     )
-    project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
+    project.add_rows_in_transaction(sheet, [{"body": prepared}], {"body": column})
     project.db.commit()
     drain_index(project)
 
@@ -492,7 +492,7 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
         {"File": file_column, "Notes": notes_column},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -1851,7 +1851,7 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
         link_role="primary_support",
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("import.pdf", commit=False)
+    op_id = project.append_change_in_transaction("import.pdf")
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
         producing_op_id=op_id,
@@ -1914,7 +1914,7 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     # prepared text result exists.
     drain_index(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.read_pdf_text", commit=False)
+    op_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

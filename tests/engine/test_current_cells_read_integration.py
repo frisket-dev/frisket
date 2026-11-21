@@ -132,7 +132,8 @@ def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
             "run_result",
             "run_result",
         ]
-        results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
+        with write_transaction(results.db):
+            results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
         with write_transaction(project.db):
             results.withhold_result_value(
                 run.run_id, row_ids[1], column_id, "no citation"
@@ -276,14 +277,16 @@ def test_retyping_reclassifies_without_rewriting_source_values(make_project) -> 
     column_id = project.add_column(sheet_id, "value", type="json")
     project.add_rows(sheet_id, [{"value": 3}, {"value": "three"}], {"value": column_id})
 
-    project.set_column_type(column_id, "text")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "text")
     assert project.get_values(sheet_id, column_id) == {1: None, 2: "three"}
     assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
         1: 3,
         2: "three",
     }
 
-    project.set_column_type(column_id, "number")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "number")
     assert project.get_values(sheet_id, column_id) == {1: 3, 2: None}
     assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
         1: 3,

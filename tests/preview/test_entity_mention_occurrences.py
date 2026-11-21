@@ -104,7 +104,8 @@ def _seed(tmp_path, *, body_text: str = BODY, content_hash=None):
     sheet = project.add_sheet("Docs")
     body_col = project.add_column(sheet, "body", type="text")
     ents_col = project.add_column(sheet, "entities", type="json")
-    project.set_column_semantic_type(ents_col, "entity_mentions")
+    with write_transaction(project.db):
+        project.set_column_semantic_type(ents_col, "entity_mentions")
 
     def person(text, fingerprint):
         return {"text": text, "type": "person", "fingerprint": fingerprint}

@@ -19,6 +19,7 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _replacement(project, sheet, column, rows):
@@ -75,7 +76,8 @@ def test_active_undo_closes_writer_and_redo_cannot_reopen_it(tmp_path):
         # published result is still saved work, not an aborted staged output.
         _seal(ResultGenerationStore(project), run, column, disposition="cancelled")
         assert project.redo() == run.op_id
-        ResultGenerationStore(project).rebuild_heads([column])
+        with write_transaction(project.db):
+            ResultGenerationStore(project).rebuild_heads([column])
         assert project.get_values(sheet, column)[rows[0]] == "saved"
         assert project.get_values(sheet, column)[rows[1]] is None
         with pytest.raises((ResultGenerationError, StaleAttemptWriter, ValueError)):

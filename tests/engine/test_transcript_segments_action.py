@@ -103,7 +103,8 @@ def _seed_timestamped_transcript(
         ],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(span_values):
         with write_transaction(project.db):
@@ -480,8 +481,10 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
         ],
     )
     runs.finish_run(topic_run_id)
-    runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
-    runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
     result = _run(
         project,
         seeded,
@@ -896,7 +899,7 @@ def test_transcript_failure_cas_loss_never_fabricates_terminal_result(
     _insert_transcript_failure_receipt(project, receipt_id=receipt_id)
     monkeypatch.setattr(
         ReceiptStore,
-        "update_body_status",
+        "update_body_status_in_transaction",
         lambda *_args, **_kwargs: False,
     )
 

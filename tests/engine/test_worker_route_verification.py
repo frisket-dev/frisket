@@ -427,7 +427,7 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
 
     monkeypatch.setattr(
         RunResultStore,
-        "write_results",
+        "write_results_in_transaction",
         lose_effect_authority,
     )
     result = _handle(root, run_id, spec)

@@ -1310,7 +1310,7 @@ def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
         output_name="clips",
         idempotency_key="extract-publication-rollback@sha256:v1",
     )
-    original_update = ReceiptStore.update_body_status
+    original_update = ReceiptStore.update_body_status_in_transaction
     completed_update_attempts = 0
 
     def fail_completed_publication(self, receipt, **kwargs):
@@ -1322,7 +1322,7 @@ def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
 
     monkeypatch.setattr(
         ReceiptStore,
-        "update_body_status",
+        "update_body_status_in_transaction",
         fail_completed_publication,
     )
 
@@ -1461,11 +1461,12 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         ],
     )
     runs.finish_run(transcript_run_id)
-    runs.point_column_at_run(
-        transcript_op_id,
-        transcript_column_id,
-        transcript_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            transcript_op_id,
+            transcript_column_id,
+            transcript_run_id,
+        )
     alternate_op_id = project.append_change(
         "media.transcribe",
         {
@@ -1494,11 +1495,12 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         ],
     )
     runs.finish_run(alternate_run_id)
-    runs.point_column_at_run(
-        alternate_op_id,
-        alternate_column_id,
-        alternate_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            alternate_op_id,
+            alternate_column_id,
+            alternate_run_id,
+        )
     for row_id, column_id, quote, run_id, op_id in [
         (
             row_ids[0],

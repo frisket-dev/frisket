@@ -570,7 +570,9 @@ class TestExecution:
             raise RuntimeError("cleanup failure")
 
         monkeypatch.setattr(run_jobs, "MapRunner", FailingRunner)
-        monkeypatch.setattr(run_jobs.RunResultStore, "finish_run", failing_finish_run)
+        monkeypatch.setattr(
+            run_jobs.RunResultStore, "finish_run_in_transaction", failing_finish_run
+        )
         reg = default_registry()
         register_project_run_handler(reg, workspace_root=workspace)
 

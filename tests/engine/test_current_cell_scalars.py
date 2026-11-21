@@ -20,6 +20,7 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _inline_value(
@@ -38,7 +39,8 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
-    project.set_column_type(column_id, "integer")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "integer")
     generations = ResultGenerationStore(project)
     run = _start_claimed_run(
         project,
@@ -152,7 +154,8 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
-    project.set_column_type(column_id, "category")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "category")
     generations = ResultGenerationStore(project)
     initial = _start_claimed_run(
         project,
@@ -199,9 +202,10 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
             ],
         )
         _seal(generations, initial, column_id)
-        RunResultStore(project).point_column_at_run(
-            initial.op_id, column_id, initial.run_id
-        )
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(
+                initial.op_id, column_id, initial.run_id
+            )
         _release(project, initial)
         initial_released = True
 
@@ -245,9 +249,10 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
             ],
         )
         _seal(generations, replacement, column_id)
-        RunResultStore(project).point_column_at_run(
-            replacement.op_id, column_id, replacement.run_id
-        )
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(
+                replacement.op_id, column_id, replacement.run_id
+            )
         _release(project, replacement)
         replacement_released = True
 
@@ -334,7 +339,8 @@ def test_inline_scalar_eligibility_and_type_reclassification(make_project) -> No
         "long_category": (None, None),
     }
 
-    project.set_column_type(columns["category"], "text")
+    with write_transaction(project.db):
+        project.set_column_type(columns["category"], "text")
     assert project.get_values(sheet_id, columns["category"], [row_id]) == {
         row_id: "alpha"
     }

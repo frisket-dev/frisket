@@ -79,21 +79,19 @@ def replace_test_source_cell(
 
     def write() -> int:
         if target_db is project.db:
-            op_id = project.append_change(
+            op_id = project.append_change_in_transaction(
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
                 label=label,
-                commit=False,
             )
         else:
-            from frisket.engine.store.op_log import append_change
+            from frisket.engine.store.op_log import append_change_in_transaction
 
-            op_id = append_change(
+            op_id = append_change_in_transaction(
                 SimpleNamespace(db=target_db),
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
                 label=label,
-                commit=False,
             )
         producer_id = create_base_cell_producer(
             target_db,
@@ -134,11 +132,10 @@ def initialize_test_source_cells(
         for row_id, column_id, value in cells
     ]
     with write_transaction(project.db):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "test.source.initialize",
             {"count": len(writes)},
             label=label,
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             project.db,
@@ -171,11 +168,10 @@ def replace_test_source_cells(
     for write in writes:
         by_column.setdefault(write.column_id, []).append(write)
     with write_transaction(project.db):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "test.source.update",
             {"count": len(writes)},
             label=label,
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             project.db,
@@ -419,33 +415,34 @@ def write_claimed_test_results(
                 if origin_run_ids
                 else None
             )
-            generations.declare(
-                int(run_id),
-                column_id,
-                output_role=(
-                    base_binding.output_role
-                    if base_binding is not None
-                    else (output_roles or {}).get(column_id, str(column["name"]))
-                ),
-                compatibility_key=(
-                    base_binding.compatibility_key
-                    if base_binding is not None
-                    else _compatibility_key(
-                        field={
-                            "name": str(column["name"]),
-                            "column_type": str(column["type"]),
-                            "semantic_type": column["semantic_type"],
-                            "format": column["format"],
-                        }
-                    )
-                ),
-                write_mode=(
-                    "replace_scope"
-                    if generations.is_generation_managed(column_id)
-                    else "create"
-                ),
-                claim_token=authority.claim_token,
-            )
+            with write_transaction(project.db):
+                generations.declare(
+                    int(run_id),
+                    column_id,
+                    output_role=(
+                        base_binding.output_role
+                        if base_binding is not None
+                        else (output_roles or {}).get(column_id, str(column["name"]))
+                    ),
+                    compatibility_key=(
+                        base_binding.compatibility_key
+                        if base_binding is not None
+                        else _compatibility_key(
+                            field={
+                                "name": str(column["name"]),
+                                "column_type": str(column["type"]),
+                                "semantic_type": column["semantic_type"],
+                                "format": column["format"],
+                            }
+                        )
+                    ),
+                    write_mode=(
+                        "replace_scope"
+                        if generations.is_generation_managed(column_id)
+                        else "create"
+                    ),
+                    claim_token=authority.claim_token,
+                )
         published_batch: list[dict[str, Any]] = []
         for item in batch:
             published = dict(item)
@@ -465,12 +462,13 @@ def write_claimed_test_results(
             **authority.kwargs(),
             **kwargs,
         )
-        generations.seal(
-            int(run_id),
-            output_column_ids,
-            claim_token=authority.claim_token,
-            terminal_disposition="completed",
-        )
+        with write_transaction(project.db):
+            generations.seal(
+                int(run_id),
+                output_column_ids,
+                claim_token=authority.claim_token,
+                terminal_disposition="completed",
+            )
     except BaseException:
         OutputColumnClaimStore(project).finish_current_writer(
             run_id=run_id,

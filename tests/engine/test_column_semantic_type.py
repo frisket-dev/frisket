@@ -13,6 +13,7 @@ from __future__ import annotations
 
 
 import pytest
+from frisket.engine.store.transactions import write_transaction
 
 
 class TestFreshBundleSemanticType:
@@ -55,17 +56,20 @@ class TestAddColumnSemanticTypeRoundTrip:
         col_id = p.add_column(sheet, "mentions")
         assert p.get_column(col_id)["semantic_type"] is None
 
-        p.set_column_semantic_type(col_id, "entity_mentions")
+        with write_transaction(p.db):
+            p.set_column_semantic_type(col_id, "entity_mentions")
         assert p.get_column(col_id)["semantic_type"] == "entity_mentions"
 
-        p.set_column_semantic_type(col_id, None)
+        with write_transaction(p.db):
+            p.set_column_semantic_type(col_id, None)
         assert p.get_column(col_id)["semantic_type"] is None
         p.close()
 
     def test_set_column_semantic_type_rejects_unknown_column(self, make_project):
         p = make_project("t")
         with pytest.raises(KeyError):
-            p.set_column_semantic_type(999999, "entity_mentions")
+            with write_transaction(p.db):
+                p.set_column_semantic_type(999999, "entity_mentions")
         p.close()
 
 

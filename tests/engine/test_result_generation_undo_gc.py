@@ -70,7 +70,10 @@ def _publish_replacement(tmp_path: Path):
         ],
     )
     _seal(generations, second, column_id)
-    RunResultStore(project).point_column_at_run(second.op_id, column_id, second.run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(
+            second.op_id, column_id, second.run_id
+        )
     return project, column_id, row_ids, generations, first, second
 
 
@@ -376,7 +379,8 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
     generations = ResultGenerationStore(project)
-    project.set_column_type(column_id, "file")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "file")
     first_blob = project.add_blob(
         b"first generation", filename="first.bin", mime="application/octet-stream"
     )
@@ -405,9 +409,10 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
             ],
         )
         _seal(generations, first, column_id)
-        RunResultStore(project).point_column_at_run(
-            first.op_id, column_id, first.run_id
-        )
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(
+                first.op_id, column_id, first.run_id
+            )
         _release(project, first)
 
         second = _start_claimed_run(
@@ -431,9 +436,10 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
             ],
         )
         _seal(generations, second, column_id)
-        RunResultStore(project).point_column_at_run(
-            second.op_id, column_id, second.run_id
-        )
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(
+                second.op_id, column_id, second.run_id
+            )
         _release(project, second)
 
         assert project.undo() == second.op_id

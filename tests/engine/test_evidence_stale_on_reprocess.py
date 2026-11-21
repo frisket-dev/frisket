@@ -323,7 +323,8 @@ def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any
         [{"row_id": row_id, "column_id": output_col, "value": initial_text}],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(run_store.db):
+        run_store.point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
 
     with write_transaction(project.db):
@@ -422,7 +423,10 @@ def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_stalenes
             ],
         )
         run_store.finish_run(second_run_id)
-        run_store.point_column_at_run(second_op_id, seeded["output_col"], second_run_id)
+        with write_transaction(run_store.db):
+            run_store.point_column_at_run(
+                second_op_id, seeded["output_col"], second_run_id
+            )
 
         mismatched_viewer = resolve_citation_viewer(
             project, seeded["link"]["stable_id"], project_id=PROJECT_ID

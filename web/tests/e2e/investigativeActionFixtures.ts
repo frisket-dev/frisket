@@ -273,7 +273,8 @@ try:
             ],
         )
         run_store.finish_run(run_id)
-        run_store.point_column_at_run(op_id, column_id, run_id)
+        with write_transaction(project.db):
+            run_store.point_column_at_run(op_id, column_id, run_id)
         _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
         subject_kind = "cell_value"
         subject_ref = refs[row_id]

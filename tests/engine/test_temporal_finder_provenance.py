@@ -23,6 +23,7 @@ from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _timeline(*, fingerprint_char: str = "a") -> dict[str, Any]:
@@ -182,8 +183,10 @@ def _seed_completed_topic_run(
         ],
     )
     store.finish_run(run_id)
-    store.point_column_at_run(op_id, selection_column_id, run_id)
-    store.point_column_at_run(op_id, sidecar_column_id, run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, selection_column_id, run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, sidecar_column_id, run_id)
     return _SeededTopicRun(
         project=project,
         sheet_id=sheet_id,
@@ -357,7 +360,8 @@ def test_hidden_column_repoint_does_not_change_exact_old_run_resolution(
         ],
     )
     store.finish_run(later_run_id)
-    store.point_column_at_run(later_op_id, seed.sidecar_column_id, later_run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(later_op_id, seed.sidecar_column_id, later_run_id)
 
     assert (
         seed.project.get_column(seed.sidecar_column_id)["current_run_id"]
@@ -414,8 +418,10 @@ def test_later_topic_run_never_claims_an_older_manual_edit(tmp_path: Path) -> No
         ],
     )
     store.finish_run(later_run_id)
-    store.point_column_at_run(later_op_id, seed.selection_column_id, later_run_id)
-    store.point_column_at_run(later_op_id, seed.sidecar_column_id, later_run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(later_op_id, seed.selection_column_id, later_run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(later_op_id, seed.sidecar_column_id, later_run_id)
 
     live_values, live_refs = seed.project.get_values_with_refs(
         seed.sheet_id,
@@ -500,7 +506,8 @@ def test_copied_manual_or_missing_base_value_is_not_attributable(
         ],
     )
     store.finish_run(copy_run_id)
-    store.point_column_at_run(copy_op_id, copied_column_id, copy_run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(copy_op_id, copied_column_id, copy_run_id)
     assert (
         resolve_topic_analysis_sidecar(
             project,
@@ -535,7 +542,8 @@ def test_copied_manual_or_missing_base_value_is_not_attributable(
         ],
     )
     store.finish_run(no_base_run_id)
-    store.point_column_at_run(no_base_op_id, no_base_column_id, no_base_run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(no_base_op_id, no_base_column_id, no_base_run_id)
     assert (
         resolve_topic_analysis_sidecar(
             project,
@@ -648,8 +656,10 @@ def test_completed_partial_run_resolves_only_rows_with_successful_sidecars(
         ],
     )
     store.finish_run(run_id)
-    store.point_column_at_run(op_id, selection_column_id, run_id)
-    store.point_column_at_run(op_id, sidecar_column_id, run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, selection_column_id, run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, sidecar_column_id, run_id)
 
     def resolve(row_id: int):
         return resolve_topic_analysis_sidecar(

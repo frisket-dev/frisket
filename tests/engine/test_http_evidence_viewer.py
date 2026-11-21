@@ -123,7 +123,8 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
         row_id=row_id,
         column_id=column_id,
     )
-    project.set_column_type(column_id, "number")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "number")
     assert project.get_values(sheet_id, column_id, row_ids=[row_id])[row_id] is None
     assert (
         project.get_values(
@@ -137,7 +138,8 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
     assert invalid_response.status_code == 200, invalid_response.text
     assert invalid_response.json()["link"]["text_layer_hash_mismatch"] is False
 
-    project.set_column_type(column_id, "text")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "text")
     project.apply_edits([{"row_id": row_id, "column_id": column_id, "value": None}])
 
     response = client.get(
@@ -196,7 +198,8 @@ def _seed_generated_cell(
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, output_column_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_column_id, run_id)
     _values, refs = project.get_values_with_refs(
         sheet_id, output_column_id, row_ids=[row_id]
     )

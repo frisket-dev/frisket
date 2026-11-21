@@ -1725,7 +1725,7 @@ class TestRunAction:
             idempotency_key="mcp-canonical-authority@sha256:stable",
         )
         writes: list[dict[str, object]] = []
-        original_write_results = RunResultStore.write_results
+        original_write_results = RunResultStore.write_results_in_transaction
 
         def record_authority(
             store,
@@ -1742,7 +1742,9 @@ class TestRunAction:
             )
             return original_write_results(store, run_id, batch, **kwargs)
 
-        monkeypatch.setattr(RunResultStore, "write_results", record_authority)
+        monkeypatch.setattr(
+            RunResultStore, "write_results_in_transaction", record_authority
+        )
 
         def prepared_refs(run_id: int) -> list[dict]:
             body = json.loads(

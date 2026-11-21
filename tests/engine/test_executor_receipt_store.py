@@ -162,8 +162,10 @@ def test_receipt_store_finished_insert_and_body_fetch_helpers(make_project) -> N
 
     with write_transaction(store.db):
         store.insert_completed(completed)
-    store.insert_partial(partial)
-    store.insert_failed(failed)
+    with write_transaction(store.db):
+        store.insert_partial(partial)
+    with write_transaction(store.db):
+        store.insert_failed(failed)
 
     assert store.parsed_by_id("receipt_completed") == completed
     assert store.body_by_id("receipt_partial") is not None

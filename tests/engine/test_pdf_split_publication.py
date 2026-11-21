@@ -156,19 +156,19 @@ def test_source_failure_rolls_back_all_children_and_original(make_project, monke
     project = make_project("rollback")
     sheet, column, rows, values = _seed(project)
     writer = _start(project, sheet, column, rows, values)
-    original = project.add_rows
+    original = project.add_rows_in_transaction
 
     def fail(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(project, "add_rows", fail)
+    monkeypatch.setattr(project, "add_rows_in_transaction", fail)
     with pytest.raises(RuntimeError, match="disk full"):
         writer.publish_source(_children(2), expected_cursor=0)
     assert project.visible_row_ids(sheet) == rows
     assert writer.session.cursor == 0
     assert writer.session.committed_rows == 0
-    monkeypatch.setattr(project, "add_rows", original)
+    monkeypatch.setattr(project, "add_rows_in_transaction", original)
     writer.publish_source(_children(2), expected_cursor=0)
     with pytest.raises(ImportSessionConflict):
         writer.publish_source(_children(2), expected_cursor=0)

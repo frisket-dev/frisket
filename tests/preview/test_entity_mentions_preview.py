@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client as _client, write_claimed_test_results
 from frisket.ops.entities import canonicalize_entities
+from frisket.engine.store.transactions import write_transaction
 
 PREVIEW = "/api/projects/{pid}/entity-mentions/v1/preview"
 
@@ -809,7 +810,8 @@ def test_coverage_reports_the_columns_current_run_honestly(tmp_path):
         ],
     )
     store.finish_run(run)
-    store.point_column_at_run(op, column_id, run)
+    with write_transaction(store.db):
+        store.point_column_at_run(op, column_id, run)
 
     body = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
     # verbatim run counters, exactly as run/provenance payloads report them:
@@ -909,7 +911,8 @@ def test_coverage_discloses_rows_added_after_the_extraction(tmp_path):
         ],
     )
     store.finish_run(run)
-    store.point_column_at_run(op, column_id, run)
+    with write_transaction(store.db):
+        store.point_column_at_run(op, column_id, run)
 
     covered = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
     assert covered["coverage"] == {

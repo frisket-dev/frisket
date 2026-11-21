@@ -63,16 +63,17 @@ def _seed_precomputed_run(
         )
     assert conflict is None
     assert len(claims) == 1
-    ResultGenerationStore(project).declare(
-        run_id,
-        output_column_id,
-        output_role="Match",
-        compatibility_key=_compatibility_key(
-            field={"name": "Match", "column_type": "text"}
-        ),
-        write_mode="create",
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run_id,
+            output_column_id,
+            output_role="Match",
+            compatibility_key=_compatibility_key(
+                field={"name": "Match", "column_type": "text"}
+            ),
+            write_mode="create",
+            claim_token=claim_token,
+        )
     return (
         project,
         store,

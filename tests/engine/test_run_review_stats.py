@@ -634,14 +634,15 @@ def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
         project, run_id, output_column_ids={output}
     )
     assert authority.claim_token is not None
-    ResultGenerationStore(project).declare(
-        run_id,
-        output,
-        output_role="output:answer",
-        compatibility_key="migration:answer",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run_id,
+            output,
+            output_role="output:answer",
+            compatibility_key="migration:answer",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     store.write_results(
         run_id,
         [

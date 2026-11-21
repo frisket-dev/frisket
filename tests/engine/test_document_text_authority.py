@@ -54,7 +54,7 @@ def _project_with_selection(
         source_column_id=source_column_id,
         text_column_id=text_column_id,
     )
-    op_id = project.append_change("document.prepare", commit=False)
+    op_id = project.append_change_in_transaction("document.prepare")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -117,7 +117,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         assert original is not None
 
         project.db.execute("BEGIN IMMEDIATE")
-        edit_op_id = project.append_change("edit", commit=False)
+        edit_op_id = project.append_change_in_transaction("edit")
         insert_edits(
             project.db,
             op_id=edit_op_id,
@@ -132,7 +132,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         assert corrected.provenance_ref_id == original.provenance_ref_id
 
         project.db.execute("BEGIN IMMEDIATE")
-        second_edit = project.append_change("edit", commit=False)
+        second_edit = project.append_change_in_transaction("edit")
         insert_edits(
             project.db,
             op_id=second_edit,
@@ -159,7 +159,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         )
 
         project.db.execute("BEGIN IMMEDIATE")
-        source_edit_op_id = project.append_change("edit", commit=False)
+        source_edit_op_id = project.append_change_in_transaction("edit")
         insert_edits(
             project.db,
             op_id=source_edit_op_id,
@@ -269,14 +269,15 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
         generations = ResultGenerationStore(project)
         first_op, first_run, first_authority = start("first")
         assert first_authority.claim_token is not None
-        first_binding = generations.declare(
-            first_run,
-            text_column_id,
-            output_role="text",
-            compatibility_key="sha256:document-text-v1",
-            write_mode="create",
-            claim_token=first_authority.claim_token,
-        )
+        with write_transaction(generations.db):
+            first_binding = generations.declare(
+                first_run,
+                text_column_id,
+                output_role="text",
+                compatibility_key="sha256:document-text-v1",
+                write_mode="create",
+                claim_token=first_authority.claim_token,
+            )
         assert first_binding.document_text_authority is True
         RunResultStore(project).write_results(
             first_run,
@@ -290,13 +291,17 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             ],
             **first_authority.kwargs(),
         )
-        generations.seal(
-            first_run,
-            [text_column_id],
-            claim_token=first_authority.claim_token,
-            terminal_disposition="completed",
-        )
-        RunResultStore(project).point_column_at_run(first_op, text_column_id, first_run)
+        with write_transaction(generations.db):
+            generations.seal(
+                first_run,
+                [text_column_id],
+                claim_token=first_authority.claim_token,
+                terminal_disposition="completed",
+            )
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(
+                first_op, text_column_id, first_run
+            )
         with write_transaction(project.db):
             OutputColumnClaimStore(project).release(
                 claim_token=first_authority.claim_token
@@ -310,14 +315,15 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             "UPDATE columns SET hidden=1 WHERE id=?", (source_column_id,)
         )
         project.db.commit()
-        second_binding = generations.declare(
-            second_run,
-            text_column_id,
-            output_role="text",
-            compatibility_key="sha256:document-text-v1",
-            write_mode="replace_scope",
-            claim_token=second_authority.claim_token,
-        )
+        with write_transaction(generations.db):
+            second_binding = generations.declare(
+                second_run,
+                text_column_id,
+                output_role="text",
+                compatibility_key="sha256:document-text-v1",
+                write_mode="replace_scope",
+                claim_token=second_authority.claim_token,
+            )
         assert second_binding.document_text_authority is True
         RunResultStore(project).write_results(
             second_run,
@@ -333,12 +339,13 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             ],
             **second_authority.kwargs(),
         )
-        generations.seal(
-            second_run,
-            [text_column_id],
-            claim_token=second_authority.claim_token,
-            terminal_disposition="failed",
-        )
+        with write_transaction(generations.db):
+            generations.seal(
+                second_run,
+                [text_column_id],
+                claim_token=second_authority.claim_token,
+                terminal_disposition="failed",
+            )
         head = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
             (row_id, text_column_id),
@@ -352,7 +359,8 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             (source_column_id,),
         )
         project.db.commit()
-        generations.rebuild_heads([text_column_id])
+        with write_transaction(generations.db):
+            generations.rebuild_heads([text_column_id])
         rebuilt = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
             (row_id, text_column_id),
@@ -385,17 +393,18 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
             project, run_id, output_column_ids={text_id}
         )
         generations = ResultGenerationStore(project)
-        generations.declare(
-            run_id,
-            text_id,
-            output_role="text",
-            compatibility_key="document-test",
-            write_mode="create",
-            defer_publication=deferred,
-            claim_token=authority.claim_token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                text_id,
+                output_role="text",
+                compatibility_key="document-test",
+                write_mode="create",
+                defer_publication=deferred,
+                claim_token=authority.claim_token,
+            )
         project.db.execute("BEGIN IMMEDIATE")
-        edit_op = project.append_change("edit", commit=False)
+        edit_op = project.append_change_in_transaction("edit")
         insert_edits(
             project.db,
             op_id=edit_op,
@@ -415,12 +424,13 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
         if deferred:
             RunResultStore(project).write_results(run_id, result, **authority.kwargs())
             with pytest.raises(DocumentTextPublicationRefused):
-                generations.seal(
-                    run_id,
-                    [text_id],
-                    claim_token=authority.claim_token,
-                    terminal_disposition="completed",
-                )
+                with write_transaction(generations.db):
+                    generations.seal(
+                        run_id,
+                        [text_id],
+                        claim_token=authority.claim_token,
+                        terminal_disposition="completed",
+                    )
         else:
             with pytest.raises(DocumentTextPublicationRefused):
                 RunResultStore(project).write_results(

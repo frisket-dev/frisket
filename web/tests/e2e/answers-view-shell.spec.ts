@@ -83,7 +83,8 @@ try:
             for rid, v in zip(row_ids, values)
         ])
         run_store.finish_run(run_id)
-        run_store.point_column_at_run(op_id, col_id, run_id)
+        with write_transaction(project.db):
+            run_store.point_column_at_run(op_id, col_id, run_id)
         _values, refs = project.get_values_with_refs(sheet_id, col_id, row_ids=row_ids)
         with write_transaction(project.db):
             artifact = record_source_artifact(

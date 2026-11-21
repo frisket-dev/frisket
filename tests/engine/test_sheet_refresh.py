@@ -521,8 +521,8 @@ def test_refresh_refuses_unsupported_model_op_without_cost_prompt(
             "VALUES (?, ?, 'reduce.group_summary', 'completed', 'stub/model', 0.42)",
             (op_id, parent_id),
         )
-        model_child = project.add_sheet(
-            "Summary", parent_sheet_id=parent_id, parent_op_id=op_id, commit=False
+        model_child = project.add_sheet_in_transaction(
+            "Summary", parent_sheet_id=parent_id, parent_op_id=op_id
         )
         project.db.commit()
 

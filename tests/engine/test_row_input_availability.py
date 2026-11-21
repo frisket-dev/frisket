@@ -31,6 +31,7 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from runner_test_helpers import run_with_output_claim
 from test_result_generation_store import _start_claimed_run, _declare, _write, _seal
+from frisket.engine.store.transactions import write_transaction
 
 work = recovery.work
 
@@ -258,7 +259,7 @@ def test_unavailable_current_input_does_not_replace_a_returned_paid_checkpoint(
         def crash(*args, **kwargs):
             raise RuntimeError("injected after return")
 
-        runner.run_store.write_results = crash
+        runner.run_store.write_results_in_transaction = crash
         with pytest.raises(RuntimeError, match="injected after return"):
             asyncio.run(
                 runner.run(
@@ -277,7 +278,8 @@ def test_unavailable_current_input_does_not_replace_a_returned_paid_checkpoint(
             "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
         ).fetchone()[0]
         effects._age_silent_attempt(project, attempt)
-        project.set_column_type(column, "integer")
+        with write_transaction(project.db):
+            project.set_column_type(column, "integer")
         resumed = asyncio.run(
             effects._runner(project, router).run(
                 confirmed,

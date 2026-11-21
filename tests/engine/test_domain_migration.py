@@ -815,7 +815,8 @@ def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_p
         project.apply_edits(
             [{"row_id": row, "column_id": title_column, "value": "Corrected"}]
         )
-        project.set_column_default_hidden(file_column, True)
+        with write_transaction(project.db):
+            project.set_column_default_hidden(file_column, True)
         restore_pre_domain_schema(project.db)
         floor = project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0]
 

@@ -9,6 +9,7 @@ from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.app import create_app
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 _LARGE_BYTES = 20 * 1024 * 1024
@@ -52,7 +53,8 @@ def _seed_large_review(tmp_path: Path) -> tuple[TestClient, str, Any, dict[str, 
             }
         ],
     )
-    RunResultStore(project).point_column_at_run(op_id, output_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_id, run_id)
     RunResultStore(project).finish_run(run_id, "completed")
     return (
         client,
@@ -209,9 +211,10 @@ def test_manual_edit_does_not_replace_review_saved_answer_when_later_run_skips_r
         total_rows=1,
         row_ids=[ids["row_id"]],
     )
-    RunResultStore(project).point_column_at_run(
-        later_op_id, ids["output_id"], later_run_id
-    )
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(
+            later_op_id, ids["output_id"], later_run_id
+        )
     RunResultStore(project).finish_run(later_run_id, "completed")
     project.db.execute(
         "DELETE FROM cell_result_heads WHERE run_id=? AND row_id=? AND column_id=?",
