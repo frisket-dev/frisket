@@ -2,9 +2,6 @@
 // AI-extracted string lists materialized as a People child sheet must keep
 // AI display semantics, so literal model escapes render as human text.
 
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
   clickCell,
@@ -13,19 +10,15 @@ import {
   listSheets,
   openPalette,
   openProject,
+  primeMapRowsReplies,
   sheetData,
+  typedActionRequest,
   uniqueName,
 } from './helpers';
 import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
-import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 const PROMPT = 'Extract every person mentioned as a short descriptive string.';
 const SOURCE_SUMMARY =
@@ -64,79 +57,26 @@ function csvEscape(value: string): string {
 }
 
 function primePeopleCache(pid: string, sheetId: number): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_id_raw = sys.argv[1], sys.argv[2], sys.argv[3]
-sheet_id = int(sheet_id_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    action = {
-        "action_id": "map.extract",
-        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {
-            "source": ["episode", "summary"],
-            "model": ${JSON.stringify(MODEL)},
-            "instruction": ${JSON.stringify(PROMPT)},
-            "fields": [
-                {
-                    "name": "people",
-                    "type": "list",
-                    "description": "People mentioned",
-                    "items": {"type": "string"},
-                }
-            ],
-            "include_confidence": False,
-            "grounding": {"enabled": False},
+  const action = typedActionRequest('map.extract', {
+    sheetId,
+    params: {
+      source: ['episode', 'summary'],
+      model: MODEL,
+      instruction: PROMPT,
+      fields: [
+        {
+          name: 'people',
+          type: 'list',
+          description: 'People mentioned',
+          items: { type: 'string' },
         },
-        "output_names": {"people": "people"},
-        "idempotency_key": "e2e-cache-prime",
-    }
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {c["name"]: c["id"] for c in project.columns(sheet_id)}
-    values = {
-        name: project.get_values(sheet_id, columns[name])
-        for name in spec["input_columns"]
-    }
-    cache = ResponseCache(project.path / "project.cache.db")
-    try:
-        for row_id in project.visible_row_ids(sheet_id):
-            row_values = {name: values[name].get(row_id) for name in ["episode", "summary"]}
-            call = plan.program.render(row_values, spec)
-            req = LLMRequest(
-                model=spec["model"],
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-            )
-            cache.put(
-                request_key(req, plan.program.version),
-                LLMResponse(
-                    content=None,
-                    data={"people": [${JSON.stringify(ESCAPED_PERSON)}]},
-                    tokens_in=160,
-                    tokens_out=60,
-                    cost=0.0003,
-                    model=spec["model"],
-                ),
-            )
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    timeout: 60_000,
+      ],
+      include_confidence: false,
+      grounding: { enabled: false },
+    },
+    outputNames: { people: 'people' },
   });
+  primeMapRowsReplies(pid, action, [{ people: [ESCAPED_PERSON] }]);
 }
 
 function sourceRefForDerive(output: V1ActionOutput): Record<string, unknown> {
