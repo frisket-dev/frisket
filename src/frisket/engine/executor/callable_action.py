@@ -247,7 +247,9 @@ class CallableInvocation:
                 "evidence": [*self.receipt.evidence, *update.citations],
                 "provider_use": [*self.receipt.provider_use, *update.provider_use],
                 "exports": current_exports,
-                "op_ids": list(dict.fromkeys((*self.receipt.op_ids, *update.action_ids))),
+                "op_ids": list(
+                    dict.fromkeys((*self.receipt.op_ids, *update.action_ids))
+                ),
             },
         ).model_copy(deep=True)
 

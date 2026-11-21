@@ -879,7 +879,7 @@ def test_callable_record_in_transaction_savepoint_preserves_outer_caller_txn(
         invocation.record_in_transaction(
             CallableRecordUpdate(
                 outputs=(ReceiptIO(name="out", ref={"kind": "file", "path": "x.csv"}),),
-                evidence=(ReceiptEvidence(ref={"kind": "probe"}, retention="pinned"),),
+                citations=(ReceiptEvidence(ref={"kind": "probe"}, retention="pinned"),),
             ),
             before_commit=fail_after_side_write,
         )
