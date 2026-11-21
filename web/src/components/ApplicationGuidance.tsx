@@ -19,7 +19,7 @@ export function ApplicationGuidance({ projectId, children }: { projectId?: strin
   const completeCloudWelcome = useCallback(() => setCloudWelcomeComplete(true), []);
   // Descriptive badges are optional; a failed catalog leaves the guides usable without them.
   const badges = useLoader(() => listWalkthroughs(), []).data?.walkthroughs ?? NO_BADGES;
-  const needsCostSetup = identityMode && me?.cost_preapproval_usd === null
+  const needsCostSetup = identityMode && me?.allowance_usd === null
     && completedCostSetupFor !== me.email;
   const needsCloudWelcome = !identityMode && !cloudWelcomeComplete;
 

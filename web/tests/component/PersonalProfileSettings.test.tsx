@@ -28,8 +28,8 @@ const runtimeConfig = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig =>
   cache_mode: 'replay',
   live_calls_possible: true,
   cache_mode_editable: true,
-  cost_preapproval_usd: '2',
-  cost_preapproval_editable: true,
+  allowance_usd: '2',
+  allowance_editable: true,
   email_from_address: null,
   email_from_name: null,
   auth_methods: { password: true, magic_link: false, oidc: [] },
@@ -42,7 +42,7 @@ const runtimeConfig = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig =>
 const profile = (overrides: Partial<MeInfo> = {}): MeInfo => ({
   email: 'person@example.com',
   display_name: 'Person',
-  cost_preapproval_usd: null,
+  allowance_usd: null,
   ...overrides,
 });
 
@@ -51,7 +51,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('personal profile pre-approval settings', () => {
+describe('personal profile allowance settings', () => {
   it('renders the edition profile contribution after the built-in form', async () => {
     (getMe as Mock).mockResolvedValue(profile());
     (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig());
@@ -64,7 +64,7 @@ describe('personal profile pre-approval settings', () => {
     expect(screen.getByTestId('personal-profile-settings').lastElementChild).toBe(slot);
   });
 
-  it('patches only the edited name, retaining an unanswered pre-approval amount', async () => {
+  it('patches only the edited name, retaining an unanswered allowance amount', async () => {
     (getMe as Mock).mockResolvedValue(profile());
     (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig());
     (updateProfile as Mock).mockResolvedValue(profile({ display_name: 'Renamed' }));
@@ -76,7 +76,7 @@ describe('personal profile pre-approval settings', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => expect(updateProfile).toHaveBeenCalledWith({ display_name: 'Renamed' }));
-    expect(updateProfile).not.toHaveBeenCalledWith(expect.objectContaining({ cost_preapproval_usd: '2' }));
+    expect(updateProfile).not.toHaveBeenCalledWith(expect.objectContaining({ allowance_usd: '2' }));
   });
 
   it('waits for the local runtime amount and does not overwrite a saved zero when saving a name', async () => {
@@ -90,7 +90,7 @@ describe('personal profile pre-approval settings', () => {
     expect(save).toBeDisabled();
     expect(updateLocalAllowance).not.toHaveBeenCalled();
 
-    resolveRuntime(runtimeConfig({ cost_preapproval_usd: '0' }));
+    resolveRuntime(runtimeConfig({ allowance_usd: '0' }));
     const amount = await screen.findByTestId('personal-allowance');
     await waitFor(() => expect(amount).toHaveValue(0));
     fireEvent.change(screen.getByTestId('personal-display-name'), { target: { value: 'Desk' } });
@@ -102,9 +102,9 @@ describe('personal profile pre-approval settings', () => {
 
   it('retains a saved local amount and does not resubmit it with a later name save', async () => {
     (getMe as Mock).mockResolvedValue(profile({ email: 'Local workspace', display_name: '' }));
-    (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig({ cost_preapproval_usd: '0' }));
+    (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig({ allowance_usd: '0' }));
     (updateLocalAllowance as Mock).mockResolvedValue(
-      runtimeConfig({ cost_preapproval_usd: '3.25' }),
+      runtimeConfig({ allowance_usd: '3.25' }),
     );
 
     render(<PersonalProfileSettings identityMode={false} />);

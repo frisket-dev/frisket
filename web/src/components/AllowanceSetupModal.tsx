@@ -17,13 +17,13 @@ export function AllowanceSetupModal({ onComplete }: { onComplete?: () => void })
   if (complete) return null;
 
   const save = () => run(async () => {
-    await updateProfile({ cost_preapproval_usd: amount });
+    await updateProfile({ allowance_usd: amount });
     setComplete(true);
     onComplete?.();
   });
 
   return (
-    <Modal title="Set your allowance" testId="cost-preapproval-setup">
+    <Modal title="Set your allowance" testId="allowance-setup">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -35,13 +35,13 @@ export function AllowanceSetupModal({ onComplete }: { onComplete?: () => void })
           continue without another prompt, including sending their inputs to the
           selected provider. Runs over it, or with no price, ask for one click.
         </p>
-        <label className="form-label" htmlFor="cost-preapproval-setup-input">
+        <label className="form-label" htmlFor="allowance-setup-input">
           Allowance per run (USD)
         </label>
         <TextInput
-          id="cost-preapproval-setup-input"
+          id="allowance-setup-input"
 
-          data-testid="cost-preapproval-setup-input"
+          data-testid="allowance-setup-input"
           type="number"
           min="0"
           step="0.000001"
@@ -56,7 +56,7 @@ export function AllowanceSetupModal({ onComplete }: { onComplete?: () => void })
           <Button
             type="submit"
             className="btn-primary"
-            data-testid="cost-preapproval-setup-save"
+            data-testid="allowance-setup-save"
             disabled={saving || amount.trim() === ''}
           >
             {saving ? 'Saving…' : 'Continue'}
