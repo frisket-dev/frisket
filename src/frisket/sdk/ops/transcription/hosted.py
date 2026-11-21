@@ -122,7 +122,7 @@ _TRANSCRIPTION_REQUEST_BUILDERS: dict[str, TranscriptionRequestBuilder] = {
 
 
 def _safe_remote_exception(prefix: str, error: BaseException, key: str) -> str:
-    cause_detail = redact_text(str(error), secret_values=(key,), max_chars=300)
+    cause_detail = redact_text(error, secret_values=(key,), max_chars=300)
     return redact_text(f"{prefix}{cause_detail}", secret_values=(key,), max_chars=300)
 
 
