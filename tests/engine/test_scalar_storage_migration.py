@@ -8,7 +8,7 @@ import pytest
 from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.upgrades.project.scalar_storage_migration import (
@@ -108,7 +108,7 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source", type="integer")
     output_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -175,7 +175,7 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
     with write_transaction(results.db):
         results.point_column_at_run(op_id, output_column_id, run_id)
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=authority.claim_token)
+        GeneratedColumnClaimStore(project).release(claim_token=authority.claim_token)
     project.apply_edits(
         [
             {

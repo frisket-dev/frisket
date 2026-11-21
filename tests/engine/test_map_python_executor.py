@@ -17,9 +17,9 @@ from executor_harness import (
     case_env,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import (
@@ -230,7 +230,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     # visible column targets
     assert columns["python_result"]["type"] == "json"
-    assert columns["python_result"]["ai_generated"] == 1
+    assert columns["python_result"]["generated"] == 1
     assert columns["python_result"]["current_run_id"] == result.run_id
     assert columns["python_result"]["hidden"] == 0
     assert columns["word_count"]["type"] == "integer"
@@ -393,7 +393,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "map_rows_failed",
                     "idempotency_conflict",
                     "idempotency_in_progress",
@@ -412,9 +412,9 @@ CASES = [
                 "invalid_action_request",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _visible_collision_action,
-                "output_column_exists",
+                "generated_column_exists",
                 after_primary_run=True,
             ),
             # A failed map run persists its failed run/results/op/receipt
@@ -571,7 +571,7 @@ def test_direct_maprunner_stale_writer_refusal_is_non_destructive(
         )
         assert (
             env.project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
@@ -597,7 +597,7 @@ def test_direct_maprunner_renewal_failure_leaves_run_alive(
     def fail_renewal(*_args: Any, **_kwargs: Any) -> int:
         raise sqlite3.OperationalError("injected claim renewal outage")
 
-    monkeypatch.setattr(OutputColumnClaimStore, "renew", fail_renewal)
+    monkeypatch.setattr(GeneratedColumnClaimStore, "renew", fail_renewal)
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         with pytest.raises(
             ClaimLeaseRenewalFailed,
@@ -630,7 +630,7 @@ def test_direct_maprunner_renewal_failure_leaves_run_alive(
         )
         assert (
             env.project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]

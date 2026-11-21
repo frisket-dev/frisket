@@ -118,7 +118,7 @@ class _Sheet:
                 "params": {"source_run_id": source_run_id},
                 "output_names": {"out": "out"},
                 "replace_existing": True,
-                "expected_output_columns": {"out": self.out},
+                "expected_generated_columns": {"out": self.out},
             }
         )
 

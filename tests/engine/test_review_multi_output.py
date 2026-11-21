@@ -111,7 +111,7 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(project: Project
     # Declared provenance remains the source even when an upstream generated
     # column feeds this run; source selection is not an imported-column filter.
     project.db.execute(
-        "UPDATE columns SET ai_generated=1 WHERE id=?",
+        "UPDATE columns SET generated=1 WHERE id=?",
         (first["sources"][0]["column_id"],),
     )
     project.db.commit()

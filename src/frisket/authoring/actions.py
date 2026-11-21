@@ -60,9 +60,7 @@ def _column_payload(column: Any) -> dict[str, Any]:
         "id": int(column["id"]),
         "name": column["name"],
         "type": column["type"],
-        "ai_generated": bool(column["ai_generated"])
-        if "ai_generated" in keys
-        else False,
+        "generated": bool(column["generated"]) if "generated" in keys else False,
         "format": column["format"] if "format" in keys else None,
         "current_run_id": column["current_run_id"]
         if "current_run_id" in keys
@@ -188,7 +186,7 @@ def run_status(project_id: str, project: Project, run_id: int) -> dict[str, Any]
         "failed_rows": int(row["failed_rows"] or 0),
         "cost_actual": row["cost_actual"],
         "cost_estimate": row["cost_estimate"],
-        "output_columns": ResultGenerationStore(project)
+        "generated_columns": ResultGenerationStore(project)
         .generated_columns_for_runs([run_id])
         .get(run_id, []),
     }

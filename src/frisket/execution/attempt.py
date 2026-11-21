@@ -591,9 +591,9 @@ def abandon_stale_dispatching_attempts(
     observed_now = now or datetime.now(timezone.utc)
     cutoff = (observed_now - max_age).isoformat(timespec="seconds")
     lease_cutoff = observed_now.isoformat(timespec="microseconds")
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
-    return OutputColumnClaimStore(project).abandon_stale_dispatching_attempts(
+    return GeneratedColumnClaimStore(project).abandon_stale_dispatching_attempts(
         run_id=run_id,
         cutoff=cutoff,
         lease_cutoff=lease_cutoff,
@@ -764,9 +764,11 @@ def claim(
                 require_execution_sources(project, int(owner[0]))
             except ExecutionSourceUnavailable as exc:
                 raise AttemptClaimRefused("input_source_unavailable", str(exc)) from exc
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
 
-        output_claims = OutputColumnClaimStore(project)
+        output_claims = GeneratedColumnClaimStore(project)
         claimless_direct_effect = fence.claimless_direct_effect
         claim_token = fence.claim_token
         if receipt_id is not None:

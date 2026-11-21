@@ -227,7 +227,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         ).fetchall()
     }
     assert columns["beat"]["type"] == "category"
-    assert columns["beat"]["ai_generated"] == 1
+    assert columns["beat"]["generated"] == 1
     assert columns["beat"]["current_run_id"] == result.run_id
     assert columns["risk_score"]["type"] == "integer"
     assert columns["beat_confidence"]["type"] == "number"
@@ -334,7 +334,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "model_cost_requires_confirmation",
                     "idempotency_conflict",
                     "idempotency_in_progress",
@@ -356,9 +356,9 @@ CASES = [
             ),
             Gate("invalid_input_ref", _bad_input_action, "invalid_input_ref"),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _collision_action,
-                "output_column_exists",
+                "generated_column_exists",
                 after_primary_run=True,
             ),
         ),
@@ -659,7 +659,7 @@ def test_map_classify_local_semantic_leaves_unrelated_companion_named_columns_al
                     env.seeded["sheet_id"],
                     name,
                     type=column_type,
-                    ai_generated=True,
+                    generated=True,
                 )
             )
         result = env.run(

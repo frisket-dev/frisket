@@ -16,7 +16,7 @@ interface JoinAction { id: string; actionId: string; label: string; targetSheetI
 export interface ExpectedLinkDraft {
   target_sheet_id: number; expected_sheet_id: number; action_id: string;
   keys: Array<{ expected_column_id: number; target_column_id: number | null }>;
-  fields: Array<{ expected_column_id: number; output_column_id: number; logical_key: string; rule: ExpectedRule; hidden: boolean; source: 'import' | 'disagreements' }>;
+  fields: Array<{ expected_column_id: number; generated_column_id: number; logical_key: string; rule: ExpectedRule; hidden: boolean; source: 'import' | 'disagreements' }>;
   hidden: boolean;
 }
 interface JoinPreview {
@@ -41,7 +41,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   const [step, setStep] = useState(initialStep);
   const [sheetId, setSheetId] = useState(initialLink?.expected_sheet_id ?? 0);
   const [actionId, setActionId] = useState(() => initialLink
-    ? actions.find(item => item.actionId === initialLink.action_id && initialLink.fields.every(field => item.outputs.some(output => output.id === field.output_column_id)))?.id ?? ''
+    ? actions.find(item => item.actionId === initialLink.action_id && initialLink.fields.every(field => item.outputs.some(output => output.id === field.generated_column_id)))?.id ?? ''
     : initialActionId ?? '');
   const [keys, setKeysState] = useState(initialLink?.keys ?? [{ expected_column_id: 0, target_column_id: 0 }]);
   const [fields, setFieldsState] = useState(initialLink?.fields ?? []);
@@ -80,7 +80,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   const preview = previewResult?.key === previewKey && validKeys ? previewResult.value : null;
   const previewError = previewResult?.key === previewKey && validKeys ? previewResult.error : '';
   const canAdvance = !!preview && !preview.ambiguous_expected && !preview.ambiguous_target;
-  const mappedOutputIds = fields.map((field) => field.output_column_id);
+  const mappedOutputIds = fields.map((field) => field.generated_column_id);
   const validFields = fields.length > 0 && new Set(mappedOutputIds).size === mappedOutputIds.length;
   function prepareFields() {
     if (!action) return;
@@ -88,7 +88,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
       const old = fields.find((field) => field.expected_column_id === column.id);
       if (old) return [old];
       const output = action.outputs.find((item) => item.name === column.name);
-      return output ? [{ expected_column_id: column.id, output_column_id: output.id, logical_key: output.logicalKey, rule: 'exact' as const, hidden: false, source: 'import' as const }] : [];
+      return output ? [{ expected_column_id: column.id, generated_column_id: output.id, logical_key: output.logicalKey, rule: 'exact' as const, hidden: false, source: 'import' as const }] : [];
     }));
   }
   async function save() {
@@ -123,9 +123,9 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
       {step === 'columns' && <><p>Choose which columns contain expected answers.</p><div className="expected-join-mappings">{remaining.map((column) => {
         const field = fields.find((item) => item.expected_column_id === column.id);
         return <div className="expected-join-mapping-row" key={column.id}><strong>{column.name}</strong><span aria-hidden>→</span>
-          <PanelSelect ariaLabel={`Role for ${column.name}`} value={field ? String(field.output_column_id) : ''} options={[{ value: '', label: "Don't join / Choose an output" }, ...(action?.outputs ?? []).map((output) => ({ value: String(output.id), label: `Expected · ${output.name}` }))]} onValueChange={(value) => {
+          <PanelSelect ariaLabel={`Role for ${column.name}`} value={field ? String(field.generated_column_id) : ''} options={[{ value: '', label: "Don't join / Choose an output" }, ...(action?.outputs ?? []).map((output) => ({ value: String(output.id), label: `Expected · ${output.name}` }))]} onValueChange={(value) => {
             const output = action?.outputs.find((item) => item.id === Number(value));
-            setFields([...fields.filter((item) => item.expected_column_id !== column.id), ...(output ? [{ expected_column_id: column.id, output_column_id: output.id, logical_key: output.logicalKey, rule: field?.rule ?? 'exact', hidden: field?.hidden ?? false, source: field?.source ?? 'import' as const }] : [])]);
+            setFields([...fields.filter((item) => item.expected_column_id !== column.id), ...(output ? [{ expected_column_id: column.id, generated_column_id: output.id, logical_key: output.logicalKey, rule: field?.rule ?? 'exact', hidden: field?.hidden ?? false, source: field?.source ?? 'import' as const }] : [])]);
           }} />
           {field && <PanelSelect ariaLabel={`Match rule for ${column.name}`} value={field.rule} options={rules} onValueChange={(value) => {
             const rule = value as ExpectedRule;

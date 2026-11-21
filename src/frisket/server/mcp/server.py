@@ -114,7 +114,7 @@ def create_mcp_server(backend: LocalBackend | RemoteBackend) -> FastMCP:
         project_id: str, sheet_id: int, offset: int = 0, limit: int = 100
     ) -> dict:
         """Read a page of rows from a sheet. Returns columns (id, name, type,
-        ai_generated) and rows whose cells are keyed by column NAME, plus
+        generated) and rows whose cells are keyed by column NAME, plus
         total/offset/limit for paging. Sheets can be 100k+ rows: limit is
         capped server-side at 1000 — page with offset, never assume one call
         returned everything (compare len(rows)+offset to total)."""

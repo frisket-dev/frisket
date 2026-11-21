@@ -10,7 +10,7 @@ def test_deleting_reviewed_sheet_refreshes_project_pending_summary(make_project)
     project = make_project("delete-reviewed")
     path = project.path
     sheet = project.add_sheet("Scratch")
-    column = project.add_column(sheet, "answer", ai_generated=True)
+    column = project.add_column(sheet, "answer", generated=True)
     [row] = project.add_rows(sheet, [{}], {})
     op = project.append_change("map.extract")
     store = RunResultStore(project)

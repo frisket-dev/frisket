@@ -21,7 +21,7 @@ from frisket.engine.jobs.runs import RUN_PROJECT_KIND, register_project_run_hand
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.server import run_status as run_status_module
@@ -162,7 +162,7 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
     project = make_project(project_id)
     sheet_id = project.add_sheet("Source")
     source_column = project.add_column(sheet_id, "note")
-    project.add_column(sheet_id, "number", ai_generated=True)
+    project.add_column(sheet_id, "number", generated=True)
     [row_id] = project.add_rows(
         sheet_id,
         [{"note": "first 101"}],
@@ -202,7 +202,7 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
         )
     claim_token = "claim:custom-live-cancel"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["number"],
             action_kind="map.regex_extract",
@@ -273,7 +273,7 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
         (attempt_id,),
     ).fetchone()
     terminal_claim = project.db.execute(
-        "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+        "SELECT status, released_at FROM generated_column_claims WHERE run_id=?",
         (run_id,),
     ).fetchone()
     assert terminal_run is not None
@@ -320,7 +320,7 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
         ),
         tuple(
             project.db.execute(
-                "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+                "SELECT status, released_at FROM generated_column_claims WHERE run_id=?",
                 (run_id,),
             ).fetchone()
         ),
@@ -333,7 +333,7 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
     project = make_project(project_id)
     sheet_id = project.add_sheet("Source")
     source_column = project.add_column(sheet_id, "note")
-    project.add_column(sheet_id, "number", ai_generated=True)
+    project.add_column(sheet_id, "number", generated=True)
     [row_id] = project.add_rows(
         sheet_id,
         [{"note": "first 101"}],
@@ -373,7 +373,7 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
         )
     claim_token = "claim:legacy-cancelled-split"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["number"],
             action_kind="map.regex_extract",
@@ -411,7 +411,7 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
         "SELECT r.status, r.current_attempt_id, rc.status AS receipt_status, "
         "c.status AS claim_status FROM runs r "
         "JOIN receipts rc ON rc.id=? "
-        "JOIN output_column_claims c ON c.run_id=r.id "
+        "JOIN generated_column_claims c ON c.run_id=r.id "
         "WHERE r.id=?",
         (receipt_id, run_id),
     ).fetchone()
@@ -452,7 +452,7 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
         ),
         tuple(
             project.db.execute(
-                "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+                "SELECT status, released_at FROM generated_column_claims WHERE run_id=?",
                 (run_id,),
             ).fetchone()
         ),
@@ -480,7 +480,7 @@ def test_legacy_cancelled_split_never_returns_false_success(make_project) -> Non
         ),
         tuple(
             project.db.execute(
-                "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+                "SELECT status, released_at FROM generated_column_claims WHERE run_id=?",
                 (run_id,),
             ).fetchone()
         ),
@@ -583,7 +583,7 @@ def test_cancel_intent_before_dispatch_converges_through_unclaimed_kernel(
             (run_id,),
         ).fetchall()
         claims = project.db.execute(
-            "SELECT status, released_at FROM output_column_claims "
+            "SELECT status, released_at FROM generated_column_claims "
             "WHERE run_id=? ORDER BY id",
             (run_id,),
         ).fetchall()
@@ -741,7 +741,7 @@ def test_live_writer_cancel_records_intent_then_converges_within_one_row(
         assert {
             row["status"]
             for row in project.db.execute(
-                "SELECT status FROM output_column_claims WHERE run_id=?",
+                "SELECT status FROM generated_column_claims WHERE run_id=?",
                 (run_id,),
             ).fetchall()
         } == {"active"}
@@ -783,7 +783,7 @@ def test_live_writer_cancel_records_intent_then_converges_within_one_row(
     terminal_claims = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT status, released_at FROM output_column_claims "
+            "SELECT status, released_at FROM generated_column_claims "
             "WHERE run_id=? ORDER BY id",
             (run_id,),
         ).fetchall()
@@ -812,7 +812,7 @@ def test_live_writer_cancel_records_intent_then_converges_within_one_row(
     after_repeat_claims = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT status, released_at FROM output_column_claims "
+            "SELECT status, released_at FROM generated_column_claims "
             "WHERE run_id=? ORDER BY id",
             (run_id,),
         ).fetchall()

@@ -35,7 +35,7 @@ def warning_run(make_project, request):
     project = make_project("Warnings")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "source")
-    output_id = project.add_column(sheet_id, "generated", ai_generated=True)
+    output_id = project.add_column(sheet_id, "generated", generated=True)
     row_ids = project.add_rows(
         sheet_id, [{"source": "scan"}, {"source": "blank"}], {"source": source_id}
     )

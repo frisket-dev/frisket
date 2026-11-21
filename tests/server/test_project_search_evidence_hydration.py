@@ -47,7 +47,7 @@ def _client(project: Project) -> TestClient:
 def _seed_ocr(project: Project) -> None:
     sheet_id = project.add_sheet("Scans")
     file_column_id = project.add_column(sheet_id, "scan", "file")
-    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", generated=True)
     output = io.BytesIO()
     Image.new("RGB", (100, 60), color="white").save(output, format="PNG")
     blob_hash = project.add_blob(

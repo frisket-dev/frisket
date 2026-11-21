@@ -76,7 +76,7 @@ def _insert_column(
 ) -> int:
     cursor = db.execute(
         "INSERT INTO columns "
-        "(sheet_id,name,type,position,ai_generated,hidden,default_hidden,format,semantic_type) "
+        "(sheet_id,name,type,position,generated,hidden,default_hidden,format,semantic_type) "
         "VALUES (?,?,?,?,0,?,?,?,?)",
         (
             sheet_id,

@@ -51,7 +51,7 @@ def test_job_backed_run_status_and_timing_expose_action_metadata(tmp_path) -> No
     context = job["context"]
     assert context["sheet_id"] == sheet_id
     assert context["sheet_name"] == "calls"
-    assert [column["name"] for column in context["output_columns"]] == ["phone"]
+    assert [column["name"] for column in context["generated_columns"]] == ["phone"]
     detail = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")
     assert detail.status_code == 200, detail.text
     assert detail.json()["context"] == context
@@ -129,7 +129,7 @@ def test_runless_job_retains_explicit_sheet_context_through_failure(client) -> N
             },
         },
     )
-    expected = {"sheet_id": sheet_id, "sheet_name": "Original", "output_columns": []}
+    expected = {"sheet_id": sheet_id, "sheet_name": "Original", "generated_columns": []}
 
     for phase in ("queued", "running", "failed"):
         response = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")

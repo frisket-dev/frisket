@@ -635,7 +635,7 @@ def _refresh_sheet(
     update_policy = bound.request.params.get("update_policy", "keep_changes")
     derive_request = refresh_plan.request
     from frisket.engine.executor.table_action import (
-        _list_output_ai_generated,
+        _list_output_generated,
         prepare_table_producer,
     )
 
@@ -678,7 +678,7 @@ def _refresh_sheet(
             current = {
                 int(column["id"]): column
                 for column in cur.execute(
-                    "SELECT id, name, type, ai_generated, hidden FROM columns "
+                    "SELECT id, name, type, generated, hidden FROM columns "
                     "WHERE sheet_id=? AND active=1",
                     (sheet_id,),
                 ).fetchall()
@@ -688,7 +688,7 @@ def _refresh_sheet(
                 for name, copied in copied_by_output.items()
                 if (existing := current.get(config["columns"].get(name))) is None
                 or existing["type"] != canonical_column_type(copied.type)
-                or bool(existing["ai_generated"]) != copied.ai_generated
+                or bool(existing["generated"]) != copied.generated
                 or bool(existing["hidden"])
             ]
             if drifted:
@@ -739,7 +739,7 @@ def _refresh_sheet(
                     MaterializedColumnSpec(
                         name=column.name,
                         type=column.type,
-                        ai_generated=_list_output_ai_generated(
+                        generated=_list_output_generated(
                             reader, column.name, prepared.resolved_output_names
                         ),
                         hidden=column.hidden,

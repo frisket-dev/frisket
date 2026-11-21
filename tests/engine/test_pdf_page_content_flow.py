@@ -428,7 +428,7 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
     run_id = int(checkpoint["group_key"])
     _age_silent_attempt(project, checkpoint["authorized_attempt_id"])
     claim = project.db.execute(
-        "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
+        "SELECT claim_token FROM generated_column_claims WHERE run_id=?", (run_id,)
     ).fetchone()[0]
     plan = build_typed_map_rows_plan(
         project,

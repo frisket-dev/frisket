@@ -216,7 +216,7 @@ def test_reordered_repeated_occurrences_and_renames_keep_distinct_clocks(source)
     assert [ref["output"]["row_id"] for ref in refs] == rows
     assert all(ref["output"]["column_id"] == column.column_id for ref in refs)
     flags = {
-        item["name"]: bool(item["ai_generated"])
+        item["name"]: bool(item["generated"])
         for item in project.columns(column.sheet_id)
     }
     assert flags == {"Excerpt": True, "Requested source": False}
@@ -490,7 +490,7 @@ def test_reused_annotation_handle_publishes_every_renamed_target(source):
         second.column_id,
     }
     assert {
-        item["name"] for item in project.columns(first.sheet_id) if item["ai_generated"]
+        item["name"] for item in project.columns(first.sheet_id) if item["generated"]
     } == {"Excerpt"}
     replay = run_typed_create_sheet_action(project, "project-test", bound)
     assert replay.status == "completed" and replay.receipt_id == result.receipt_id

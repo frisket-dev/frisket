@@ -1267,7 +1267,7 @@ function GeneratedActionFormContents({
       idempotency_key: freshActionRequestKey(catalogEntry.kind),
       ...(intent === 'run' && replacementLaunch ? {
         replace_existing: true,
-        expected_output_columns: launchMode.expectedGeneratedColumns,
+        expected_generated_columns: launchMode.expectedGeneratedColumns,
       } : {}),
     } satisfies GeneratedActionRequest;
     const capturedIdentity = `${JSON.stringify({ ...estimateDraft, scope: request.scope })}:${setupVersion}`;

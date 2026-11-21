@@ -1,7 +1,7 @@
 """Seam tests for the unified replay checker.
 
-`output_columns_replay_error`'s `scope` keyword replaces the old light/strict
-split (`output_columns_replay_error_light` is gone): "expected" scope (today's
+`generated_columns_replay_error`'s `scope` keyword replaces the old light/strict
+split (`generated_columns_replay_error_light` is gone): "expected" scope (today's
 strict behavior) checks the receipt's row set against a caller-computed
 expected row set; "receipt" scope (new) trusts the receipt ref's OWN recorded
 `row_ids` instead, so a partial run's replay is not penalized for rows outside
@@ -24,10 +24,13 @@ import pytest
 from frisket.contracts.action import Receipt, ReceiptIO
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import _compatibility_key
-from frisket.sdk.replay import output_column_value_hash, output_columns_replay_error
+from frisket.sdk.replay import (
+    generated_column_value_hash,
+    generated_columns_replay_error,
+)
 from frisket.sdk.replay_policy import REPLAY_EDIT_POLICY
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture
@@ -41,9 +44,7 @@ class _Fixture:
         self.project = project
         self.sheet = project.add_sheet("stories")
         self.src = project.add_column(self.sheet, "story")
-        self.col = project.add_column(
-            self.sheet, "label", type="text", ai_generated=True
-        )
+        self.col = project.add_column(self.sheet, "label", type="text", generated=True)
         rows = [{"story": f"story {i}"} for i in range(6)]
         project.add_rows(self.sheet, rows, {"story": self.src})
         self.row_ids = project.visible_row_ids(self.sheet)
@@ -65,7 +66,7 @@ class _Fixture:
         )
         claim_token = f"output-claim:test-replay:{run_id}"
         with write_transaction(self.project.db):
-            claims, conflict = OutputColumnClaimStore(self.project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(self.project).acquire(
                 sheet_id=self.sheet,
                 output_names=["label"],
                 action_kind="map.classify",
@@ -76,7 +77,7 @@ class _Fixture:
             )
         assert conflict is None and len(claims) == 1
         with write_transaction(self.project.db):
-            OutputColumnClaimStore(self.project).bind_to_run(
+            GeneratedColumnClaimStore(self.project).bind_to_run(
                 claim_token=claim_token,
                 run_id=run_id,
                 expected_output_names=["label"],
@@ -121,7 +122,7 @@ class _Fixture:
                 terminal_disposition="completed",
             )
         store.finish_run(run_id, **authority.terminal_kwargs())
-        OutputColumnClaimStore(self.project).finish_current_writer(
+        GeneratedColumnClaimStore(self.project).finish_current_writer(
             fence=authority.fence(),
             attempt_state="effected",
         )
@@ -186,14 +187,14 @@ def test_receipt_scope_passes_partial_run_on_its_own_recorded_rows(fx):
     partial_row_ids = fx.row_ids[:3]
     values = {rid: f"gen-{i}" for i, rid in enumerate(partial_row_ids)}
     run_id = fx.run_with_results(values)
-    value_hash = output_column_value_hash(
+    value_hash = generated_column_value_hash(
         fx.project, sheet_id=fx.sheet, column_id=fx.col, row_ids=partial_row_ids
     )
     receipt = fx.receipt(
         run_id=run_id, ref_row_ids=partial_row_ids, value_hash=value_hash
     )
 
-    err = output_columns_replay_error(
+    err = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -221,7 +222,7 @@ def test_receipt_scope_chunks_large_row_membership(fx):
     )
     fx.project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 902)
 
-    error = output_columns_replay_error(
+    error = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -240,14 +241,14 @@ def test_expected_scope_rejects_the_same_partial_run(fx):
     partial_row_ids = fx.row_ids[:3]
     values = {rid: f"gen-{i}" for i, rid in enumerate(partial_row_ids)}
     run_id = fx.run_with_results(values)
-    value_hash = output_column_value_hash(
+    value_hash = generated_column_value_hash(
         fx.project, sheet_id=fx.sheet, column_id=fx.col, row_ids=partial_row_ids
     )
     receipt = fx.receipt(
         run_id=run_id, ref_row_ids=partial_row_ids, value_hash=value_hash
     )
 
-    err = output_columns_replay_error(
+    err = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -266,7 +267,7 @@ def test_receipt_scope_published_value_cannot_mutate(fx):
     partial_row_ids = fx.row_ids[:3]
     values = {rid: f"gen-{i}" for i, rid in enumerate(partial_row_ids)}
     run_id = fx.run_with_results(values)
-    value_hash = output_column_value_hash(
+    value_hash = generated_column_value_hash(
         fx.project, sheet_id=fx.sheet, column_id=fx.col, row_ids=partial_row_ids
     )
     receipt = fx.receipt(
@@ -279,7 +280,7 @@ def test_receipt_scope_published_value_cannot_mutate(fx):
             ('"mutated"', run_id, partial_row_ids[0], fx.col),
         )
 
-    err = output_columns_replay_error(
+    err = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -295,7 +296,7 @@ def test_receipt_scope_forgives_a_pure_human_edit(fx):
     partial_row_ids = fx.row_ids[:3]
     values = {rid: f"gen-{i}" for i, rid in enumerate(partial_row_ids)}
     run_id = fx.run_with_results(values)
-    value_hash = output_column_value_hash(
+    value_hash = generated_column_value_hash(
         fx.project, sheet_id=fx.sheet, column_id=fx.col, row_ids=partial_row_ids
     )
     receipt = fx.receipt(
@@ -306,7 +307,7 @@ def test_receipt_scope_forgives_a_pure_human_edit(fx):
     # run result -- REPLAY_EDIT_POLICY == "surface" forgives this.
     fx.edit(partial_row_ids[0], "hand-fixed")
 
-    err = output_columns_replay_error(
+    err = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -332,7 +333,7 @@ def test_hashless_ref_still_fails_on_renamed_column_both_scopes(fx):
     fx.project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (fx.col,))
     fx.project.db.commit()
 
-    err_receipt_scope = output_columns_replay_error(
+    err_receipt_scope = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -341,7 +342,7 @@ def test_hashless_ref_still_fails_on_renamed_column_both_scopes(fx):
     )
     assert err_receipt_scope is not None and err_receipt_scope.code == "stale_replay"
 
-    err_expected_scope = output_columns_replay_error(
+    err_expected_scope = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -361,7 +362,7 @@ def test_hashless_ref_still_fails_on_hidden_column_both_scopes(fx):
     fx.project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (fx.col,))
     fx.project.db.commit()
 
-    err_receipt_scope = output_columns_replay_error(
+    err_receipt_scope = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -370,7 +371,7 @@ def test_hashless_ref_still_fails_on_hidden_column_both_scopes(fx):
     )
     assert err_receipt_scope is not None and err_receipt_scope.code == "stale_replay"
 
-    err_expected_scope = output_columns_replay_error(
+    err_expected_scope = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -388,13 +389,13 @@ def test_hashless_ref_still_fails_on_hidden_column_both_scopes(fx):
 # ---------------------------------------------------------------------------
 def test_expected_scope_is_still_the_default(fx):
     run_id = fx.run_with_results({rid: f"gen-{i}" for i, rid in enumerate(fx.row_ids)})
-    value_hash = output_column_value_hash(
+    value_hash = generated_column_value_hash(
         fx.project, sheet_id=fx.sheet, column_id=fx.col, row_ids=list(fx.row_ids)
     )
     receipt = fx.receipt(run_id=run_id, ref_row_ids=fx.row_ids, value_hash=value_hash)
 
     # No `scope=` kwarg passed -- must behave exactly like scope="expected".
-    err = output_columns_replay_error(
+    err = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,
@@ -403,7 +404,7 @@ def test_expected_scope_is_still_the_default(fx):
     )
     assert err is None
 
-    err_default_code = output_columns_replay_error(
+    err_default_code = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind=_OUTPUT_KIND,

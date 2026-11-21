@@ -235,7 +235,7 @@ def test_x_scraper_matchers_end_to_end(tmp_path: Path) -> None:
     data = _sheet_data(client, project_id, sheet_id)
     columns = _columns_by_name(data)
     assert columns["post"]["type"] == "json"
-    assert columns["post"]["ai_generated"] is True
+    assert columns["post"]["generated"] is True
     posts = _cell_values(data, column_name="post")
     first = posts[row_ids[0]]
     if isinstance(first, str):

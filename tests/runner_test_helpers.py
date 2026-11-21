@@ -15,7 +15,7 @@ from frisket.contracts.actions.schemas._base import ActionResult
 from frisket.engine.executor import run_action_spec
 from frisket.engine.runner import validation
 from frisket.engine.runner.map_runner import MapRunner, PreparedRun, RunProgress
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.runner.validation import ClaimsGate
 from frisket.ops.base import ActionProgram
 from frisket.engine.store.transactions import write_transaction
@@ -63,7 +63,7 @@ async def run_with_exact_confirmation(
     program = validation.action_program_for_spec(spec)
     output_names = [str(field["name"]) for field in program.output_fields(spec)]
     claim_token = f"output-claim:test:{program.name}:{uuid.uuid4()}"
-    claim_store = OutputColumnClaimStore(runner.project)
+    claim_store = GeneratedColumnClaimStore(runner.project)
     with write_transaction(claim_store.db):
         claims, conflict = claim_store.acquire(
             sheet_id=int(spec["sheet_id"]),
@@ -138,7 +138,7 @@ async def run_with_output_claim(
     action_program = program or validation.action_program_for_spec(spec)
     output_names = [str(field["name"]) for field in action_program.output_fields(spec)]
     claim_token = f"output-claim:test:{action_program.name}:{uuid.uuid4()}"
-    claim_store = OutputColumnClaimStore(runner.project)
+    claim_store = GeneratedColumnClaimStore(runner.project)
     with write_transaction(claim_store.db):
         claims, conflict = claim_store.acquire(
             sheet_id=int(spec["sheet_id"]),

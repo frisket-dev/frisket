@@ -10,7 +10,7 @@ import pytest
 from frisket.actions.core import RegisteredAction
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.runner import MapRunner
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.workspace import Workspace
@@ -460,16 +460,16 @@ def test_column_transform_preview_refuses_output_gate_before_starting_a_job(
     project = workspace.get("typed-preview")
     if gate == "existing":
         project.add_column(sheet_id, "cleaned")
-        expected_code = "output_column_exists"
+        expected_code = "generated_column_exists"
     else:
         with write_transaction(project.db):
-            _claims, conflict = OutputColumnClaimStore(project).acquire(
+            _claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["cleaned"],
                 action_kind="test.blocker",
             )
         assert conflict is None
-        expected_code = "output_column_busy"
+        expected_code = "generated_column_busy"
     service = ActionPreviewRunService(workspace)
 
     def unexpected_start(*_args: Any, **_kwargs: Any) -> None:
@@ -504,7 +504,7 @@ def test_column_transform_preview_ignores_terminal_owner_stale_claim(
     )
     project.db.commit()
     with write_transaction(project.db):
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
+        _claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["cleaned"],
             action_kind="test.seed",
@@ -525,6 +525,6 @@ def test_column_transform_preview_ignores_terminal_owner_stale_claim(
 
     assert response.status_code == 202, response.payload
     claim = project.db.execute(
-        "SELECT status FROM output_column_claims WHERE output_name='cleaned'"
+        "SELECT status FROM generated_column_claims WHERE output_name='cleaned'"
     ).fetchone()
     assert claim is not None and claim["status"] == "active"

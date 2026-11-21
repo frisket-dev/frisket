@@ -27,7 +27,7 @@ from frisket.engine.store.transactions import write_transaction
 def owned(make_project):
     project = make_project("dispatch")
     sheet = project.add_sheet("data")
-    output = project.add_column(sheet, "answer", ai_generated=True)
+    output = project.add_column(sheet, "answer", generated=True)
     rows = project.add_rows(sheet, [{}], {})
     run = _start_claimed_run(
         project,
@@ -146,7 +146,7 @@ async def test_structured_repair_keeps_dispatch_owner(owned):
 @pytest.mark.asyncio
 async def test_bound_runs_do_not_mutate_shared_router(owned):
     project, run, control = owned
-    output = project.add_column(1, "other", ai_generated=True)
+    output = project.add_column(1, "other", generated=True)
     other = _start_claimed_run(
         project, sheet_id=1, output_column_id=output, row_ids=[1], label="other"
     )
@@ -240,12 +240,14 @@ async def test_sidecar_checks_before_retry_but_preserves_successful_return(
 
 @pytest.mark.asyncio
 async def test_dispatch_reads_current_thread_connection_and_claim(owned):
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     project, run, control = owned
     await asyncio.to_thread(control.check)
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=run.authority.claim_token)
+        GeneratedColumnClaimStore(project).release(
+            claim_token=run.authority.claim_token
+        )
     with pytest.raises(asyncio.CancelledError):
         await asyncio.to_thread(control.check)
 

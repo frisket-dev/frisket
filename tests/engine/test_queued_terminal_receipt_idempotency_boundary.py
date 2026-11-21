@@ -92,7 +92,7 @@ def _receipt(project: Any, receipt_id: str) -> tuple[dict[str, Any], dict[str, A
 def _active_output_claim_count(project: Any, output_name: str) -> int:
     return int(
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE output_name=? AND status='active'",
             (output_name,),
         ).fetchone()[0]
@@ -443,7 +443,7 @@ def test_queue_terminal_failure_terminalizes_receipt_and_replay(
     )
     project = client.app.state.workspace.get(project_id)
     project.db.execute(
-        "UPDATE output_column_claims SET claim_token=? WHERE receipt_id=?",
+        "UPDATE generated_column_claims SET claim_token=? WHERE receipt_id=?",
         ("claim:custom-terminal-token", result.receipt_id),
     )
     project.db.commit()
@@ -533,7 +533,7 @@ def test_missing_queue_job_terminalizes_receipt_without_hiding_orphan_status(
         [
             tuple(item)
             for item in project.db.execute(
-                "SELECT status, released_at FROM output_column_claims "
+                "SELECT status, released_at FROM generated_column_claims "
                 "WHERE run_id=? ORDER BY id",
                 (result.run_id,),
             ).fetchall()
@@ -562,7 +562,7 @@ def test_missing_queue_job_terminalizes_receipt_without_hiding_orphan_status(
         [
             tuple(item)
             for item in project.db.execute(
-                "SELECT status, released_at FROM output_column_claims "
+                "SELECT status, released_at FROM generated_column_claims "
                 "WHERE run_id=? ORDER BY id",
                 (result.run_id,),
             ).fetchall()

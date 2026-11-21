@@ -21,8 +21,8 @@ from frisket.contracts.action import (
 from frisket.ai.llm.types import LLMError
 from frisket.ops.base import ActionProgram
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
-from frisket.engine.store.output_claims import (
-    OutputColumnClaimStore,
+from frisket.engine.store.generated_column_claims import (
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
@@ -83,7 +83,7 @@ def _generated_column_busy_error(
     action_kind: str, conflict: Any, *, field: str = "params.output_name"
 ) -> ActionError:
     return ActionError(
-        code="output_column_busy",
+        code="generated_column_busy",
         message="The target generated column is claimed by a running action.",
         action_kind=action_kind,
         field=field,
@@ -125,7 +125,7 @@ def _acquire_output_claims_for_runner(
         from frisket.engine.store.execution_groups import execution_runs
 
         execution_root, _ = execution_runs(project, int(execution_root))
-    _claims, conflict = OutputColumnClaimStore(project).acquire(
+    _claims, conflict = GeneratedColumnClaimStore(project).acquire(
         sheet_id=sheet_id,
         output_names=output_names,
         action_kind=action.kind,
@@ -367,7 +367,7 @@ def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
             row["claim_token"], row["lease_expires_at"], datetime.now(timezone.utc)
         )
         for row in project.db.execute(
-            "SELECT claim_token,lease_expires_at FROM output_column_claims WHERE status='active' AND "
+            "SELECT claim_token,lease_expires_at FROM generated_column_claims WHERE status='active' AND "
             "(receipt_id=? OR run_id=?)",
             (receipt_id, run_id),
         )
@@ -452,7 +452,7 @@ def _running_receipt_stale_result(
                 # No live attempt or lease remains. Release the expired reservation's
                 # claims with its receipt so a new admission can actually acquire them.
                 project.db.execute(
-                    "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+                    "UPDATE generated_column_claims SET status='released',released_at=datetime('now') "
                     "WHERE status='active' AND (receipt_id=? OR run_id=?)",
                     (receipt_id, current["run_id"]),
                 )
@@ -809,7 +809,7 @@ def _queued_action_reservation_payload(
             if precomputed_output_fields is not None:
                 sheet_id = runner_spec.get("sheet_id")
                 if type(sheet_id) is int:
-                    claim_store = OutputColumnClaimStore(project)
+                    claim_store = GeneratedColumnClaimStore(project)
                     for field in precomputed_output_fields:
                         active_claim = claim_store.active_for_output_name(
                             sheet_id=sheet_id,
@@ -1047,7 +1047,7 @@ def _recover_existing_queued_action_reservation(
             replacement_needed = True
         elif state not in {"admitted", "dispatching"}:
             return None
-    output_fields = OutputColumnClaimStore(project).active_output_fields(
+    output_fields = GeneratedColumnClaimStore(project).active_output_fields(
         claim_token=_output_claim_token(receipt.receipt_id),
         run_id=receipt.run_id,
         require_frozen_descriptors=True,
@@ -1424,7 +1424,7 @@ def _bind_receipt_to_prepared_run(
         raise RuntimeError(
             f"{receipt_status} receipt {receipt_id!r} is no longer preparable"
         )
-    OutputColumnClaimStore(project).bind_to_run(
+    GeneratedColumnClaimStore(project).bind_to_run(
         claim_token=_output_claim_token(receipt_id),
         run_id=run_id,
         expected_output_names=[str(field["name"]) for field in output_fields],
@@ -1482,7 +1482,7 @@ def _mark_queued_action_enqueued(
                 require_status="queued",
             )
             if updated:
-                OutputColumnClaimStore(project).bind_to_run(
+                GeneratedColumnClaimStore(project).bind_to_run(
                     claim_token=_output_claim_token(receipt_id),
                     run_id=run_id,
                     job_id=job_id,
@@ -1518,7 +1518,7 @@ def _release_queued_output_claim_if_terminal(
     if receipt_status not in {"completed", "failed", "cancelled"}:
         return
     claim_status = "released" if receipt_status == "completed" else receipt_status
-    OutputColumnClaimStore(project).release(
+    GeneratedColumnClaimStore(project).release(
         claim_token=_output_claim_token(receipt_id),
         status=claim_status,
     )
@@ -1531,7 +1531,7 @@ def _cleanup_queued_action_reservation(
 ) -> None:
     try:
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).discard_for_receipt(
+            GeneratedColumnClaimStore(project).discard_for_receipt(
                 receipt_id=receipt_id,
             )
             ReceiptStore(project).delete_queued(receipt_id)
@@ -1837,14 +1837,14 @@ def _reserved_maprunner_result_from_existing(
         ):
             return False
         if project.db.execute(
-            "SELECT 1 FROM output_column_claims WHERE status='active' "
+            "SELECT 1 FROM generated_column_claims WHERE status='active' "
             "AND (receipt_id=? OR run_id=?) LIMIT 1",
             (receipt.receipt_id, run_id),
         ).fetchone():
             return False
         last_attempt = attempts[-1]
         if last_attempt["handler_authority_id"] is not None:
-            if not OutputColumnClaimStore(project).attempt_handler_execution_stopped(
+            if not GeneratedColumnClaimStore(project).attempt_handler_execution_stopped(
                 str(last_attempt["id"])
             ):
                 return False

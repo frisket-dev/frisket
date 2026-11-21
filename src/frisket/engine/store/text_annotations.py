@@ -333,7 +333,7 @@ def _resolve_text_annotations(
         out_col_row = project.db.execute(
             "SELECT id, name FROM columns WHERE id=?", (head["out_column_id"],)
         ).fetchone()
-        output_column = (
+        generated_column = (
             {"id": int(out_col_row["id"]), "name": out_col_row["name"]}
             if out_col_row is not None
             else {"id": head["out_column_id"], "name": None}
@@ -345,7 +345,7 @@ def _resolve_text_annotations(
             "toggle_key": toggle_key,
             "layer_family": family,
             "producer": producer,
-            "output_column": output_column,
+            "generated_column": generated_column,
         }
 
         total = int(head["span_total"])

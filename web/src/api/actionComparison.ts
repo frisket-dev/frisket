@@ -22,7 +22,7 @@ export interface ActionComparisonContextRequest {
 // and preview presentation states are browser-owned projections.
 export type ActionComparisonReason = NonNullable<HttpActionCompareContextResponse['reason']>;
 export type ActionComparisonSourceColumn = HttpActionCompareContextResponse['source_columns'][number];
-export type ActionComparisonGeneratedColumn = HttpActionCompareContextResponse['output_columns'][number];
+export type ActionComparisonGeneratedColumn = HttpActionCompareContextResponse['generated_columns'][number];
 export type ActionComparisonTargetColumn = HttpActionCompareContextResponse['replacement_targets'][number];
 export type ActionComparisonCell = HttpActionCompareContextResponse['source_rows'][string][string];
 export type ActionComparisonCellOrigin = ActionComparisonCell['origin'];

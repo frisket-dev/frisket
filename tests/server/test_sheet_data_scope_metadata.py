@@ -28,7 +28,7 @@ def test_rows_only_page_omits_scope_count_and_header_readers(
     assert full_payload["total"] == 3
 
     project = client.app.state.workspace.get(project_id)
-    project.add_column(sheet_id, "generated", ai_generated=True)
+    project.add_column(sheet_id, "generated", generated=True)
     monkeypatch.setattr(
         "frisket.server.services.sheet_grid.compute_transcript_statuses",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(

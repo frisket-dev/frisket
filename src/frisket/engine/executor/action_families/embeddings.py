@@ -148,7 +148,7 @@ from frisket.execution.attempt_authority import mint_direct_effect_attempt
 from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import (
@@ -3345,7 +3345,7 @@ def _do_refresh(
             with write_transaction(project.db, what="embedding representation publish"):
                 assert run_id is not None
                 assert attempt_id is not None
-                OutputColumnClaimStore.require_current_writer(
+                GeneratedColumnClaimStore.require_current_writer(
                     project.db,
                     fence=WriterFence.claimless(run_id=run_id, attempt_id=attempt_id),
                 )
@@ -3437,7 +3437,7 @@ def _do_refresh(
                         raise StaleAttemptWriter(
                             "embedding refresh terminal write supplied no writer attempt"
                         )
-                    OutputColumnClaimStore.require_current_writer(
+                    GeneratedColumnClaimStore.require_current_writer(
                         project.db,
                         fence=WriterFence.claimless(
                             run_id=run_id, attempt_id=attempt_id

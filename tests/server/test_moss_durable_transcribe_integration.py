@@ -566,7 +566,7 @@ def test_moss_durable_run_dead_worker_fails_honestly_and_commits_nothing(
 
     # the output-column claims went terminal, never left stuck active
     claims = project.db.execute(
-        "SELECT output_name, status FROM output_column_claims ORDER BY output_name"
+        "SELECT output_name, status FROM generated_column_claims ORDER BY output_name"
     ).fetchall()
     # The single covered by the allowance launch owns a pair of claims; both go terminal.
     assert [(c["output_name"], c["status"]) for c in claims] == [
@@ -687,7 +687,7 @@ def test_moss_durable_run_refuses_declaration_violating_result(
     assert RunResultStore(project).model_calls(run_id) == []
 
     claims = project.db.execute(
-        "SELECT output_name, status FROM output_column_claims ORDER BY output_name"
+        "SELECT output_name, status FROM generated_column_claims ORDER BY output_name"
     ).fetchall()
     # The single covered by the allowance launch reserves these outputs, then fails them.
     assert [(c["output_name"], c["status"]) for c in claims] == [

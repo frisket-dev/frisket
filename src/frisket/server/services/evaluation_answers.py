@@ -40,7 +40,7 @@ def save_expected_answer(service, pid, raw):
     output = next(
         (
             c
-            for c in context["output_columns"]
+            for c in context["generated_columns"]
             if c["logical_key"] == body["logical_key"]
         ),
         None,
@@ -52,7 +52,7 @@ def save_expected_answer(service, pid, raw):
         )
     current_outputs = {
         column["logical_key"]: column["column_id"]
-        for column in context["output_columns"]
+        for column in context["generated_columns"]
     }
     link = store.link(project, body["link_id"]) if body["link_id"] is not None else None
     if body["link_id"] is not None and link is None:
@@ -66,12 +66,12 @@ def save_expected_answer(service, pid, raw):
                 and item["action_id"] == context["draft"]["action_id"]
                 and any(
                     field["logical_key"] == body["logical_key"]
-                    and field["output_column_id"] == output["column_id"]
+                    and field["generated_column_id"] == output["column_id"]
                     for field in item["fields"]
                 )
                 and all(
                     current_outputs.get(field["logical_key"])
-                    == field["output_column_id"]
+                    == field["generated_column_id"]
                     for field in item["fields"]
                 )
             ),
@@ -83,7 +83,7 @@ def save_expected_answer(service, pid, raw):
     ):
         raise RouteError(409, "Expected link belongs to another action or sheet")
     if link is not None and any(
-        current_outputs.get(field["logical_key"]) != field["output_column_id"]
+        current_outputs.get(field["logical_key"]) != field["generated_column_id"]
         for field in link["fields"]
     ):
         raise RouteError(
@@ -123,7 +123,7 @@ def save_expected_answer(service, pid, raw):
                 "fields": [
                     {
                         "expected_column_id": expected_column,
-                        "output_column_id": output["column_id"],
+                        "generated_column_id": output["column_id"],
                         "logical_key": body["logical_key"],
                         "rule": body["rule"],
                         "hidden": False,
@@ -142,7 +142,7 @@ def save_expected_answer(service, pid, raw):
                 "expected_column_id": project.add_column_in_transaction(
                     link["expected_sheet_id"], output["current_name"]
                 ),
-                "output_column_id": output["column_id"],
+                "generated_column_id": output["column_id"],
                 "logical_key": body["logical_key"],
                 "rule": body["rule"],
                 "hidden": False,

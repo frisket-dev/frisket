@@ -30,7 +30,7 @@ from frisket.engine.store.effect_checkpoints import (
     ModelCallIdMissing,
     row_effect_ref,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
@@ -58,7 +58,7 @@ def _age_silent_attempt(project: Project, attempt_id: str) -> None:
         (attempt_id,),
     )
     project.db.execute(
-        "UPDATE output_column_claims "
+        "UPDATE generated_column_claims "
         "SET renewed_at=datetime('now', '-7 hours'), "
         "lease_expires_at=datetime('now', '-1 second') "
         "WHERE run_id=(SELECT run_id FROM execution_attempts WHERE id=?) "
@@ -115,7 +115,7 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
     )
     output_names = [str(field["name"]) for field in plan.program.output_fields(spec)]
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet,
             output_names=output_names,
             action_kind="media.transcribe",
@@ -127,7 +127,7 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
 
     def bind_claim(progress) -> None:  # noqa: ANN001
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=claim_token,
                 run_id=progress.run_id,
                 expected_output_names=output_names,
@@ -243,7 +243,7 @@ def checkpointed_run(make_project):
     output_column_id = project.add_column(
         sheet_id,
         "classification",
-        ai_generated=True,
+        generated=True,
     )
     row_id = project.add_rows(
         sheet_id,
@@ -271,7 +271,7 @@ def checkpointed_run(make_project):
         )
     )
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["classification"],
             action_kind="map.classify",
@@ -282,7 +282,7 @@ def checkpointed_run(make_project):
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
             expected_output_names=["classification"],

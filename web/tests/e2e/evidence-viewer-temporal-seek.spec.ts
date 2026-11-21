@@ -50,7 +50,7 @@ try:
     run_store = RunResultStore(project)
     sheet_id = project.add_sheet("Hearings")
     source_column_id = project.add_column(sheet_id, "Source", "file")
-    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", ai_generated=True)
+    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", generated=True)
     filename = "hearing.wav" if kind == "audio" else "hearing.mp4"
     mime = "audio/wav" if kind == "audio" else "video/mp4"
     row_id = project.add_rows(sheet_id, [{"Source": filename}], {"Source": source_column_id})[0]
@@ -59,7 +59,7 @@ try:
         {
             "schema_version": "frisket.action.v2",
             "kind": "media.transcribe",
-            "params": {"output_column": "Transcript"},
+            "params": {"generated_column": "Transcript"},
         },
         label="transcribe hearing",
     )
@@ -68,7 +68,7 @@ try:
         sheet_id,
         "media.transcribe",
         model="local/faster_whisper",
-        params={"output_column": "Transcript"},
+        params={"generated_column": "Transcript"},
         total_rows=1,
         row_ids=[row_id],
     )
@@ -288,14 +288,14 @@ try:
     run_store = RunResultStore(project)
     sheet_id = project.add_sheet("Hearings")
     source_column_id = project.add_column(sheet_id, "Source", "file")
-    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", ai_generated=True)
+    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "hearing.wav"}], {"Source": source_column_id})[0]
     op_id = project.append_change(
         "media.transcribe",
         {
             "schema_version": "frisket.action.v2",
             "kind": "media.transcribe",
-            "params": {"output_column": "Transcript"},
+            "params": {"generated_column": "Transcript"},
         },
         label="transcribe hearing",
     )
@@ -304,7 +304,7 @@ try:
         sheet_id,
         "media.transcribe",
         model="local/faster_whisper",
-        params={"output_column": "Transcript"},
+        params={"generated_column": "Transcript"},
         total_rows=1,
         row_ids=[row_id],
     )

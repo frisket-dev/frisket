@@ -58,7 +58,7 @@ def test_stale_abort_releases_fresh_names_for_new_key(
     assert failed.errors[0].code == "stale_input"
     assert (
         case.project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )

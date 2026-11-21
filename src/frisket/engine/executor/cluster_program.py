@@ -28,7 +28,7 @@ from frisket.engine.store.effect_checkpoints import (
     is_operator_attestation,
     model_call_ref,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import attempt_in_scope
 from frisket.ops.base import ActionProgramInvocationHalt
@@ -180,7 +180,7 @@ def persist_cluster_fact(project, fact, *, fence: WriterFence):
     db = project.db
     db.execute("SAVEPOINT value_clusters_evidence")
     try:
-        OutputColumnClaimStore.require_current_writer(
+        GeneratedColumnClaimStore.require_current_writer(
             db,
             fence=fence,
             output_column_ids={fact["output"]["column_id"]},

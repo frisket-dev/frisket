@@ -529,7 +529,7 @@ class TestExecution:
             ).fetchone()
             assert binding is not None and binding["state"] == "active"
             claim = reopened.db.execute(
-                "SELECT status FROM output_column_claims WHERE run_id=?",
+                "SELECT status FROM generated_column_claims WHERE run_id=?",
                 (run_id,),
             ).fetchone()
             assert claim is not None and claim["status"] == "active"

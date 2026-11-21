@@ -923,7 +923,7 @@ export function useWorkspaceModel({
   const loadRunWithExpected = useCallback(async (anchor: import('../grid/actionRunEntry').ActionRunAnchor) => {
     const details = await loadActionRunEntry(anchor);
     const run = expectedAnswers.runs.find(item => item.anchor.runId === anchor.runId && item.anchor.sheetId === anchor.sheetId);
-    const link = expectedAnswers.availableLinks.find(item => item.action_id === run?.context.draft.action_id && item.fields.some(field => run.context.output_columns.some(output => output.column_id === field.output_column_id)));
+    const link = expectedAnswers.availableLinks.find(item => item.action_id === run?.context.draft.action_id && item.fields.some(field => run.context.generated_columns.some(output => output.column_id === field.generated_column_id)));
     return details && link ? { ...details, expected: { sheetName: link.expected_sheet_name, rowCount: expectedAnswers.matchedCounts[link.id] ?? 0 } } : details;
   }, [loadActionRunEntry, expectedAnswers.runs, expectedAnswers.availableLinks, expectedAnswers.matchedCounts]);
 
@@ -939,7 +939,7 @@ export function useWorkspaceModel({
       }}>◉ Expected answers · {expectedAnswers.availableLinks.every(link => link.hidden || link.fields.every(field => field.hidden)) ? 'Show' : 'Hide'}</button>}
       {expectedHeader && (() => {
         const link = expectedAnswers.links.find(item => item.id === expectedHeader.link_id);
-        const run = expectedAnswers.runs.find(item => item.context.draft.action_id === link?.action_id && item.context.output_columns.some(output => output.column_id === expectedHeader.output_column_id));
+        const run = expectedAnswers.runs.find(item => item.context.draft.action_id === link?.action_id && item.context.generated_columns.some(output => output.column_id === expectedHeader.generated_column_id));
         return link && <ExpectedColumnMenu column={expectedHeader} link={link} onClose={() => setExpectedHeader(null)}
           onChange={(next) => expectedAnswers.setLink(next, link.id)}
           onRuleChange={(rule) => expectedAnswers.setRule(expectedHeader.expected_column_id, rule)}

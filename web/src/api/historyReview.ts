@@ -167,7 +167,7 @@ function mapHistoryRun(run: WireHistoryRun): HistoryChangeRun | undefined {
     startedAt: sqliteTimestampToIso(run.started_at),
     finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     workerVersion: run.worker_version,
-    generatedColumns: run.output_columns.map((column) => ({
+    generatedColumns: run.generated_columns.map((column) => ({
       id: String(column.id),
       name: column.name,
     })),

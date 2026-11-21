@@ -1604,7 +1604,7 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
     # claim lease expiring; let the normal stale-recovery path prove and
     # release the claim rather than pre-releasing it in the fixture.
     project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at=datetime('now', '-1 hour') "
+        "UPDATE generated_column_claims SET lease_expires_at=datetime('now', '-1 hour') "
         "WHERE run_id=? AND status='active'",
         (run_a,),
     )

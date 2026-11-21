@@ -100,7 +100,7 @@ function hit(partId: string, snippet: string) {
       space_id: 'space:1',
     }],
     snippet,
-    ai_generated: false,
+    generated: false,
     additional_binding_count: 0,
     navigation: { kind: 'cell', sheet_id: 1, row_id: 2, column_id: 3, text_range: null },
   } as const;

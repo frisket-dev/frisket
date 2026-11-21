@@ -75,7 +75,7 @@ class _ColumnRunsService:
                 "id": column_id,
                 "name": "risk",
                 "type": "text",
-                "ai_generated": True,
+                "generated": True,
                 "current_run_id": 9,
                 "latest_run_id": 9,
                 "mixed_origins": False,

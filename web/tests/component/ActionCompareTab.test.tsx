@@ -63,7 +63,7 @@ function fixture(): ActionComparisonContext {
     locked_params: ['source'],
     source_columns: [{ param: 'source', column_id: 2, name: 'body', column_type: 'text', format: null }],
     source_rows: { 10: { body: cell('First document') }, 11: { body: cell('Second document') } },
-    output_columns: [
+    generated_columns: [
       { logical_key: 'party', column_id: 30, current_name: 'party', column_type: 'text', format: null, hidden: false, schema: {} },
       { logical_key: 'note', column_id: 31, current_name: 'note', column_type: 'text', format: null, hidden: true, schema: {} },
     ],
@@ -163,7 +163,7 @@ describe('ActionCompareTab', () => {
 
   it('routes output cell and score clicks with their actual field', () => {
     const context = fixture();
-    context.output_columns[1].hidden = false;
+    context.generated_columns[1].hidden = false;
     const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const onOpenRow = vi.fn(); const onScoreClick = vi.fn();
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
@@ -421,8 +421,8 @@ describe('ActionCompareTab', () => {
         retrieval_revision: 4, truncated: true,
       },
     };
-    context.output_columns[0] = {
-      ...context.output_columns[0], column_type: 'json', semantic_type: 'entity_mentions',
+    context.generated_columns[0] = {
+      ...context.generated_columns[0], column_type: 'json', semantic_type: 'entity_mentions',
     };
     context.baseline_rows!['10']!.party = cell('unused', {
       state: 'value', value: { party: { name: 'Acme', roles: ['buyer', 'seller'] } },
@@ -462,7 +462,7 @@ describe('ActionCompareTab', () => {
     context.draft.output_names = {
       amount: 'amount', approved: 'approved', category: 'category',
     };
-    context.output_columns = [
+    context.generated_columns = [
       { logical_key: 'amount', column_id: 30, current_name: 'amount',
         column_type: 'number', format: null, hidden: false, schema: {} },
       { logical_key: 'approved', column_id: 31, current_name: 'approved',
@@ -470,7 +470,7 @@ describe('ActionCompareTab', () => {
       { logical_key: 'category', column_id: 32, current_name: 'category',
         column_type: 'category', format: null, hidden: false, schema: {} },
     ];
-    context.replacement_targets = context.output_columns.map((output) => ({
+    context.replacement_targets = context.generated_columns.map((output) => ({
       logical_key: output.logical_key,
       current_name: output.current_name,
       column_id: output.column_id!,

@@ -137,7 +137,7 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
     project, sheet, _, rows, calls, adapter, run = work
     from frisket.engine.store.runs import RunResultStore
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from helpers import run_writer_authority_fixture
 
     column = project.add_column(sheet, "Never completed")
@@ -166,7 +166,7 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
         )
     store.finish_run(source_run, status="cancelled", **auth.terminal_kwargs())
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+        GeneratedColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run)
     assert (
         project.db.execute(
@@ -190,7 +190,7 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
 def test_completion_never_stitches_successful_siblings_from_different_attempts(work):
     from frisket.engine.store.runs import RunResultStore
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from frisket.engine.store.execution_groups import completed_execution_rows
     from helpers import run_writer_authority_fixture
 
@@ -251,7 +251,7 @@ def test_completion_never_stitches_successful_siblings_from_different_attempts(w
             )
         runs.finish_run(run_id, status="failed", **auth.terminal_kwargs())
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+            GeneratedColumnClaimStore(project).release(claim_token=auth.claim_token)
     assert completed_execution_rows(project, root, run_ids) == set()
     with (
         project.transaction_scope(),
@@ -303,7 +303,7 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
         _acquire_output_claims_for_runner,
     )
     from frisket.engine.store.receipts import ReceiptStore
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     project, _, _, _, _, _, run = work
     original = start(run)
@@ -333,11 +333,11 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
     with pytest.raises(ValueError, match="Stop the execution"):
         _copy(work, original.run_id)
     claim = project.db.execute(
-        "SELECT claim_token FROM output_column_claims WHERE receipt_id=?",
+        "SELECT claim_token FROM generated_column_claims WHERE receipt_id=?",
         (receipt.receipt_id,),
     ).fetchone()[0]
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=claim)
+        GeneratedColumnClaimStore(project).release(claim_token=claim)
     project.db.execute(
         "UPDATE receipts SET status='cancelled' WHERE id=?", (receipt.receipt_id,)
     )
@@ -351,7 +351,7 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
 def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, effect):
     from frisket.engine.store.runs import RunResultStore
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from helpers import run_writer_authority_fixture
 
     project, sheet, _, rows, *_ = work
@@ -395,7 +395,7 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
         )
     store.finish_run(source_run, status="completed", **auth.terminal_kwargs())
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+        GeneratedColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run, selected=[rows[0]])
     copied = project.db.execute(
         "SELECT outcome,value FROM copied_result_values WHERE op_id=?", (op,)

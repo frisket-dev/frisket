@@ -82,7 +82,9 @@ class RunDispatch:
         ).fetchone()
         if live is None or (self.cancelled is not None and self.cancelled()):
             raise asyncio.CancelledError
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
         from frisket.engine.store.source_dependencies import (
             ExecutionSourceUnavailable,
             require_execution_sources,
@@ -91,7 +93,7 @@ class RunDispatch:
 
         try:
             require_execution_sources(self.project, int(live[0]))
-            OutputColumnClaimStore.require_current_writer(
+            GeneratedColumnClaimStore.require_current_writer(
                 self.project.db,
                 fence=WriterFence(
                     run_id=self.run_id,

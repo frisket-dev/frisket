@@ -2711,18 +2711,7 @@ type HttpActionCompareContextResponse_ActionCompareDraftSource = ({
   "kind": ("draft") & (string);
 });
 
-type HttpActionCompareContextResponse_ActionCompareLimits = ({
-  "max_challengers": (19) & (number);
-  "max_sample_rows": (500) & (number);
-});
-
-type HttpActionCompareContextResponse_ActionCompareOriginSummary = ({
-  "includes_manual_edits": (boolean);
-  "includes_reject_clear": (boolean);
-  "mixed_runs": (boolean);
-});
-
-type HttpActionCompareContextResponse_ActionCompareOutputColumn = ({
+type HttpActionCompareContextResponse_ActionCompareGeneratedColumn = ({
   "column_id"?: (((number)) | ((null)));
   "column_type": (string);
   "current_name": (string);
@@ -2733,6 +2722,17 @@ type HttpActionCompareContextResponse_ActionCompareOutputColumn = ({
   [key: string]: (HttpActionCompareContextResponse_JsonValue);
 });
   "semantic_type"?: (((string)) | ((null)));
+});
+
+type HttpActionCompareContextResponse_ActionCompareLimits = ({
+  "max_challengers": (19) & (number);
+  "max_sample_rows": (500) & (number);
+});
+
+type HttpActionCompareContextResponse_ActionCompareOriginSummary = ({
+  "includes_manual_edits": (boolean);
+  "includes_reject_clear": (boolean);
+  "mixed_runs": (boolean);
 });
 
 type HttpActionCompareContextResponse_ActionCompareReason = ({
@@ -2796,10 +2796,10 @@ export type HttpActionCompareContextResponse = ({
   "comparison_basis": (((HttpActionCompareContextResponse_ActionCompareDraftSource)) | ((HttpActionCompareContextResponse_ActionCompareRunSource)));
   "draft": (HttpActionCompareContextResponse_ActionDraft);
   "expected_output_signature": (string);
+  "generated_columns": (Array<(HttpActionCompareContextResponse_ActionCompareGeneratedColumn)>);
   "limits": (HttpActionCompareContextResponse_ActionCompareLimits);
   "locked_params": (Array<(string)>);
   "origin_summary": (HttpActionCompareContextResponse_ActionCompareOriginSummary);
-  "output_columns": (Array<(HttpActionCompareContextResponse_ActionCompareOutputColumn)>);
   "reason": (((HttpActionCompareContextResponse_ActionCompareReason)) | ((null)));
   "replacement_targets": (Array<(HttpActionCompareContextResponse_ActionCompareReplacementTarget)>);
   "sample_fingerprint": (string);
@@ -3012,7 +3012,7 @@ type HttpActionJob_ActionJobColumn = ({
 });
 
 type HttpActionJob_ActionJobContext = ({
-  "output_columns"?: (Array<(HttpActionJob_ActionJobColumn)>);
+  "generated_columns"?: (Array<(HttpActionJob_ActionJobColumn)>);
   "sheet_id": (number);
   "sheet_name"?: (((string)) | ((null)));
 });
@@ -3204,7 +3204,7 @@ type HttpActionJobsPage_ActionJobColumn = ({
 });
 
 type HttpActionJobsPage_ActionJobContext = ({
-  "output_columns"?: (Array<(HttpActionJobsPage_ActionJobColumn)>);
+  "generated_columns"?: (Array<(HttpActionJobsPage_ActionJobColumn)>);
   "sheet_id": (number);
   "sheet_name"?: (((string)) | ((null)));
 });
@@ -3715,8 +3715,8 @@ type HttpActionRunStatus_ActionRunStatusRun = ({
   "cost_actual": (((number)) | ((null)));
   "cost_estimate": (((number)) | ((null)));
   "failed_rows": (number);
+  "generated_columns"?: (Array<(HttpActionRunStatus_ActionJobColumn)>);
   "id": (number);
-  "output_columns"?: (Array<(HttpActionRunStatus_ActionJobColumn)>);
   "public_status": (HttpActionRunStatus_ActionRunPublicStatus);
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "sheet_id": (number);
@@ -4902,20 +4902,20 @@ type HttpCellTextAnnotationsResponse_TextAnnotationCounts = ({
   "total": (number);
 });
 
+type HttpCellTextAnnotationsResponse_TextAnnotationGeneratedColumn = ({
+  "id": (number);
+  "name": (((string)) | ((null)));
+});
+
 type HttpCellTextAnnotationsResponse_TextAnnotationLayer = ({
   "counts"?: (((HttpCellTextAnnotationsResponse_TextAnnotationCounts)) | ((null)));
+  "generated_column": (HttpCellTextAnnotationsResponse_TextAnnotationGeneratedColumn);
   "layer_family": (string);
-  "output_column": (HttpCellTextAnnotationsResponse_TextAnnotationOutputColumn);
   "positioned": (boolean);
   "producer": (HttpCellTextAnnotationsResponse_TextAnnotationProducer);
   "spans"?: (((Array<(HttpCellTextAnnotationsResponse_TextAnnotationSpan)>)) | ((null)));
   "toggle_key": (string);
   "unpositioned"?: (((HttpCellTextAnnotationsResponse_TextAnnotationUnpositioned)) | ((null)));
-});
-
-type HttpCellTextAnnotationsResponse_TextAnnotationOutputColumn = ({
-  "id": (number);
-  "name": (((string)) | ((null)));
 });
 
 type HttpCellTextAnnotationsResponse_TextAnnotationProducer = ({
@@ -5427,8 +5427,8 @@ type HttpColumnRunsPage_ColumnRun = ({
 });
 
 type HttpColumnRunsPage_ColumnRunColumn = ({
-  "ai_generated": (boolean);
   "current_run_id": (((number)) | ((null)));
+  "generated": (boolean);
   "id": (number);
   "latest_run_id": (((number)) | ((null)));
   "mixed_origins": (boolean);
@@ -6490,9 +6490,9 @@ type HttpEvaluationResponse_EvaluationVariant = ({
 
 type HttpEvaluationResponse_ExpectedField = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden"?: (boolean);
   "logical_key": (string);
-  "output_column_id": (number);
   "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source"?: ("import" | "disagreements") & (string);
 });
@@ -6543,8 +6543,8 @@ export type HttpEvaluationResponse = ({
   [key: string]: (HttpEvaluationResponse_EvaluationBoundedValue);
 });
 });
+  "generated_columns": (Array<(HttpEvaluationResponse_EvaluationOutput)>);
   "link": (((HttpEvaluationResponse_ExpectedLink)) | ((null)));
-  "output_columns": (Array<(HttpEvaluationResponse_EvaluationOutput)>);
   "row_ids": (Array<(number)>);
   "rule_previews": ({
   [key: string]: ({
@@ -6609,9 +6609,9 @@ export type HttpExpectedJoinPreview = ({
 
 type HttpExpectedLink_ExpectedField = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden"?: (boolean);
   "logical_key": (string);
-  "output_column_id": (number);
   "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source"?: ("import" | "disagreements") & (string);
 });
@@ -6637,9 +6637,9 @@ export type HttpExpectedLink = ({
 
 type HttpExpectedLinkInput_ExpectedField = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden"?: (boolean);
   "logical_key": (string);
-  "output_column_id": (number);
   "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source"?: ("import" | "disagreements") & (string);
 });
@@ -6660,9 +6660,9 @@ export type HttpExpectedLinkInput = ({
 
 type HttpExpectedLinkPreviewInput_ExpectedField = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden"?: (boolean);
   "logical_key": (string);
-  "output_column_id": (number);
   "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source"?: ("import" | "disagreements") & (string);
 });
@@ -6683,9 +6683,9 @@ export type HttpExpectedLinkPreviewInput = ({
 
 type HttpExpectedLinks_ExpectedField = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden"?: (boolean);
   "logical_key": (string);
-  "output_column_id": (number);
   "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source"?: ("import" | "disagreements") & (string);
 });
@@ -6715,9 +6715,9 @@ export type HttpExpectedLinks = ({
 
 type HttpExpectedProjection_ExpectedField = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden"?: (boolean);
   "logical_key": (string);
-  "output_column_id": (number);
   "rule"?: ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source"?: ("import" | "disagreements") & (string);
 });
@@ -6750,12 +6750,12 @@ type HttpExpectedProjection_ExpectedProjectedCell = ({
 
 type HttpExpectedProjection_ExpectedProjectionColumn = ({
   "expected_column_id": (number);
+  "generated_column_id": (number);
   "hidden": (boolean);
   "id": (string);
   "link_id": (number);
   "logical_key": (string);
   "name": (string);
-  "output_column_id": (number);
   "rule": ("exact" | "ignore_case" | "number" | "date" | "set" | "hand") & (string);
   "source": ("import" | "disagreements") & (string);
 });
@@ -7396,6 +7396,11 @@ export type HttpHealthResponse = ({
   "tier"?: (((string)) | ((null)));
 });
 
+type HttpHistoryPage_HistoryGeneratedColumn = ({
+  "id": (number);
+  "name": (string);
+});
+
 type HttpHistoryPage_HistoryOperation = ({
   "at_cursor": (boolean);
   "barrier": (boolean);
@@ -7407,11 +7412,6 @@ type HttpHistoryPage_HistoryOperation = ({
   "label": (((string)) | ((null)));
   "run": (((HttpHistoryPage_HistoryRun)) | ((null)));
   "status": ("applied" | "undone" | "discarded") & (string);
-});
-
-type HttpHistoryPage_HistoryOutputColumn = ({
-  "id": (number);
-  "name": (string);
 });
 
 type HttpHistoryPage_HistoryRevision = ({
@@ -7427,8 +7427,8 @@ type HttpHistoryPage_HistoryRun = ({
   "cost_estimate": (((number)) | ((null)));
   "failed_rows": (number);
   "finished_at": (((string)) | ((null)));
+  "generated_columns": (Array<(HttpHistoryPage_HistoryGeneratedColumn)>);
   "model": (((string)) | ((null)));
-  "output_columns": (Array<(HttpHistoryPage_HistoryOutputColumn)>);
   "params": ({
   [key: string]: (HttpHistoryPage_JsonValue);
 });
@@ -11810,17 +11810,17 @@ type HttpProjectLineageResponse_JsonValue = JsonValue;
 
 type HttpProjectLineageResponse_ProjectLineageEdge = ({
   "from": (string);
-  "kind": ("source" | "derive" | "ai_column") & (string);
+  "kind": ("source" | "derive" | "generated_column") & (string);
   "stale": (boolean);
   "to": (string);
-  [key: string]: (HttpProjectLineageResponse_JsonValue) | (string) | ("source" | "derive" | "ai_column") & (string) | (boolean);
+  [key: string]: (HttpProjectLineageResponse_JsonValue) | (string) | ("source" | "derive" | "generated_column") & (string) | (boolean);
 });
 
 type HttpProjectLineageResponse_ProjectLineageNode = ({
   "id": (string);
-  "kind": ("source" | "sheet" | "ai_column") & (string);
+  "kind": ("source" | "sheet" | "generated_column") & (string);
   "name": (string);
-  [key: string]: (HttpProjectLineageResponse_JsonValue) | (string) | ("source" | "sheet" | "ai_column") & (string);
+  [key: string]: (HttpProjectLineageResponse_JsonValue) | (string) | ("source" | "sheet" | "generated_column") & (string);
 });
 
 export type HttpProjectLineageResponse = ({
@@ -12136,10 +12136,10 @@ type HttpProjectSearchResponse_ProjectSearchGroup = ({
 
 type HttpProjectSearchResponse_ProjectSearchHit = ({
   "additional_binding_count": (number);
-  "ai_generated": (boolean);
   "binding": (HttpProjectSearchResponse_ProjectSearchBinding);
   "column_name": (((string)) | ((null)));
   "contributions": (Array<(HttpProjectSearchResponse_ProjectSearchContribution)>);
+  "generated": (boolean);
   "location": (HttpProjectSearchResponse_ProjectSearchLocation);
   "navigation": (((HttpProjectSearchResponse_ProjectSearchCitationNavigation)) | ((HttpProjectSearchResponse_ProjectSearchDocumentNavigation)) | ((HttpProjectSearchResponse_ProjectSearchCellNavigation)));
   "part": (HttpProjectSearchResponse_ProjectSearchPart);
@@ -13125,10 +13125,10 @@ type HttpSavedComparison_JsonValue = JsonValue;
 
 export type HttpSavedComparison = ({
   "action_id": (string);
+  "generated_columns": (Array<(HttpSavedComparison_EvaluationOutput)>);
   "id": (number);
   "kept": (boolean);
   "label": (string);
-  "output_columns": (Array<(HttpSavedComparison_EvaluationOutput)>);
   "row_count": (number);
   "rows": ({
   [key: string]: ({
@@ -13151,10 +13151,10 @@ type HttpSavedComparisonSummary_EvaluationOutput = ({
 
 export type HttpSavedComparisonSummary = ({
   "action_id": (string);
+  "generated_columns": (Array<(HttpSavedComparisonSummary_EvaluationOutput)>);
   "id": (number);
   "kept": (boolean);
   "label": (string);
-  "output_columns": (Array<(HttpSavedComparisonSummary_EvaluationOutput)>);
   "row_count": (number);
   "saved_at": (string);
   "sheet_id": (number);
@@ -13168,10 +13168,10 @@ type HttpSavedComparisons_EvaluationOutput = ({
 
 type HttpSavedComparisons_SavedComparisonSummary = ({
   "action_id": (string);
+  "generated_columns": (Array<(HttpSavedComparisons_EvaluationOutput)>);
   "id": (number);
   "kept": (boolean);
   "label": (string);
-  "output_columns": (Array<(HttpSavedComparisons_EvaluationOutput)>);
   "row_count": (number);
   "saved_at": (string);
   "sheet_id": (number);
@@ -13855,10 +13855,10 @@ type HttpSheetData_SheetDataCellMeta = ({
 });
 
 type HttpSheetData_SheetDataColumn = ({
-  "ai_generated": (boolean);
   "current_run_id": (((number)) | ((null)));
   "default_hidden"?: (boolean);
   "format": (((string)) | ((null)));
+  "generated": (boolean);
   "generation_managed": (boolean);
   "id": (number);
   "latest_run_id": (((number)) | ((null)));
@@ -13976,10 +13976,10 @@ export type HttpSheetGraphResponse = ({
 });
 
 type HttpSheetList_SheetDataColumn = ({
-  "ai_generated": (boolean);
   "current_run_id": (((number)) | ((null)));
   "default_hidden"?: (boolean);
   "format": (((string)) | ((null)));
+  "generated": (boolean);
   "generation_managed": (boolean);
   "id": (number);
   "latest_run_id": (((number)) | ((null)));

@@ -91,7 +91,7 @@ async function fillState(page: Page, columnId: string): Promise<FillState | null
 }
 
 // The run's output column id, discovered from the probe once the pulse turns on
-// (a brand-new ai_generated column with no current_run_id yet — the pending set).
+// (a brand-new generated column with no current_run_id yet — the pending set).
 async function generatedColumnId(page: Page): Promise<string> {
   let columnId = '';
   await expect

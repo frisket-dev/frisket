@@ -51,7 +51,7 @@ from frisket.engine.executor.action_reservations import (
     _output_claim_token,
     _receipt_for_idempotency,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt import StaleAttemptWriter
 
@@ -119,13 +119,13 @@ def prepare_cluster_action(project, bound, *, router=None, admission=True):
     name = bound.request.output_names.get("canonical", "canonical")
     if name == state["source"]["name"]:
         raise TypedMapRowsPlanError(
-            "output_column_exists", "Clustering must preserve its source column"
+            "generated_column_exists", "Clustering must preserve its source column"
         )
     if admission and any(
         col["name"] == name for col in project.columns(state["source"]["sheet_id"])
     ):
         raise TypedMapRowsPlanError(
-            "output_column_exists", "The canonical output column already exists"
+            "generated_column_exists", "The canonical output column already exists"
         )
     return cluster_plan_from_state(bound, state)
 
@@ -312,7 +312,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             )
             project.db.commit()
             return result
-        claims = OutputColumnClaimStore(project)
+        claims = GeneratedColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
         writer_fence = WriterFence.claimed(
             run_id=run_id,
@@ -655,7 +655,9 @@ def run_typed_cluster_action(
                 "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
                 (receipt.run_id,),
             ).fetchone()
-            from frisket.engine.store.output_claims import OutputColumnClaimStore
+            from frisket.engine.store.generated_column_claims import (
+                GeneratedColumnClaimStore,
+            )
 
             if (
                 run is not None
@@ -663,9 +665,9 @@ def run_typed_cluster_action(
                 and run["total_rows"] is not None
                 and int(run["completed_rows"] or 0) >= int(run["total_rows"])
                 and run["current_attempt_id"] is not None
-                and OutputColumnClaimStore(project).attempt_handler_execution_stopped(
-                    str(run["current_attempt_id"])
-                )
+                and GeneratedColumnClaimStore(
+                    project
+                ).attempt_handler_execution_stopped(str(run["current_attempt_id"]))
             ):
                 return finalize_cluster_action(
                     project,
@@ -734,11 +736,13 @@ def run_typed_cluster_action(
             or row["current_attempt_id"] != direct_writer["writer_attempt_id"]
         ):
             return
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
         from frisket.execution.attempt import StaleAttemptWriter
 
         try:
-            OutputColumnClaimStore(project).finish_current_writer(
+            GeneratedColumnClaimStore(project).finish_current_writer(
                 fence=WriterFence.claimed(
                     run_id=direct_writer["run_id"],
                     writer_attempt_id=direct_writer["writer_attempt_id"],

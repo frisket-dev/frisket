@@ -92,7 +92,7 @@ test('saved results can be reapplied from Review without another provider run', 
   const original = outputs.find(column => column.name === 'headline')!;
   const copied = outputs.find(column => column.name === 'headline_2')!;
   expect(response.request().postDataJSON()).toMatchObject({ replace_existing: false,
-    output_names: { rendered: 'headline_2' }, expected_output_columns: { headline_2: null } });
+    output_names: { rendered: 'headline_2' }, expected_generated_columns: { headline_2: null } });
   for (const output of [copied]) {
     expect(data.rows.map(row => row.cells[String(output.id)])).toEqual(['Story: Budget', 'Story: Road']);
     for (const row of data.rows) expect(row.meta?.[String(output.id)]).toMatchObject({

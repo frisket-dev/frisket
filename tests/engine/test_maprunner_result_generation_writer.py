@@ -30,7 +30,7 @@ from frisket.engine.runner.preparation import _validate_managed_program_identity
 from frisket.engine.runner.publication import PreparedRowPublication
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.op_log import append_change
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
@@ -212,7 +212,7 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         sheet_id,
         "cleaned",
         type="text",
-        ai_generated=True,
+        generated=True,
     )
     op_id = project.append_change("map", {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
@@ -220,7 +220,7 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         sheet_id,
         "map.regex_extract",
     )
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         created, conflict = claims.acquire(
             sheet_id=sheet_id,
@@ -296,7 +296,7 @@ def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
         sheet_id,
         "digits",
         type="text",
-        ai_generated=True,
+        generated=True,
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -344,7 +344,7 @@ def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
     )
 
     assert refused.status == "failed"
-    assert refused.errors and refused.errors[0].code == "output_column_exists"
+    assert refused.errors and refused.errors[0].code == "generated_column_exists"
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM run_output_generations WHERE column_id=?",
@@ -894,7 +894,7 @@ def test_undone_scalar_generated_column_does_not_block_fresh_managed_output(
     sheet = project.add_sheet("Data")
     source = project.add_column(sheet, "note")
     project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
-    old = project.add_column(sheet, "digits", ai_generated=True)
+    old = project.add_column(sheet, "digits", generated=True)
     op = append_change(project, "add_column", undo_info={"created_columns": [old]})
     from frisket.engine.store.changes import start_change
 
@@ -1010,7 +1010,7 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
             int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
             int(
                 project.db.execute(
-                    "SELECT COUNT(*) FROM output_column_claims "
+                    "SELECT COUNT(*) FROM generated_column_claims "
                     "WHERE released_at IS NULL"
                 ).fetchone()[0]
             ),
@@ -1034,7 +1034,7 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
         project_id="p3b-writer",
     )
     assert refused.status == "failed"
-    assert refused.errors and refused.errors[0].code == "output_column_exists"
+    assert refused.errors and refused.errors[0].code == "generated_column_exists"
     assert snapshot() == before
     assert (
         ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
@@ -1240,7 +1240,7 @@ def test_typed_producer_refuses_an_existing_managed_output_before_mutation(
     )
 
     assert replacement.status == "failed"
-    assert replacement.errors[0].code == "output_column_exists"
+    assert replacement.errors[0].code == "generated_column_exists"
     assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == before_runs
     assert (
@@ -1357,7 +1357,7 @@ def test_managed_producer_refuses_intervening_legacy_scalar_run(
     )
 
     assert refused.status == "failed"
-    assert refused.errors and refused.errors[0].code == "output_column_exists"
+    assert refused.errors and refused.errors[0].code == "generated_column_exists"
     assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
     assert (
         project.db.execute(

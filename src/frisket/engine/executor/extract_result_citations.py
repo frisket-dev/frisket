@@ -20,7 +20,7 @@ from frisket.engine.executor.extract_citations import (
     _text_hash,
 )
 from frisket.engine.store.citations import record_citation
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.writer_fence import WriterFence
@@ -340,9 +340,9 @@ class ExtractResultCitations:
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
         )
-        OutputColumnClaimStore.require_current_writer(project.db, fence=fence)
+        GeneratedColumnClaimStore.require_current_writer(project.db, fence=fence)
         receipt_id = project.db.execute(
-            "SELECT DISTINCT receipt_id FROM output_column_claims "
+            "SELECT DISTINCT receipt_id FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()[0]

@@ -141,7 +141,7 @@ def test_entity_eq_survives_a_run_backed_column(project):
         sheet,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     rows = project.add_rows(

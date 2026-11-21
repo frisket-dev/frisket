@@ -58,7 +58,7 @@ VALIDATION_ERROR_CODES: tuple[str, ...] = (
     "invalid_return_schema",
     "invalid_output_route",
     "duplicate_output_route",
-    "duplicate_output_column",
+    "duplicate_generated_column",
     "invalid_transcription_engine",
     "invalid_ocr_engine",
     "invalid_to_markdown_engine",

@@ -107,7 +107,7 @@ def test_current_reads_and_sql_filter_resolve_prepared_content(
 def test_historical_result_readers_resolve_prepared_content(make_project) -> None:
     project = make_project("prepared-history")
     sheet_id = project.add_sheet("Documents")
-    body_id = project.add_column(sheet_id, "body", type="text", ai_generated=True)
+    body_id = project.add_column(sheet_id, "body", type="text", generated=True)
     document_ref, _page_ref = _stage_document_and_page(project)
     row_id = project.add_rows_in_transaction(sheet_id, [{}], {})[0]
     run_op_id = project.append_change_in_transaction("map.test", {}, label="map test")

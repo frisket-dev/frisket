@@ -305,7 +305,7 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
         column_id=media_column_id,
     )
     transcript_column_id = project.add_column(
-        sheet_id, "transcript", "timestamped_transcript", ai_generated=True
+        sheet_id, "transcript", "timestamped_transcript", generated=True
     )
     op_id = project.append_change(
         "media.transcribe", {"kind": "media.transcribe", "params": {}}
@@ -1454,7 +1454,7 @@ def test_selected_image_uses_vision_while_ocr_text_reuses_region_evidence(
     project = make_project("Find OCR")
     sheet_id = project.add_sheet("Scans")
     file_column_id = project.add_column(sheet_id, "scan", "file")
-    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", generated=True)
     output = io.BytesIO()
     Image.new("RGB", (100, 60), color="white").save(output, format="PNG")
     blob_hash = project.add_blob(
@@ -1552,7 +1552,7 @@ def test_selected_file_reuses_legacy_summary_only_ocr_evidence(make_project) -> 
     project = make_project("Legacy OCR")
     sheet_id = project.add_sheet("Documents")
     file_column_id = project.add_column(sheet_id, "document", "file")
-    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", generated=True)
     blob_hash = project.add_blob(
         b"%PDF-1.4\nlegacy fixture",
         filename="legacy.pdf",

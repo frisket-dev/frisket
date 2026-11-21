@@ -20,9 +20,7 @@ def _seed_project(
     sheet_id = project.add_sheet("Rows")
     columns = {
         "text": project.add_column(sheet_id, "text", type="text"),
-        "score": project.add_column(
-            sheet_id, "score", type="number", ai_generated=True
-        ),
+        "score": project.add_column(sheet_id, "score", type="number", generated=True),
     }
     project.add_rows(
         sheet_id,

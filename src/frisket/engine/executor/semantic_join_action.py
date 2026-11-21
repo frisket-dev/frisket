@@ -28,7 +28,7 @@ from frisket.engine.executor.semantic_join_program import (
 )
 from frisket.engine.runner.row_inputs import row_source_snapshot
 from frisket.engine.store.cell_writes import create_base_cell_producer
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.writer_fence import WriterFence
@@ -160,7 +160,7 @@ def _resolve(project, bound, spec, router, *, admission=True):
 
 
 def _replay_error(project, receipt):
-    from frisket.sdk.replay import output_columns_replay_error
+    from frisket.sdk.replay import generated_columns_replay_error
 
     if receipt.status in {"queued", "running"}:
         return None
@@ -188,7 +188,7 @@ def _replay_error(project, receipt):
         return ActionError(
             code="stale_replay", message=str(exc), action_kind=receipt.action_kind
         )
-    error = output_columns_replay_error(
+    error = generated_columns_replay_error(
         project,
         receipt,
         output_kind="semantic_join_output_column",
@@ -555,10 +555,10 @@ def finalize_semantic_join(
             result = abort_in_transaction(None, None, status="cancelled")
             project.db.commit()
             return result
-        column_ids = OutputColumnClaimStore(project).active_column_ids(
+        column_ids = GeneratedColumnClaimStore(project).active_column_ids(
             claim_token=claim, run_id=run_id
         )
-        OutputColumnClaimStore.require_current_writer(
+        GeneratedColumnClaimStore.require_current_writer(
             project.db,
             fence=WriterFence.claimed(
                 run_id=run_id,

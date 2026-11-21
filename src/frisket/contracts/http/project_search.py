@@ -246,7 +246,7 @@ class ProjectSearchHit(WireModel):
 
     column_name: str | None
     source_name: str | None = None
-    ai_generated: bool
+    generated: bool
     snippet: str
     score: float
     rerank_score: float | None = None

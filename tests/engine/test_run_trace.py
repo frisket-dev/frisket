@@ -407,7 +407,7 @@ def test_trace_setup_failure_does_not_fail_the_run(tmp_path, monkeypatch) -> Non
     assert run_id > 0
     data = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()
     assert next(column for column in data["columns"] if column["name"] == "beat")[
-        "ai_generated"
+        "generated"
     ]
 
 
@@ -615,7 +615,7 @@ def test_trace_is_a_disposable_sidecar(tmp_path):
     assert r.json()["trace"] is None
     data = client.get(f"/api/projects/{pid}/sheets/{sid}/data").json()
     beat = next(c for c in data["columns"] if c["name"] == "beat")
-    assert beat["ai_generated"], "deleting the trace must not touch results"
+    assert beat["generated"], "deleting the trace must not touch results"
 
 
 def test_corrupt_trace_is_reported_as_unavailable(tmp_path):

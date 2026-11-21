@@ -20,7 +20,7 @@ def test_e2e_result_seeder_uses_one_immutable_claimed_writer(
     output_column_id = project.add_column(
         sheet_id,
         "Finding",
-        ai_generated=True,
+        generated=True,
     )
     row_id = project.add_rows(
         sheet_id,
@@ -88,7 +88,7 @@ def test_e2e_result_seeder_uses_one_immutable_claimed_writer(
     )
     assert (
         project.db.execute(
-            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            "SELECT status FROM generated_column_claims WHERE claim_token=?",
             (fence.claim_token,),
         ).fetchone()["status"]
         == "released"

@@ -99,7 +99,7 @@ it.each([true, false])('reapplies saved results into new columns with retry capa
   fireEvent.click(screen.getByRole('button', { name: 'Reapply results' }));
   await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({
     action_id: 'run.reapply', params: { source_run_id: 9 }, replace_existing: false,
-    output_names: { answer: 'Answer_2' }, expected_output_columns: { Answer_2: null },
+    output_names: { answer: 'Answer_2' }, expected_generated_columns: { Answer_2: null },
   })));
   await waitFor(() => expect(changed).toHaveBeenCalled());
 });

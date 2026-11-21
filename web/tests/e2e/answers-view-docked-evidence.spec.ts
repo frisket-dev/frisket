@@ -42,16 +42,16 @@ try:
     run_store = RunResultStore(project)
     sheet_id = project.add_sheet("Hearings")
     source_column_id = project.add_column(sheet_id, "Source", "file")
-    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", ai_generated=True)
+    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "hearing.wav"}], {"Source": source_column_id})[0]
     op_id = project.append_change(
         "media.transcribe",
-        {"schema_version": "frisket.action.v2", "kind": "media.transcribe", "params": {"output_column": "Transcript"}},
+        {"schema_version": "frisket.action.v2", "kind": "media.transcribe", "params": {"generated_column": "Transcript"}},
         label="transcribe hearing",
     )
     run_id = run_store.start_run(
         op_id, sheet_id, "media.transcribe", model="local/faster_whisper",
-        params={"output_column": "Transcript"}, total_rows=1, row_ids=[row_id],
+        params={"generated_column": "Transcript"}, total_rows=1, row_ids=[row_id],
     )
     transcript_text = "PANEL DISCUSSION OPENING THE MERIDIAN REPORT CLOSING REMARKS"
     write_claimed_test_results(

@@ -496,7 +496,7 @@ function useColumnModel(
   );
   const gridColumns = useMemo(
     () => orderedSheetColumns.filter((col) => !hiddenNames.has(col.name)).flatMap(column => [column,
-      ...expectedColumns.filter(expected => !expected.hidden && expected.output_column_id === Number(column.id)).map(expected => ({
+      ...expectedColumns.filter(expected => !expected.hidden && expected.generated_column_id === Number(column.id)).map(expected => ({
         ...expected.sourceColumn, id: expected.id, name: `Expected · ${expected.name}`,
         type: expected.sourceColumn?.type ?? expected.type ?? 'text', latestRunId: column.latestRunId,
       }))]),

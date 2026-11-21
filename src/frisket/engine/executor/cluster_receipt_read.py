@@ -20,7 +20,10 @@ from frisket.engine.executor.cluster_program import (
 )
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.sdk.replay import output_column_value_hash, output_columns_replay_error
+from frisket.sdk.replay import (
+    generated_column_value_hash,
+    generated_columns_replay_error,
+)
 
 
 def _published_clusters(project: Any, receipt_id: str):
@@ -109,7 +112,7 @@ def _published_clusters(project: Any, receipt_id: str):
         ):
             raise ValueError("Cluster source column changed")
         if (
-            output_column_value_hash(
+            generated_column_value_hash(
                 project, sheet_id=sheet_id, column_id=column_id, row_ids=row_ids
             )
             != source["value_hash"]
@@ -130,7 +133,7 @@ def _published_clusters(project: Any, receipt_id: str):
             }.items()
         ):
             raise ValueError("Cluster output association changed")
-        if error := output_columns_replay_error(
+        if error := generated_columns_replay_error(
             project,
             receipt.model_copy(update={"outputs": published}),
             output_kind="map_result_column",

@@ -36,8 +36,8 @@ def test_judge_is_a_closed_model_rows_evaluation_profile() -> None:
 
     bound, _ = registered.bind_request(_request())
     references = {item.column: item for item in discover_references(bound)}
-    assert references["story"].ai_generated_only is False
-    assert references["answer"].ai_generated_only is True
+    assert references["story"].generated_only is False
+    assert references["answer"].generated_only is True
 
     catalog = registered.catalog_entry()
     requirement = next(
@@ -45,7 +45,7 @@ def test_judge_is_a_closed_model_rows_evaluation_profile() -> None:
         for item in catalog["ui_hints"]["source_requirements"]
         if item["param"] == "judged_column"
     )
-    assert requirement["ai_generated_only"] is True
+    assert requirement["generated_only"] is True
 
 
 def test_judge_renderer_uses_only_frozen_host_context() -> None:

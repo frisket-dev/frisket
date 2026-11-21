@@ -27,7 +27,7 @@ class ExpectedKey(WireModel):
 
 class ExpectedField(WireModel):
     expected_column_id: PositiveId
-    output_column_id: PositiveId
+    generated_column_id: PositiveId
     logical_key: str = Field(min_length=1)
     rule: Rule = Field(
         default="exact",
@@ -51,7 +51,7 @@ class ExpectedLinkInput(WireModel):
             [pair.expected_column_id for pair in self.keys],
             [pair.target_column_id for pair in self.keys],
             [field.expected_column_id for field in self.fields],
-            [field.output_column_id for field in self.fields],
+            [field.generated_column_id for field in self.fields],
             [field.logical_key for field in self.fields],
         ):
             if len(set(values)) != len(values):
@@ -110,7 +110,7 @@ class ExpectedProjectionColumn(WireModel):
     id: str
     link_id: PositiveId
     expected_column_id: PositiveId
-    output_column_id: PositiveId
+    generated_column_id: PositiveId
     logical_key: str
     name: str
     rule: Rule
@@ -204,7 +204,7 @@ class EvaluationCell(WireModel):
 class EvaluationVariantSnapshot(WireModel):
     sheet_id: PositiveId
     action_id: str
-    output_columns: list[EvaluationOutput]
+    generated_columns: list[EvaluationOutput]
     settings: JsonValue
     rows: dict[str, dict[str, EvaluationCell]]
     source_fingerprints: dict[str, str]
@@ -237,7 +237,7 @@ class EvaluationVariant(WireModel):
 class EvaluationResponse(WireModel):
     sheet_id: PositiveId
     action_id: str
-    output_columns: list[EvaluationOutput]
+    generated_columns: list[EvaluationOutput]
     row_ids: list[int]
     link: ExpectedLink | None
     expected: dict[str, dict[str, JsonValue]]
@@ -294,7 +294,7 @@ class SavedComparisonSummary(WireModel):
     label: str
     sheet_id: PositiveId
     action_id: str
-    output_columns: list[EvaluationOutput]
+    generated_columns: list[EvaluationOutput]
     row_count: int
     saved_at: str
     kept: bool

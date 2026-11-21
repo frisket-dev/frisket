@@ -142,7 +142,7 @@ def test_enclosure_materialize_does_not_invent_an_authored_source_param() -> Non
     assert set(entry["input_schema"]["properties"]) == {"force"}
 
 
-def test_run_backfill_accepts_any_ai_generated_column_type() -> None:
+def test_run_backfill_accepts_any_generated_column_type() -> None:
     entry = _entry(_catalog_actions(), "run.backfill")
     (req,) = _source_requirements(entry)
     assert "accepted_column_types" not in req

@@ -16,7 +16,7 @@ export function ComparisonResults({ response, onChoose, onClose }: {
   const { gridTheme } = useGridTheme();
   const evaluationColors = useMemo(() => evaluationTheme(gridTheme), [gridTheme]);
   const columns = [{ id: 'variant', title: 'Variant', width: 220 },
-    ...response.output_columns.filter((column) => response.link?.fields.some((field) => field.logical_key === column.logical_key))
+    ...response.generated_columns.filter((column) => response.link?.fields.some((field) => field.logical_key === column.logical_key))
       .map((column) => ({ id: column.logical_key, title: column.current_name, width: 260 }))];
   return <Modal title="Results" size="wide" onClose={onClose} closeLabel="Close results" testId="comparison-results">
     <div className="comparison-results-grid" style={{ height: Math.min(440, 72 + response.variants.length * 38) }}>

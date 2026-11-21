@@ -134,7 +134,7 @@ def _outputs(project):
             "columns",
             "cells",
             "results",
-            "output_column_claims",
+            "generated_column_claims",
         )
     }
 

@@ -398,7 +398,7 @@ class LocalBackend:
                     "id": c["id"],
                     "name": c["name"],
                     "type": c["type"],
-                    "ai_generated": bool(c["ai_generated"]),
+                    "generated": bool(c["generated"]),
                 }
                 for c in cols
             ],
@@ -608,7 +608,7 @@ class RemoteBackend:
                     "id": c["id"],
                     "name": c["name"],
                     "type": c["type"],
-                    "ai_generated": bool(c["ai_generated"]),
+                    "generated": bool(c["generated"]),
                 }
                 for c in data["columns"]
             ],

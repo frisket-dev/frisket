@@ -54,7 +54,7 @@ def test_clean_dates_repairs_recoverable_invalid_generated_date_values(
         sheet_id,
         "extracted_date",
         type="date",
-        ai_generated=True,
+        generated=True,
     )
     row_ids = project.add_rows(
         sheet_id,

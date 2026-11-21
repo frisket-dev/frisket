@@ -83,7 +83,9 @@ def test_inline_run_surfaces_in_the_jobs_listing_with_progress_and_terminal_stat
     assert job["progress"]["sheet_id"] == sheet_id
     assert job["context"]["sheet_id"] == sheet_id
     assert job["context"]["sheet_name"] == "stories"
-    assert [column["name"] for column in job["context"]["output_columns"]] == ["note"]
+    assert [column["name"] for column in job["context"]["generated_columns"]] == [
+        "note"
+    ]
     assert job["progress"]["status"] == "completed"
     assert job["progress"]["total"] == 2
     assert job["progress"]["completed"] == 2

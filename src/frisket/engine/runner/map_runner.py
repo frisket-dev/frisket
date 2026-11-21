@@ -96,9 +96,9 @@ from frisket.engine.store.effect_checkpoints import (
     row_effect_ref,
 )
 from frisket.engine.store.writer_fence import WriterFence
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.result_generations import (
     GenerationSealedError,
@@ -185,6 +185,7 @@ _CLOUD_ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = (
         "output_names",
         "child_output_names",
         "expected_output_columns",
+        "expected_generated_columns",
         "replace_existing",
         "overwrite",
     }
@@ -815,7 +816,7 @@ class MapRunner:
                 raise ValueError(
                     "a claimed dispatch requires its exact admitted attempt"
                 )
-            OutputColumnClaimStore.require_current_writer(
+            GeneratedColumnClaimStore.require_current_writer(
                 self.project.db,
                 fence=WriterFence(
                     run_id=run_id,

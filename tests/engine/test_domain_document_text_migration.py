@@ -13,7 +13,7 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from helpers import run_writer_authority_fixture
 from tests.engine.test_citations_migration import _downgrade_to_pre_citations_schema
 
@@ -83,7 +83,7 @@ def _publish(project, sheet, source, column, row, blob, text):
             terminal_disposition="completed",
         )
         runs.point_column_at_run(op, column, run)
-        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+        GeneratedColumnClaimStore(project).release(claim_token=auth.claim_token)
     return ref.ref_id
 
 
@@ -293,7 +293,7 @@ def test_failed_result_facts_survive_adoption(tmp_path):
                 terminal_disposition="failed",
             )
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+            GeneratedColumnClaimStore(project).release(claim_token=auth.claim_token)
         before = [
             tuple(row)
             for row in project.db.execute(

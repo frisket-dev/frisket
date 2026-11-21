@@ -12,7 +12,7 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
@@ -105,7 +105,7 @@ def _bind_resume_claim(
 ) -> str:
     claim_token = f"output-claim:test:paged-resume:{run_id}:{output_name}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=[output_name],
             action_kind=action_kind,
@@ -116,7 +116,7 @@ def _bind_resume_claim(
     assert len(claims) == 1
     with write_transaction(project.db):
         assert (
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=claim_token,
                 run_id=run_id,
                 expected_output_names=[output_name],
@@ -251,7 +251,7 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
     )
     claim_token = "output-claim:test:queued-paged-scope"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["out"],
             action_kind=_WindowProbeProgram.PROGRAM_NAME,
@@ -263,7 +263,7 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
     prepared = runner.prepare_run(_spec(sheet_id), program=program, confirmed=True)
     with write_transaction(project.db):
         assert (
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=claim_token,
                 run_id=prepared.run_id,
                 expected_output_names=["out"],

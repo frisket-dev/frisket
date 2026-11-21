@@ -38,10 +38,10 @@ def _seed_review_history(client: TestClient) -> tuple[TestClient, str, list[int]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("stories")
     story_col = project.add_column(sheet_id, "story")
-    risk_col = project.add_column(sheet_id, "risk", ai_generated=True)
-    tone_col = project.add_column(sheet_id, "tone", ai_generated=True)
+    risk_col = project.add_column(sheet_id, "risk", generated=True)
+    tone_col = project.add_column(sheet_id, "tone", generated=True)
     justification_col = project.add_column(
-        sheet_id, "risk_justification", ai_generated=True
+        sheet_id, "risk_justification", generated=True
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -167,7 +167,7 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("documents")
     source_col = project.add_column(sheet_id, "document")
-    output_col = project.add_column(sheet_id, "prepared", ai_generated=True)
+    output_col = project.add_column(sheet_id, "prepared", generated=True)
     [row_id] = project.add_rows(
         sheet_id, [{"document": "source.pdf"}], {"document": source_col}
     )

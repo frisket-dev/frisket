@@ -645,7 +645,7 @@ export interface EntityMentionOccurrencesPage {
 /** A node in the Monitor Lineage DAG. */
 export interface LineageNode {
   id: string;
-  kind: 'source' | 'sheet' | 'ai_column';
+  kind: 'source' | 'sheet' | 'generated_column';
   name: string;
   sheet_id?: number | null;
   column_id?: number;
@@ -919,13 +919,13 @@ interface ActionSourceRequirementBase {
   accepted_column_types?: ColumnType[];
   template_accepted_column_types?: ColumnType[];
   /** Require columns whose current values are generation-managed outputs. */
-  ai_generated_only?: boolean;
+  generated_only?: boolean;
   accepted_cell_kinds?: string[];
   template_param?: string;
   template_columns?: 'exact' | 'union';
   message?: string;
   next_steps?: string[];
-  unset_fallback_includes_ai_generated?: boolean;
+  unset_fallback_includes_generated?: boolean;
   source_union_params?: string[];
   sheet_param?: string;
 }
@@ -1244,7 +1244,7 @@ export interface ActionCatalogFormParam {
   default?: string | number | boolean | null;
   required?: boolean;
   column_types?: ColumnType[];
-  ai_generated_only?: boolean;
+  generated_only?: boolean;
   cardinality?: string;
   description?: string;
   /** Compact-layout hint. 'grid' tags a boolean for the checkbox grid
@@ -1602,7 +1602,7 @@ export interface RegisteredActionRequest extends RegisteredActionDraft {
    * action drafts deliberately never carry this destructive invocation fact. */
   replace_existing?: boolean;
   /** Physical target preconditions for an explicitly restored replacement. */
-  expected_output_columns?: Record<string, number | null>;
+  expected_generated_columns?: Record<string, number | null>;
 }
 
 function hasRegisteredActionDraftShape(candidate: unknown): candidate is RegisteredActionDraft {

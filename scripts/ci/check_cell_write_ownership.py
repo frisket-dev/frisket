@@ -47,7 +47,7 @@ PROTECTED_TABLES = frozenset(
 TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
     "execution_attempts": (
         "src/frisket/execution/attempt.py",  # Mint, admit, claim, and explicit close.
-        "src/frisket/engine/store/output_claims.py",  # Fenced dead-writer recovery.
+        "src/frisket/engine/store/generated_column_claims.py",  # Fenced dead-writer recovery.
         "src/frisket/engine/executor/project_run_terminalization.py",  # Pending closure.
         "src/frisket/upgrades/project/domain_migration.py",  # Frozen stopped-work cutover.
     ),
@@ -102,7 +102,7 @@ RUN_FIELD_OWNERS: Mapping[str, tuple[str, ...]] = {
     "current_attempt_id": (
         _RUN_STORE,
         "src/frisket/execution/attempt.py",
-        "src/frisket/engine/store/output_claims.py",
+        "src/frisket/engine/store/generated_column_claims.py",
         _DOMAIN_MIGRATION,
     ),
     "cancel_requested_at": (_RUN_STORE, "src/frisket/engine/store/changes.py"),

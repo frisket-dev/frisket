@@ -65,7 +65,7 @@ class TestBasics:
 class TestRunsAndPointers:
     def test_run_results_resolve(self, project):
         sheet, cols = make_sheet(project, 3)
-        out_col = project.add_column(sheet, "score", type="number", ai_generated=True)
+        out_col = project.add_column(sheet, "score", type="number", generated=True)
         op = project.append_change("map", {"action_kind": "map.classify"})
         run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=3)
         rows = [
@@ -114,7 +114,7 @@ class TestRunsAndPointers:
 
     def test_result_writes_idempotent(self, project):
         sheet, cols = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "x", ai_generated=True)
+        out_col = project.add_column(sheet, "x", generated=True)
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.r", total_rows=1)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -127,7 +127,7 @@ class TestRunsAndPointers:
 
     def test_model_calls_written_with_results(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "transcript", ai_generated=True)
+        out_col = project.add_column(sheet, "transcript", generated=True)
         op = project.append_change("map")
         run = RunResultStore(project).start_run(
             op, sheet, "media.transcribe", total_rows=1
@@ -188,7 +188,7 @@ class TestRunsAndPointers:
         self, project
     ):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=1)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -231,7 +231,7 @@ class TestRunsAndPointers:
 
     def test_rerun_creates_new_version_old_kept(self, project):
         sheet, _ = make_sheet(project, 2)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         rows = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
 
         op1 = project.append_change("map")
@@ -268,7 +268,7 @@ class TestRunsAndPointers:
 class TestEditsOverlay:
     def test_edit_beats_run(self, project):
         sheet, _ = make_sheet(project, 2)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         rows = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
@@ -288,7 +288,7 @@ class TestEditsOverlay:
 
     def test_undo_edit_restores_model_value(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
@@ -308,7 +308,7 @@ class TestEditsOverlay:
 class TestUndoRedo:
     def test_undo_run_moves_pointer_back(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "x", ai_generated=True)
+        out_col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op1 = project.append_change("map")
         r1 = RunResultStore(project).start_run(op1, sheet, "test.c")
@@ -362,7 +362,7 @@ class TestUndoRedo:
 
     def test_new_op_truncates_redo_future(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "x", ai_generated=True)
+        out_col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op1 = project.append_change("map")
         r1 = RunResultStore(project).start_run(op1, sheet, "test.c")
@@ -391,7 +391,7 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
     tmp = tmp_path_factory.mktemp("prop")
     with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
-        col = p.add_column(sheet, "out", ai_generated=True)
+        col = p.add_column(sheet, "out", generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
         for i, kind in enumerate(seq):
             if kind == "run":
@@ -425,7 +425,7 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
     tmp = tmp_path_factory.mktemp("prop2")
     with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
-        col = p.add_column(sheet, "out", ai_generated=True)
+        col = p.add_column(sheet, "out", generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
         baseline = p.get_values(sheet, col)
         seeded_op_cursor = p.op_cursor
@@ -548,7 +548,7 @@ class TestStoreRegressions:
 
     def test_redo_cannot_resurrect_discarded_branch(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "x", ai_generated=True)
+        col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
 
         def run_with(value):
@@ -571,7 +571,7 @@ class TestStoreRegressions:
 
     def test_repeat_pointing_in_one_op_undoes_to_pre_op_state(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "x", ai_generated=True)
+        col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         r1 = RunResultStore(project).start_run(op, sheet, "test.c")
@@ -594,7 +594,7 @@ class TestStoreRegressions:
 
     def test_undone_column_keeps_history_when_name_is_recreated(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "score", ai_generated=True)
+        col = project.add_column(sheet, "score", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         with write_transaction(project.db):
@@ -608,7 +608,7 @@ class TestStoreRegressions:
         project.undo()
         assert "score" not in [c["name"] for c in project.columns(sheet)]
         # Reuse the name, not the historical identity or values.
-        col2 = project.add_column(sheet, "score", ai_generated=True)
+        col2 = project.add_column(sheet, "score", generated=True)
         assert col2 != col
         assert project.get_column(col)["active"] == 0
         assert project.get_column(col2)["active"] == 1
@@ -678,7 +678,7 @@ class TestCompactionGC:
         self, project
     ):
         sheet, _ = make_sheet(project, 2)
-        col = project.add_column(sheet, "score", ai_generated=True)
+        col = project.add_column(sheet, "score", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
@@ -731,7 +731,7 @@ class TestCompactionGC:
         )
 
         sheet, _ = make_sheet(project, 2)
-        col = project.add_column(sheet, "score", ai_generated=True)
+        col = project.add_column(sheet, "score", generated=True)
         rids = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
@@ -835,7 +835,7 @@ class TestCompactionRedoSafety:
 
     def test_gc_keeps_redoable_run_blobs(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "img", type="image", ai_generated=True)
+        col = project.add_column(sheet, "img", type="image", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         digest = project.add_blob(b"redoable image bytes", mime="image/png")
         op = project.append_change("map")
@@ -869,7 +869,7 @@ class TestCompactionRedoSafety:
 
     def test_gc_keeps_superseded_run_blob_needed_by_undo(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "img", type="image", ai_generated=True)
+        col = project.add_column(sheet, "img", type="image", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         store = RunResultStore(project)
 

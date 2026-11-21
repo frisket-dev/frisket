@@ -568,10 +568,8 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
 
     project = make_project("prepared-ocr-canonical")
     sheet = project.add_sheet("Scans")
-    ocr_text = project.add_column(sheet, "OCR text", ai_generated=True)
-    positions = project.add_column(
-        sheet, "OCR positions", type="json", ai_generated=True
-    )
+    ocr_text = project.add_column(sheet, "OCR text", generated=True)
+    positions = project.add_column(sheet, "OCR positions", type="json", generated=True)
     notes = project.add_column(sheet, "notes", type="json")
     phrase = "Inspection of the western pier"
     row = project.add_rows(

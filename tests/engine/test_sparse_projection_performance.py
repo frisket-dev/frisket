@@ -17,7 +17,7 @@ def _production_shaped_project(
 ) -> tuple[Project, int, list[int]]:
     """A generated column whose every row has a source cell under a run result."""
     sheet = project.add_sheet("Rows")
-    column = project.add_column(sheet, "generated", type="integer", ai_generated=True)
+    column = project.add_column(sheet, "generated", type="integer", generated=True)
     row_ids = project.add_rows(
         sheet,
         [{"generated": -position} for position in range(1, row_count + 1)],
@@ -141,7 +141,7 @@ def test_plain_source_and_output_edit_undo_redo_skip_review_recount(
     project = make_project("Edits")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "source")
-    output_id = project.add_column(sheet_id, "output", type="text", ai_generated=True)
+    output_id = project.add_column(sheet_id, "output", type="text", generated=True)
     project.add_rows(sheet_id, [{"source": "before"}], {"source": source_id})
     row_id = int(
         project.db.execute(

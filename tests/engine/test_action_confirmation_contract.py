@@ -135,7 +135,7 @@ def _counts(project: Project) -> dict[str, int]:
             "results",
             "ops",
             "receipts",
-            "output_column_claims",
+            "generated_column_claims",
             "blobs",
             "source_artifacts",
             "citations",

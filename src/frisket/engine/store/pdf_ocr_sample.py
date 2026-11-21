@@ -20,7 +20,7 @@ from frisket.engine.store.citations import (
     record_source_span,
 )
 from frisket.engine.store.grounding import normalize_bbox
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -160,7 +160,7 @@ def publish_pdf_ocr_sample(
                 name = f"{base} {index}"
                 index += 1
             output_column = project.add_column_in_transaction(
-                sheet, name, type="text", ai_generated=True, hidden=manual
+                sheet, name, type="text", generated=True, hidden=manual
             )
             created.append(output_column)
             if not manual:
@@ -249,7 +249,7 @@ def publish_pdf_ocr_sample(
             params_hash=receipt.params_hash,
         )
         token = f"output-claim:{receipt_id}"
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet,
             output_names=[name],
             action_kind="media.ocr",
@@ -376,7 +376,7 @@ def publish_pdf_ocr_sample(
             rebuild_review_stats=False,
             fence=WriterFence(run_id=run_id, claim_token=token),
         )
-        OutputColumnClaimStore(project).release(claim_token=token)
+        GeneratedColumnClaimStore(project).release(claim_token=token)
     return {
         "operation_id": op_id,
         "run_id": run_id,

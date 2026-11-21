@@ -19,9 +19,7 @@ from frisket.engine.store.transactions import write_transaction
 def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
     sheet_id = project.add_sheet("Documents")
     source_col = project.add_column(sheet_id, "Source", "file")
-    output_col = project.add_column(
-        sheet_id, "Contract value", "text", ai_generated=True
-    )
+    output_col = project.add_column(sheet_id, "Contract value", "text", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"Source": "a.pdf"}, {"Source": "b.pdf"}],

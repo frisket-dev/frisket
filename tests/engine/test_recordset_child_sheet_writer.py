@@ -129,7 +129,7 @@ def test_single_parent_writer_records_rows_undo_and_standard_refs(make_project):
             parent_sheet_id=source_sheet_id,
             op_spec={"kind": "test"},
             columns=[
-                MaterializedColumnSpec("name", "text", ai_generated=True),
+                MaterializedColumnSpec("name", "text", generated=True),
                 MaterializedColumnSpec("score", "number"),
             ],
             rows=[

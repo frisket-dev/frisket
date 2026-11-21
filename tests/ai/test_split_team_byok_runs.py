@@ -197,7 +197,7 @@ def _reduce_action(sheet_id: int, key: str) -> dict[str, Any]:
 def _project_state(project: Any) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("columns", "runs", "receipts", "output_column_claims")
+        for table in ("columns", "runs", "receipts", "generated_column_claims")
     }
 
 

@@ -88,7 +88,7 @@ def _batch_history_op_run_payloads(
             # The claimant stamp, surfaced for hand-off
             # to an admin/agent debugging a divergent-worker incident.
             "worker_version": row["worker_version"],
-            "output_columns": columns_by_run.get(row["id"], []),
+            "generated_columns": columns_by_run.get(row["id"], []),
             # None when the run has no failed rows (kept out of the JSON
             # entirely by the caller's key-presence, not stamped {}).
             "row_errors": row_errors_by_run.get(row["id"]),
@@ -715,7 +715,7 @@ def column_run_provenance_payload(
             "id": column["id"],
             "name": column["name"],
             "type": column["type"],
-            "ai_generated": bool(column["ai_generated"]),
+            "generated": bool(column["generated"]),
             "current_run_id": current_run_id,
             "latest_run_id": latest_run_id,
             "mixed_origins": (

@@ -136,13 +136,13 @@ def _seed_completed_topic_run(
         sheet_id,
         "Topic sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     sidecar_column_id = project.add_column(
         sheet_id,
         TOPIC_ANALYSIS_SIDECAR_COLUMN,
         "json",
-        ai_generated=True,
+        generated=True,
         hidden=True,
     )
     row_ids = tuple(
@@ -483,7 +483,7 @@ def test_copied_manual_or_missing_base_value_is_not_attributable(
         seed.sheet_id,
         "Copied sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     copy_op_id, copy_run_id, store = _start_run(
         project,
@@ -520,7 +520,7 @@ def test_copied_manual_or_missing_base_value_is_not_attributable(
         seed.sheet_id,
         "Missing result sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     no_base_op_id, no_base_run_id, store = _start_run(
         project,
@@ -602,13 +602,13 @@ def test_completed_partial_run_resolves_only_rows_with_successful_sidecars(
         sheet_id,
         "Topic sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     sidecar_column_id = project.add_column(
         sheet_id,
         TOPIC_ANALYSIS_SIDECAR_COLUMN,
         "json",
-        ai_generated=True,
+        generated=True,
         hidden=True,
     )
     successful_row, failed_row, missing_sidecar_row = project.add_rows(
