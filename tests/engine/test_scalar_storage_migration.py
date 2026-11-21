@@ -132,14 +132,15 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
     )
     assert authority.claim_token is not None
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output_column_id,
-        output_role="match",
-        compatibility_key="sha256:scalar-migration-fixture",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output_column_id,
+            output_role="match",
+            compatibility_key="sha256:scalar-migration-fixture",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     results.write_results(
         run_id,
         [
@@ -164,13 +165,15 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [output_column_id],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
-    results.point_column_at_run(op_id, output_column_id, run_id)
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [output_column_id],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
+    with write_transaction(results.db):
+        results.point_column_at_run(op_id, output_column_id, run_id)
     with write_transaction(project.db):
         OutputColumnClaimStore(project).release(claim_token=authority.claim_token)
     project.apply_edits(

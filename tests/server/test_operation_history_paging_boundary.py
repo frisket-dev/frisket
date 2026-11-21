@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
 
 def _seed_history(
-    tmp_path: Path,
+    client: TestClient,
 ) -> tuple[TestClient, str, list[int], int]:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Operation history paging"}
     ).json()["id"]
@@ -42,9 +38,9 @@ def _seed_history(
 
 
 def test_operation_history_route_returns_bounded_page_with_cursor_targets(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, op_ids, cursor = _seed_history(tmp_path)
+    client, project_id, op_ids, cursor = _seed_history(client)
 
     default_page = client.get(
         f"/api/projects/{project_id}/history",

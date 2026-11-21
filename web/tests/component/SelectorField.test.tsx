@@ -17,7 +17,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 function response(): HttpSelectorChoicesResponse {
   return {
-    schema_version: 'frisket.selector_choices.v2',
+    schema_version: 'frisket.selector_choices.v3',
     project_id: 'project-a',
     subject: { kind: 'action', action_id: 'map.classify', field: 'model' },
     depends_on: ['mode'],
@@ -27,7 +27,9 @@ function response(): HttpSelectorChoicesResponse {
     cloud_setup: null,
     groups: [{
       group_id: 'local',
+      kind: 'local',
       label: 'Local',
+      status: 'ready',
       choices: [{
         choice_id: 'ready-model',
         label: 'Ready model',
@@ -36,7 +38,7 @@ function response(): HttpSelectorChoicesResponse {
         model_card_url: null,
         authored_selection: { kind: 'model', model: 'ready-model' },
         resolved_target: null,
-        processing_destination: { label: 'Local' },
+        processing_destination: { kind: 'local', label: 'Local' },
         facts: [],
         status: 'ready',
         can_author: true,
@@ -51,7 +53,7 @@ function response(): HttpSelectorChoicesResponse {
         is_current: true,
       }],
     }],
-  } as HttpSelectorChoicesResponse;
+  };
 }
 
 describe('SelectorField', () => {
@@ -215,7 +217,7 @@ describe('SelectorField', () => {
         options: [
           { id: 'cloud', label: 'Frisket Cloud', status: 'unavailable',
             disabled_reason: 'Network access is off for this project.' },
-          { id: 'gateway', label: 'Model server', status: 'ready', disabled_reason: null },
+          { id: 'own', label: 'Model server', status: 'ready', disabled_reason: null },
         ],
       },
       is_current: false,
@@ -656,7 +658,7 @@ describe('SelectorField', () => {
     const ready = response();
     ready.groups[0].choices[0].setup = {
       kind: 'api_key', provider: 'openai', scopes: [{
-        scope: 'project', can_mutate: true, configured: true, source: 'stored',
+        scope: 'project', can_mutate: true, configured: true, source: 'project',
         hint: null, environment_names: [], settings_location: null,
       }],
     };

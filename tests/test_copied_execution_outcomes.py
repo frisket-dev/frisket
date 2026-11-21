@@ -19,8 +19,8 @@ start = recovery.start
 def _copy(work, source_run, selected=None):
     project, sheet, _, rows, *_ = work
     with project.transaction_scope():
-        target = project.add_column(sheet, "Copy", commit=False)
-        op = project.append_change("run.reapply", commit=False)
+        target = project.add_column_in_transaction(sheet, "Copy")
+        op = project.append_change_in_transaction("run.reapply")
         ChangeStore(project).start(op)
         with combined_execution_outcomes(
             project, source_run, sheet_id=sheet, row_ids=selected
@@ -57,7 +57,7 @@ def test_copied_publication_refuses_permanently_removed_column(work):
     project.maintenance = True
     begin_purge(project, column_ids=[target])
     with project.transaction_scope():
-        op = project.append_change("run.reapply", commit=False)
+        op = project.append_change_in_transaction("run.reapply")
         ChangeStore(project).start(op)
         with combined_execution_outcomes(
             project, original.run_id, sheet_id=sheet, row_ids=None
@@ -148,20 +148,22 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
     )
     auth = run_writer_authority_fixture(project, source_run, output_column_ids={column})
     generations = ResultGenerationStore(project)
-    generations.declare(
-        source_run,
-        column,
-        output_role="answer",
-        compatibility_key="sha256:test",
-        write_mode="create",
-        claim_token=auth.claim_token,
-    )
-    generations.seal(
-        source_run,
-        [column],
-        claim_token=auth.claim_token,
-        terminal_disposition="cancelled",
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            source_run,
+            column,
+            output_role="answer",
+            compatibility_key="sha256:test",
+            write_mode="create",
+            claim_token=auth.claim_token,
+        )
+    with write_transaction(generations.db):
+        generations.seal(
+            source_run,
+            [column],
+            claim_token=auth.claim_token,
+            terminal_disposition="cancelled",
+        )
     store.finish_run(source_run, status="cancelled", **auth.terminal_kwargs())
     with write_transaction(project.db):
         OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
@@ -214,14 +216,15 @@ def test_completion_never_stitches_successful_siblings_from_different_attempts(w
             project, run_id, output_column_ids=set(columns)
         )
         for index, column in enumerate(columns):
-            generations.declare(
-                run_id,
-                column,
-                output_role=("a", "b")[index],
-                compatibility_key="sha256:test-family",
-                write_mode="create" if len(run_ids) == 1 else "replace_scope",
-                claim_token=auth.claim_token,
-            )
+            with write_transaction(generations.db):
+                generations.declare(
+                    run_id,
+                    column,
+                    output_role=("a", "b")[index],
+                    compatibility_key="sha256:test-family",
+                    write_mode="create" if len(run_ids) == 1 else "replace_scope",
+                    claim_token=auth.claim_token,
+                )
         runs.write_results(
             run_id,
             [
@@ -239,12 +242,13 @@ def test_completion_never_stitches_successful_siblings_from_different_attempts(w
             ],
             **auth.kwargs(),
         )
-        generations.seal(
-            run_id,
-            columns,
-            claim_token=auth.claim_token,
-            terminal_disposition="partial",
-        )
+        with write_transaction(generations.db):
+            generations.seal(
+                run_id,
+                columns,
+                claim_token=auth.claim_token,
+                terminal_disposition="partial",
+            )
         runs.finish_run(run_id, status="failed", **auth.terminal_kwargs())
         with write_transaction(project.db):
             OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
@@ -359,14 +363,15 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
     )
     auth = run_writer_authority_fixture(project, source_run, output_column_ids={column})
     generations = ResultGenerationStore(project)
-    generations.declare(
-        source_run,
-        column,
-        output_role="answer",
-        compatibility_key="sha256:test",
-        write_mode="create",
-        claim_token=auth.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            source_run,
+            column,
+            output_role="answer",
+            compatibility_key="sha256:test",
+            write_mode="create",
+            claim_token=auth.claim_token,
+        )
     store.write_results(
         source_run,
         [
@@ -381,12 +386,13 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
         ],
         **auth.kwargs(),
     )
-    generations.seal(
-        source_run,
-        [column],
-        claim_token=auth.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            source_run,
+            [column],
+            claim_token=auth.claim_token,
+            terminal_disposition="completed",
+        )
     store.finish_run(source_run, status="completed", **auth.terminal_kwargs())
     with write_transaction(project.db):
         OutputColumnClaimStore(project).release(claim_token=auth.claim_token)

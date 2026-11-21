@@ -19,6 +19,7 @@ from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.ops.base import ActionProgram
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 from runner_test_helpers import run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,7 +98,8 @@ def _seed_completed_full_sheet_run(
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
     return run_id
 
 

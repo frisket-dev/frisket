@@ -52,11 +52,15 @@ class ImageAsset:
             raise ValueError("image dimensions must be positive")
         if not self.sha256:
             raise ValueError("image sha256 must not be empty")
+        display_width = self.width if self.display_width is None else self.display_width
+        display_height = (
+            self.height if self.display_height is None else self.display_height
+        )
         if self.display_width is None:
-            object.__setattr__(self, "display_width", self.width)
+            object.__setattr__(self, "display_width", display_width)
         if self.display_height is None:
-            object.__setattr__(self, "display_height", self.height)
-        if self.display_width < 1 or self.display_height < 1:
+            object.__setattr__(self, "display_height", display_height)
+        if display_width < 1 or display_height < 1:
             raise ValueError("display image dimensions must be positive")
 
 

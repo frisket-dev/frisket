@@ -289,7 +289,7 @@ def run_typed_temporal_extract_action(
         return ActionCtx(project_id, kind).fail(
             "project_write_failed", "Reservation ids must be supplied together"
         )
-    if reserved_receipt_id is not None:
+    if reserved_receipt_id is not None and reserved_action_id is not None:
         prior = _reserved_extract_preflight(
             project,
             receipt_id=reserved_receipt_id,
@@ -326,7 +326,7 @@ def run_typed_temporal_extract_action(
                 action_kind=kind,
             )
         return ActionCtx(project_id, kind).failed(failure)
-    if reserved_receipt_id is None:
+    if reserved_receipt_id is None or reserved_action_id is None:
         reservation = _reserve_running_action_receipt(
             project,
             envelope,

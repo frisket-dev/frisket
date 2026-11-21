@@ -45,7 +45,7 @@ def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape(
         create_base_cell_producer(project.db, stage_id="op:1", op_id=1)
 
     project.db.execute("BEGIN")
-    op_1 = project.append_change("source.write", commit=False)
+    op_1 = project.append_change_in_transaction("source.write")
     producer_id = create_base_cell_producer(
         project.db, stage_id=f"op:{op_1}", op_id=op_1
     )
@@ -79,7 +79,7 @@ def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape(
     ).fetchone()
     assert tuple(explicit_null) == (None, "source_cell")
 
-    op_2 = project.append_change("edit", commit=False)
+    op_2 = project.append_change_in_transaction("edit")
     insert_edits(
         project.db, op_id=op_2, edits=[EditCellWrite(row_ids[0], column_id, None)]
     )
@@ -112,11 +112,11 @@ def test_pending_producer_binds_once_and_abort_discards_only_unreferenced(
     )
     with pytest.raises(ValueError, match="referenced"):
         discard_pending_base_cell_producer(project.db, producer_id)
-    op_1 = project.append_change("source.write", commit=False)
+    op_1 = project.append_change_in_transaction("source.write")
     bind_base_cell_producer(project.db, producer_id, op_id=op_1)
     project.db.execute("UPDATE sheets SET hidden=0 WHERE id=?", (sheet_id,))
     bind_base_cell_producer(project.db, producer_id, op_id=op_1)
-    op_2 = project.append_change("source.write", commit=False)
+    op_2 = project.append_change_in_transaction("source.write")
     with pytest.raises(ValueError, match="already bound"):
         bind_base_cell_producer(project.db, producer_id, op_id=op_2)
     project.db.rollback()
@@ -162,7 +162,7 @@ def test_sinks_reject_unknown_authority_and_cross_sheet_targets(make_project) ->
                 cells=[BaseCellWrite(row_ids[0], column_id, "not hidden")],
             )
 
-        op_1 = project.append_change("source.write", commit=False)
+        op_1 = project.append_change_in_transaction("source.write")
         producer = create_base_cell_producer(
             project.db, stage_id=f"op:{op_1}", op_id=op_1
         )
@@ -351,15 +351,20 @@ def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped(
     )
     assert authority.claim_token is not None
     generations = ResultGenerationStore(project)
-    generations.declare(
-        retype_run,
-        column_id,
-        output_role="value",
-        compatibility_key="sha256:retyped",
-        write_mode="replace_scope",
-        claim_token=authority.claim_token,
-        target_descriptor={"type": "text", "format": "plain", "semantic_type": None},
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            retype_run,
+            column_id,
+            output_role="value",
+            compatibility_key="sha256:retyped",
+            write_mode="replace_scope",
+            claim_token=authority.claim_token,
+            target_descriptor={
+                "type": "text",
+                "format": "plain",
+                "semantic_type": None,
+            },
+        )
     runs.write_results(
         retype_run,
         [
@@ -372,12 +377,13 @@ def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped(
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        retype_run,
-        {column_id},
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            retype_run,
+            {column_id},
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     project.db.commit()
     OutputColumnClaimStore(project).finish_current_writer(
         run_id=retype_run,
@@ -397,7 +403,7 @@ def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped(
 def test_replace_remove_and_rebuild_share_the_same_projector(make_project) -> None:
     project, _sheet_id, column_id, row_ids = _project_sheet(make_project)
     with write_transaction(project.db):
-        op_1 = project.append_change("source.write", commit=False)
+        op_1 = project.append_change_in_transaction("source.write")
         first = create_base_cell_producer(project.db, stage_id=f"op:{op_1}", op_id=op_1)
         initialize_base_cells(
             project.db,
@@ -416,7 +422,7 @@ def test_replace_remove_and_rebuild_share_the_same_projector(make_project) -> No
         )
     }
     with write_transaction(project.db):
-        op_2 = project.append_change("source.write", commit=False)
+        op_2 = project.append_change_in_transaction("source.write")
         second = create_base_cell_producer(
             project.db, stage_id=f"op:{op_2}", op_id=op_2
         )
@@ -541,7 +547,7 @@ def test_old_source_continuation_preserves_newer_edit_and_immutable_versions(
 ) -> None:
     project, _sheet_id, column_id, row_ids = _project_sheet(make_project)
     with write_transaction(project.db):
-        op_1 = project.append_change("source.write", commit=False)
+        op_1 = project.append_change_in_transaction("source.write")
         producer = create_base_cell_producer(
             project.db, stage_id=f"op:{op_1}", op_id=op_1
         )

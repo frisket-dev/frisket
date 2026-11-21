@@ -8,11 +8,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import drain_queue
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "census"
@@ -38,12 +37,10 @@ def census_client(tmp_path, monkeypatch):
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
     )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    client = TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=router,
-            run_status_grace_seconds=3600,
-        )
+    client = make_client(
+        tmp_path,
+        router=router,
+        run_status_grace_seconds=3600,
     )
     project_id = client.post("/api/projects", json={"name": "Census"}).json()["id"]
     project = client.app.state.workspace.get(project_id)

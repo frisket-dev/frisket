@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import (
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
@@ -36,7 +36,7 @@ def _seed_queued_action_run(client: TestClient) -> tuple[str, int, int]:
 
 
 def test_action_run_cancel_route_cancels_run_and_queue_job(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
+    client = make_client(tmp_path, run_status_grace_seconds=3600.0)
     project_id, run_id, job_id = _seed_queued_action_run(client)
 
     cancelled = client.post(f"/api/projects/{project_id}/actions/runs/{run_id}/cancel")

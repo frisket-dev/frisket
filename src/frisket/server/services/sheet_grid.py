@@ -7,6 +7,7 @@ import math
 import re
 import statistics
 from collections import Counter
+from collections.abc import Generator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator
@@ -278,20 +279,23 @@ class SheetGridService:
             snapshot.close()
             raise
 
-        def body() -> Iterator[bytes]:
+        def body() -> Generator[bytes, None, None]:
             try:
-                with closing(
-                    iter_current_value(
-                        snapshot.db,
-                        sheet_id=sheet_id,
-                        row_id=row_id,
-                        column_id=column_id,
-                        expected_revision=revision,
-                        metadata=metadata,
-                    )
-                ) as chunks:
+                chunks = iter_current_value(
+                    snapshot.db,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    expected_revision=revision,
+                    metadata=metadata,
+                )
+                try:
                     for text in chunks:
                         yield text.encode("utf-8")
+                finally:
+                    close_chunks = getattr(chunks, "close", None)
+                    if callable(close_chunks):
+                        close_chunks()
             finally:
                 snapshot.close()
 

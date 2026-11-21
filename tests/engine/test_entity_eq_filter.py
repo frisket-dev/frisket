@@ -32,6 +32,7 @@ from frisket.querysets import (
     guarded_entity_array_sql,
     resolve_sheet_filter_rows,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _entities(*surfaces: tuple[str, str]) -> list[dict]:
@@ -291,7 +292,8 @@ def test_entity_eq_requires_a_marked_entity_mentions_column(project):
 
 def test_entity_eq_rejects_a_cleared_semantic_marker(project):
     sheet, entities_col, _plain, _rows_ids = _seed(project)
-    project.set_column_semantic_type(entities_col, None)
+    with write_transaction(project.db):
+        project.set_column_semantic_type(entities_col, None)
     with pytest.raises(SheetRowSetError, match="entity_mentions"):
         _rows(project, sheet, {"type": "organization"})
 

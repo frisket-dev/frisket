@@ -7,8 +7,8 @@ instead of every guarded migration module.
 
 from __future__ import annotations
 
-from frisket.upgrades.project.consent_estimate_migration import (
-    CONSENT_ESTIMATE_TO_DIGEST,
+from frisket.upgrades.project.research_pause_migration import (
+    RESEARCH_PAUSE_TO_DIGEST,
 )
 
-CURRENT_CHAIN_TIP_DIGEST = CONSENT_ESTIMATE_TO_DIGEST
+CURRENT_CHAIN_TIP_DIGEST = RESEARCH_PAUSE_TO_DIGEST

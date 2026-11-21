@@ -16,6 +16,7 @@ from frisket.preview.entity_mention_detail import (
     resolve_entity_mention_documents,
 )
 from frisket.preview.entity_mentions import resolve_entity_mentions_preview
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed(make_project):
@@ -23,7 +24,8 @@ def _seed(make_project):
     sheet = project.add_sheet("Docs")
     title = project.add_column(sheet, "title", type="text")
     ents = project.add_column(sheet, "entities", type="json")
-    project.set_column_semantic_type(ents, "entity_mentions")
+    with write_transaction(project.db):
+        project.set_column_semantic_type(ents, "entity_mentions")
 
     def person(text, fingerprint):
         return {"text": text, "type": "person", "fingerprint": fingerprint}

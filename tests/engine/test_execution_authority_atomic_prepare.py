@@ -459,12 +459,14 @@ def test_extract_metadata_atomic_output_family_semantics_remain_non_routed(
             "execution_attempts",
         )
     }
-    original_start_run = RunResultStore.start_run
+    original_start_run = RunResultStore.start_run_in_transaction
 
     def fail_after_family_and_op(*_args: Any, **_kwargs: Any) -> int:
         raise RuntimeError("injected extract-metadata start_run failure")
 
-    monkeypatch.setattr(RunResultStore, "start_run", fail_after_family_and_op)
+    monkeypatch.setattr(
+        RunResultStore, "start_run_in_transaction", fail_after_family_and_op
+    )
     service = ActionRunService(workspace)
     failed = service.run_action("authority", action)
     assert failed.payload["status"] == "failed"
@@ -482,7 +484,7 @@ def test_extract_metadata_atomic_output_family_semantics_remain_non_routed(
         == []
     )
 
-    monkeypatch.setattr(RunResultStore, "start_run", original_start_run)
+    monkeypatch.setattr(RunResultStore, "start_run_in_transaction", original_start_run)
     queued = service.run_action("authority", action)
     assert queued.status_code == 200
     assert queued.payload["status"] == "queued"

@@ -29,8 +29,10 @@ describe('canonical media discovery and saved intent', () => {
     ['media.video_frames', 'video', 'frames'],
     ['media.extract_faces', 'image', 'faces'],
   ])('opens and edits %s with authoritative Params and saved exact scope', async (actionId, source, output) => {
-    const entry = catalog.actions.find((entry) => entry.kind === actionId)!;
-    expect(isGeneratedActionCatalogEntry(entry)).toBe(true);
+    const entry = catalog.actions.find((item) => item.kind === actionId);
+    if (!entry || !isGeneratedActionCatalogEntry(entry)) {
+      throw new Error(`Expected generated action entry for ${actionId}`);
+    }
     expect(templates.filter((template) => template.kind === actionId)).toHaveLength(1);
     const draft: GeneratedActionDraft = { action_id: actionId,
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [11, 13] },

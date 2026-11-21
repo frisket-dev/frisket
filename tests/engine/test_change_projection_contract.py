@@ -22,6 +22,7 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _drain(project):
@@ -59,7 +60,7 @@ def test_manual_correction_starts_and_closes_its_own_change(make_project):
     row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
     project.db.execute("BEGIN")
     with project.db:
-        op = project.append_change("edit", {}, label="manual correction", commit=False)
+        op = project.append_change_in_transaction("edit", {}, label="manual correction")
         insert_edits(
             project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
         )
@@ -106,7 +107,7 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
 
         project.db.execute("BEGIN IMMEDIATE")
         with pytest.raises(ChangePublicationClosed):
-            project.add_sheet("Too late", parent_op_id=op, commit=False)
+            project.add_sheet_in_transaction("Too late", parent_op_id=op)
         assert (
             project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0]
             == before_sheets
@@ -143,13 +144,12 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_projec
             sheet, [{"text": "one"}, {"text": "two"}], {"text": column}
         )
         project.db.execute("BEGIN IMMEDIATE")
-        op = project.append_change("edit", {}, label="multi-write", commit=False)
+        op = project.append_change_in_transaction("edit", {}, label="multi-write")
         start_change(project.db, op, writing=True)
-        child_sheet = project.add_sheet(
+        child_sheet = project.add_sheet_in_transaction(
             "Owned child",
             parent_sheet_id=sheet,
             parent_op_id=op,
-            commit=False,
             close_change=False,
         )
         insert_edits(
@@ -384,14 +384,15 @@ def test_output_family_and_evidence_publish_atomically(
         )
         generations = ResultGenerationStore(project)
         for output, role in ((column, "answer"), (evidence_column, "evidence")):
-            generations.declare(
-                run_id,
-                output,
-                output_role=role,
-                compatibility_key="sha256:regex-text-v1",
-                write_mode="replace_scope" if output == column else "create",
-                claim_token=authority.claim_token,
-            )
+            with write_transaction(generations.db):
+                generations.declare(
+                    run_id,
+                    output,
+                    output_role=role,
+                    compatibility_key="sha256:regex-text-v1",
+                    write_mode="replace_scope" if output == column else "create",
+                    claim_token=authority.claim_token,
+                )
         other = Project(tmp_path / "result-generations.frisket")
         before_revision = _revision(project, column)
 
@@ -459,7 +460,7 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
     versions = [original_producer]
     project.db.execute("BEGIN")
     with project.db:
-        op_id = project.append_change("source.refresh", commit=False)
+        op_id = project.append_change_in_transaction("source.refresh")
         producer = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )

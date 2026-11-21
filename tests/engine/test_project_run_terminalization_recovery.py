@@ -430,14 +430,15 @@ def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> N
         (row["sheet_id"],),
     ).fetchone()
     assert run.claim_token is not None
-    ResultGenerationStore(project).declare(
-        run.run_id,
-        int(column["id"]),
-        output_role="extracted",
-        compatibility_key="sha256:terminalizer-output-v1",
-        write_mode="create",
-        claim_token=run.claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run.run_id,
+            int(column["id"]),
+            output_role="extracted",
+            compatibility_key="sha256:terminalizer-output-v1",
+            write_mode="create",
+            claim_token=run.claim_token,
+        )
 
     result = terminalize_project_run(
         project,
@@ -481,14 +482,15 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
         project.set_undo_info(
             int(row["op_id"]), {"created_columns": [int(column["id"])]}
         )
-    ResultGenerationStore(project).declare(
-        run.run_id,
-        int(column["id"]),
-        output_role="extracted",
-        compatibility_key="sha256:deferred-output-v1",
-        write_mode="create",
-        claim_token=run.claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run.run_id,
+            int(column["id"]),
+            output_role="extracted",
+            compatibility_key="sha256:deferred-output-v1",
+            write_mode="create",
+            claim_token=run.claim_token,
+        )
 
     result = terminalize_project_run(
         project,
@@ -1771,7 +1773,7 @@ def test_run_store_refuses_current_writer_without_authority(
         (orphan.run_id,),
     ).fetchone()[0]
     start_change(project.db, op_id, writing=True)
-    RunResultStore(project).request_cancel(orphan.run_id, commit=False)
+    RunResultStore(project).request_cancel_in_transaction(orphan.run_id)
     project.db.commit()
     assert RunResultStore(project).get_run(orphan.run_id)["status"] == "running"
     with pytest.raises(StaleAttemptWriter, match="current writer"):

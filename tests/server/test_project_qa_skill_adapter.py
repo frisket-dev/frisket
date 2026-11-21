@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
@@ -97,11 +96,10 @@ def test_bound_authoring_rechecks_management_and_keeps_disabled_update_disabled(
     asyncio.run(scenario())
 
 
-def test_solo_http_save_projects_current_authority_and_typed_conflict(tmp_path) -> None:
+def test_solo_http_save_projects_current_authority_and_typed_conflict(client) -> None:
     pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
-    from frisket.server.app import create_app
 
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+    with client:
         pid = client.post("/api/projects", json={"name": "Ask"}).json()["id"]
         thread = client.post(
             f"/api/projects/{pid}/qa/threads",

@@ -424,13 +424,13 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     append_sizes: list[int] = []
-    original_add_rows = Project.add_rows
+    original_add_rows = Project.add_rows_in_transaction
 
     def tracked_add_rows(project, sheet_id, records, *args, **kwargs):
         append_sizes.append(len(records))
         return original_add_rows(project, sheet_id, records, *args, **kwargs)
 
-    monkeypatch.setattr(Project, "add_rows", tracked_add_rows)
+    monkeypatch.setattr(Project, "add_rows_in_transaction", tracked_add_rows)
     records = [
         {"id": f"case-{index:05d}", "name": f"Case {index}"} for index in range(10_001)
     ]

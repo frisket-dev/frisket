@@ -71,7 +71,11 @@ from frisket.team.browser_auth_routes import register_browser_auth_routes
 from frisket.team.http_helpers import set_session_cookie
 from frisket.team.admin_browser_routes import register_admin_browser_routes
 from frisket.team.admin_browser_service import AdminMembershipService
-from frisket.team.config import TeamConfig, team_config_from_env
+from frisket.team.config import (
+    OIDCProviderConfig,
+    TeamConfig,
+    team_config_from_env,
+)
 from frisket.team.control_plane import (
     SEARCH_KEY_PROVIDERS,
     TeamOrganizationKeyCredentialPort,
@@ -1093,10 +1097,14 @@ def create_team_app(
     # turn into a process-wide library when the composition grows tenants.
     team_skill_library = SkillLibrary(config.data_dir / "organizations" / str(org_id))
     core.state.skill_library = team_skill_library
+
+    def require_skill_manager(request: Request) -> None:
+        require_user(request, browser=True, admin=True)
+
     register_skill_routes(
         core,
         library=lambda _request: team_skill_library,
-        require_manager=lambda request: require_user(request, browser=True, admin=True),
+        require_manager=require_skill_manager,
     )
 
     def authorize_research(project_id: str, context: BackgroundAskContext) -> None:
@@ -1381,7 +1389,10 @@ def create_team_app(
         session_cookie=SESSION_COOKIE,
         secure_cookies=config.secure_cookies,
         magic_link_enabled=config.magic_link_enabled,
-        oidc_providers=config.oidc_providers,
+        oidc_providers={
+            provider: OIDCProviderConfig.from_value(definition)
+            for provider, definition in config.oidc_providers.items()
+        },
         send_magic_email=send_magic_email,
         oidc_exchange=oidc_exchange,
         resolve_request=resolve_request,

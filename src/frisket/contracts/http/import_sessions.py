@@ -14,18 +14,16 @@ MAX_IMPORT_ROW_STATE_IDS = 500
 
 
 class ImportPreparationChild(WireModel):
-    action_id: Literal["media.read_pdf_text", "media.ocr"]
+    action_id: Literal["media.ocr"]
     row_count: int
     completed_rows: int
     status: str
-    receipt_id: str | None = None
-    run_id: int | None = None
-    job_id: int | None = None
+    receipt_id: str | None
 
 
 class ImportSessionStatus(WireModel):
     import_ref: str
-    intake_kind: Literal["files", "table"] = "files"
+    intake_kind: Literal["files", "table"]
     state: Literal[
         "admitting",
         "running",
@@ -39,41 +37,37 @@ class ImportSessionStatus(WireModel):
     admitted_files: int
     admitted_bytes: int
     through: int
-    committed_rows: int = 0
-    committed_bytes: int = 0
-    sheet_id: int | None = None
+    committed_rows: int
+    committed_bytes: int
+    sheet_id: int | None
     sheet_name: str
     cancel_requested: bool
     sealed: bool
-    error: str | None = None
+    error: str | None
     # Availability of the handoff, independent of preparation execution status.
     search_preparation_status: Literal["pending", "available", "none"]
-    search_preparation_batch_id: str | None = None
-    selected_total: int | None = None
-    estimated_rows: int | None = None
-    processed_rows: int = 0
-    skipped_duplicates: int = 0
-    problem_count: int = 0
-    source_label: str | None = None
-    can_rerun_workbook: bool = False
-    source_error_groups: list[ImportSourceErrorGroup] = Field(default_factory=list)
-    preparation_completed: int = 0
-    preparation_total: int = 0
-    ocr_completed: int = 0
-    ocr_total: int = 0
-    unreadable_total: int = 0
-    preparation_stopped: bool = False
-    semantic_preparation_error: str | None = None
-    preparation_children: list[ImportPreparationChild] = Field(default_factory=list)
+    search_preparation_batch_id: str | None
+    selected_total: int | None
+    estimated_rows: int | None
+    processed_rows: int
+    skipped_duplicates: int
+    problem_count: int
+    source_label: str | None
+    can_rerun_workbook: bool
+    source_error_groups: list[ImportSourceErrorGroup]
+    preparation_completed: int
+    preparation_total: int
+    ocr_completed: int
+    ocr_total: int
+    unreadable_total: int
+    preparation_stopped: bool
+    semantic_preparation_error: str | None
+    preparation_children: list[ImportPreparationChild]
     # Rows whose page text is being read now, and rows still waiting, front
     # first; each list is bounded.
-    reading_row_ids: list[int] = Field(
-        default_factory=list, max_length=MAX_IMPORT_ROW_STATE_IDS
-    )
-    waiting_row_ids: list[int] = Field(
-        default_factory=list, max_length=MAX_IMPORT_ROW_STATE_IDS
-    )
-    failed_pages: int = Field(default=0, ge=0)
+    reading_row_ids: list[int] = Field(max_length=MAX_IMPORT_ROW_STATE_IDS)
+    waiting_row_ids: list[int] = Field(max_length=MAX_IMPORT_ROW_STATE_IDS)
+    failed_pages: int = Field(ge=0)
 
 
 class ImportPreparationRetryEstimate(WireModel):

@@ -225,7 +225,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     class ProcessDeath(BaseException):
         pass
 
-    write = RunResultStore.write_results
+    write = RunResultStore.write_results_in_transaction
     run = MapRunner.run
     admitted = {}
 
@@ -236,11 +236,13 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     def die_before_results(*args, **kwargs):
         raise ProcessDeath("after response checkpoint")
 
-    monkeypatch.setattr(RunResultStore, "write_results", die_before_results)
+    monkeypatch.setattr(
+        RunResultStore, "write_results_in_transaction", die_before_results
+    )
     monkeypatch.setattr(MapRunner, "run", remember_queue_request)
     with pytest.raises(ProcessDeath):
         case.run()
-    monkeypatch.setattr(RunResultStore, "write_results", write)
+    monkeypatch.setattr(RunResultStore, "write_results_in_transaction", write)
     monkeypatch.setattr(MapRunner, "run", run)
     checkpoint = case.project.db.execute(
         "SELECT payload,authorized_attempt_id FROM effect_checkpoints WHERE family='row_effect' AND state='returned'"

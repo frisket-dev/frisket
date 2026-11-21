@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, overload
+from typing import Any, TypedDict, overload
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -215,7 +215,26 @@ def _mapping(value: object) -> Mapping[str, object]:
 TerminalizationHook = Callable[..., None]
 
 
-def _job_refs(kind: str, payload: Mapping[str, object] | None) -> dict[str, object]:
+_JobRefs = TypedDict(
+    "_JobRefs",
+    {
+        "org_id": str | None,
+        "storage_org_id": int | None,
+        "project_id": str | None,
+        "run_id": int | None,
+        "source_id": int | None,
+        "sheet_id": int | None,
+        "row_id": int | None,
+        "receipt_id": str | None,
+        "action_kind": str | None,
+        "trace_id": str | None,
+        "workspace_root": str | None,
+        "dedupe_key": str | None,
+    },
+)
+
+
+def _job_refs(kind: str, payload: Mapping[str, object] | None) -> _JobRefs:
     data = payload or {}
     spec = _mapping(data.get("spec"))
     # Normalize every supported source-reference spelling at enqueue time.
@@ -316,6 +335,10 @@ def _validate_cloud_attribution(
         # Validate the raw payload value, not a coerced one: ProjectStorageKey
         # rejects bool/float/str fail-closed so a malformed identity can never
         # normalize into tenant 1 or persist a row a worker can't route safely.
+        if not isinstance(raw_storage_organization_id, int) or isinstance(
+            raw_storage_organization_id, bool
+        ):
+            raise ValueError("storage_org_id must be a positive integer")
         ProjectStorageKey(
             storage_org_id=raw_storage_organization_id,
             project_slug=str(refs["project_id"]),
@@ -1761,8 +1784,9 @@ class JobQueue:
             rows = cx.execute(
                 sa.select(c.status, sa.func.count()).group_by(c.status)
             ).fetchall()
-        out = dict.fromkeys(STATUSES, 0)
-        out.update(dict(rows))
+        out: dict[str, int] = {status: 0 for status in STATUSES}
+        for status, count in rows:
+            out[str(status)] = int(count)
         return out
 
     def close(self) -> None:

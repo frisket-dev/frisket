@@ -96,8 +96,8 @@ def _failure_after_egress(
             ],
             errors=[error],
         )
-        updated = ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        updated = ReceiptStore(project).update_body_status_in_transaction(
+            receipt, require_status="running"
         )
         if not updated:
             raise RuntimeError("map.find running receipt was lost")
@@ -473,7 +473,7 @@ def write_find_result(
         from frisket.engine.store.result_generations import ResultGenerationStore
 
         run_store = RunResultStore(project)
-        run_id = run_store.start_run(
+        run_id = run_store.start_run_in_transaction(
             write.op_id,
             write.sheet_id,
             action.kind,
@@ -483,14 +483,12 @@ def write_find_result(
             total_rows=len(scan.matches),
             cost_estimate=admitted["estimate"].get("cost"),
             row_ids=write.row_ids,
-            commit=False,
         )
         receipts = ReceiptStore(project)
         stored_receipt = receipts.parsed_by_id(receipt_id)
-        if stored_receipt is None or not receipts.update_body_status(
+        if stored_receipt is None or not receipts.update_body_status_in_transaction(
             stored_receipt.model_copy(update={"run_id": run_id}),
             require_status="running",
-            commit=False,
         ):
             raise RuntimeError("map.find running receipt was lost")
         run_store.attach_unscoped_model_calls(
@@ -529,7 +527,6 @@ def write_find_result(
                 compatibility_key=_compatibility_key(field=field),
                 write_mode="create",
                 claim_token=claim_token,
-                commit=False,
             )
         result_batch: list[dict[str, Any]] = []
         for child_row_id, match in zip(write.row_ids, scan.matches, strict=True):
@@ -646,10 +643,9 @@ def write_find_result(
             list(write.column_ids.values()),
             claim_token=claim_token,
             terminal_disposition=result_status,
-            commit=False,
         )
         for column_id in write.column_ids.values():
-            run_store.point_column_at_run(write.op_id, column_id, run_id, commit=False)
+            run_store.point_column_at_run(write.op_id, column_id, run_id)
         receipt = Receipt(
             receipt_id=receipt_id,
             project_id=project_id,
@@ -797,10 +793,9 @@ def _failure_before_egress(
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        if not receipts.update_body_status(
+        if not receipts.update_body_status_in_transaction(
             failed,
             require_status="running",
-            commit=False,
         ):
             raise RuntimeError("map.find pre-egress failure lost its running receipt")
         project.db.commit()

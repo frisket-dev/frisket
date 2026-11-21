@@ -20,7 +20,6 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import Worker
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND
-from frisket.server.app import create_app
 from http_test_helpers import (
     drain_queue,
     post_canonical_run_spec_as_v1_action,
@@ -28,10 +27,6 @@ from http_test_helpers import (
 )
 
 CSV = "first,last\nAda,Lovelace\nGrace,Hopper\n"
-
-
-def _client(tmp_path) -> TestClient:
-    return TestClient(create_app(tmp_path / "ws"))
 
 
 def _seed_project(client: TestClient) -> tuple[str, int]:
@@ -87,8 +82,7 @@ def _column_names(client: TestClient, pid: str, sheet_id: int) -> set[str]:
     return {str(r["name"]) for r in rows}
 
 
-def test_submit_while_run_in_flight_queues_and_executes_after(tmp_path):
-    client = _client(tmp_path)
+def test_submit_while_run_in_flight_queues_and_executes_after(client: TestClient):
     pid, sheet_id = _seed_project(client)
     ws = client.app.state.workspace
 

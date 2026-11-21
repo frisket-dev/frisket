@@ -135,9 +135,9 @@ class ProjectQAResearchStore:
             "turn_count": row["turn_count"],
             "skills": json.loads(row["skills_json"]),
             "saved_messages": json.loads(row["saved_messages_json"]),
-            "pending_approval": (
-                json.loads(row["pending_approval_json"])
-                if row["pending_approval_json"] is not None
+            "pending_pause": (
+                json.loads(row["pending_pause_json"])
+                if row["pending_pause_json"] is not None
                 else None
             ),
             "output_grants": json.loads(row["output_grants_json"]),
@@ -226,7 +226,7 @@ class ProjectQAResearchStore:
             db.execute(
                 "INSERT INTO project_qa_research_runs "
                 "(id,turn_id,actor,state,budget_micros,currency,write_mode,max_turns,"
-                "turn_count,skills_json,saved_messages_json,pending_approval_json,output_grants_json,"
+                "turn_count,skills_json,saved_messages_json,pending_pause_json,output_grants_json,"
                 "revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,?,'[]',NULL,'[]',1,?,?)",
                 (
                     research_id,
@@ -270,16 +270,16 @@ class ProjectQAResearchStore:
         self, research_id: str, pause: Mapping[str, Any]
     ) -> dict[str, Any]:
         """Publish one exact operation while its parent still admits work."""
-        pending = _mapping(pause, name="pending_approval")
+        pending = _mapping(pause, name="pending_pause")
         for field in ("id", "operation_id", "kind"):
             _nonempty(pending.get(field), name=field)
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             current = self._active(research_id)
-            if current["pending_approval"] is not None:
+            if current["pending_pause"] is not None:
                 raise ProjectQAResearchConflictError("This run is already paused.")
             db.execute(
-                "UPDATE project_qa_research_runs SET state='paused',pending_approval_json=?,"
+                "UPDATE project_qa_research_runs SET state='paused',pending_pause_json=?,"
                 "revision=revision+1,updated_at=? WHERE id=?",
                 (_json(pending), _now(), research_id),
             )
@@ -326,7 +326,7 @@ class ProjectQAResearchStore:
                 )
             if current["revision"] != expected_revision:
                 raise ProjectQAResearchConflictError("research revision changed")
-            pending = current["pending_approval"] or {}
+            pending = current["pending_pause"] or {}
             if pending.get("id") != pause_id:
                 raise ProjectQAResearchConflictError(
                     "This run is no longer waiting for that decision."
@@ -356,7 +356,7 @@ class ProjectQAResearchStore:
             assignments.extend(
                 [
                     "state='running'",
-                    "pending_approval_json=NULL",
+                    "pending_pause_json=NULL",
                     "revision=revision+1",
                     "updated_at=?",
                 ]

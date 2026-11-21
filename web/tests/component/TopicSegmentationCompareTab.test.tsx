@@ -149,7 +149,6 @@ function payload(
           },
         ]
       : [],
-    cost: { billable: false },
   };
 }
 

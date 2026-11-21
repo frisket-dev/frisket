@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, overload
 from urllib.parse import quote, unquote
 
 from datetime import date
@@ -61,6 +61,14 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+@overload
+def _jurisdiction(value: Any, *, required: Literal[True]) -> str: ...
+
+
+@overload
+def _jurisdiction(value: Any, *, required: Literal[False] = False) -> str | None: ...
 
 
 def _jurisdiction(value: Any, *, required: bool = False) -> str | None:
@@ -115,7 +123,7 @@ def _empty_result(
     threshold: float | None = None,
     upstream_match: bool | None = None,
 ) -> dict[str, Any]:
-    result = {name: None for name in OUTPUT_NAMES}
+    result: dict[str, str | float | bool | None] = {name: None for name in OUTPUT_NAMES}
     result.update(
         {
             "oc_match_state": state,

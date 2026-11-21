@@ -200,7 +200,7 @@ class EmbeddingGemma2Runtime:
                 return_tensors="pt",
             )
         if kind == "audio":
-            values = []
+            audio_samples: list[Any] = []
             for item in items:
                 _exact_fields(
                     item,
@@ -218,9 +218,9 @@ class EmbeddingGemma2Runtime:
                 samples = self._np.fromfile(path, dtype="<i2")
                 if samples.size == 0:
                     raise WorkerProtocolError("audio input must not be empty")
-                values.append(samples.astype(self._np.float32) / 32768.0)
+                audio_samples.append(samples.astype(self._np.float32) / 32768.0)
             return self._processor(
-                audio=values,
+                audio=audio_samples,
                 audio_kwargs={"sampling_rate": EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE},
                 return_tensors="pt",
             )

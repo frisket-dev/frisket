@@ -145,7 +145,7 @@ class PeriodicFrameRecipe:
             object.__setattr__(self, "adjacent_dedup_threshold", threshold)
 
     @property
-    def recipe_id(self) -> str:
+    def slice_id(self) -> str:
         return (
             f"{self.strategy}:interval={self.interval_seconds}:"
             f"dedup={self.adjacent_dedup_threshold}:max-dimension={self.max_dimension}"
@@ -178,7 +178,7 @@ class FixedClipRecipe:
         object.__setattr__(self, "max_dimension", _dimension(self.max_dimension))
 
     @property
-    def recipe_id(self) -> str:
+    def slice_id(self) -> str:
         return (
             f"{self.strategy}:duration={self.duration_seconds}:"
             f"stride={self.stride_seconds}:fps={self.sample_fps}:"
@@ -225,7 +225,7 @@ class ShotClipRecipe:
         object.__setattr__(self, "max_dimension", _dimension(self.max_dimension))
 
     @property
-    def recipe_id(self) -> str:
+    def slice_id(self) -> str:
         return (
             f"{self.strategy}:max-duration={self.max_duration_seconds}:"
             f"quantum={self.quantum_seconds}:"
@@ -256,7 +256,7 @@ class AudioWindowRecipe:
         )
 
     @property
-    def recipe_id(self) -> str:
+    def slice_id(self) -> str:
         return (
             f"{self.strategy}:duration={self.duration_seconds}:"
             f"stride={self.stride_seconds}"
@@ -772,7 +772,7 @@ def _perceptual_sample(jpeg: bytes) -> tuple[int, ...]:
     from io import BytesIO
 
     with Image.open(BytesIO(jpeg)) as image:
-        return tuple(image.convert("L").resize((8, 8)).get_flattened_data())
+        return tuple(image.convert("L").resize((8, 8)).tobytes())
 
 
 def _deduplicate(

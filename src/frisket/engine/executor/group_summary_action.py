@@ -89,7 +89,11 @@ class AdmittedGroupSummarizer:
             refresh_target=self.refresh_target,
             request=payload,
             sheet_id=request.scope.sheet_id,
-            row_ids=request.scope.row_ids,
+            row_ids=(
+                list(request.scope.row_ids)
+                if request.scope.row_ids is not None
+                else None
+            ),
             input_columns=[column.name for column in columns],
             group_by=options.group_by.name if options.group_by is not None else None,
             model=options.model.root,
@@ -262,7 +266,7 @@ def run_typed_group_summary_action(
                 field=exc.field,
                 details=dict(exc.details),
             )
-    if recovery_run is not None:
+    if recovery_run is not None and existing is not None:
         reservation = {
             "receipt_id": str(existing["id"]),
             "action_id": str(existing["action_id"]),

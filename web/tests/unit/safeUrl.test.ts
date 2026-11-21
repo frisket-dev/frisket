@@ -113,7 +113,9 @@ describe('grid media cells', () => {
   it('keeps an https image as an image cell', () => {
     const col = columnDef({ id: 'm', name: 'media', type: 'image' });
     const cell = buildCell(col, row({ m: 'https://example.test/photo.png' }), { projectId: 'p1' });
-    expect(cell.kind).toBe(GridCellKind.Image);
+    if (cell.kind !== GridCellKind.Image) {
+      throw new Error(`Expected image cell, got ${cell.kind}`);
+    }
     expect(cell.data).toEqual(['https://example.test/photo.png']);
   });
 });

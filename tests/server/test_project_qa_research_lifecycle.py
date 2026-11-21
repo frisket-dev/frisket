@@ -196,16 +196,16 @@ async def test_exact_consent_survives_client_return_and_stop_interrupts_waiter(
         state = detail["active_turn"]["research_state"]
         assert state["state"] == "paused"
         assert answers == []
-        approval = dict(
+        pause_request = dict(
             expected_revision=state["revision"],
-            approval_id=state["pending_approval"]["id"],
+            pause_id=state["pending_pause"]["id"],
         )
         with pytest.raises(PermissionError):
             await service.resume_research(
                 pid,
                 thread["id"],
                 turn["id"],
-                AskResearchResume(**approval, decision="approve"),
+                AskResearchResume(**pause_request, decision="approve"),
                 actor="another-reporter",
                 request_context=None,
             )
@@ -214,7 +214,7 @@ async def test_exact_consent_survives_client_return_and_stop_interrupts_waiter(
                 pid,
                 thread["id"],
                 turn["id"],
-                AskResearchResume(**approval, budget_usd="2.00"),
+                AskResearchResume(**pause_request, budget_usd="2.00"),
                 actor="reporter",
                 request_context=None,
             )
@@ -222,7 +222,7 @@ async def test_exact_consent_survives_client_return_and_stop_interrupts_waiter(
             pid,
             thread["id"],
             turn["id"],
-            AskResearchResume(**approval, decision="approve"),
+            AskResearchResume(**pause_request, decision="approve"),
             actor="reporter",
             request_context=None,
         )

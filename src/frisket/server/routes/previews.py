@@ -155,6 +155,13 @@ def register_preview_routes(
     async def ocr_compare_preview(pid: str, body: schemas.OcrComparePreviewBody):
         return await service.ocr_compare_preview(pid, payload=body.model_dump())
 
+    def _require_action_preview_service(kind: _ScratchKind) -> ActionPreviewRunService:
+        if action_preview_service is None:
+            raise RuntimeError(
+                f"{kind.service_label} scratch preview service is unavailable"
+            )
+        return action_preview_service
+
     async def _prepare_scratch(
         kind: _ScratchKind,
         request: Request,
@@ -163,10 +170,7 @@ def register_preview_routes(
         *,
         starting: bool,
     ):
-        if action_preview_service is None:
-            raise RuntimeError(
-                f"{kind.service_label} scratch preview service is unavailable"
-            )
+        preview_service = _require_action_preview_service(kind)
         media_bytes, parsed = await _scratch_input(*upload, context=kind.context)
         confirmation = parsed.pop("confirmation", None) if starting else None
         if confirmation is not None and not isinstance(confirmation, str):
@@ -177,7 +181,7 @@ def register_preview_routes(
             )
         prepared = await run_in_threadpool(
             ends_unit_of_work(
-                getattr(action_preview_service, kind.prepare_method),
+                getattr(preview_service, kind.prepare_method),
                 unit=f"prepare {kind.prepare_method}",
             ),
             pid,
@@ -191,6 +195,7 @@ def register_preview_routes(
         kind: _ScratchKind, request: Request, pid: str, upload: tuple[UploadFile, str]
     ):
         try:
+            preview_service = _require_action_preview_service(kind)
             (plan, source, *_execution), _ = await _prepare_scratch(
                 kind, request, pid, upload, starting=False
             )
@@ -198,7 +203,7 @@ def register_preview_routes(
                 {
                     "schema_version": kind.estimate_schema,
                     "source": source,
-                    "estimate": action_preview_service.scratch_estimate(pid, plan),
+                    "estimate": preview_service.scratch_estimate(pid, plan),
                 }
             )
         except ComparePreviewError as exc:
@@ -208,13 +213,14 @@ def register_preview_routes(
         kind: _ScratchKind, request: Request, pid: str, upload: tuple[UploadFile, str]
     ):
         try:
+            preview_service = _require_action_preview_service(kind)
             prepared, confirmation = await _prepare_scratch(
                 kind, request, pid, upload, starting=True
             )
             plan, _source, router, composition, execution_context = prepared
             response = await run_in_threadpool(
                 ends_unit_of_work(
-                    action_preview_service.start_scratch_preview,
+                    preview_service.start_scratch_preview,
                     unit="start scratch preview",
                 ),
                 pid,

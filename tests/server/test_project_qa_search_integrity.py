@@ -44,7 +44,7 @@ def _response(
                 version_kind="retrieval_revision",
                 version_value=revision,
             ),
-            producer_recipe_id="recipe:text-v1",
+            producer_slice_id="slice:text-v1",
             part_kind="text",
             locator=locator or SourceLocator(kind="text"),
         ),

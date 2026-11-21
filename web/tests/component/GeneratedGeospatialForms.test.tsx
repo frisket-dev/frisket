@@ -118,8 +118,9 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
   });
 
   it('preserves Census geography, MOE, source and all saved output names', async () => {
-    const raw = catalog.actions.find((entry) => entry.kind === 'enrich.census_demographics')!;
-    const outputNames = Object.fromEntries(raw.ui_hints.logical_outputs!.map(({ key }) => [key, `saved_${key}`]));
+    const raw = catalog.actions.find((entry) => entry.kind === 'enrich.census_demographics');
+    if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing enrich.census_demographics');
+    const outputNames = Object.fromEntries(raw.ui_hints.logical_outputs.map(({ key }) => [key, `saved_${key}`]));
     const params = { source: 'point', geography: 'block_group', include_moe: true };
     const { execute } = renderForm('enrich.census_demographics', { initialDraft: {
       action_id: 'enrich.census_demographics', scope: { kind: 'sheet_rows', sheet_id: 7 },

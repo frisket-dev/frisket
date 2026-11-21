@@ -96,7 +96,11 @@ class AdmittedFindScanner:
             action_kind=self.bound.action.action_id,
             request=request.model_dump(mode="json", exclude={"confirmation"}),
             sheet_id=request.scope.sheet_id,
-            row_ids=request.scope.row_ids,
+            row_ids=(
+                list(request.scope.row_ids)
+                if request.scope.row_ids is not None
+                else None
+            ),
             source_column=source.name,
             model=options.model.root,
             instruction=options.instruction,

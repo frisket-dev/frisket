@@ -255,7 +255,9 @@ class ActionCompareService:
                 candidate = type(basis.params).model_validate(candidate_params)
             except ValidationError as exc:
                 return _refusal("comparison_settings_mismatch", str(exc))
-            if candidate.target_language != basis.params.target_language:
+            if getattr(candidate, "target_language", None) != getattr(
+                basis.params, "target_language", None
+            ):
                 return _refusal(
                     "comparison_settings_mismatch",
                     "Every translation variant must use the same target language.",

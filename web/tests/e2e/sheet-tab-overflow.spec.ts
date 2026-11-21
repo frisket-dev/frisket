@@ -5,7 +5,7 @@ for (const derived of [false, true]) {
   test(`extra ${derived ? 'derived' : 'imported'} sheets are available through a menu without a tab scrollbar`, async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 900 });
     const pid = await createProject(page.request, uniqueName('sheet-overflow'));
-    const sheets: { id: string; name: string }[] = [];
+    const sheets: { id: number; name: string }[] = [];
     for (let index = 1; index <= 14; index += 1) {
       const name = index === 14 ? 'Council report with a much longer descriptive title' : `${derived ? 'Group' : 'Council report'} ${String(index).padStart(2, '0')}`;
       sheets.push({ name, id: await importCsv(page.request, pid, `${name}.csv`, 'note\nA council decision.\n') });
@@ -16,7 +16,7 @@ for (const derived of [false, true]) {
         const response = await route.fetch();
         const wire = await response.json();
         await route.fulfill({ response, json: wire.map((sheet: { id: number }, index: number) => ({
-          ...sheet, parent_sheet_id: index === 0 ? null : Number(sheets[0].id), syncState: 'synced',
+          ...sheet, parent_sheet_id: index === 0 ? null : sheets[0].id, syncState: 'synced',
         })) });
       });
     }

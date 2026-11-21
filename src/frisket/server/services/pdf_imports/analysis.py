@@ -8,6 +8,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from frisket.engine.pdf_text import (
     PdfTextError,
     extract_pdf_text_batch,
@@ -203,7 +205,7 @@ def _quality_flags(
                     flags.extend(
                         assessor(
                             positioned_tokens_text(page.tokens),
-                            grayscale_thumbnail=image,
+                            grayscale_thumbnail=np.asarray(image, dtype=np.uint8),
                             positioned_tokens=page.tokens,
                         )
                     )

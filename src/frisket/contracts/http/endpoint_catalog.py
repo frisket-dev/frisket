@@ -1277,8 +1277,9 @@ def _plain(value: Any) -> Mapping[str, Any]:
         return asdict(value)
     if isinstance(value, Mapping):
         return value
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump(mode="python")
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(mode="python")
         if isinstance(dumped, Mapping):
             return dumped
     raise ValueError(

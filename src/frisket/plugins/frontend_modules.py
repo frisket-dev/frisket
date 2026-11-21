@@ -30,7 +30,8 @@ def typed_action_ui_bindings(manifest: PluginManifest) -> dict[str, Any]:
     for action in manifest.runtime.actions:
         if action.handler_api != "typed_action":
             continue
-        form = action.catalog_entry.get("ui_hints", {}).get("form")
+        ui_hints = (action.catalog_entry or {}).get("ui_hints")
+        form = ui_hints.get("form") if isinstance(ui_hints, dict) else None
         if form == "generated":
             continue
         binding = components.get(action.kind)

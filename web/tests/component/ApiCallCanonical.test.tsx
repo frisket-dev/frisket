@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as apiModule from '../../src/api/open';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import type { GeneratedActionDraft, JsonValue } from '../../src/api/types';
 import { decodeSavedActionSpec, encodeSavedActionSpec } from '../../src/actions/savedActionSpec';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
@@ -41,7 +41,7 @@ describe('typed API Call discovery and saved intent', () => {
     });
   });
 
-  it.each([
+  it.each<Record<string, JsonValue>>([
     { url: 'https://example.test/{{customer_id}}' },
     { url: 'https://example.test', headers: [['Authorization', 'Bearer {{secret.TOKEN}}']] },
     { url: 'https://example.test', method: 'PATCH', body_mode: 'raw',
@@ -59,8 +59,8 @@ describe('typed API Call discovery and saved intent', () => {
         onExecuteRegisteredAction={onExecute}
         inspectProposal={{ seq: 1, title: 'Saved API request', spec: draft }} />
     </WorkspaceStoresContext.Provider>);
-    expect(await screen.findByTestId('api-call-url')).toHaveValue(request.url);
-    expect(screen.getByTestId('api-call-timeout')).toHaveValue(request.timeout ?? 30);
+    expect(await screen.findByTestId('api-call-url')).toHaveValue(String(request.url));
+    expect(screen.getByTestId('api-call-timeout')).toHaveValue(typeof request.timeout === 'number' ? request.timeout : 30);
     fireEvent.change(screen.getByTestId('api-call-url'),
       { target: { value: 'https://example.test/edited' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());

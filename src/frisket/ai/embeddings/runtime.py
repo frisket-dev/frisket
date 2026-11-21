@@ -190,6 +190,7 @@ class EmbeddingRuntime:
                     self._encoder = EmbeddingGemma2Encoder(
                         self._session_factory(cancelled=self._cancelled)
                     )
+                encoder = self._encoder
                 if _is_cancelled(cancelled):
                     raise asyncio.CancelledError
                 return await execute_purchase(
@@ -206,9 +207,7 @@ class EmbeddingRuntime:
                     ),
                     policy=LOCAL_PURCHASE_POLICY,
                     dispatch=TransientDispatch(lambda: _is_cancelled(cancelled)),
-                    invoke=lambda: self._encoder.encode(
-                        inputs, purpose=purpose, space=space
-                    ),
+                    invoke=lambda: encoder.encode(inputs, purpose=purpose, space=space),
                     observe=lambda result: PurchaseObservation(
                         result, {"input_count": len(inputs)}, 0
                     ),

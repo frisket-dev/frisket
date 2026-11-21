@@ -192,7 +192,7 @@ def test_join_receipt_reservation_failure_prevents_publication(tmp_path, monkeyp
         def fail_receipt(*args, **kwargs):
             raise RuntimeError("receipt unavailable")
 
-        monkeypatch.setattr(ReceiptStore, "insert_running", fail_receipt)
+        monkeypatch.setattr(ReceiptStore, "insert_running_in_transaction", fail_receipt)
         failed = run_typed_sheet_refresh_action(
             project,
             "p-ref",

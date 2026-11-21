@@ -195,11 +195,12 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         ],
     )
     runs.finish_run(transcript_run_id)
-    runs.point_column_at_run(
-        transcript_op_id,
-        transcript_column_id,
-        transcript_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            transcript_op_id,
+            transcript_column_id,
+            transcript_run_id,
+        )
 
     # Resolving the cell persists the canonical immutable presentation clock.
     lease = resolve_timeline(

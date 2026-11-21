@@ -179,7 +179,7 @@ class NotificationService:
                 result=result,
                 project_opener=self._workspace.project_opener,
             )
-            return result
+            return dict(result)
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
 

@@ -315,7 +315,7 @@ class ImageSurface:
 
 
 @dataclass(frozen=True, slots=True)
-class TextChunkRecipe:
+class TextSliceSpec:
     max_codepoints: int = 2048
     overlap_codepoints: int = 256
     strategy: Literal["text_codepoint_windows"] = "text_codepoint_windows"
@@ -327,7 +327,7 @@ class TextChunkRecipe:
             raise ValueError("overlap_codepoints must be less than max_codepoints")
 
     @property
-    def recipe_id(self) -> str:
+    def slice_id(self) -> str:
         return (
             "text-codepoint-windows-v1:"
             f"max={self.max_codepoints}:overlap={self.overlap_codepoints}"
@@ -345,7 +345,7 @@ class TranscriptChunkRecipe:
         _integer(self.overlap_segments, "overlap_segments")
 
     @property
-    def recipe_id(self) -> str:
+    def slice_id(self) -> str:
         return (
             "transcript-segment-windows-v1:"
             f"max={self.max_codepoints}:overlap={self.overlap_segments}"
@@ -355,14 +355,14 @@ class TranscriptChunkRecipe:
 @dataclass(frozen=True, slots=True)
 class TextCursor:
     source_identity: str
-    recipe_id: str
+    slice_id: str
     next_offset: int
 
 
 @dataclass(frozen=True, slots=True)
 class TranscriptCursor:
     source_identity: str
-    recipe_id: str
+    slice_id: str
     next_segment: int
     next_offset: int = 0
 
@@ -416,7 +416,7 @@ def _locator_payload(locator: SourceLocator) -> dict[str, object]:
 def _part(
     *,
     source: SourceRevision,
-    recipe_id: str,
+    slice_id: str,
     part_kind: str,
     locator: SourceLocator,
     input: EncodingInput,
@@ -430,7 +430,7 @@ def _part(
         raise TypeError("unsupported content encoding input")
     identity = _identity_token(
         _source_payload(source),
-        recipe_id,
+        slice_id,
         part_kind,
         _locator_payload(locator),
         input_hash,
@@ -440,7 +440,7 @@ def _part(
         part=IndexedPart(
             part_id=f"part:{identity}",
             source=source,
-            producer_recipe_id=recipe_id,
+            producer_slice_id=slice_id,
             part_kind=part_kind,
             locator=locator,
         ),
@@ -449,12 +449,12 @@ def _part(
 
 
 def _coverage(
-    *, channel: str, recipe_id: str, count: int, continuation: object | None
+    *, channel: str, slice_id: str, count: int, continuation: object | None
 ) -> ChannelCoverage:
     return ChannelCoverage(
         channel=channel,
         state="pending" if continuation is not None else "ready",
-        recipe_id=recipe_id,
+        slice_id=slice_id,
         prepared_count=count,
         reason="continuation" if continuation is not None else None,
     )
@@ -509,7 +509,7 @@ def _page_range(pages: Sequence[PreparedPageExtent], start: int, end: int) -> Pa
 
 def _text_batch(
     surface: TextSurface,
-    recipe: TextChunkRecipe,
+    recipe: TextSliceSpec,
     *,
     max_parts: int,
     cursor: TextCursor | None,
@@ -519,14 +519,14 @@ def _text_batch(
     identity: str,
 ) -> ProducedBatch:
     limit = _check_max_parts(max_parts)
-    if not isinstance(recipe, TextChunkRecipe):
-        raise TypeError("recipe must be a TextChunkRecipe")
+    if not isinstance(recipe, TextSliceSpec):
+        raise TypeError("recipe must be a TextSliceSpec")
     offset = 0
     if cursor is not None:
         if not isinstance(cursor, TextCursor):
             raise TypeError("cursor must be a TextCursor")
-        if cursor.source_identity != identity or cursor.recipe_id != recipe.recipe_id:
-            raise ValueError("cursor does not belong to this source and recipe")
+        if cursor.source_identity != identity or cursor.slice_id != recipe.slice_id:
+            raise ValueError("cursor does not belong to this source and slice")
         offset = _integer(cursor.next_offset, "cursor next_offset")
         if offset >= len(surface.text):
             raise ValueError("cursor next_offset must be inside the text surface")
@@ -560,7 +560,7 @@ def _text_batch(
         items.append(
             _part(
                 source=surface.source,
-                recipe_id=recipe.recipe_id,
+                slice_id=recipe.slice_id,
                 part_kind=part_kind,
                 locator=locator,
                 input=TextEncodingInput(value),
@@ -572,7 +572,7 @@ def _text_batch(
         if next_offset is None
         else TextCursor(
             source_identity=identity,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             next_offset=next_offset,
         )
     )
@@ -580,7 +580,7 @@ def _text_batch(
         items=tuple(items),
         coverage=_coverage(
             channel="text",
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             count=len(items),
             continuation=continuation,
         ),
@@ -590,7 +590,7 @@ def _text_batch(
 
 def produce_text(
     surface: TextSurface,
-    recipe: TextChunkRecipe,
+    recipe: TextSliceSpec,
     *,
     max_parts: int,
     cursor: TextCursor | None = None,
@@ -614,7 +614,7 @@ def produce_text(
 
 def produce_prepared_document(
     surface: PreparedDocumentSurface,
-    recipe: TextChunkRecipe,
+    recipe: TextSliceSpec,
     *,
     max_parts: int,
     cursor: TextCursor | None = None,
@@ -652,7 +652,7 @@ def _transcript_item(
     )
     return _part(
         source=surface.source,
-        recipe_id=recipe.recipe_id,
+        slice_id=recipe.slice_id,
         part_kind="transcript_chunk",
         locator=locator,
         input=TextEncodingInput(text),
@@ -686,8 +686,8 @@ def produce_transcript(
     if cursor is not None:
         if not isinstance(cursor, TranscriptCursor):
             raise TypeError("cursor must be a TranscriptCursor")
-        if cursor.source_identity != identity or cursor.recipe_id != recipe.recipe_id:
-            raise ValueError("cursor does not belong to this source and recipe")
+        if cursor.source_identity != identity or cursor.slice_id != recipe.slice_id:
+            raise ValueError("cursor does not belong to this source and slice")
         index = _integer(cursor.next_segment, "cursor next_segment")
         offset = _integer(cursor.next_offset, "cursor next_offset")
         if index >= len(surface.segments):
@@ -769,7 +769,7 @@ def produce_transcript(
         if index >= len(surface.segments)
         else TranscriptCursor(
             source_identity=identity,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             next_segment=index,
             next_offset=offset,
         )
@@ -778,7 +778,7 @@ def produce_transcript(
         items=tuple(items),
         coverage=_coverage(
             channel="transcript",
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             count=len(items),
             continuation=continuation,
         ),
@@ -789,20 +789,20 @@ def produce_transcript(
 def produce_image(
     surface: ImageSurface,
     *,
-    recipe_id: str = IMAGE_BYTES_RECIPE_ID,
+    slice_id: str = IMAGE_BYTES_RECIPE_ID,
     cancelled: CancelCheck | None = None,
 ) -> ProducedBatch:
     """Produce the selected encoded image bytes without decoding or rewriting."""
 
     if not isinstance(surface, ImageSurface):
         raise TypeError("surface must be an ImageSurface")
-    _nonblank(recipe_id, "recipe_id")
+    _nonblank(slice_id, "slice_id")
     _check_cancelled(cancelled)
     input = ImageEncodingInput(surface.image_bytes)
     part_kind = "pdf_page_image" if surface.pages is not None else "image"
     item = _part(
         source=surface.source,
-        recipe_id=recipe_id,
+        slice_id=slice_id,
         part_kind=part_kind,
         locator=SourceLocator(
             kind=part_kind,
@@ -815,7 +815,7 @@ def produce_image(
         items=(item,),
         coverage=_coverage(
             channel="image",
-            recipe_id=recipe_id,
+            slice_id=slice_id,
             count=1,
             continuation=None,
         ),

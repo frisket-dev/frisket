@@ -73,7 +73,7 @@ def test_upgrade_preserves_prepared_refs_and_reopens(make_project):
     s = p.add_sheet("Docs")
     c = p.add_column(s, "body", type="text")
     doc, page = _stage_document_and_page(p)
-    rows = p.add_rows(
+    rows = p.add_rows_in_transaction(
         s,
         [
             {"body": "short"},
@@ -83,7 +83,6 @@ def test_upgrade_preserves_prepared_refs_and_reopens(make_project):
             {"body": page},
         ],
         {"body": c},
-        commit=False,
     )
     p.db.commit()
     before = p.get_values_with_refs(s, c, rows)

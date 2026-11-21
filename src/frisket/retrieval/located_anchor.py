@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .anchors import ResolvedAnchor, resolve_cell_anchor
-from .content import TextChunkRecipe
+from .content import TextSliceSpec
 from .contracts import CellAnchor, ScopedBinding, SourceAnchor
 from .encoding import TextEncodingInput
 from .query import RetrievalQueryError
@@ -80,7 +80,7 @@ def resolve_located_anchor(
                         "The selected text has changed. Select it again.",
                     )
                 text = text[selected.start : selected.end]
-            maximum = TextChunkRecipe().max_codepoints
+            maximum = TextSliceSpec().max_codepoints
             if not text or len(text) > maximum:
                 raise RetrievalQueryError(
                     "source_location_required",

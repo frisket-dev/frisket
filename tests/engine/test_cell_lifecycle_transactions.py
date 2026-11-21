@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 
 import pytest
 
@@ -71,14 +72,23 @@ def test_apply_edits_failure_rolls_back_only_its_savepoint(make_project) -> None
     project.db.rollback()
 
 
-def test_add_rows_default_commit_preserves_ambient_transaction(make_project) -> None:
+def test_add_rows_in_transaction_preserves_ambient_transaction_and_owning_refuses(
+    make_project,
+) -> None:
     project = make_project("ambient-rows")
     sheet_id = project.add_sheet("Source")
     column_id = project.add_column(sheet_id, "value")
 
     project.db.execute("BEGIN IMMEDIATE")
     project.db.execute("UPDATE sheets SET name='Sentinel' WHERE id=?", (sheet_id,))
-    row_ids = project.add_rows(
+    with pytest.raises(sqlite3.OperationalError):
+        project.add_rows(
+            sheet_id,
+            [{"value": "rejected"}],
+            {"value": column_id},
+        )
+    assert project.db.in_transaction
+    row_ids = project.add_rows_in_transaction(
         sheet_id,
         [{"value": "uncommitted"}],
         {"value": column_id},

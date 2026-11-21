@@ -784,13 +784,12 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
         )
 
         def accrue(checkpoint: dict[str, Any]) -> float:
-            RunResultStore(project).write_returned_call_accounting(
+            RunResultStore(project).write_returned_call_accounting_in_transaction(
                 run_id,
                 _fact_batch(rows[0], column_id, "replayed-a"),
                 writer_attempt_id="attempt_a",
                 claim_token=claim_token,
                 authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                commit=False,
             )
             return 0.0
 
@@ -865,16 +864,17 @@ def test_production_checkpoint_consume_uses_resume_writer_and_original_owner(
             new_attempt_id="attempt_b",
         )
 
-        store.consume_returned_row_effect_checkpoint(
-            "checkpoint-production-consume",
-            run_id=run_id,
-            row_id=rows[0],
-            action_kind="map.python",
-            identity="production-consume",
-            batch=batch,
-            writer_attempt_id="attempt_b",
-            claim_token=claim_token,
-        )
+        with write_transaction(store.db):
+            store.consume_returned_row_effect_checkpoint(
+                "checkpoint-production-consume",
+                run_id=run_id,
+                row_id=rows[0],
+                action_kind="map.python",
+                identity="production-consume",
+                batch=batch,
+                writer_attempt_id="attempt_b",
+                claim_token=claim_token,
+            )
 
         fact = project.db.execute(
             "SELECT attempt_id FROM model_calls WHERE id='consume-owner-a'"
@@ -1339,12 +1339,11 @@ def test_write_and_abandonment_have_one_serialized_winner(
 
         if winner == "write":
             project.db.execute("BEGIN IMMEDIATE")
-            RunResultStore(project).write_results(
+            RunResultStore(project).write_results_in_transaction(
                 run_id,
                 _result_batch(rows[0], column_id, "write-first"),
                 writer_attempt_id="attempt_a",
                 claim_token=claim_token,
-                commit=False,
             )
 
             def sweep() -> None:

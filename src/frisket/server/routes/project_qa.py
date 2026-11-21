@@ -64,7 +64,14 @@ def _actor(request: Request) -> str | None:
 
 def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> None:
     register_typed_error(app, ProjectQANotFoundError, 404)
-    register_typed_error(app, ProjectQASkillConflict, 409, lambda exc: exc.detail())
+    register_typed_error(
+        app,
+        ProjectQASkillConflict,
+        409,
+        lambda exc: (
+            exc.detail() if isinstance(exc, ProjectQASkillConflict) else str(exc)
+        ),
+    )
     register_typed_error(
         app, (ProjectQAConflictError, ProjectQAResearchConflictError), 409
     )

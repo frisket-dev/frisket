@@ -370,8 +370,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
 
     if schema_digest(db) != DOMAIN_FROM_DIGEST:
         return
-    # The cutover installs runtime DDL; only subsequent steps compatible with
-    # its change views may separate it from this build's schema tip.
+    # The cutover installs runtime DDL; only explicit chain-tail steps that leave
+    # its views and tables consistent may separate it from this build.
     if SCHEMA_DIGEST != CURRENT_CHAIN_TIP_DIGEST:
         raise BundleSchemaMismatch(
             "Domain migration endpoint needs updating for this build"

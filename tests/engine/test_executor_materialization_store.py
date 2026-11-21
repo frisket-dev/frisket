@@ -111,8 +111,8 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(make_pr
     )
     from frisket.engine.store.changes import ChangeStore
 
-    refresh_op = project.append_change(
-        "sheet.refresh", {"sheet_id": write.sheet_id}, commit=False
+    refresh_op = project.append_change_in_transaction(
+        "sheet.refresh", {"sheet_id": write.sheet_id}
     )
     changes = ChangeStore(project)
     changes.start(refresh_op)

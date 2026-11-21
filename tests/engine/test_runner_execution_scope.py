@@ -1206,7 +1206,7 @@ def test_persistence_failure_still_joins_workers_and_exits_scope(
         # grows (the managed-publication cutover added commit=).
         raise RuntimeError("forced persistence failure")
 
-    monkeypatch.setattr(runner.run_store, "write_results", fail_write)
+    monkeypatch.setattr(runner.run_store, "write_results_in_transaction", fail_write)
     with pytest.raises(RuntimeError, match="forced persistence failure"):
         asyncio.run(
             asyncio.wait_for(
@@ -1290,7 +1290,9 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
     def fail_finish(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("forced finalize interruption")
 
-    monkeypatch.setattr(second_runner.run_store, "finish_run", fail_finish)
+    monkeypatch.setattr(
+        second_runner.run_store, "finish_run_in_transaction", fail_finish
+    )
     with pytest.raises(RuntimeError, match="forced finalize interruption"):
         asyncio.run(
             run_with_output_claim(

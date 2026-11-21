@@ -68,7 +68,8 @@ def resolve_credential_with_source(
         # Document-provider setup uses the encrypted provider-key store.
         # Preserve environment precedence and existing project-secret keys.
         provider_keys = getattr(project, "provider_model_keys", None)
-        value = provider_keys().get(provider) if callable(provider_keys) else None
+        keys = provider_keys() if callable(provider_keys) else None
+        value = keys.get(provider) if isinstance(keys, Mapping) else None
         if value:
             return ResolvedCredential(value, "project_key")
     secret_plaintext = getattr(project, "secret_plaintext", None)
