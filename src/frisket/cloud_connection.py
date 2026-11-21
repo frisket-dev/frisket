@@ -21,6 +21,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudCapabilitiesResponse,
     CloudDeviceAuthorizationRequest,
     CloudDeviceAuthorizationResponse,
+    CloudExecutionPreference,
     CloudOAuthError,
     CloudSessionResponse,
     CloudTokenRequest,
@@ -70,8 +71,16 @@ class StoredCloudConnection:
 @dataclass(frozen=True)
 class StoredCloudProfile:
     connection: StoredCloudConnection | None
-    preference: str
+    preference: CloudExecutionPreference
     capabilities: dict[int, CloudCapabilitiesResponse] = field(default_factory=dict)
+
+
+def _validate_preference(value: object) -> CloudExecutionPreference:
+    if value == "local_first":
+        return "local_first"
+    if value == "cloud_first":
+        return "cloud_first"
+    raise ValueError("invalid Cloud execution preference")
 
 
 def cloud_profile_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -262,13 +271,12 @@ class CloudConnectionStore:
             )
 
     def set_preference(self, preference: str) -> StoredCloudProfile:
-        if preference not in {"local_first", "cloud_first"}:
-            raise ValueError("invalid Cloud execution preference")
+        validated = _validate_preference(preference)
         with self._lock():
             current = self._load_unlocked()
             payload: dict[str, Any] = {
                 "version": _STATE_VERSION,
-                "preference": preference,
+                "preference": validated,
                 "connection": None,
                 "capabilities": None,
             }
@@ -288,7 +296,7 @@ class CloudConnectionStore:
             self._write_unlocked(payload)
             return StoredCloudProfile(
                 connection=current.connection,
-                preference=preference,
+                preference=validated,
                 capabilities=current.capabilities,
             )
 
@@ -313,9 +321,7 @@ class CloudConnectionStore:
                 or payload.get("version") != _STATE_VERSION
             ):
                 raise ValueError("unsupported state version")
-            preference = payload.get("preference", "local_first")
-            if preference not in {"local_first", "cloud_first"}:
-                raise ValueError("invalid preference")
+            preference = _validate_preference(payload.get("preference", "local_first"))
             value = payload.get("connection")
             if value is None:
                 return StoredCloudProfile(connection=None, preference=preference)
@@ -348,7 +354,7 @@ class CloudConnectionStore:
                 "Frisket Cloud connection state is unreadable; reconnect this installation"
             ) from exc
 
-    def _preference_unlocked(self) -> str:
+    def _preference_unlocked(self) -> CloudExecutionPreference:
         """Recover a valid preference without requiring a readable connection."""
 
         if not self.path.exists():
@@ -360,11 +366,9 @@ class CloudConnectionStore:
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return "local_first"
-        return (
-            preference
-            if preference in {"local_first", "cloud_first"}
-            else "local_first"
-        )
+        if preference == "cloud_first":
+            return "cloud_first"
+        return "local_first"
 
     @staticmethod
     def _capabilities_payload(
