@@ -1,13 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createPreviewComparisonsApi } from '../../src/api/previewComparisons';
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 afterEach(() => {
   vi.unstubAllGlobals();

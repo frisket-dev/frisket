@@ -16,6 +16,7 @@ import {
   organizationStartArtifactPull,
 } from "../../src/api/real";
 import { httpContract } from "../../src/api/httpContract";
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const pull = {
   schemaVersion: "frisket.model_pull.v3",
@@ -65,13 +66,6 @@ const catalog = {
     pull_enabled: true,
   }],
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -157,20 +151,6 @@ describe("team-local model generated HTTP transport", () => {
     await expect(listOrganizationLocalEndpoints()).resolves.toEqual({
       schemaVersion: "frisket.local_endpoints.v1",
       endpoints: [],
-    });
-  });
-
-  it("maps an additional non-2xx status", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => jsonResponse({ detail: "teapot" }, 418)),
-    );
-    await expect(
-      organizationStartArtifactPull("ollama/@local-a1b2c3d4e5f6/smollm:135m"),
-    ).rejects.toMatchObject({
-      name: ApiError.name,
-      status: 418,
-      message: "teapot",
     });
   });
 

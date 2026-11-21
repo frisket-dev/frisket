@@ -7,13 +7,7 @@ import {
   listSearchPreparations,
   stopSearchPreparation,
 } from '../../src/api/searchPreparation';
-
-function jsonResponse(payload: unknown): Response {
-  return new Response(JSON.stringify(payload), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const batch = {
   schemaVersion: 'frisket.search_preparation.v1',

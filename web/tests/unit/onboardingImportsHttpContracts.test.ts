@@ -10,13 +10,7 @@ vi.mock('pluralize', () => ({
 import { cancelImportSession, chunkImportFiles, createImportSession, importCsv, importFiles, importXlsx, listImportSessions, prepareImportFiles, prepareImportUrls, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import { createOnboardingImportsApi } from '../../src/api/onboardingImports';
 import type { RequestOptions } from '../../src/api/httpContract';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 afterEach(() => {
   vi.unstubAllGlobals();

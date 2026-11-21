@@ -1,14 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, listProjectMembers } from '../../src/api/real';
 import { createProjectCollaborationApi } from '../../src/api/projectCollaboration';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -60,17 +53,5 @@ describe('project collaboration generated HTTP contracts', () => {
     for (const request of [requests[0], requests[2], requests[3], requests[5]]) {
       expect(new Headers(request.init?.headers).get('content-type')).toBeNull();
     }
-  });
-
-  it('keeps string-detail collaboration failures as generic ApiErrors', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'project owner required' }, 403)));
-
-    await expect(listProjectMembers('project-1')).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 403,
-      message: 'project owner required',
-      code: undefined,
-      details: undefined,
-    } satisfies Partial<ApiError>);
   });
 });

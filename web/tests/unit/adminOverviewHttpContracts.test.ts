@@ -9,6 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { createAdminOverviewApi } from '../../src/api/adminOverview';
 import { ApiError, getAdminOverview } from '../../src/api/real';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const overview = {
   organizations: [{
@@ -29,13 +30,6 @@ const overview = {
   },
   next_invite_expires_at: '2026-08-13T00:00:00Z',
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => vi.unstubAllGlobals());
 

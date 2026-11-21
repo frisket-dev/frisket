@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { fetchDiagnostics } from '../../src/api/diagnostics';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 describe('diagnostics generated HTTP contracts', () => {
   it.each([

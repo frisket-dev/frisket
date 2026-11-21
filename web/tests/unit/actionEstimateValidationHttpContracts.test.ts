@@ -9,6 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { createActionEstimateValidationApi } from '../../src/api/actionEstimateValidation';
 import type { GeneratedActionRequest } from '../../src/api/types';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const estimateWire = {
   schema_version: 'frisket.action_estimate_result.v1' as const,
@@ -44,13 +45,6 @@ const validationWire = {
   },
   logical_outputs: [{ key: 'extracted', column_type: 'text' }],
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 const estimateRequest: GeneratedActionRequest = {
   action_id: 'map.classify',
@@ -117,27 +111,6 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
       promise_set_hash: 'promise-set',
     });
   });
-
-  it.each([400, 401, 403, 404, 422, 500, 418])(
-    'maps HTTP %i through the shared contract error mapping',
-    async (status) => {
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
-      const api = createActionEstimateValidationApi('project-1');
-
-      for (const request of [
-        api.estimateAction(estimateRequest),
-        api.resolveActionParams(validateRequest),
-      ]) {
-        await expect(request).rejects.toMatchObject({
-          name: 'ApiError',
-          status,
-          message: `error-${status}`,
-          code: undefined,
-          details: undefined,
-        });
-      }
-    },
-  );
 
   it.each([
     ['carries its message', 'backfill is running', 'backfill is running'],

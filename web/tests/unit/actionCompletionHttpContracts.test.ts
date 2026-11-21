@@ -7,6 +7,7 @@ import type {
   ResolvedRunActionInvocation,
   V1ActionResult,
 } from '../../src/api/v1ActionSession';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   let resolve!: (value: T) => void;
@@ -14,13 +15,6 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
     resolve = settle;
   });
   return { promise, resolve };
-}
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
 }
 
 function queuedResult(): V1ActionResult {
