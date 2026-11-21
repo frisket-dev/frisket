@@ -5,7 +5,7 @@ import { focusedReviewArtifact, reviewTextPassageTargets, reviewCitationSources,
 
 function payload(role: string, artifact: ReturnType<typeof evidenceArtifact>): CitationViewerPayload {
   return {
-    schema_version: 'frisket.evidence_viewer.v1', warnings: [], artifacts: [artifact],
+    schema_version: 'frisket.citation_viewer.v1', warnings: [], artifacts: [artifact],
     link: {
       id: 1, stable_id: `link:${role}:${artifact.stable_id}`, export_ref: 'link', subject_kind: 'cell', subject_ref: null,
       sheet_id: 1, row_id: 1, column_id: 1, run_id: 4, op_id: null, receipt_id: null, role, status: 'active',
@@ -21,10 +21,10 @@ describe('review citation source tabs', () => {
       retrieval_revision: null, previous_start: null, next_start: 14, reached_start: true, reached_end: false };
     const first = evidenceArtifact({ id: 22, stable_id: 'source:shared', media_type: 'text/plain', spans: [evidenceSpan({ stable_id: 'span:first' })],
       text_context: { text: 'Same quotation', offset_unit: 'utf16_code_unit', content_hash: 'sha256:snapshot',
-        artifact_stable_id: 'source:shared', evidence_link_id: 'owner:first', window,
+        artifact_stable_id: 'source:shared', citation_id: 'owner:first', window,
         ranges: [{ span_id: 'span:first', start: 0, end: 4 }] } });
     const second = { ...first, spans: [evidenceSpan({ stable_id: 'span:tail' })], text_context: { ...first.text_context!,
-      evidence_link_id: 'owner:tail', window: { ...window, start: 90000, end: 90014 },
+      citation_id: 'owner:tail', window: { ...window, start: 90000, end: 90014 },
       ranges: [{ span_id: 'span:tail', start: 5, end: 14 }] } };
     const a = payload('citation', first); a.link.stable_id = 'owner:first';
     const b = payload('citation', second); b.link.stable_id = 'owner:tail';

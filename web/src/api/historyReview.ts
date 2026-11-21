@@ -309,7 +309,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
         .slice(0, 400),
       reviewNote: bundle.review_note ?? null,
       fields: bundle.fields.map(mapReviewBundleField),
-      evidence: bundle.evidence.map(mapReviewBundleField),
+      supportingColumns: bundle.supporting_columns.map(mapReviewBundleField),
       items: bundle.items.map(mapReviewBundleField),
     };
   });

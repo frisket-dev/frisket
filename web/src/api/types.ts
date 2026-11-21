@@ -5,14 +5,14 @@ import type {
   HttpActionPreviewStatusResponse,
   HttpApiTokenCreateResponse,
   HttpApiTokenList,
-  HttpCellEvidenceResponse,
+  HttpCellCitationsResponse,
   HttpCellTextAnnotationsResponse,
+  HttpCitationViewerResponse,
   HttpClusterPreviewResponse,
-  HttpColumnEvidenceResponse,
+  HttpColumnCitationsResponse,
   HttpColumnRunsPage,
   HttpColumnStats,
   HttpColumnValuesPreviewResponse,
-  HttpEvidenceViewerResponse,
   HttpInstanceInfoResponse,
   HttpLocalEndpointCatalog,
   HttpLocalEndpointDiscoveryResponse,
@@ -710,25 +710,25 @@ export interface CellProvenance {
   runId: string;
 }
 
-export type CellCitationSummary = HttpCellEvidenceResponse['links'][number];
+export type CellCitationSummary = HttpCellCitationsResponse['links'][number];
 
 /**
  * Generated contract authority for cell-evidence reads. `current_value_ref`
  * can retain valid scalar, list, or provider/plugin JSON leaves, so callers
  * must not narrow it into a client-owned object shape.
  */
-export type CellCitationsPayload = HttpCellEvidenceResponse;
+export type CellCitationsPayload = HttpCellCitationsResponse;
 export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
 /** The Grounded Answers reading view's middle-pane batch: one row per row
  *  with ACTIVE evidence on the column, carrying the same link summary shape
  *  as `CellCitationsPayload`. A row with no active evidence is absent. */
-export type ColumnCitationsBatchPayload = HttpColumnEvidenceResponse;
+export type ColumnCitationsBatchPayload = HttpColumnCitationsResponse;
 
 /** Browser aliases intentionally track the generated evidence-viewer wire
  * response. Its JSON leaves are open values, so consumers must narrow only
  * the individual leaves they dereference rather than narrowing the payload. */
-export type CitationViewerPayload = HttpEvidenceViewerResponse;
+export type CitationViewerPayload = HttpCitationViewerResponse;
 export type CitationArtifact = CitationViewerPayload['artifacts'][number];
 export type CitationArtifactRef = CitationArtifact['artifact_ref'];
 export type CitationBlobRef = NonNullable<CitationArtifactRef['blob']>;
@@ -3298,7 +3298,7 @@ export interface ReviewBundleField {
   /** Reviewer note stored for this exact run/result cell, if one was recorded. */
   note?: string | null;
   reviewState: ReviewState;
-  role: 'field' | 'evidence';
+  role: 'field' | 'supporting';
   chore: boolean;
   /** False for a partial display or when editing would mutate the wrong cell. */
   canEdit?: boolean;
@@ -3336,7 +3336,7 @@ export interface ReviewBundle {
   /** Shared reviewer note for this row and run. */
   reviewNote?: string | null;
   fields: ReviewBundleField[];
-  evidence: ReviewBundleField[];
+  supportingColumns: ReviewBundleField[];
   /** Includes historical primary/support items without changing decision roles. */
   items?: ReviewBundleField[];
 }

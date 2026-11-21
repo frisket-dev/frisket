@@ -34,11 +34,11 @@ export type WorkbenchApiPort = Pick<
   | 'uninstallWorkbenchPlugin'
 >;
 
-/** Evidence reads consumed by the workbench's keyed evidence resource. */
-export type ColumnCitationsApiPort = Pick<ProjectApi, 'getColumnEvidence'>;
+/** Citation reads consumed by the workbench's keyed citation resource. */
+export type ColumnCitationsApiPort = Pick<ProjectApi, 'getColumnCitations'>;
 
-/** Evidence viewer reads consumed by the workbench's keyed viewer resource. */
-export type CitationViewerApiPort = Pick<ProjectApi, 'getEvidenceViewer'>;
+/** Citation viewer reads consumed by the workbench's keyed viewer resource. */
+export type CitationViewerApiPort = Pick<ProjectApi, 'getCitationViewer'>;
 
 /** Projection operations exposed to workbench plugin projection views. */
 export type PluginProjectionViewApiPort = Pick<

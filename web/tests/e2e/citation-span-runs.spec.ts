@@ -47,7 +47,7 @@ import wave
 import io
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore

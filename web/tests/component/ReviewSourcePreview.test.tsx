@@ -7,8 +7,8 @@ import { evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 const seeks = vi.hoisted(() => vi.fn());
 const projectApi = vi.hoisted(() => ({
-  getCellEvidence: vi.fn(),
-  getEvidenceViewer: vi.fn(),
+  getCellCitations: vi.fn(),
+  getCitationViewer: vi.fn(),
 }));
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
@@ -33,7 +33,7 @@ const fieldTwo = reviewField('field-two', 'column-two');
 const bundle: ReviewBundle = {
   id: 'bundle-1', runId: 'run-9', sourceId: 'run-9', copiedChangeId: null, sheetId: 'sheet-1', sheetName: 'Sheet', rowId: 'row-3', rowIndex: 2,
   actionKind: 'enrich', actionName: 'Extract', model: 'model', confidence: null, source: {}, context: '',
-  fields: [fieldOne, fieldTwo], evidence: [],
+  fields: [fieldOne, fieldTwo], supportingColumns: [],
 };
 
 function reviewField(id: string, columnId: string): ReviewBundleField {
@@ -45,10 +45,10 @@ function reviewField(id: string, columnId: string): ReviewBundleField {
 
 function cellEvidence(linkIds: string[]): CellCitationsPayload {
   return {
-    schema_version: 'frisket.cell_evidence.v1',
+    schema_version: 'frisket.cell_citations.v1',
     current_value_ref: { kind: 'run_result', run_id: 'run-9' },
     links: linkIds.map((stable_id, index) => ({
-      id: index + 1, stable_id, export_ref: stable_id, status: 'active', role: 'citation', evidence_kind: 'source',
+      id: index + 1, stable_id, export_ref: stable_id, status: 'active', role: 'citation', citation_kind: 'source',
       span_count: 1, artifact_count: 1, snippet: null, viewer_href: `/evidence/${stable_id}`,
     })),
   } as CellCitationsPayload;
@@ -56,7 +56,7 @@ function cellEvidence(linkIds: string[]): CellCitationsPayload {
 
 function viewer(linkId: string, sourceId: string, spanId: string, title: string): CitationViewerPayload {
   return {
-    schema_version: 'frisket.evidence_viewer.v1', warnings: [],
+    schema_version: 'frisket.citation_viewer.v1', warnings: [],
     link: {
       id: 1, stable_id: linkId, export_ref: linkId, subject_kind: 'cell', subject_ref: null,
       sheet_id: 1, row_id: 3, column_id: 1, run_id: 9, op_id: null, receipt_id: null, role: 'citation', status: 'active',
@@ -75,8 +75,8 @@ afterEach(cleanup);
 
 describe('ReviewSourcePreview', () => {
   beforeEach(() => {
-    projectApi.getCellEvidence.mockReset();
-    projectApi.getEvidenceViewer.mockReset();
+    projectApi.getCellCitations.mockReset();
+    projectApi.getCitationViewer.mockReset();
     class ResizeObserver {
       observe() {}
       unobserve() {}
@@ -87,10 +87,10 @@ describe('ReviewSourcePreview', () => {
 
   it('focuses an initially selected item after the source renderer loads', async () => {
     const field = { ...fieldOne, columnType: 'json', value: '["first","second"]' } as ReviewBundleField;
-    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:b']));
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence(['link:b']));
     const payload = viewer('link:b', 'source:b', 'span:b', 'Recording');
     payload.link.item_index = 1;
-    projectApi.getEvidenceViewer.mockResolvedValue(payload);
+    projectApi.getCitationViewer.mockResolvedValue(payload);
 
     render(<ReviewSourcePreview bundle={{ ...bundle, fields: [field] }} activeField={field} sourceEntries={[]}
       selectedItem={{ fieldId: field.id, index: 1 }} />);
@@ -100,8 +100,8 @@ describe('ReviewSourcePreview', () => {
   });
 
   it('keeps declared null inputs visible alongside saved citations', async () => {
-    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
-    projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Notes'));
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence(['link:a']));
+    projectApi.getCitationViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Notes'));
     const row = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Empty input',
       columnType: 'text' as const, value: null }] };
     render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
@@ -112,7 +112,7 @@ describe('ReviewSourcePreview', () => {
   });
 
   it('shows bounded current-input excerpts and revision downloads without parsing them', async () => {
-    projectApi.getCellEvidence.mockResolvedValue(cellEvidence([]));
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence([]));
     const row: ReviewBundle = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Long input',
       columnType: 'text', semanticType: null, format: 'markdown', value: null,
       boundedValue: { preview: '# Partial input', totalCharacters: 90_000, totalBytes: 90_000,
@@ -129,8 +129,8 @@ describe('ReviewSourcePreview', () => {
   });
 
   it('keeps saved citations reachable beside bounded output and bounded Inputs drawer values', async () => {
-    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
-    projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Saved notes'));
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence(['link:a']));
+    projectApi.getCitationViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Saved notes'));
     const boundedValue = { preview: '[{"partial":', totalCharacters: 90_000, totalBytes: 90_000, downloadHref: null };
     const field: ReviewBundleField = { ...fieldOne, columnType: 'json', value: null, boundedValue };
     const row: ReviewBundle = { ...bundle, fields: [field], sources: [{ columnId: 'input-1', columnName: 'Long input',
@@ -149,8 +149,8 @@ describe('ReviewSourcePreview', () => {
   it('does not seek the old source when an item selects another recording', async () => {
     const field = { ...fieldOne, columnType: 'json', value: '["first","second"]' } as ReviewBundleField;
     const row = { ...bundle, fields: [field] };
-    projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a', 'link:b']));
-    projectApi.getEvidenceViewer.mockImplementation((id: string) => {
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence(['link:a', 'link:b']));
+    projectApi.getCitationViewer.mockImplementation((id: string) => {
       const payload = viewer(id, id === 'link:a' ? 'source:a' : 'source:b', id, id);
       payload.link.item_index = id === 'link:a' ? 0 : 1;
       return Promise.resolve(payload);
@@ -165,10 +165,10 @@ describe('ReviewSourcePreview', () => {
   });
 
   it('keeps cited sources mounted across cloned decision, edit and note updates, then reloads for another row', async () => {
-    projectApi.getCellEvidence.mockImplementation((_rowId: string, columnId: string) => Promise.resolve(
+    projectApi.getCellCitations.mockImplementation((_rowId: string, columnId: string) => Promise.resolve(
       columnId === 'column-one' ? cellEvidence(['link:shared-one', 'link:one-only']) : cellEvidence(['link:shared-two', 'link:two-only']),
     ));
-    projectApi.getEvidenceViewer.mockImplementation((linkId: string) => Promise.resolve({
+    projectApi.getCitationViewer.mockImplementation((linkId: string) => Promise.resolve({
       'link:shared-one': viewer(linkId, 'source:shared', 'span:one', 'Shared notes.md'),
       'link:shared-two': viewer(linkId, 'source:shared', 'span:two', 'Shared notes.md'),
       'link:one-only': viewer(linkId, 'source:one-only', 'span:one-only', 'One only.md'),
@@ -199,8 +199,8 @@ describe('ReviewSourcePreview', () => {
     rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[0]} sourceEntries={[]} />);
     expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:shared');
-    expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(2);
-    expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(4);
+    expect(projectApi.getCellCitations).toHaveBeenCalledTimes(2);
+    expect(projectApi.getCitationViewer).toHaveBeenCalledTimes(4);
 
     rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[1]} sourceEntries={[]} />);
 
@@ -208,8 +208,8 @@ describe('ReviewSourcePreview', () => {
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-source-id', 'source:shared');
     expect(screen.getByTestId('artifact-source')).toHaveAttribute('data-emphasized', 'span:two');
     expect(screen.getByTestId('artifact-source')).toBe(sourceRenderer);
-    expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(2);
-    expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(4);
+    expect(projectApi.getCellCitations).toHaveBeenCalledTimes(2);
+    expect(projectApi.getCitationViewer).toHaveBeenCalledTimes(4);
 
     rerender(<ReviewSourcePreview bundle={bundleWithSavedRowNote} activeField={bundleWithSavedRowNote.fields[0]} sourceEntries={[]} />);
     fireEvent.click(screen.getByRole('tab', { name: /one only/i }));
@@ -221,10 +221,10 @@ describe('ReviewSourcePreview', () => {
     const otherRowBundle = clonedBundle({ rowId: 'row-4' }, undefined, { id: 'bundle-2', rowId: 'row-4', rowIndex: 3 });
     rerender(<ReviewSourcePreview bundle={otherRowBundle} activeField={otherRowBundle.fields[0]} sourceEntries={[]} />);
 
-    await waitFor(() => expect(projectApi.getCellEvidence).toHaveBeenCalledTimes(4));
-    expect(projectApi.getCellEvidence).toHaveBeenCalledWith('row-4', 'column-one');
-    expect(projectApi.getCellEvidence).toHaveBeenCalledWith('row-4', 'column-two');
-    await waitFor(() => expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(8));
+    await waitFor(() => expect(projectApi.getCellCitations).toHaveBeenCalledTimes(4));
+    expect(projectApi.getCellCitations).toHaveBeenCalledWith('row-4', 'column-one');
+    expect(projectApi.getCellCitations).toHaveBeenCalledWith('row-4', 'column-two');
+    await waitFor(() => expect(projectApi.getCitationViewer).toHaveBeenCalledTimes(8));
   });
 });
 

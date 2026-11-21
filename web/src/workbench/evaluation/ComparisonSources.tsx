@@ -42,7 +42,7 @@ export function ComparisonSources({ state, rowId, field }: { state: ActionCompar
       sheetName: context.sheet.name, rowId: String(rowId), rowIndex: context.sample_row_ids.indexOf(rowId),
       actionKind: context.draft.action_id, actionName: context.draft.action_id, model: '', confidence: null,
       source: Object.fromEntries(sources.map((source) => [source.columnName, source.value])), sources,
-      context: '', fields, evidence: [],
+      context: '', fields, supportingColumns: [],
     } satisfies ReviewBundle;
   }, [context, rowId]);
   if (!('fields' in bundle)) return <ReviewInputSources bundle={bundle} />;
