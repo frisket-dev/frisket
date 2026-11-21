@@ -35,6 +35,7 @@ file_counts = _load("file_count_ratchet")
 web_types = _load("web_tests_type_ratchet")
 collection = _load("check_test_collection")
 web_hygiene = _load("lint_web_source_hygiene")
+test_tokens = _load("lint_test_tokens")
 
 
 def test_ruff_ratchet_flags_increases_and_new_files_only():
@@ -399,3 +400,79 @@ def test_native_select_escapes_are_present_and_live():
         assert f'data-native-select-escape="{reason}"' in path.read_text(
             encoding="utf-8"
         )
+
+
+def _token_rule(name: str):
+    return next(rule for rule in test_tokens.RULES if rule.name == name)
+
+
+def test_source_reads_ast_catches_multiline_chain_and_scopes_taint():
+    rule = _token_rule("source-reads")
+    source = (
+        "from pathlib import Path\n"
+        "def test_multiline():\n"
+        "    text = (\n"
+        '        Path(__file__).resolve().parents[2] / "sidecar/workers/dots/Dockerfile"\n'
+        "    ).read_text()\n"
+        "    assert text\n"
+        "def test_marked():\n"
+        "    # rule19: intentional artifact verification\n"
+        "    text = (\n"
+        '        Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"\n'
+        "    ).read_text()\n"
+        "    assert text\n"
+        "def test_sibling_taint_isolated(tmp_path):\n"
+        '    root = tmp_path / "data.txt"\n'
+        "    assert root.read_text() == ''\n"
+        "def test_other_taints_root():\n"
+        '    root = Path(__file__).resolve().parents[2] / "src"\n'
+        "    assert root.exists()\n"
+    )
+    offenders = test_tokens.offending_lines(rule, source)
+    assert [lineno for lineno, _ in offenders] == [3]
+
+
+def test_pure_surface_assertions_flags_reflection_only_and_honors_invariant():
+    rule = _token_rule("pure-surface-assertions")
+    source = (
+        "def test_only_hasattr():\n"
+        "    import frisket\n"
+        '    assert hasattr(frisket, "x")\n'
+        "# invariant: boundary surface contract\n"
+        "def test_marked_invariant():\n"
+        "    import frisket\n"
+        '    assert not hasattr(frisket, "removed")\n'
+        "def test_behavioral():\n"
+        "    result = compute(1)\n"
+        "    assert result is not None\n"
+    )
+    offenders = test_tokens.offending_lines(rule, source)
+    assert [lineno for lineno, _ in offenders] == [1]
+
+
+def test_conditional_only_assertions_flags_dynamic_loops_but_allows_preconditions():
+    rule = _token_rule("conditional-only-assertions")
+    source = (
+        "CONST = ('a', 'b')\n"
+        "def test_dynamic_loop_only():\n"
+        "    for item in get_items():\n"
+        "        assert item.ok\n"
+        "def test_guarded_loop():\n"
+        "    items = get_items()\n"
+        "    assert items\n"
+        "    for item in items:\n"
+        "        assert item.ok\n"
+        "def test_constant_tuple_loop():\n"
+        "    for item in CONST:\n"
+        "        assert check(item)\n"
+        "def test_if_without_else():\n"
+        "    if maybe():\n"
+        "        assert True\n"
+        "def test_if_else_both_assert():\n"
+        "    if maybe():\n"
+        "        assert check(1)\n"
+        "    else:\n"
+        "        assert check(2)\n"
+    )
+    offenders = test_tokens.offending_lines(rule, source)
+    assert [lineno for lineno, _ in offenders] == [2, 13]
