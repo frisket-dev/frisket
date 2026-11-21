@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from frisket.actions.core import MapRows
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest, Row, RowError, RowResult
 
@@ -60,8 +61,7 @@ def plugin_test_backend(
         return 1
 
     terminal = resolved.definition.run
-    handler = getattr(terminal, "handler", None)
-    if handler is None or not hasattr(terminal, "output_model"):
+    if not isinstance(terminal, MapRows):
         print(
             f"error: Action {resolved.action_id!r} is not a row-scoped Action; "
             "`frisket plugin test-backend` runs one row through a map_rows "
@@ -69,7 +69,7 @@ def plugin_test_backend(
             file=sys.stderr,
         )
         return 1
-    if getattr(terminal, "capabilities", ()):
+    if terminal.capabilities:
         print(
             f"error: Action {resolved.action_id!r} declares host capabilities "
             f"({', '.join(cap.__name__ for cap in terminal.capabilities)}); "
@@ -120,6 +120,8 @@ def plugin_test_backend(
 
 def _run_row(bound: BoundTypedActionRequest, row_inputs: dict[str, Any]) -> Any:
     terminal = bound.action.definition.run
+    if not isinstance(terminal, MapRows):
+        raise ValueError("test-backend requires a map_rows Action")
     result = terminal.handler(bound.params, Row(row_inputs))
     if inspect.isawaitable(result):
         result = asyncio.run(_await(result))

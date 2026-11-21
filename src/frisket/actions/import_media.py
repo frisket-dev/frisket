@@ -6,6 +6,7 @@ import mimetypes
 from itertools import chain
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
+from typing import BinaryIO, cast
 
 from pydantic import Field, field_validator, model_validator
 
@@ -188,10 +189,11 @@ def import_pdf(
                 with SpooledTemporaryFile(
                     max_size=8 * 1024 * 1024, mode="w+b"
                 ) as child:
-                    write_pdf_range(pdf, child, index, index)
+                    child_stream = cast(BinaryIO, child)
+                    write_pdf_range(pdf, child_stream, index, index)
                     child.seek(0)
                     staged = blobs.stage(
-                        child, filename=filename, mime="application/pdf"
+                        child_stream, filename=filename, mime="application/pdf"
                     )
                 blobs.associate_packet_split(
                     document,

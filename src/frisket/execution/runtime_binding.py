@@ -215,11 +215,14 @@ def ephemeral_target_binding(
     invocation. A target that will not deref raises
     :class:`RouteBindingUnavailable` carrying its configuration remedy.
     """
+    resolved_provider: ExecutionTargetProvider
     if provider is None:
         from frisket.execution.resolve_for_action import default_provider
 
-        provider = default_provider()
-    target = next((t for t in provider.targets() if t.id == target_id), None)
+        resolved_provider = default_provider()
+    else:
+        resolved_provider = provider
+    target = next((t for t in resolved_provider.targets() if t.id == target_id), None)
     if target is None:
         raise RouteBindingUnavailable(
             f"execution target '{target_id}' is not defined by the "
@@ -227,7 +230,7 @@ def ephemeral_target_binding(
         )
     from frisket.execution.resolver import _open_edition_facts
 
-    binding = candidate_binding(_open_edition_facts(target, engine), provider)
+    binding = candidate_binding(_open_edition_facts(target, engine), resolved_provider)
     if isinstance(binding, Refusal):
         raise RouteBindingUnavailable(binding.remedy)
     return binding

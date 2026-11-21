@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -60,7 +60,11 @@ def _page_blocks(page: object) -> list[Mapping]:
         blocks = page.get("blocks", [])
     else:
         blocks = page
-    if not blocks:
+    if (
+        not blocks
+        or not isinstance(blocks, Iterable)
+        or isinstance(blocks, (str, bytes))
+    ):
         return []
     return [b for b in blocks if isinstance(b, Mapping)]
 
@@ -301,12 +305,13 @@ def compose_searchable_pdf(
         rotate = int(page.get("/Rotate", 0) or 0) % 360
         # pdftoppm uprights the raster: displayed dims swap for 90/270.
         disp_w, disp_h = (h_pt, w_pt) if rotate in (90, 270) else (w_pt, h_pt)
-        if (
-            raster_dimensions is not None
-            and index < len(pages)
-            and raster_dimensions[index] is not None
-        ):
-            raster_w, raster_h = raster_dimensions[index]
+        dims = (
+            raster_dimensions[index]
+            if raster_dimensions is not None and index < len(pages)
+            else None
+        )
+        if dims is not None:
+            raster_w, raster_h = dims
             scale_x = disp_w / raster_w
             scale_y = disp_h / raster_h
         else:

@@ -2,7 +2,7 @@
 
 from typing import Any, ClassVar, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, RootModel
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, RootModel, with_config
 from typing_extensions import TypedDict
 
 from frisket.actions.media_options import OcrOptions, TranscriptionOptions
@@ -46,17 +46,15 @@ class RecognizedDocument(BaseModel):
         return self._warnings
 
 
+@with_config(ConfigDict(extra="allow"))
 class TranscriptWord(TypedDict, total=False):
-    __pydantic_config__ = ConfigDict(extra="allow")
-
     word: str
     start: float
     end: float
 
 
+@with_config(ConfigDict(extra="allow"))
 class TranscriptSegment(TypedDict, total=False):
-    __pydantic_config__ = ConfigDict(extra="allow")
-
     segment_index: int
     start: float
     end: float

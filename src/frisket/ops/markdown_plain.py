@@ -139,7 +139,9 @@ class _PlainText(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag not in _HTML_TAGS:
             if not self.hidden:
-                self.parts.append(self.get_starttag_text())
+                starttag = self.get_starttag_text()
+                if starttag is not None:
+                    self.parts.append(starttag)
             return
         if tag in {"script", "style"}:
             self.hidden += 1
@@ -204,7 +206,9 @@ class _PlainText(HTMLParser):
     def handle_startendtag(self, tag, attrs):
         if tag not in _HTML_TAGS:
             if not self.hidden:
-                self.parts.append(self.get_starttag_text())
+                starttag = self.get_starttag_text()
+                if starttag is not None:
+                    self.parts.append(starttag)
             return
         self.handle_starttag(tag, attrs)
         self.handle_endtag(tag)
