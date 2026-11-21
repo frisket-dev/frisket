@@ -100,13 +100,13 @@ PROMISES = [
             "meter_key": "audio_seconds",
             "meter_units_per_quantity_unit": "60",
             "ceiling_mode": "consented_quantity",
-            "row_settlement_mode": "quoted_successful_rows",
+            "row_settlement_mode": "estimated_successful_rows",
             "charge_authority": "test.synthetic.authority",
             "hardware_class": None,
             "throughput_ref": None,
             # The fixture's first row carries the ten-minute quote; row two is
             # explicit zero so the allocation still covers its exact scope.
-            "row_quote_quantities": [
+            "row_estimate_quantities": [
                 {"row_id": 1, "quantity": "10"},
                 {"row_id": 2, "quantity": "0"},
             ],
@@ -135,7 +135,7 @@ def _test_offering(*, unit_rate: str = "0.02") -> CommercialOffering:
             meter_key="audio_seconds",
             meter_units_per_quantity_unit="60",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            row_settlement_mode="estimated_successful_rows",
         ),
         charge_authority="test.synthetic.authority",
         presentation=CommercialPresentation(
@@ -1495,7 +1495,7 @@ def test_row_settlement_invariants_follow_the_pinned_generic_mode(
     project.db.commit()
     settlement = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert settlement["charge_usd"] is None
-    assert settlement["unsettleable"] == "row_quote_allocation_mismatch"
+    assert settlement["unsettleable"] == "row_estimate_allocation_mismatch"
 
 
 def test_a_replayed_batch_cannot_flip_a_failed_estimated_row_to_succeeded(
@@ -1761,7 +1761,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     cost_promise = next(promise for promise in promises if promise["field"] == "cost")
     cost_basis = cost_promise["basis"]
     cost_basis["estimated_quantity"] = "40"
-    cost_basis["row_quote_quantities"] = [
+    cost_basis["row_estimate_quantities"] = [
         {"row_id": row_id, "quantity": "1"} for row_id in row_ids
     ]
     cost_promise["value"] = "0.8"
@@ -1878,7 +1878,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     contradictory = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert contradictory["rated_charge_usd"] == "1.52"
     assert contradictory["charge_usd"] is None
-    assert contradictory["unsettleable"] == "row_quote_allocation_mismatch"
+    assert contradictory["unsettleable"] == "row_estimate_allocation_mismatch"
 
     legacy_basis = json.loads(
         project.db.execute(
@@ -1886,7 +1886,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
             (attempt.attempt_id,),
         ).fetchone()["cost_basis_json"]
     )
-    legacy_basis.pop("row_quote_quantities")
+    legacy_basis.pop("row_estimate_quantities")
     project.db.execute(
         "UPDATE execution_attempts SET cost_basis_json=? WHERE id=?",
         (json.dumps(legacy_basis, sort_keys=True), attempt.attempt_id),
@@ -1895,4 +1895,4 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     missing = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert missing["rated_charge_usd"] == "1.52"
     assert missing["charge_usd"] is None
-    assert missing["unsettleable"] == "row_quote_allocation_missing"
+    assert missing["unsettleable"] == "row_estimate_allocation_missing"

@@ -135,7 +135,7 @@ class CloudEstimateAuthority:
         if self.maximum_charge_micro is not None and (
             isinstance(self.maximum_charge_micro, bool) or self.maximum_charge_micro < 0
         ):
-            raise ValueError("Cloud quote ceiling must be non-negative")
+            raise ValueError("Cloud estimate ceiling must be non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,9 +143,9 @@ class CloudExecutionAttempt:
     """Durable request identity plus the authority fixed by local admission.
 
     ``request_id`` is persisted before the first POST and reused for status
-    recovery.  ``may_confirm_quote`` is true only when the existing action or
-    Ask approval covers this exact route and spend; the transport must never
-    infer it merely because Cloud returned a quote challenge.
+    recovery.  ``estimate_authority`` is present only when the existing action
+    or Ask approval covers this exact route and spend; the transport must never
+    infer it merely because Cloud returned an estimate challenge.
     """
 
     request_id: str
@@ -353,13 +353,13 @@ def cloud_estimate_authority_for_row(
     )
 
     if isinstance(cost_basis, PricedCostBasis):
-        quantities = cost_basis.row_quote_quantities
+        quantities = cost_basis.row_estimate_quantities
         if quantities is not None and not any(
             candidate == row_id for candidate, _ in quantities
         ):
             raise CloudExecutionRefused(
-                "cloud_quote_unbound",
-                "Cloud execution row is absent from its admitted quote",
+                "cloud_estimate_unbound",
+                "Cloud execution row is absent from its admitted estimate",
             )
         return CloudEstimateAuthority(maximum_charge_micro=None)
     if isinstance(cost_basis, UnpriceableCost):
@@ -367,7 +367,7 @@ def cloud_estimate_authority_for_row(
 
     if isinstance(cost_basis, OperatorBorneZeroCost):
         raise CloudExecutionRefused(
-            "cloud_quote_unbound",
+            "cloud_estimate_unbound",
             "A paid Cloud route cannot use an operator-borne cost basis",
         )
     raise TypeError("unsupported Cloud execution cost basis")
@@ -377,12 +377,12 @@ def cloud_llm_estimated_spend_micro(
     request: CloudLLMRequest,
     price: CloudTokenPrice,
 ) -> int:
-    """Match the Cloud service's quote over one exact LLM wire request."""
+    """Match the Cloud service's estimate over one exact LLM wire request."""
 
     if not isinstance(request, CloudLLMRequest):
-        raise TypeError("Cloud LLM quote request is invalid")
+        raise TypeError("Cloud LLM estimate request is invalid")
     if not isinstance(price, CloudTokenPrice):
-        raise TypeError("Cloud LLM quote price is invalid")
+        raise TypeError("Cloud LLM estimate price is invalid")
     from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 
     input_tokens = estimate_input_tokens(

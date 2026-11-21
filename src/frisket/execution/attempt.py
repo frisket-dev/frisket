@@ -272,15 +272,15 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
     if "kind" in basis and basis.get("kind") != "priced":
         return UnpriceableCost()
     try:
-        raw_row_estimates = basis.get("row_quote_quantities")
-        row_quote_quantities = None
+        raw_row_estimates = basis.get("row_estimate_quantities")
+        row_estimate_quantities = None
         if raw_row_estimates is not None:
             if not isinstance(raw_row_estimates, list):
-                raise ValueError("row_quote_quantities must be a list")
+                raise ValueError("row_estimate_quantities must be a list")
             parsed_row_estimates: list[tuple[int, str]] = []
             for item in raw_row_estimates:
                 if not isinstance(item, dict):
-                    raise ValueError("row_quote_quantities contains a malformed row")
+                    raise ValueError("row_estimate_quantities contains a malformed row")
                 row_id = item.get("row_id")
                 quantity = item.get("quantity")
                 if (
@@ -288,9 +288,9 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
                     or not isinstance(row_id, int)
                     or not isinstance(quantity, str)
                 ):
-                    raise ValueError("row_quote_quantities contains a malformed row")
+                    raise ValueError("row_estimate_quantities contains a malformed row")
                 parsed_row_estimates.append((row_id, quantity))
-            row_quote_quantities = tuple(parsed_row_estimates)
+            row_estimate_quantities = tuple(parsed_row_estimates)
         return PricedCostBasis(
             pricing_key=basis["pricing_key"],
             unit_rate=basis["unit_rate"],
@@ -306,7 +306,7 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
             charge_authority=basis["charge_authority"],
             hardware_class=basis.get("hardware_class"),
             throughput_ref=basis.get("throughput_ref"),
-            row_quote_quantities=row_quote_quantities,
+            row_estimate_quantities=row_estimate_quantities,
         )
     except (KeyError, TypeError, ValueError):
         # A basis this code cannot reconstruct is honestly unpriceable here;
@@ -340,10 +340,10 @@ def _cost_basis_json(cost_basis: CostBasis) -> str:
         if cost_basis.hardware_class is not None:
             payload["hardware_class"] = cost_basis.hardware_class
             payload["throughput_ref"] = cost_basis.throughput_ref
-        if cost_basis.row_quote_quantities is not None:
-            payload["row_quote_quantities"] = [
+        if cost_basis.row_estimate_quantities is not None:
+            payload["row_estimate_quantities"] = [
                 {"row_id": row_id, "quantity": quantity}
-                for row_id, quantity in cost_basis.row_quote_quantities
+                for row_id, quantity in cost_basis.row_estimate_quantities
             ]
         return json.dumps(payload, sort_keys=True)
     if isinstance(cost_basis, OperatorBorneZeroCost):
@@ -448,7 +448,7 @@ def admit_attempt(
     routed = commitment.routed
     admitted_by_consent_id = commitment.admission.admitted_by_consent_id
     row_estimates = (
-        commitment.cost_basis.row_quote_quantities
+        commitment.cost_basis.row_estimate_quantities
         if isinstance(commitment.cost_basis, PricedCostBasis)
         else None
     )
@@ -458,7 +458,7 @@ def admit_attempt(
             estimated_scope
         ) != set(commitment.scope):
             raise RuntimeError(
-                "row quote allocation must cover the attempt scope exactly"
+                "row estimate allocation must cover the attempt scope exactly"
             )
     project.db.execute(
         "UPDATE execution_attempts SET state='admitted', head_route_id=?, "
@@ -1121,7 +1121,7 @@ def attempt_settlement(
     inspection_refusal: str | None = None
     settlement_calls = calls
     all_rows_cancelled = False
-    if row_mode == "quoted_successful_rows":
+    if row_mode == "estimated_successful_rows":
         allocation, outcomes, inspection_refusal = _inspect_estimated_row_settlement(
             project,
             attempt_id=attempt_id,
@@ -1161,7 +1161,7 @@ def attempt_settlement(
         terminal_status=terminal_status,
         all_rows_cancelled=all_rows_cancelled,
     )
-    if row_mode != "quoted_successful_rows":
+    if row_mode != "estimated_successful_rows":
         return receipt
     # Inspection runs before rating.  When either side refuses, preserve the
     # meter's more specific incomplete-fact diagnosis; a plausible complete
@@ -1211,9 +1211,9 @@ def _inspect_estimated_row_settlement(
     and the attempt-owned terminal outcomes written with results.  No equal
     share or actual-meter-derived substitute is safe when one is absent.
     """
-    raw_allocation = cost_basis.get("row_quote_quantities")
+    raw_allocation = cost_basis.get("row_estimate_quantities")
     if not isinstance(raw_allocation, list):
-        return None, None, "row_quote_allocation_missing"
+        return None, None, "row_estimate_allocation_missing"
 
     allocation: dict[int, tuple[str, Decimal]] = {}
     previous_row_id = -1
@@ -1245,7 +1245,7 @@ def _inspect_estimated_row_settlement(
         ):
             raise ValueError
     except (InvalidOperation, KeyError, TypeError, ValueError):
-        return None, None, "row_quote_allocation_invalid"
+        return None, None, "row_estimate_allocation_invalid"
 
     attempt = project.db.execute(
         "SELECT scope_json FROM execution_attempts WHERE id=?", (attempt_id,)
@@ -1262,7 +1262,7 @@ def _inspect_estimated_row_settlement(
         if len(scope) != len(set(scope)) or set(scope) != set(allocation):
             raise ValueError
     except (TypeError, ValueError, json.JSONDecodeError):
-        return None, None, "row_quote_scope_mismatch"
+        return None, None, "row_estimate_scope_mismatch"
 
     durable_rows = project.db.execute(
         "SELECT row_id, quoted_quantity, terminal_outcome "
@@ -1270,14 +1270,14 @@ def _inspect_estimated_row_settlement(
         (attempt_id,),
     ).fetchall()
     if len(durable_rows) != len(allocation):
-        return None, None, "row_quote_allocation_missing"
+        return None, None, "row_estimate_allocation_missing"
 
     outcomes: dict[int, str] = {}
     for row in durable_rows:
         row_id = int(row["row_id"])
         expected = allocation.get(row_id)
         if expected is None or row["quoted_quantity"] != expected[0]:
-            return None, None, "row_quote_allocation_mismatch"
+            return None, None, "row_estimate_allocation_mismatch"
         outcome = row["terminal_outcome"]
         if outcome not in {"succeeded", "failed", "cancelled"}:
             return None, None, "row_terminal_outcome_missing"

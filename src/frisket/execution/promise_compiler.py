@@ -118,11 +118,11 @@ class PricedCostBasis:
     charge_authority: str
     hardware_class: str | None = None
     throughput_ref: str | None = None
-    # Row-grained quoted settlement needs the exact allocation.  It is part of
+    # Row-grained estimated settlement needs the exact allocation.  It is part of
     # the hashed cost promise, so settlement can charge completed rows without
     # re-deriving shares from an aggregate later.
     # ``None`` is retained for provider-list and pre-row-allocation bases.
-    row_quote_quantities: tuple[tuple[int, str], ...] | None = None
+    row_estimate_quantities: tuple[tuple[int, str], ...] | None = None
 
     def __post_init__(self) -> None:
         _require_clean("pricing_key", self.pricing_key)
@@ -151,18 +151,18 @@ class PricedCostBasis:
             raise ValueError(f"unknown ceiling mode {self.ceiling_mode!r}")
         if self.row_settlement_mode not in (
             "all_metered",
-            "quoted_successful_rows",
+            "estimated_successful_rows",
         ):
             raise ValueError(
                 f"unknown row settlement mode {self.row_settlement_mode!r}"
             )
         row_allocation_required = (
-            self.row_settlement_mode == "quoted_successful_rows"
+            self.row_settlement_mode == "estimated_successful_rows"
             and self.estimated_quantity is not None
         )
-        if row_allocation_required != (self.row_quote_quantities is not None):
+        if row_allocation_required != (self.row_estimate_quantities is not None):
             raise ValueError(
-                "a bounded quoted_successful_rows basis requires row quote "
+                "a bounded estimated_successful_rows basis requires row estimate "
                 "quantities, and other bases forbid them"
             )
         if not isinstance(self.unit_rate, str):
@@ -181,32 +181,32 @@ class PricedCostBasis:
             raise ValueError(
                 f"throughput_ref must look like 'name.vN': {self.throughput_ref!r}"
             )
-        if self.row_quote_quantities is not None:
+        if self.row_estimate_quantities is not None:
             seen: set[int] = set()
             total = Decimal(0)
             previous = -1
-            for row_id, raw_quantity in self.row_quote_quantities:
+            for row_id, raw_quantity in self.row_estimate_quantities:
                 if (
                     isinstance(row_id, bool)
                     or not isinstance(row_id, int)
                     or row_id <= 0
                 ):
-                    raise ValueError("row quote ids must be positive integers")
+                    raise ValueError("row estimate ids must be positive integers")
                 if row_id in seen or row_id <= previous:
                     raise ValueError(
-                        "row quote quantities must have unique ascending row ids"
+                        "row estimate quantities must have unique ascending row ids"
                     )
                 if not isinstance(raw_quantity, str):
-                    raise ValueError("row quote quantities must be decimal strings")
-                quantity = _parse_quantity("row quote quantity", raw_quantity)
+                    raise ValueError("row estimate quantities must be decimal strings")
+                quantity = _parse_quantity("row estimate quantity", raw_quantity)
                 if quantity < 0:
-                    raise ValueError("row quote quantities must be non-negative")
+                    raise ValueError("row estimate quantities must be non-negative")
                 seen.add(row_id)
                 previous = row_id
                 total += quantity
             if total != _parse_quantity("estimated_quantity", self.estimated_quantity):
                 raise ValueError(
-                    "estimated_quantity must equal the exact sum of row quote "
+                    "estimated_quantity must equal the exact sum of row estimate "
                     "quantities"
                 )
 
@@ -349,12 +349,12 @@ def compile_route_promises(
                     "throughput_ref": cost.throughput_ref,
                     **(
                         {
-                            "row_quote_quantities": [
+                            "row_estimate_quantities": [
                                 {"row_id": row_id, "quantity": quantity}
-                                for row_id, quantity in cost.row_quote_quantities
+                                for row_id, quantity in cost.row_estimate_quantities
                             ]
                         }
-                        if cost.row_quote_quantities is not None
+                        if cost.row_estimate_quantities is not None
                         else {}
                     ),
                 },

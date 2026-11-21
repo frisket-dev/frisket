@@ -173,6 +173,8 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         CONSENT_ESTIMATE_TO_DIGEST,
         ("ALTER TABLE consents RENAME COLUMN quote_json TO estimate_json",),
     )
+    # Keep `CURRENT_CHAIN_TIP_DIGEST` in `upgrades.project._tip` aligned with
+    # the final step's destination digest whenever appending a new step.
     run_step(
         db, CONSENT_ESTIMATE_TO_DIGEST, RESEARCH_PAUSE_TO_DIGEST, apply_research_pause
     )

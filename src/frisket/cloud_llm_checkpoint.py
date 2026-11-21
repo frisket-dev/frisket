@@ -65,7 +65,7 @@ class CloudLLMCheckpointCoordinator:
         if not isinstance(payer, CloudPayerSubject):
             raise TypeError("Cloud LLM payer is invalid")
         if not isinstance(estimate_authority, CloudEstimateAuthority):
-            raise TypeError("Cloud LLM quote authority is invalid")
+            raise TypeError("Cloud LLM estimate authority is invalid")
         if capability not in {"llm.complete", "ocr"}:
             raise ValueError("Cloud model checkpoint capability is invalid")
         for name, value in (("group_key", group_key), ("action_kind", action_kind)):
@@ -289,7 +289,7 @@ class CloudLLMCheckpointCoordinator:
             spent += prior_cost
         if spent > ceiling:
             raise CloudExecutionRefused(
-                "cloud_quote_exhausted",
+                "cloud_estimate_exhausted",
                 "Prior Cloud LLM calls exhausted the admitted allowance",
             )
         return CloudEstimateAuthority(maximum_charge_micro=ceiling - spent)
