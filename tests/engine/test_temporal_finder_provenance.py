@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,7 +17,7 @@ from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.contracts.temporal_values import canonical_temporal_hash
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
@@ -126,11 +125,10 @@ def _start_run(
 
 
 def _seed_completed_topic_run(
-    tmp_path: Path,
+    project: Project,
     *,
     row_count: int = 1,
 ) -> _SeededTopicRun:
-    project = Project.create(tmp_path / "topic-provenance.frisket", name="topic")
     sheet_id = project.add_sheet("Interviews")
     source_column_id = project.add_column(sheet_id, "Source", "text")
     selection_column_id = project.add_column(
@@ -230,8 +228,8 @@ def test_locked_unit_ids_require_the_exact_generated_ranges() -> None:
     assert resolve_topic_section_unit_ids(sidecar, _ranges(split_at_ms=2_500)) is None
 
 
-def test_resolves_exact_completed_topic_run(tmp_path: Path) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+def test_resolves_exact_completed_topic_run(project: Project) -> None:
+    seed = _seed_completed_topic_run(project)
 
     resolved = _resolve(seed)
 
@@ -264,8 +262,8 @@ def test_resolves_exact_completed_topic_run(tmp_path: Path) -> None:
     )
 
 
-def test_full_successor_resolves_from_the_exact_cell_head(tmp_path: Path) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+def test_full_successor_resolves_from_the_exact_cell_head(project: Project) -> None:
+    seed = _seed_completed_topic_run(project)
     row_id = seed.row_ids[0]
     later_payload = _sidecar(evidence_id="evidence_link:successor")
     _op_id, later_run_id, store = _start_run(
@@ -304,9 +302,9 @@ def test_full_successor_resolves_from_the_exact_cell_head(tmp_path: Path) -> Non
 
 
 def test_manual_edit_overlay_with_same_timeline_remains_attributable(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+    seed = _seed_completed_topic_run(project)
     row_id = seed.row_ids[0]
     edited_value = _ranges(split_at_ms=2_500)
     seed.project.apply_edits(
@@ -334,9 +332,9 @@ def test_manual_edit_overlay_with_same_timeline_remains_attributable(
 
 
 def test_hidden_column_repoint_does_not_change_exact_old_run_resolution(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+    seed = _seed_completed_topic_run(project)
     row_id = seed.row_ids[0]
     later_payload = _sidecar(evidence_id="evidence_link:topic-2")
     later_op_id, later_run_id, store = _start_run(
@@ -375,8 +373,8 @@ def test_hidden_column_repoint_does_not_change_exact_old_run_resolution(
     assert resolved.payload != later_payload
 
 
-def test_later_topic_run_never_claims_an_older_manual_edit(tmp_path: Path) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+def test_later_topic_run_never_claims_an_older_manual_edit(project: Project) -> None:
+    seed = _seed_completed_topic_run(project)
     row_id = seed.row_ids[0]
     seed.project.apply_edits(
         [
@@ -445,9 +443,9 @@ def test_later_topic_run_never_claims_an_older_manual_edit(tmp_path: Path) -> No
 
 
 def test_copied_manual_or_missing_base_value_is_not_attributable(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+    seed = _seed_completed_topic_run(project)
     project = seed.project
     row_id = seed.row_ids[0]
 
@@ -547,8 +545,10 @@ def test_copied_manual_or_missing_base_value_is_not_attributable(
     )
 
 
-def test_manual_edit_that_changes_timeline_is_not_attributable(tmp_path: Path) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+def test_manual_edit_that_changes_timeline_is_not_attributable(
+    project: Project,
+) -> None:
+    seed = _seed_completed_topic_run(project)
     row_id = seed.row_ids[0]
     seed.project.apply_edits(
         [
@@ -563,8 +563,10 @@ def test_manual_edit_that_changes_timeline_is_not_attributable(tmp_path: Path) -
     assert _resolve(seed) is None
 
 
-def test_sidecar_without_a_producing_transcript_run_is_rejected(tmp_path: Path) -> None:
-    seed = _seed_completed_topic_run(tmp_path)
+def test_sidecar_without_a_producing_transcript_run_is_rejected(
+    project: Project,
+) -> None:
+    seed = _seed_completed_topic_run(project)
     invalid_payload = {**seed.payload, "transcript_run_id": None}
     with pytest.raises(
         sqlite3.IntegrityError, match="published result semantics are immutable"

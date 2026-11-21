@@ -230,8 +230,10 @@ def scope_program(monkeypatch: pytest.MonkeyPatch) -> _ScopeProgram:
     return program
 
 
-def _seed_project(tmp_path, *, rows: int = 8) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "execution-scope.frisket")
+def _seed_project(
+    make_project, *, name: str = "execution-scope", rows: int = 8
+) -> tuple[Project, int, list[int]]:
+    project = make_project(name)
     sheet_id = project.add_sheet("data")
     columns = {"text": project.add_column(sheet_id, "text")}
     project.add_rows(
@@ -260,9 +262,9 @@ def _spec(program: ActionProgram, sheet_id: int, **extra: Any) -> dict[str, Any]
 
 @pytest.mark.parametrize("mode", ["immediate", "local", "checkpoint"])
 def test_local_publication_batches_keep_row_errors_and_committed_progress(
-    tmp_path, scope_program, monkeypatch, mode
+    make_project, scope_program, monkeypatch, mode
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=7)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=7)
     scope_program.batch_local_results = mode != "immediate"
     if mode == "checkpoint":
         monkeypatch.setattr(
@@ -310,13 +312,12 @@ def test_local_publication_batches_keep_row_errors_and_committed_progress(
         assert "bad source row" in failed[0]["error"]
     finally:
         reader.close()
-        project.close()
 
 
 def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
-    tmp_path, scope_program, monkeypatch
+    make_project, scope_program, monkeypatch
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=4)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=4)
     scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
     clock = [0.0]
@@ -340,81 +341,75 @@ def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
 
     monkeypatch.setattr(scope_program, "execute", advance)
     committed = []
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-            on_progress=lambda progress: committed.append(progress.completed),
-        )
-        progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_program, sheet_id))
-        )
-        assert committed == [0, 2, 4, 4]
-        values = project.db.execute(
-            "SELECT value FROM results WHERE run_id=? ORDER BY row_id",
-            (progress.run_id,),
-        ).fetchall()
-        # Row 2 was dispatched with the first page; row 4's page was read
-        # after the edit. Neither row substitutes a newer source ref later.
-        assert [row[0] for row in values] == ["ROW 0", "ROW 1", "ROW 2", "CHANGED"]
-    finally:
-        project.close()
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+        on_progress=lambda progress: committed.append(progress.completed),
+    )
+    progress = asyncio.run(
+        run_with_output_claim(runner, _spec(scope_program, sheet_id))
+    )
+    assert committed == [0, 2, 4, 4]
+    values = project.db.execute(
+        "SELECT value FROM results WHERE run_id=? ORDER BY row_id",
+        (progress.run_id,),
+    ).fetchall()
+    # Row 2 was dispatched with the first page; row 4's page was read
+    # after the edit. Neither row substitutes a newer source ref later.
+    assert [row[0] for row in values] == ["ROW 0", "ROW 1", "ROW 2", "CHANGED"]
 
 
 @pytest.mark.parametrize("stop", ["cancel", "halt"])
 def test_local_pending_rows_drain_before_cancel_or_halt_finalization(
-    tmp_path, scope_program, monkeypatch, stop
+    make_project, scope_program, monkeypatch, stop
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, row_ids = _seed_project(make_project)
     scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
     if stop == "halt":
         scope_program.halt_on_call = 3
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-            should_cancel=(lambda _run_id: len(scope_program.calls) >= 3)
-            if stop == "cancel"
-            else None,
-        )
-        progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_program, sheet_id))
-        )
-        assert progress.cancelled
-        actual = project.db.execute(
-            "SELECT row_id FROM results WHERE run_id=? ORDER BY row_id",
-            (progress.run_id,),
-        ).fetchall()
-        run = project.db.execute(
-            "SELECT * FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        if stop == "cancel":
-            # The callback is the Stop signal. All three local results had
-            # returned into the pending batch, but cancellation closed the
-            # Change before that batch could publish any new heads.
-            assert progress.completed == 3
-            assert actual == []
-            assert run["status"] == "cancelled" and run["completed_rows"] == 0
-        else:
-            # A recipe halt is a partial execution outcome, not operator Stop;
-            # its already-returned local rows remain publishable.
-            assert progress.completed == 2
-            assert [row[0] for row in actual] == row_ids[:2]
-            assert run["status"] == "cancelled" and run["completed_rows"] == 2
-        assert scope_program.exits == 1
-    finally:
-        project.close()
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+        should_cancel=(lambda _run_id: len(scope_program.calls) >= 3)
+        if stop == "cancel"
+        else None,
+    )
+    progress = asyncio.run(
+        run_with_output_claim(runner, _spec(scope_program, sheet_id))
+    )
+    assert progress.cancelled
+    actual = project.db.execute(
+        "SELECT row_id FROM results WHERE run_id=? ORDER BY row_id",
+        (progress.run_id,),
+    ).fetchall()
+    run = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (progress.run_id,)
+    ).fetchone()
+    if stop == "cancel":
+        # The callback is the Stop signal. All three local results had
+        # returned into the pending batch, but cancellation closed the
+        # Change before that batch could publish any new heads.
+        assert progress.completed == 3
+        assert actual == []
+        assert run["status"] == "cancelled" and run["completed_rows"] == 0
+    else:
+        # A recipe halt is a partial execution outcome, not operator Stop;
+        # its already-returned local rows remain publishable.
+        assert progress.completed == 2
+        assert [row[0] for row in actual] == row_ids[:2]
+        assert run["status"] == "cancelled" and run["completed_rows"] == 2
+    assert scope_program.exits == 1
 
 
 def test_local_batch_publication_refusal_keeps_pending_rows_atomic(
-    tmp_path, scope_program, monkeypatch
+    make_project, scope_program, monkeypatch
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, row_ids = _seed_project(make_project)
     scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
@@ -424,25 +419,22 @@ def test_local_batch_publication_refusal_keeps_pending_rows_atomic(
         f"WHEN NEW.row_id={row_ids[1]} "
         "BEGIN SELECT RAISE(ABORT, 'publication refused'); END"
     )
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-        )
-        with pytest.raises(sqlite3.IntegrityError, match="publication refused"):
-            asyncio.run(run_with_output_claim(runner, _spec(scope_program, sheet_id)))
-        assert project.db.execute("SELECT count(*) FROM results").fetchone()[0] == 0
-        assert scope_program.exits == 1
-    finally:
-        project.close()
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="publication refused"):
+        asyncio.run(run_with_output_claim(runner, _spec(scope_program, sheet_id)))
+    assert project.db.execute("SELECT count(*) FROM results").fetchone()[0] == 0
+    assert scope_program.exits == 1
 
 
 def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
-    tmp_path, scope_program, monkeypatch
+    make_project, scope_program, monkeypatch
 ):
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=96)
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=96)
     scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
     progress_seen = []
@@ -463,25 +455,22 @@ def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
         progress_seen[0].cancel()
         return await asyncio.wait_for(task, timeout=2)
 
-    try:
-        progress = asyncio.run(exercise())
-        assert progress.cancelled and 0 < progress.completed < 96
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM results WHERE run_id=?", (progress.run_id,)
-            ).fetchone()[0]
-            == progress.completed
-        )
-        assert scope_program.exits == 1
-    finally:
-        project.close()
+    progress = asyncio.run(exercise())
+    assert progress.cancelled and 0 < progress.completed < 96
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=?", (progress.run_id,)
+        ).fetchone()[0]
+        == progress.completed
+    )
+    assert scope_program.exits == 1
 
 
 @pytest.mark.parametrize("failed_write", [None, "page", "clear"])
 def test_page_progress_is_best_effort_and_clears_before_the_next_row(
-    tmp_path, scope_program, monkeypatch, caplog, failed_write
+    make_project, scope_program, monkeypatch, caplog, failed_write
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=2)
     observed = []
     original_execute = scope_program.execute
     original_write = RunResultStore.set_work_progress
@@ -512,33 +501,30 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
     monkeypatch.setattr(RunResultStore, "set_work_progress", write)
     if failed_write == "clear":
         monkeypatch.setattr(RunResultStore, "clear_work_progress", fail_clear)
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-        )
-        progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_program, sheet_id))
-        )
-        assert progress.done and progress.completed == 2 and progress.failed == 0
-        run = runner.run_store.get_run(progress.run_id)
-        assert run["status"] == "completed"
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 2
-        if failed_write != "clear":
-            assert observed == [None, None]
-            assert run["work_progress"] is None
-        if failed_write is not None:
-            assert "work_progress_write_failed" in caplog.text
-    finally:
-        project.close()
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    progress = asyncio.run(
+        run_with_output_claim(runner, _spec(scope_program, sheet_id))
+    )
+    assert progress.done and progress.completed == 2 and progress.failed == 0
+    run = runner.run_store.get_run(progress.run_id)
+    assert run["status"] == "completed"
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 2
+    if failed_write != "clear":
+        assert observed == [None, None]
+        assert run["work_progress"] is None
+    if failed_write is not None:
+        assert "work_progress_write_failed" in caplog.text
 
 
 def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
-    tmp_path, scope_program, monkeypatch
+    make_project, scope_program, monkeypatch
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=2)
     original_execute = scope_program.execute
     original_write = RunResultStore.set_work_progress
     first_started = asyncio.Event()
@@ -612,60 +598,54 @@ def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
 
     monkeypatch.setattr(scope_program, "execute", execute)
     monkeypatch.setattr(RunResultStore, "set_work_progress", write)
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=2,
-            authority=UnroutedOnlyAuthority(project),
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=2,
+        authority=UnroutedOnlyAuthority(project),
+    )
+
+    async def exercise():
+        return await asyncio.wait_for(
+            run_with_output_claim(runner, _spec(scope_program, sheet_id)), timeout=5
         )
 
-        async def exercise():
-            return await asyncio.wait_for(
-                run_with_output_claim(runner, _spec(scope_program, sheet_id)), timeout=5
-            )
-
-        progress = asyncio.run(exercise())
-        assert progress.completed == 2 and progress.failed == 0
-        assert runner.run_store.get_run(progress.run_id)["work_progress"] is None
-    finally:
-        project.close()
+    progress = asyncio.run(exercise())
+    assert progress.completed == 2 and progress.failed == 0
+    assert runner.run_store.get_run(progress.run_id)["work_progress"] is None
 
 
 @pytest.mark.realtime
-def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
+def test_page_progress_does_not_wait_for_or_commit_another_write(make_project):
+    project, sheet_id, row_ids = _seed_project(make_project, rows=1)
     store = RunResultStore(project)
     op = project.append_change("map.regex_extract", {})
     run_id = store.start_run(op, sheet_id, "map.regex_extract")
     project.db.execute("PRAGMA busy_timeout=2000")
-    try:
-        with sqlite3.connect(project.db_path) as competing:
-            competing.execute("BEGIN IMMEDIATE")
-            started = time.monotonic()
-            with pytest.raises(sqlite3.OperationalError, match="locked"):
-                store.set_work_progress(
-                    run_id, files=[{"row_id": row_ids[0], "completed": 1, "total": 3}]
-                )
-            assert time.monotonic() - started < 0.5
-            assert project.db.execute("PRAGMA busy_timeout").fetchone()[0] == 2000
-            assert not project.db.in_transaction
-        store.set_work_progress(
-            run_id, files=[{"row_id": row_ids[0], "completed": 2, "total": 3}]
-        )
-        project.db.execute("UPDATE runs SET model='uncommitted' WHERE id=?", (run_id,))
-        store.clear_work_progress(run_id)
-        assert project.db.in_transaction
-        project.db.rollback()
-        run = store.get_run(run_id)
-        assert run["model"] is None
-        assert json.loads(run["work_progress"])["files"][0]["completed"] == 2
-    finally:
-        project.close()
+    with sqlite3.connect(project.db_path) as competing:
+        competing.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            store.set_work_progress(
+                run_id, files=[{"row_id": row_ids[0], "completed": 1, "total": 3}]
+            )
+        assert time.monotonic() - started < 0.5
+        assert project.db.execute("PRAGMA busy_timeout").fetchone()[0] == 2000
+        assert not project.db.in_transaction
+    store.set_work_progress(
+        run_id, files=[{"row_id": row_ids[0], "completed": 2, "total": 3}]
+    )
+    project.db.execute("UPDATE runs SET model='uncommitted' WHERE id=?", (run_id,))
+    store.clear_work_progress(run_id)
+    assert project.db.in_transaction
+    project.db.rollback()
+    run = store.get_run(run_id)
+    assert run["model"] is None
+    assert json.loads(run["work_progress"])["files"][0]["completed"] == 2
 
 
-def test_exact_ner_rechecks_fresh_output_during_prepare(tmp_path) -> None:
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
+def test_exact_ner_rechecks_fresh_output_during_prepare(make_project) -> None:
+    project, sheet_id, row_ids = _seed_project(make_project, rows=1)
     project.add_column(
         sheet_id,
         "entities",
@@ -686,42 +666,33 @@ def test_exact_ner_rechecks_fresh_output_during_prepare(tmp_path) -> None:
         "output_name": "entities",
         "row_ids": row_ids,
     }
-    try:
-        before_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-        before = project.get_column(
-            int(
-                project.db.execute(
-                    "SELECT id FROM columns WHERE name='entities'"
-                ).fetchone()[0]
-            )
-        )
-        with pytest.raises(
-            GenerationDeclarationConflict, match="no generation history"
-        ):
-            prepare_model_run(runner, spec)
-
-        after = project.get_column(int(before["id"]))
-        assert tuple(after) == tuple(before)
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
-        )
-        assert (
+    before_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before = project.get_column(
+        int(
             project.db.execute(
-                "SELECT COUNT(*) FROM run_output_generations"
+                "SELECT id FROM columns WHERE name='entities'"
             ).fetchone()[0]
-            == 0
         )
-    finally:
-        project.close()
+    )
+    with pytest.raises(GenerationDeclarationConflict, match="no generation history"):
+        prepare_model_run(runner, spec)
+
+    after = project.get_column(int(before["id"]))
+    assert tuple(after) == tuple(before)
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM run_output_generations").fetchone()[0]
+        == 0
+    )
 
 
 def test_exact_scope_rechecks_membership_inside_prepare_transaction(
-    tmp_path,
+    make_project,
     scope_program: _ScopeProgram,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=1)
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
@@ -736,16 +707,13 @@ def test_exact_scope_rechecks_membership_inside_prepare_transaction(
         return validated
 
     monkeypatch.setattr(runner, "_validate_prepare_spec", hide_row_after_validation)
-    try:
-        with pytest.raises(validation_module.InvalidTargetRows) as exc_info:
-            runner.prepare_run(
-                _spec(scope_program, sheet_id, row_ids=row_ids),
-            )
+    with pytest.raises(validation_module.InvalidTargetRows) as exc_info:
+        runner.prepare_run(
+            _spec(scope_program, sheet_id, row_ids=row_ids),
+        )
 
-        assert exc_info.value.missing == row_ids
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+    assert exc_info.value.missing == row_ids
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 def _prepare_claimed_run(
@@ -782,9 +750,9 @@ def _prepare_claimed_run(
 
 
 def test_local_dispatch_uses_prepared_source_ids_after_column_rename(
-    tmp_path, scope_program
+    make_project, scope_program
 ):
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=2)
     scope_program.batch_local_results = True
     runner = MapRunner(
         project,
@@ -793,24 +761,21 @@ def test_local_dispatch_uses_prepared_source_ids_after_column_rename(
         authority=UnroutedOnlyAuthority(project),
     )
     spec = _spec(scope_program, sheet_id)
-    try:
-        prepared, claim_token = _prepare_claimed_run(runner, spec)
-        project.db.execute(
-            "UPDATE columns SET name='renamed' WHERE id=?", (prepared.col_map["text"],)
+    prepared, claim_token = _prepare_claimed_run(runner, spec)
+    project.db.execute(
+        "UPDATE columns SET name='renamed' WHERE id=?", (prepared.col_map["text"],)
+    )
+    project.db.commit()
+    progress = asyncio.run(
+        runner.run(
+            spec,
+            prepared_run=prepared,
+            claim_token=claim_token,
         )
-        project.db.commit()
-        progress = asyncio.run(
-            runner.run(
-                spec,
-                prepared_run=prepared,
-                claim_token=claim_token,
-            )
-        )
-        assert progress.completed == len(row_ids) and progress.failed == 0
-        output = project.get_values(sheet_id, prepared.out_cols["derived"])
-        assert output == dict(zip(row_ids, ["ROW 0", "ROW 1"]))
-    finally:
-        project.close()
+    )
+    assert progress.completed == len(row_ids) and progress.failed == 0
+    output = project.get_values(sheet_id, prepared.out_cols["derived"])
+    assert output == dict(zip(row_ids, ["ROW 0", "ROW 1"]))
 
 
 async def _wait_for_started_or_task_exit(
@@ -839,291 +804,271 @@ async def _wait_for_started_or_task_exit(
 
 
 def test_scope_enters_once_for_durable_run_and_preview(
-    tmp_path, scope_program: _ScopeProgram
+    make_project, scope_program: _ScopeProgram
 ) -> None:
-    project, sheet_id, row_ids = _seed_project(tmp_path)
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=3,
-            authority=UnroutedOnlyAuthority(project),
-        )
-        progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_program, sheet_id))
-        )
+    project, sheet_id, row_ids = _seed_project(make_project)
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=3,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    progress = asyncio.run(
+        run_with_output_claim(runner, _spec(scope_program, sheet_id))
+    )
 
-        assert progress.done
-        assert progress.completed == len(row_ids)
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-        assert scope_program.expected_rows == [len(row_ids)]
+    assert progress.done
+    assert progress.completed == len(row_ids)
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
+    assert scope_program.expected_rows == [len(row_ids)]
 
-        with pytest.raises(GenerationSealedError, match="is sealed"):
-            asyncio.run(
-                run_with_output_claim(
-                    runner,
-                    _spec(scope_program, sheet_id),
-                    resume_run_id=progress.run_id,
-                )
+    with pytest.raises(GenerationSealedError, match="is sealed"):
+        asyncio.run(
+            run_with_output_claim(
+                runner,
+                _spec(scope_program, sheet_id),
+                resume_run_id=progress.run_id,
             )
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-
-        scope_program.entries = 0
-        scope_program.exits = 0
-        scope_program.expected_rows.clear()
-        preview = asyncio.run(
-            runner.preview(_spec(scope_program, sheet_id, row_ids=row_ids[:3]))
         )
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
 
-        assert preview.sampled == 3
-        assert set(preview.values) == set(row_ids[:3])
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-        assert scope_program.expected_rows == [3]
-    finally:
-        project.close()
+    scope_program.entries = 0
+    scope_program.exits = 0
+    scope_program.expected_rows.clear()
+    preview = asyncio.run(
+        runner.preview(_spec(scope_program, sheet_id, row_ids=row_ids[:3]))
+    )
+
+    assert preview.sampled == 3
+    assert set(preview.values) == set(row_ids[:3])
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
+    assert scope_program.expected_rows == [3]
 
 
 def test_scope_halt_preserves_committed_prefix_without_prefetch_deadlock(
-    tmp_path, scope_program: _ScopeProgram
+    make_project, scope_program: _ScopeProgram
 ) -> None:
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=40)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=40)
     scope_program.halt_on_call = 3
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    progress = asyncio.run(
+        asyncio.wait_for(
+            run_with_output_claim(runner, _spec(scope_program, sheet_id)),
+            timeout=2,
         )
-        progress = asyncio.run(
-            asyncio.wait_for(
-                run_with_output_claim(runner, _spec(scope_program, sheet_id)),
-                timeout=2,
-            )
-        )
+    )
 
-        assert progress.cancelled
-        assert progress.halted_code == "local_session_failed"
-        assert progress.completed == 2
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-        run = project.db.execute(
-            "SELECT * FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        params = json.loads(run["params"])
-        assert params["halted_code"] == "local_session_failed"
-        assert params["halted_reason"] == "session exited while a row was in flight"
-        completed = project.db.execute(
-            "SELECT COUNT(DISTINCT row_id) FROM results WHERE run_id=?",
+    assert progress.cancelled
+    assert progress.halted_code == "local_session_failed"
+    assert progress.completed == 2
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
+    run = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (progress.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    params = json.loads(run["params"])
+    assert params["halted_code"] == "local_session_failed"
+    assert params["halted_reason"] == "session exited while a row was in flight"
+    completed = project.db.execute(
+        "SELECT COUNT(DISTINCT row_id) FROM results WHERE run_id=?",
+        (progress.run_id,),
+    ).fetchone()[0]
+    assert completed == 2
+    pending = set(row_ids) - {
+        int(row["row_id"])
+        for row in project.db.execute(
+            "SELECT DISTINCT row_id FROM results WHERE run_id=?",
             (progress.run_id,),
-        ).fetchone()[0]
-        assert completed == 2
-        pending = set(row_ids) - {
-            int(row["row_id"])
-            for row in project.db.execute(
-                "SELECT DISTINCT row_id FROM results WHERE run_id=?",
-                (progress.run_id,),
-            )
-        }
-        assert pending == set(row_ids[2:])
-    finally:
-        project.close()
+        )
+    }
+    assert pending == set(row_ids[2:])
 
 
 def test_halted_run_recovery_uses_fresh_scoped_generation(
-    tmp_path, scope_program: _ScopeProgram
+    make_project, scope_program: _ScopeProgram
 ) -> None:
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=5)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=5)
     scope_program.halt_on_call = 3
-    try:
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
-        )
-        first = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_program, sheet_id))
-        )
-        assert first.halted_code == "local_session_failed"
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    first = asyncio.run(run_with_output_claim(runner, _spec(scope_program, sheet_id)))
+    assert first.halted_code == "local_session_failed"
 
-        scope_program.halt_on_call = None
-        scope_program.scope_run_snapshots.clear()
-        retry_spec = _spec(scope_program, sheet_id, row_ids=row_ids[2:])
-        retry_spec["overwrite"] = True
-        recovered = asyncio.run(
-            run_with_output_claim(
-                runner,
-                retry_spec,
-            )
+    scope_program.halt_on_call = None
+    scope_program.scope_run_snapshots.clear()
+    retry_spec = _spec(scope_program, sheet_id, row_ids=row_ids[2:])
+    retry_spec["overwrite"] = True
+    recovered = asyncio.run(
+        run_with_output_claim(
+            runner,
+            retry_spec,
         )
+    )
 
-        assert recovered.run_id != first.run_id
-        assert recovered.completed == 3
-        assert scope_program.scope_run_snapshots == [
-            (
-                "running",
-                {
-                    "input_columns": ["text"],
-                    "output_name": "derived",
-                    "action_kind": scope_program.name,
-                    "sheet_id": sheet_id,
-                    "row_ids": row_ids[2:],
-                    "overwrite": True,
-                },
-            )
-        ]
-        old_run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (first.run_id,)
-        ).fetchone()
-        assert old_run["status"] == "cancelled"
-        assert json.loads(old_run["params"])["halted_code"] == "local_session_failed"
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (recovered.run_id,)
-        ).fetchone()
-        assert run["status"] == "completed"
-        params = json.loads(run["params"])
-        assert "halted_code" not in params
-        assert "halted_reason" not in params
-    finally:
-        project.close()
+    assert recovered.run_id != first.run_id
+    assert recovered.completed == 3
+    assert scope_program.scope_run_snapshots == [
+        (
+            "running",
+            {
+                "input_columns": ["text"],
+                "output_name": "derived",
+                "action_kind": scope_program.name,
+                "sheet_id": sheet_id,
+                "row_ids": row_ids[2:],
+                "overwrite": True,
+            },
+        )
+    ]
+    old_run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (first.run_id,)
+    ).fetchone()
+    assert old_run["status"] == "cancelled"
+    assert json.loads(old_run["params"])["halted_code"] == "local_session_failed"
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (recovered.run_id,)
+    ).fetchone()
+    assert run["status"] == "completed"
+    params = json.loads(run["params"])
+    assert "halted_code" not in params
+    assert "halted_reason" not in params
 
 
 def test_queue_style_recovery_uses_fresh_scoped_generation(
-    tmp_path, scope_program: _ScopeProgram
+    make_project, scope_program: _ScopeProgram
 ) -> None:
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=5)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=5)
     scope_program.halt_on_call = 3
-    try:
-        first_runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            authority=UnroutedOnlyAuthority(project),
+    first_runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    first = asyncio.run(
+        run_with_output_claim(
+            first_runner,
+            _spec(scope_program, sheet_id),
         )
-        first = asyncio.run(
-            run_with_output_claim(
-                first_runner,
-                _spec(scope_program, sheet_id),
-            )
-        )
-        assert first.halted_code == "local_session_failed"
-        assert (
-            project.db.execute(
-                "SELECT status FROM runs WHERE id=?", (first.run_id,)
-            ).fetchone()[0]
-            == "cancelled"
-        )
+    )
+    assert first.halted_code == "local_session_failed"
+    assert (
+        project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (first.run_id,)
+        ).fetchone()[0]
+        == "cancelled"
+    )
 
-        scope_program.halt_on_call = None
-        scope_program.scope_run_snapshots.clear()
-        run_store = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            authority=UnroutedOnlyAuthority(project),
-        ).run_store
+    scope_program.halt_on_call = None
+    scope_program.scope_run_snapshots.clear()
+    run_store = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
+    ).run_store
 
-        def durable_cancelled(run_id: int) -> bool:
-            row = run_store.get_run(run_id)
-            return bool(row and row["status"] == "cancelled")
+    def durable_cancelled(run_id: int) -> bool:
+        row = run_store.get_run(run_id)
+        return bool(row and row["status"] == "cancelled")
 
-        queued_runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            concurrency=1,
-            should_cancel=durable_cancelled,
-            authority=UnroutedOnlyAuthority(project),
+    queued_runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        concurrency=1,
+        should_cancel=durable_cancelled,
+        authority=UnroutedOnlyAuthority(project),
+    )
+    retry_spec = _spec(scope_program, sheet_id, row_ids=row_ids[2:])
+    retry_spec["overwrite"] = True
+    recovered = asyncio.run(
+        run_with_output_claim(
+            queued_runner,
+            retry_spec,
         )
-        retry_spec = _spec(scope_program, sheet_id, row_ids=row_ids[2:])
-        retry_spec["overwrite"] = True
-        recovered = asyncio.run(
-            run_with_output_claim(
-                queued_runner,
-                retry_spec,
-            )
-        )
+    )
 
-        assert recovered.run_id != first.run_id
-        assert recovered.completed == 3
-        assert recovered.cancelled is False
-        assert scope_program.scope_run_snapshots == [
-            (
-                "running",
-                {
-                    "input_columns": ["text"],
-                    "output_name": "derived",
-                    "action_kind": scope_program.name,
-                    "sheet_id": sheet_id,
-                    "row_ids": row_ids[2:],
-                    "overwrite": True,
-                },
-            )
-        ]
-        old_run = run_store.get_run(first.run_id)
-        assert old_run["status"] == "cancelled"
-        run = run_store.get_run(recovered.run_id)
-        assert run["status"] == "completed"
-        params = json.loads(run["params"])
-        assert "halted_code" not in params
-        assert "halted_reason" not in params
-    finally:
-        project.close()
+    assert recovered.run_id != first.run_id
+    assert recovered.completed == 3
+    assert recovered.cancelled is False
+    assert scope_program.scope_run_snapshots == [
+        (
+            "running",
+            {
+                "input_columns": ["text"],
+                "output_name": "derived",
+                "action_kind": scope_program.name,
+                "sheet_id": sheet_id,
+                "row_ids": row_ids[2:],
+                "overwrite": True,
+            },
+        )
+    ]
+    old_run = run_store.get_run(first.run_id)
+    assert old_run["status"] == "cancelled"
+    run = run_store.get_run(recovered.run_id)
+    assert run["status"] == "completed"
+    params = json.loads(run["params"])
+    assert "halted_code" not in params
+    assert "halted_reason" not in params
 
 
 def test_pre_cancel_and_zero_work_never_enter_scope(
-    tmp_path, scope_program: _ScopeProgram
+    make_project, scope_program: _ScopeProgram
 ) -> None:
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
-    try:
-        cancelled = asyncio.run(
-            run_with_output_claim(
-                MapRunner(
-                    project,
-                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                    should_cancel=lambda _run_id: True,
-                    authority=UnroutedOnlyAuthority(project),
-                ),
-                _spec(scope_program, sheet_id),
-            )
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=2)
+    cancelled = asyncio.run(
+        run_with_output_claim(
+            MapRunner(
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                should_cancel=lambda _run_id: True,
+                authority=UnroutedOnlyAuthority(project),
+            ),
+            _spec(scope_program, sheet_id),
         )
-        assert cancelled.cancelled
-        assert scope_program.entries == 0
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (cancelled.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        params = json.loads(run["params"])
-        assert "halted_code" not in params
-        assert "halted_reason" not in params
+    )
+    assert cancelled.cancelled
+    assert scope_program.entries == 0
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (cancelled.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    params = json.loads(run["params"])
+    assert "halted_code" not in params
+    assert "halted_reason" not in params
 
-        empty_project, empty_sheet, _ = _seed_project(tmp_path / "empty", rows=0)
-        try:
-            empty = asyncio.run(
-                run_with_output_claim(
-                    MapRunner(
-                        empty_project,
-                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                        authority=UnroutedOnlyAuthority(empty_project),
-                    ),
-                    _spec(scope_program, empty_sheet),
-                )
-            )
-            assert empty.total == 0
-            assert scope_program.entries == 0
-        finally:
-            empty_project.close()
-    finally:
-        project.close()
+    empty_project, empty_sheet, _ = _seed_project(make_project, name="empty", rows=0)
+    empty = asyncio.run(
+        run_with_output_claim(
+            MapRunner(
+                empty_project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                authority=UnroutedOnlyAuthority(empty_project),
+            ),
+            _spec(scope_program, empty_sheet),
+        )
+    )
+    assert empty.total == 0
+    assert scope_program.entries == 0
 
 
 def test_outer_cancellation_joins_workers_before_scope_exit(
-    tmp_path, scope_program: _ScopeProgram, monkeypatch
+    make_project, scope_program: _ScopeProgram, monkeypatch
 ) -> None:
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=4)
     scope_program.block = True
     original_execute = scope_program.execute
 
@@ -1157,39 +1102,36 @@ def test_outer_cancellation_joins_workers_before_scope_exit(
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
 
-    try:
-        asyncio.run(exercise())
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-        run = project.db.execute(
-            "SELECT status, current_attempt_id, work_progress FROM runs WHERE id=?",
-            (prepared.run_id,),
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        assert run["work_progress"] is None
-        assert isinstance(run["current_attempt_id"], str)
-        attempt = project.db.execute(
-            "SELECT state FROM execution_attempts WHERE id=?",
-            (run["current_attempt_id"],),
-        ).fetchone()
-        assert attempt is not None
-        assert attempt["state"] == "dispatching"
-        assert (
-            project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
-                (claim_token,),
-            ).fetchone()[0]
-            == "active"
-        )
-    finally:
-        project.close()
+    asyncio.run(exercise())
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
+    run = project.db.execute(
+        "SELECT status, current_attempt_id, work_progress FROM runs WHERE id=?",
+        (prepared.run_id,),
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert run["work_progress"] is None
+    assert isinstance(run["current_attempt_id"], str)
+    attempt = project.db.execute(
+        "SELECT state FROM execution_attempts WHERE id=?",
+        (run["current_attempt_id"],),
+    ).fetchone()
+    assert attempt is not None
+    assert attempt["state"] == "dispatching"
+    assert (
+        project.db.execute(
+            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            (claim_token,),
+        ).fetchone()[0]
+        == "active"
+    )
 
 
 def test_outer_cancellation_fenced_terminalizes_batch_run_before_reraise(
-    tmp_path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=4)
     program = _BatchScopeProgram()
     program.block = True
     original_get_action_program = validation_module.get_action_program
@@ -1221,35 +1163,32 @@ def test_outer_cancellation_fenced_terminalizes_batch_run_before_reraise(
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
 
-    try:
-        asyncio.run(exercise())
-        run = project.db.execute(
-            "SELECT status, current_attempt_id FROM runs WHERE id=?",
-            (prepared.run_id,),
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        assert isinstance(run["current_attempt_id"], str)
-        attempt = project.db.execute(
-            "SELECT state FROM execution_attempts WHERE id=?",
-            (run["current_attempt_id"],),
-        ).fetchone()
-        assert attempt is not None
-        assert attempt["state"] == "dispatching"
-        assert (
-            project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
-                (claim_token,),
-            ).fetchone()[0]
-            == "active"
-        )
-    finally:
-        project.close()
+    asyncio.run(exercise())
+    run = project.db.execute(
+        "SELECT status, current_attempt_id FROM runs WHERE id=?",
+        (prepared.run_id,),
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert isinstance(run["current_attempt_id"], str)
+    attempt = project.db.execute(
+        "SELECT state FROM execution_attempts WHERE id=?",
+        (run["current_attempt_id"],),
+    ).fetchone()
+    assert attempt is not None
+    assert attempt["state"] == "dispatching"
+    assert (
+        project.db.execute(
+            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            (claim_token,),
+        ).fetchone()[0]
+        == "active"
+    )
 
 
 def test_persistence_failure_still_joins_workers_and_exits_scope(
-    tmp_path, scope_program: _ScopeProgram, monkeypatch: pytest.MonkeyPatch
+    make_project, scope_program: _ScopeProgram, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=12)
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=12)
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
@@ -1268,129 +1207,114 @@ def test_persistence_failure_still_joins_workers_and_exits_scope(
         raise RuntimeError("forced persistence failure")
 
     monkeypatch.setattr(runner.run_store, "write_results", fail_write)
-    try:
-        with pytest.raises(RuntimeError, match="forced persistence failure"):
-            asyncio.run(
-                asyncio.wait_for(
-                    run_with_output_claim(
-                        runner,
-                        _spec(scope_program, sheet_id),
-                    ),
-                    timeout=2,
-                )
+    with pytest.raises(RuntimeError, match="forced persistence failure"):
+        asyncio.run(
+            asyncio.wait_for(
+                run_with_output_claim(
+                    runner,
+                    _spec(scope_program, sheet_id),
+                ),
+                timeout=2,
             )
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-    finally:
-        project.close()
+        )
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
 
 
 def test_unprovable_sandbox_teardown_escapes_row_error_boundary(
-    tmp_path, scope_program: _ScopeProgram
+    make_project, scope_program: _ScopeProgram
 ) -> None:
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=4)
     scope_program.error_on_call = (
         2,
         SandboxTeardownError("owned process tree is still alive"),
     )
-    try:
-        with pytest.raises(SandboxTeardownError, match="still alive") as caught:
-            failing_runner = MapRunner(
-                project,
-                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                concurrency=1,
-                authority=UnroutedOnlyAuthority(project),
-            )
-            asyncio.run(
-                run_with_output_claim(
-                    failing_runner,
-                    _spec(scope_program, sheet_id),
-                )
-            )
-        assert len(scope_program.calls) == 2
-        assert scope_program.entries == 1
-        assert scope_program.exits == 1
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 1
-        run = project.db.execute(
-            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert caught.value.run_id == run["id"]
-        assert run["status"] == "cancelled"
-        params = json.loads(run["params"])
-        assert params["halted_code"] == "local_session_failed"
-        assert "still alive" not in params["halted_reason"]
-        output = next(
-            column
-            for column in project.columns(sheet_id)
-            if column["name"] == "derived"
-        )
-        assert output["current_run_id"] == run["id"]
-    finally:
-        project.close()
-
-
-def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
-    tmp_path, scope_program: _ScopeProgram, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
-    try:
-        first_runner = MapRunner(
+    with pytest.raises(SandboxTeardownError, match="still alive") as caught:
+        failing_runner = MapRunner(
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            concurrency=1,
             authority=UnroutedOnlyAuthority(project),
         )
-        first = asyncio.run(
+        asyncio.run(
             run_with_output_claim(
-                first_runner,
+                failing_runner,
                 _spec(scope_program, sheet_id),
             )
         )
-        output_column = next(
-            column
-            for column in project.columns(sheet_id)
-            if column["name"] == "derived"
-        )
-        assert output_column["current_run_id"] == first.run_id
+    assert len(scope_program.calls) == 2
+    assert scope_program.entries == 1
+    assert scope_program.exits == 1
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 1
+    run = project.db.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+    assert caught.value.run_id == run["id"]
+    assert run["status"] == "cancelled"
+    params = json.loads(run["params"])
+    assert params["halted_code"] == "local_session_failed"
+    assert "still alive" not in params["halted_reason"]
+    output = next(
+        column for column in project.columns(sheet_id) if column["name"] == "derived"
+    )
+    assert output["current_run_id"] == run["id"]
 
-        scope_program.halt_on_entry = ActionProgramInvocationHalt(
-            "local_engine_busy", "another invocation owns the local engine"
-        )
-        second_runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            authority=UnroutedOnlyAuthority(project),
-        )
 
-        def fail_finish(*_args: Any, **_kwargs: Any) -> None:
-            raise RuntimeError("forced finalize interruption")
+def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
+    make_project, scope_program: _ScopeProgram, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=2)
+    first_runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    first = asyncio.run(
+        run_with_output_claim(
+            first_runner,
+            _spec(scope_program, sheet_id),
+        )
+    )
+    output_column = next(
+        column for column in project.columns(sheet_id) if column["name"] == "derived"
+    )
+    assert output_column["current_run_id"] == first.run_id
 
-        monkeypatch.setattr(second_runner.run_store, "finish_run", fail_finish)
-        with pytest.raises(RuntimeError, match="forced finalize interruption"):
-            asyncio.run(
-                run_with_output_claim(
-                    second_runner,
-                    _spec(scope_program, sheet_id),
-                )
+    scope_program.halt_on_entry = ActionProgramInvocationHalt(
+        "local_engine_busy", "another invocation owns the local engine"
+    )
+    second_runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
+    )
+
+    def fail_finish(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("forced finalize interruption")
+
+    monkeypatch.setattr(second_runner.run_store, "finish_run", fail_finish)
+    with pytest.raises(RuntimeError, match="forced finalize interruption"):
+        asyncio.run(
+            run_with_output_claim(
+                second_runner,
+                _spec(scope_program, sheet_id),
             )
+        )
 
-        second = project.db.execute(
-            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert second["id"] != first.run_id
-        assert second["status"] == "running"
-        second_params = json.loads(second["params"])
-        assert "halted_code" not in second_params
-        assert "halted_reason" not in second_params
-        pointer = project.db.execute(
-            "SELECT current_run_id FROM columns WHERE id=?", (output_column["id"],)
-        ).fetchone()[0]
-        assert pointer == first.run_id
-    finally:
-        project.close()
+    second = project.db.execute(
+        "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert second["id"] != first.run_id
+    assert second["status"] == "running"
+    second_params = json.loads(second["params"])
+    assert "halted_code" not in second_params
+    assert "halted_reason" not in second_params
+    pointer = project.db.execute(
+        "SELECT current_run_id FROM columns WHERE id=?", (output_column["id"],)
+    ).fetchone()[0]
+    assert pointer == first.run_id
 
 
 def test_batch_run_and_preview_each_own_one_execution_scope(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     program = _BatchScopeProgram()
     original_get_action_program = validation_module.get_action_program
@@ -1401,26 +1325,23 @@ def test_batch_run_and_preview_each_own_one_execution_scope(
             program if name == program.name else original_get_action_program(name)
         ),
     )
-    project, sheet_id, row_ids = _seed_project(tmp_path, rows=3)
+    project, sheet_id, row_ids = _seed_project(make_project, rows=3)
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         authority=UnroutedOnlyAuthority(project),
     )
-    try:
-        progress = asyncio.run(run_with_output_claim(runner, _spec(program, sheet_id)))
-        preview = asyncio.run(runner.preview(_spec(program, sheet_id, row_ids=row_ids)))
-        assert progress.completed == 3
-        assert preview.sampled == 3
-        assert program.entries == 2
-        assert program.exits == 2
-        assert program.expected_rows == [3, 3]
-    finally:
-        project.close()
+    progress = asyncio.run(run_with_output_claim(runner, _spec(program, sheet_id)))
+    preview = asyncio.run(runner.preview(_spec(program, sheet_id, row_ids=row_ids)))
+    assert progress.completed == 3
+    assert preview.sampled == 3
+    assert program.entries == 2
+    assert program.exits == 2
+    assert program.expected_rows == [3, 3]
 
 
 def test_batch_recipe_never_flattens_unprovable_teardown(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     program = _BatchScopeProgram()
     program.batch_error = SandboxTeardownError("owned process tree is still alive")
@@ -1432,36 +1353,31 @@ def test_batch_recipe_never_flattens_unprovable_teardown(
             program if name == program.name else original_get_action_program(name)
         ),
     )
-    project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
-    try:
-        with pytest.raises(SandboxTeardownError, match="still alive") as caught:
-            runner = MapRunner(
-                project,
-                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                authority=UnroutedOnlyAuthority(project),
-            )
-            asyncio.run(
-                run_with_output_claim(
-                    runner,
-                    _spec(program, sheet_id),
-                )
-            )
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
-        run = project.db.execute(
-            "SELECT id, status, params FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert caught.value.run_id == run["id"]
-        assert run["status"] == "cancelled"
-        params = json.loads(run["params"])
-        assert params["halted_code"] == "local_session_failed"
-        output = next(
-            column
-            for column in project.columns(sheet_id)
-            if column["name"] == "derived"
+    project, sheet_id, _row_ids = _seed_project(make_project, rows=2)
+    with pytest.raises(SandboxTeardownError, match="still alive") as caught:
+        runner = MapRunner(
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            authority=UnroutedOnlyAuthority(project),
         )
-        assert output["current_run_id"] == run["id"]
-    finally:
-        project.close()
+        asyncio.run(
+            run_with_output_claim(
+                runner,
+                _spec(program, sheet_id),
+            )
+        )
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
+    run = project.db.execute(
+        "SELECT id, status, params FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert caught.value.run_id == run["id"]
+    assert run["status"] == "cancelled"
+    params = json.loads(run["params"])
+    assert params["halted_code"] == "local_session_failed"
+    output = next(
+        column for column in project.columns(sheet_id) if column["name"] == "derived"
+    )
+    assert output["current_run_id"] == run["id"]
 
 
 def test_owned_task_join_prioritizes_sibling_teardown_failure() -> None:

@@ -1,6 +1,7 @@
 """Grouped message rendering and keyed publication on the ordinary row runner."""
 
 import json
+from typing import Any
 
 from frisket.ops.base import ActionProgram, RenderedCall
 from frisket.engine.store.keyed_updates import observe, reconcile_fields
@@ -21,7 +22,9 @@ class GroupSummaryProgram(ActionProgram):
             max_concurrency=1,
             disable_failure_halt=True,
         )
-        self.params, self.publication = params, publication
+        self._params = params
+        self.publication = publication
+        self.group_keys: dict[int, Any] = {}
 
     def source_columns(self, spec):
         return []
@@ -30,7 +33,7 @@ class GroupSummaryProgram(ActionProgram):
         return [
             {
                 "key": "summary",
-                "name": self.params.summary_column_name,
+                "name": self._params.summary_column_name,
                 "column_type": "text",
             }
         ]
@@ -40,7 +43,7 @@ class GroupSummaryProgram(ActionProgram):
 
     def model_response_data(self, response, spec):
         return {
-            self.params.summary_column_name: response.content
+            self._params.summary_column_name: response.content
             if response.content is not None
             else json.dumps(response.data or {}, sort_keys=True)
         }
@@ -52,14 +55,14 @@ class GroupSummaryProgram(ActionProgram):
         for result in batch:
             row_id, column_id = result["row_id"], result["column_id"]
             value, error = result.get("value"), result.get("error")
-            if self.params.refresh_target:
+            if self._params.refresh_target:
                 current, baseline, hidden = publication.before[row_id]
                 field = str(column_id)
                 changes, restore = reconcile_fields(
                     current,
                     {field: value},
                     baseline,
-                    self.params.refresh_target.policy,
+                    self._params.refresh_target.policy,
                     deleted=hidden,
                 )
                 if restore:

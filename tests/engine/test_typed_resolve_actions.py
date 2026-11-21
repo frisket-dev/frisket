@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -177,38 +176,35 @@ def test_text_resolve_transforms_publish_one_atomic_column(
     ],
 )
 def test_fill_missing_preserves_zero_and_widens_only_when_needed(
-    tmp_path: Path,
+    make_project,
     source_type: str,
     values: list[Any],
     params: dict[str, Any],
     expected_type: str,
     expected: list[Any],
 ) -> None:
-    project = Project.create(tmp_path / f"{source_type}.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        column_id = project.add_column(sheet_id, "source", type=source_type)
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"source": value} for value in values],
-            {"source": column_id},
-        )
-        result = run_action_spec(
-            project,
-            _request("resolve.fill_missing", sheet_id, params, key="fill"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        assert _output_values(project, sheet_id, row_ids, "cleaned") == (
-            expected_type,
-            expected,
-        )
-        op = project.db.execute(
-            "SELECT label FROM ops WHERE id=?", (result.op_ids[0],)
-        ).fetchone()
-        assert op is not None and op["label"] == "fill source → cleaned"
-    finally:
-        project.close()
+    project = make_project(source_type)
+    sheet_id = project.add_sheet("data")
+    column_id = project.add_column(sheet_id, "source", type=source_type)
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"source": value} for value in values],
+        {"source": column_id},
+    )
+    result = run_action_spec(
+        project,
+        _request("resolve.fill_missing", sheet_id, params, key="fill"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    assert _output_values(project, sheet_id, row_ids, "cleaned") == (
+        expected_type,
+        expected,
+    )
+    op = project.db.execute(
+        "SELECT label FROM ops WHERE id=?", (result.op_ids[0],)
+    ).fetchone()
+    assert op is not None and op["label"] == "fill source → cleaned"
 
 
 def test_fill_missing_does_not_repair_an_invalid_typed_source_value(

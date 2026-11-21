@@ -13,7 +13,7 @@ from frisket.actions.types import RowError
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.media_blobs import owned_media_metadata_document
-from frisket.features.url_classification import (
+from frisket.url_classification import (
     classify_url,
     is_supported_ytdlp_media_url,
 )

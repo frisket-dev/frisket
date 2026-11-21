@@ -42,7 +42,7 @@ from frisket.contracts.plugin import (
     LoadedPluginManifest,
 )
 from frisket.engine.store import Project
-from frisket.features.url_classification.matchers import UrlMatcher
+from frisket.url_classification.matchers import UrlMatcher
 
 
 @dataclass(frozen=True)
@@ -115,7 +115,7 @@ def project_runtime_binding(
     if (
         handler_api.endswith("_subprocess")
         or handler_api == "plugin_typed_action_native"
-    ) and not _safe_bool(install_state.get("executable_handlers_allowed")):
+    ) and not _safe_bool((install_state or {}).get("executable_handlers_allowed")):
         return None
     return binding
 
@@ -260,7 +260,7 @@ def _register_backend_contribution_metadata(
     # so it registers here on the always-run metadata path (not gated behind
     # executableHandlersAllowed).
     # register_plugin_matchers re-applies the trust caps as defense in depth.
-    from frisket.features.url_classification.plugin_matchers import (
+    from frisket.url_classification.plugin_matchers import (
         register_plugin_matchers,
     )
 
@@ -294,7 +294,7 @@ def _validated_backend_contribution_metadata(
         importer_ids=list(plan.importer_ids),
         job_handler_ids=list(plan.job_handler_ids),
     )
-    from frisket.features.url_classification.plugin_matchers import (
+    from frisket.url_classification.plugin_matchers import (
         _validate_plugin_matchers,
     )
 
@@ -309,7 +309,7 @@ def _snapshot_backend_contributions(
     contributes = loaded.manifest.contributes
     importer_specs = {spec.name: spec for spec in registry.importer_specs()}
     job_handler_specs = {spec.kind: spec for spec in registry.job_handler_specs()}
-    from frisket.features.url_classification.registry import registered_matchers
+    from frisket.url_classification.registry import registered_matchers
 
     matchers = {matcher.matcher_id: matcher for matcher in registered_matchers()}
     runtime_bindings: dict[str, dict[str, RuntimeBindingSpec | None]] = {}
@@ -379,7 +379,7 @@ def _restore_backend_contributions(
             ),
         )
 
-    from frisket.features.url_classification.registry import (
+    from frisket.url_classification.registry import (
         _restore_matcher,
     )
 
@@ -571,7 +571,8 @@ def _validated_executable_job_handlers(
     registry = default_registry()
     existing_specs = {spec.kind: spec for spec in registry.job_handler_specs()}
     for binding in bindings:
-        if not binding.handler_key.startswith(f"{plugin_id}:"):
+        handler_key = binding.handler_key
+        if not handler_key or not handler_key.startswith(f"{plugin_id}:"):
             raise WorkbenchPluginActivationError(
                 "plugin_backend_activation_handler_binding_invalid",
                 "runtime job handler key must be namespaced by the plugin id",
@@ -583,7 +584,7 @@ def _validated_executable_job_handlers(
                 "runtime job handler binding must reference a declared contribution",
                 status_code=409,
             )
-        handler = get_trusted_backend_handler(binding.handler_key)
+        handler = get_trusted_backend_handler(handler_key)
         if handler is None:
             raise WorkbenchPluginActivationError(
                 "plugin_backend_activation_handler_key_unknown",
@@ -661,7 +662,8 @@ def _validated_executable_runtime_bindings(
             spec.kind: spec for spec in registry.runtime_binding_specs(binding_type)
         }
         for binding in bindings:
-            if not binding.handler_key.startswith(f"{plugin_id}:"):
+            handler_key = binding.handler_key
+            if not handler_key or not handler_key.startswith(f"{plugin_id}:"):
                 raise WorkbenchPluginActivationError(
                     "plugin_backend_activation_runtime_binding_invalid",
                     "runtime binding handler key must be namespaced by the plugin id",
@@ -767,7 +769,7 @@ def _validated_executable_runtime_bindings(
                     "metadata": metadata,
                 }
                 continue
-            handler = get_trusted_backend_handler(binding.handler_key)
+            handler = get_trusted_backend_handler(handler_key)
             if handler is None:
                 raise WorkbenchPluginActivationError(
                     "plugin_backend_activation_runtime_handler_key_unknown",
@@ -777,7 +779,7 @@ def _validated_executable_runtime_bindings(
             validated[binding_type][binding.kind] = {
                 "handler": handler,
                 "handler_api": "envelope",
-                "handler_key": binding.handler_key,
+                "handler_key": handler_key,
                 "metadata": {},
             }
     return validated
@@ -978,12 +980,13 @@ def _trusted_local_executable_binding_metadata(
         plugin_root=plugin_root,
         module_path=module_path,
     )
+    raw_package_identity = manifest_ref.get("package_identity")
     return {
         "module_path": module_path,
         "plugin_root": str(plugin_root),
         "manifest_sha256": loaded.sha256,
-        "package_identity": dict(manifest_ref.get("package_identity"))
-        if isinstance(manifest_ref.get("package_identity"), dict)
+        "package_identity": dict(raw_package_identity)
+        if isinstance(raw_package_identity, dict)
         else None,
         "package_sha256": str(manifest_ref.get("package_sha256") or ""),
         "module_sha256": module_identity["sha256"],

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { stubPdfTableProducer } from './pdfTableFixtures';
 import {
+  REPO_ROOT,
   createProject,
   editCells,
   importCsv,
@@ -24,11 +25,6 @@ import {
 } from './helpers';
 import type { JsonValue } from '../../src/api/types';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 // The extract_pdf_tables end state: a materialized JSON list column.
 function addJsonColumn(pid: string, sheetId: number, name: string): number {

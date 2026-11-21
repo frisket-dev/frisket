@@ -570,18 +570,23 @@ def _classify_cost_basis(
     # The durable identity deliberately omits unset defaults. Execution already
     # has validated typed Params; use the same fully populated fields for cost.
     params = program._params.model_dump(mode="json")
-    question_builder, estimate_tokens = clef_questions, estimate_clef_input_tokens
+    context = classification_context(params)
     if engine == "openai-decisions":
         from frisket.contracts.decisions import (
             decisions_questions,
             estimate_decisions_tokens,
         )
 
-        question_builder, estimate_tokens = (
-            decisions_questions,
-            estimate_decisions_tokens,
-        )
-    questions = question_builder(params["fields"], classification_context(params))
+        decisions_qs = decisions_questions(params["fields"], context)
+
+        def estimate_row_tokens(text: str) -> int:
+            return estimate_decisions_tokens(text, decisions_qs)
+    else:
+        clef_qs = clef_questions(params["fields"], context)
+
+        def estimate_row_tokens(text: str) -> int:
+            return estimate_clef_input_tokens(text, clef_qs)
+
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     input_tokens = 0
     for row_id in target_rows(project, dict(spec)):
@@ -590,7 +595,7 @@ def _classify_cost_basis(
         )
         text = classification_text(values)
         if text.strip():
-            input_tokens += estimate_tokens(text, questions)
+            input_tokens += estimate_row_tokens(text)
     return estimate_classify(
         target_id=target_id,
         engine=engine,
@@ -1492,20 +1497,20 @@ def project_uncovered_user_claims(
         # The rated retail quote is what the user will pay. It governs
         # allowance; neutral provider cost bounds retain their own rates.
         estimated = estimated_usd(json.loads(quote_json))
-        preapproved = (
+        within_allowance = (
             estimated is not None and Decimal(str(estimated)) <= effective.threshold_usd
         )
     else:
         # Before a quote is attached, only known bounded costs can be covered.
         costs = [p for p in claims if p.field == "cost"]
-        preapproved = bool(costs) and all(
+        within_allowance = bool(costs) and all(
             p.op == "le"
             and (bound := _bound_decimal(p.value)) is not None
             and bound <= effective.threshold_usd
             for p in costs
         )
-    preapproved_payer: Promise | None = None
-    if preapproved and quote_json is not None:
+    allowance_payer: Promise | None = None
+    if within_allowance and quote_json is not None:
         from frisket.cloud_execution import CloudPayerSubject
         from frisket.project_settings import read_project_settings
 
@@ -1521,13 +1526,13 @@ def project_uncovered_user_claims(
                 settings.cloud_user_id,
                 settings.cloud_account_id,
             ):
-                preapproved_payer = claim
+                allowance_payer = claim
     uncovered = [
         p
         for p in claims
         if not (
-            preapproved
-            and (p.field in {"cost", "egress_class"} or p == preapproved_payer)
+            within_allowance
+            and (p.field in {"cost", "egress_class"} or p == allowance_payer)
         )
     ]
     if not uncovered or spec is None or run_id is None:
@@ -1660,11 +1665,12 @@ def record_resolved_execution(
     from frisket.execution.attempt import _attempt_owner
 
     _attempt_owner(run_id, receipt_id)
-    store = (
-        RouteStore.for_receipt(project, receipt_id)
-        if receipt_id is not None
-        else RouteStore.for_run(project, run_id)
-    )
+    if receipt_id is not None:
+        store = RouteStore.for_receipt(project, receipt_id)
+    elif run_id is not None:
+        store = RouteStore.for_run(project, run_id)
+    else:
+        raise ValueError("route writer requires run_id or receipt_id")
     # The route row's authored options are the CAPABILITY's option set; the
     # capability comes off the selected support row rather than off the spec,
     # so what is recorded is what was resolved.

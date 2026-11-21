@@ -270,7 +270,6 @@ def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
         assert conflict.status == "failed"
         assert conflict.errors[0].code == "idempotency_conflict"
     finally:
-        project.close()
         unregister_column_type("geo_once")
 
 

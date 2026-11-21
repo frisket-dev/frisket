@@ -16,7 +16,6 @@ from frisket.ops.cluster_fingerprint import (
     fingerprint,
     ngram_fingerprint,
 )
-from frisket.engine.store import Project
 
 # SAO_PAULO_NGRAM_PAIR is the shared single source of truth for this exact
 # claim, cross-checked against the real fingerprint()/ngram_fingerprint() in
@@ -49,18 +48,17 @@ def test_ngram_catches_single_token_typo_fingerprint_misses():
     # the interesting collisions are order/space ones asserted above)
 
 
-def _seed(tmp_path, values):
-    p = Project.create(tmp_path / "t.frisket", name="t")
+def _seed(p, values):
     sheet = p.add_sheet("data")
     cols = {"org": p.add_column(sheet, "org")}
     p.add_rows(sheet, [{"org": v} for v in values], cols)
-    return p, sheet
+    return sheet
 
 
-def test_ngram_method_groups_spacing_variants(tmp_path):
-    p, sid = _seed(tmp_path, [_SAO_PAULO, _SAOPAULO, "sao paulo", "Rio de Janeiro"])
+def test_ngram_method_groups_spacing_variants(project):
+    sid = _seed(project, [_SAO_PAULO, _SAOPAULO, "sao paulo", "Rio de Janeiro"])
     # fingerprint keys "Sao Paulo" and "SaoPaulo" differently (token boundary)
-    fp_clusters = compute_clusters(p, sid, "org")
+    fp_clusters = compute_clusters(project, sid, "org")
     assert (
         all(
             {_SAO_PAULO, _SAOPAULO} - {v["value"] for v in c["values"]}
@@ -69,11 +67,10 @@ def test_ngram_method_groups_spacing_variants(tmp_path):
         or fp_clusters == []
     )
     # ngram collapses them
-    ng_clusters = compute_clusters(p, sid, "org", key_fn=ngram_fingerprint)
+    ng_clusters = compute_clusters(project, sid, "org", key_fn=ngram_fingerprint)
     grouped = [{v["value"] for v in c["values"]} for c in ng_clusters]
     assert {_SAO_PAULO, _SAOPAULO, "sao paulo"} in grouped
     # identical cluster shape
     for c in ng_clusters:
         assert set(c) == {"key", "canonical", "size", "values", "row_ids"}
         assert all(set(v) == {"value", "count"} for v in c["values"])
-    p.close()

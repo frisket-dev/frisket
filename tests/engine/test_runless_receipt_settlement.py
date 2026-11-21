@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
@@ -27,12 +28,11 @@ def _find_action() -> dict[str, Any]:
 
 
 def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    tmp_path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor.action_inventory import ExecutorDeps
     from frisket.engine.jobs.queue import open_queue
-    from frisket.engine.store import Project
     from frisket.execution.provider import open_execution_composition
     from frisket.server.action_enqueue import (
         QueuedV1ActionRunContext,
@@ -40,7 +40,7 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
     )
 
     project_id = "runless-context"
-    project = Project.create(tmp_path / f"{project_id}.frisket")
+    project = make_project(project_id)
     queue = open_queue(workspace=tmp_path)
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
@@ -116,7 +116,6 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
         assert json.loads(preserved["edition_run_context"]) == original_context
     finally:
         queue.close()
-        project.close()
 
 
 class _ReceiptObservation:
@@ -322,15 +321,14 @@ def _runless_handler_case(
             trusted_organization_id=trusted_organization_id
         ),
     )
-    observed_project = Project(tmp_path / f"{trusted_project_id}.frisket")
-    try:
+    with closing(
+        Project(tmp_path / f"{trusted_project_id}.frisket")
+    ) as observed_project:
         settlement.read(
             project=observed_project,
             project_id=trusted_project_id,
             receipt_id=result["receipt_id"],
         )
-    finally:
-        observed_project.close()
     return settlement, result
 
 

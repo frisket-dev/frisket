@@ -4,7 +4,7 @@ import type { MeInfo } from './types';
 
 interface ProfilePatchInput {
   display_name?: string | null;
-  cost_preapproval_usd?: string | null;
+  allowance_usd?: string | null;
 }
 
 export function createIdentityProfileApi() {

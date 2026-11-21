@@ -213,7 +213,7 @@ def test_llm_catalog_entry_reflects_all_effective_provider_keys(monkeypatch, tmp
         monkeypatch.delenv(env, raising=False)
     engines = _ner_engines()
     llm_entry = _by_id(engines, "llm")
-    assert llm_entry["tier"] == "hosted"
+    assert llm_entry["tier"] == "remote"
     assert llm_entry["billable"] is True
     assert llm_entry["available"] is False
     assert llm_entry["error"]

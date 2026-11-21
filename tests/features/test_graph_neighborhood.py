@@ -84,7 +84,7 @@ def _seed_followthemoney(
     """Seed the FtM-shaped sheets the graph feature reads by importing the fixture
     through the frisket.ftm plugin's WritePlan mechanism (the core import action kind
     was removed in ftm-bundled-plugin-v1; the WritePlan path builds identical sheets)."""
-    from frisket.features.followthemoney.import_planner import (
+    from frisket.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
     from ftm_migration_harness import import_via_write_plan

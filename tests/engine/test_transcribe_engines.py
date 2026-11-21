@@ -959,7 +959,7 @@ def test_declared_openrouter_model_does_not_inherit_mai_request_options(
     declaration = EngineDeclaration(
         id="openrouter/example-transcribe",
         label="Example transcription",
-        tier="hosted",
+        tier="remote",
         provider="openrouter",
         transcription=TranscriptionEngineCapabilities(
             transport="remote", language_mode="single", detects_language=False

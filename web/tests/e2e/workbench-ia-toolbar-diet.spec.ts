@@ -40,7 +40,7 @@ const REMOVED_TOOLBAR_TESTIDS = [
 // overflow is closed, present (same testids) once it opens.
 const OVERFLOW_HOSTED_TESTIDS = [
   'row-height-select',
-  'open-saved-views-submenu',
+  'open-views-submenu',
   'open-provenance-manifest',
 ];
 
@@ -166,8 +166,8 @@ test('⋯ overflow hosts wrap / row-height / views / provenance and each works',
 
   // Views opens the views panel.
   await openOverflow();
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('views-panel')).toBeVisible();
 
   // Provenance opens the manifest.

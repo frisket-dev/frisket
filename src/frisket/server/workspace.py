@@ -111,7 +111,7 @@ class ImportChildAdmissionPort(Protocol):
         project_id: str,
         parent_receipt_id: str,
         child_key: str,
-        quote: Mapping[str, Any],
+        estimate: Mapping[str, Any],
         receipt_id: str | None = None,
     ) -> Any: ...
 
@@ -247,8 +247,13 @@ class Workspace:
         self.queue_payload_extra = dict(queue_payload_extra or {})
         self.executor_deps_factory = executor_deps_factory
         self.action_observer = action_observer
-        self.search_preparation_import_completed = None
-        self.search_preparation_enclosure_downloaded = None
+        self.search_preparation_setup_completed: Callable[[str], None] | None = None
+        self.search_preparation_import_completed: (
+            Callable[[str, str, int], None] | None
+        ) = None
+        self.search_preparation_enclosure_downloaded: (
+            Callable[[str, int, int], None] | None
+        ) = None
         if import_child_admission_port is not None and not isinstance(
             import_child_admission_port,
             ImportChildAdmissionPort,
@@ -544,16 +549,13 @@ class Workspace:
         ):
             return base_router
         if base_router is not None or resolved_organization_keys is not None:
-            base_keys = (
-                resolved_organization_keys
-                if resolved_organization_keys is not None
-                else base_router.configured_keys()
-            )
-            base_sources = (
-                dict.fromkeys(base_keys, "org_byok")
-                if resolved_organization_keys is not None
-                else base_router.configured_key_sources()
-            )
+            if resolved_organization_keys is not None:
+                base_keys = resolved_organization_keys
+                base_sources = dict.fromkeys(base_keys, "org_byok")
+            else:
+                assert base_router is not None
+                base_keys = base_router.configured_keys()
+                base_sources = base_router.configured_key_sources()
             keys = {**base_keys, **project_keys}
             # A request-time organization resolver or project key overlay requires a
             # composed router. The composition boundary fixes resolver keys'
@@ -564,7 +566,10 @@ class Workspace:
                         source
                         if (
                             resolved_organization_keys is not None
-                            or base_router.has_explicit_key_source(provider)
+                            or (
+                                base_router is not None
+                                and base_router.has_explicit_key_source(provider)
+                            )
                         )
                         else "org_byok"
                     )
@@ -660,7 +665,8 @@ class Workspace:
     ) -> tuple[ExecutionComposition, CloudSessionResponse | None]:
         """Build selector composition and public Cloud facts from one profile."""
 
-        if not self.supports_cloud_connection():
+        cloud_store = self._cloud_connection_store
+        if not self.supports_cloud_connection() or cloud_store is None:
             return self.execution_composition_for(project, router, context), None
         composition, effective_router = self._base_execution_composition_for(
             project, router, context
@@ -668,7 +674,7 @@ class Workspace:
         from frisket.cloud_connection import CloudConnectionStoreError
 
         try:
-            profile = self._cloud_connection_store.load()
+            profile = cloud_store.load()
         except CloudConnectionStoreError:
             if not self._uses_open_execution_composition:
                 return composition, None
@@ -678,7 +684,7 @@ class Workspace:
                     project,
                     effective_router,
                     context,
-                    cloud_store=self._cloud_connection_store,
+                    cloud_store=cloud_store,
                 ),
                 None,
             )
@@ -912,8 +918,8 @@ class Workspace:
         return self._router is None
 
     @property
-    def cost_preapproval_usd(self) -> str:
-        """The local installation's cost-gate amount, defaulting to $2."""
+    def allowance_usd(self) -> str:
+        """The local installation's allowance amount, defaulting to $2."""
 
         return self._local_allowance_usd
 
@@ -1027,7 +1033,11 @@ class Workspace:
                 raise
             self._projects[project_id] = project
         elif project_id in self._metadata_enqueue_pending:
-            self._projects[project_id]._frisket_schedule_blob_metadata()
+            schedule_metadata = getattr(
+                self._projects[project_id], "_frisket_schedule_blob_metadata", None
+            )
+            if callable(schedule_metadata):
+                schedule_metadata()
         return self._projects[project_id]
 
     def _attach_project_jobs(self, project_id: str, project: Project) -> None:

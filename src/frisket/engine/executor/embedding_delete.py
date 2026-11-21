@@ -54,7 +54,7 @@ def _require_unreferenced(project: Project, index_id: str) -> None:
             preview += f", and {len(references) - 5} more"
         raise _DeleteRefused(
             "embedding_index_in_use",
-            f"Index {index_id!r} is still used by {preview}. Remove those saved views before deleting it.",
+            f"Index {index_id!r} is still used by {preview}. Remove those views before deleting it.",
         )
 
 

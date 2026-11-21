@@ -11,7 +11,7 @@ from frisket.authoring.plugin_registry import (
     register_trusted_backend_handler,
 )
 from frisket.authoring.workbench import plugin_runtime, plugin_runtime_status
-from frisket.features.url_classification import registered_matchers
+from frisket.url_classification import registered_matchers
 from test_workbench_plugin_generic_runtime_bindings import (
     ATOMIC_JOB_KIND,
     PLUGIN_ID,

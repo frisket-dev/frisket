@@ -81,15 +81,15 @@ export function makeEnginesFromCatalog(
  *  shared fallback when the catalog is absent or carries no engine hints. */
 export const ocrEnginesFromCatalog = makeEnginesFromCatalog('media.ocr', OCR_ENGINE_FALLBACK);
 
-/** An engine's tier (three-tier vocabulary: local | sidecar | hosted). */
+/** An engine's tier (three-tier vocabulary: local | sidecar | remote). */
 export function tierForEngine(engine: EngineOption): EngineTier {
-  return engine.tier ?? 'hosted';
+  return engine.tier ?? 'remote';
 }
 
 const ENGINE_TIER_LABELS: Record<EngineTier, string> = {
   local: 'Local',
   sidecar: 'Sidecar',
-  hosted: 'Remote',
+  remote: 'Remote',
 };
 
 export function engineTierLabel(tier: EngineTier): string {
@@ -109,11 +109,11 @@ export function engineUnavailableReason(engine: EngineOption | undefined): strin
 }
 
 /** Billable engines bill per page/call and need the explicit allow-remote
- *  confirm; any hosted-tier engine leaves the operator's infrastructure. */
+ *  confirm; any remote-tier engine leaves the operator's infrastructure. */
 export function engineIsRemote(engine: EngineOption | undefined): boolean {
   if (!engine) return false;
   if (engine.billable) return true;
   if (engine.id.includes('/')) return true;
-  return tierForEngine(engine) === 'hosted';
+  return tierForEngine(engine) === 'remote';
 }
 

@@ -20,11 +20,10 @@ from frisket.preview.column_values import (
     ColumnValuesPreviewError,
     resolve_column_values_preview,
 )
-from frisket.engine.store import Project
 
 
-def _seed(tmp_path, values, name="org"):
-    p = Project.create(tmp_path / "t.frisket", name="t")
+def _seed(make_project, values, name="org"):
+    p = make_project("t")
     sheet = p.add_sheet("data")
     cols = {name: p.add_column(sheet, name)}
     p.add_rows(sheet, [{name: v} for v in values], cols)
@@ -44,8 +43,8 @@ ROWS = [
 ]
 
 
-def test_values_sorted_count_desc_then_value_asc(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_values_sorted_count_desc_then_value_asc(make_project):
+    p, sid = _seed(make_project, ROWS)
     payload = resolve_column_values_preview(p, sheet_id=sid, input_column="org")
     assert payload["schema_version"] == COLUMN_VALUES_PREVIEW_SCHEMA_VERSION
     assert payload["values"] == [
@@ -62,8 +61,8 @@ def test_values_sorted_count_desc_then_value_asc(tmp_path):
     p.close()
 
 
-def test_blank_and_null_cells_excluded_from_values_counted_in_missing(tmp_path):
-    p, sid = _seed(tmp_path, ["x", None, "", "   ", "\t", "x"])
+def test_blank_and_null_cells_excluded_from_values_counted_in_missing(make_project):
+    p, sid = _seed(make_project, ["x", None, "", "   ", "\t", "x"])
     payload = resolve_column_values_preview(p, sheet_id=sid, input_column="org")
     assert payload["values"] == [{"value": "x", "count": 2}]
     assert payload["distinct"] == 1
@@ -72,8 +71,8 @@ def test_blank_and_null_cells_excluded_from_values_counted_in_missing(tmp_path):
     p.close()
 
 
-def test_search_is_case_insensitive_substring_and_facts_stay_unfiltered(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_search_is_case_insensitive_substring_and_facts_stay_unfiltered(make_project):
+    p, sid = _seed(make_project, ROWS)
     payload = resolve_column_values_preview(
         p, sheet_id=sid, input_column="org", search="ACME"
     )
@@ -90,8 +89,8 @@ def test_search_is_case_insensitive_substring_and_facts_stay_unfiltered(tmp_path
     p.close()
 
 
-def test_search_filters_value_hash_still_full_column(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_search_filters_value_hash_still_full_column(make_project):
+    p, sid = _seed(make_project, ROWS)
     unfiltered = resolve_column_values_preview(p, sheet_id=sid, input_column="org")
     filtered = resolve_column_values_preview(
         p, sheet_id=sid, input_column="org", search="banana"
@@ -101,8 +100,8 @@ def test_search_filters_value_hash_still_full_column(tmp_path):
     p.close()
 
 
-def test_limit_offset_paging_and_truncated_flag(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_limit_offset_paging_and_truncated_flag(make_project):
+    p, sid = _seed(make_project, ROWS)
     page1 = resolve_column_values_preview(
         p, sheet_id=sid, input_column="org", limit=2, offset=0
     )
@@ -126,8 +125,8 @@ def test_limit_offset_paging_and_truncated_flag(tmp_path):
     p.close()
 
 
-def test_limit_defaults_to_500_and_clamps_to_2000(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_limit_defaults_to_500_and_clamps_to_2000(make_project):
+    p, sid = _seed(make_project, ROWS)
     default = resolve_column_values_preview(p, sheet_id=sid, input_column="org")
     assert default["limit"] == COLUMN_VALUES_DEFAULT_LIMIT == 500
     clamped = resolve_column_values_preview(
@@ -139,8 +138,8 @@ def test_limit_defaults_to_500_and_clamps_to_2000(tmp_path):
     p.close()
 
 
-def test_value_hash_matches_source_value_hash_and_changes_on_edit(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_value_hash_matches_source_value_hash_and_changes_on_edit(make_project):
+    p, sid = _seed(make_project, ROWS)
     col_id = next(int(c["id"]) for c in p.columns(sid) if c["name"] == "org")
     payload = resolve_column_values_preview(p, sheet_id=sid, input_column="org")
     row_ids = [int(r) for r in p.visible_row_ids(sid)]
@@ -156,8 +155,8 @@ def test_value_hash_matches_source_value_hash_and_changes_on_edit(tmp_path):
     p.close()
 
 
-def test_missing_sheet_and_column_are_invalid_input_ref(tmp_path):
-    p, sid = _seed(tmp_path, ROWS)
+def test_missing_sheet_and_column_are_invalid_input_ref(make_project):
+    p, sid = _seed(make_project, ROWS)
     with pytest.raises(ColumnValuesPreviewError) as exc:
         resolve_column_values_preview(p, sheet_id=sid + 99, input_column="org")
     assert exc.value.code == "invalid_input_ref"
@@ -195,8 +194,8 @@ def test_missing_sheet_and_column_are_invalid_input_ref(tmp_path):
         ({"value_mode": None}, "value_mode"),
     ],
 )
-def test_bad_paging_and_search_params_are_invalid_params(tmp_path, kwargs, field):
-    p, sid = _seed(tmp_path, ROWS)
+def test_bad_paging_and_search_params_are_invalid_params(make_project, kwargs, field):
+    p, sid = _seed(make_project, ROWS)
     with pytest.raises(ColumnValuesPreviewError) as exc:
         resolve_column_values_preview(p, sheet_id=sid, input_column="org", **kwargs)
     assert exc.value.code == "invalid_params"
@@ -204,21 +203,20 @@ def test_bad_paging_and_search_params_are_invalid_params(tmp_path, kwargs, field
     p.close()
 
 
-def test_preview_borrows_existing_snapshot_without_recursion_or_closing_it(tmp_path):
-    project, sheet = _seed(tmp_path, ["Acme", "Acme", "Other"])
-    try:
-        with project.read_snapshot() as snapshot:
-            result = resolve_column_values_preview(
-                snapshot, sheet_id=sheet, input_column="org"
-            )
-            assert result["total_rows"] == 3
-            assert result["distinct"] == 2
-            assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 3
-        assert (
-            resolve_column_values_preview(project, sheet_id=sheet, input_column="org")[
-                "distinct"
-            ]
-            == 2
+def test_preview_borrows_existing_snapshot_without_recursion_or_closing_it(
+    make_project,
+):
+    project, sheet = _seed(make_project, ["Acme", "Acme", "Other"])
+    with project.read_snapshot() as snapshot:
+        result = resolve_column_values_preview(
+            snapshot, sheet_id=sheet, input_column="org"
         )
-    finally:
-        project.close()
+        assert result["total_rows"] == 3
+        assert result["distinct"] == 2
+        assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 3
+    assert (
+        resolve_column_values_preview(project, sheet_id=sheet, input_column="org")[
+            "distinct"
+        ]
+        == 2
+    )

@@ -26,7 +26,10 @@ from frisket.engine.store.transactions import write_transaction
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import feed_health_notification_candidate
 from frisket.operability.structured_logging import correlation_log_payload
-from frisket.features.alerts.triggers import trigger_completed_feed_poll_alerts
+from frisket.alerts.triggers import (
+    FeedPollMaterialization,
+    trigger_completed_feed_poll_alerts,
+)
 
 from .embeddings import enqueue_source_append_refreshes
 from .notifications_delivery import enqueue_notification_emit_result
@@ -134,7 +137,11 @@ def register_feed_poll_handler(
             def progress(completed, total):
                 if cancelled():
                     raise RuntimeError("Feed import cancelled")
-                if queue is not None and _context.job_id is not None:
+                if (
+                    queue is not None
+                    and _context.job_id is not None
+                    and _context.job_attempt is not None
+                ):
                     queue.report_progress(
                         _context.job_id,
                         _context.job_attempt,
@@ -207,21 +214,29 @@ def register_feed_poll_handler(
                 row_ids=list(summary.get("enclosure_row_ids") or []),
                 prepare_for_search=prepare_enclosures_for_search,
             )
-            enqueue_keyword_alerts = None
+            enqueue_keyword_alerts: (
+                Callable[[list[Any], FeedPollMaterialization], None] | None
+            ) = None
             if queue is not None:
                 from frisket.engine.jobs.alerts import (
                     enqueue_keyword_alert_evaluations,
                 )
 
-                def enqueue_keyword_alerts(alerts, materialization):
+                active_queue = queue
+
+                def _enqueue_keyword_alerts(
+                    alerts: list[Any], materialization: FeedPollMaterialization
+                ) -> None:
                     enqueue_keyword_alert_evaluations(
-                        queue,
+                        active_queue,
                         alerts=alerts,
                         project_id=project_id,
                         workspace_root=project_root,
                         storage_org_id=_coerce_storage_organization_id(payload),
                         trigger_ref={"source_run_id": materialization["source_run_id"]},
                     )
+
+                enqueue_keyword_alerts = _enqueue_keyword_alerts
 
             triggered_alert_checks = trigger_completed_feed_poll_alerts(
                 project,
@@ -313,7 +328,10 @@ def _feed_poll_job_identity(queue: JobQueue | None, payload: dict[str, Any]) -> 
     poll_id = payload.get("poll_id")
     if queue is not None:
         project_id = str(payload.get("project_id"))
-        feed_id = int(payload.get("source_id"))
+        raw_feed_id = payload.get("source_id")
+        if raw_feed_id is None:
+            raise TypeError("source_id must not be None")
+        feed_id = int(raw_feed_id)
         workspace_root = (
             str(payload["workspace_root"]) if payload.get("workspace_root") else None
         )
@@ -393,10 +411,11 @@ def _emit_feed_health_notification(
     stale_reason: str | None = None,
 ) -> None:
     try:
-        if feed_check_id is None and getattr(result, "receipt_id", None):
+        receipt_id = getattr(result, "receipt_id", None)
+        if feed_check_id is None and receipt_id:
             try:
                 feed_check_id = int(
-                    _feed_poll_summary_from_result(project, result.receipt_id)["run_id"]
+                    _feed_poll_summary_from_result(project, receipt_id)["run_id"]
                 )
             except Exception:  # noqa: BLE001 - notification detail is best effort
                 feed_check_id = None

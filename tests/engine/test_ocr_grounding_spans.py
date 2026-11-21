@@ -4,7 +4,6 @@ import json
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -167,8 +166,8 @@ def _text_column_id(project: Project, sheet_id: int) -> int:
 # --------------------------------------------------------------------------- #
 
 
-def _seed_image_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(tmp_path / "ocr-image.frisket", name="OCR grounding")
+def _seed_image_project(make_project) -> dict[str, Any]:
+    project = make_project("OCR grounding")
     sheet_id = project.add_sheet("Scans")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -229,67 +228,64 @@ def _fake_image_engine():
 
 
 def test_image_row_writes_page_and_region_spans_with_source_page_image(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_image_project(tmp_path)
+    seeded = _seed_image_project(make_project)
     project: Project = seeded["project"]
     fake_pages, fake_ocr = _fake_image_engine()
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_ocr)
     stub_rapidocr_run_scope(monkeypatch)
-    try:
-        result = run_action_spec(
-            project,
-            _ocr_action(
-                sheet_id=seeded["sheet_id"],
-                row_ids=seeded["row_ids"],
-                input_columns=["media"],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
+    result = run_action_spec(
+        project,
+        _ocr_action(
+            sheet_id=seeded["sheet_id"],
+            row_ids=seeded["row_ids"],
+            input_columns=["media"],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        sheet_id = seeded["sheet_id"]
-        text_column_id = _text_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=seeded["row_ids"][0],
-            column_id=text_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        viewer = resolve_citation_viewer(
-            project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        assert len(viewer["artifacts"]) == 1
-        artifact = viewer["artifacts"][0]
+    sheet_id = seeded["sheet_id"]
+    text_column_id = _text_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=seeded["row_ids"][0],
+        column_id=text_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    viewer = resolve_citation_viewer(
+        project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    assert len(viewer["artifacts"]) == 1
+    artifact = viewer["artifacts"][0]
 
-        # Public metadata omits the duplicate internal map; typed pages retain
-        # the source image and its exact coordinate frame.
-        assert "page_images" not in artifact["metadata"]
-        assert artifact["pages"][0]["image"]["width"] == 1
-        assert artifact["pages"][0]["image"]["height"] == 1
+    # Public metadata omits the duplicate internal map; typed pages retain
+    # the source image and its exact coordinate frame.
+    assert "page_images" not in artifact["metadata"]
+    assert artifact["pages"][0]["image"]["width"] == 1
+    assert artifact["pages"][0]["image"]["height"] == 1
 
-        kinds = [span["span_kind"] for span in artifact["spans"]]
-        assert kinds.count("page_range") == 1
-        assert kinds.count("region") == 1
+    kinds = [span["span_kind"] for span in artifact["spans"]]
+    assert kinds.count("page_range") == 1
+    assert kinds.count("region") == 1
 
-        region = next(s for s in artifact["spans"] if s["span_kind"] == "region")
-        assert region["quote"] == "invoice total 42"
-        bbox = region["selector"]["bbox"][0]
-        assert bbox["space"] == "page_normalized"
-        assert region["selector"]["page_start"] == 1
+    region = next(s for s in artifact["spans"] if s["span_kind"] == "region")
+    assert region["quote"] == "invoice total 42"
+    bbox = region["selector"]["bbox"][0]
+    assert bbox["space"] == "page_normalized"
+    assert region["selector"]["page_start"] == 1
 
-        # the viewer resolves the page + its region overlay off the artifact.
-        pages = artifact["pages"]
-        assert len(pages) == 1
-        assert pages[0]["page"] == 1
-        assert pages[0]["image"]["blob_hash"] == seeded["blob"]
-        assert pages[0]["image"]["url"].endswith(f"/blobs/{seeded['blob']}")
-        assert len(pages[0]["regions"]) == 1
-    finally:
-        project.close()
+    # the viewer resolves the page + its region overlay off the artifact.
+    pages = artifact["pages"]
+    assert len(pages) == 1
+    assert pages[0]["page"] == 1
+    assert pages[0]["image"]["blob_hash"] == seeded["blob"]
+    assert pages[0]["image"]["url"].endswith(f"/blobs/{seeded['blob']}")
+    assert len(pages[0]["regions"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -328,12 +324,12 @@ def test_image_row_writes_page_and_region_spans_with_source_page_image(
     ],
 )
 def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     blocks: list[dict[str, Any]],
     expected_addressed: list[tuple[str, str]],
 ) -> None:
-    seeded = _seed_image_project(tmp_path)
+    seeded = _seed_image_project(make_project)
     project: Project = seeded["project"]
     fake_pages, _fake_ocr = _fake_image_engine()
 
@@ -344,46 +340,43 @@ def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_ocr)
     stub_rapidocr_run_scope(monkeypatch)
-    try:
-        result = run_action_spec(
-            project,
-            _ocr_action(
-                sheet_id=seeded["sheet_id"],
-                row_ids=seeded["row_ids"],
-                input_columns=["media"],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-
-        text_column_id = _text_column_id(project, seeded["sheet_id"])
-        resolved = resolve_current_ocr_citation(
-            project,
+    result = run_action_spec(
+        project,
+        _ocr_action(
             sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            column_id=text_column_id,
-        )
-        assert len(resolved) == 1
-        assert resolved[0].artifact_stable_id
-        assert resolved[0].evidence_link_stable_id
-        assert resolved[0].text_value == " ".join(block["text"] for block in blocks)
-        assert resolved[0].snapshot_hash.startswith("sha256:")
-        assert [
-            (span["span_kind"], span["quote"]) for span in resolved[0].spans
-        ] == expected_addressed
+            row_ids=seeded["row_ids"],
+            input_columns=["media"],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        all_spans = project.db.execute(
-            "SELECT sp.span_kind, sp.quote, sp.snippet FROM evidence_link_spans els "
-            "JOIN source_spans sp ON sp.id=els.span_id "
-            "WHERE els.link_id=? ORDER BY els.rank, sp.id",
-            (resolved[0].evidence_link_id,),
-        ).fetchall()
-        assert len(all_spans) == len(expected_addressed) + 1
-        assert all_spans[0]["span_kind"] == "page_range"
-        assert all_spans[0]["quote"] is None
-        assert all_spans[0]["snippet"] == " ".join(block["text"] for block in blocks)
-    finally:
-        project.close()
+    text_column_id = _text_column_id(project, seeded["sheet_id"])
+    resolved = resolve_current_ocr_citation(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_ids"][0],
+        column_id=text_column_id,
+    )
+    assert len(resolved) == 1
+    assert resolved[0].artifact_stable_id
+    assert resolved[0].evidence_link_stable_id
+    assert resolved[0].text_value == " ".join(block["text"] for block in blocks)
+    assert resolved[0].snapshot_hash.startswith("sha256:")
+    assert [
+        (span["span_kind"], span["quote"]) for span in resolved[0].spans
+    ] == expected_addressed
+
+    all_spans = project.db.execute(
+        "SELECT sp.span_kind, sp.quote, sp.snippet FROM evidence_link_spans els "
+        "JOIN source_spans sp ON sp.id=els.span_id "
+        "WHERE els.link_id=? ORDER BY els.rank, sp.id",
+        (resolved[0].evidence_link_id,),
+    ).fetchall()
+    assert len(all_spans) == len(expected_addressed) + 1
+    assert all_spans[0]["span_kind"] == "page_range"
+    assert all_spans[0]["quote"] is None
+    assert all_spans[0]["snippet"] == " ".join(block["text"] for block in blocks)
 
 
 # --------------------------------------------------------------------------- #
@@ -392,8 +385,8 @@ def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
 # --------------------------------------------------------------------------- #
 
 
-def _seed_pdf_project(tmp_path: Path, *, generic_mime: bool = False) -> dict[str, Any]:
-    project = Project.create(tmp_path / "ocr-pdf.frisket", name="OCR grounding pdf")
+def _seed_pdf_project(make_project, *, generic_mime: bool = False) -> dict[str, Any]:
+    project = make_project("OCR grounding pdf")
     sheet_id = project.add_sheet("Docs")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -466,9 +459,9 @@ def _fake_pdf_engine():
 
 @pytest.mark.parametrize("generic_mime", [False, True])
 def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generic_mime: bool
+    make_project, monkeypatch: pytest.MonkeyPatch, generic_mime: bool
 ) -> None:
-    seeded = _seed_pdf_project(tmp_path, generic_mime=generic_mime)
+    seeded = _seed_pdf_project(make_project, generic_mime=generic_mime)
     project: Project = seeded["project"]
     fake_pages, fake_ocr = _fake_pdf_engine()
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)
@@ -488,96 +481,90 @@ def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
 
     monkeypatch.setattr(OcrEngines, "_page_images", full_size_pages)
 
-    try:
-        result = run_action_spec(
-            project,
-            _ocr_action(
-                sheet_id=seeded["sheet_id"],
-                row_ids=seeded["row_ids"],
-                input_columns=["media"],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
+    result = run_action_spec(
+        project,
+        _ocr_action(
+            sheet_id=seeded["sheet_id"],
+            row_ids=seeded["row_ids"],
+            input_columns=["media"],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        sheet_id = seeded["sheet_id"]
-        text_column_id = _text_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=seeded["row_ids"][0],
-            column_id=text_column_id,
-            project_id=PROJECT_ID,
-        )
-        viewer = resolve_citation_viewer(
-            project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        artifact = viewer["artifacts"][0]
+    sheet_id = seeded["sheet_id"]
+    text_column_id = _text_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=seeded["row_ids"][0],
+        column_id=text_column_id,
+        project_id=PROJECT_ID,
+    )
+    viewer = resolve_citation_viewer(
+        project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    artifact = viewer["artifacts"][0]
 
-        assert "page_images" not in artifact["metadata"]
-        stored = project.db.execute(
-            "SELECT metadata FROM source_artifacts WHERE stable_id=?",
-            (artifact["stable_id"],),
-        ).fetchone()
-        page_images = json.loads(stored["metadata"])["page_images"]
-        assert set(page_images) == {"1", "2"}
-        for meta in page_images.values():
-            assert "blob_hash" not in meta
-        assert page_images["1"]["source_width"] == 4000
-        assert page_images["1"]["source_height"] == 5000
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-        assert all(page["image"] is None for page in artifact["pages"])
-        assert artifact["pages"][0]["render_url"].endswith(
-            f"/{seeded['blob']}/pages/1/image"
-        )
+    assert "page_images" not in artifact["metadata"]
+    stored = project.db.execute(
+        "SELECT metadata FROM source_artifacts WHERE stable_id=?",
+        (artifact["stable_id"],),
+    ).fetchone()
+    page_images = json.loads(stored["metadata"])["page_images"]
+    assert set(page_images) == {"1", "2"}
+    for meta in page_images.values():
+        assert "blob_hash" not in meta
+    assert page_images["1"]["source_width"] == 4000
+    assert page_images["1"]["source_height"] == 5000
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+    assert all(page["image"] is None for page in artifact["pages"])
+    assert artifact["pages"][0]["render_url"].endswith(
+        f"/{seeded['blob']}/pages/1/image"
+    )
 
-        by_page: dict[int, list[str]] = {1: [], 2: []}
-        for span in artifact["spans"]:
-            page = span["selector"].get("page_start")
-            by_page[int(page)].append(span["span_kind"])
-        # page 1: a page_range + a region for the block.
-        assert sorted(by_page[1]) == ["page_range", "region"]
-        # page 2 recognized nothing: page_range only, no region.
-        assert by_page[2] == ["page_range"]
+    by_page: dict[int, list[str]] = {1: [], 2: []}
+    for span in artifact["spans"]:
+        page = span["selector"].get("page_start")
+        by_page[int(page)].append(span["span_kind"])
+    # page 1: a page_range + a region for the block.
+    assert sorted(by_page[1]) == ["page_range", "region"]
+    # page 2 recognized nothing: page_range only, no region.
+    assert by_page[2] == ["page_range"]
 
-        # the region's normalized bbox is scale-invariant (block was in the
-        # ORIGINAL 4000x5000 page pixel space; the writer normalizes against the
-        # render dims, not the downscaled blob).
-        region = next(
-            s
-            for s in artifact["spans"]
-            if s["span_kind"] == "region" and s["selector"]["page_start"] == 1
-        )
-        bbox = region["selector"]["bbox"][0]
-        assert bbox["space"] == "page_normalized"
-        assert bbox["x0"] == 0.1
-        assert bbox["x1"] == 0.9
-    finally:
-        project.close()
+    # the region's normalized bbox is scale-invariant (block was in the
+    # ORIGINAL 4000x5000 page pixel space; the writer normalizes against the
+    # render dims, not the downscaled blob).
+    region = next(
+        s
+        for s in artifact["spans"]
+        if s["span_kind"] == "region" and s["selector"]["page_start"] == 1
+    )
+    bbox = region["selector"]["bbox"][0]
+    assert bbox["space"] == "page_normalized"
+    assert bbox["x0"] == 0.1
+    assert bbox["x1"] == 0.9
 
 
 def test_ocr_evidence_replay_does_not_duplicate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_image_project(tmp_path)
+    seeded = _seed_image_project(make_project)
     project: Project = seeded["project"]
     fake_pages, fake_ocr = _fake_image_engine()
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_ocr)
     stub_rapidocr_run_scope(monkeypatch)
-    try:
-        action = _ocr_action(
-            sheet_id=seeded["sheet_id"],
-            row_ids=seeded["row_ids"],
-            input_columns=["media"],
-        )
-        first = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert first.status == "completed"
-        after_first = _counts(project)
+    action = _ocr_action(
+        sheet_id=seeded["sheet_id"],
+        row_ids=seeded["row_ids"],
+        input_columns=["media"],
+    )
+    first = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert first.status == "completed"
+    after_first = _counts(project)
 
-        replay = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert _counts(project) == after_first
-    finally:
-        project.close()
+    replay = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert _counts(project) == after_first

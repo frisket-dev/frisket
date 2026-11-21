@@ -121,6 +121,8 @@ _ANALYZED_TYPES: tuple[TargetType, ...] = (
     "datetime",
     "boolean",
 )
+_TEMPORAL_TYPES: tuple[TargetType, ...] = ("date", "datetime")
+_DATE_ORDERS: tuple[DateOrder, ...] = ("month_first", "day_first")
 
 
 class ColumnStatsAccumulator:
@@ -142,15 +144,15 @@ class ColumnStatsAccumulator:
         self._thousands_separator = thousands_separator
         self._rows_checked = 0
         self._samples: list[list[ColumnSample]] = [[] for _ in self._columns]
-        self._full = [
+        self._full: list[dict[TargetType, _MutableCounts]] = [
             {target: _MutableCounts() for target in _ANALYZED_TYPES}
             for _ in self._columns
         ]
         self._inference: list[dict[TargetType, _MutableCounts]] | None = None
-        self._temporal_full = [
+        self._temporal_full: list[dict[DateOrder, dict[TargetType, _MutableCounts]]] = [
             {
-                order: {target: _MutableCounts() for target in ("date", "datetime")}
-                for order in ("month_first", "day_first")
+                order: {target: _MutableCounts() for target in _TEMPORAL_TYPES}
+                for order in _DATE_ORDERS
             }
             for _ in self._columns
         ]
@@ -221,12 +223,13 @@ class ColumnStatsAccumulator:
                         },
                     )
                 )
-            for target, outcome in (
+            scalar_outcomes: tuple[tuple[TargetType, str], ...] = (
                 ("text", outcomes.text),
                 ("integer", outcomes.integer),
                 ("number", outcomes.number),
                 ("boolean", outcomes.boolean),
-            ):
+            )
+            for target, outcome in scalar_outcomes:
                 _record(
                     self._full[position][target],
                     outcome,
@@ -234,7 +237,7 @@ class ColumnStatsAccumulator:
                     has_time=has_time,
                     target=target,
                 )
-            for order, date_outcome, datetime_outcome in (
+            ordered_outcomes: tuple[tuple[DateOrder, str, str], ...] = (
                 (
                     "month_first",
                     outcomes.month_first_date,
@@ -245,11 +248,13 @@ class ColumnStatsAccumulator:
                     outcomes.day_first_date,
                     outcomes.day_first_datetime,
                 ),
-            ):
-                for target, outcome in (
+            )
+            for order, date_outcome, datetime_outcome in ordered_outcomes:
+                temporal_outcomes: tuple[tuple[TargetType, str], ...] = (
                     ("date", date_outcome),
                     ("datetime", datetime_outcome),
-                ):
+                )
+                for target, outcome in temporal_outcomes:
                     _record(
                         self._temporal_full[position][order][target],
                         outcome,
@@ -289,7 +294,7 @@ class ColumnStatsAccumulator:
             )
             inference_counts = dict(inference[position])
             full_counts = dict(self._full[position])
-            for target in ("date", "datetime"):
+            for target in _TEMPORAL_TYPES:
                 inference_counts[target] = temporal_inference[position][
                     suggested_date_order
                 ][target]

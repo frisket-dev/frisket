@@ -36,10 +36,9 @@ from frisket.engine.jobs import (
     register_alert_evaluate_handler,
 )
 from frisket.ai.llm import ModelRouter
-from frisket.features.alerts.service import check_alert
+from frisket.alerts.service import check_alert
 from frisket.retrieval import native
 from frisket.server.workspace import Workspace
-from frisket.engine.store import Project
 
 
 class FakeGateway:
@@ -72,24 +71,21 @@ class FlakyGateway(FakeGateway):
 
 
 @pytest.fixture
-def env(tmp_path):
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
+def env(tmp_path, make_project):
     project_id = "proj"
-    project = Project.create(workspace / f"{project_id}.frisket", name="proj")
+    project = make_project(project_id)
     sheet = project.add_sheet("feed")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], cols)
-    queue = SqliteJobQueue(workspace / ".queue.db")
+    queue = SqliteJobQueue(tmp_path / ".queue.db")
     yield SimpleNamespace(
-        workspace=workspace,
+        workspace=tmp_path,
         project_id=project_id,
         project=project,
         sheet=sheet,
         cols=cols,
         queue=queue,
     )
-    project.close()
     queue.close()
 
 
@@ -476,7 +472,7 @@ def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
 ):
     from frisket.engine.views.evaluate import open_selection
     from frisket.engine.views.specs import SelectionUnavailable
-    from frisket.features.alerts.service import alert_query
+    from frisket.alerts.service import alert_query
 
     index_id = _create_index(env, key="unavailable")
     _full_refresh(env, index_id)
@@ -521,7 +517,7 @@ def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
 
 def test_view_does_not_mask_unclassified_similarity_errors(env, monkeypatch):
     from frisket.engine.views.evaluate import open_selection
-    from frisket.features.alerts.service import alert_query
+    from frisket.alerts.service import alert_query
     from frisket.retrieval import query
 
     index_id = _create_index(env, key="unexpected-runtime-error")
@@ -598,7 +594,7 @@ def test_queued_automatic_alert_rechecks_pause_but_manual_evaluation_remains_ava
     env,
 ):
     """A pause between enqueue and claim must not turn into a stale auto-run."""
-    from frisket.features.alerts.service import check_alert
+    from frisket.alerts.service import check_alert
 
     index_id = _create_index(env, key="pause-queue")
     _full_refresh(env, index_id)
@@ -638,7 +634,7 @@ def test_queued_automatic_alert_rechecks_pause_but_manual_evaluation_remains_ava
 
 
 def test_source_poll_skips_embedding_alerts_inline(env):
-    from frisket.features.alerts.triggers import affected_enabled_alerts
+    from frisket.alerts.triggers import affected_enabled_alerts
 
     index_id = _create_index(env)
     _full_refresh(env, index_id)

@@ -33,7 +33,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
   const saveAction = useAction();
   const { run: runSave, setError: setSaveError } = saveAction;
 
-  // Honest gate surface: a remote index with automatic refresh on but NO cost cap
+  // Honest gate surface: a remote index with automatic refresh on but NO allowance
   // will still BLOCK at refresh time (embedding_cost_requires_confirmation). Saving
   // stores the preauthorization; it never means "automatic refresh is enabled".
   const maxCost = parseMaxCost(maxCostInput);
@@ -42,7 +42,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
   const save = useCallback(async () => {
     const nextMaxCost = parseMaxCost(maxCostInput);
     if (nextMaxCost === undefined) {
-      setSaveError('Max $/refresh must be a positive finite number or blank.');
+      setSaveError('Allowance per refresh must be a positive finite number or blank.');
       return;
     }
     await runSave(async () => {
@@ -145,7 +145,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
             Allow automatic remote refresh
           </label>
           <label className="form-row">
-            Max $/refresh
+            Allowance per refresh (USD)
             <input
               data-testid={`embedding-policy-max-cost-${index.indexId}`}
               value={maxCostInput}
@@ -160,7 +160,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
               data-testid={`embedding-policy-gate-note-${index.indexId}`}
             >
               Automatic refresh will still block (embedding_cost_requires_confirmation)
-              until you set a positive cost cap. Saving stores the setting only.
+              until you set a positive allowance. Saving stores the setting only.
             </p>
           )}
         </>

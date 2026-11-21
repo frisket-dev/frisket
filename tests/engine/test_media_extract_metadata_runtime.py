@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import asyncio
 import copy
@@ -1358,8 +1359,9 @@ def test_same_prefix_new_key_requires_explicit_replacement_of_complete_family(
     mode: str,
     refresh: bool,
 ) -> None:
-    project = Project.create(tmp_path / f"family-rerun-{mode}.frisket", name="metadata")
-    try:
+    with closing(
+        Project.create(tmp_path / f"family-rerun-{mode}.frisket", name="metadata")
+    ) as project:
         sheet_id, row_id = _single_image_sheet(project)
         _stub_successful_image_adapter(monkeypatch)
         first = run_action_spec(
@@ -1422,8 +1424,6 @@ def test_same_prefix_new_key_requires_explicit_replacement_of_complete_family(
             assert int(column["id"]) == column_id
             assert generations.latest_applied_run_id(column_id) == rerun.run_id
             assert rerun.run_id != prior_run_id
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("mode", ["object", "columns"])
@@ -1432,10 +1432,11 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
 ) -> None:
-    project = Project.create(
-        tmp_path / f"targeted-family-rerun-{mode}.frisket", name="metadata"
-    )
-    try:
+    with closing(
+        Project.create(
+            tmp_path / f"targeted-family-rerun-{mode}.frisket", name="metadata"
+        )
+    ) as project:
         sheet_id = project.add_sheet("Assets")
         input_id = project.add_column(sheet_id, "asset", type="image")
         digest = project.add_blob(
@@ -1706,8 +1707,6 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
             project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == run_count
         )
         assert live_snapshot()[details_name][target_row] == later_manual_value
-    finally:
-        project.close()
 
 
 def test_metadata_replay_rejects_declared_output_format_drift(
@@ -1751,8 +1750,9 @@ def test_changed_family_does_not_implicitly_authorize_replacement(
     monkeypatch: pytest.MonkeyPatch,
     damage: str,
 ) -> None:
-    project = Project.create(tmp_path / f"family-{damage}.frisket", name="metadata")
-    try:
+    with closing(
+        Project.create(tmp_path / f"family-{damage}.frisket", name="metadata")
+    ) as project:
         sheet_id, row_id = _single_image_sheet(project)
         _stub_successful_image_adapter(monkeypatch)
         first = run_action_spec(
@@ -1798,8 +1798,6 @@ def test_changed_family_does_not_implicitly_authorize_replacement(
         assert int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]) == (
             run_count
         )
-    finally:
-        project.close()
 
 
 def test_mixed_family_does_not_implicitly_authorize_replacement(
@@ -1898,10 +1896,11 @@ def test_same_key_replay_rejects_tampered_output_identity(
     tampered_field: str,
     tampered_value: Any,
 ) -> None:
-    project = Project.create(
-        tmp_path / f"family-tampered-{tampered_field}.frisket", name="metadata"
-    )
-    try:
+    with closing(
+        Project.create(
+            tmp_path / f"family-tampered-{tampered_field}.frisket", name="metadata"
+        )
+    ) as project:
         sheet_id, row_id = _single_image_sheet(project)
         _stub_successful_image_adapter(monkeypatch)
         first = run_action_spec(
@@ -1942,8 +1941,6 @@ def test_same_key_replay_rejects_tampered_output_identity(
 
         assert rerun.status == "failed"
         assert rerun.errors[0].code == "stale_replay"
-    finally:
-        project.close()
 
 
 def test_explicit_replacement_is_not_authorized_by_an_unrelated_newer_receipt(

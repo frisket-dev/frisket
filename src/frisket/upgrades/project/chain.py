@@ -50,6 +50,9 @@ from frisket.upgrades.project.action_submissions_migration import (
     ACTION_SUBMISSIONS_STEP,
 )
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST, migrate_domain
+from frisket.upgrades.project.consent_estimate_migration import (
+    CONSENT_ESTIMATE_TO_DIGEST,
+)
 from frisket.upgrades.project.edit_precedence_migration import (
     COPY_PRECEDENCE_TO_DIGEST,
     EDIT_PRECEDENCE_TO_DIGEST,
@@ -160,7 +163,13 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         db, EDIT_PRECEDENCE_TO_DIGEST, COPY_PRECEDENCE_TO_DIGEST, apply_edit_precedence
     )
     run_step(
-        db, COPY_PRECEDENCE_TO_DIGEST, RESEARCH_PAUSE_TO_DIGEST, apply_research_pause
+        db,
+        COPY_PRECEDENCE_TO_DIGEST,
+        CONSENT_ESTIMATE_TO_DIGEST,
+        ("ALTER TABLE consents RENAME COLUMN quote_json TO estimate_json",),
+    )
+    run_step(
+        db, CONSENT_ESTIMATE_TO_DIGEST, RESEARCH_PAUSE_TO_DIGEST, apply_research_pause
     )
 
 

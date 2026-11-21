@@ -64,7 +64,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-sonnet-5-5",
     "label": "Claude Sonnet 5.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -75,7 +75,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-fable-5-1",
     "label": "Claude Fable 5.1",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -86,7 +86,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-opus-5-5",
     "label": "Claude Opus 5.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -97,7 +97,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-haiku-5-5",
     "label": "Claude Haiku 5.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -108,7 +108,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-mythos-5-1",
     "label": "Claude Mythos 5.1 — restricted access",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -119,7 +119,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-fable-5",
     "label": "Claude Fable 5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -130,7 +130,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-mythos-5",
     "label": "Claude Mythos 5 — restricted access",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -141,7 +141,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-opus-5",
     "label": "Claude Opus 5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -152,7 +152,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-sonnet-5",
     "label": "Claude Sonnet 5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -163,7 +163,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-opus-4-8",
     "label": "Claude Opus 4.8",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -174,7 +174,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-opus-4-7",
     "label": "Claude Opus 4.7",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -185,7 +185,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-opus-4-6",
     "label": "Claude Opus 4.6",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -196,7 +196,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-sonnet-4-6",
     "label": "Claude Sonnet 4.6",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -207,7 +207,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-opus-4-5",
     "label": "Claude Opus 4.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -218,7 +218,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-sonnet-4-5",
     "label": "Claude Sonnet 4.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -229,7 +229,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "anthropic/claude-haiku-4-5",
     "label": "Claude Haiku 4.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -240,7 +240,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-6.1-sol",
     "label": "GPT-6.1 Sol",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -251,7 +251,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-6-astra",
     "label": "GPT-6 Astra",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -262,7 +262,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-6-luna",
     "label": "GPT-6 Luna",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -273,7 +273,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-6-sol",
     "label": "GPT-6 Sol",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -284,7 +284,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.6-sol",
     "label": "GPT-5.6 Sol",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -295,7 +295,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.6-terra",
     "label": "GPT-5.6 Terra",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -306,7 +306,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.6-luna",
     "label": "GPT-5.6 Luna",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -317,7 +317,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.6",
     "label": "GPT-5.6",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -328,7 +328,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.5",
     "label": "GPT-5.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -339,7 +339,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.4",
     "label": "GPT-5.4",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -350,7 +350,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.4-mini",
     "label": "GPT-5.4 mini",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -361,7 +361,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.4-nano",
     "label": "GPT-5.4 nano",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -372,7 +372,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.2",
     "label": "GPT-5.2",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -383,7 +383,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5.1",
     "label": "GPT-5.1",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -394,7 +394,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5",
     "label": "GPT-5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -405,7 +405,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5-mini",
     "label": "GPT-5 mini",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -416,7 +416,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openai/gpt-5-nano",
     "label": "GPT-5 nano",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -427,7 +427,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.8-flash",
     "label": "Gemini 3.8 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -438,7 +438,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.5-flash-lite",
     "label": "Gemini 3.5 Flash-Lite",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -449,7 +449,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.7-flash",
     "label": "Gemini 3.7 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -460,7 +460,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.6-flash",
     "label": "Gemini 3.6 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -471,7 +471,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.5-flash",
     "label": "Gemini 3.5 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -482,7 +482,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.1-pro-preview",
     "label": "Gemini 3.1 Pro (preview)",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -493,7 +493,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.1-flash-lite",
     "label": "Gemini 3.1 Flash-Lite",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -504,7 +504,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3.1-flash-lite-preview",
     "label": "Gemini 3.1 Flash-Lite (preview)",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -515,7 +515,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "gemini/gemini-3-flash-preview",
     "label": "Gemini 3 Flash (preview)",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -526,7 +526,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/moonshotai/kimi-k3",
     "label": "Kimi K3",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -537,7 +537,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.8-max-prime",
     "label": "Qwen3.8 Max Prime",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -548,7 +548,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/xiaomi/mimo-v2.6-pro",
     "label": "MiMo-V2.6-Pro",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -559,7 +559,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/xiaomi/mimo-v2.6-pro-ultraspeed",
     "label": "MiMo-V2.6-Pro-UltraSpeed",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -570,7 +570,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/minimax/minimax-m3",
     "label": "MiniMax M3",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -581,7 +581,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.8-flash",
     "label": "Qwen3.8 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -592,7 +592,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.8-27b",
     "label": "Qwen3.8 27B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -603,7 +603,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/z-ai/glm-5.3-flashx",
     "label": "GLM-5.3 FlashX",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -614,7 +614,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/z-ai/glm-5.3-flash",
     "label": "GLM-5.3 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -625,7 +625,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/xiaomi/mimo-v2.6-flash",
     "label": "MiMo-V2.6-Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -636,7 +636,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.7-plus",
     "label": "Qwen3.7 Plus",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -647,7 +647,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.7-flash",
     "label": "Qwen3.7 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -658,7 +658,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.6-plus",
     "label": "Qwen3.6 Plus",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -669,7 +669,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.6-35b-a3b",
     "label": "Qwen3.6 35B A3B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -680,7 +680,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.6-27b",
     "label": "Qwen3.6 27B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -691,7 +691,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.6-flash",
     "label": "Qwen3.6 Flash",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -702,7 +702,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.5-397b-a17b",
     "label": "Qwen3.5 397B A17B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -713,7 +713,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.5-122b-a10b",
     "label": "Qwen3.5-122B-A10B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -724,7 +724,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.5-35b-a3b",
     "label": "Qwen3.5-35B-A3B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -735,7 +735,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.5-27b",
     "label": "Qwen3.5-27B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -746,7 +746,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3.5-9b",
     "label": "Qwen3.5-9B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -757,7 +757,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/xiaomi/mimo-v2.5",
     "label": "MiMo-V2.5",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -768,7 +768,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3-vl-235b-a22b-instruct",
     "label": "Qwen3-VL 235B A22B Instruct",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -779,7 +779,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3-vl-30b-a3b-thinking",
     "label": "Qwen3-VL 30B A3B Thinking",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -790,7 +790,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3-vl-30b-a3b-instruct",
     "label": "Qwen3-VL 30B A3B Instruct",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -801,7 +801,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "openrouter/qwen/qwen3-vl-8b-instruct",
     "label": "Qwen3-VL 8B",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "ocr_options": {
       "keep_text_position": true
@@ -812,7 +812,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "datalab",
     "label": "Datalab OCR (pay-per-call)",
-    "tier": "hosted",
+    "tier": "remote",
     "billable": true,
     "available": false,
     "error": "Action catalog unavailable"

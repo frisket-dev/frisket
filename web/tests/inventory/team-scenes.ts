@@ -30,10 +30,10 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
   const sections: SettingsSectionDefinition[] = settingsSectionsFor(TEAM_EDITION_DESCRIPTOR)
     .filter(section => section.scope === 'organization' || section.id === 'project.access');
   await page.goto(`${baseURL}${sections[0].routePattern}`);
-  const onboarding = page.getByTestId('cost-preapproval-setup');
+  const onboarding = page.getByTestId('allowance-setup');
   await expect(onboarding).toBeVisible();
-  await shot(page, 'Team settings', 'cost-preapproval-setup', 'src/components/AllowanceSetupModal.tsx; first-login setup');
-  await page.getByTestId('cost-preapproval-setup-save').click();
+  await shot(page, 'Team settings', 'allowance-setup', 'src/components/AllowanceSetupModal.tsx; first-login setup');
+  await page.getByTestId('allowance-setup-save').click();
   await expect(onboarding).toHaveCount(0);
   // The contribution imports UI/CSS. Read its canonical metadata in Vite's
   // browser context, and serialize only the definition back to this Node fixture.

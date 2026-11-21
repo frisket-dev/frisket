@@ -94,7 +94,7 @@ function deferred<T>() {
 
 function withFreeEstimates(api: ActionComparisonApi): ActionComparisonApi {
   return { ...api, estimatePreview: api.estimatePreview ?? vi.fn().mockResolvedValue({
-    schema_version: 'frisket.action_compare_quote.v1', estimate: {
+    schema_version: 'frisket.action_compare_estimate.v1', estimate: {
       cost: 0, rows: 2, billed_cost: 0, policy_id: 'test', cost_source: 'free_local', requires_confirmation: false, claims: [],
     },
   }) };
@@ -717,7 +717,7 @@ describe('createActionCompareRunner', () => {
     const estimate = { cost: 0.12, rows: 2, billed_cost: 120000, policy_id: 'paid', requires_confirmation: true, promise_set_hash: 'exact-hash' };
     const api = {
       getContext: vi.fn().mockResolvedValue(context('preview')),
-      estimatePreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_compare_quote.v1', estimate }),
+      estimatePreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_compare_estimate.v1', estimate }),
       startPreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_preview.v1', preview_id: 'p2', total: 2 }),
       getPreview: vi.fn().mockResolvedValue({
         previewId: 'p2', status: 'done', progress: { done: 2, total: 2, preparation: null },
@@ -758,7 +758,7 @@ describe('createActionCompareRunner', () => {
     const estimate = { cost: 0.12, rows: 2, billed_cost: 120000, requires_confirmation: true, promise_set_hash: 'exact-hash' };
     const api = {
       getContext: vi.fn(),
-      estimatePreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_compare_quote.v1', estimate }),
+      estimatePreview: vi.fn().mockResolvedValue({ schema_version: 'frisket.action_compare_estimate.v1', estimate }),
       startPreview: vi.fn().mockRejectedValue(new ConfirmationRequiredError(estimate, 'Approve')),
       getPreview: vi.fn(),
       cancelPreview: vi.fn(),

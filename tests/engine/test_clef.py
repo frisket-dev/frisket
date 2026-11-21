@@ -394,7 +394,6 @@ def test_executor_confirms_executes_and_replays_without_another_call(
         assert replay.status == "completed", replay.errors
         assert len(calls) == 1
     finally:
-        project.close()
         asyncio.run(client.aclose())
 
 
@@ -501,5 +500,4 @@ def test_paid_extract_preview_uses_one_decision_call_without_publishing(
             0.0000895 if engine == "openai-decisions" else 0.00024
         )
     finally:
-        project.close()
         asyncio.run(client.aclose())

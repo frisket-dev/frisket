@@ -34,8 +34,8 @@ class RuntimeConfigResponse(WireModel):
     # Local installations store this setting outside a portable project. Team
     # and hosted deployments keep the user-owned value on the signed-in
     # identity profile instead.
-    cost_preapproval_usd: str
-    cost_preapproval_editable: bool
+    allowance_usd: str
+    allowance_editable: bool
     in_container: bool | None = None
     recipe_fence_posture: str
     email_from_address: str | None
@@ -70,7 +70,7 @@ class RuntimeConfigUpdateRequest(WireModel):
     """Local-only ``PATCH /api/config`` preference mutation."""
 
     cache_mode: Literal["replay", "fresh", "replay_strict", "off"] | None = None
-    cost_preapproval_usd: str | None = None
+    allowance_usd: str | None = None
     confirmed: bool = False
 
 

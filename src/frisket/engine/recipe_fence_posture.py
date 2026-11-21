@@ -1,4 +1,4 @@
-"""What a `map.python` code recipe is confined by on THIS server, in one word.
+"""What a `map.python` code action is confined by on THIS server, in one word.
 
 The fence owns the answer: `engine/sandbox/fence.py` states the platform
 matrix and its tests pin it. This module is the single place that turns that
@@ -9,9 +9,10 @@ the UI came to show a green "sandboxed" badge for a thing that was not.
 
 The postures:
 
-  ``enforced``  The fence installs a kernel fence in the recipe child before
-                recipe code runs, or the run REFUSES. No recipe runs unfenced,
-                so this can be reported without probing the kernel per run.
+  ``enforced``  The fence installs a kernel fence in the child before
+                user code runs, or the run REFUSES. No code action runs
+                unfenced, so this can be reported without probing the kernel
+                per run.
   ``partial``   Some OS-level wall, but not the whole perimeter. macOS today:
                 a real `sandbox-exec` network wall and NO filesystem
                 confinement.
@@ -23,7 +24,7 @@ Derivation, not restatement: ``enforced`` is exactly "the fence hands this
 platform a kernel policy" (`fence.bootstrap_policy`), and the unenforced
 platforms are exactly the ones the fence names in its own notes. The only local fact is
 which KIND of unenforced each is, and
-`tests/server/test_runtime_config_recipe_fence.py` goes red if the fence's set
+`tests/server/test_runtime_config_fence_posture.py` goes red if the fence's set
 of unenforced platforms and this table's ever diverge.
 """
 
@@ -47,7 +48,7 @@ _UNENFORCED_POSTURES: dict[str, RecipeFencePosture] = {
 
 
 def recipe_fence_posture() -> RecipeFencePosture:
-    """This server's recipe-fence posture, for `GET /api/config`.
+    """This server's `map.python` fence posture, for `GET /api/config`.
 
     Fails closed: a platform neither fenced nor named by the fence reports
     ``unknown``, which every consumer must treat as "warn".

@@ -12,7 +12,7 @@ from typing import Any
 from collections.abc import Iterable
 from itertools import groupby
 
-from frisket.features.alerts.events import (
+from frisket.alerts.events import (
     count_changed_event,
     event_json,
     row_changed_event,
@@ -109,7 +109,7 @@ def add_alert(
     schedule: str | None = "@hourly",
 ) -> int:
     """Create the one Alert a view may carry, in one owned transaction."""
-    from .saved_views import get_view
+    from .views import get_view
     from frisket.engine.views.specs import stored_selection, normalize_selection
 
     view = get_view(project, view_id)

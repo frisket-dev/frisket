@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
+import { useLoader } from '../../hooks/useLoader';
 
 export interface McpToolsSelectorServer {
   id: string;
@@ -71,4 +73,25 @@ export function McpToolsSelector({
       )}
     </div>
   );
+}
+
+const NO_SERVERS: McpToolsSelectorServer[] = [];
+
+export function ProjectMcpToolsSelector({ mcpServerIds, error, onMcpServerIdsChange }: {
+  mcpServerIds: readonly string[];
+  error?: string;
+  onMcpServerIdsChange: (mcpServerIds: string[]) => void;
+}) {
+  const { projectApi } = useWorkspaceStores();
+  const loader = useLoader(() => projectApi.listMcpServers().then((value) => value.map(
+    (server): McpToolsSelectorServer => ({
+      id: server.id, name: server.name, enabled: server.enabled,
+      lastDiscoveredToolCount: server.last_discovered_tool_count ?? undefined,
+    }))), [projectApi], { keepPreviousData: true });
+  const problem = loader.error === null ? null : 'MCP servers could not be loaded.';
+  return <>
+    <McpToolsSelector servers={loader.data ?? NO_SERVERS} mcpServerIds={mcpServerIds}
+      onMcpServerIdsChange={onMcpServerIdsChange} />
+    {(problem || error) && <p className="panel-error" role="alert">{problem ?? error}</p>}
+  </>;
 }

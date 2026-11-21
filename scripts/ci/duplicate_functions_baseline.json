@@ -107,7 +107,7 @@
   ],
   [
    "src/frisket/ai/embeddings/store.py::EmbeddingStore.list_indexes",
-   "src/frisket/engine/store/saved_views.py::views"
+   "src/frisket/engine/store/views.py::views"
   ],
   [
    "src/frisket/ai/models/metadata.py::model_calls_cost_actual.value",
@@ -315,31 +315,31 @@
    "src/frisket/execution/resolve_for_action.py::_geocode_cost_basis"
   ],
   [
-   "src/frisket/features/alerts/triggers.py::_is_embedding_similarity_alert",
-   "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
+   "src/frisket/alerts/triggers.py::_is_embedding_similarity_alert",
+   "src/frisket/alerts/triggers.py::_is_keyword_alert"
   ],
   [
    "src/frisket/exports/dataset_formats.py::DatasetFormatError.__init__",
-   "src/frisket/features/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__"
+   "src/frisket/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__"
   ],
   [
-   "src/frisket/features/followthemoney/adapter.py::_diagnostic",
-   "src/frisket/features/followthemoney/import_planner.py::_diagnostic",
-   "src/frisket/features/followthemoney/mapping.py::_diagnostic",
-   "src/frisket/features/followthemoney/matching.py::_diagnostic"
+   "src/frisket/followthemoney/adapter.py::_diagnostic",
+   "src/frisket/followthemoney/import_planner.py::_diagnostic",
+   "src/frisket/followthemoney/mapping.py::_diagnostic",
+   "src/frisket/followthemoney/matching.py::_diagnostic"
   ],
   [
-   "src/frisket/features/followthemoney/import_planner.py::_json_normalized_entity",
-   "src/frisket/features/followthemoney/import_planner.py::_json_normalized_raw"
+   "src/frisket/followthemoney/import_planner.py::_json_normalized_entity",
+   "src/frisket/followthemoney/import_planner.py::_json_normalized_raw"
   ],
   [
-   "src/frisket/features/followthemoney/matching.py::_candidate_groups.find",
+   "src/frisket/followthemoney/matching.py::_candidate_groups.find",
    "src/frisket/ops/cluster.py::_components.find",
    "src/frisket/pdf_packets/matching.py::_start_kinds.find"
   ],
   [
    "src/frisket/exports/rowset.py::ExportError.__init__",
-   "src/frisket/features/investigations/rowsets.py::InvestigativeRowsetError.__init__",
+   "src/frisket/exports/investigative_rowsets.py::InvestigativeRowsetError.__init__",
    "src/frisket/preview/common.py::ComparePreviewError.__init__"
   ],
   [
@@ -493,10 +493,10 @@
    "src/frisket/engine/store/project_qa_research.py::_now"
   ],
   [
-   "src/frisket/features/followthemoney/adapter.py::_diagnostic",
-   "src/frisket/features/followthemoney/import_planner.py::_diagnostic",
-   "src/frisket/features/followthemoney/mapping.py::_diagnostic",
-   "src/frisket/features/followthemoney/matching.py::_diagnostic"
+   "src/frisket/followthemoney/adapter.py::_diagnostic",
+   "src/frisket/followthemoney/import_planner.py::_diagnostic",
+   "src/frisket/followthemoney/mapping.py::_diagnostic",
+   "src/frisket/followthemoney/matching.py::_diagnostic"
   ],
   [
    "src/frisket/retrieval/content.py::_check_cancelled",

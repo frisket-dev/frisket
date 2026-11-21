@@ -12,7 +12,6 @@ Asserts the NEW contract that the redesign establishes:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from frisket.contracts.action import Receipt
@@ -23,8 +22,7 @@ from frisket.engine.store import Project
 PROJECT_ID = "project-map-python-generalize"
 
 
-def _seed(project_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(project_path, name="Map Python Generalize")
+def _seed(project: Project) -> tuple[int, list[int]]:
     sheet_id = project.add_sheet("Transcripts")
     columns = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -41,7 +39,7 @@ def _seed(project_path: Path) -> tuple[Project, int, list[int]]:
         ],
         columns,
     )
-    return project, sheet_id, row_ids
+    return sheet_id, row_ids
 
 
 def _map_python_action(sheet_id: int, *, key: str) -> dict[str, Any]:
@@ -151,139 +149,130 @@ def _receipt(project: Project, receipt_id: str) -> Receipt:
     return Receipt.model_validate(json.loads(row["body"]))
 
 
-def test_column_and_named_result_routes_and_table_from_list(tmp_path: Path) -> None:
-    project, sheet_id, row_ids = _seed(tmp_path / "a.frisket")
-    try:
-        result = run_action_spec(
-            project,
-            _map_python_action(sheet_id, key="map_python@sha256:a"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        # column target -> visible column output; named_result -> named_result output.
-        assert {o.kind for o in result.outputs} == {"column", "named_result"}
-        assert {o.name for o in result.outputs} == {"word_count", "entities"}
+def test_column_and_named_result_routes_and_table_from_list(project: Project) -> None:
+    sheet_id, row_ids = _seed(project)
+    result = run_action_spec(
+        project,
+        _map_python_action(sheet_id, key="map_python@sha256:a"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    # column target -> visible column output; named_result -> named_result output.
+    assert {o.kind for o in result.outputs} == {"column", "named_result"}
+    assert {o.name for o in result.outputs} == {"word_count", "entities"}
 
-        word_col = project.db.execute(
-            "SELECT * FROM columns WHERE sheet_id=? AND name='word_count'", (sheet_id,)
-        ).fetchone()
-        assert word_col["hidden"] == 0
-        assert word_col["type"] == "integer"
-        assert list(project.get_values(sheet_id, int(word_col["id"])).values()) == [
-            6,
-            6,
-        ]
+    word_col = project.db.execute(
+        "SELECT * FROM columns WHERE sheet_id=? AND name='word_count'", (sheet_id,)
+    ).fetchone()
+    assert word_col["hidden"] == 0
+    assert word_col["type"] == "integer"
+    assert list(project.get_values(sheet_id, int(word_col["id"])).values()) == [
+        6,
+        6,
+    ]
 
-        # named_result -> hidden __result_entities column holding the per-row lists.
-        named_col = project.db.execute(
-            "SELECT * FROM columns WHERE sheet_id=? AND name='__result_entities'",
-            (sheet_id,),
-        ).fetchone()
-        assert named_col["hidden"] == 1
-        assert named_col["type"] == "json"
-        assert list(project.get_values(sheet_id, int(named_col["id"])).values())[0] == [
-            {"name": "Alice", "kind": "person"}
-        ]
+    # named_result -> hidden __result_entities column holding the per-row lists.
+    named_col = project.db.execute(
+        "SELECT * FROM columns WHERE sheet_id=? AND name='__result_entities'",
+        (sheet_id,),
+    ).fetchone()
+    assert named_col["hidden"] == 1
+    assert named_col["type"] == "json"
+    assert list(project.get_values(sheet_id, int(named_col["id"])).values())[0] == [
+        {"name": "Alice", "kind": "person"}
+    ]
 
-        # the named_result feeds derive.table_from_list.
-        derived = run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id,
-                column_id=int(named_col["id"]),
-                run_id=result.run_id,
-                key="derive@sha256:a",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert derived.status == "completed", derived.errors
-        entities_sheet = project.db.execute(
-            "SELECT id FROM sheets WHERE name='Entities'"
-        ).fetchone()
-        assert entities_sheet is not None
-        n_rows = project.db.execute(
-            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0",
-            (int(entities_sheet["id"]),),
-        ).fetchone()[0]
-        assert n_rows == 2
-    finally:
-        project.close()
+    # the named_result feeds derive.table_from_list.
+    derived = run_action_spec(
+        project,
+        _derive_action(
+            sheet_id=sheet_id,
+            column_id=int(named_col["id"]),
+            run_id=result.run_id,
+            key="derive@sha256:a",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert derived.status == "completed", derived.errors
+    entities_sheet = project.db.execute(
+        "SELECT id FROM sheets WHERE name='Entities'"
+    ).fetchone()
+    assert entities_sheet is not None
+    n_rows = project.db.execute(
+        "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0",
+        (int(entities_sheet["id"]),),
+    ).fetchone()[0]
+    assert n_rows == 2
 
 
 def test_receipt_evidence_route_is_hidden_column_plus_lightweight_ref(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, sheet_id, _ = _seed(tmp_path / "b.frisket")
-    try:
-        result = run_action_spec(
-            project,
-            _map_python_action(sheet_id, key="map_python@sha256:b"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
+    sheet_id, _ = _seed(project)
+    result = run_action_spec(
+        project,
+        _map_python_action(sheet_id, key="map_python@sha256:b"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        # receipt_evidence -> a HIDDEN __evidence_debug column holding the per-row values.
-        evidence_col = project.db.execute(
-            "SELECT * FROM columns WHERE sheet_id=? AND name='__evidence_debug'",
-            (sheet_id,),
-        ).fetchone()
-        assert evidence_col is not None
-        assert evidence_col["hidden"] == 1
-        first = list(project.get_values(sheet_id, int(evidence_col["id"])).values())[0]
-        assert first == {"first_word": "Alice", "title": "Episode 1"}
-        # the evidence route is NOT projected as a user-facing output.
-        assert "debug" not in {o.name for o in result.outputs}
+    # receipt_evidence -> a HIDDEN __evidence_debug column holding the per-row values.
+    evidence_col = project.db.execute(
+        "SELECT * FROM columns WHERE sheet_id=? AND name='__evidence_debug'",
+        (sheet_id,),
+    ).fetchone()
+    assert evidence_col is not None
+    assert evidence_col["hidden"] == 1
+    first = list(project.get_values(sheet_id, int(evidence_col["id"])).values())[0]
+    assert first == {"first_word": "Alice", "title": "Episode 1"}
+    # the evidence route is NOT projected as a user-facing output.
+    assert "debug" not in {o.name for o in result.outputs}
 
-        receipt = _receipt(project, result.receipt_id)
-        ev = [
-            item.ref
-            for item in receipt.evidence
-            if item.ref["kind"] == "map_python_receipt_evidence"
-        ]
-        assert len(ev) == 1
-        ref = ev[0]
-        # LIGHTWEIGHT: a column_id + path + retention pointer, NOT per-row value blobs.
-        assert ref["route"] == "debug"
-        assert ref["path"] == "$.debug"
-        assert ref["column_id"] == int(evidence_col["id"])
-        assert ref["retention"] == "compactable"
-        assert "values" not in ref
-    finally:
-        project.close()
+    receipt = _receipt(project, result.receipt_id)
+    ev = [
+        item.ref
+        for item in receipt.evidence
+        if item.ref["kind"] == "map_python_receipt_evidence"
+    ]
+    assert len(ev) == 1
+    ref = ev[0]
+    # LIGHTWEIGHT: a column_id + path + retention pointer, NOT per-row value blobs.
+    assert ref["route"] == "debug"
+    assert ref["path"] == "$.debug"
+    assert ref["column_id"] == int(evidence_col["id"])
+    assert ref["retention"] == "compactable"
+    assert "values" not in ref
 
 
-def test_reservation_based_idempotency_in_progress(tmp_path: Path) -> None:
-    project, sheet_id, _ = _seed(tmp_path / "c.frisket")
-    try:
-        # Simulate a still-running first action by leaving a 'running' reservation in
-        # place (the reserved skeleton writes one before the sandbox runs), then issue a
-        # duplicate with the same key.
-        from frisket.engine.executor.action_reservations import _receipt_for_idempotency
+def test_reservation_based_idempotency_in_progress(project: Project) -> None:
+    sheet_id, _ = _seed(project)
+    # Simulate a still-running first action by leaving a 'running' reservation in
+    # place (the reserved skeleton writes one before the sandbox runs), then issue a
+    # duplicate with the same key.
+    from frisket.engine.executor.action_reservations import _receipt_for_idempotency
 
-        first = run_action_spec(
-            project,
-            _map_python_action(sheet_id, key="map_python@sha256:c"),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed", first.errors
+    first = run_action_spec(
+        project,
+        _map_python_action(sheet_id, key="map_python@sha256:c"),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed", first.errors
 
-        # Force the stored receipt back into the running state to model an in-flight run.
-        existing = _receipt_for_idempotency(project, "map_python@sha256:c")
-        assert existing is not None
-        project.db.execute(
-            "UPDATE receipts SET status='running' WHERE id=?", (existing["id"],)
-        )
-        project.db.commit()
+    # Force the stored receipt back into the running state to model an in-flight run.
+    existing = _receipt_for_idempotency(project, "map_python@sha256:c")
+    assert existing is not None
+    project.db.execute(
+        "UPDATE receipts SET status='running' WHERE id=?", (existing["id"],)
+    )
+    project.db.commit()
 
-        dup = run_action_spec(
-            project,
-            _map_python_action(sheet_id, key="map_python@sha256:c"),
-            project_id=PROJECT_ID,
-        )
-        assert dup.status == "failed"
-        assert dup.errors[0].code == "idempotency_in_progress"
-    finally:
-        project.close()
+    dup = run_action_spec(
+        project,
+        _map_python_action(sheet_id, key="map_python@sha256:c"),
+        project_id=PROJECT_ID,
+    )
+    assert dup.status == "failed"
+    assert dup.errors[0].code == "idempotency_in_progress"
 
 
 def test_reserved_spec_has_no_resolve_or_write_override() -> None:

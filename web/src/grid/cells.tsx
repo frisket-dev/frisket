@@ -4,7 +4,7 @@
 
 import { coerceFiniteNumber, countLabel, formatNumberDisplay } from '../format';
 import { textDisplayValue } from '../displayText';
-import { activateSourceLink, parseSourceLink } from '../components/evidence/sourceLink';
+import { activateSourceLink, parseSourceLink } from '../components/citations/sourceLink';
 import {
   GridCellKind,
   type CustomCell,

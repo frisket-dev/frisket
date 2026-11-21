@@ -685,7 +685,7 @@ def _materialized_row_source_dict(
 
 
 def load_materialized_row_sources_for_op(
-    cur: sqlite3.Cursor,
+    cur: sqlite3.Connection | sqlite3.Cursor,
     *,
     op_id: int,
     roles: Sequence[str] | None = None,
@@ -707,7 +707,7 @@ def load_materialized_row_sources_for_op(
 
 
 def active_materialized_row_sources(
-    cur: sqlite3.Cursor,
+    cur: sqlite3.Connection | sqlite3.Cursor,
     *,
     materialized_row_ids: Sequence[int] | None = None,
     roles: Sequence[str] | None = None,
@@ -759,7 +759,7 @@ def active_materialized_row_sources(
 
 
 def _active_materialized_row_sources_query(
-    cur: sqlite3.Cursor,
+    cur: sqlite3.Connection | sqlite3.Cursor,
     *,
     materialized_row_ids: Sequence[int] | None,
     roles: Sequence[str] | None,

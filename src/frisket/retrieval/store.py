@@ -20,10 +20,11 @@ from .sources import canonical_json, input_hash
 
 
 RETRIEVAL_DB_NAME = "project.retrieval.db"
-# Version 3 changes source authority: prepared OCR text supersedes its evidence
-# copy, and producer-owned OCR geometry is metadata rather than searchable JSON.
-# The sidecar is disposable, so an incompatible derivation is preserved and
-# rebuilt through the existing recovery path instead of migrated in place.
+# Version 4 renames parts.recipe_id and preparation.recipe_id (and their
+# indexes and cursor JSON keys) to slice_id; version 3 changed OCR source
+# authority. The sidecar is disposable, so an incompatible derivation is
+# preserved and rebuilt through the existing recovery path instead of migrated
+# in place.
 SCHEMA_VERSION = 4
 SIDECAR_ID_META_KEY = "sidecar_id"
 PROJECT_SIDECAR_META_KEY = "retrieval_sidecar_id"

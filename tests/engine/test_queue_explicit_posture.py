@@ -38,7 +38,7 @@ def test_declared_hosted_posture_enforces_storage_identity_on_a_sqlite_engine(
 ):
     hosted_dir = tmp_path / "hosted"
     hosted_dir.mkdir()
-    hosted_queue = open_queue(workspace=hosted_dir, hosted=True)
+    hosted_queue = open_queue(workspace=hosted_dir, cloud=True)
     try:
         # Fail-closed ProjectStorageKey at enqueue: a project job with no storage
         # identity is rejected on a SQLite engine BECAUSE posture is declared
@@ -124,7 +124,7 @@ def test_hosted_terminalization_routes_by_declared_root_not_ambient_env(
     finally:
         project.close()
 
-    queue = open_queue(workspace=tmp_path / "queue", hosted=True)
+    queue = open_queue(workspace=tmp_path / "queue", cloud=True)
     try:
         register_queue_terminalization(queue, workspace_root=projects_root)
         jid = queue.enqueue(
@@ -184,7 +184,7 @@ def test_hosted_terminalization_fails_closed_for_foreign_organization_scoped_roo
     finally:
         project.close()
 
-    queue = open_queue(workspace=tmp_path / "queue", hosted=True)
+    queue = open_queue(workspace=tmp_path / "queue", cloud=True)
     try:
         # Registration declares the root as organization 7's storage directory; the
         # job's claim names organization 42 — resolution must fail closed.

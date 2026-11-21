@@ -148,8 +148,8 @@ class ActionComparePreviewAdmission(WireModel):
     expected_output_signature: str = Field(min_length=1)
 
 
-class ActionCompareQuoteResponse(WireModel):
-    schema_version: Literal["frisket.action_compare_quote.v1"]
+class ActionCompareEstimateResponse(WireModel):
+    schema_version: Literal["frisket.action_compare_estimate.v1"]
     estimate: ActionEstimate
 
 
@@ -162,8 +162,8 @@ __all__ = [
     "ActionCompareBasis",
     "ActionCompareContextRequest",
     "ActionCompareContextResponse",
+    "ActionCompareEstimateResponse",
     "ActionComparePreviewRequest",
-    "ActionCompareQuoteResponse",
     "ActionDraft",
     "ActionDraftScope",
 ]

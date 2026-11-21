@@ -5,9 +5,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from frisket.retrieval.content import TextSliceSpec, TranscriptChunkRecipe
 from frisket.retrieval.media import (
@@ -62,18 +62,28 @@ class PreparationPolicy:
             raise TypeError("audio_recipe must be AudioWindowRecipe or None")
 
 
+_VideoStrategy = PeriodicFrameRecipe | FixedClipRecipe | ShotClipRecipe
+_AnyStrategy = (
+    TextSliceSpec | TranscriptChunkRecipe | _VideoStrategy | AudioWindowRecipe
+)
+_StrategyT = TypeVar("_StrategyT", bound=_AnyStrategy)
+
 DEFAULT_PREPARATION_POLICY = PreparationPolicy()
 _MISSING = object()
 _POLICY_KEYS = frozenset(field.name for field in dataclasses.fields(PreparationPolicy))
-_RECIPE_TYPES: dict[str, dict[str, type[Any]]] = {
-    "text_recipe": {"text_codepoint_windows": TextSliceSpec},
-    "transcript_recipe": {"transcript_segment_windows": TranscriptChunkRecipe},
-    "video_recipe": {
-        "periodic_frames": PeriodicFrameRecipe,
-        "fixed_clips": FixedClipRecipe,
-        "shot_clips_ffmpeg_scene_v1": ShotClipRecipe,
-    },
-    "audio_recipe": {"audio_windows": AudioWindowRecipe},
+_TEXT_STRATEGIES: dict[str, type[TextSliceSpec]] = {
+    "text_codepoint_windows": TextSliceSpec,
+}
+_TRANSCRIPT_STRATEGIES: dict[str, type[TranscriptChunkRecipe]] = {
+    "transcript_segment_windows": TranscriptChunkRecipe,
+}
+_VIDEO_STRATEGIES: dict[str, type[_VideoStrategy]] = {
+    "periodic_frames": PeriodicFrameRecipe,
+    "fixed_clips": FixedClipRecipe,
+    "shot_clips_ffmpeg_scene_v1": ShotClipRecipe,
+}
+_AUDIO_STRATEGIES: dict[str, type[AudioWindowRecipe]] = {
+    "audio_windows": AudioWindowRecipe,
 }
 
 
@@ -81,7 +91,7 @@ def _knob(name: str) -> str:
     return f"{PREPARATION_POLICY_META_KEY}.{name}"
 
 
-def _recipe_payload(recipe: object) -> dict[str, object] | None:
+def _recipe_payload(recipe: _AnyStrategy | None) -> dict[str, object] | None:
     return None if recipe is None else dataclasses.asdict(recipe)
 
 
@@ -106,9 +116,9 @@ def preparation_policy_json(policy: PreparationPolicy) -> str:
 def _optional_recipe(
     name: str,
     value: object,
-    default: object,
-    recipes: dict[str, type[Any]],
-) -> object:
+    default: _StrategyT | None,
+    recipes: Mapping[str, type[_StrategyT]],
+) -> _StrategyT | None:
     if value is _MISSING:
         return default
     if value is None:
@@ -167,13 +177,13 @@ def parse_preparation_policy(raw: str) -> PreparationPolicy:
             "text_recipe",
             value.get("text_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.text_recipe,
-            _RECIPE_TYPES["text_recipe"],
+            _TEXT_STRATEGIES,
         ),
         transcript_recipe=_optional_recipe(
             "transcript_recipe",
             value.get("transcript_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.transcript_recipe,
-            _RECIPE_TYPES["transcript_recipe"],
+            _TRANSCRIPT_STRATEGIES,
         ),
         image_enabled=_boolean(
             "image_enabled",
@@ -189,13 +199,13 @@ def parse_preparation_policy(raw: str) -> PreparationPolicy:
             "video_recipe",
             value.get("video_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.video_recipe,
-            _RECIPE_TYPES["video_recipe"],
+            _VIDEO_STRATEGIES,
         ),
         audio_recipe=_optional_recipe(
             "audio_recipe",
             value.get("audio_recipe", _MISSING),
             DEFAULT_PREPARATION_POLICY.audio_recipe,
-            _RECIPE_TYPES["audio_recipe"],
+            _AUDIO_STRATEGIES,
         ),
     )
 

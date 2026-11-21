@@ -82,7 +82,7 @@ def _offer(
 def _platform_composition(*offers: CommercialOffering) -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-test",
             funding=PlatformMetered(),
         ),
@@ -328,7 +328,7 @@ def test_funding_and_credential_posture_cannot_disagree() -> None:
     with pytest.raises(ValueError, match="funding and credential context disagree"):
         ExecutionComposition(
             facts=CompositionFacts(
-                edition="hosted",
+                edition="cloud",
                 org_id="org-test",
                 funding=PlatformMetered(),
             ),

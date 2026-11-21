@@ -67,10 +67,10 @@ test('grid column layout: drag reorder persists as default layout and saved-view
   await dragHeaderBefore(page, backendColumns, 'source', 'status');
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('views-panel')).toBeVisible();
-  await page.getByTestId('create-saved-view').click();
+  await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Status first');
   const firstViewResponse = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views`) &&
@@ -92,9 +92,9 @@ test('grid column layout: drag reorder persists as default layout and saved-view
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
-  await page.getByTestId('create-saved-view').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
+  await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Still source second');
   const secondViewResponse = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views`) &&

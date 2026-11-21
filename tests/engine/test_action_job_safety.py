@@ -1,6 +1,7 @@
 """Queued results and reservation interruptions preserve durable truth."""
 
 import asyncio
+from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
@@ -99,8 +100,7 @@ def test_nonterminal_registered_executor_must_not_publish_completed(tmp_path, st
         )
 
     registry.register_action_executor(kind, executor)
-    project = Project(path)
-    try:
+    with closing(Project(path)) as project:
         result = run_action_run_job(
             project,
             {"action_job": envelope.to_json()},
@@ -112,8 +112,6 @@ def test_nonterminal_registered_executor_must_not_publish_completed(tmp_path, st
         assert result.errors == stored.errors
         assert result.errors[0].code == "action_job_failed"
         assert status in result.errors[0].message
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize(
@@ -180,7 +178,6 @@ def test_reservation_after_insert_interrupt_respects_transaction_owner(
             )
     finally:
         project.db.rollback()
-        project.close()
 
 
 def test_reservation_does_not_own_a_transaction_when_begin_fails(
@@ -224,7 +221,6 @@ def test_reservation_does_not_own_a_transaction_when_begin_fails(
             )
     finally:
         project.db.rollback()
-        project.close()
 
 
 def test_action_executor_registration_requires_execution_owner():

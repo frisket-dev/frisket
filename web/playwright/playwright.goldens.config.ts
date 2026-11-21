@@ -9,7 +9,7 @@ import { returningUserStorageState } from './playwright.returning-user';
 // GEMINI_API_KEY must be present in the environment that boots the backend
 // (locally: `set -a; source .secrets/frisket.env; set +a`); the global setup
 // refuses the run before any test starts when it is missing.
-const stack = localStack();
+const stack = localStack({ allowLiveSpend: true });
 
 export default defineConfig({
   testDir: '../tests/e2e',

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import json
 import os
@@ -168,8 +169,7 @@ def test_resend_email_provider_sends_request_and_redacts_response_meta(
     assert post.calls[0]["payload"]["from"] == "frisket <alerts@example.com>"
     assert post.calls[0]["payload"]["subject"] == "Provider smoke"
 
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "sent"
         assert request["provider_ref"] == "resend:email_123"
@@ -183,8 +183,6 @@ def test_resend_email_provider_sends_request_and_redacts_response_meta(
         assert "rk_live_should_not_persist" not in serialized
         assert "resend-token-secret" not in serialized
         assert "/emails/internal/path" not in serialized
-    finally:
-        project.close()
 
 
 def test_slack_provider_failure_redacts_webhook_path_tokens_and_meta(
@@ -244,8 +242,7 @@ def test_slack_provider_failure_redacts_webhook_path_tokens_and_meta(
     assert post.calls[0]["url"] == ("https://hooks.slack.com/services/T000/B000/SECRET")
     assert post.calls[0]["payload"]["text"].startswith("*Provider smoke*")
 
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "failed"
         assert "https://hooks.slack.com/[redacted]" in request["last_error"]
@@ -259,8 +256,6 @@ def test_slack_provider_failure_redacts_webhook_path_tokens_and_meta(
         assert "slack-secret-token" not in serialized
         assert "api_key=leaked" not in serialized
         assert attempt["response_meta"]["response"]["token"] == "[redacted]"
-    finally:
-        project.close()
 
 
 def test_slack_provider_blocks_non_slack_webhook_without_http_call() -> None:
@@ -327,14 +322,11 @@ def test_route_test_request_with_null_notification_id_records_attempt(
 
     assert result == {"request_id": request_id, "status": "sent"}
     assert post.calls[0]["payload"]["subject"] == "Test notification"
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         attempt = _attempt(project)
         assert attempt["notification_id"] is None
         assert attempt["delivery_request_id"] == request_id
         assert attempt["provider_ref"] == "resend:email_test_123"
-    finally:
-        project.close()
 
 
 def test_generic_webhook_channel_normalization_uses_secret_refs() -> None:

@@ -648,12 +648,12 @@ def _check_constraints(sql):
     return sorted(checks)
 
 
-def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
+def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path):
     from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    upgrade_project_schema(old_db, bundle_path=Path("project.db"))
+    upgrade_project_schema(old_db, bundle_path=tmp_path)
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
