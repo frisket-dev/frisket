@@ -8,13 +8,15 @@ import secrets
 import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from filelock import FileLock, Timeout
 
 from frisket.actions.system import typed_action_for_request
 from frisket.contracts.action import ActionResult
+from frisket.contracts.http.import_errors import ImportSourceErrorGroup
 from frisket.contracts.http.import_sessions import (
+    ImportPreparationChild,
     ImportPreparationRetryEstimate,
     ImportSessionList,
     ImportSessionStatus,
@@ -695,7 +697,9 @@ class ImportSessionService:
             preparation_children=[]
             if summary is None
             else [
-                {key: value for key, value in child.items() if key in child_fields}
+                ImportPreparationChild.model_validate(
+                    {key: value for key, value in child.items() if key in child_fields}
+                )
                 for child in summary.children
             ],
             reading_row_ids=[] if summary is None else list(summary.reading_row_ids),
@@ -888,17 +892,38 @@ class ImportSessionService:
             if header.intake_kind == "table"
             else None
         )
+        state: Literal[
+            "admitting",
+            "running",
+            "paused",
+            "cancelling",
+            "cancelled",
+            "completed",
+            "kept",
+            "removed",
+        ]
         if header.pdf_preparation is not None and header.resolution is not None:
             state = header.resolution
         elif session is not None:
-            state = {
+            session_state_map: dict[
+                str,
+                Literal[
+                    "running",
+                    "paused",
+                    "cancelled",
+                    "completed",
+                    "kept",
+                    "removed",
+                ],
+            ] = {
                 "active": "running",
                 "paused": "paused",
                 "cancelled": "cancelled",
                 "completed": "completed",
                 "kept": "kept",
                 "removed": "removed",
-            }[session.state]
+            }
+            state = session_state_map[session.state]
             if (
                 session.state in {"active", "paused"}
                 and provider_job is not None
@@ -1054,7 +1079,12 @@ class ImportSessionService:
             source_error_groups=(
                 []
                 if table_status is None
-                else table_issue_groups(directory, through=table_status.source_cursor)
+                else [
+                    ImportSourceErrorGroup.model_validate(group)
+                    for group in table_issue_groups(
+                        directory, through=table_status.source_cursor
+                    )
+                ]
             ),
         )
 

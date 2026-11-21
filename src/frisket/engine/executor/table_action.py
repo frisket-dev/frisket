@@ -563,6 +563,9 @@ def prepare_table_producer(
     terminal = bound.action.definition.run
     if not isinstance(terminal, CreateSheet):
         raise TypeError("table preparation requires CreateSheet")
+    sheet_name = bound.request.sheet_name
+    if sheet_name is None:
+        raise ValueError("create_sheet actions require sheet_name")
     deps = deps or ExecutorDeps()
     limits = (
         deps.import_workload_limits
@@ -571,9 +574,7 @@ def prepare_table_producer(
     )
     fields = bound.output_fields
     if check_sheet_name and fields is None:
-        duplicate = _duplicate_sheet_error(
-            project, bound.action.action_id, bound.request.sheet_name
-        )
+        duplicate = _duplicate_sheet_error(project, bound.action.action_id, sheet_name)
         if duplicate is not None:
             raise TableReadRefused(duplicate)
     table = (
@@ -581,7 +582,7 @@ def prepare_table_producer(
             project,
             fields,
             action_kind=bound.action.action_id,
-            sheet_name=bound.request.sheet_name,
+            sheet_name=sheet_name,
             output_names=bound.request.output_names,
             check_sheet_name=check_sheet_name,
         )
@@ -621,7 +622,7 @@ def prepare_table_producer(
                 reader = AdmittedRuntimeImporter(
                     project,
                     project_id=project_id,
-                    sheet_name=bound.request.sheet_name,
+                    sheet_name=sheet_name,
                     action_id=bound.action.action_id,
                     row_limit=row_limit,
                     cancelled=cancelled,
@@ -1314,7 +1315,7 @@ def run_table_source(
             source_ref=source_ref or {},
             blob_plan=blob_plan,
         )
-        if defer_metadata:
+        if defer_metadata and callable(schedule_metadata):
             try:
                 schedule_metadata(publication.receipt_id)
             except Exception:
@@ -1828,12 +1829,17 @@ def _parented_table_replay_error(
         )
 
     membership = _receipt_ref(receipt, "materialized_row_sources")
+    cur = project.db.cursor()
+    try:
+        live_sources = load_materialized_row_sources_for_op(cur, op_id=sheet_op_id)
+    finally:
+        cur.close()
     if (
         membership is None
         or membership.get("op_id") != sheet_op_id
         or not materialized_row_sources_ref_matches(
             membership,
-            load_materialized_row_sources_for_op(project.db, op_id=sheet_op_id),
+            live_sources,
         )
     ):
         return receipt_stale_replay_error(

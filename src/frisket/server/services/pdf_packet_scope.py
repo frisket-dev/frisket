@@ -170,6 +170,7 @@ class PdfPacketScopeService:
             for row_id in ordered:
                 value = values.get(row_id)
                 reason = None
+                blob = None
                 try:
                     cell = document_cell(
                         snapshot,
@@ -194,7 +195,7 @@ class PdfPacketScopeService:
                             reason = "invalid_page"
                 except (TableError, BlobStoreError, PdfReadError, OSError, ValueError):
                     reason = "not_pdf"
-                if reason:
+                if reason or blob is None:
                     excluded_count += 1
                     if len(excluded) < 9:
                         excluded.append({"row_id": row_id, "reason": reason})

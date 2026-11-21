@@ -32,6 +32,7 @@ from frisket.server.embedding_catalog import (
 )
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.receipts import ReceiptStore, StoredReceipt
 from frisket.server.route_errors import RouteError
 from frisket.search import SearchIndexNotReady
@@ -293,7 +294,7 @@ def _embedding_request_error(exc: SimilarityError) -> RouteError:
 
 
 def _current_row_values(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     sheet_id: int | None,
     row_ids: list[int],
@@ -333,7 +334,9 @@ def _embedding_similarity_preview_payload(project: Project, result: Any) -> dict
     }
 
 
-def _embedding_hybrid_preview_payload(project: Project, result: Any) -> dict:
+def _embedding_hybrid_preview_payload(
+    project: Project | ProjectReadSnapshot, result: Any
+) -> dict:
     sheet_id = result.sheet_id
     row_ids = [hit.row_id for hit in result.hits]
     values_by_row = _current_row_values(project, sheet_id=sheet_id, row_ids=row_ids)
