@@ -85,9 +85,9 @@ test('alerts promote searches, then show manual run history', async ({ page }) =
   );
   const alertCapabilities = await declaredCapabilities(alertsContribution);
   expect(alertCapabilities).toEqual(expect.arrayContaining([
-    'watch.list',
-    'watch.run',
-    'watch.runs.list',
+    'alert.list',
+    'alert.check',
+    'alert.checks.list',
     'notifications.summary.read',
   ]));
   expect(alertCapabilities).toContain('embedding.index.refresh');
