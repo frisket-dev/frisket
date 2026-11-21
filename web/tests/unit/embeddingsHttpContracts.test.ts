@@ -139,14 +139,12 @@ function requestBody(init: RequestInit | undefined): Record<string, unknown> {
 }
 
 const readOnlyV1ActionSession = {
-  v1ActionSpec: vi.fn(),
   registeredProjectActionSpec: vi.fn(),
   postV1ActionSpec: vi.fn(),
   clearV1ActionIdempotencyKey: vi.fn(),
   releaseV1ActionIdempotencyKey: vi.fn(),
 } as Pick<
   V1ActionSession,
-  | 'v1ActionSpec'
   | 'registeredProjectActionSpec'
   | 'postV1ActionSpec'
   | 'clearV1ActionIdempotencyKey'

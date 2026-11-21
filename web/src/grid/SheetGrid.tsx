@@ -763,10 +763,7 @@ function useNativeColumnGroups(
               break;
             }
           }
-          const label =
-            typeof run?.spec?.group_label === 'string' && run.spec.group_label.trim()
-              ? run.spec.group_label.trim()
-              : run?.actionName || group.fallbackLabel;
+          const label = run?.actionName || group.fallbackLabel;
           if (label === group.fallbackLabel) {
             retryLabel();
             return;

@@ -23,10 +23,7 @@ from pydantic import (
 from frisket.contracts.http.models import WireModel
 
 
-# The envelope literals the producers emit
-# (frisket.server.notifications.service). Restated here because the contracts
-# package stays out of the service layer; the backend contract test pins them
-# against the producer's own constants.
+# Envelope schema versions shared by the HTTP contracts and notification services.
 NotificationPageSchemaVersion = Literal["frisket.notifications_page.v1"]
 NOTIFICATION_PAGE_SCHEMA_VERSION: Final[NotificationPageSchemaVersion] = get_args(
     NotificationPageSchemaVersion
