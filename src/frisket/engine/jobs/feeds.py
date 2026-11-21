@@ -45,6 +45,16 @@ FEED_POLL_KIND = "source.poll"
 LOG = logging.getLogger(__name__)
 
 
+def _record_refused_feed_check(
+    project: Project,
+    feed_store: FeedStore,
+    feed_id: int,
+    message: str,
+) -> int:
+    with write_transaction(project.db, what="feed check record"):
+        return feed_store.record_feed_check(feed_id, status="error", error=message)
+
+
 def _feed_dict(row: Any) -> dict[str, Any]:
     d = dict(row)
     try:
@@ -159,12 +169,11 @@ def register_feed_poll_handler(
                 )
                 # A refused check still advances cadence. Restoring its input
                 # permits the next scheduled poll; immediate job retries cannot.
-                refused_run_id: int | None = None
-                if refused:
-                    with write_transaction(project.db, what="feed check record"):
-                        refused_run_id = feed_store.record_feed_check(
-                            feed_id, status="error", error=message
-                        )
+                refused_run_id = (
+                    _record_refused_feed_check(project, feed_store, feed_id, message)
+                    if refused
+                    else None
+                )
                 _emit_feed_health_notification(
                     project,
                     project_id=project_id,
