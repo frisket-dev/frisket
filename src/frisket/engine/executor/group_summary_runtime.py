@@ -98,7 +98,7 @@ def _reduce_group_summary_replay_error(
         ):
             return stale(replay + "aggregate row parentage changed", row_ids=row_ids)
     live_membership = load_materialized_row_sources_for_op(
-        project.db,
+        project.db.cursor(),
         op_id=op_id,
         roles=("aggregate_source",),
     )
@@ -123,7 +123,7 @@ def _reduce_group_summary_replay_error(
         expected_membership[summary_row_id] = set(source_row_ids)
     active_membership: dict[int, set[int]] = {}
     for membership in active_materialized_row_sources(
-        project.db,
+        project.db.cursor(),
         materialized_row_ids=row_ids,
         roles=("aggregate_source",),
     ):
@@ -447,7 +447,8 @@ async def _complete_reduce_group_summaries(
     )
     write = publication.write
     spec["sheet_id"] = write.sheet_id
-    program.group_keys = {row_id: key for key, row_id in publication.positions.items()}
+    group_keys = {row_id: key for key, row_id in publication.positions.items()}
+    setattr(program, "group_keys", group_keys)
     from frisket.engine.store.consumed_sources import (
         capture_fingerprint,
         row_capture,
@@ -474,7 +475,7 @@ async def _complete_reduce_group_summaries(
             revisions={},
         )
         capture["shared_inputs"] = [fingerprint]
-        group = resolved["groups"].by_identity(program.group_keys[row_id])
+        group = resolved["groups"].by_identity(group_keys[row_id])
         return RowInputValues(
             {"messages": group_summary_messages(params.instruction, group)},
             source_cells_empty=False,
@@ -520,7 +521,7 @@ async def _complete_reduce_group_summaries(
     if progress.halted_code:
         return ActionError(
             code=progress.halted_code,
-            message=progress.halted_reason,
+            message=progress.halted_reason or progress.halted_code,
             action_kind=params.action_kind,
         )
     computations = [
@@ -579,9 +580,8 @@ def _write_reduce_group_summary_result(
                 field="idempotency_key",
             )
         run_store = RunResultStore(project)
-        if authority_effect is not None and run_store.cancellation_requested(
-            int(authority_effect["run_id"])
-        ):
+        assert authority_effect is not None
+        if run_store.cancellation_requested(int(authority_effect["run_id"])):
             result = publication.finish_cancelled()
             project.db.commit()
             return result
