@@ -102,7 +102,9 @@ def inject_channel_provider(monkeypatch: pytest.MonkeyPatch):
 def _seed_source_cell(project: Project, url: str = CHANNEL_URL) -> dict[str, int]:
     sheet_id = project.add_sheet("Channels")
     col_id = project.add_column(sheet_id, "channel_url", type="link")
-    row_ids = project.add_rows(sheet_id, [{"channel_url": url}], {"channel_url": col_id})
+    row_ids = project.add_rows(
+        sheet_id, [{"channel_url": url}], {"channel_url": col_id}
+    )
     return {
         "sheet_id": sheet_id,
         "column_id": col_id,
@@ -356,9 +358,7 @@ def test_non_collection_url_is_an_honest_error(
     project: Project, inject_channel_provider
 ) -> None:
     inject_channel_provider(entry_count=1, preview_count=1)
-    seed = _seed_source_cell(
-        project, url="https://www.youtube.com/watch?v=vid0000001"
-    )
+    seed = _seed_source_cell(project, url="https://www.youtube.com/watch?v=vid0000001")
     result = _run(
         project,
         _expand_action(
@@ -485,9 +485,9 @@ def test_metadata_has_link_type_no_ai_flag_and_authoritative_provider_facts(
     project.db.commit()
     result = _run(project, _request_for(seed))
     assert result.status == "completed", result.errors
-    sheet = project.db.execute(
-        "SELECT id FROM sheets WHERE name='Videos'"
-    ).fetchone()[0]
+    sheet = project.db.execute("SELECT id FROM sheets WHERE name='Videos'").fetchone()[
+        0
+    ]
     columns = project.db.execute(
         "SELECT name,type,ai_generated FROM columns WHERE sheet_id=? ORDER BY position",
         (sheet,),
@@ -591,7 +591,9 @@ class RenamedCollectionParams(ActionParams):
     forge: bool = False
 
 
-def test_supplied_hard_cap_is_absolute(project: Project, inject_channel_provider, monkeypatch):
+def test_supplied_hard_cap_is_absolute(
+    project: Project, inject_channel_provider, monkeypatch
+):
     from frisket.engine.executor import collection_read
 
     calls = inject_channel_provider(5, 5)
@@ -611,9 +613,7 @@ def test_supplied_hard_cap_is_absolute(project: Project, inject_channel_provider
     result = _run(project, request)
     assert result.errors[0].code == "collection_expand_exceeds_hard_cap"
     assert calls == [{"max_pages": None, "item_cap": 2}]
-    assert not project.db.execute(
-        "SELECT 1 FROM sheets WHERE name='Videos'"
-    ).fetchone()
+    assert not project.db.execute("SELECT 1 FROM sheets WHERE name='Videos'").fetchone()
 
 
 def test_unavailable_entries_keep_original_positions_and_null_metadata(
@@ -632,9 +632,9 @@ def test_unavailable_entries_keep_original_positions_and_null_metadata(
     seed = _seed_source_cell(project)
     result = _run(project, _request_for(seed))
     assert result.status == "completed", result.errors
-    sheet = project.db.execute(
-        "SELECT id FROM sheets WHERE name='Videos'"
-    ).fetchone()[0]
+    sheet = project.db.execute("SELECT id FROM sheets WHERE name='Videos'").fetchone()[
+        0
+    ]
     columns = {
         row["name"]: row["id"]
         for row in project.db.execute(
@@ -656,7 +656,9 @@ def test_unavailable_entries_keep_original_positions_and_null_metadata(
     assert enumeration["truncated"] is True
 
 
-def test_source_change_during_enumeration_refuses_publication(project: Project, monkeypatch):
+def test_source_change_during_enumeration_refuses_publication(
+    project: Project, monkeypatch
+):
     from frisket.engine.executor import collection_read
 
     seed = _seed_source_cell(project)
@@ -677,9 +679,7 @@ def test_source_change_during_enumeration_refuses_publication(project: Project, 
     monkeypatch.setattr(collection_read, "_ENUMERATOR_PROVIDER", provider)
     result = _run(project, _request_for(seed))
     assert result.errors[0].code == "stale_replay"
-    assert not project.db.execute(
-        "SELECT 1 FROM sheets WHERE name='Videos'"
-    ).fetchone()
+    assert not project.db.execute("SELECT 1 FROM sheets WHERE name='Videos'").fetchone()
 
 
 def test_custom_params_reader_reuse_ignores_authored_source_claims_and_refuses_forged_lineage(

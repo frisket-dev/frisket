@@ -157,9 +157,9 @@ def test_derive_join_fanout_emits_unified_402_envelope(project: Project) -> None
     assert len(promise_set_hash) == 64
     # Nothing materialized on the gate.
     assert (
-        project.db.execute("SELECT COUNT(*) FROM sheets WHERE name='Guarded'").fetchone()[
-            0
-        ]
+        project.db.execute(
+            "SELECT COUNT(*) FROM sheets WHERE name='Guarded'"
+        ).fetchone()[0]
         == 0
     )
 

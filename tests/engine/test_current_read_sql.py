@@ -55,7 +55,9 @@ def test_dirty_filter_finds_values_absent_from_old_projection(project):
         snapshot.db.set_progress_handler(progress, 100)
         try:
             clean = current_values_sql(snapshot.db, [source], [rows[-1]])
-            assert snapshot.db.execute(f"SELECT value FROM {clean}").fetchone()[0] == "old"
+            assert (
+                snapshot.db.execute(f"SELECT value FROM {clean}").fetchone()[0] == "old"
+            )
         finally:
             snapshot.db.set_progress_handler(None, 0)
         assert steps < 10000

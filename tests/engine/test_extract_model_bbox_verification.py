@@ -151,9 +151,7 @@ def test_non_overlapping_model_bbox_downgrades_to_page_range_with_warning(
 def test_no_word_stream_fails_closed_to_page_range(project: Project) -> None:
     seeded = _seed(project)
     with write_transaction(project.db):
-        artifact = _extract_artifact(
-            seeded
-        )  # no OCR run -> nothing to verify against
+        artifact = _extract_artifact(seeded)  # no OCR run -> nothing to verify against
     with write_transaction(project.db):
         spans = _source_spans(
             project,

@@ -131,7 +131,9 @@ def test_result_writes_do_not_overcount_duplicate_row_upserts(
     project: Project,
 ) -> None:
     sheet_id, _text_col, output_col, row_ids = _seed_project(project)
-    op_id = project.append_change("map", {"action_kind": "map.classify"}, label="classify")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="classify"
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -192,7 +194,9 @@ def test_result_writes_do_not_overcount_duplicate_row_upserts(
 
 def test_result_writes_update_failed_state_by_batch_delta(project: Project) -> None:
     sheet_id, _text_col, output_col, row_ids = _seed_project(project)
-    op_id = project.append_change("map", {"action_kind": "map.classify"}, label="classify")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="classify"
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -267,7 +271,9 @@ def test_run_scope_records_large_scope_in_chunks(make_project) -> None:
 
 def test_run_scope_write_failure_rolls_back_run_and_marker(project: Project) -> None:
     sheet_id, _text_col, _output_col, _row_ids = _seed_project(project)
-    op_id = project.append_change("map", {"action_kind": "map.classify"}, label="bad scope")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="bad scope"
+    )
 
     with pytest.raises(sqlite3.IntegrityError):
         RunResultStore(project).start_run(
@@ -279,9 +285,9 @@ def test_run_scope_write_failure_rolls_back_run_and_marker(project: Project) -> 
         )
 
     assert (
-        project.db.execute("SELECT COUNT(*) FROM runs WHERE op_id=?", (op_id,)).fetchone()[
-            0
-        ]
+        project.db.execute(
+            "SELECT COUNT(*) FROM runs WHERE op_id=?", (op_id,)
+        ).fetchone()[0]
         == 0
     )
     assert project.db.execute("SELECT COUNT(*) FROM run_scopes").fetchone()[0] == 0
@@ -290,7 +296,9 @@ def test_run_scope_write_failure_rolls_back_run_and_marker(project: Project) -> 
 
 def test_empty_run_scope_stays_empty_after_rows_are_added(project: Project) -> None:
     sheet_id, text_col, _output_col, _row_ids = _seed_project(project)
-    op_id = project.append_change("map", {"action_kind": "map.classify"}, label="empty run")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="empty run"
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

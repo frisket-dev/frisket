@@ -148,6 +148,7 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(project):
         TikTokProfileFeedChecker(lambda *a, **kw: next(listings)), replace=True
     )
     try:
+
         def poll(ref, key):
             result = run_action_spec(
                 project,
@@ -174,18 +175,15 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(project):
         assert len(project.visible_row_ids(sheet)) == 1
         second = poll(source_id, "tiktok-second")
         assert (
-            next(
-                output.sheet_id
-                for output in second.outputs
-                if output.kind == "sheet"
-            )
+            next(output.sheet_id for output in second.outputs if output.kind == "sheet")
             == sheet
         )
         assert len(project.visible_row_ids(sheet)) == 2
         columns = {c["name"]: c for c in project.columns(sheet)}
-        assert list(
-            project.get_values(sheet, columns["video_id"]["id"]).values()
-        ) == ["1234567890", "1234567891"]
+        assert list(project.get_values(sheet, columns["video_id"]["id"]).values()) == [
+            "1234567890",
+            "1234567891",
+        ]
         assert columns["source_url"]["default_hidden"] == 0
         assert columns["video_id"]["default_hidden"] == 1
         assert (

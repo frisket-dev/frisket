@@ -214,8 +214,7 @@ def test_run_fact_rows_are_neutral_and_carry_credential_provenance(
             f"credential provenance must be a definite source, got {provenance!r}"
         )
         assert ENUMISH_PROVENANCE.match(provenance), (
-            f"credential provenance must be a small enum-like token, got "
-            f"{provenance!r}"
+            f"credential provenance must be a small enum-like token, got {provenance!r}"
         )
 
         # No secret material rides on the fact row.
@@ -229,8 +228,7 @@ def test_run_fact_rows_are_neutral_and_carry_credential_provenance(
                     f"fact row field {k} carries key-like material"
                 )
                 assert not LONG_OPAQUE_VALUE.match(value.strip()), (
-                    f"fact row field {k} carries a long opaque blob "
-                    "(possible secret)"
+                    f"fact row field {k} carries a long opaque blob (possible secret)"
                 )
 
     # runs.cost_actual accumulates PROVIDER cost only.

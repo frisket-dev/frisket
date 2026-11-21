@@ -432,9 +432,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
     assert viewer["link"]["receipt_id"] == result.receipt_id
     assert viewer["link"]["producer"]["source_action_kind"] == "map.extract"
     assert viewer["link"]["producer"]["field"] == "contract_amount"
-    assert (
-        viewer["artifacts"][0]["artifact_ref"]["blob"]["filename"] == "contract.pdf"
-    )
+    assert viewer["artifacts"][0]["artifact_ref"]["blob"]["filename"] == "contract.pdf"
     # Fail-closed downgrade: the page anchor is kept (honest coarse rung),
     # but no unverified region box is drawn, and the reason is legible.
     assert viewer["artifacts"][0]["pages"][0]["page"] == 3

@@ -186,9 +186,7 @@ def test_plugin_load_fails_closed_on_broken_module(
         "/*" + "a" * MAX_TRUSTED_LOCAL_FRONTEND_MODULE_BYTES + "*/",
         encoding="utf-8",
     )
-    result, _receipt, completed = _run_plugin_load(
-        project, package_dir, key="oversize"
-    )
+    result, _receipt, completed = _run_plugin_load(project, package_dir, key="oversize")
     assert result.status == "failed"
     assert result.errors
     assert result.errors[0].code == "plugin_frontend_module_too_large"
@@ -216,9 +214,7 @@ def test_plugin_load_fails_closed_on_non_utf8_module(
 ) -> None:
     package_dir = _init_view_package(tmp_path)
     (package_dir / "frontend" / "plugin.js").write_bytes(b"\xff\xfe\x00broken")
-    result, _receipt, completed = _run_plugin_load(
-        project, package_dir, key="encoding"
-    )
+    result, _receipt, completed = _run_plugin_load(project, package_dir, key="encoding")
     assert result.status == "failed"
     assert result.errors
     assert result.errors[0].code == "plugin_frontend_module_encoding_invalid"

@@ -80,9 +80,8 @@ class _ScriptedAdapter:
 
 
 def _runner(
-    tmp_path, texts: list[str], script, **runner_kwargs
-) -> tuple[Project, MapRunner, _ScriptedAdapter, int]:
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project: Project, texts: list[str], script, **runner_kwargs
+) -> tuple[MapRunner, _ScriptedAdapter, int]:
     sheet = project.add_sheet("data")
     cols = {"text": project.add_column(sheet, "text")}
     project.add_rows(sheet, [{"text": t} for t in texts], cols)
@@ -103,7 +102,7 @@ def _runner(
         authority=UnroutedOnlyAuthority(project),
         **runner_kwargs,
     )
-    return project, runner, adapter, sheet
+    return runner, adapter, sheet
 
 
 def _run_confirmed(runner: MapRunner, spec: dict[str, Any]):
@@ -121,10 +120,12 @@ def _run_confirmed(runner: MapRunner, spec: dict[str, Any]):
     return asyncio.run(run_with_output_claim(runner, confirmed_spec, confirmed=True))
 
 
-def test_ten_consecutive_failures_halt_the_run_resumably(tmp_path, monkeypatch) -> None:
+def test_ten_consecutive_failures_halt_the_run_resumably(
+    project: Project, monkeypatch
+) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     texts = [f"row {i}" for i in range(50)]
-    project, runner, adapter, sheet = _runner(tmp_path, texts, lambda i: True)
+    runner, adapter, sheet = _runner(project, texts, lambda i: True)
 
     progress = _run_confirmed(runner, _classify_spec(sheet))
 
@@ -142,10 +143,12 @@ def test_ten_consecutive_failures_halt_the_run_resumably(tmp_path, monkeypatch) 
     assert "10 consecutive" in params.get("halted_reason", "")
 
 
-def test_interleaved_failures_never_trip_the_breaker(tmp_path, monkeypatch) -> None:
+def test_interleaved_failures_never_trip_the_breaker(
+    project: Project, monkeypatch
+) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     texts = [f"row {i}" for i in range(30)]
-    project, runner, adapter, sheet = _runner(tmp_path, texts, lambda i: i % 2 == 0)
+    runner, adapter, sheet = _runner(project, texts, lambda i: i % 2 == 0)
 
     progress = _run_confirmed(runner, _classify_spec(sheet))
 
@@ -222,11 +225,11 @@ def test_streak_is_source_order_not_completion_order(make_project, monkeypatch) 
     assert progress.failed == 12
 
 
-def test_threshold_none_disables_the_breaker(tmp_path, monkeypatch) -> None:
+def test_threshold_none_disables_the_breaker(project: Project, monkeypatch) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     texts = [f"row {i}" for i in range(30)]
-    project, runner, adapter, sheet = _runner(
-        tmp_path, texts, lambda i: True, halt_after_consecutive_failures=None
+    runner, adapter, sheet = _runner(
+        project, texts, lambda i: True, halt_after_consecutive_failures=None
     )
 
     progress = _run_confirmed(runner, _classify_spec(sheet))

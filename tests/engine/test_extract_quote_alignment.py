@@ -243,9 +243,7 @@ def test_hyphenated_two_line_quote_aligns_to_region_spans(
 
     viewer = _link_and_resolve(seeded, spans)
     artifact_payload = viewer["artifacts"][0]
-    region_spans = [
-        s for s in artifact_payload["spans"] if s["span_kind"] == "region"
-    ]
+    region_spans = [s for s in artifact_payload["spans"] if s["span_kind"] == "region"]
     assert len(region_spans) >= 1
     # The borrowed OCR page_images make the region drawable on page 1.
     pages = artifact_payload["pages"]
@@ -715,9 +713,7 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(project):
                 )
             )
     viewer = _link_and_resolve(seeded, spans)
-    assert {
-        artifact["text_context"]["text"] for artifact in viewer["artifacts"]
-    } == {
+    assert {artifact["text_context"]["text"] for artifact in viewer["artifacts"]} == {
         "First OCR: budget approved",
         "Second OCR: budget rejected",
     }

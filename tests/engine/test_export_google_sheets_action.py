@@ -314,9 +314,7 @@ def test_export_google_sheets_fails_without_connection_or_client(
         ),
     )
     assert provider_failure.status == "failed"
-    assert (
-        provider_failure.errors[0].code == "external_effect_reconciliation_required"
-    )
+    assert provider_failure.errors[0].code == "external_effect_reconciliation_required"
     assert provider_failure.errors[0].details["reconciliation_required"] is True
     assert provider_failure.receipt_id is not None
     assert failing_client.calls == 1
@@ -768,10 +766,7 @@ def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
     persisted = "\n".join(
         [
             caplog.text,
-            *(
-                row["body"]
-                for row in project.db.execute("SELECT body FROM receipts")
-            ),
+            *(row["body"] for row in project.db.execute("SELECT body FROM receipts")),
             *(
                 str(row["payload"])
                 for row in project.db.execute("SELECT payload FROM effect_checkpoints")

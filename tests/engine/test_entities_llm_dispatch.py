@@ -249,9 +249,7 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
     # stays a genuine map.ner run, not a re-labeled map.extract one.
     assert result.action.kind == "map.ner"
     assert len(adapter.requests) == 1
-    assert "Only named people." in json.dumps(
-        [m for m in adapter.requests[0].messages]
-    )
+    assert "Only named people." in json.dumps([m for m in adapter.requests[0].messages])
 
     column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
     assert column["type"] == "json"
