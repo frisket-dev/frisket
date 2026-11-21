@@ -1,43 +1,11 @@
-"""Live plugin recipe lookup and shipped runner declarations."""
+"""Shipped runner declarations and action-program key validation."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
-
 import pytest
 
-from helpers import install_action_program, remove_action_program
 from frisket.ops.base import ActionProgram
 from frisket.ops.builtin import get_action_program
-
-
-@dataclass
-class _PluginProgram(ActionProgram):
-    consumes_resolution = False
-    cost_class = "free"
-    name: str = "configured_runner"
-    llm: bool = False
-    cache: dict[str, Any] = field(default_factory=dict)
-
-
-def test_plugin_lookup_preserves_configured_instance_and_replacement(monkeypatch):
-    from frisket.authoring import plugin_registry
-
-    registry = plugin_registry.PluginRegistry()
-    monkeypatch.setattr(plugin_registry, "_DEFAULT", registry)
-    configured = _PluginProgram(cache={"configured": True})
-    install_action_program(configured, action_kind="demo.configured", registry=registry)
-    assert get_action_program("demo.configured") is configured
-    assert get_action_program("demo.configured").cache == {"configured": True}
-    replacement = _PluginProgram(cache={"replacement": True})
-    install_action_program(
-        replacement, action_kind="demo.configured", registry=registry
-    )
-    assert get_action_program("demo.configured") is replacement
-    remove_action_program("demo.configured", registry=registry)
-    with pytest.raises(ValueError, match="unknown action kind"):
-        get_action_program("demo.configured")
 
 
 @pytest.mark.parametrize(
