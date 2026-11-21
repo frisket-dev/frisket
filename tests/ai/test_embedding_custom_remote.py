@@ -128,6 +128,20 @@ def _run(project, data, *, gateway=None):
     return run_action_spec(project, data, project_id=PROJECT_ID, deps=deps)
 
 
+def _run_confirmed(project, data, *, gateway=None):
+    """Challenge the probe cost gate, verify zero pre-consent egress, and echo token."""
+    before_calls = len(gateway.calls) if gateway is not None else 0
+    challenge = _run(project, data, gateway=gateway)
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert challenge.errors[0].code == "model_cost_requires_confirmation"
+    assert challenge.errors[0].field == "confirmation"
+    if gateway is not None:
+        assert len(gateway.calls) == before_calls
+    token = challenge.errors[0].details["promise_set_hash"]
+    assert isinstance(token, str) and len(token) == 64
+    return _run(project, {**data, "confirmation": token}, gateway=gateway), token
+
+
 def _counts(project):
     n_idx = project.db.execute(
         "SELECT COUNT(*) AS n FROM embedding_indexes"
@@ -239,7 +253,7 @@ def test_non_remote_uncurated_id_still_none():
 
 def test_create_probes_once_and_mints_discovered_dimension(project):
     gw = FakeProbeGateway(dim=_PROBE_DIM)
-    res = _run(project, _create_action(project._sheet_id), gateway=gw)
+    res, _token = _run_confirmed(project, _create_action(project._sheet_id), gateway=gw)
     assert res.status == "completed", res.errors
     # exactly ONE probe call, one short text
     assert len(gw.calls) == 1
@@ -254,6 +268,54 @@ def test_create_probes_once_and_mints_discovered_dimension(project):
     space = store.get_space(index["space_id"])
     assert space["dimension"] == _PROBE_DIM
     assert res.outputs[0].ref["dimension"] == _PROBE_DIM
+
+
+def test_create_probe_requires_exact_confirmation_echo_before_egress(project):
+    gw = FakeProbeGateway(dim=_PROBE_DIM)
+    action = _create_action(project._sheet_id, key="cr_echo_gate@1")
+    before_db = tuple(project.db.iterdump())
+
+    challenge = _run(project, action, gateway=gw)
+    assert challenge.status == "needs_confirmation", challenge.errors
+    [err] = challenge.errors
+    assert err.code == "model_cost_requires_confirmation"
+    assert err.field == "confirmation"
+    assert err.needs_confirmation is True
+    assert err.details["reason"] == "unknown_estimate"
+    assert err.details["estimate"]["rows"] == 1
+    assert err.details["estimate"]["cost"] is None
+    assert err.details["estimate"]["billed_cost"] is None
+    assert err.details["estimate"]["cost_source"] == "unknown"
+    token = err.details["promise_set_hash"]
+    assert isinstance(token, str) and len(token) == 64
+    assert gw.calls == []
+    assert _counts(project) == (0, 0)
+    assert tuple(project.db.iterdump()) == before_db
+
+    # Wrong token refuses with zero writes and re-offers the exact token.
+    wrong = _run(project, {**action, "confirmation": "0" * 64}, gateway=gw)
+    assert wrong.status == "needs_confirmation"
+    assert wrong.errors[0].details["promise_set_hash"] == token
+    assert gw.calls == []
+    assert tuple(project.db.iterdump()) == before_db
+
+    # Changed model invalidates the earlier token before egress.
+    changed_model = _create_action(
+        project._sheet_id,
+        model="mistralai/mistral-embed-2312",
+        key="cr_echo_gate@2",
+    )
+    stale = _run(project, {**changed_model, "confirmation": token}, gateway=gw)
+    assert stale.status == "needs_confirmation"
+    assert stale.errors[0].details["promise_set_hash"] != token
+    assert gw.calls == []
+    assert tuple(project.db.iterdump()) == before_db
+
+    # Exact token completes with one probe call.
+    ok = _run(project, {**action, "confirmation": token}, gateway=gw)
+    assert ok.status == "completed", ok.errors
+    assert len(gw.calls) == 1
+    assert _counts(project) == (1, 1)
 
 
 def test_create_without_allow_remote_blocks_before_probe(project):
@@ -340,7 +402,7 @@ def test_paid_dimension_probe_is_metered_and_receipt_names_real_cost(project):
         provider_cost_usd=probe_cost,
     )
 
-    res = _run(
+    res, _token = _run_confirmed(
         project,
         _create_action(project._sheet_id, key="cr_paid_probe@1"),
         gateway=gw,
@@ -423,7 +485,7 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
     )
     action = _create_action(project._sheet_id, key="cr_probe_reconcile@1")
 
-    first = _run(project, action, gateway=gw)
+    first, token = _run_confirmed(project, action, gateway=gw)
     assert first.status == "failed"
     assert first.errors[0].code == "project_write_failed"
     assert len(gw.calls) == 1
@@ -455,7 +517,7 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
         probe_run["failed_rows"],
     ) == ("completed", 1, 1, 0)
 
-    retried = _run(project, action, gateway=gw)
+    retried = _run(project, {**action, "confirmation": token}, gateway=gw)
     assert retried.status == "completed", retried.errors
     assert retried.run_id == first_run_id
     assert retried.receipt_id == checkpoint_receipt.receipt_id
@@ -480,7 +542,7 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
 
 def test_create_receipt_records_requested_model_and_probe_facts(project):
     gw = FakeProbeGateway(dim=_PROBE_DIM)
-    res = _run(project, _create_action(project._sheet_id), gateway=gw)
+    res, _token = _run_confirmed(project, _create_action(project._sheet_id), gateway=gw)
     assert res.status == "completed", res.errors
     ref = res.outputs[0].ref
     assert ref["requested_model"] == _OPENROUTER_MODEL
@@ -523,7 +585,7 @@ def test_non_remote_uncurated_id_unsupported(project):
 def test_probe_failure_is_typed_and_writes_no_space(project):
     gw = FakeProbeGateway(fail=True)
     action = _create_action(project._sheet_id, key="cr_fail@1")
-    res = _run(
+    res, token = _run_confirmed(
         project,
         action,
         gateway=gw,
@@ -558,7 +620,7 @@ def test_probe_failure_is_typed_and_writes_no_space(project):
         (reservation.id,),
     )
     project.db.commit()
-    retried = _run(project, action, gateway=gw)
+    retried = _run(project, {**action, "confirmation": token}, gateway=gw)
     assert retried.status == "failed"
     assert retried.errors[0].code == "external_effect_reconciliation_required"
     assert retried.errors[0].details["reconciliation_required"] is True
@@ -598,7 +660,7 @@ def test_refresh_resends_requested_model_and_stores_probed_width(project):
     # model it was probed/minted against (refresh re-sends space.actual_model_id), and
     # the stored vectors are the probed width (refresh's width check accepts them).
     gw = FakeProbeGateway(dim=_PROBE_DIM)
-    create = _run(
+    create, _token = _run_confirmed(
         project, _create_action(project._sheet_id, key="cr_rf_create@1"), gateway=gw
     )
     assert create.status == "completed", create.errors
@@ -641,7 +703,7 @@ def test_paid_refresh_receipt_names_real_provider_cost(project):
     """A metered remote refresh receipt must agree with its provider fact."""
     refresh_cost = 0.0023
     gw = FakeProbeGateway(dim=_PROBE_DIM, provider_cost_usd=refresh_cost)
-    create = _run(
+    create, _token = _run_confirmed(
         project,
         _create_action(project._sheet_id, key="cr_cost_create@1"),
         gateway=gw,
