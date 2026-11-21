@@ -214,10 +214,9 @@ def test_row_fields_keep_logical_names_and_share_declared_formats():
     ]
 
 
-def test_aliased_static_table_materializes_renames_and_formats(tmp_path):
+def test_aliased_static_table_materializes_renames_and_formats(project):
     from frisket.actions.system import BoundTypedActionRequest
     from frisket.engine.executor.table_action import run_typed_create_sheet_action
-    from frisket.engine.store import Project
 
     def produce(params: Params) -> TableResult[EmailFields]:
         return TableResult(
@@ -242,17 +241,13 @@ def test_aliased_static_table_materializes_renames_and_formats(tmp_path):
             idempotency_key="static-aliases",
         ),
     )
-    project = Project.create(tmp_path / "project")
-    try:
-        result = run_typed_create_sheet_action(project, "project", bound)
-        assert result.status == "completed", result.errors
-        columns = project.db.execute(
-            "SELECT name, type, format FROM columns ORDER BY position"
-        ).fetchall()
-        assert [tuple(column) for column in columns] == [
-            ("Sender", "text", None),
-            ("Text", "text", "plain_text"),
-            ("Files", "json", None),
-        ]
-    finally:
-        project.close()
+    result = run_typed_create_sheet_action(project, "project", bound)
+    assert result.status == "completed", result.errors
+    columns = project.db.execute(
+        "SELECT name, type, format FROM columns ORDER BY position"
+    ).fetchall()
+    assert [tuple(column) for column in columns] == [
+        ("Sender", "text", None),
+        ("Text", "text", "plain_text"),
+        ("Files", "json", None),
+    ]

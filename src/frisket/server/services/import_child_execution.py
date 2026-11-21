@@ -63,6 +63,6 @@ def admit_import_child(
         project_id=project_id,
         parent_receipt_id=parent_receipt_id,
         child_key=child_key,
-        quote=estimate,
+        estimate=estimate,
         receipt_id=receipt_id,
     )

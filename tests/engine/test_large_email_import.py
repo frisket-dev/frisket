@@ -372,7 +372,6 @@ def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(
     finally:
         for item in inputs.values():
             item.stream.close()
-        project.close()
 
 
 def test_email_import_failure_after_staged_batches_publishes_nothing(
@@ -427,4 +426,3 @@ def test_email_import_failure_after_staged_batches_publishes_nothing(
         assert _visible_counts(project) == empty
     finally:
         stream.close()
-        project.close()

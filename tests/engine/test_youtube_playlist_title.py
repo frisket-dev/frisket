@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -202,21 +201,17 @@ def test_enumerate_youtube_collection_identity_title_absent_is_none():
 # ---------------------------------------------------------------------------
 
 
-def _seed_source_cell(project_path: Path, url: str = PLAYLIST_URL) -> dict[str, int]:
-    project = Project.create(project_path, name="Playlists")
-    try:
-        sheet_id = project.add_sheet("Playlists")
-        col_id = project.add_column(sheet_id, "playlist_url", type="link")
-        row_ids = project.add_rows(
-            sheet_id, [{"playlist_url": url}], {"playlist_url": col_id}
-        )
-        return {
-            "sheet_id": sheet_id,
-            "column_id": col_id,
-            "row_id": int(row_ids[0]) if isinstance(row_ids, list) else int(row_ids),
-        }
-    finally:
-        project.close()
+def _seed_source_cell(project: Project, url: str = PLAYLIST_URL) -> dict[str, int]:
+    sheet_id = project.add_sheet("Playlists")
+    col_id = project.add_column(sheet_id, "playlist_url", type="link")
+    row_ids = project.add_rows(
+        sheet_id, [{"playlist_url": url}], {"playlist_url": col_id}
+    )
+    return {
+        "sheet_id": sheet_id,
+        "column_id": col_id,
+        "row_id": int(row_ids[0]) if isinstance(row_ids, list) else int(row_ids),
+    }
 
 
 def _expand_action(
@@ -256,81 +251,73 @@ def inject_playlist_provider(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_derive_collection_expand_receipt_carries_suggested_target_name(
-    tmp_path: Path, inject_playlist_provider
+    project: Project, inject_playlist_provider
 ) -> None:
     inject_playlist_provider(title="Weekly Accountability Roundup", entry_count=2)
-    seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _expand_action(
-                source_sheet_id=seed["sheet_id"],
-                source_column_id=seed["column_id"],
-                source_row_id=seed["row_id"],
-                # The caller still names the sheet explicitly (target_sheet_name
-                # stays required app-wide) -- this pins that the SUGGESTION the
-                # backend now computes and surfaces is independent of whatever
-                # name the caller actually chose.
-                target_sheet_name="My Custom Name",
-                idempotency_key="collection_expand@sha256:title-evidence",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
+    seed = _seed_source_cell(project)
+    result = executor_actions.run_action_spec(
+        project,
+        _expand_action(
+            source_sheet_id=seed["sheet_id"],
+            source_column_id=seed["column_id"],
+            source_row_id=seed["row_id"],
+            # The caller still names the sheet explicitly (target_sheet_name
+            # stays required app-wide) -- this pins that the SUGGESTION the
+            # backend now computes and surfaces is independent of whatever
+            # name the caller actually chose.
+            target_sheet_name="My Custom Name",
+            idempotency_key="collection_expand@sha256:title-evidence",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        from frisket.engine.store.receipts import ReceiptStore
+    from frisket.engine.store.receipts import ReceiptStore
 
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        classification_refs = [
-            item.ref
-            for item in (*receipt.inputs, *receipt.evidence)
-            if item.ref["kind"] == "collection_expand_classification"
-        ]
-        assert len(classification_refs) == 1
-        assert (
-            classification_refs[0]["suggested_target_name"]
-            == "Weekly Accountability Roundup"
-        )
-        assert (
-            classification_refs[0]["identity"]["playlist_title"]
-            == "Weekly Accountability Roundup"
-        )
-    finally:
-        project.close()
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    classification_refs = [
+        item.ref
+        for item in (*receipt.inputs, *receipt.evidence)
+        if item.ref["kind"] == "collection_expand_classification"
+    ]
+    assert len(classification_refs) == 1
+    assert (
+        classification_refs[0]["suggested_target_name"]
+        == "Weekly Accountability Roundup"
+    )
+    assert (
+        classification_refs[0]["identity"]["playlist_title"]
+        == "Weekly Accountability Roundup"
+    )
 
 
 def test_derive_collection_expand_confirmation_gate_carries_suggested_target_name(
-    tmp_path: Path, inject_playlist_provider
+    project: Project, inject_playlist_provider
 ) -> None:
     """The default-cap 402 gate fires before a name is ever written -- the
     suggested name must still be visible in the gate's details so a caller
     can prefill the confirm-resubmit form correctly."""
     inject_playlist_provider(title=None, entry_count=250)
-    seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _expand_action(
-                source_sheet_id=seed["sheet_id"],
-                source_column_id=seed["column_id"],
-                source_row_id=seed["row_id"],
-                target_sheet_name="Placeholder",
-                idempotency_key="collection_expand@sha256:title-gate",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "needs_confirmation"
-        assert result.errors[0].code == "collection_expand_requires_confirmation"
-        assert result.errors[0].details["preview_count"] == 250
-        assert len(str(result.errors[0].details["promise_set_hash"])) == 64
-        assert (
-            result.errors[0].details["suggested_target_name"]
-            == f"YouTube playlist: {PLAYLIST_URL}"
-        )
-    finally:
-        project.close()
+    seed = _seed_source_cell(project)
+    result = executor_actions.run_action_spec(
+        project,
+        _expand_action(
+            source_sheet_id=seed["sheet_id"],
+            source_column_id=seed["column_id"],
+            source_row_id=seed["row_id"],
+            target_sheet_name="Placeholder",
+            idempotency_key="collection_expand@sha256:title-gate",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "needs_confirmation"
+    assert result.errors[0].code == "collection_expand_requires_confirmation"
+    assert result.errors[0].details["preview_count"] == 250
+    assert len(str(result.errors[0].details["promise_set_hash"])) == 64
+    assert (
+        result.errors[0].details["suggested_target_name"]
+        == f"YouTube playlist: {PLAYLIST_URL}"
+    )
 
 
 # ---------------------------------------------------------------------------

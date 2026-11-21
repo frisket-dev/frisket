@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -71,8 +70,8 @@ class _EvidenceBatchProgram(ActionProgram):
             raise RuntimeError("injected batch evidence failure")
 
 
-def _project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "batch-result-publication.frisket")
+def _project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("batch-result-publication")
     project.db.execute("CREATE TABLE batch_evidence_probe (row_id INTEGER NOT NULL)")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "source", type="text")
@@ -96,11 +95,69 @@ def _spec(sheet_id: int) -> dict[str, Any]:
     return {"action_kind": "test.batch_result_publication", "sheet_id": sheet_id}
 
 
-def test_batch_results_publish_through_recipe_evidence_callback(tmp_path: Path) -> None:
-    project, sheet_id, row_ids = _project(tmp_path)
+def test_batch_results_publish_through_recipe_evidence_callback(make_project) -> None:
+    project, sheet_id, row_ids = _project(make_project)
     program = _EvidenceBatchProgram()
-    try:
-        progress = asyncio.run(
+    progress = asyncio.run(
+        run_with_output_claim(
+            _runner(project),
+            _spec(sheet_id),
+            program=program,
+            confirmed=True,
+        )
+    )
+
+    assert program.evidence_batches == [row_ids]
+    assert [
+        int(row["row_id"])
+        for row in project.db.execute(
+            "SELECT row_id FROM batch_evidence_probe ORDER BY row_id"
+        )
+    ] == row_ids
+    output_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='output'",
+            (sheet_id,),
+        ).fetchone()[0]
+    )
+    assert project.get_values(sheet_id, output_id) == {
+        row_ids[0]: "published:alpha",
+        row_ids[1]: "published:beta",
+    }
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
+    ).fetchone()[0] == len(row_ids)
+    from frisket.engine.store.consumed_sources import row_input_state
+
+    bundles = project.db.execute(
+        "SELECT kind FROM consumed_source_bundles WHERE run_id=?",
+        (progress.run_id,),
+    ).fetchall()
+    assert [bundle["kind"] for bundle in bundles] == ["aggregate"]
+    source_id = next(
+        column["id"]
+        for column in project.columns(sheet_id)
+        if column["name"] == "source"
+    )
+    project.apply_edits(
+        [
+            {
+                "row_id": row_ids[-1],
+                "column_id": source_id,
+                "value": "changed neighbor",
+            }
+        ]
+    )
+    assert row_input_state(project, progress.run_id, row_ids[0]) == "stale"
+    project.undo()
+    assert row_input_state(project, progress.run_id, row_ids[0]) == "fresh"
+
+
+def test_batch_evidence_failure_rolls_back_result_batch(make_project) -> None:
+    project, sheet_id, row_ids = _project(make_project)
+    program = _EvidenceBatchProgram(fail_evidence=True)
+    with pytest.raises(ResultEvidenceWriteFailed):
+        asyncio.run(
             run_with_output_claim(
                 _runner(project),
                 _spec(sheet_id),
@@ -109,106 +166,38 @@ def test_batch_results_publish_through_recipe_evidence_callback(tmp_path: Path) 
             )
         )
 
-        assert program.evidence_batches == [row_ids]
-        assert [
-            int(row["row_id"])
-            for row in project.db.execute(
-                "SELECT row_id FROM batch_evidence_probe ORDER BY row_id"
-            )
-        ] == row_ids
-        output_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='output'",
-                (sheet_id,),
-            ).fetchone()[0]
-        )
-        assert project.get_values(sheet_id, output_id) == {
-            row_ids[0]: "published:alpha",
-            row_ids[1]: "published:beta",
-        }
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
-        ).fetchone()[0] == len(row_ids)
-        from frisket.engine.store.consumed_sources import row_input_state
-
-        bundles = project.db.execute(
-            "SELECT kind FROM consumed_source_bundles WHERE run_id=?",
-            (progress.run_id,),
-        ).fetchall()
-        assert [bundle["kind"] for bundle in bundles] == ["aggregate"]
-        source_id = next(
-            column["id"]
-            for column in project.columns(sheet_id)
-            if column["name"] == "source"
-        )
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_ids[-1],
-                    "column_id": source_id,
-                    "value": "changed neighbor",
-                }
-            ]
-        )
-        assert row_input_state(project, progress.run_id, row_ids[0]) == "stale"
-        project.undo()
-        assert row_input_state(project, progress.run_id, row_ids[0]) == "fresh"
-    finally:
-        project.close()
-
-
-def test_batch_evidence_failure_rolls_back_result_batch(tmp_path: Path) -> None:
-    project, sheet_id, row_ids = _project(tmp_path)
-    program = _EvidenceBatchProgram(fail_evidence=True)
-    try:
-        with pytest.raises(ResultEvidenceWriteFailed):
-            asyncio.run(
-                run_with_output_claim(
-                    _runner(project),
-                    _spec(sheet_id),
-                    program=program,
-                    confirmed=True,
-                )
-            )
-
-        assert program.evidence_batches == [row_ids]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM batch_evidence_probe").fetchone()[
-                0
-            ]
-            == 0
-        )
-        run = project.db.execute(
-            "SELECT id,completed_rows,failed_rows FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert run is not None
-        assert (run["completed_rows"], run["failed_rows"]) == (0, 0)
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM consumed_source_bundles"
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?", (run["id"],)
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run["id"],)
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    assert program.evidence_batches == [row_ids]
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM batch_evidence_probe").fetchone()[0]
+        == 0
+    )
+    run = project.db.execute(
+        "SELECT id,completed_rows,failed_rows FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert run is not None
+    assert (run["completed_rows"], run["failed_rows"]) == (0, 0)
+    assert (
+        project.db.execute("SELECT count(*) FROM consumed_source_bundles").fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (run["id"],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run["id"],)
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
-    tmp_path,
+    make_project,
 ):
-    project, sheet, rows = _project(tmp_path)
+    project, sheet, rows = _project(make_project)
     program = _EvidenceBatchProgram()
     source = next(
         column["id"] for column in project.columns(sheet) if column["name"] == "source"
@@ -222,28 +211,25 @@ def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
         raise AssertionError("unavailable inputs reached the batch handler")
 
     program.execute_batch = never_dispatch
-    try:
-        preview = asyncio.run(
-            _runner(project).preview({**_spec(sheet), "row_ids": rows}, program=program)
+    preview = asyncio.run(
+        _runner(project).preview({**_spec(sheet), "row_ids": rows}, program=program)
+    )
+    assert all(
+        preview.values[row]["output"]["outcome"] == "not_completed" for row in rows
+    )
+    progress = asyncio.run(
+        run_with_output_claim(
+            _runner(project), _spec(sheet), program=program, confirmed=True
         )
-        assert all(
-            preview.values[row]["output"]["outcome"] == "not_completed" for row in rows
-        )
-        progress = asyncio.run(
-            run_with_output_claim(
-                _runner(project), _spec(sheet), program=program, confirmed=True
-            )
-        )
-        assert calls == []
-        saved = project.db.execute(
-            "SELECT outcome,error_code FROM results WHERE run_id=? ORDER BY row_id",
-            (progress.run_id,),
-        ).fetchall()
-        assert [tuple(row) for row in saved] == [
-            ("not_completed", "input_invalid")
-        ] * len(rows)
-    finally:
-        project.close()
+    )
+    assert calls == []
+    saved = project.db.execute(
+        "SELECT outcome,error_code FROM results WHERE run_id=? ORDER BY row_id",
+        (progress.run_id,),
+    ).fetchall()
+    assert [tuple(row) for row in saved] == [("not_completed", "input_invalid")] * len(
+        rows
+    )
 
 
 @pytest.mark.parametrize("invalid_row", [False, True])

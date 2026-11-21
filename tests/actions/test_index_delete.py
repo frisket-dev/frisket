@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from tests.alert_helpers import add_alert
 
 import json
@@ -425,12 +426,9 @@ def test_generic_transport_runs_typed_index_delete(tmp_path, capsys, transport):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     project_path = workspace / "demo.frisket"
-    project = Project.create(project_path)
-    try:
+    with closing(Project.create(project_path)) as project:
         seeded = _seed(project, tmp_path)
         index_id = seeded["index_id"]
-    finally:
-        project.close()
     request = _request(index_id)
     if transport == "cli":
         from frisket.cli.action import action as cli_action
@@ -458,19 +456,14 @@ def test_generic_transport_runs_typed_index_delete(tmp_path, capsys, transport):
         from tests.server.test_mcp_server import call
 
         backend = LocalBackend(workspace)
-        try:
-            result = call(
-                backend, "run_action", {"project_id": "demo", "action": request}
-            )
+        result = call(backend, "run_action", {"project_id": "demo", "action": request})
+        with closing(backend.ws.get("demo")):
             assert result["status"] == "completed"
             assert result["done"] is True
-        finally:
-            backend.ws.get("demo").close()
     assert result["receipt_id"]
     assert result["outputs"][0]["ref"]["index_id"] == index_id
     assert result["outputs"][0]["ref"]["deleted_items"] == 3
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         assert EmbeddingStore(project).get_index(index_id) is None
         backend = UnifiedEmbeddingProbe(project)
         backend.ensure_schema()
@@ -478,5 +471,3 @@ def test_generic_transport_runs_typed_index_delete(tmp_path, capsys, transport):
             assert backend.item_counts(index_id) == {}
         finally:
             backend.close()
-    finally:
-        project.close()

@@ -35,6 +35,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudDocumentConvertOptions,
     CloudDocumentExecutionMetadata,
     CloudErrorResponse,
+    CloudEstimateChallenge,
     CloudExecutionResponse,
     CloudLLMExecutionRequest,
     CloudLLMRequest,
@@ -44,7 +45,6 @@ from frisket.contracts.http.cloud_connection import (
     CloudLane,
     CloudOCRExecutionMetadata,
     CloudOCROptions,
-    CloudQuoteChallenge,
     CloudTranscriptionExecutionMetadata,
 )
 from frisket.contracts.transcription_sidecar import TranscriptionOptions
@@ -268,9 +268,9 @@ class CloudExecutionRefused(HostedEngineError):
 
 
 class CloudConfirmationRequired(CloudExecutionRefused):
-    """Cloud quoted exact terms that current local authority cannot confirm."""
+    """Cloud estimated exact terms that current local authority cannot confirm."""
 
-    def __init__(self, challenge: CloudQuoteChallenge) -> None:
+    def __init__(self, challenge: CloudEstimateChallenge) -> None:
         super().__init__("needs_confirmation", "Cloud execution needs confirmation")
         self.challenge = challenge
 
@@ -740,12 +740,12 @@ class HttpCloudExecutionTransport:
             ) from None
 
     @staticmethod
-    def _parse_estimate(response: httpx.Response) -> CloudQuoteChallenge:
+    def _parse_estimate(response: httpx.Response) -> CloudEstimateChallenge:
         try:
-            return CloudQuoteChallenge.model_validate(response.json())
+            return CloudEstimateChallenge.model_validate(response.json())
         except (ValueError, TypeError, ValidationError):
             raise CloudExecutionRefused(
-                "cloud_protocol_error", "Frisket Cloud returned an invalid quote"
+                "cloud_protocol_error", "Frisket Cloud returned an invalid estimate"
             ) from None
 
     @staticmethod
@@ -759,11 +759,11 @@ class HttpCloudExecutionTransport:
     @staticmethod
     def _estimate_is_authorized(
         attempt: CloudExecutionAttempt,
-        challenge: CloudQuoteChallenge,
+        challenge: CloudEstimateChallenge,
         authority: CloudEstimateAuthority,
     ) -> bool:
         payer = attempt.payer
-        estimate = challenge.quote
+        estimate = challenge.estimate
         if (
             estimate.account_id != payer.account_id
             or estimate.route_revision != payer.route_revision

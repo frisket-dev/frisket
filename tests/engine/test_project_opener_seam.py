@@ -9,6 +9,7 @@ terminalize receipts for jobs that failed for unrelated reasons.
 """
 
 from __future__ import annotations
+from contextlib import closing
 
 import importlib
 import signal
@@ -116,14 +117,11 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
             "and project_blob_store_factory"
         )
 
-        opened = opener(key, bundle)
-        try:
+        with closing(opener(key, bundle)) as opened:
             assert isinstance(opened.blob_store, S3ProjectBlobStore)
             assert opened.blob_store.project_storage_key == key
             assert opened_paths == [bundle]
             assert store_keys == [key]
-        finally:
-            opened.close()
 
         before_wrong_organization = (list(opened_paths), list(store_keys))
         with pytest.raises((RuntimeError, ValueError)):

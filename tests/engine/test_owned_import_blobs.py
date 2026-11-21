@@ -1,10 +1,8 @@
-from contextlib import closing
-
 import pytest
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-from frisket.engine.store import Project, op_log
+from frisket.engine.store import op_log
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 
 
@@ -65,12 +63,10 @@ def test_owned_inventory_reuses_bytes_and_preserves_distinct_occurrences(
     assert project.read_blob(digest) == data
 
 
-def test_owned_blob_reader_is_read_only_and_other_project_is_refused(tmp_path):
-    with (
-        closing(Project.create(tmp_path / "first.frisket")) as first,
-        closing(Project.create(tmp_path / "second.frisket")) as second,
-        AdmittedImportBlobStager() as stager,
-    ):
+def test_owned_blob_reader_is_read_only_and_other_project_is_refused(make_project):
+    first = make_project("first")
+    second = make_project("second")
+    with AdmittedImportBlobStager() as stager:
         digest = first.blob_store.put(b"original")
         handle = stager.admit_owned(
             first.blob_store,
@@ -101,11 +97,8 @@ def test_owned_blob_reader_is_read_only_and_other_project_is_refused(tmp_path):
 
 
 @pytest.mark.parametrize("facts", [{"digest": "../blob"}, {"size": -1}, {"size": True}])
-def test_owned_inventory_facts_are_validated(tmp_path, facts):
-    with (
-        closing(Project.create(tmp_path / "invalid.frisket")) as project,
-        AdmittedImportBlobStager() as stager,
-    ):
+def test_owned_inventory_facts_are_validated(project, facts):
+    with AdmittedImportBlobStager() as stager:
         values = dict(digest="a" * 64, size=0, filename="x", mime="text/plain")
         values.update(facts)
         with pytest.raises(ValueError):

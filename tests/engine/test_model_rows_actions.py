@@ -1641,4 +1641,3 @@ def test_model_request_exact_replay_ignores_empty_rows(
         ).exact_replay_available(spec, program=plan.program)
     finally:
         cache.close()
-        project.close()

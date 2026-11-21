@@ -7,6 +7,7 @@ commit cannot publish it and its write lock does not block other writers.
 """
 
 from __future__ import annotations
+from contextlib import closing
 
 import asyncio
 import sqlite3
@@ -47,16 +48,13 @@ def _write_lock_is_free(db_path: Path) -> bool:
 
 
 def _committed_labels(db_path: Path) -> list[str]:
-    peer = sqlite3.connect(db_path)
-    try:
+    with closing(sqlite3.connect(db_path)) as peer:
         return [
             row[0]
             for row in peer.execute(
                 "SELECT label FROM ops WHERE kind='unit_of_work_probe' ORDER BY id"
             )
         ]
-    finally:
-        peer.close()
 
 
 @pytest.fixture
@@ -196,12 +194,9 @@ def test_a_job_that_fails_after_a_write_leaves_nothing_behind(tmp_path):
     registry = HandlerRegistry()
 
     def write_then_fail(payload: dict, _context: object) -> None:
-        project = Project(payload["bundle"])
-        try:
+        with closing(Project(payload["bundle"])) as project:
             _write_op(project, "failed job")
             raise RuntimeError("job failed after a write")
-        finally:
-            project.close()
 
     registry.register("unit_of_work_probe", write_then_fail)
     job_id = queue.enqueue(
@@ -213,10 +208,7 @@ def test_a_job_that_fails_after_a_write_leaves_nothing_behind(tmp_path):
     job = queue.get(job_id)
     assert job is not None and job.status == "failed"
     assert _committed_labels(bundle / "project.db") == []
-    project = Project(bundle)
-    try:
+    with closing(Project(bundle)) as project:
         with write_transaction(project.db):
             _write_op(project, "next job")
-    finally:
-        project.close()
     assert _committed_labels(bundle / "project.db") == ["next job"]

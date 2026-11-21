@@ -2,7 +2,6 @@ from __future__ import annotations
 from tests.execution_composition_helpers import RecordingPurchasePolicy
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -35,9 +34,8 @@ class _PlainTextAdapter:
 
 
 def _turn(
-    tmp_path: Path, question: str, *, prior_answer: str | None
-) -> tuple[Project, ProjectQAStore, dict[str, Any]]:
-    project = Project.create(tmp_path / "plain-answer.frisket", name="Plain answer")
+    project: Project, question: str, *, prior_answer: str | None
+) -> tuple[ProjectQAStore, dict[str, Any]]:
     sheet_id = project.add_sheet("Dispatches")
     column_id = project.add_column(sheet_id, "Headline")
     [row_id] = project.add_rows(
@@ -75,7 +73,7 @@ def _turn(
         scope=scope,
         model="anthropic/test",
     )
-    return project, store, turn
+    return store, turn
 
 
 @pytest.mark.parametrize(
@@ -94,59 +92,54 @@ def _turn(
     ],
 )
 def test_plain_provider_output_saves_the_meaningful_uncited_answer(
-    tmp_path: Path,
+    project: Project,
     question: str,
     prior_answer: str | None,
     provider_answer: str,
 ) -> None:
-    project, store, turn = _turn(tmp_path, question, prior_answer=prior_answer)
-    try:
-        router = ModelRouter(
-            model_call_policy=RecordingPurchasePolicy(),
-            keys={"anthropic": "test-key"},
-            key_sources={"anthropic": "platform_key"},
-            cache=None,
-            cache_mode="off",
-            use_env_keys=False,
-        )
-        adapter = _PlainTextAdapter(provider_answer)
-        router._adapters["anthropic"] = adapter  # noqa: SLF001
+    store, turn = _turn(project, question, prior_answer=prior_answer)
+    router = ModelRouter(
+        model_call_policy=RecordingPurchasePolicy(),
+        keys={"anthropic": "test-key"},
+        key_sources={"anthropic": "platform_key"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
+    )
+    adapter = _PlainTextAdapter(provider_answer)
+    router._adapters["anthropic"] = adapter  # noqa: SLF001
 
-        answer = asyncio.run(run_turn(project, router, turn, store))
+    answer = asyncio.run(run_turn(project, router, turn, store))
 
-        assert answer == {"text": provider_answer, "citation_ids": []}
-        assert adapter.requests
-        for request in adapter.requests:
-            tool_names = {tool["name"] for tool in request.tools or []}
-            assert {
-                "inspect_sheets",
-                "read_rows",
-                "query_rows",
-                "search_cells",
-                "open_source",
-            } <= tool_names
-        assert store.get_turn(turn["id"])["scope"] == turn["scope"]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM project_qa_citations").fetchone()[
-                0
-            ]
-            == 0
-        )
+    assert answer == {"text": provider_answer, "citation_ids": []}
+    assert adapter.requests
+    for request in adapter.requests:
+        tool_names = {tool["name"] for tool in request.tools or []}
+        assert {
+            "inspect_sheets",
+            "read_rows",
+            "query_rows",
+            "search_cells",
+            "open_source",
+        } <= tool_names
+    assert store.get_turn(turn["id"])["scope"] == turn["scope"]
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM project_qa_citations").fetchone()[0]
+        == 0
+    )
 
-        answers = [
-            event
-            for event in store.events(turn["thread_id"])["events"]
-            if event["turn_id"] == turn["id"] and event["kind"] == "answer"
-        ]
-        assert [event["payload"] for event in answers] == [answer]
-        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[
-            0
-        ] == len(adapter.requests)
-        usage = [
-            event
-            for event in store.events(turn["thread_id"])["events"]
-            if event["turn_id"] == turn["id"] and event["kind"] == "usage"
-        ]
-        assert len(usage) == len(adapter.requests)
-    finally:
-        project.close()
+    answers = [
+        event
+        for event in store.events(turn["thread_id"])["events"]
+        if event["turn_id"] == turn["id"] and event["kind"] == "answer"
+    ]
+    assert [event["payload"] for event in answers] == [answer]
+    assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == len(
+        adapter.requests
+    )
+    usage = [
+        event
+        for event in store.events(turn["thread_id"])["events"]
+        if event["turn_id"] == turn["id"] and event["kind"] == "usage"
+    ]
+    assert len(usage) == len(adapter.requests)

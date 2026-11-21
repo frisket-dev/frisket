@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from contextlib import closing
 import json
 from pathlib import Path
 from typing import Any
@@ -144,74 +145,71 @@ def _row_count(project: Project, sheet_id: int) -> int:
 
 
 @pytest.mark.parametrize("how", ["inner", "right"])
-def test_empty_or_right_only_join_tracks_both_sources_and_refreshes(tmp_path, how):
-    project = Project.create(tmp_path / f"{how}.frisket")
-    try:
-        left = project.add_sheet("Left")
-        left_cols = {"key": project.add_column(left, "key", type="integer")}
-        left_row = project.add_rows(left, [{"key": 1}], left_cols)[0]
-        right = project.add_sheet("Right")
-        right_cols = {"key": project.add_column(right, "key", type="integer")}
-        right_row = project.add_rows(right, [{"key": 2}], right_cols)[0]
-        project.db.commit()
-        created = _run(
-            project,
-            {
-                "action_id": "derive.join",
-                "scope": {"kind": "sheet_rows", "sheet_id": left},
-                "sheet_name": "Joined",
-                "params": {
-                    "right": {"sheet_id": right},
-                    "join_keys": [{"left_column": "key", "right_column": "key"}],
-                    "how": how,
-                },
-                "idempotency_key": "join",
+def test_empty_or_right_only_join_tracks_both_sources_and_refreshes(make_project, how):
+    project = make_project(how)
+    left = project.add_sheet("Left")
+    left_cols = {"key": project.add_column(left, "key", type="integer")}
+    left_row = project.add_rows(left, [{"key": 1}], left_cols)[0]
+    right = project.add_sheet("Right")
+    right_cols = {"key": project.add_column(right, "key", type="integer")}
+    right_row = project.add_rows(right, [{"key": 2}], right_cols)[0]
+    project.db.commit()
+    created = _run(
+        project,
+        {
+            "action_id": "derive.join",
+            "scope": {"kind": "sheet_rows", "sheet_id": left},
+            "sheet_name": "Joined",
+            "params": {
+                "right": {"sheet_id": right},
+                "join_keys": [{"left_column": "key", "right_column": "key"}],
+                "how": how,
             },
-        )
-        assert created.status == "completed", created.errors
-        child = created.outputs[0].sheet_id
-        assert _child_table(project, child)["key"] == ([] if how == "inner" else [2])
-        assert not project.db.execute(
-            "SELECT 1 FROM materialized_row_sources m JOIN rows r "
-            "ON r.id=m.materialized_row_id WHERE r.sheet_id=? AND m.role='join_left'",
-            (child,),
-        ).fetchone()
-        for source in (left, right):
-            assert project.dependent_sheets(source) == [{"id": child, "name": "Joined"}]
-            before_child = _child_table(project, child)
-            project.delete_sheet(source)
-            assert _child_table(project, child) == before_child
-            project.undo()
-        edited = _run(
-            project,
-            _cell_edit(
-                row_id=right_row,
-                column_id=right_cols["key"],
-                value=1,
-                key="match-right",
-            ),
-        )
-        assert edited.status == "completed", edited.errors
-        assert compute_sync_states(project)[child]["sync_state"] == "stale"
-        refreshed = _run(project, _refresh(sheet_id=child, key="refresh"))
-        assert refreshed.status == "completed", refreshed.errors
-        assert _child_table(project, child)["key"] == [1]
-        assert (
-            project.db.execute(
-                "SELECT parent_row_id FROM rows WHERE sheet_id=? AND hidden=0", (child,)
-            ).fetchone()[0]
-            == left_row
-        )
-        edited = _run(
-            project,
-            _cell_edit(
-                row_id=left_row, column_id=left_cols["key"], value=3, key="unmatch-left"
-            ),
-        )
-        assert edited.status == "completed", edited.errors
-        assert compute_sync_states(project)[child]["sync_state"] == "stale"
-    finally:
-        project.close()
+            "idempotency_key": "join",
+        },
+    )
+    assert created.status == "completed", created.errors
+    child = created.outputs[0].sheet_id
+    assert _child_table(project, child)["key"] == ([] if how == "inner" else [2])
+    assert not project.db.execute(
+        "SELECT 1 FROM materialized_row_sources m JOIN rows r "
+        "ON r.id=m.materialized_row_id WHERE r.sheet_id=? AND m.role='join_left'",
+        (child,),
+    ).fetchone()
+    for source in (left, right):
+        assert project.dependent_sheets(source) == [{"id": child, "name": "Joined"}]
+        before_child = _child_table(project, child)
+        project.delete_sheet(source)
+        assert _child_table(project, child) == before_child
+        project.undo()
+    edited = _run(
+        project,
+        _cell_edit(
+            row_id=right_row,
+            column_id=right_cols["key"],
+            value=1,
+            key="match-right",
+        ),
+    )
+    assert edited.status == "completed", edited.errors
+    assert compute_sync_states(project)[child]["sync_state"] == "stale"
+    refreshed = _run(project, _refresh(sheet_id=child, key="refresh"))
+    assert refreshed.status == "completed", refreshed.errors
+    assert _child_table(project, child)["key"] == [1]
+    assert (
+        project.db.execute(
+            "SELECT parent_row_id FROM rows WHERE sheet_id=? AND hidden=0", (child,)
+        ).fetchone()[0]
+        == left_row
+    )
+    edited = _run(
+        project,
+        _cell_edit(
+            row_id=left_row, column_id=left_cols["key"], value=3, key="unmatch-left"
+        ),
+    )
+    assert edited.status == "completed", edited.errors
+    assert compute_sync_states(project)[child]["sync_state"] == "stale"
 
 
 def test_join_refresh_preserves_requested_names_and_reconciles_source_types(tmp_path):
@@ -219,7 +217,7 @@ def test_join_refresh_preserves_requested_names_and_reconciles_source_types(tmp_
         tmp_path / "renamed.frisket", output_names={"population": "People"}
     )
     project, child = ctx["project"], ctx["child_id"]
-    try:
+    with closing(project):
         before = {c["name"]: c["id"] for c in project.columns(child)}
         assert "People" in before and "population" not in before
         project.db.execute(
@@ -255,14 +253,12 @@ def test_join_refresh_preserves_requested_names_and_reconciles_source_types(tmp_
         column = next(c for c in project.columns(child) if c["name"] == "People")
         assert column["type"] == "text"
         assert _child_table(project, child)["People"][0] == "many"
-    finally:
-        project.close()
 
 
 def test_join_refresh_reuses_selected_left_rows_and_fresh_full_right_sheet(tmp_path):
     ctx = _seed_join(tmp_path / "subset.frisket", selected_left_only=True)
     project, child = ctx["project"], ctx["child_id"]
-    try:
+    with closing(project):
         assert _child_table(project, child)["state_name"] == ["Alabama"]
         project.add_rows(
             ctx["left_id"],
@@ -278,8 +274,6 @@ def test_join_refresh_reuses_selected_left_rows_and_fresh_full_right_sheet(tmp_p
         table = _child_table(project, child)
         assert table["state_name"] == ["Alabama", "Alabama"]
         assert table["population"] == [5024279, 123]
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +285,7 @@ def test_refresh_join_after_left_parent_edit(tmp_path: Path) -> None:
     ctx = _seed_join(tmp_path / "left.frisket")
     project = ctx["project"]
     child_id = ctx["child_id"]
-    try:
+    with closing(project):
         before = _child_table(project, child_id)
         assert before["state_name"] == ["Alabama", "Alaska", "California"]
 
@@ -313,8 +307,6 @@ def test_refresh_join_after_left_parent_edit(tmp_path: Path) -> None:
         # Right-side data unchanged, still coherently joined.
         assert after["population"] == [5024279, 733391, 39538223]
         assert compute_sync_states(project)[child_id]["sync_state"] == "synced"
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +318,7 @@ def test_refresh_join_after_right_parent_edit(tmp_path: Path) -> None:
     ctx = _seed_join(tmp_path / "right.frisket")
     project = ctx["project"]
     child_id = ctx["child_id"]
-    try:
+    with closing(project):
         _run(
             project,
             _cell_edit(
@@ -343,8 +335,6 @@ def test_refresh_join_after_right_parent_edit(tmp_path: Path) -> None:
         after = _child_table(project, child_id)
         assert after["population"] == [5024279, 733391, 40000000]
         assert compute_sync_states(project)[child_id]["sync_state"] == "synced"
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +346,7 @@ def test_refresh_join_after_row_additions_change_match_counts(tmp_path: Path) ->
     ctx = _seed_join(tmp_path / "adds.frisket")
     project = ctx["project"]
     child_id = ctx["child_id"]
-    try:
+    with closing(project):
         assert _row_count(project, child_id) == 3  # 3 shared keys, inner
 
         # A new matching key on BOTH sides (FIPS 12 = Florida) creates a new
@@ -381,8 +371,6 @@ def test_refresh_join_after_row_additions_change_match_counts(tmp_path: Path) ->
         after = _child_table(project, child_id)
         assert after["state_name"] == ["Alabama", "Alaska", "California", "Florida"]
         assert _row_count(project, child_id) == 4  # replaced, not appended
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +384,7 @@ def test_refresh_join_replaces_rows_preserving_sheet_and_column_ids(
     ctx = _seed_join(tmp_path / "ids.frisket")
     project = ctx["project"]
     child_id = ctx["child_id"]
-    try:
+    with closing(project):
         column_ids_before = {
             str(c["name"]): int(c["id"]) for c in project.columns(child_id)
         }
@@ -433,8 +421,6 @@ def test_refresh_join_replaces_rows_preserving_sheet_and_column_ids(
             "Alaska-2",
             "California",
         ]
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +432,7 @@ def test_refresh_join_receipt_carries_fresh_match_stats(tmp_path: Path) -> None:
     ctx = _seed_join(tmp_path / "receipt.frisket")
     project = ctx["project"]
     child_id = ctx["child_id"]
-    try:
+    with closing(project):
         # Add a new matching key so the fresh stats differ from the original run.
         project.add_rows(
             ctx["left_id"],
@@ -477,8 +463,6 @@ def test_refresh_join_receipt_carries_fresh_match_stats(tmp_path: Path) -> None:
         ]
         assert stats, "refresh receipt must carry fresh derive_join_match_stats"
         assert stats[0]["both"] == 4  # 4 matched keys after the addition
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +610,7 @@ def test_refresh_historical_multiparent_without_typed_identity_is_unavailable(
     """Legacy membership without a typed derivation cannot be refreshed by guessing."""
     ctx = _seed_join(tmp_path / "unsupported.frisket")
     project = ctx["project"]
-    try:
+    with closing(project):
         # Build a fresh derived child whose parent op is resolve.entities and
         # attach a materialized_row_sources membership row (multi-parent shape).
         other_child = project.add_sheet("Resolved", parent_sheet_id=ctx["left_id"])
@@ -648,14 +632,12 @@ def test_refresh_historical_multiparent_without_typed_identity_is_unavailable(
         )
         assert result.status == "failed"
         assert result.errors[0].code == "historical_refresh_unavailable"
-    finally:
-        project.close()
 
 
 def test_join_refresh_preserves_pair_identity_notes_and_three_way_values(tmp_path):
     ctx = _seed_join(tmp_path / "keyed-refresh.frisket")
     project, child = ctx["project"], ctx["child_id"]
-    try:
+    with closing(project):
         row_ids = project.visible_row_ids(child)
         columns = {c["name"]: c["id"] for c in project.columns(child)}
         note = project.add_column(child, "notes", type="text")
@@ -714,14 +696,12 @@ def test_join_refresh_preserves_pair_identity_notes_and_three_way_values(tmp_pat
         assert _run(project, request).status == "completed"
         assert project.get_values(child, columns["population"])[row_ids[0]] == 123
         assert project.get_values(child, note)[extra] == "independent row"
-    finally:
-        project.close()
 
 
 def test_join_refresh_absence_is_reversible_and_does_not_rehide_undo(tmp_path):
     ctx = _seed_join(tmp_path / "keyed-absence.frisket")
     project, child = ctx["project"], ctx["child_id"]
-    try:
+    with closing(project):
         rows = project.visible_row_ids(child)
         _run(
             project,
@@ -740,8 +720,6 @@ def test_join_refresh_absence_is_reversible_and_does_not_rehide_undo(tmp_path):
         refreshed = _run(project, _refresh(sheet_id=child, key="absence-unchanged"))
         assert refreshed.status == "completed", refreshed.errors
         assert project.visible_row_ids(child) == rows
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("policy", ["keep_changes", "incoming_wins"])
@@ -751,7 +729,7 @@ def test_join_reappearance_respects_later_explicit_row_deletion(
 ):
     ctx = _seed_join(tmp_path / "reappearing-pair.frisket")
     project, child = ctx["project"], ctx["child_id"]
-    try:
+    with closing(project):
         rows = project.visible_row_ids(child)
         source = ctx["right_rows"][0]
         source_column = ctx["right_cols"]["state_fips"]
@@ -791,5 +769,3 @@ def test_join_reappearance_respects_later_explicit_row_deletion(
         assert project.visible_row_ids(child) == (
             rows if policy == "incoming_wins" or not local_delete else rows[1:]
         )
-    finally:
-        project.close()

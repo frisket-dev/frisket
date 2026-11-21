@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from contextlib import closing
 
 import pytest
 from openpyxl import Workbook
@@ -14,7 +13,6 @@ from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest, LocalFileReader
 from frisket.engine.executor import ExecutorDeps, ImportWorkloadLimits, run_action_spec
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk import ActionParams, TableResult, TableRow, action, create_sheet
 
@@ -112,7 +110,7 @@ class SourceParams(ActionParams):
     ],
 )
 def test_xlsx_header_projection_requires_explicit_unambiguous_mapping(
-    tmp_path, header, columns, accepted
+    tmp_path, project, header, columns, accepted
 ):
     path = tmp_path / "mapped.xlsx"
     workbook = Workbook()
@@ -120,37 +118,38 @@ def test_xlsx_header_projection_requires_explicit_unambiguous_mapping(
     workbook.active.append([f"value-{index}" for index in range(len(header))])
     workbook.save(path)
     workbook.close()
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "import.xlsx",
-                "scope": {"kind": "project"},
-                "sheet_name": "Mapped",
-                "params": {
-                    "source": {"kind": "file", "path": str(path)},
-                    "columns": [{"type": "text", **column} for column in columns],
-                },
-                "idempotency_key": "header-check",
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "import.xlsx",
+            "scope": {"kind": "project"},
+            "sheet_name": "Mapped",
+            "params": {
+                "source": {"kind": "file", "path": str(path)},
+                "columns": [{"type": "text", **column} for column in columns],
             },
-            project_id="p",
-        )
-        if accepted:
-            assert result.status == "completed", result.errors
-            sheet = project.sheets()[0]
-            column = project.columns(sheet["id"])[0]
-            assert project.get_values(sheet["id"], column["id"]) == {1: "value-1"}
-        else:
-            assert result.status == "failed"
-            assert result.errors[0].code == "xlsx_header_mismatch"
-            assert project.sheets() == []
+            "idempotency_key": "header-check",
+        },
+        project_id="p",
+    )
+    if accepted:
+        assert result.status == "completed", result.errors
+        sheet = project.sheets()[0]
+        column = project.columns(sheet["id"])[0]
+        assert project.get_values(sheet["id"], column["id"]) == {1: "value-1"}
+    else:
+        assert result.status == "failed"
+        assert result.errors[0].code == "xlsx_header_mismatch"
+        assert project.sheets() == []
 
 
 class TextRow(BaseModel):
     value: str
 
 
-def test_file_facts_override_producer_claims_and_keep_quarantine_on_replay(tmp_path):
+def test_file_facts_override_producer_claims_and_keep_quarantine_on_replay(
+    tmp_path, project
+):
     path = tmp_path / "actual.txt"
     raw = b"actual bytes"
     path.write_bytes(raw)
@@ -197,36 +196,32 @@ def test_file_facts_override_producer_claims_and_keep_quarantine_on_replay(tmp_p
         idempotency_key="observed-source",
     )
     bound = BoundTypedActionRequest.bind(registry.get("custom.source"), request)
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        source = next(
-            item.ref for item in receipt.inputs if item.ref.get("kind") == "file_rows"
-        )
-        assert source["path"] == str(path)
-        assert source["fingerprint"] == "sha256:" + hashlib.sha256(raw).hexdigest()
-        assert source["line_count"] == 1
-        assert source["skipped_features"] == [0]
-        assert source["label"] == "descriptive label"
-        facts = [
-            item.ref
-            for item in receipt.inputs
-            if item.ref.get("kind") == "local_file_read"
-        ]
-        assert facts == [
-            {
-                "kind": "local_file_read",
-                "path": str(path),
-                "sha256": source["fingerprint"],
-                "byte_count": len(raw),
-            }
-        ]
-        path.unlink()
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.receipt_id == result.receipt_id
-        assert calls == [True]
-        assert (
-            ReceiptStore(project).parsed_by_id(replay.receipt_id).inputs
-            == receipt.inputs
-        )
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    source = next(
+        item.ref for item in receipt.inputs if item.ref.get("kind") == "file_rows"
+    )
+    assert source["path"] == str(path)
+    assert source["fingerprint"] == "sha256:" + hashlib.sha256(raw).hexdigest()
+    assert source["line_count"] == 1
+    assert source["skipped_features"] == [0]
+    assert source["label"] == "descriptive label"
+    facts = [
+        item.ref for item in receipt.inputs if item.ref.get("kind") == "local_file_read"
+    ]
+    assert facts == [
+        {
+            "kind": "local_file_read",
+            "path": str(path),
+            "sha256": source["fingerprint"],
+            "byte_count": len(raw),
+        }
+    ]
+    path.unlink()
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.receipt_id == result.receipt_id
+    assert calls == [True]
+    assert (
+        ReceiptStore(project).parsed_by_id(replay.receipt_id).inputs == receipt.inputs
+    )

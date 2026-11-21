@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.cells import apply_edits
@@ -37,102 +36,99 @@ def _reject_clear(project, *, row_id: int, column_id: int) -> int:
 
 
 def test_selected_replacement_supersedes_only_exact_reject_clear_cell(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
-    try:
-        generations, _first = _publish_initial_generation(
-            project, sheet_id, column_id, row_ids
-        )
-        _reject_clear(project, row_id=row_ids[0], column_id=column_id)
-        apply_edits(
-            project,
-            [{"row_id": row_ids[1], "column_id": column_id, "value": "manual"}],
-        )
-        # The JSON shape alone is not authority: only the exact op kind is a
-        # reject_clear overlay that a later explicit replacement may suppress.
-        apply_edits(
-            project,
-            [
-                {
-                    "row_id": row_ids[2],
-                    "column_id": column_id,
-                    "value": "predicate decoy",
-                }
-            ],
-            spec={
-                "action_id": "review.decision",
-                "params": {"decision": "reject_clear"},
-            },
-        )
-        assert project.get_values(sheet_id, column_id, row_ids=row_ids) == {
-            row_ids[0]: None,
-            row_ids[1]: "manual",
-            row_ids[2]: "predicate decoy",
-            row_ids[3]: "first:3",
-        }
+    project, sheet_id, column_id, row_ids = _seed_project(make_project)
+    generations, _first = _publish_initial_generation(
+        project, sheet_id, column_id, row_ids
+    )
+    _reject_clear(project, row_id=row_ids[0], column_id=column_id)
+    apply_edits(
+        project,
+        [{"row_id": row_ids[1], "column_id": column_id, "value": "manual"}],
+    )
+    # The JSON shape alone is not authority: only the exact op kind is a
+    # reject_clear overlay that a later explicit replacement may suppress.
+    apply_edits(
+        project,
+        [
+            {
+                "row_id": row_ids[2],
+                "column_id": column_id,
+                "value": "predicate decoy",
+            }
+        ],
+        spec={
+            "action_id": "review.decision",
+            "params": {"decision": "reject_clear"},
+        },
+    )
+    assert project.get_values(sheet_id, column_id, row_ids=row_ids) == {
+        row_ids[0]: None,
+        row_ids[1]: "manual",
+        row_ids[2]: "predicate decoy",
+        row_ids[3]: "first:3",
+    }
 
-        replacement = _start_claimed_run(
-            project,
-            sheet_id=sheet_id,
-            output_column_id=column_id,
-            row_ids=[row_ids[0]],
-            label="selected explicit replacement",
-            replace_existing=True,
-        )
-        _declare(generations, replacement, column_id, write_mode="replace_scope")
-        _write(
-            project,
-            replacement,
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": column_id,
-                    "value": "replacement",
-                    "publication_effect": "publish_value",
-                }
-            ],
-        )
-        # Same-descriptor replacement already published this row; sealing
-        # closes the owner without replaying a second head update.
-        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "replacement"
-        assert _seal(generations, replacement, column_id) == 0
-        _release(project, replacement)
+    replacement = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=column_id,
+        row_ids=[row_ids[0]],
+        label="selected explicit replacement",
+        replace_existing=True,
+    )
+    _declare(generations, replacement, column_id, write_mode="replace_scope")
+    _write(
+        project,
+        replacement,
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": column_id,
+                "value": "replacement",
+                "publication_effect": "publish_value",
+            }
+        ],
+    )
+    # Same-descriptor replacement already published this row; sealing
+    # closes the owner without replaying a second head update.
+    assert project.get_values(sheet_id, column_id)[row_ids[0]] == "replacement"
+    assert _seal(generations, replacement, column_id) == 0
+    _release(project, replacement)
 
-        live = project.get_values(sheet_id, column_id, row_ids=row_ids)
-        assert live == {
-            row_ids[0]: "replacement",
-            row_ids[1]: "manual",
-            row_ids[2]: "predicate decoy",
-            row_ids[3]: "first:3",
-        }
-        filtered = resolve_sheet_filter_rows(
+    live = project.get_values(sheet_id, column_id, row_ids=row_ids)
+    assert live == {
+        row_ids[0]: "replacement",
+        row_ids[1]: "manual",
+        row_ids[2]: "predicate decoy",
+        row_ids[3]: "first:3",
+    }
+    filtered = resolve_sheet_filter_rows(
+        project,
+        sheet_id,
+        filter_=json.dumps({"generated": {"eq": "replacement"}}),
+    )
+    assert filtered.row_ids == [row_ids[0]]
+    sorted_rows = resolve_sheet_filter_rows(
+        project,
+        sheet_id,
+        sort=json.dumps([{"column": "generated", "dir": "asc"}]),
+    )
+    assert sorted_rows.row_ids == sorted(row_ids, key=lambda row_id: live[row_id])
+
+    assert project.undo() == replacement.op_id
+    assert project.get_values(sheet_id, column_id, row_ids=row_ids) == {
+        row_ids[0]: None,
+        row_ids[1]: "manual",
+        row_ids[2]: "predicate decoy",
+        row_ids[3]: "first:3",
+    }
+    assert (
+        resolve_sheet_filter_rows(
             project,
             sheet_id,
             filter_=json.dumps({"generated": {"eq": "replacement"}}),
-        )
-        assert filtered.row_ids == [row_ids[0]]
-        sorted_rows = resolve_sheet_filter_rows(
-            project,
-            sheet_id,
-            sort=json.dumps([{"column": "generated", "dir": "asc"}]),
-        )
-        assert sorted_rows.row_ids == sorted(row_ids, key=lambda row_id: live[row_id])
-
-        assert project.undo() == replacement.op_id
-        assert project.get_values(sheet_id, column_id, row_ids=row_ids) == {
-            row_ids[0]: None,
-            row_ids[1]: "manual",
-            row_ids[2]: "predicate decoy",
-            row_ids[3]: "first:3",
-        }
-        assert (
-            resolve_sheet_filter_rows(
-                project,
-                sheet_id,
-                filter_=json.dumps({"generated": {"eq": "replacement"}}),
-            ).row_ids
-            == []
-        )
-    finally:
-        project.close()
+        ).row_ids
+        == []
+    )

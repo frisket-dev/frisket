@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -115,10 +116,10 @@ def _runtime(provider: RecordingProvider) -> NotificationDeliveryRuntime:
 
 
 def test_daily_digest_route_composes_membership_without_immediate_email_request(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "digest-coexistence"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     slack, email = _channels(project)
     slack_route = project.create_notification_route(
         name="Immediate Slack",
@@ -179,14 +180,13 @@ def test_daily_digest_route_composes_membership_without_immediate_email_request(
         ).fetchone()["n"]
         == 1
     )
-    project.close()
 
 
 def test_acknowledged_items_are_excluded_and_empty_digest_does_not_send(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "digest-ack"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     _slack, email = _channels(project)
     digest_route = project.create_notification_route(
         name="Daily email",
@@ -221,13 +221,12 @@ def test_acknowledged_items_are_excluded_and_empty_digest_does_not_send(
         ).fetchone()["n"]
         == 0
     )
-    project.close()
 
 
 def test_digest_window_policy_is_utc_only_hourly_daily_and_manual(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = _create_project(tmp_path, "digest-window-policy")
+    project = make_project("digest-window-policy")
     _slack, email = _channels(project)
     hourly = project.create_notification_route(
         name="Hourly digest",
@@ -288,7 +287,6 @@ def test_digest_window_policy_is_utc_only_hourly_daily_and_manual(
             },
             project_id="digest-window-policy",
         )
-    project.close()
 
 
 def test_digest_job_composes_and_enqueues_delivery_request(
@@ -350,8 +348,7 @@ def test_digest_job_composes_and_enqueues_delivery_request(
     worker = Worker(queue, registry, worker_id="digest-worker", retry_base_seconds=0)
     assert worker.run_once() is True
 
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         rows = project.db.execute("SELECT * FROM notification_digest_runs").fetchall()
         assert len(rows) == 1
         run = project.public_notification_digest_run(int(rows[0]["id"]))
@@ -362,8 +359,6 @@ def test_digest_job_composes_and_enqueues_delivery_request(
         )
         assert request["status"] == "queued"
         assert request["job_id"] is not None
-    finally:
-        project.close()
 
     assert worker.run_once() is True
     assert provider.messages[0].delivery_kind == "digest"
@@ -374,10 +369,10 @@ def test_digest_job_composes_and_enqueues_delivery_request(
 
 
 def test_composing_digest_run_is_resumed_instead_of_stranded(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "digest-resume-composing"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     _slack, email = _channels(project)
     route = project.create_notification_route(
         name="Daily recoverable digest",
@@ -430,7 +425,6 @@ def test_composing_digest_run_is_resumed_instead_of_stranded(
         ).fetchone()["n"]
         == 1
     )
-    project.close()
 
 
 def test_notification_digest_handler_uses_payload_workspace_root(
@@ -478,8 +472,7 @@ def test_notification_digest_handler_uses_payload_workspace_root(
     worker = Worker(queue, registry, worker_id="hosted-digest-root")
     assert worker.run_once() is True
 
-    project = _open_project(organization_root, project_id)
-    try:
+    with closing(_open_project(organization_root, project_id)) as project:
         rows = project.db.execute("SELECT * FROM notification_digest_runs").fetchall()
         assert len(rows) == 1
         run = project.public_notification_digest_run(int(rows[0]["id"]))
@@ -490,13 +483,11 @@ def test_notification_digest_handler_uses_payload_workspace_root(
             run["delivery_request_id"]
         )
         assert request["job_id"] is not None
-    finally:
-        project.close()
 
 
-def test_info_run_outcomes_reach_only_digest_routes_for_runs(tmp_path: Path) -> None:
+def test_info_run_outcomes_reach_only_digest_routes_for_runs(make_project) -> None:
     project_id = "digest-run-outcomes"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     _slack, email = _channels(project)
     digest = {
         "channel_id": email["id"],
@@ -541,4 +532,3 @@ def test_info_run_outcomes_reach_only_digest_routes_for_runs(tmp_path: Path) -> 
     assert project.notification_digest_item_ids(runs_digest["id"]) == [
         emitted["notification_id"]
     ]
-    project.close()

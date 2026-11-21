@@ -47,11 +47,8 @@ def _counts(project: Project) -> dict[str, int]:
     }
 
 
-def _seed_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(
-        tmp_path / "transcribe-temporal-spans.frisket",
-        name="Temporal spans",
-    )
+def _seed_project(make_project) -> dict[str, Any]:
+    project = make_project("Temporal spans")
     sheet_id = project.add_sheet("Episodes")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -172,8 +169,8 @@ def _transcript_column_id(project: Project, sheet_id: int) -> int:
     return int(row["id"])
 
 
-def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    seeded = _seed_project(tmp_path)
+def _run(make_project, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    seeded = _seed_project(make_project)
     project: Project = seeded["project"]
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter,
@@ -193,178 +190,158 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 def test_multi_segment_row_writes_temporal_spans_with_rounded_ms(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_a = seeded["row_ids"][0]
-    try:
-        transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_a,
-            column_id=transcript_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        link_stable_id = cell_evidence["links"][0]["stable_id"]
+    transcript_column_id = _transcript_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_a,
+        column_id=transcript_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    link_stable_id = cell_evidence["links"][0]["stable_id"]
 
-        viewer = resolve_citation_viewer(project, link_stable_id, project_id=PROJECT_ID)
-        assert len(viewer["artifacts"]) == 1
-        artifact = viewer["artifacts"][0]
-        assert artifact["artifact_kind"] == "av"
-        assert artifact["media_type"] == "audio/wav"
-        # duration_seconds=1.5 -> duration_ms=1500 (used to bound end_ms).
-        assert artifact["duration_ms"] == 1500
+    viewer = resolve_citation_viewer(project, link_stable_id, project_id=PROJECT_ID)
+    assert len(viewer["artifacts"]) == 1
+    artifact = viewer["artifacts"][0]
+    assert artifact["artifact_kind"] == "av"
+    assert artifact["media_type"] == "audio/wav"
+    # duration_seconds=1.5 -> duration_ms=1500 (used to bound end_ms).
+    assert artifact["duration_ms"] == 1500
 
-        spans = artifact["spans"]
-        assert len(spans) == 2
-        first, second = spans
-        assert first["span_kind"] == "temporal"
-        assert first["quote"] == "first segment"
-        # seconds -> ms rounding exactness: 0.4999*1000 -> 500, 1.0001*1000 -> 1000
-        assert first["selector"]["start_ms"] == 500
-        assert first["selector"]["end_ms"] == 1000
-        assert first["selector"]["temporal"]["segment_index"] == 0
-        assert not first["warnings"]
+    spans = artifact["spans"]
+    assert len(spans) == 2
+    first, second = spans
+    assert first["span_kind"] == "temporal"
+    assert first["quote"] == "first segment"
+    # seconds -> ms rounding exactness: 0.4999*1000 -> 500, 1.0001*1000 -> 1000
+    assert first["selector"]["start_ms"] == 500
+    assert first["selector"]["end_ms"] == 1000
+    assert first["selector"]["temporal"]["segment_index"] == 0
+    assert not first["warnings"]
 
-        assert second["span_kind"] == "temporal"
-        assert second["quote"] == "second segment"
-        assert second["selector"]["start_ms"] == 1100
-        assert second["selector"]["end_ms"] == 1400
-        assert second["selector"]["temporal"]["segment_index"] == 1
-        assert not second["warnings"]
-    finally:
-        project.close()
+    assert second["span_kind"] == "temporal"
+    assert second["quote"] == "second segment"
+    assert second["selector"]["start_ms"] == 1100
+    assert second["selector"]["end_ms"] == 1400
+    assert second["selector"]["temporal"]["segment_index"] == 1
+    assert not second["warnings"]
 
 
 def test_overrun_segment_clamps_to_artifact_duration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_b = seeded["row_ids"][1]
-    try:
-        transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_b,
-            column_id=transcript_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        viewer = resolve_citation_viewer(
-            project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        artifact = viewer["artifacts"][0]
-        assert artifact["duration_ms"] == 2000
-        span = artifact["spans"][0]
-        assert span["selector"]["start_ms"] == 0
-        # raw end_ms would be 5000 (5.0s); clamped to the artifact's duration_ms.
-        assert span["selector"]["end_ms"] == 2000
-        assert span["warnings"], "an overrunning segment must record honestly"
-    finally:
-        project.close()
+    transcript_column_id = _transcript_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_b,
+        column_id=transcript_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    viewer = resolve_citation_viewer(
+        project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    artifact = viewer["artifacts"][0]
+    assert artifact["duration_ms"] == 2000
+    span = artifact["spans"][0]
+    assert span["selector"]["start_ms"] == 0
+    # raw end_ms would be 5000 (5.0s); clamped to the artifact's duration_ms.
+    assert span["selector"]["end_ms"] == 2000
+    assert span["warnings"], "an overrunning segment must record honestly"
 
 
 def test_zero_segment_row_writes_no_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_c = seeded["row_ids"][2]
-    try:
-        transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_c,
-            column_id=transcript_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert cell_evidence["links"] == []
-        no_artifact = project.db.execute(
-            "SELECT COUNT(*) FROM source_artifacts WHERE source_row_id=?",
-            (row_c,),
-        ).fetchone()[0]
-        assert no_artifact == 0
-    finally:
-        project.close()
+    transcript_column_id = _transcript_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_c,
+        column_id=transcript_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert cell_evidence["links"] == []
+    no_artifact = project.db.execute(
+        "SELECT COUNT(*) FROM source_artifacts WHERE source_row_id=?",
+        (row_c,),
+    ).fetchone()[0]
+    assert no_artifact == 0
 
 
 def test_unknown_duration_row_writes_spans_without_clamp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_d = seeded["row_ids"][3]
-    try:
-        transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_d,
-            column_id=transcript_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        viewer = resolve_citation_viewer(
-            project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        artifact = viewer["artifacts"][0]
-        assert artifact["duration_ms"] is None
-        span = artifact["spans"][0]
-        assert span["selector"]["start_ms"] == 200
-        assert span["selector"]["end_ms"] == 750
-        assert not span["warnings"]
-    finally:
-        project.close()
+    transcript_column_id = _transcript_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_d,
+        column_id=transcript_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    viewer = resolve_citation_viewer(
+        project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    artifact = viewer["artifacts"][0]
+    assert artifact["duration_ms"] is None
+    span = artifact["spans"][0]
+    assert span["selector"]["start_ms"] == 200
+    assert span["selector"]["end_ms"] == 750
+    assert not span["warnings"]
 
 
 def test_evidence_counts_match_multi_row_expectations(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
-    try:
-        after = _counts(project)
-        before = seeded["before_counts"]
-        # 3 rows write evidence (A, B, D); C (zero segments) writes nothing.
-        assert after["source_artifacts"] == before["source_artifacts"] + 3
-        assert after["source_spans"] == before["source_spans"] + 4  # A:2 + B:1 + D:1
-        assert after["evidence_links"] == before["evidence_links"] + 3
-        assert after["evidence_link_spans"] == before["evidence_link_spans"] + 4
-    finally:
-        project.close()
+    after = _counts(project)
+    before = seeded["before_counts"]
+    # 3 rows write evidence (A, B, D); C (zero segments) writes nothing.
+    assert after["source_artifacts"] == before["source_artifacts"] + 3
+    assert after["source_spans"] == before["source_spans"] + 4  # A:2 + B:1 + D:1
+    assert after["evidence_links"] == before["evidence_links"] + 3
+    assert after["evidence_link_spans"] == before["evidence_link_spans"] + 4
 
 
 def test_replay_does_not_duplicate_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_project(tmp_path)
+    seeded = _seed_project(make_project)
     project: Project = seeded["project"]
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter,
         "transcribe",
         _fake_engine(seeded["blobs"]),
     )
-    try:
-        action = _transcribe_action(
-            sheet_id=seeded["sheet_id"], row_ids=seeded["row_ids"]
-        )
-        first = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert first.status == "completed"
-        after_first = _counts(project)
+    action = _transcribe_action(sheet_id=seeded["sheet_id"], row_ids=seeded["row_ids"])
+    first = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert first.status == "completed"
+    after_first = _counts(project)
 
-        replay = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert _counts(project) == after_first
-    finally:
-        project.close()
+    replay = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert _counts(project) == after_first

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -160,67 +161,61 @@ def test_export_runner_emits_export_notification_candidate(
 ) -> None:
     project_id = "export-producer-integration"
     project = make_project(project_id)
-    try:
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "export.work_log",
-                "scope": {"kind": "project"},
-                "params": {
-                    "destination": {
-                        "kind": "local_file",
-                        "path": str(tmp_path / "work-log.md"),
-                    },
-                    "include_receipts": True,
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "export.work_log",
+            "scope": {"kind": "project"},
+            "params": {
+                "destination": {
+                    "kind": "local_file",
+                    "path": str(tmp_path / "work-log.md"),
                 },
-                "idempotency_key": "notifications/export_work_log@sha256:v1",
+                "include_receipts": True,
             },
-            project_id=project_id,
-        )
+            "idempotency_key": "notifications/export_work_log@sha256:v1",
+        },
+        project_id=project_id,
+    )
 
-        assert result.status == "completed"
-        rows = project.db.execute(
-            "SELECT * FROM notification_items WHERE source_kind='export'"
-        ).fetchall()
-        assert len(rows) == 1
-        source_ref = json.loads(rows[0]["source_ref"])
-        assert source_ref["project_id"] == project_id
-        assert source_ref["export_kind"] == "export.work_log"
-        assert source_ref["status"] == "ready"
-        assert source_ref["receipt_id"] == result.receipt_id
-    finally:
-        project.close()
+    assert result.status == "completed"
+    rows = project.db.execute(
+        "SELECT * FROM notification_items WHERE source_kind='export'"
+    ).fetchall()
+    assert len(rows) == 1
+    source_ref = json.loads(rows[0]["source_ref"])
+    assert source_ref["project_id"] == project_id
+    assert source_ref["export_kind"] == "export.work_log"
+    assert source_ref["status"] == "ready"
+    assert source_ref["receipt_id"] == result.receipt_id
 
 
 def test_delivery_health_items_are_feed_only_to_prevent_feedback_loops(
     make_project,
 ) -> None:
     project = make_project("delivery-health-feed-only")
-    try:
-        _external_route(project)
-        candidate = delivery_health_notification_candidate(
-            project_id="delivery-health-feed-only",
-            request_id=99,
-            status="failed",
-            route_id=4,
-            channel_id=3,
-            error="notification delivery job missing",
-        )
-        assert candidate is not None
-        result = emit_notification_candidate(project, candidate)
+    _external_route(project)
+    candidate = delivery_health_notification_candidate(
+        project_id="delivery-health-feed-only",
+        request_id=99,
+        status="failed",
+        route_id=4,
+        channel_id=3,
+        error="notification delivery job missing",
+    )
+    assert candidate is not None
+    result = emit_notification_candidate(project, candidate)
 
-        assert result["planned_delivery_requests"] == []
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) AS n FROM notification_delivery_requests"
-            ).fetchone()["n"]
-            == 0
-        )
-        item = project.notification_item(result["notification_id"])
-        assert item is not None
-        assert item["source_kind"] == NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND
-    finally:
-        project.close()
+    assert result["planned_delivery_requests"] == []
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) AS n FROM notification_delivery_requests"
+        ).fetchone()["n"]
+        == 0
+    )
+    item = project.notification_item(result["notification_id"])
+    assert item is not None
+    assert item["source_kind"] == NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND
 
 
 def test_failed_delivery_emits_health_notification_without_external_feedback(
@@ -228,8 +223,7 @@ def test_failed_delivery_emits_health_notification_without_external_feedback(
     make_project,
 ) -> None:
     project_id = "delivery-health-integration"
-    project = make_project(project_id)
-    try:
+    with closing(make_project(project_id)) as project:
         _external_route(project)
         emitted = emit_notification_candidate(project, _plugin_candidate(project_id))
         request_id = int(emitted["planned_delivery_requests"][0]["id"])
@@ -239,8 +233,6 @@ def test_failed_delivery_emits_health_notification_without_external_feedback(
             ).fetchone()["n"]
             == 1
         )
-    finally:
-        project.close()
 
     provider = FailingProvider()
     result = deliver_notification_request(
@@ -258,8 +250,7 @@ def test_failed_delivery_emits_health_notification_without_external_feedback(
     assert result == {"request_id": request_id, "status": "failed"}
     assert provider.messages
 
-    project = Project(tmp_path / f"{project_id}.frisket")
-    try:
+    with closing(Project(tmp_path / f"{project_id}.frisket")) as project:
         health_rows = project.db.execute(
             "SELECT * FROM notification_items WHERE source_kind=?",
             (NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,),
@@ -277,5 +268,3 @@ def test_failed_delivery_emits_health_notification_without_external_feedback(
         )
         summary = project.notification_summary(actor_id=LOCAL_ACTOR_ID)
         assert summary["by_source_kind"][NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND] == 1
-    finally:
-        project.close()

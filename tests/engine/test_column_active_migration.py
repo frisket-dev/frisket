@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -227,12 +228,11 @@ def test_upgrade_reports_column_relationship_problem_without_losing_data(tmp_pat
 
 @pytest.mark.parametrize("migrated", [False, True])
 def test_inactive_columns_cannot_be_visible(tmp_path, migrated):
-    project = (
+    with closing(
         Project(_prior_bundle(tmp_path))
         if migrated
         else Project.create(tmp_path / "fresh.frisket")
-    )
-    try:
+    ) as project:
         sheet_id = project.add_sheet("invariant")
         column_id = project.add_column(sheet_id, "visible")
         with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
@@ -245,5 +245,3 @@ def test_inactive_columns_cannot_be_visible(tmp_path, migrated):
         with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
             project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (column_id,))
         project.db.rollback()
-    finally:
-        project.close()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import closing
 from typing import Any
 
 from frisket.engine.store.materialization import (
@@ -28,8 +29,7 @@ def _index_names(project: Project) -> set[str]:
     }
 
 
-def _edge_project(tmp_path: Path) -> tuple[Project, Any]:
-    project = Project.create(tmp_path / "edge-membership.frisket", name="edge")
+def _edge_project(project: Project) -> Any:
     source_sheet = project.add_sheet("Source")
     source_col = project.add_column(source_sheet, "name")
     source_rows = project.add_rows(
@@ -79,63 +79,62 @@ def _edge_project(tmp_path: Path) -> tuple[Project, Any]:
         ),
     )
     project.db.commit()
-    return project, write
+    return write
 
 
-def test_active_membership_reader_filters_hidden_rows_and_diagnostics(tmp_path: Path):
-    project, write = _edge_project(tmp_path)
-    try:
-        active = active_materialized_row_sources(
-            project.db, materialized_row_ids=write.row_ids
-        )
-        assert len(active) == 4
+def test_active_membership_reader_filters_hidden_rows_and_diagnostics(
+    project: Project,
+):
+    write = _edge_project(project)
+    active = active_materialized_row_sources(
+        project.db, materialized_row_ids=write.row_ids
+    )
+    assert len(active) == 4
 
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (write.row_ids[0],))
-        project.db.commit()
-        active_after_hide = active_materialized_row_sources(
-            project.db, materialized_row_ids=write.row_ids
-        )
-        historical = active_materialized_row_sources(
-            project.db,
-            materialized_row_ids=write.row_ids,
-            include_historical=True,
-        )
-        assert {row["materialized_row_id"] for row in active_after_hide} == {
-            write.row_ids[1]
-        }
-        assert {row["materialized_row_id"] for row in historical} == set(write.row_ids)
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (write.row_ids[0],))
+    project.db.commit()
+    active_after_hide = active_materialized_row_sources(
+        project.db, materialized_row_ids=write.row_ids
+    )
+    historical = active_materialized_row_sources(
+        project.db,
+        materialized_row_ids=write.row_ids,
+        include_historical=True,
+    )
+    assert {row["materialized_row_id"] for row in active_after_hide} == {
+        write.row_ids[1]
+    }
+    assert {row["materialized_row_id"] for row in historical} == set(write.row_ids)
 
-        project.db.execute(
-            "UPDATE materialized_row_sources SET source_sheet_id=? "
-            "WHERE materialized_row_id=? AND role='edge_source'",
-            (write.sheet_id, write.row_ids[1]),
-        )
-        project.db.execute(
-            "UPDATE rows SET parent_row_id=NULL WHERE id=?",
-            (write.row_ids[1],),
-        )
-        project.db.execute("PRAGMA ignore_check_constraints=ON")
-        project.db.execute(
-            "UPDATE materialized_row_sources SET role='bad_role' "
-            "WHERE materialized_row_id=? AND role='edge_target'",
-            (write.row_ids[1],),
-        )
-        project.db.execute("PRAGMA ignore_check_constraints=OFF")
-        project.db.commit()
-        issues = materialized_row_source_diagnostics(
-            project.db,
-            expected_roles_by_materialized_row={
-                write.row_ids[0]: ("edge_source", "edge_target"),
-                write.row_ids[1]: ("edge_source", "edge_target"),
-            },
-        )
-        issue_kinds = {issue["kind"] for issue in issues}
-        assert "source_sheet_id_mismatch" in issue_kinds
-        assert "invalid_role" in issue_kinds
-        assert "missing_active_membership" in issue_kinds
-        assert "edge_parent_row_id_mismatch" in issue_kinds
-    finally:
-        project.close()
+    project.db.execute(
+        "UPDATE materialized_row_sources SET source_sheet_id=? "
+        "WHERE materialized_row_id=? AND role='edge_source'",
+        (write.sheet_id, write.row_ids[1]),
+    )
+    project.db.execute(
+        "UPDATE rows SET parent_row_id=NULL WHERE id=?",
+        (write.row_ids[1],),
+    )
+    project.db.execute("PRAGMA ignore_check_constraints=ON")
+    project.db.execute(
+        "UPDATE materialized_row_sources SET role='bad_role' "
+        "WHERE materialized_row_id=? AND role='edge_target'",
+        (write.row_ids[1],),
+    )
+    project.db.execute("PRAGMA ignore_check_constraints=OFF")
+    project.db.commit()
+    issues = materialized_row_source_diagnostics(
+        project.db,
+        expected_roles_by_materialized_row={
+            write.row_ids[0]: ("edge_source", "edge_target"),
+            write.row_ids[1]: ("edge_source", "edge_target"),
+        },
+    )
+    issue_kinds = {issue["kind"] for issue in issues}
+    assert "source_sheet_id_mismatch" in issue_kinds
+    assert "invalid_role" in issue_kinds
+    assert "missing_active_membership" in issue_kinds
+    assert "edge_parent_row_id_mismatch" in issue_kinds
 
 
 def test_active_membership_reader_chunks_large_materialized_row_sets(make_project):
@@ -179,16 +178,16 @@ def test_active_membership_reader_chunks_large_materialized_row_sets(make_projec
     assert [row["source_row_id"] for row in rows] == source_rows
 
 
-def test_archive_round_trip_preserves_membership_table_and_indexes(tmp_path: Path):
-    project, write = _edge_project(tmp_path)
+def test_archive_round_trip_preserves_membership_table_and_indexes(
+    tmp_path: Path, project: Project
+):
+    write = _edge_project(project)
     zip_path = tmp_path / "edge.frisket.zip"
-    try:
-        project.export(zip_path, include_media=False)
-    finally:
-        project.close()
+    project.export(zip_path, include_media=False)
 
-    restored = Project.import_bundle(zip_path, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(zip_path, tmp_path / "restored.frisket")
+    ) as restored:
         assert restored.db.execute(
             "SELECT COUNT(*) FROM materialized_row_sources"
         ).fetchone()[0] == len(write.membership_rows)
@@ -197,8 +196,6 @@ def test_archive_round_trip_preserves_membership_table_and_indexes(tmp_path: Pat
             "idx_materialized_row_sources_materialized",
             "idx_materialized_row_sources_op",
         }.issubset(_index_names(restored))
-    finally:
-        restored.close()
 
 
 def test_rowset_records_expose_active_aggregate_membership_without_fake_parent(

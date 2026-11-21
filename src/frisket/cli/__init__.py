@@ -976,10 +976,14 @@ def server(argv: list[str]) -> int:
             state.worker_pid = worker_proc.pid
             watcher: threading.Thread | None = None
             try:
+                # Use stdlib asyncio (vfork-based subprocess spawning); uvloop
+                # forks across multithreaded C locks on Linux and deadlocks
+                # sandboxed subprocess launches.
                 config = uvicorn.Config(
                     app,
                     host="0.0.0.0",
                     port=args.port,
+                    loop="asyncio",
                     log_config=None,
                     proxy_headers=False,
                 )
@@ -1155,7 +1159,16 @@ def main() -> None:
                 _print_startup_banner(url, serves_ui=serves_ui)
                 if serves_ui and not no_open and sys.stdout.isatty():
                     _open_browser_when_ready(host, port, url)
-                uvicorn.run(app, host=host, port=port, log_config=None)
+                # Use stdlib asyncio (vfork-based subprocess spawning); uvloop
+                # forks across multithreaded C locks on Linux and deadlocks
+                # sandboxed subprocess launches.
+                uvicorn.run(
+                    app,
+                    host=host,
+                    port=port,
+                    loop="asyncio",
+                    log_config=None,
+                )
             finally:
                 try:
                     _stop_worker(worker_proc)

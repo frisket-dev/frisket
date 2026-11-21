@@ -93,10 +93,12 @@ def test_app_service_runs_the_asgi_app_not_the_standalone_server_command() -> No
         "--port",
         "8000",
         "--no-proxy-headers",
+        "--loop",
+        "asyncio",
     ], (
         "app service command must be exactly "
         "['uvicorn', 'frisket.team.asgi:app', '--host', '0.0.0.0', "
-        f"'--port', '8000', '--no-proxy-headers'], got {tokens!r}"
+        f"'--port', '8000', '--no-proxy-headers', '--loop', 'asyncio'], got {tokens!r}"
     )
 
 

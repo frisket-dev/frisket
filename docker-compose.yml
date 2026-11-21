@@ -166,7 +166,7 @@ services:
     # composition — it overwrites the Postgres URLs below at startup. This
     # multi-service stack needs the ASGI app run directly instead, so it
     # actually uses the Postgres control plane the `worker` service shares.
-    command: ["uvicorn", "frisket.team.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+    command: ["uvicorn", "frisket.team.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--loop", "asyncio"]
     restart: unless-stopped
     environment:
       <<: *frisket-env

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
@@ -36,9 +35,9 @@ def _inline_value(
 
 
 def test_inline_scalars_follow_public_precedence_and_transactions(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, column_id, row_ids = _seed_project(make_project)
     with write_transaction(project.db):
         project.set_column_type(column_id, "integer")
     generations = ResultGenerationStore(project)
@@ -147,13 +146,12 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
             project.db.rollback()
         if not released:
             _release(project, run)
-        project.close()
 
 
 def test_generation_undo_redo_restores_and_clears_inline_scalars(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, column_id, row_ids = _seed_project(make_project)
     with write_transaction(project.db):
         project.set_column_type(column_id, "category")
     generations = ResultGenerationStore(project)
@@ -290,7 +288,6 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
             _release(project, replacement)
         if not initial_released:
             _release(project, initial)
-        project.close()
 
 
 def test_inline_scalar_eligibility_and_type_reclassification(make_project) -> None:

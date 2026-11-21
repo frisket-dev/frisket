@@ -13,6 +13,7 @@ from frisket.engine.store.pdf_split_intake import pdf_split_status, read_pdf_spl
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports.service import PdfImportService
 from frisket.server.workspace import Workspace
+from tests.server.test_pdf_split_preparation import _runtime
 
 
 def _pdf(pages):
@@ -707,3 +708,55 @@ def test_append_to_an_ordinary_file_import_sheet_continues_its_columns(
     assert [names[row] for row in rows] == ["first.pdf", "second.pdf", "second.pdf"]
     media = project.get_values(sheet, before["media"], rows)
     assert all(media[row]["blob"] for row in rows)
+
+
+def test_organized_paid_ocr_writes_page_ocr_estimate_and_reads_in_progress_quote_key(
+    tmp_path, monkeypatch
+):
+    adapter, preview, project, _provider, _read, _op, _source = _runtime(
+        tmp_path / "draft-header", monkeypatch
+    )
+    workspace = adapter.workspace
+    try:
+        selection = {"kind": "engine", "engine": "anthropic/claude-haiku-4-5"}
+        service, status = _admit(
+            workspace,
+            "pages",
+            tmp_path,
+            [("paid.pdf", _pdf(2), "application/pdf", {})],
+            ocr_policy="all",
+            selection=selection,
+            preview=preview,
+        )
+        estimate = service.estimate_batch_ocr(
+            "pages",
+            status.draft_id,
+            expected_revision=status.revision,
+            ocr_policy="all",
+            ocr_selection=selection,
+        )
+        directory = service._root / status.draft_id
+        header = service._store.header("pages", directory)
+        assert "page_ocr_estimate" in header
+        assert "page_ocr_quote" not in header
+
+        # Existing in-progress draft headers may still carry page_ocr_quote.
+        header["page_ocr_quote"] = header.pop("page_ocr_estimate")
+        service._save(directory, header)
+
+        status = service.status("pages", status.draft_id)
+        restarted = PdfImportService(workspace, preview_runs=preview)
+        frozen = restarted.freeze_for_commit(
+            "pages",
+            status.draft_id,
+            idempotency_key="draft-header-key",
+            expected_revision=status.revision,
+            ocr_confirmation=estimate.estimate.promise_set_hash,
+        )
+        assert frozen.pdf_preparation["kind"] == "pdf_split_source_pages"
+        after = restarted._store.header("pages", directory)
+        assert "page_ocr_estimate" in after
+        assert "page_ocr_quote" not in after
+    finally:
+        preview._registry.shutdown()
+        project.close()

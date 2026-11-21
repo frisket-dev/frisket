@@ -548,6 +548,7 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
         f"({run_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
     db.execute("UPDATE meta SET value=? WHERE key='schema_digest'", (DOMAIN_TO_DIGEST,))
     db.commit()
     assert sheet.values()[:3] == ["B0", "B1", "B2"]
@@ -581,6 +582,7 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
         f"({copy_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
     db.execute(
         "UPDATE meta SET value=? WHERE key='schema_digest'",
         (EDIT_PRECEDENCE_TO_DIGEST,),

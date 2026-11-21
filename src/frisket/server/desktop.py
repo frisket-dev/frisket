@@ -237,6 +237,7 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
                     gated_app,
                     host="127.0.0.1",
                     port=port,
+                    loop="asyncio",
                     log_config=None,
                     proxy_headers=False,
                 )

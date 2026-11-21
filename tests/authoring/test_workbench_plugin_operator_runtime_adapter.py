@@ -128,10 +128,9 @@ def test_trusted_operator_runtime_binding_filters_rowset_and_grid(
         _reset_default_registry_for_tests()
 
 
-def test_unbound_runtime_operator_stays_unsupported(tmp_path: Path) -> None:
+def test_unbound_runtime_operator_stays_unsupported(project: Project) -> None:
     _reset_default_registry_for_tests()
     try:
-        project = Project.create(tmp_path / "unbound-operator.frisket", name="Runtime")
         sheet_id, _rows, _columns = _seed_project(project)
 
         with pytest.raises(SheetRowSetError, match="unsupported filter"):
@@ -144,7 +143,9 @@ def test_unbound_runtime_operator_stays_unsupported(tmp_path: Path) -> None:
         _reset_default_registry_for_tests()
 
 
-def test_runtime_operator_handler_failures_fail_closed(tmp_path: Path) -> None:
+def test_runtime_operator_handler_failures_fail_closed(
+    tmp_path: Path, project: Project
+) -> None:
     _reset_default_registry_for_tests()
 
     def invalid_handler(_payload: dict[str, Any]) -> dict[str, Any]:
@@ -162,7 +163,6 @@ def test_runtime_operator_handler_failures_fail_closed(tmp_path: Path) -> None:
             handler=invalid_handler,
             plugin=PLUGIN_ID,
         )
-        project = Project.create(tmp_path / "bad-operator.frisket", name="Runtime")
         activate_runtime_plugin_for_project(
             project,
             tmp_path,

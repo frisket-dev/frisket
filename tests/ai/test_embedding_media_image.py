@@ -25,7 +25,6 @@ from frisket.ai.embeddings import EmbeddingGateway
 from frisket.ai.embeddings.backends import local_image_embedder
 from frisket.ai.embeddings.similarity import resolve_embedding_similarity
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 
 _needs_image = pytest.mark.skipif(
     local_image_embedder() is None,
@@ -212,35 +211,28 @@ def _create_media_index(project, sheet, modality, model):
     )
 
 
-def test_audio_video_file_index_create_still_blocks_disabled():
+def test_audio_video_file_index_create_still_blocks_disabled(make_project):
     """Disabled-honesty preserved: audio/video/file engines are NOT built, so a
     media index over them STILL blocks at create with embedding_backend_unavailable
     (this assertion needs no model and runs regardless of the image engine)."""
-    import tempfile
-
     cases = {
         "audio": "audio-embedding",
         "video": "video-embedding",
         "file": "file-page-embedding",
     }
     for modality, model in cases.items():
-        with tempfile.TemporaryDirectory() as d:
-            project = Project.create(f"{d}/p.frisket", name="p")
-            sheet = project.add_sheet("s")
-            project.add_column(sheet, "m", type=modality)
-            res = _create_media_index(project, sheet, modality, model)
-            assert res.status == "failed", (modality, res)
-            assert res.errors[0].code == "embedding_backend_unavailable", modality
-            # nothing minted: no un-refreshable index/space left behind
-            assert (
-                project.db.execute("SELECT COUNT(*) FROM embedding_indexes").fetchone()[
-                    0
-                ]
-                == 0
-            ), modality
-            assert (
-                project.db.execute("SELECT COUNT(*) FROM embedding_spaces").fetchone()[
-                    0
-                ]
-                == 0
-            ), modality
+        project = make_project(f"p-{modality}")
+        sheet = project.add_sheet("s")
+        project.add_column(sheet, "m", type=modality)
+        res = _create_media_index(project, sheet, modality, model)
+        assert res.status == "failed", (modality, res)
+        assert res.errors[0].code == "embedding_backend_unavailable", modality
+        # nothing minted: no un-refreshable index/space left behind
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM embedding_indexes").fetchone()[0]
+            == 0
+        ), modality
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM embedding_spaces").fetchone()[0]
+            == 0
+        ), modality

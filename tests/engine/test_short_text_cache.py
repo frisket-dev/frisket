@@ -114,14 +114,11 @@ def test_upgrade_preserves_prepared_refs_and_reopens(make_project):
     )
     assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SHORT_TEXT_CACHE_TO_DIGEST
     p.close()
-    p = Project(path)
-    try:
+    with closing(Project(path)) as p:
         assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert p.get_values_with_refs(s, c, rows) == before
         assert p.db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert p.db.execute("PRAGMA foreign_key_check").fetchall() == []
-    finally:
-        p.close()
 
 
 def test_a102_upgrade_chains_pdf_split_and_short_text_cache(tmp_path):

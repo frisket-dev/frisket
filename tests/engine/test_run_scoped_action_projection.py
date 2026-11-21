@@ -35,8 +35,8 @@ from http_test_helpers import drain_queue
 PROJECT_ID = "run-scoped-action-projection"
 
 
-def _seed_media_project(path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(path, name="Run-scoped action projection")
+def _seed_media_project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("Run-scoped action projection")
     sheet_id = project.add_sheet("Episodes")
     columns = {
         "media": project.add_column(sheet_id, "media", type="audio"),
@@ -130,9 +130,9 @@ def test_action_catalogs_declare_invocation_halt_codes() -> None:
 
 
 def test_direct_halt_and_operator_cancel_remain_distinct(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project, sheet_id, row_ids = _seed_media_project(tmp_path / "direct.frisket")
+    project, sheet_id, row_ids = _seed_media_project(make_project)
     original_scope = transcribe_engines.transcription_execution_scope
 
     @asynccontextmanager
@@ -152,85 +152,79 @@ def test_direct_halt_and_operator_cancel_remain_distinct(
     monkeypatch.setattr(
         transcribe_engines, "transcription_execution_scope", halted_scope
     )
-    try:
-        halted = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id,
-                row_ids,
-                key="media-transcribe@sha256:typed-halt",
-            ),
-            project_id=PROJECT_ID,
-        )
+    halted = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id,
+            row_ids,
+            key="media-transcribe@sha256:typed-halt",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert halted.status == "failed"
-        assert halted.errors[0].code == "local_engine_busy"
-        assert halted.errors[0].details == {
-            "run_id": halted.run_id,
-            "completed_rows": 0,
-            "total_rows": 2,
-        }
-        assert (
-            halted.outputs == []
-        )  # no rows were published before scope admission halted
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (halted.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        assert json.loads(run["params"])["halted_code"] == "local_engine_busy"
-        halted_receipt = _receipt(project, str(halted.receipt_id))
-        assert halted_receipt.status == "failed"
-        assert halted_receipt.errors[0].code == "local_engine_busy"
+    assert halted.status == "failed"
+    assert halted.errors[0].code == "local_engine_busy"
+    assert halted.errors[0].details == {
+        "run_id": halted.run_id,
+        "completed_rows": 0,
+        "total_rows": 2,
+    }
+    assert halted.outputs == []  # no rows were published before scope admission halted
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (halted.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert json.loads(run["params"])["halted_code"] == "local_engine_busy"
+    halted_receipt = _receipt(project, str(halted.receipt_id))
+    assert halted_receipt.status == "failed"
+    assert halted_receipt.errors[0].code == "local_engine_busy"
 
-        monkeypatch.setattr(
-            transcribe_engines, "transcription_execution_scope", original_scope
-        )
-        operator = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id,
-                row_ids,
-                key="media-transcribe@sha256:operator-cancel",
-                output_name="operator_transcript",
-            ),
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                map_runner_factory=lambda target, router: MapRunner(
-                    target,
-                    router
-                    or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                    should_cancel=lambda _run_id: True,
-                    # These transcribe actions resolve an execution route, and
-                    # a routed run never dispatches unverified: a test factory
-                    # must wire the SAME attempt authority the production
-                    # factories do (engine/executor/actions.py), or the
-                    # effect-site fence refuses before any row runs and the
-                    # halt/cancel distinction under test never happens.
-                    authority=open_attempt_authority(target),
-                )
-            ),
-        )
+    monkeypatch.setattr(
+        transcribe_engines, "transcription_execution_scope", original_scope
+    )
+    operator = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id,
+            row_ids,
+            key="media-transcribe@sha256:operator-cancel",
+            output_name="operator_transcript",
+        ),
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            map_runner_factory=lambda target, router: MapRunner(
+                target,
+                router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                should_cancel=lambda _run_id: True,
+                # These transcribe actions resolve an execution route, and
+                # a routed run never dispatches unverified: a test factory
+                # must wire the SAME attempt authority the production
+                # factories do (engine/executor/actions.py), or the
+                # effect-site fence refuses before any row runs and the
+                # halt/cancel distinction under test never happens.
+                authority=open_attempt_authority(target),
+            )
+        ),
+    )
 
-        assert operator.status == "cancelled"
-        assert operator.errors == []
-        operator_run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (operator.run_id,)
-        ).fetchone()
-        assert operator_run["status"] == "cancelled"
-        operator_params = json.loads(operator_run["params"])
-        assert "halted_code" not in operator_params
-        assert "halted_reason" not in operator_params
-        operator_receipt = _receipt(project, str(operator.receipt_id))
-        assert operator_receipt.status == "cancelled"
-        assert operator_receipt.errors == []
-    finally:
-        project.close()
+    assert operator.status == "cancelled"
+    assert operator.errors == []
+    operator_run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (operator.run_id,)
+    ).fetchone()
+    assert operator_run["status"] == "cancelled"
+    operator_params = json.loads(operator_run["params"])
+    assert "halted_code" not in operator_params
+    assert "halted_reason" not in operator_params
+    operator_receipt = _receipt(project, str(operator.receipt_id))
+    assert operator_receipt.status == "cancelled"
+    assert operator_receipt.errors == []
 
 
 def test_direct_sandbox_teardown_persists_typed_partial_receipt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project, sheet_id, row_ids = _seed_media_project(tmp_path / "teardown.frisket")
+    project, sheet_id, row_ids = _seed_media_project(make_project)
     calls = 0
 
     async def teardown_second_row(
@@ -250,67 +244,63 @@ def test_direct_sandbox_teardown_persists_typed_partial_receipt(
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter, "transcribe", teardown_second_row
     )
-    try:
-        result = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id,
-                row_ids,
-                key="media-transcribe@sha256:direct-sandbox-teardown",
-            ),
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                map_runner_factory=lambda target, router: MapRunner(
-                    target,
-                    router
-                    or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                    concurrency=1,
-                    # See above: routed runs verify at dispatch, test
-                    # factories included.
-                    authority=open_attempt_authority(target),
-                )
-            ),
-        )
+    result = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id,
+            row_ids,
+            key="media-transcribe@sha256:direct-sandbox-teardown",
+        ),
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            map_runner_factory=lambda target, router: MapRunner(
+                target,
+                router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                concurrency=1,
+                # See above: routed runs verify at dispatch, test
+                # factories included.
+                authority=open_attempt_authority(target),
+            )
+        ),
+    )
 
-        assert calls == 2
-        assert result.status == "failed"
-        assert [error.code for error in result.errors] == ["local_session_failed"]
-        assert result.errors[0].details == {
-            "run_id": result.run_id,
-            "completed_rows": 1,
-            "total_rows": 2,
-        }
-        assert result.outputs
-        assert all(output.row_ids == row_ids[:1] for output in result.outputs)
+    assert calls == 2
+    assert result.status == "failed"
+    assert [error.code for error in result.errors] == ["local_session_failed"]
+    assert result.errors[0].details == {
+        "run_id": result.run_id,
+        "completed_rows": 1,
+        "total_rows": 2,
+    }
+    assert result.outputs
+    assert all(output.row_ids == row_ids[:1] for output in result.outputs)
 
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (result.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        params = json.loads(run["params"])
-        assert params["halted_code"] == "local_session_failed"
-        assert "secret diagnostic" not in params["halted_reason"]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(DISTINCT row_id) FROM results WHERE run_id=?",
-                (result.run_id,),
-            ).fetchone()[0]
-            == 1
-        )
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (result.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    params = json.loads(run["params"])
+    assert params["halted_code"] == "local_session_failed"
+    assert "secret diagnostic" not in params["halted_reason"]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(DISTINCT row_id) FROM results WHERE run_id=?",
+            (result.run_id,),
+        ).fetchone()[0]
+        == 1
+    )
 
-        receipt = _receipt(project, str(result.receipt_id))
-        assert receipt.status == "failed"
-        assert [error.code for error in receipt.errors] == ["local_session_failed"]
-        assert receipt.outputs
-        assert all(output.ref["row_ids"] == row_ids[:1] for output in receipt.outputs)
-    finally:
-        project.close()
+    receipt = _receipt(project, str(result.receipt_id))
+    assert receipt.status == "failed"
+    assert [error.code for error in receipt.errors] == ["local_session_failed"]
+    assert receipt.outputs
+    assert all(output.ref["row_ids"] == row_ids[:1] for output in receipt.outputs)
 
 
 def test_fully_halted_generation_does_not_advertise_unrepresentable_backfill(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project, sheet_id, row_ids = _seed_media_project(tmp_path / "backfill.frisket")
+    project, sheet_id, row_ids = _seed_media_project(make_project)
     state = {"halt": True, "code": "local_session_failed"}
     seen_specs: list[dict[str, Any]] = []
 
@@ -351,38 +341,35 @@ def test_fully_halted_generation_does_not_advertise_unrepresentable_backfill(
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter, "transcribe", fake_faster_whisper
     )
-    try:
-        original = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id,
-                row_ids,
-                key="media-transcribe@sha256:original-halt",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert original.status == "failed"
-        assert original.errors[0].code == "local_session_failed"
+    original = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id,
+            row_ids,
+            key="media-transcribe@sha256:original-halt",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert original.status == "failed"
+    assert original.errors[0].code == "local_session_failed"
 
-        assert "resumable" not in original.errors[0].details
-        assert "resume_action" not in original.errors[0].details
+    assert "resumable" not in original.errors[0].details
+    assert "resume_action" not in original.errors[0].details
 
-        refused = run_action_spec(
-            project,
-            _backfill_action(
-                sheet_id,
-                "transcript",
-                key="run-backfill@sha256:no-source-head",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert refused.status == "failed"
-        assert refused.run_id is None
-        assert [error.code for error in refused.errors] == ["run_required"]
-        assert len(seen_specs) == 1
-        assert _receipt(project, str(original.receipt_id)).status == "failed"
-    finally:
-        project.close()
+    refused = run_action_spec(
+        project,
+        _backfill_action(
+            sheet_id,
+            "transcript",
+            key="run-backfill@sha256:no-source-head",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert refused.status == "failed"
+    assert refused.run_id is None
+    assert [error.code for error in refused.errors] == ["run_required"]
+    assert len(seen_specs) == 1
+    assert _receipt(project, str(original.receipt_id)).status == "failed"
 
 
 def _seed_queued_media_project(

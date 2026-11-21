@@ -56,7 +56,7 @@ class PurchaseRequest:
     estimated_cost_usd: float | None = None
     quantity: dict[str, float | None] = field(default_factory=dict)
     llm_request: Any = field(default=None, repr=False)
-    quote: Any = field(default=None, repr=False)
+    estimate: Any = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

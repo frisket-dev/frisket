@@ -1,6 +1,7 @@
 """Public lexical search over the unified retrieval store."""
 
 from __future__ import annotations
+from contextlib import closing
 
 from pathlib import Path
 
@@ -44,8 +45,7 @@ def test_reader_is_side_effect_free_and_relative_project_searches(
     seeded.close()
 
     monkeypatch.chdir(tmp_path)
-    project = Project(Path("relative.frisket"))
-    try:
+    with closing(Project(Path("relative.frisket"))) as project:
         with pytest.raises(SearchIndexNotReady):
             search_project(project, "relativepathneedle", rerank="off")
         assert not (project.path / RETRIEVAL_DB_NAME).exists()
@@ -55,8 +55,6 @@ def test_reader_is_side_effect_free_and_relative_project_searches(
         [hit] = search_project(project, "relativepathneedle", rerank="off")
         assert hit["row_id"] == row
         assert hit["location"]["kind"] == "whole_source"
-    finally:
-        project.close()
 
 
 def test_streaming_import_pages_and_removal_refresh_public_results(make_project):
