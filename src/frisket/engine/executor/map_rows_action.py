@@ -3397,7 +3397,7 @@ def _typed_receipt(
                     "service": "document.convert",
                     "external_api": bool(calls)
                     or bool(group["external"])
-                    or (declaration is not None and declaration.tier == "hosted"),
+                    or (declaration is not None and declaration.tier == "remote"),
                     "operation_call_count": group["count"],
                     "model_call_count": len(calls),
                     "cost_actual": model_calls_cost_actual(calls),

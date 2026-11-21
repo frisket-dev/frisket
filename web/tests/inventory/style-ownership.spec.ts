@@ -44,7 +44,7 @@ test('shared controls retain their styling when feature CSS loads first or last'
     <span id="idle" class="run-label">idle</span>
     <div id="home-menu" class="menu-pop home-card-menu">Projects</div>
     <div id="ask-menu" class="menu-pop ask-thread-menu">Conversations</div>
-    <div id="saved-menu" class="menu-pop saved-views-overflow-menu">Views</div>
+    <div id="saved-menu" class="menu-pop views-overflow-menu">Views</div>
     <button id="required" class="btn btn-icon output-field-required" data-button-variant="text" aria-pressed="true">*</button>
     <button id="optional" class="btn btn-icon output-field-required" data-button-variant="text" aria-pressed="false">*</button>
     <button id="focus" class="form-input select-trigger">Choose a column</button>`;

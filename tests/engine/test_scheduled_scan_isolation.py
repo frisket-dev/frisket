@@ -133,7 +133,7 @@ def test_unreadable_bundle_does_not_stop_the_scan(
         opened.append(key.project_slug)
         return Project(path)
 
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=scoped)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=scoped)
     try:
         with caplog.at_level(logging.WARNING):
             enqueued = cli._sweep(

@@ -18,7 +18,7 @@ class _NoSilentReplacementRegistry(HandlerRegistry):
 
 
 def test_strict_hosted_storage_composes_without_last_wins(tmp_path) -> None:
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     registry = _NoSilentReplacementRegistry()
     try:
         register_production_handlers(
@@ -39,7 +39,7 @@ def test_create_app_can_request_strict_storage_identity(tmp_path) -> None:
     )
     for require_storage_identity, expected_origin in cases:
         queue = SqliteJobQueue(
-            tmp_path / f"queue-{require_storage_identity}.db", hosted=True
+            tmp_path / f"queue-{require_storage_identity}.db", cloud=True
         )
         try:
             app = create_app(

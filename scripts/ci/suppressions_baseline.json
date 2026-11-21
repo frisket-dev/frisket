@@ -548,7 +548,7 @@
   "web/src/api/historyReview.ts": 2,
   "web/src/api/projectCitations.ts": 2,
   "web/src/api/runProvenance.ts": 1,
-  "web/src/api/viewsLenses.ts": 1,
+  "web/src/api/views.ts": 1,
   "web/src/components/CodeEditor.tsx": 1,
   "web/src/components/action-panel/DeriveActionForm.tsx": 1,
   "web/src/components/action-panel/ExtractParamsBody.tsx": 4,

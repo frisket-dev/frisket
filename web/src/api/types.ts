@@ -41,11 +41,11 @@ import type {
   HttpRunTraceRowEvidence,
   HttpRuntimeProjectionBuildPlan,
   HttpRuntimeProjectionStatus,
-  HttpSavedViewResolved,
   HttpSheetGraphResponse,
   HttpSpendReport,
   HttpTopicSegmentationCompareScratchResponse,
   HttpTranslateComparisonResponse,
+  HttpViewResolved,
   HttpWorkbenchPluginActivation,
   HttpWorkbenchPluginBackendActivation,
   HttpWorkbenchPluginInstallExecution,
@@ -1141,9 +1141,9 @@ export interface EngineLicense {
 
 /** Three-tier engine remoteness vocabulary: 'local' = this process/box;
  *  'sidecar' = the operator's frisket-models service, which may be another
- *  machine — never labelled local; 'hosted' = leaves the operator's
+ *  machine — never labelled local; 'remote' = leaves the operator's
  *  infrastructure. */
-export type EngineTier = 'local' | 'sidecar' | 'hosted';
+export type EngineTier = 'local' | 'sidecar' | 'remote';
 
 export interface ClassificationOptionDeclaration {
   field_types: Array<'category' | 'score' | 'integer' | 'number' | 'boolean' | 'text'>;
@@ -1937,9 +1937,9 @@ export interface SheetDataOptions {
   parentRowId?: string | null;
   filter?: GridFilterSpec | null;
   sort?: GridSortSpec | null;
-  /** Lens-view scope: page EXACTLY these row ids, in THIS ranked order
+  /** Ranked view scope: page EXACTLY these row ids, in THIS ranked order
    *  (distance/score order from the resolver). When set, the grid ignores
-   *  column filter/sort — the lens already defines the row-set + order. */
+   *  column filter/sort — the view already defines the row-set + order. */
   rowIds?: number[] | null;
   selection?: ViewSelection | null;
   viewId?: number | null;
@@ -2269,7 +2269,7 @@ export interface ViewCreateInput extends ViewDefinitionInput { name: string; }
 export interface ViewRenameInput { name: string; }
 export type ViewDefinitionReplaceInput = ViewDefinitionInput;
 
-export type ViewResolved = HttpSavedViewResolved;
+export type ViewResolved = HttpViewResolved;
 
 export interface ViewAlertConditions {
   kind: 'conditions';

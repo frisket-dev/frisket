@@ -106,7 +106,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
     direct_opens: list[Path] = []
     _booby_trap(monkeypatch, direct_opens)
 
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     registry = HandlerRegistry()
     try:
         register_notification_handlers(

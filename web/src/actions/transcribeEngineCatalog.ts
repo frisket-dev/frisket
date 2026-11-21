@@ -155,7 +155,7 @@ export const TRANSCRIBE_ENGINE_FALLBACK: EngineOption[] = [
     // the live catalog loads, like every hosted fallback entry.
     id: 'openai/whisper-1',
     label: 'OpenAI Whisper',
-    tier: 'hosted',
+    tier: 'remote',
     billable: true,
     available: false,
     error: 'Action catalog unavailable',
@@ -171,7 +171,7 @@ export const TRANSCRIBE_ENGINE_FALLBACK: EngineOption[] = [
   {
     id: 'openrouter/microsoft/mai-transcribe-2',
     label: 'Microsoft MAI-Transcribe 2 (OpenRouter)',
-    tier: 'hosted',
+    tier: 'remote',
     billable: true,
     available: false,
     error: 'Action catalog unavailable',

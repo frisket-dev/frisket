@@ -107,7 +107,7 @@
   ],
   [
    "src/frisket/ai/embeddings/store.py::EmbeddingStore.list_indexes",
-   "src/frisket/engine/store/saved_views.py::views"
+   "src/frisket/engine/store/views.py::views"
   ],
   [
    "src/frisket/ai/models/metadata.py::model_calls_cost_actual.value",

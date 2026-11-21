@@ -109,7 +109,7 @@ export interface GridReadFragment {
   sort: WorkbenchHostContext['gridState']['sort'];
   visibleColumnIds: string[];
   frozenColumnCount: number;
-  activeLensId: number | null;
+  activeViewId: number | null;
 }
 
 function buildGridReadFragment(
@@ -120,7 +120,7 @@ function buildGridReadFragment(
     sort: hostContext.gridState.sort,
     visibleColumnIds: [...hostContext.gridState.columnOrder],
     frozenColumnCount: hostContext.gridState.frozenColumns,
-    activeLensId: hostContext.gridState.viewId,
+    activeViewId: hostContext.gridState.viewId,
   };
 }
 

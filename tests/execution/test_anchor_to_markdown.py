@@ -134,7 +134,7 @@ def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_en
     organization = CredentialOwner.organization("org-a")
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-a",
             funding=ByokZero(),
         ),

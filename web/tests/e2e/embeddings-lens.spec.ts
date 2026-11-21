@@ -112,8 +112,8 @@ async function stubIndexWithView(
 async function openEmbeddingViews(page: Page) {
   await openDiscoverTab(page, 'Embeddings');
   await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
-  await expect(page.getByTestId('embedding-lens-1')).toContainText('Similar to kitten');
-  await expect(page.getByTestId('embedding-lens-open-1')).toBeVisible();
+  await expect(page.getByTestId('embedding-view-1')).toContainText('Similar to kitten');
+  await expect(page.getByTestId('embedding-view-open-1')).toBeVisible();
 }
 
 test('opening a saved similarity view lists its ranked rows with their scores', async ({ page }) => {
@@ -122,16 +122,16 @@ test('opening a saved similarity view lists its ranked rows with their scores', 
   await stubIndexWithView(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
   await openEmbeddingViews(page);
-  await page.getByTestId('embedding-lens-open-1').click();
+  await page.getByTestId('embedding-view-open-1').click();
 
-  const results = page.getByTestId('embedding-lens-results-1');
+  const results = page.getByTestId('embedding-view-results-1');
   await expect(results).toBeVisible();
   await expect(results.locator('li')).toHaveCount(2);
-  await expect(results.locator('li').first()).toHaveAttribute('data-testid', 'embedding-lens-result-row-3');
-  await expect(page.getByTestId('embedding-lens-result-row-3')).toContainText('0.120');
-  await expect(page.getByTestId('embedding-lens-result-row-3')).toContainText('0.880');
-  await expect(page.getByTestId('embedding-lens-result-row-1')).toContainText('0.340');
-  await expect(page.getByTestId('embedding-lens-result-row-1')).toContainText('0.660');
+  await expect(results.locator('li').first()).toHaveAttribute('data-testid', 'embedding-view-result-row-3');
+  await expect(page.getByTestId('embedding-view-result-row-3')).toContainText('0.120');
+  await expect(page.getByTestId('embedding-view-result-row-3')).toContainText('0.880');
+  await expect(page.getByTestId('embedding-view-result-row-1')).toContainText('0.340');
+  await expect(page.getByTestId('embedding-view-result-row-1')).toContainText('0.660');
 });
 
 test('a view over an incomplete index says it is out of date, not a raw error', async ({ page }) => {
@@ -142,12 +142,12 @@ test('a view over an incomplete index says it is out of date, not a raw error', 
   await openEmbeddingViews(page);
 
   setResolveError('embedding_index_incomplete');
-  await page.getByTestId('embedding-lens-open-1').click();
+  await page.getByTestId('embedding-view-open-1').click();
 
-  const err = page.getByTestId('embedding-lens-resolve-error-1');
+  const err = page.getByTestId('embedding-view-resolve-error-1');
   await expect(err).toBeVisible();
   await expect(err).toContainText('out of date');
   await expect(err).not.toContainText('embedding_index_incomplete');
-  await expect(page.getByTestId('embedding-lens-results-1')).toHaveCount(0);
+  await expect(page.getByTestId('embedding-view-results-1')).toHaveCount(0);
   await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
 });

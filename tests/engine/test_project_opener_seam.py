@@ -101,7 +101,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
 
     monkeypatch.setattr(workspace_module, "Project", recording_project)
     registry = default_registry()
-    queue = SqliteJobQueue(tmp_path / "workspace-queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "workspace-queue.db", cloud=True)
     try:
         workspace_module.Workspace(
             root,
@@ -205,7 +205,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
         calls.append((storage_key, Path(path)))
         return Project(path)
 
-    queue = SqliteJobQueue(tmp_path / "handler-queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "handler-queue.db", cloud=True)
     registry = default_registry()
     try:
         worker_module.register_production_handlers(
@@ -318,7 +318,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     ):
         monkeypatch.setattr(modules[name], "Project", forbid_direct_project)
 
-    queue = SqliteJobQueue(tmp_path / "scheduler.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "scheduler.db", cloud=True)
     try:
         for sweep in (
             cli._FEED_POLLS,
@@ -586,7 +586,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 "--schedule-notification-digests-interval",
                 "1",
             ],
-            hosted=True,
+            cloud=True,
         )
         assert rc == 0
         every_sweep = [
@@ -634,7 +634,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 "--schedule-notification-digests-interval",
                 "1",
             ],
-            hosted=True,
+            cloud=True,
         )
         assert rc == 0
         assert started == [

@@ -37,7 +37,7 @@ def _api() -> Any:
         "ChecksumMismatchError",
         "RuntimeQuarantinedError",
         "RuntimeSwitchNotAtJobBoundary",
-        "HostedUpstreamFetchForbidden",
+        "CloudUpstreamFetchForbidden",
         "default_cache_root",
         "managed_runtime_supporting_record",
         "report_managed_runtime_states",
@@ -117,7 +117,7 @@ def _spec(module: Any, cache_root: Path) -> Any:
 
 def _service(module: Any, cache_root: Path, *, tier: str = "personal") -> Any:
     tier_value = getattr(
-        module.RuntimeTier, "PERSONAL" if tier == "personal" else "HOSTED"
+        module.RuntimeTier, "PERSONAL" if tier == "personal" else "CLOUD"
     )
     return module.ManagedRuntimeService(cache_root=cache_root, tier=tier_value)
 
@@ -255,24 +255,24 @@ def test_cache_root_is_user_level_never_in_workspace(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_hosted_tier_resolves_only_from_first_party_never_upstream(tmp_path):
+def test_cloud_tier_resolves_only_from_first_party_never_upstream(tmp_path):
     module = _api()
     cache_root = tmp_path / "runtimes"
     spec = _spec(module, cache_root)
 
-    hosted = _service(module, cache_root, tier="hosted")
+    cloud = _service(module, cache_root, tier="cloud")
 
     upstream = _good_channel(kind="upstream")
-    with pytest.raises(module.HostedUpstreamFetchForbidden):
-        hosted.resolve(spec, channel=upstream)
+    with pytest.raises(module.CloudUpstreamFetchForbidden):
+        cloud.resolve(spec, channel=upstream)
     assert upstream.artifact_fetches == [], (
-        "hosted tier must not perform any arbitrary-upstream artifact fetch; "
-        "hosted execution accepts only first-party mirrored artifacts"
+        "cloud tier must not perform any arbitrary-upstream artifact fetch; "
+        "cloud execution accepts only first-party mirrored artifacts"
     )
 
-    # A first-party mirror IS allowed on hosted.
+    # A first-party mirror IS allowed on Cloud.
     mirror = _good_channel(kind="mirror")
-    resolution = hosted.resolve(spec, channel=mirror)
+    resolution = cloud.resolve(spec, channel=mirror)
     assert resolution.artifact_sha256 == _sha256(_ARTIFACT_BYTES)
 
     # Personal/self-host MAY use the official upstream channel.

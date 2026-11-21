@@ -52,7 +52,7 @@ def test_clef_catalog_projects_supported_fields_without_a_model_selector(
         assert "Citations are not supported" in row["description"]
         assert "models" not in row
         assert row["available"] is False
-    assert engines["clef"]["tier"] == "hosted"
+    assert engines["clef"]["tier"] == "remote"
     assert engines["clef"]["billable"] is True
     assert engines["clef-flash"]["tier"] == "sidecar"
     assert engines["clef-flash"]["billable"] is False

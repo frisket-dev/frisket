@@ -116,7 +116,7 @@ function ConfigureVariantPopover({
       <label className="ocr-compare-configure-field">
         <span className="ocr-compare-configure-label">
           Engine
-          {/* The chosen engine's tier badge — local / sidecar / hosted —
+          {/* The chosen engine's tier badge — local / sidecar / remote —
               next to the label (the semantic select trigger can't carry
               per-option badges, so the tier ALSO rides in the grouped custom
               menu and every native option's text). */}
