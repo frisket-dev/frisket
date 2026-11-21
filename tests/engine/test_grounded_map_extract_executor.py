@@ -319,7 +319,7 @@ def _grounding_facts(receipt: dict[str, Any]) -> dict[str, Any]:
     """
     refs = [
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"]["kind"] == "map_extract_grounding_links"
     ]
     assert refs, "no grounding facts were recorded"

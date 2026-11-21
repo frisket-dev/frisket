@@ -150,7 +150,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert (
         receipt.outputs[0].ref["request_hash"] == receipt.inputs[0].ref["request_hash"]
     )
-    assert receipt.evidence[0].ref["kind"] == "plugin_manifest"
+    assert receipt.records[0].ref["kind"] == "plugin_manifest"
 
 
 CASES = [

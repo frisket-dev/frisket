@@ -20,7 +20,7 @@ from frisket.actions.types import (
     SheetRows,
     TableError,
 )
-from frisket.contracts.action import ActionError, Receipt, ReceiptEvidence
+from frisket.contracts.action import ActionError, Receipt, ReceiptRecord
 from frisket.engine.executor.action_receipts import (
     _positive_ref_int,
     _receipt_ops_are_applied,
@@ -44,7 +44,7 @@ def _semantic_origin(
         ):
             sources = [
                 item.ref
-                for item in receipt.evidence
+                for item in receipt.records
                 if item.ref.get("kind") == "backfill_source_generation"
             ]
             if len(sources) != 1:
@@ -713,7 +713,7 @@ class AdmittedSemanticMatchReader:
                 "Link rows must retain their admitted source and matching target",
             )
 
-    def publication_supporting_records(self, write, lineages) -> list[ReceiptEvidence]:
+    def publication_supporting_records(self, write, lineages) -> list[ReceiptRecord]:
         edges = [
             {
                 "child_row_id": row_id,
@@ -723,7 +723,7 @@ class AdmittedSemanticMatchReader:
             for row_id, lineage in zip(write.row_ids, lineages, strict=True)
         ]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "semantic_link_table_edges",
                     "sheet_id": write.sheet_id,
@@ -739,7 +739,7 @@ class AdmittedSemanticMatchReader:
         for read in self._reads:
             supporting_records.extend(
                 [
-                    ReceiptEvidence(
+                    ReceiptRecord(
                         ref={
                             "kind": "semantic_join_output_cells",
                             "source_receipt_id": read["source_receipt_id"],
@@ -750,7 +750,7 @@ class AdmittedSemanticMatchReader:
                         },
                         retention="pinned",
                     ),
-                    ReceiptEvidence(ref=read["review_refs"], retention="pinned"),
+                    ReceiptRecord(ref=read["review_refs"], retention="pinned"),
                 ]
             )
         return supporting_records

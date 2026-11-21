@@ -900,7 +900,7 @@ def test_split_projects_compatible_typed_annotations_into_each_child(
     assert (
         sum(
             item.ref.get("kind") == "temporal_annotation_projection"
-            for item in receipt.evidence
+            for item in receipt.records
         )
         == 2
     )

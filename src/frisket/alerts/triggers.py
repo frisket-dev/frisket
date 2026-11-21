@@ -215,7 +215,7 @@ def _receipt_refs(receipt: dict[str, Any]) -> list[dict[str, Any]]:
     for item in [
         *receipt.get("inputs", []),
         *receipt.get("outputs", []),
-        *receipt.get("evidence", []),
+        *receipt.get("records", []),
     ]:
         if not isinstance(item, dict):
             continue

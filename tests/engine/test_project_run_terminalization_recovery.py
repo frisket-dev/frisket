@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from frisket.contracts.action import ActionError, Receipt, ReceiptEvidence
+from frisket.contracts.action import ActionError, Receipt, ReceiptRecord
 from frisket.engine.executor import project_run_terminalization as terminalizer_module
 from frisket.engine.executor.project_run_terminalization import (
     AbandonedAttemptRecoveryAuthority,
@@ -132,9 +132,9 @@ def _seed_orphaned_run(
                 idempotency_key="dead-writer@sha256:stable",
                 params_hash="sha256:dead-writer",
                 status="queued",
-                evidence=(
+                records=(
                     [
-                        ReceiptEvidence(
+                        ReceiptRecord(
                             ref={
                                 "kind": "queued_action_run_prepared",
                                 "queue_kind": "project.run",
@@ -1397,8 +1397,8 @@ def test_prepared_replacement_cancel_ignores_historical_abandoned_attempt(
     assert stored is not None
     replacement_receipt = stored.parsed().model_copy(
         update={
-            "evidence": [
-                ReceiptEvidence(
+            "records": [
+                ReceiptRecord(
                     ref={
                         "kind": "queued_action_run_prepared",
                         "queue_kind": "project.run",

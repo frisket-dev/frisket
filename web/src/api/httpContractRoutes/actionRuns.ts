@@ -139,7 +139,7 @@ function mapReceipt(wire: ReceiptWire): V1Receipt {
     })),
     value: wire.value ?? null,
     providerUse: wire.provider_use ?? [],
-    evidence: (wire.evidence ?? []).map((entry) => ({
+    records: (wire.records ?? []).map((entry) => ({
       ref: entry.ref,
       retention: entry.retention ?? 'compactable',
     })),

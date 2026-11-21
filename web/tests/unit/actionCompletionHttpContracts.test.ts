@@ -145,7 +145,7 @@ function completedReceipt() {
       },
     }],
     provider_use: [],
-    evidence: [],
+    records: [],
     errors: [],
   };
 }

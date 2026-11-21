@@ -351,7 +351,7 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
     terminal_receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
     retained = next(
         item
-        for item in terminal_receipt.evidence
+        for item in terminal_receipt.records
         if item.ref.get("kind") == "find_admission"
     )
     assert retained.retention == "pinned"
@@ -389,11 +389,11 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
                 == 2
             )
             assert not any(
-                item.ref.get("external_effect") == "none" for item in receipt.evidence
+                item.ref.get("external_effect") == "none" for item in receipt.records
             )
         else:
             assert adapter.requests == []
             assert receipt.provider_use == []
             assert any(
-                item.ref.get("external_effect") == "none" for item in receipt.evidence
+                item.ref.get("external_effect") == "none" for item in receipt.records
             )

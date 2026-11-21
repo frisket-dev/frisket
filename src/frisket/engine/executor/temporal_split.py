@@ -23,7 +23,7 @@ from frisket.actions.types import SheetRows
 
 from frisket.contracts.action import (
     ActionError,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.temporal_materialization import (
@@ -579,11 +579,11 @@ def publish_split_clip(
     )
     clip_evidence.extend(
         [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref=staged_receipt_ref(stored_clip),
                 retention="materialized",
             ),
-            ReceiptEvidence(ref=lineage, retention="materialized"),
+            ReceiptRecord(ref=lineage, retention="materialized"),
         ]
     )
     derived_anchor = resolve_artifact_timeline(project, int(lineage["artifact_id"]))
@@ -610,7 +610,7 @@ def publish_split_clip(
             )
         )
         clip_evidence.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "temporal_annotation_projection",
                     "source": annotation.input_ref(),
@@ -646,8 +646,6 @@ def publish_split_clip(
             op_id=write.op_id,
         )
         if projected is not None:
-            clip_evidence.append(
-                ReceiptEvidence(ref=projected, retention="materialized")
-            )
+            clip_evidence.append(ReceiptRecord(ref=projected, retention="materialized"))
 
     return clip_evidence

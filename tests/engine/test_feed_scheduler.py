@@ -296,7 +296,7 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
     assert len(receipts) == 1
     assert receipts[0]["id"] == job.result["receipt_id"]
     receipt = json.loads(receipts[0]["body"])
-    refs = [item["ref"] for item in [*receipt["outputs"], *receipt["evidence"]]]
+    refs = [item["ref"] for item in [*receipt["outputs"], *receipt["records"]]]
     source_run_ref = next(ref for ref in refs if ref["kind"] == "source_poll_run")
     enclosure_ref = next(
         ref for ref in refs if ref["kind"] == "source_poll_enclosure_pointers"

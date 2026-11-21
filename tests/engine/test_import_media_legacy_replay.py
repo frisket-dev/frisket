@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.contracts.action import ActionSpec, Receipt, ReceiptEvidence, ReceiptIO
+from frisket.contracts.action import ActionSpec, Receipt, ReceiptRecord, ReceiptIO
 from frisket.engine.executor import run_action_spec
 from action_test_helpers import legacy_params_hash
 from frisket.engine.store.receipts import ReceiptStore
@@ -36,8 +36,8 @@ def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(
         params_hash=request_hash,
         status="completed",
         inputs=[ReceiptIO(name="source", ref={"request_hash": request_hash})],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={"kind": "imported_blob", "row_index": 1, "hash": "a" * 64}
             )
         ],

@@ -24,7 +24,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
@@ -1108,10 +1108,10 @@ def _feed_poll_receipt(
             ReceiptIO(name="rows", ref=refs["rows"]),
         ],
         provider_use=provider_use,
-        evidence=[
-            ReceiptEvidence(ref=refs["cursor"]),
-            ReceiptEvidence(ref=refs["artifacts"]),
-            ReceiptEvidence(ref=refs["enclosures"]),
+        records=[
+            ReceiptRecord(ref=refs["cursor"]),
+            ReceiptRecord(ref=refs["artifacts"]),
+            ReceiptRecord(ref=refs["enclosures"]),
         ],
         warnings=warnings,
         errors=errors,

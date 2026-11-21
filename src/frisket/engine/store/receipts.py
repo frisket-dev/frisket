@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from collections.abc import Iterable, Mapping
 from typing import Any, Iterator, Literal
 
-from frisket.contracts.action import Receipt, ReceiptEvidence
+from frisket.contracts.action import Receipt, ReceiptRecord
 from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.engine.store.writer_fence import WriterFence
 
@@ -217,8 +217,8 @@ class ReceiptStore:
                 "op_id": op_id,
                 "run_id": fence.run_id,
             }
-            if not any(item.ref == ref for item in receipt.evidence):
-                receipt.evidence.append(ReceiptEvidence(ref=ref, retention="pinned"))
+            if not any(item.ref == ref for item in receipt.records):
+                receipt.records.append(ReceiptRecord(ref=ref, retention="pinned"))
                 if provider_use_fact is not None:
                     receipt.provider_use.append(dict(provider_use_fact))
                 receipt.run_id = fence.run_id

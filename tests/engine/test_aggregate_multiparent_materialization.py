@@ -51,7 +51,7 @@ def _receipt_refs(project: Project, receipt_id: str) -> list[dict[str, Any]]:
     assert row is not None
     body = json.loads(row["body"])
     refs: list[dict[str, Any]] = []
-    for section in ("inputs", "outputs", "evidence"):
+    for section in ("inputs", "outputs", "records"):
         for item in body.get(section) or []:
             ref = item.get("ref") if isinstance(item, dict) else None
             if isinstance(ref, dict):
@@ -81,7 +81,7 @@ def _mutate_receipt_ref(
     assert row is not None
     original_body = json.loads(row["body"])
     body = json.loads(row["body"])
-    for section in ("inputs", "outputs", "evidence"):
+    for section in ("inputs", "outputs", "records"):
         for item in body.get(section) or []:
             ref = item.get("ref") if isinstance(item, dict) else None
             if isinstance(ref, dict) and ref.get("kind") == kind:

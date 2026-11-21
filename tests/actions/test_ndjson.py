@@ -125,7 +125,7 @@ def test_second_format_derived_path_and_observed_facts(
         }
     ]
     summary = next(
-        item.ref for item in receipt.evidence if item.ref.get("kind") == "import_source"
+        item.ref for item in receipt.records if item.ref.get("kind") == "import_source"
     )
     assert summary["path"] == str(source)
     assert summary["fingerprint"] == facts[0]["sha256"]
@@ -152,7 +152,7 @@ def test_unused_file_capability_does_not_claim_a_read(tmp_path, make_project):
         item.ref.get("kind") in {"local_file_read", "file_rows"}
         for item in receipt.inputs
     )
-    assert not any(item.ref.get("kind") == "import_source" for item in receipt.evidence)
+    assert not any(item.ref.get("kind") == "import_source" for item in receipt.records)
 
 
 def test_file_reader_refuses_symlink_loop_without_writes(tmp_path, make_project):

@@ -131,7 +131,7 @@ def _refs(project: Project, receipt_id: str) -> tuple[dict[str, Any], ...]:
     return tuple(
         [item.ref for item in receipt.inputs]
         + [item.ref for item in receipt.outputs]
-        + [item.ref for item in receipt.evidence]
+        + [item.ref for item in receipt.records]
     )
 
 

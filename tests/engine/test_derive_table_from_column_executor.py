@@ -260,7 +260,7 @@ def test_derive_table_from_column_materializes_json_list_cells_without_model(
         assert input_ref["kind"] == "column"
         assert input_ref["sheet_id"] == sheet_id
         assert input_ref["column_id"] == column_id
-        evidence_kinds = {item.ref["kind"] for item in receipt.evidence}
+        evidence_kinds = {item.ref["kind"] for item in receipt.records}
         assert read["source_row_ids"] == source_row_ids
         assert read["item_count"] == 3
         assert "lineage_parent_rows" in evidence_kinds

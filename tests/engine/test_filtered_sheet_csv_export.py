@@ -167,10 +167,10 @@ def test_filtered_sheet_csv_action_records_query_evidence_and_replays(
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "export.sheet_csv"
-    ref_kinds = {item.ref["kind"] for item in receipt.evidence}
+    ref_kinds = {item.ref["kind"] for item in receipt.records}
     assert {"exported_query", "exported_rows"} <= ref_kinds
     query_ref = next(
-        item.ref for item in receipt.evidence if item.ref["kind"] == "exported_query"
+        item.ref for item in receipt.records if item.ref["kind"] == "exported_query"
     )
     assert query_ref["query_hash"] == export_output.ref["query_hash"]
     assert query_ref["row_ids"] == [rows["c"], rows["b"]]
@@ -279,11 +279,11 @@ def test_large_export_records_bounded_rowset_summary(
     assert result.status == "completed"
 
     receipt = _receipt_for(client, pid, result.receipt_id)
-    kinds = {item.ref["kind"] for item in receipt.evidence}
+    kinds = {item.ref["kind"] for item in receipt.records}
     assert "exported_rowset" in kinds
     assert "exported_rows" not in kinds  # replaced by the bounded summary
     summary = next(
-        item.ref for item in receipt.evidence if item.ref["kind"] == "exported_rowset"
+        item.ref for item in receipt.records if item.ref["kind"] == "exported_rowset"
     )
     assert summary["row_count"] == 3
     assert summary["rowset_hash"].startswith("sha256:")
@@ -313,7 +313,7 @@ def test_small_export_keeps_explicit_row_ids(tmp_path: Path) -> None:
     )
     receipt = _receipt_for(client, pid, result.receipt_id)
     rows_ref = next(
-        item.ref for item in receipt.evidence if item.ref["kind"] == "exported_rows"
+        item.ref for item in receipt.records if item.ref["kind"] == "exported_rows"
     )
     assert rows_ref["row_ids"] == [rows["a"], rows["b"], rows["c"]]
 
@@ -609,9 +609,7 @@ def test_hosted_csv_export_keeps_the_admitted_filtered_snapshot(
 
         receipt = _receipt_for(client, pid, result.receipt_id)
         query_ref = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref["kind"] == "exported_query"
+            item.ref for item in receipt.records if item.ref["kind"] == "exported_query"
         )
         assert query_ref["row_count"] == query_ref["total"] == 2
         body = destination.read_text(encoding="utf-8")
@@ -786,12 +784,12 @@ def test_large_filtered_solo_csv_action_streams_staging_and_keeps_receipt_compac
     assert len(str(stored["body"]).encode("utf-8")) < 16_000
     receipt = Receipt.model_validate(json.loads(stored["body"]))
     rowset = next(
-        item.ref for item in receipt.evidence if item.ref["kind"] == "exported_rowset"
+        item.ref for item in receipt.records if item.ref["kind"] == "exported_rowset"
     )
     assert rowset["row_count"] == 10_001
     assert "row_ids" not in rowset
     exported_query = next(
-        item.ref for item in receipt.evidence if item.ref["kind"] == "exported_query"
+        item.ref for item in receipt.records if item.ref["kind"] == "exported_query"
     )
     assert exported_query["row_count"] == 10_001
     assert "row_ids" not in exported_query

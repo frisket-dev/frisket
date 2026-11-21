@@ -182,11 +182,11 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
             "cost_actual": 0.0,
         }
     ]
-    evidence_kinds = {item.ref["kind"] for item in receipt.evidence}
+    evidence_kinds = {item.ref["kind"] for item in receipt.records}
     assert {"query_cell_edit_rowset", "manual_edit_overlay"} <= evidence_kinds
     rowset_ref = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "query_cell_edit_rowset"
     )
     assert rowset_ref["row_ids"] == [rows["a"], rows["b"]]

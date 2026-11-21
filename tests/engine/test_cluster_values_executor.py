@@ -226,7 +226,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.op_ids == list(result.op_ids)
     refs = [
         item.ref
-        for section in (receipt.inputs, receipt.outputs, receipt.evidence)
+        for section in (receipt.inputs, receipt.outputs, receipt.records)
         for item in section
     ]
     assert {"source_column", "map_result_column", "value_clusters"} <= {

@@ -131,7 +131,7 @@ function actionReceipt(overrides: Partial<V1Receipt> = {}): V1Receipt {
     inputs: [],
     outputs: [],
     providerUse: [],
-    evidence: [],
+    records: [],
     errors: [],
     ...overrides,
   };

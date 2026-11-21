@@ -330,7 +330,7 @@ def test_scene7_three_refusals_speak_distinct_vocabularies(
     receipt_body = json.loads(receipt_row["body"])
     prepared = next(
         evidence["ref"]
-        for evidence in receipt_body["evidence"]
+        for evidence in receipt_body["records"]
         if evidence["ref"].get("kind") == "queued_action_run_prepared"
     )
     prepared["attempt_id"] = "attempt_missing_scene7"

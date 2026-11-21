@@ -277,7 +277,7 @@ def test_derive_collection_expand_receipt_carries_suggested_target_name(
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     classification_refs = [
         item.ref
-        for item in (*receipt.inputs, *receipt.evidence)
+        for item in (*receipt.inputs, *receipt.records)
         if item.ref["kind"] == "collection_expand_classification"
     ]
     assert len(classification_refs) == 1

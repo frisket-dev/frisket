@@ -114,7 +114,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert any(item.ref["kind"] == "local_file_read" for item in receipt.inputs)
     assert any(item.ref.get("row_count") == 3 for item in receipt.outputs)
     source_refs = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "import_source"
+        item.ref for item in receipt.records if item.ref["kind"] == "import_source"
     ]
     assert source_refs[0]["importer"] == "kml-placemarks"
 

@@ -31,7 +31,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
     canonical_column_type,
 )
@@ -413,15 +413,15 @@ def run_typed_sheet_refresh_action(
             "op_id": facts.op_id,
             "refreshed_row_count": facts.row_count,
         }
-        supporting_records = [ReceiptEvidence(ref=refresh_ref)]
+        supporting_records = [ReceiptRecord(ref=refresh_ref)]
         if facts.match_stats is not None:
             refresh_ref["parent_op_kind"] = "derive.join"
             supporting_records = [
-                ReceiptEvidence(ref=refresh_ref),
-                ReceiptEvidence(ref=facts.match_stats, retention="pinned"),
+                ReceiptRecord(ref=refresh_ref),
+                ReceiptRecord(ref=facts.match_stats, retention="pinned"),
             ]
         supporting_records.extend(
-            ReceiptEvidence(ref=fact, retention="pinned") for fact in facts.reads
+            ReceiptRecord(ref=fact, retention="pinned") for fact in facts.reads
         )
         receipt = Receipt(
             receipt_id=receipt_id,
@@ -442,7 +442,7 @@ def run_typed_sheet_refresh_action(
                 )
             ],
             outputs=[ReceiptIO(name=facts.name, ref=sheet_ref)],
-            evidence=supporting_records,
+            records=supporting_records,
         )
         result = ActionResult(
             action=ActionIdentity(kind=kind, action_id=action_id),

@@ -294,7 +294,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "review_state_after": "verified",
         "note": None,
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "target_result_cell",
         "review_state_transition",
     }
@@ -988,7 +988,7 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
         assert edit_receipt.action_kind == "cell.edit"
         assert not any(
             item.ref["kind"] == "review_state_transition"
-            for item in edit_receipt.evidence
+            for item in edit_receipt.records
         )
 
         undo = env.run(

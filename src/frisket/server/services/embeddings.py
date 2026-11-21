@@ -380,7 +380,7 @@ def _managed_embedding_exports(
             provenance = next(
                 (
                     io.ref
-                    for io in receipt.evidence
+                    for io in receipt.records
                     if io.ref.get("kind") == "embedding_index_export_provenance"
                     and io.ref.get("index_id") == index_id
                 ),

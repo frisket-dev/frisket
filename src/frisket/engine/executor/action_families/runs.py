@@ -9,7 +9,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResultStatus,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _ActionExecutionEnvelope
@@ -51,7 +51,7 @@ def typed_run_has_matching_producer_receipt(
             supporting_record.ref.get("kind") == "backfill_source_generation"
             and supporting_record.ref.get("successor_run_id") == run_id
             and supporting_record.ref.get("successor_request_hash") == expected_hash
-            for supporting_record in successor.parsed().evidence
+            for supporting_record in successor.parsed().records
         )
     except ValueError:
         return False
@@ -511,8 +511,8 @@ def _run_backfill_receipt(
             )
         ],
         outputs=[ReceiptIO(name=column_name, ref=output_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "run_backfill_scope",
                     "run_id": run_id,

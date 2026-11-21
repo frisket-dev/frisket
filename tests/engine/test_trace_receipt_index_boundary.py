@@ -107,7 +107,7 @@ def _receipt_body(
         "op_ids": op_ids,
         "inputs": [{"ref": {"kind": "source_cell"}}],
         "outputs": outputs,
-        "evidence": [{"ref": {"kind": evidence_kind}}],
+        "records": [{"ref": {"kind": evidence_kind}}],
     }
 
 
@@ -215,7 +215,7 @@ def test_work_log_receipt_summaries_keep_complete_audit_export_from_index(
         "wf_export",
         "unrelated_export",
     ]
-    assert payload["receipts"][0]["evidence"] == ["source_file"]
+    assert payload["receipts"][0]["records"] == ["source_file"]
     assert payload["receipts"][2]["outputs"] == ["artifact", "export_artifact"]
-    assert payload["receipts"][3]["evidence"] == ["unrelated"]
+    assert payload["receipts"][3]["records"] == ["unrelated"]
     assert payload["operations"] == []

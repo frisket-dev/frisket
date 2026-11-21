@@ -928,7 +928,7 @@ def test_find_action_job_writes_one_grounded_row_per_match(make_project) -> None
     assert receipt.status == "completed"
     coverage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_find_coverage"
     )
     assert coverage == {
@@ -995,7 +995,7 @@ def test_find_source_change_records_definite_pre_egress_outcome(
     assert receipt.provider_use == []
     assert [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_find_effect_outcome"
     ] == [
         {
@@ -1296,7 +1296,7 @@ def test_uncited_sibling_is_withheld_and_result_is_partial(make_project) -> None
     assert receipt.status == "partial"
     coverage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_find_coverage"
     )
     assert coverage["status"] == "incomplete"
@@ -1351,7 +1351,7 @@ def test_uncited_sibling_is_withheld_and_result_is_partial(make_project) -> None
     assert failed_receipt is not None
     assert not any(
         item.ref.get("kind") == "map_find_effect_outcome"
-        for item in failed_receipt.evidence
+        for item in failed_receipt.records
     )
     assert (
         project.db.execute(

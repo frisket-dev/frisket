@@ -30,7 +30,7 @@ from frisket.contracts.action import (
     ActionResult,
     ActionSpec,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
@@ -447,9 +447,9 @@ def _perform_index_export_in_txn(
                 "cost_actual": 0.0,
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=resolved.provenance, retention="pinned"),
-            ReceiptEvidence(ref=resolved.export_item_evidence, retention="pinned"),
+        records=[
+            ReceiptRecord(ref=resolved.provenance, retention="pinned"),
+            ReceiptRecord(ref=resolved.export_item_evidence, retention="pinned"),
         ],
         exports=artifact_refs,
     )

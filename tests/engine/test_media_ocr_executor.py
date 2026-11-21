@@ -268,7 +268,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["engine"] == "rapidocr"
     assert receipt.provider_use[0]["model_call_count"] == 2
 
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     ref_kinds = {ref["kind"] for ref in refs}
     assert {
         "source_column",
@@ -479,7 +479,7 @@ def test_media_ocr_replay_preserves_identity_rejections_and_dual_defect_priority
                     for item in body["outputs"]
                     if item["ref"]["kind"] != "map_result_column"
                 ]
-                body["evidence"].append({"ref": {"kind": "media_ocr_searchable_pdf"}})
+                body["records"].append({"ref": {"kind": "media_ocr_searchable_pdf"}})
             else:
                 ref = next(
                     item["ref"]

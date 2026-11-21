@@ -233,7 +233,7 @@ def test_csv_receipt_preserves_only_unambiguous_source_label(
     assert result.status == "completed", result.errors
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     summary = next(
-        item.ref for item in receipt.evidence if item.ref.get("kind") == "import_source"
+        item.ref for item in receipt.records if item.ref.get("kind") == "import_source"
     )
     assert summary.get("label") == ("Original source 0" if source_count == 1 else None)
     spec = json.loads(project.db.execute("SELECT spec FROM ops").fetchone()[0])

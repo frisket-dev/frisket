@@ -308,7 +308,7 @@ def test_renamed_derived_arguments_and_reconstructed_result_keep_host_facts(
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     manifest = next(
         evidence.ref
-        for evidence in receipt.evidence
+        for evidence in receipt.records
         if evidence.ref["kind"] == "column_tables_export_manifest"
     )
     assert manifest["artifact_count"] == 1

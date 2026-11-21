@@ -257,7 +257,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "model_rows_input_column",
     }
     assert {item.ref["kind"] for item in receipt.outputs} == {"map_result_column"}
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "typed_action_request",
         "map_rows_run_counts",
     }

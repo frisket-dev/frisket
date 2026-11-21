@@ -101,7 +101,7 @@ describe('run and receipt HTTP contracts', () => {
       outputs: [],
       value,
       provider_use: [],
-      evidence: [],
+      records: [],
       errors: [],
     })));
 
@@ -114,9 +114,9 @@ describe('run and receipt HTTP contracts', () => {
       value,
     });
     expect(Object.keys(receipt).sort()).toEqual([
-      'actionId', 'actionKind', 'errors', 'evidence', 'idempotencyKey', 'inputs',
+      'actionId', 'actionKind', 'errors', 'idempotencyKey', 'inputs',
       'opIds', 'outputs', 'paramsHash', 'projectId', 'providerUse', 'receiptId',
-      'runId', 'schemaVersion', 'status', 'value',
+      'records', 'runId', 'schemaVersion', 'status', 'value',
     ]);
   });
 

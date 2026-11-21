@@ -1195,7 +1195,7 @@ def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
 
 
 def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
-    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.contracts.action import Receipt, ReceiptRecord
     from frisket.engine.executor import action_jobs
 
     receipt = Receipt(
@@ -1205,8 +1205,8 @@ def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
         action_kind="test.action_job_projection",
         op_ids=[17],
         status="queued",
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": action_jobs.ACTION_JOB_ENQUEUED_RECORD_KIND,
                     "queue_kind": "action.run",

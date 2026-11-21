@@ -17,7 +17,7 @@ from frisket.actions.entity_package_types import (
     ImportedEntitySheet,
 )
 from frisket.actions.types import TableError
-from frisket.contracts.action import ActionError, ReceiptEvidence, ReceiptIO
+from frisket.contracts.action import ActionError, ReceiptRecord, ReceiptIO
 from frisket.engine.executor.import_sources import open_local_file_reader
 from frisket.engine.executor.plugin_write_apply import (
     apply_additive_tables,
@@ -214,8 +214,8 @@ class FollowTheMoneyImportCapability:
                     inputs=tuple(inputs),
                     outputs=tuple(outputs),
                     action_ids=(applied.op_id,),
-                    citations=(
-                        ReceiptEvidence(
+                    records=(
+                        ReceiptRecord(
                             ref={
                                 "kind": "entity_dataset_import",
                                 "dataset": result.model_dump(mode="json"),
@@ -343,8 +343,8 @@ class FollowTheMoneyExportCapability:
             ),
             outputs=(ReceiptIO(name=filename, ref=ref),),
             exports=(ref,),
-            evidence=(
-                ReceiptEvidence(
+            records=(
+                ReceiptRecord(
                     ref={
                         "kind": "entity_package_export",
                         "blob_hash": digest,
@@ -393,7 +393,7 @@ def entity_effect_replay_error(project, receipt):
                 message="Exported package bytes changed.",
                 action_kind=receipt.action_kind,
             )
-    for supporting_record in receipt.evidence:
+    for supporting_record in receipt.records:
         if supporting_record.ref.get("kind") != "entity_dataset_import":
             continue
         dataset = supporting_record.ref["dataset"]

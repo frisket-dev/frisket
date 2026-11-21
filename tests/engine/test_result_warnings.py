@@ -119,7 +119,7 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
         inputs=[],
         output_refs=[],
         provider_use=[],
-        evidence=[],
+        records=[],
         status="completed",
         warnings=["Existing action warning", *facts.warnings],
     )

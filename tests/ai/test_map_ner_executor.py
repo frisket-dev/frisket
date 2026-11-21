@@ -261,7 +261,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert column_ref["name"] == "entities"
     assert named_ref["source_action_kind"] == "map.ner"
     assert named_ref["output_key"] == "entities"
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     assert evidence["typed_action_request"]["params"]["labels"] == [
         "person",
         "organization",

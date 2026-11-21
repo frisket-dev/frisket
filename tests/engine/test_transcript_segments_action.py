@@ -381,7 +381,7 @@ def test_transcript_split_projects_typed_annotations_on_the_locked_chunk(
     )
     assert any(
         item.ref.get("kind") == "temporal_annotation_projection"
-        for item in receipt.evidence
+        for item in receipt.records
     )
 
     replay = _run(

@@ -607,7 +607,7 @@ def test_pdf_table_extraction_publishes_10001_records_with_compact_receipt(
     assert value[-1]["vendor"] == "vendor-10000"
     assert all(
         len(item.ref.get("row_ids", [])) <= 1
-        for item in [*receipt.inputs, *receipt.outputs, *receipt.evidence]
+        for item in [*receipt.inputs, *receipt.outputs, *receipt.records]
     )
 
 

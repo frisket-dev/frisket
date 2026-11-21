@@ -25,7 +25,7 @@ function receipt(receiptId = 'receipt:clusters', overrides: Partial<V1Receipt> =
   return { schemaVersion: 'frisket.receipt.v1', receiptId, projectId: 'p',
     actionId: 'action:cluster', actionKind: 'cluster.values', runId: null, opIds: [1],
     idempotencyKey: null, paramsHash: null, status: 'completed', inputs: [], outputs: [],
-    providerUse: [], evidence: [], errors: [], ...overrides };
+    providerUse: [], records: [], errors: [], ...overrides };
 }
 
 describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', () => {

@@ -20,7 +20,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families._errors import (
@@ -724,9 +724,9 @@ def _media_enclosure_receipt(
         ]
         if refs["network"]
         else [],
-        evidence=[
-            *[ReceiptEvidence(ref=ref) for ref in failed_media_cells],
-            *[ReceiptEvidence(ref=ref) for ref in refs["network"]],
+        records=[
+            *[ReceiptRecord(ref=ref) for ref in failed_media_cells],
+            *[ReceiptRecord(ref=ref) for ref in refs["network"]],
         ],
         errors=errors,
     )

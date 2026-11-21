@@ -820,7 +820,7 @@ def _stuck_probe_receipt(
     returned checkpoint evidence item -- ambiguous, and (before defect 4's
     fix) invisible to `frisket reconcile`."""
 
-    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.contracts.action import Receipt, ReceiptRecord
     from frisket.engine.store.receipts import receipt_body
 
     run_id = _live_run_id(project)
@@ -834,8 +834,8 @@ def _stuck_probe_receipt(
         status="running",
         run_id=run_id,
         op_ids=[run_id],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "embedding_dimension_probe_egress_reservation",
                     "run_id": 1,
@@ -944,7 +944,7 @@ def test_reconcile_never_prints_probe_receipt_body_secrets(tmp_path, capsys):
 
     bundle = tmp_path / "probe-secrets.frisket"
     with closing(Project.create(bundle)) as project:
-        from frisket.contracts.action import Receipt, ReceiptEvidence
+        from frisket.contracts.action import Receipt, ReceiptRecord
         from frisket.engine.store.receipts import receipt_body
 
         run_id = _live_run_id(project)
@@ -958,8 +958,8 @@ def test_reconcile_never_prints_probe_receipt_body_secrets(tmp_path, capsys):
             status="running",
             run_id=run_id,
             op_ids=[run_id],
-            evidence=[
-                ReceiptEvidence(
+            records=[
+                ReceiptRecord(
                     ref={
                         "kind": "embedding_dimension_probe_egress_reservation",
                         "run_id": 1,

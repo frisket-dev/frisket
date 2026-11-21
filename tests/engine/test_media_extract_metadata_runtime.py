@@ -178,7 +178,7 @@ def test_receipt_counts_and_published_envelopes_retain_row_diagnostics(
     )
     counts = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"]["kind"] == "map_rows_run_counts"
     )
     assert counts["total_rows"] == 2
@@ -1655,7 +1655,7 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
         assert input_rows["ref"]["row_ids"] == [target_row]
         counts = next(
             item["ref"]
-            for item in receipt["evidence"]
+            for item in receipt["records"]
             if item["ref"]["kind"] == "map_rows_run_counts"
         )
         assert counts["failed_rows"] == 0

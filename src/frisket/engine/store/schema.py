@@ -43,6 +43,8 @@ FORMAT_VERSION = 1
 SCHEMA_DIGEST_META_KEY = "schema_digest"
 REVIEW_OUTPUT_ROLES_META_KEY = "review_output_roles"
 REVIEW_OUTPUT_ROLES_VERSION = "ocr-v1"
+RECEIPT_RECORDS_META_KEY = "receipt_records_format"
+RECEIPT_RECORDS_VERSION = "records-v1"
 
 
 SCHEMA = """
@@ -2344,6 +2346,13 @@ SCHEMA += "\n" + JUDGMENT_SCHEMA_SQL + "\n"
 SCHEMA += (
     "\nINSERT OR IGNORE INTO meta(key,value) VALUES "
     f"('{REVIEW_OUTPUT_ROLES_META_KEY}','{REVIEW_OUTPUT_ROLES_VERSION}');\n"
+)
+# Durable bootstrap row giving the receipts.body JSON key cutover an exact
+# schema endpoint so existing bundles migrate once on open without a read-time
+# compatibility shim.
+SCHEMA += (
+    "\nINSERT OR IGNORE INTO meta(key,value) VALUES "
+    f"('{RECEIPT_RECORDS_META_KEY}','{RECEIPT_RECORDS_VERSION}');\n"
 )
 
 # Range filters read only these always-inline native numeric kinds. Text,

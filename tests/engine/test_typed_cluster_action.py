@@ -448,9 +448,7 @@ def test_actual_prepared_call_not_builtin_parameter_names_controls_source(
     assert result.status == "completed", result.model_dump_json(indent=2)
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     fact = next(
-        item.ref
-        for item in receipt.evidence
-        if item.ref.get("kind") == "value_clusters"
+        item.ref for item in receipt.records if item.ref.get("kind") == "value_clusters"
     )
     assert fact["source"]["column_id"] == other
 
@@ -485,9 +483,7 @@ def test_cluster_publishes_actual_groups_with_canonical_values(
     assert result.status == "completed", result.model_dump(mode="json")
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     [fact] = [
-        item.ref
-        for item in receipt.evidence
-        if item.ref.get("kind") == "value_clusters"
+        item.ref for item in receipt.records if item.ref.get("kind") == "value_clusters"
     ]
     output = next(
         column for column in project.columns(sheet) if column["name"] == "Reviewed"

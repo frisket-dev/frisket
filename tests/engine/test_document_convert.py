@@ -73,7 +73,7 @@ def _receipt(project, result):
 def _reads(project, result):
     return [
         item.ref
-        for item in _receipt(project, result).evidence
+        for item in _receipt(project, result).records
         if item.ref.get("kind") == "document_convert_read"
     ]
 

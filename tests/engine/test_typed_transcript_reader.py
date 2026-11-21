@@ -210,7 +210,7 @@ def test_reordered_repeated_occurrences_and_renames_keep_distinct_clocks(source)
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     refs = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "derived_transcript_timeline"
     ]
     assert [ref["output"]["row_id"] for ref in refs] == rows
@@ -330,7 +330,7 @@ def test_reserved_worker_keeps_identity_job_evidence_and_no_read_redelivery(
         and result.action.action_id == envelope.action_id
     )
     completed = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-    assert all(item in completed.evidence for item in prior.evidence)
+    assert all(item in completed.records for item in prior.records)
 
     def no_read(*_args, **_kwargs):
         pytest.fail("terminal redelivery must not prepare transcripts")
@@ -481,7 +481,7 @@ def test_reused_annotation_handle_publishes_every_renamed_target(source):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     refs = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "temporal_annotation_projection"
     ]
     assert len(refs) == 4

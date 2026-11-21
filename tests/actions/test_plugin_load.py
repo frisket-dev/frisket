@@ -91,7 +91,7 @@ def test_reused_loader_records_actual_path_and_facts_not_returned_claims(
     )
     assert receipt["action_kind"] == "custom.record"
     assert receipt["outputs"][0]["ref"] == ref
-    assert receipt["evidence"][0]["ref"] == ref
+    assert receipt["records"][0]["ref"] == ref
     manifest.unlink()
     replay = run_typed_plugin_load_action(project, "p", bound)
     assert replay.status == "completed", replay.errors

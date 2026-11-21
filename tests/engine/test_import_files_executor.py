@@ -202,7 +202,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
             "byte_count": len(_png_header(11, 7)),
         }
     ]
-    evidence_refs = [item.ref for item in receipt.evidence]
+    evidence_refs = [item.ref for item in receipt.records]
     assert {item["kind"] for item in evidence_refs} >= {
         "import_source",
         "source_rows",

@@ -19,7 +19,7 @@ from frisket.actions.types import (
 from frisket.contracts.action import (
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
@@ -815,13 +815,13 @@ def _review_result_and_receipt(
         "op_id": returned.op_id,
     }
     supporting_records = [
-        ReceiptEvidence(ref=target_ref, retention="pinned"),
-        ReceiptEvidence(ref=state_ref, retention="pinned"),
+        ReceiptRecord(ref=target_ref, retention="pinned"),
+        ReceiptRecord(ref=state_ref, retention="pinned"),
     ]
     outputs = [ReceiptIO(name="decision", ref=review_ref)]
     if capability.edit_ref is not None:
         supporting_records.append(
-            ReceiptEvidence(ref=capability.edit_ref, retention="pinned")
+            ReceiptRecord(ref=capability.edit_ref, retention="pinned")
         )
         outputs.append(ReceiptIO(name="edit_overlay", ref=capability.edit_ref))
     receipt = Receipt(
@@ -835,7 +835,7 @@ def _review_result_and_receipt(
         status="completed",
         inputs=[ReceiptIO(name="target", ref=target_ref)],
         outputs=outputs,
-        evidence=supporting_records,
+        records=supporting_records,
         review={
             "decision": returned.decision,
             "review_state_before": returned.review_state_before,
@@ -898,7 +898,7 @@ def _review_note_result_and_receipt(
         status="completed",
         inputs=[ReceiptIO(name="target", ref=target_ref)],
         outputs=[ReceiptIO(name="note", ref=note_ref)],
-        evidence=[ReceiptEvidence(ref=target_ref, retention="pinned")],
+        records=[ReceiptRecord(ref=target_ref, retention="pinned")],
     )
     return _result_from_receipt(receipt), receipt
 
@@ -927,7 +927,7 @@ def _replay_result_and_receipt(
             "op_ids": op_ids,
         }
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "replay_generated_value",
                     "sheet_id": returned.sheet_id,
@@ -960,7 +960,7 @@ def _replay_result_and_receipt(
             "op_ids": op_ids,
         }
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "replay_accept_column_membership",
                     "sheet_id": returned.sheet_id,
@@ -984,7 +984,7 @@ def _replay_result_and_receipt(
             "pending_count": returned.pending_count,
         }
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "replay_dismissal",
                     "sheet_id": returned.sheet_id,
@@ -1007,7 +1007,7 @@ def _replay_result_and_receipt(
         status="completed",
         inputs=[ReceiptIO(name="target", ref=supporting_records[0].ref)],
         outputs=[ReceiptIO(name=action.kind, ref=ref)],
-        evidence=supporting_records,
+        records=supporting_records,
     )
     return _result_from_receipt(receipt), receipt
 

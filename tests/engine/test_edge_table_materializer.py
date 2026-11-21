@@ -68,7 +68,7 @@ def _mutate_receipt_ref(
     assert row is not None
     original_body = json.loads(row["body"])
     body = json.loads(row["body"])
-    for section in ("inputs", "outputs", "evidence"):
+    for section in ("inputs", "outputs", "records"):
         for item in body.get(section) or []:
             ref = item.get("ref") if isinstance(item, dict) else None
             if isinstance(ref, dict) and ref.get("kind") == kind:
@@ -306,7 +306,7 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
     receipt = json.loads(receipt_row["body"])
     refs = [
         item["ref"]
-        for section in ("inputs", "outputs", "evidence")
+        for section in ("inputs", "outputs", "records")
         for item in receipt[section]
     ]
     action_refs = [output.ref for output in result.outputs]

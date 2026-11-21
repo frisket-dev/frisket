@@ -192,7 +192,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
             "cost_actual": 0.0,
         }
     ]
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     assert any(
         ref.get("kind") == "source_column"
         and ref.get("name") == "doc"

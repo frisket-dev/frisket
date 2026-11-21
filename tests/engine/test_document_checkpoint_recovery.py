@@ -159,7 +159,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
         assert receipt.status == "completed", receipt.errors
         reads = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "document_convert_read"
         ]
         assert len(reads) == 1

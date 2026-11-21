@@ -243,7 +243,7 @@ def test_real_two_output_outcome_publication_has_two_exact_occurrences(fetch_run
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     files = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "row_file_output"
     ]
     assert len(files) == 2 and {item["output_key"] for item in files} == {
@@ -299,7 +299,7 @@ def test_published_supplemental_file_is_rooted_by_retained_receipt(
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     files = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "row_file_output"
     ]
     assert len(files) == 2
@@ -326,7 +326,7 @@ def test_failed_optional_file_preserves_other_accepted_output(fetch_run):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     files = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "row_file_output"
     ]
     assert len(files) == 1 and files[0]["output_key"] == "first"
@@ -359,5 +359,5 @@ def test_late_file_evidence_failure_rolls_back_both_output_results(
     for stored in project.db.execute("SELECT id FROM receipts"):
         receipt = ReceiptStore(project).parsed_by_id(stored[0])
         assert not any(
-            item.ref.get("kind") == "row_file_output" for item in receipt.evidence
+            item.ref.get("kind") == "row_file_output" for item in receipt.records
         )

@@ -248,7 +248,7 @@ def _receipt_ref(project: Project, receipt_id: str, kind: str) -> dict[str, Any]
             "SELECT body FROM receipts WHERE id=?", (receipt_id,)
         ).fetchone()["body"]
     )
-    for section in ("inputs", "outputs", "evidence"):
+    for section in ("inputs", "outputs", "records"):
         for item in body.get(section) or []:
             ref = item.get("ref")
             if isinstance(ref, dict) and ref.get("kind") == kind:
@@ -495,7 +495,7 @@ def test_sparse_create_receipt_fails_closed(project):
         if output.get("ref", {}).get("kind") == "embedding_index":
             output["ref"].pop("source_query", None)
             output["ref"].pop("source_policy_hash", None)
-    for evidence in body["evidence"]:
+    for evidence in body["records"]:
         if evidence.get("ref", {}).get("kind") == "embedding_index":
             evidence["ref"].pop("source_query", None)
             evidence["ref"].pop("source_policy_hash", None)
@@ -802,9 +802,9 @@ def test_sparse_refresh_receipt_fails_closed(project):
             "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
         ).fetchone()["body"]
     )
-    body["evidence"] = [
+    body["records"] = [
         ev
-        for ev in body["evidence"]
+        for ev in body["records"]
         if ev.get("ref", {}).get("kind") != "embedding_index_refresh_items"
     ]
     with project.db:
@@ -867,7 +867,7 @@ def test_export_replay_rejects_backend_provenance_mismatch(project):
             "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
         ).fetchone()["body"]
     )
-    for evidence in body["evidence"]:
+    for evidence in body["records"]:
         ref = evidence.get("ref", {})
         if ref.get("kind") == "embedding_index_export_provenance":
             ref["vector_backend_version"] = "stale-version"
@@ -910,7 +910,7 @@ def test_export_replay_rejects_invalid_v3_item_evidence(project, field, mutation
         ).fetchone()["body"]
     )
     found = False
-    for evidence in body["evidence"]:
+    for evidence in body["records"]:
         ref = evidence.get("ref", {})
         if ref.get("kind") != "embedding_index_export_items":
             continue
@@ -989,9 +989,9 @@ def test_sparse_export_receipt_fails_closed(project):
             "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
         ).fetchone()["body"]
     )
-    body["evidence"] = [
+    body["records"] = [
         ev
-        for ev in body["evidence"]
+        for ev in body["records"]
         if ev.get("ref", {}).get("kind") != "embedding_index_export_items"
     ]
     for output in body["outputs"]:

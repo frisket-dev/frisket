@@ -239,7 +239,7 @@ def test_export_google_sheets_uses_fake_client_receipts_and_idempotency(
         }
     ]
     assert receipt["exports"][0]["spreadsheet_id"] == "sheet-created-1"
-    assert any(e["ref"]["kind"] == "exported_query" for e in receipt["evidence"])
+    assert any(e["ref"]["kind"] == "exported_query" for e in receipt["records"])
 
     replay = run_action_spec(
         project,

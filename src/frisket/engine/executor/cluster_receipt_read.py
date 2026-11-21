@@ -52,7 +52,7 @@ def _published_clusters(project: Any, receipt_id: str):
         ).fetchone()
         facts = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "value_clusters"
         ]
         if (

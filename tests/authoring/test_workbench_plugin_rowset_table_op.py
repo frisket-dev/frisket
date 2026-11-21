@@ -231,7 +231,7 @@ def _ref(receipt: dict[str, Any], section: str, kind: str) -> dict[str, Any]:
 def _recorded_sources(receipt: dict[str, Any]) -> dict[int, set[int]]:
     """Contributor lineage as the host recorded it: one ``materialized_row_sources``
     membership row per (summary row, source row) pair, role ``aggregate_source``."""
-    membership = _ref(receipt, "evidence", "materialized_row_sources")
+    membership = _ref(receipt, "records", "materialized_row_sources")
     assert membership["row_count"] == len(membership["rows"])
     out: dict[int, set[int]] = {}
     for row in membership["rows"]:
@@ -339,7 +339,7 @@ def test_rowset_plugin_materializes_selected_child_sheet_with_membership(
     # the groups genuinely differ instead of all sharing one source set.
     assert set().union(*recorded.values()) == set(selected_row_ids)
     assert len({frozenset(sources) for sources in recorded.values()}) == len(recorded)
-    membership_ref = _ref(receipt, "evidence", "materialized_row_sources")
+    membership_ref = _ref(receipt, "records", "materialized_row_sources")
     assert {row["source_sheet_id"] for row in membership_ref["rows"]} == {sheet_id}
 
 

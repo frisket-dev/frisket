@@ -229,7 +229,7 @@ def test_jsonl_idempotent_replay_and_conflict(
     assert receipt.outputs[0].name == "sheet_jsonl"
     assert receipt.outputs[0].ref["format"] == "jsonl"
     assert receipt.outputs[0].ref["kind"] == "export_artifact"
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "exported_sheet",
         "exported_rows",
     }

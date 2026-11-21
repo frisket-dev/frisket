@@ -178,9 +178,9 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
             "cost_actual": 0.0,
         }
     ]
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     calls = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "web_search_call"
+        item.ref for item in receipt.records if item.ref["kind"] == "web_search_call"
     ]
     assert len({call["call_id"] for call in calls}) == 2
     assert all(call["succeeded"] and "query" not in call for call in calls)
@@ -435,7 +435,7 @@ def test_all_rows_failed_retries_four_times_and_replays_failed_receipt(
     )
     observed = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "web_search_call"
     ]
     assert len(observed) == 8
@@ -504,7 +504,7 @@ def test_cancelled_search_receipt_counts_only_completed_successes(
     ]
     counts = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_rows_run_counts"
     )
     assert (

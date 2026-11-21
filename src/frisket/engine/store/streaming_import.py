@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Mapping, Self
 
-from frisket.contracts.action import ActionError, Receipt, ReceiptIO, ReceiptEvidence
+from frisket.contracts.action import ActionError, Receipt, ReceiptIO, ReceiptRecord
 from frisket.engine.store import op_log
 from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
@@ -865,8 +865,8 @@ class StreamingSheetWriter:
             ),
         ]
         supporting_records = [
-            *receipt.evidence,
-            ReceiptEvidence(
+            *receipt.records,
+            ReceiptRecord(
                 ref={
                     "kind": "source_rows",
                     "sheet_id": self.sheet_id,
@@ -877,7 +877,7 @@ class StreamingSheetWriter:
         ]
         if source:
             supporting_records.append(
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         **source,
                         "kind": "import_source",
@@ -889,7 +889,7 @@ class StreamingSheetWriter:
             update={
                 "status": status,
                 "outputs": outputs,
-                "evidence": supporting_records,
+                "records": supporting_records,
                 "warnings": (
                     [
                         *receipt.warnings,
@@ -942,9 +942,9 @@ class StreamingSheetWriter:
                 "status": status,
                 "op_ids": [self._op_id] if changed else [],
                 "outputs": [ReceiptIO(name="updated_rows", ref=ref)],
-                "evidence": [
-                    *receipt.evidence,
-                    ReceiptEvidence(ref=ref, retention="pinned"),
+                "records": [
+                    *receipt.records,
+                    ReceiptRecord(ref=ref, retention="pinned"),
                 ],
                 "warnings": [
                     *receipt.warnings,
@@ -1083,8 +1083,8 @@ class StreamingSheetWriter:
                             },
                         ),
                     ],
-                    evidence=[
-                        ReceiptEvidence(
+                    records=[
+                        ReceiptRecord(
                             ref={
                                 "kind": "source_rows",
                                 "sheet_id": self.sheet_id,
@@ -1094,7 +1094,7 @@ class StreamingSheetWriter:
                         ),
                         *(
                             [
-                                ReceiptEvidence(
+                                ReceiptRecord(
                                     ref={
                                         **source,
                                         "kind": "import_source",
@@ -1108,7 +1108,7 @@ class StreamingSheetWriter:
                         ),
                         *(
                             [
-                                ReceiptEvidence(
+                                ReceiptRecord(
                                     ref={
                                         "kind": "source_cell",
                                         "sheet_id": self.sheet_id,
@@ -1135,9 +1135,7 @@ class StreamingSheetWriter:
                         op_id=op_id,
                         receipt_id=self._receipt_id,
                     )
-                    receipt.evidence.extend(
-                        ReceiptEvidence(ref=ref) for ref in published
-                    )
+                    receipt.records.extend(ReceiptRecord(ref=ref) for ref in published)
                 ChangeStore(self.project).close(op_id)
                 ReceiptStore(self.project).insert_completed(receipt)
                 updated = db.execute(

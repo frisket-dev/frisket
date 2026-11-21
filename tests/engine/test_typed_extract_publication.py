@@ -159,7 +159,7 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
     if members:
         fact = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "map_extract_grounding_links"
         )
         assert fact["link_refs"][0]["item_index"] == 0

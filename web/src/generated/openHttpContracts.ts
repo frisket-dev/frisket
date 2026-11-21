@@ -12587,13 +12587,6 @@ type HttpReceipt_ActionError = ({
 
 type HttpReceipt_JsonValue = JsonValue;
 
-type HttpReceipt_ReceiptEvidence = ({
-  "ref": ({
-  [key: string]: JsonValue;
-});
-  "retention"?: ("compactable" | "pinned" | "materialized") & (string);
-});
-
 type HttpReceipt_ReceiptIO = (HttpReceipt_ReceiptIOPayload);
 
 type HttpReceipt_ReceiptIOPayload = ({
@@ -12604,11 +12597,17 @@ type HttpReceipt_ReceiptIOPayload = ({
 });
 });
 
+type HttpReceipt_ReceiptRecord = ({
+  "ref": ({
+  [key: string]: JsonValue;
+});
+  "retention"?: ("compactable" | "pinned" | "materialized") & (string);
+});
+
 export type HttpReceipt = ({
   "action_id": (string);
   "action_kind": (string);
   "errors"?: (Array<(HttpReceipt_ActionError)>);
-  "evidence"?: (Array<(HttpReceipt_ReceiptEvidence)>);
   "exports"?: (Array<({
   [key: string]: JsonValue;
 })>);
@@ -12622,6 +12621,7 @@ export type HttpReceipt = ({
   [key: string]: JsonValue;
 })>);
   "receipt_id": (string);
+  "records"?: (Array<(HttpReceipt_ReceiptRecord)>);
   "review"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));

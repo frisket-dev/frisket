@@ -11,7 +11,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.find_plan import FindOperation
@@ -31,14 +31,14 @@ from frisket.engine.executor.map_find_source import (
 
 def _find_admission_supporting_records(
     project: Any, receipt_id: str
-) -> list[ReceiptEvidence]:
+) -> list[ReceiptRecord]:
     from frisket.engine.store.receipts import ReceiptStore
 
     receipt = ReceiptStore(project).parsed_by_id(receipt_id)
     if receipt is None:
         raise RuntimeError("Find lost its admitted receipt before publication")
     return [
-        item for item in receipt.evidence if item.ref.get("kind") == "find_admission"
+        item for item in receipt.records if item.ref.get("kind") == "find_admission"
     ]
 
 
@@ -84,9 +84,9 @@ def _failure_after_egress(
                     "model_call_ids": [str(call["id"]) for call in calls],
                 }
             ],
-            evidence=[
+            records=[
                 *_find_admission_supporting_records(project, receipt_id),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_coverage",
                         "status": "incomplete",
@@ -676,9 +676,9 @@ def write_find_result(
                     "model_call_ids": [str(call["id"]) for call in calls],
                 }
             ],
-            evidence=[
+            records=[
                 *_find_admission_supporting_records(project, receipt_id),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_coverage",
                         "status": ("complete" if not scan.issues else "incomplete"),
@@ -688,21 +688,21 @@ def write_find_result(
                     },
                     retention="pinned",
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_match_evidence",
                         "evidence_link_ids": link_ids,
                     },
                     retention="pinned",
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_result_evidence",
                         "evidence_link_ids": result_link_ids,
                     },
                     retention="pinned",
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref=write.materialized_row_sources_ref,
                     retention="pinned",
                 ),
@@ -776,9 +776,9 @@ def _failure_before_egress(
             "status": "failed",
             "errors": [error],
             "provider_use": [],
-            "evidence": [
-                *receipt.evidence,
-                ReceiptEvidence(
+            "records": [
+                *receipt.records,
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_effect_outcome",
                         "schema_version": "frisket.map_find_effect_outcome.v1",

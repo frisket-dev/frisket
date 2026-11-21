@@ -87,7 +87,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.ops.base import ActionContext, ActionProgram, CostClass, RenderedCall
@@ -2877,7 +2877,7 @@ def _typed_replay_error(
             any(item.ref.get("kind") == "map_result_column" for item in receipt.outputs)
             or any(
                 item.ref.get("kind") == "typed_hidden_output"
-                for item in receipt.evidence
+                for item in receipt.records
             )
         ):
             # Queue termination can precede all publication. There is no published
@@ -3227,7 +3227,7 @@ def _typed_receipt(
         hidden_refs = [ref for ref in output_refs if ref["name"] in hidden_names]
         output_refs = [ref for ref in output_refs if ref["name"] not in hidden_names]
         route_evidence.extend(
-            ReceiptEvidence(ref={**ref, "kind": "typed_hidden_output"})
+            ReceiptRecord(ref={**ref, "kind": "typed_hidden_output"})
             for ref in hidden_refs
         )
         route_evidence.extend(
@@ -3268,7 +3268,7 @@ def _typed_receipt(
         else dict(plan.request_identity)
     )
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "typed_action_request",
                 **request_evidence,
@@ -3277,7 +3277,7 @@ def _typed_receipt(
                 "run_id": facts.run_id,
             }
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "map_rows_run_counts",
                 "total_rows": facts.total_rows,
@@ -3305,7 +3305,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "map_translate_artifact"
                 and item.ref.get("run_id") == run_id
             )
@@ -3316,7 +3316,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "map_extract_grounding_links"
                 and item.ref.get("run_id") == run_id
             )
@@ -3330,7 +3330,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind")
                 in {
                     "media_transcribe_temporal_evidence_link",
@@ -3350,7 +3350,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind")
                 in {"document_convert_read", "document_source_provenance"}
                 and item.ref.get("run_id") == run_id
@@ -3432,7 +3432,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "map_python_code"
                 and item.ref.get("run_id") == run_id
             )
@@ -3446,7 +3446,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") in {"row_file_output", "row_file_call"}
                 and item.ref.get("run_id") == run_id
             ]
@@ -3494,7 +3494,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "web_search_call"
                 and item.ref.get("run_id") == run_id
             ]
@@ -3518,7 +3518,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "opencorporates_request"
                 and item.ref.get("run_id") == run_id
             ]
@@ -3551,7 +3551,7 @@ def _typed_receipt(
     if model_backed:
         supporting_records.insert(
             1,
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "model_rows_model_calls",
                     "model": facts.model,
@@ -3577,7 +3577,7 @@ def _typed_receipt(
             plan.request_identity.get("params", {}).get(evaluation.guidelines_param, "")
         )
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "map_judge_guidelines",
                     "guidelines": guidelines,
@@ -3598,7 +3598,7 @@ def _typed_receipt(
         inputs=inputs,
         output_refs=output_refs,
         provider_use=provider_use,
-        evidence=supporting_records,
+        records=supporting_records,
         errors=errors,
         named_result_refs=named_result_refs,
     )

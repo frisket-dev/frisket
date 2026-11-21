@@ -225,7 +225,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["cost_actual"] is None
     refs = [
         item.ref
-        for section in (receipt.inputs, receipt.outputs, receipt.evidence)
+        for section in (receipt.inputs, receipt.outputs, receipt.records)
         for item in section
     ]
     ref_kinds = {ref["kind"] for ref in refs}

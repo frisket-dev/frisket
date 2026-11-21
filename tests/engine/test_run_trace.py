@@ -162,7 +162,7 @@ def test_missing_provider_usage_remains_unknown_in_cells_run_and_trace(tmp_path,
             )
         model_evidence = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "model_rows_model_calls"
         )
         assert (

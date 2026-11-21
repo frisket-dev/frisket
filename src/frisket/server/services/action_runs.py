@@ -1144,7 +1144,7 @@ class ActionRunService:
             return 0
         refs = [
             item.get("ref") or {}
-            for item in [*receipt.get("outputs", []), *receipt.get("evidence", [])]
+            for item in [*receipt.get("outputs", []), *receipt.get("records", [])]
             if isinstance(item, dict)
         ]
         source_run = next(

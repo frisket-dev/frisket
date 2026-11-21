@@ -182,7 +182,7 @@ def _validate_terminalization_request(
 def _prepared_attempt_id(receipt: Receipt, run_id: int) -> str | None:
     matches = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "queued_action_run_prepared"
         and item.ref.get("queue_kind") == "project.run"
         and item.ref.get("run_id") == run_id

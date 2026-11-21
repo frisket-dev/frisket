@@ -446,7 +446,7 @@ def test_paid_dimension_probe_is_metered_and_receipt_names_real_cost(project):
     assert any(
         evidence.ref.get("fact_version") == "frisket.model-call-fact.v1"
         and evidence.ref.get("credential_source") == "project_key"
-        for evidence in receipt.evidence
+        for evidence in receipt.records
     )
     spend = project.provider_spend_state("openrouter")
     assert spend is not None
@@ -503,7 +503,7 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
     assert checkpoint_receipt.run_id == first_run_id
     assert any(
         item.ref.get("kind") == "embedding_dimension_probe_checkpoint"
-        for item in checkpoint_receipt.evidence
+        for item in checkpoint_receipt.records
     )
     assert float(checkpoint_receipt.provider_use[0]["cost_actual"]) == pytest.approx(
         probe_cost

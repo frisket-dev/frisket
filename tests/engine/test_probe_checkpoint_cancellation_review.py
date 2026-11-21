@@ -46,7 +46,7 @@ def test_paid_fact_survives_checkpoint_publication_cancellation(
     def interrupt_checkpoint(self, receipt, **kwargs):
         if any(
             e.ref.get("kind") == "embedding_dimension_probe_checkpoint"
-            for e in receipt.evidence
+            for e in receipt.records
         ):
             raise interruption(
                 "cancelled checkpoint publication after paid fact insert"

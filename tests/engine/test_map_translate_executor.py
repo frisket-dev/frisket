@@ -228,7 +228,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert set(output_refs) == {"translation", "translation_detected_language"}
     assert output_refs["translation"]["role"] == "translation"
     assert output_refs["translation_detected_language"]["role"] == "detected_language"
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     assert evidence["typed_action_request"]["action_id"] == "map.translate"
     assert evidence["typed_action_request"]["output_names"] == {
         "translation": "translation",

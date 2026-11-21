@@ -124,7 +124,7 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
         )
         occurrences = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "row_file_output"
         ]
         assert len(occurrences) == 1

@@ -7,7 +7,7 @@ from dataclasses import replace
 from types import MappingProxyType
 
 from frisket.engine.executor.action_inventory import _typed_request_envelope
-from frisket.contracts.action import ActionError, ReceiptEvidence, ReceiptIO
+from frisket.contracts.action import ActionError, ReceiptRecord, ReceiptIO
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
     _output_claim_token,
@@ -762,7 +762,7 @@ def finalize_semantic_join(
 
         match_evidence = [
             item
-            for item in ReceiptStore(project).require_parsed(receipt_id).evidence
+            for item in ReceiptStore(project).require_parsed(receipt_id).records
             if item.ref.get("kind")
             in {"semantic_join_embedding_backend", "semantic_join_thresholds"}
         ]
@@ -771,10 +771,10 @@ def finalize_semantic_join(
                 "inputs": inputs,
                 "outputs": outputs,
                 "op_ids": [run["op_id"], link_op],
-                "evidence": [
-                    *receipt.evidence,
+                "records": [
+                    *receipt.records,
                     *match_evidence,
-                    ReceiptEvidence(ref=edges, retention="pinned"),
+                    ReceiptRecord(ref=edges, retention="pinned"),
                 ],
             }
         )

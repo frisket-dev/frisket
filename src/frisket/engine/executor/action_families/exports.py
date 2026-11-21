@@ -28,7 +28,7 @@ from frisket.contracts.action import (
     ActionResult,
     ActionSpec,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
@@ -1066,9 +1066,9 @@ def _record_callable_export(invocation: Any, resolved: _ResolvedExportArtifact) 
     invocation.record(
         inputs=observed.inputs,
         outputs=observed.outputs,
-        evidence=[
-            *observed.evidence,
-            ReceiptEvidence(ref=dict(resolved.artifact_ref), retention="pinned"),
+        records=[
+            *observed.records,
+            ReceiptRecord(ref=dict(resolved.artifact_ref), retention="pinned"),
         ],
         exports=observed.exports,
         before_commit=deliver,
@@ -1980,7 +1980,7 @@ def _export_work_log_receipt(
             "receipt_id": receipt["id"],
             "action_kind": receipt["action_kind"],
             "outputs": receipt["outputs"],
-            "evidence": receipt["evidence"],
+            "records": receipt["records"],
         }
         for receipt in payload.get("receipts", [])
     ]
@@ -2005,16 +2005,16 @@ def _export_work_log_receipt(
             )
         ],
         outputs=[ReceiptIO(name="work_log", ref=artifact_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={"kind": "exported_sheets", "sheets": sheet_refs},
                 retention="pinned",
             ),
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={"kind": "exported_operations", "operations": operation_refs},
                 retention="pinned",
             ),
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={"kind": "exported_receipts", "receipts": receipt_refs},
                 retention="pinned",
             ),
@@ -2089,22 +2089,22 @@ def _export_sheet_csv_receipt(
         for column in payload["columns"]
     ]
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={**sheet_ref, "kind": "exported_sheet"},
             retention="pinned",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={"kind": "exported_columns", "columns": column_refs},
             retention="pinned",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref=_exported_rows_record_ref(payload),
             retention="pinned",
         ),
     ]
     if payload.get("query") is not None:
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "exported_query",
                     "sheet_id": payload["sheet_id"],
@@ -2128,7 +2128,7 @@ def _export_sheet_csv_receipt(
         status="completed",
         inputs=[ReceiptIO(name="sheet", ref=sheet_ref)],
         outputs=[ReceiptIO(name=output_name, ref=artifact_ref)],
-        evidence=supporting_records,
+        records=supporting_records,
         exports=[artifact_ref],
     )
 
@@ -2156,7 +2156,7 @@ def _export_google_sheets_receipt(
         for tab in tabs
     ]
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={"kind": "exported_google_sheets_tabs", "tabs": tab_refs},
             retention="pinned",
         )
@@ -2165,7 +2165,7 @@ def _export_google_sheets_receipt(
         if tab.get("query") is None:
             continue
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "exported_query",
                     "sheet_id": tab["sheet_id"],
@@ -2208,7 +2208,7 @@ def _export_google_sheets_receipt(
         ],
         outputs=[ReceiptIO(name="google_sheets", ref=artifact_ref)],
         provider_use=provider_use,
-        evidence=supporting_records,
+        records=supporting_records,
         exports=[artifact_ref],
     )
 
@@ -2262,8 +2262,8 @@ def _export_google_sheets_failed_receipt(
                 "external_email": connection.get("external_email"),
             }
         ],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={"kind": "attempted_google_sheets_tabs", "tabs": tab_refs},
                 retention="pinned",
             )

@@ -254,7 +254,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.action_kind == "export.work_log"
     assert receipt.outputs[0].ref["kind"] == "export_artifact"
     assert receipt.exports[0]["path"] == str(output_path)
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "exported_receipts",
         "exported_operations",
         "exported_sheets",

@@ -17,7 +17,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.actions.file_types import UrlColumn
@@ -1199,8 +1199,8 @@ def _web_capture_page_links_receipt(
         ],
         outputs=outputs,
         provider_use=_web_capture_page_provider_use(row_results),
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "web_capture_page_link_extraction",
                     "sheet_id": write.sheet_id,
@@ -1213,11 +1213,9 @@ def _web_capture_page_links_receipt(
                     "params_hash": params_hash,
                 }
             ),
-            ReceiptEvidence(
-                ref=dict(write.lineage_parent_rows_ref), retention="pinned"
-            ),
+            ReceiptRecord(ref=dict(write.lineage_parent_rows_ref), retention="pinned"),
             *[
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "web_capture_page_error",
                         "row_id": int(row["row_id"]),
@@ -1298,11 +1296,11 @@ def _web_capture_page_receipt(
         ],
         outputs=[ReceiptIO(name=output_ref["name"], ref=output_ref)],
         provider_use=_web_capture_page_provider_use(row_results),
-        evidence=[
-            ReceiptEvidence(ref=request_counts),
-            *[ReceiptEvidence(ref=ref) for ref in evidence_refs],
+        records=[
+            ReceiptRecord(ref=request_counts),
+            *[ReceiptRecord(ref=ref) for ref in evidence_refs],
             *[
-                ReceiptEvidence(ref=ref)
+                ReceiptRecord(ref=ref)
                 for ref in _web_capture_page_error_refs(row_results, output_ref)
             ],
         ],
@@ -1513,7 +1511,7 @@ def _web_capture_page_replay_error(
             row_ids=row_ids,
         ):
             return stale(replay + "output values changed", column_id=column_id)
-    for supporting_record in receipt.evidence:
+    for supporting_record in receipt.records:
         ref = supporting_record.ref
         if ref.get("kind") in {
             "web_capture_page_artifact",
@@ -1567,7 +1565,7 @@ def _web_capture_page_links_replay_error(
     ]
     lineage_evidence = [
         supporting_record
-        for supporting_record in receipt.evidence
+        for supporting_record in receipt.records
         if supporting_record.ref.get("kind") == "lineage_parent_rows"
     ]
     if not any((sheet_outputs, column_outputs, rows_outputs, lineage_evidence)):

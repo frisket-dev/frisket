@@ -457,7 +457,7 @@ def test_refresh_join_receipt_carries_fresh_match_stats(tmp_path: Path) -> None:
         receipt = json.loads(body["body"])
         stats = [
             ev["ref"]
-            for ev in receipt["evidence"]
+            for ev in receipt["records"]
             if isinstance(ev.get("ref"), dict)
             and ev["ref"].get("kind") == "derive_join_match_stats"
         ]

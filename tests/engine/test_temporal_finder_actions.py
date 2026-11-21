@@ -339,7 +339,7 @@ def test_visual_finder_queues_multi_row_map_and_keeps_row_errors(
             ).fetchone()["body"]
         )
     )
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     counts = evidence["map_rows_run_counts"]
     assert counts["failed_row_ids"] == [row_ids[1]]
     assert (counts["total_rows"], counts["completed_rows"], counts["failed_rows"]) == (
@@ -877,7 +877,7 @@ def test_topic_finder_uses_exact_engine_and_persists_ranges_and_provenance(
             ).fetchone()["body"]
         )
     )
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     analysis = evidence["topic_segmentation_analysis"]["rows"]
     assert [row["row_id"] for row in analysis] == [row_ids[0]]
     assert analysis[0]["engine_id"] == "texttiling"

@@ -159,7 +159,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
     assert bool(receipt.warnings) == (render == "fallback")
     document = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "imported_pdf_document"
     )
     assert document["hash"] == digest
@@ -167,7 +167,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
     assert document["size"] == len(raw)
     native_pages = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "imported_blob"
         and item.ref.get("source_artifact_id") == artifact["id"]
     ]
@@ -234,7 +234,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         ]
         refs = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref["kind"] == "imported_pdf_page_image"
         ]
         assert [ref["page"] for ref in refs] == [1, 2]

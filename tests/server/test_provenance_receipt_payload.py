@@ -9,7 +9,7 @@ from frisket.server.provenance_payloads import provenance_manifest_payload
 
 def test_provenance_summary_does_not_read_receipt_bodies(make_project):
     project = make_project("receipts")
-    body = json.dumps({"evidence": "long evidence " * 100_000})
+    body = json.dumps({"records": "long records " * 100_000})
     for index in range(3):
         project.db.execute(
             "INSERT INTO receipts(id,action_kind,status,body,created_at) "

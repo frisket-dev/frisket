@@ -151,7 +151,7 @@ class CallableRecordUpdate:
 
     inputs: tuple[Any, ...] = ()
     outputs: tuple[Any, ...] = ()
-    citations: tuple[Any, ...] = ()
+    records: tuple[Any, ...] = ()
     provider_use: tuple[Any, ...] = ()
     exports: tuple[Any, ...] = ()
     action_ids: tuple[int, ...] = ()
@@ -244,7 +244,7 @@ class CallableInvocation:
             update={
                 "inputs": [*self.receipt.inputs, *update.inputs],
                 "outputs": current_outputs,
-                "evidence": [*self.receipt.evidence, *update.citations],
+                "records": [*self.receipt.records, *update.records],
                 "provider_use": [*self.receipt.provider_use, *update.provider_use],
                 "exports": current_exports,
                 "op_ids": list(
@@ -258,7 +258,7 @@ class CallableInvocation:
         *,
         inputs=(),
         outputs=(),
-        evidence=(),
+        records=(),
         provider_use=(),
         exports=(),
         op_ids=(),
@@ -268,7 +268,7 @@ class CallableInvocation:
             CallableRecordUpdate(
                 inputs=tuple(inputs),
                 outputs=tuple(outputs),
-                citations=tuple(evidence),
+                records=tuple(records),
                 provider_use=tuple(provider_use),
                 exports=tuple(exports),
                 action_ids=tuple(op_ids),
