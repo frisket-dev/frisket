@@ -191,7 +191,7 @@ export type RowCacheStoreHandle = ReturnType<typeof createRowCacheStore>;
 
 /** The staleness token: a page response is dropped if this key changed while
  *  the request was in flight (sheet switch / undo / redo / review
- *  invalidation / filter / sort / lens change). Pulled out as a pure
+ *  invalidation / filter / sort / view change). Pulled out as a pure
  *  function so BOTH useRowCache (which owns
  *  the fetch/eviction side) and any passive external reader (the toolbar)
  *  can compute the SAME key from the SAME raw inputs and agree on when a
@@ -217,12 +217,12 @@ export function computeRowCacheKey(
   ].join(':');
 }
 
-/** Builds the SheetDataOptions a row-cache scope resolves to: lens-view rows
- *  win outright (the lens defines the row-set + order; filter/sort/parent
- *  scoping is ignored while a lens is active, matching SheetGrid's own
+/** Builds the SheetDataOptions a row-cache scope resolves to: ranked view rows
+ *  win outright (the view defines the row-set + order; filter/sort/parent
+ *  scoping is ignored while a ranked view is active, matching SheetGrid's own
  *  dataOptions memo). Pulled out so the toolbar can build the identical
  *  options object from the same raw scope inputs it already threads down to
- *  SheetGrid as props, without hand-rolling the lens/filter branch twice. */
+ *  SheetGrid as props, without hand-rolling the view/filter branch twice. */
 export function resolveRowCacheScope(input: {
   parentRowId?: string | null;
   filter?: GridFilterSpec | null;

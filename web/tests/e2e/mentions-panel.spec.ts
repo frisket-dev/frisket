@@ -411,10 +411,10 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   );
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('views-panel')).toBeVisible();
-  await page.getByTestId('create-saved-view').click();
+  await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Acme mentions');
   const created = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views`) &&
@@ -439,12 +439,12 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
-  const item = page.getByTestId('saved-view-item').filter({ hasText: 'Acme mentions' });
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
+  const item = page.getByTestId('view-item').filter({ hasText: 'Acme mentions' });
   await expect(item).toBeVisible();
   const restoredRows = await gridRowsAfter(page, pid, sheetId, () =>
-    item.getByTestId('apply-saved-view').click(),
+    item.getByTestId('apply-view').click(),
   );
   expect(restoredRows).toBe(5);
 
