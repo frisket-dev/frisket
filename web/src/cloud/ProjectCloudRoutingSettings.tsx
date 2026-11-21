@@ -2,6 +2,7 @@ import '../components/PanelPrimitives.css';
 import '../settings/SettingsPrimitives.css';
 import './ProjectCloudRoutingSettings.css';
 import { FormField } from '../components/FormControls';
+import { PanelSelect } from '../components/PanelSelect';
 import { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -109,7 +110,7 @@ export function ProjectCloudRoutingSettings({
     )}
     {routing.connectionState === 'connected' && <FormField label="Cloud account for this project" >
 
-      <select value={routing.selectedAccountId ?? ''} disabled={!routing.canMutate || busy}
+      <PanelSelect value={routing.selectedAccountId ?? ''} disabled={!routing.canMutate || busy}
         onChange={(event) => void patch({ selectedAccountId: Number(event.currentTarget.value) })}>
         <option value="" disabled>Choose an account</option>
         {routing.selectedAccountId !== null && !selected && <option value={routing.selectedAccountId} disabled>
@@ -119,7 +120,7 @@ export function ProjectCloudRoutingSettings({
           disabled={!account.eligible}>
           {account.name} · {cloudAccountKindLabel(account.kind)}{account.eligible ? '' : ' · unavailable'}
         </option>)}
-      </select>
+      </PanelSelect>
       {selected?.balanceLabel && <small className="form-hint">
         {selected.balanceUrl
           ? <a href={selected.balanceUrl} target="_blank" rel="noreferrer">Frisket credits · {selected.balanceLabel}</a>
