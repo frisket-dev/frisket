@@ -61,14 +61,14 @@ def _limit_error() -> type[Exception]:
 
 
 def _project_with_blob(
-    tmp_path: Path,
+    make_project,
     *,
     payload: bytes,
     probe: dict[str, Any],
     mime: str,
     filename: str,
 ) -> tuple[Project, dict[str, str]]:
-    project = Project.create(tmp_path / "limits.frisket", name="limits")
+    project = make_project("limits")
     digest = project.add_blob(
         payload,
         filename=filename,
@@ -215,7 +215,7 @@ def _stub_ocr_dispatch(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     ids=["unlimited", "exact-boundary", "excess", "unmeasurable"],
 )
 def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     limit: int | None,
     probe: dict[str, Any],
@@ -223,7 +223,7 @@ def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
     detail: str | None,
 ) -> None:
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=b"RIFF0000WAVEfmt ",
         probe=probe,
         mime="audio/wav",
@@ -262,20 +262,17 @@ def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
             "frisket.ops.media_probe.probe_for_ingest",
             lambda *_args, **_kwargs: pytest.fail("reprobed completed metadata"),
         )
-    try:
-        context = _context(
-            project,
-            _limits(**({"max_media_seconds": limit} if limit is not None else {})),
-        )
-        if dispatches:
+    context = _context(
+        project,
+        _limits(**({"max_media_seconds": limit} if limit is not None else {})),
+    )
+    if dispatches:
+        asyncio.run(_transcribe(media, context))
+    else:
+        with pytest.raises(_limit_error()) as raised:
             asyncio.run(_transcribe(media, context))
-        else:
-            with pytest.raises(_limit_error()) as raised:
-                asyncio.run(_transcribe(media, context))
-            assert raised.value.limit == "max_media_seconds"
-            assert raised.value.detail == detail
-    finally:
-        project.close()
+        assert raised.value.limit == "max_media_seconds"
+        assert raised.value.detail == detail
 
     assert bool(dispatch_calls) is dispatches
     # The admitted reader also uses stored duration for transcript evidence;
@@ -291,13 +288,13 @@ def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
     ids=["no-limit", "exact", "excess"],
 )
 def test_transcription_recovers_real_duration_for_unprobed_import_before_dispatch(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     limit: float,
     dispatches: bool,
 ) -> None:
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=_wav_bytes(),
         probe={},
         mime="audio/wav",
@@ -319,21 +316,18 @@ def test_transcription_recovers_real_duration_for_unprobed_import_before_dispatc
         )
 
     monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_dispatch)
-    try:
-        context = _context(
-            project,
-            _limits(**({"max_media_seconds": limit} if limit is not None else {})),
-        )
-        if dispatches:
-            _, calls = asyncio.run(_transcribe_with_calls(media, context))
-            assert calls[0][0]["source"]["duration_ms"] == 1_000
-        else:
-            with pytest.raises(_limit_error(), match="max_media_seconds"):
-                asyncio.run(_transcribe(media, context))
-        probe = MediaBlobStore(project).probe_metadata(media["blob"])
-        assert probe["duration_seconds"] == pytest.approx(1.0)
-    finally:
-        project.close()
+    context = _context(
+        project,
+        _limits(**({"max_media_seconds": limit} if limit is not None else {})),
+    )
+    if dispatches:
+        _, calls = asyncio.run(_transcribe_with_calls(media, context))
+        assert calls[0][0]["source"]["duration_ms"] == 1_000
+    else:
+        with pytest.raises(_limit_error(), match="max_media_seconds"):
+            asyncio.run(_transcribe(media, context))
+    probe = MediaBlobStore(project).probe_metadata(media["blob"])
+    assert probe["duration_seconds"] == pytest.approx(1.0)
 
     assert bool(dispatch_calls) is dispatches
 
@@ -344,7 +338,7 @@ def test_transcription_recovers_real_duration_for_unprobed_import_before_dispatc
     ids=["exact-boundary", "excess", "unmeasurable"],
 )
 def test_content_sniffed_pdf_limit_precedes_rasterization_despite_spoofed_label(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     limit: int,
     dispatches: bool,
@@ -354,30 +348,27 @@ def test_content_sniffed_pdf_limit_precedes_rasterization_despite_spoofed_label(
     if detail is None:
         probe["pages"] = 3
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=b"%PDF-1.4\nnot-an-image",
         probe=probe,
         mime="image/jpeg",
         filename="photo.jpg",
     )
     raster_calls = _stub_ocr_dispatch(monkeypatch)
-    try:
-        context = _context(project, _limits(max_pdf_pages=limit))
-        if dispatches:
+    context = _context(project, _limits(max_pdf_pages=limit))
+    if dispatches:
+        asyncio.run(_recognize(media, context))
+    else:
+        with pytest.raises(_limit_error()) as raised:
             asyncio.run(_recognize(media, context))
-        else:
-            with pytest.raises(_limit_error()) as raised:
-                asyncio.run(_recognize(media, context))
-            assert raised.value.limit == "max_pdf_pages"
-            assert raised.value.detail == detail
-    finally:
-        project.close()
+        assert raised.value.limit == "max_pdf_pages"
+        assert raised.value.detail == detail
 
     assert bool(raster_calls) is dispatches
 
 
 def test_opaque_pdf_uses_content_page_count_at_and_over_limit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = _pdf_bytes(2)
     source_path = tmp_path / "opaque.bin"
@@ -390,27 +381,24 @@ def test_opaque_pdf_uses_content_page_count_at_and_over_limit(
     assert probe["kind"] == "file"
     assert "pages" not in probe
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=payload,
         probe=probe,
         mime="application/octet-stream",
         filename="opaque.bin",
     )
     raster_calls = _stub_ocr_dispatch(monkeypatch)
-    try:
-        asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=2))))
-        with pytest.raises(_limit_error()) as raised:
-            asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=1))))
-        assert raised.value.limit == "max_pdf_pages"
-        assert raised.value.detail is None
-    finally:
-        project.close()
+    asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=2))))
+    with pytest.raises(_limit_error()) as raised:
+        asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=1))))
+    assert raised.value.limit == "max_pdf_pages"
+    assert raised.value.detail is None
 
     assert len(raster_calls) == 2
 
 
 def test_prefixed_opaque_pdf_limit_precedes_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = b"\n" + _pdf_bytes(2)
     source_path = tmp_path / "prefixed.bin"
@@ -423,26 +411,23 @@ def test_prefixed_opaque_pdf_limit_precedes_dispatch(
     assert probe["kind"] == "file"
     assert "pages" not in probe
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=payload,
         probe=probe,
         mime="application/octet-stream",
         filename="prefixed.bin",
     )
     raster_calls = _stub_ocr_dispatch(monkeypatch)
-    try:
-        with pytest.raises(_limit_error()) as raised:
-            asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=1))))
-        assert raised.value.limit == "max_pdf_pages"
-        assert raised.value.detail is None
-    finally:
-        project.close()
+    with pytest.raises(_limit_error()) as raised:
+        asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=1))))
+    assert raised.value.limit == "max_pdf_pages"
+    assert raised.value.detail is None
 
     assert raster_calls == []
 
 
 def test_non_pdf_content_with_pdf_labels_is_not_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = b"plain text, not a PDF"
     source_path = tmp_path / "mislabelled.pdf"
@@ -453,17 +438,14 @@ def test_non_pdf_content_with_pdf_labels_is_not_refused(
         filename="mislabelled.pdf",
     )
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=payload,
         probe=probe,
         mime="application/pdf",
         filename="mislabelled.pdf",
     )
     raster_calls = _stub_ocr_dispatch(monkeypatch)
-    try:
-        asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=1))))
-    finally:
-        project.close()
+    asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=1))))
 
     assert len(raster_calls) == 1
 
@@ -560,10 +542,10 @@ def test_pdf_markdown_limit_stops_datalab_before_dispatch(
 
 
 def test_video_frames_limit_stops_ffprobe_before_subprocess_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=b"video bytes",
         probe={"kind": "video", "duration_seconds": 3.0},
         mime="video/mp4",
@@ -604,11 +586,8 @@ def test_video_frames_limit_stops_ffprobe_before_subprocess_dispatch(
             await owner.aclose()
             stager.close()
 
-    try:
-        with pytest.raises(_limit_error(), match="max_media_seconds"):
-            asyncio.run(read())
-    finally:
-        project.close()
+    with pytest.raises(_limit_error(), match="max_media_seconds"):
+        asyncio.run(read())
 
     assert commands == []
 
@@ -683,10 +662,10 @@ def test_visual_cuts_limit_stops_pyscenedetect_before_dispatch(
 
 @pytest.mark.parametrize("duration", [float("nan"), -1.0], ids=["nan", "negative"])
 def test_malformed_media_measurement_fails_closed_before_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, duration: float
+    make_project, monkeypatch: pytest.MonkeyPatch, duration: float
 ) -> None:
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=b"RIFF0000WAVEfmt ",
         probe={"kind": "audio", "duration_seconds": 1.0},
         mime="audio/wav",
@@ -714,23 +693,18 @@ def test_malformed_media_measurement_fails_closed_before_dispatch(
         lambda _store, _digest: {"kind": "audio", "duration_seconds": duration},
     )
     monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_dispatch)
-    try:
-        with pytest.raises(_limit_error(), match="measurement_unavailable"):
-            asyncio.run(
-                _transcribe(media, _context(project, _limits(max_media_seconds=2)))
-            )
-    finally:
-        project.close()
+    with pytest.raises(_limit_error(), match="measurement_unavailable"):
+        asyncio.run(_transcribe(media, _context(project, _limits(max_media_seconds=2))))
 
     assert calls == []
 
 
 @pytest.mark.parametrize("pages", [True, 0, -1], ids=["bool", "zero", "negative"])
 def test_malformed_pdf_measurement_fails_closed_before_rasterization(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pages: int | bool
+    make_project, monkeypatch: pytest.MonkeyPatch, pages: int | bool
 ) -> None:
     project, media = _project_with_blob(
-        tmp_path,
+        make_project,
         payload=b"%PDF-1.4\nexample",
         probe={"kind": "pdf", "pages": 1},
         mime="application/pdf",
@@ -754,11 +728,8 @@ def test_malformed_pdf_measurement_fails_closed_before_rasterization(
     )
     monkeypatch.setattr(OcrEngines, "_page_images", fake_page_images)
     monkeypatch.setattr(OcrEngines, "run_engine_on_pages", fake_engine)
-    try:
-        with pytest.raises(_limit_error(), match="measurement_unavailable"):
-            asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=2))))
-    finally:
-        project.close()
+    with pytest.raises(_limit_error(), match="measurement_unavailable"):
+        asyncio.run(_recognize(media, _context(project, _limits(max_pdf_pages=2))))
 
     assert raster_calls == []
 

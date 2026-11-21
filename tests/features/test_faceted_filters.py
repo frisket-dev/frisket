@@ -11,8 +11,8 @@ from frisket.preview.column_values import resolve_column_values_preview
 from frisket.querysets import SheetRowSetError, resolve_sheet_filter_rows
 
 
-def _seed(tmp_path):
-    project = Project.create(tmp_path / "facets.frisket", name="facets")
+def _seed(make_project):
+    project = make_project("facets")
     sheet = project.add_sheet("Cases")
     columns = {
         "status": project.add_column(sheet, "status", type="category"),
@@ -41,58 +41,49 @@ def _row_ids(project: Project, sheet: int, spec: dict) -> list[int]:
     ).row_ids
 
 
-def test_facets_or_values_within_a_column_and_and_across_columns(tmp_path):
-    project, sheet, rows = _seed(tmp_path)
-    try:
-        assert _row_ids(
-            project,
-            sheet,
-            {
-                "status": {"in": ["open", "pending"]},
-                "amount": {"between": {"start": "40", "end": "80"}},
-            },
-        ) == [rows[2], rows[3]]
-    finally:
-        project.close()
+def test_facets_or_values_within_a_column_and_and_across_columns(make_project):
+    project, sheet, rows = _seed(make_project)
+    assert _row_ids(
+        project,
+        sheet,
+        {
+            "status": {"in": ["open", "pending"]},
+            "amount": {"between": {"start": "40", "end": "80"}},
+        },
+    ) == [rows[2], rows[3]]
 
 
-def test_numeric_and_date_range_bounds_are_typed(tmp_path):
-    project, sheet, rows = _seed(tmp_path)
-    try:
-        assert _row_ids(project, sheet, {"amount": {"gte": "75"}}) == [
-            rows[3],
-            rows[4],
-        ]
-        assert _row_ids(
-            project,
-            sheet,
-            {"filed": {"between": {"start": "2026-01-02", "end": "2026-03-01"}}},
-        ) == [rows[1], rows[2], rows[3]]
-    finally:
-        project.close()
+def test_numeric_and_date_range_bounds_are_typed(make_project):
+    project, sheet, rows = _seed(make_project)
+    assert _row_ids(project, sheet, {"amount": {"gte": "75"}}) == [
+        rows[3],
+        rows[4],
+    ]
+    assert _row_ids(
+        project,
+        sheet,
+        {"filed": {"between": {"start": "2026-01-02", "end": "2026-03-01"}}},
+    ) == [rows[1], rows[2], rows[3]]
 
 
-def test_numeric_ranges_do_not_coerce_malformed_cells_to_zero(tmp_path):
-    project, sheet, _rows = _seed(tmp_path)
-    try:
-        amount_column = next(
-            column for column in project.columns(sheet) if column["name"] == "amount"
-        )
-        malformed_row = project.add_rows(
-            sheet,
-            [{"amount": "n/a"}],
-            {"amount": int(amount_column["id"])},
-        )[0]
+def test_numeric_ranges_do_not_coerce_malformed_cells_to_zero(make_project):
+    project, sheet, _rows = _seed(make_project)
+    amount_column = next(
+        column for column in project.columns(sheet) if column["name"] == "amount"
+    )
+    malformed_row = project.add_rows(
+        sheet,
+        [{"amount": "n/a"}],
+        {"amount": int(amount_column["id"])},
+    )[0]
 
-        matched = _row_ids(
-            project,
-            sheet,
-            {"amount": {"between": {"start": "-0.5", "end": "0.5"}}},
-        )
-        assert malformed_row not in matched
-        assert matched == []
-    finally:
-        project.close()
+    matched = _row_ids(
+        project,
+        sheet,
+        {"amount": {"between": {"start": "-0.5", "end": "0.5"}}},
+    )
+    assert malformed_row not in matched
+    assert matched == []
 
 
 def test_numeric_histograms_and_ranges_share_native_json_number_validity(make_project):
@@ -131,38 +122,35 @@ def test_integer_ranges_keep_signed_64_bit_endpoints_exact(make_project):
         ],
         {"identifier": identifier},
     )
-    try:
-        invalid_row = project.db.execute(
-            "INSERT INTO rows (sheet_id, position) VALUES (?, ?)", (sheet, 4)
-        ).lastrowid
-        project.db.execute(
-            "INSERT INTO cells (row_id, column_id, value_kind, value) "
-            "VALUES (?, ?, 'bigint', ?)",
-            (invalid_row, identifier, str(2**63)),
+    invalid_row = project.db.execute(
+        "INSERT INTO rows (sheet_id, position) VALUES (?, ?)", (sheet, 4)
+    ).lastrowid
+    project.db.execute(
+        "INSERT INTO cells (row_id, column_id, value_kind, value) "
+        "VALUES (?, ?, 'bigint', ?)",
+        (invalid_row, identifier, str(2**63)),
+    )
+    project.db.commit()
+    preview = resolve_column_values_preview(
+        project, sheet_id=sheet, input_column="identifier"
+    )
+    distribution = preview["distribution"]
+    assert distribution["kind"] == "integer"
+    assert distribution["min"] == "-9223372036854775808"
+    assert distribution["max"] == "9223372036854775807"
+    assert sum(bin_["count"] for bin_ in distribution["bins"]) == 3
+    assert (
+        _row_ids(
+            project,
+            sheet,
+            {"identifier": {"gte": "9007199254740993"}},
         )
-        project.db.commit()
-        preview = resolve_column_values_preview(
-            project, sheet_id=sheet, input_column="identifier"
-        )
-        distribution = preview["distribution"]
-        assert distribution["kind"] == "integer"
-        assert distribution["min"] == "-9223372036854775808"
-        assert distribution["max"] == "9223372036854775807"
-        assert sum(bin_["count"] for bin_ in distribution["bins"]) == 3
-        assert (
-            _row_ids(
-                project,
-                sheet,
-                {"identifier": {"gte": "9007199254740993"}},
-            )
-            == rows[1:]
-        )
-        with pytest.raises(SheetRowSetError, match="canonical decimal string"):
-            _row_ids(project, sheet, {"identifier": {"gte": "9007199254740993.0"}})
-        with pytest.raises(SheetRowSetError, match="signed 64-bit"):
-            _row_ids(project, sheet, {"identifier": {"gte": str(2**63)}})
-    finally:
-        project.close()
+        == rows[1:]
+    )
+    with pytest.raises(SheetRowSetError, match="canonical decimal string"):
+        _row_ids(project, sheet, {"identifier": {"gte": "9007199254740993.0"}})
+    with pytest.raises(SheetRowSetError, match="signed 64-bit"):
+        _row_ids(project, sheet, {"identifier": {"gte": str(2**63)}})
 
 
 def test_registered_plugin_number_facet_previews_and_filters_end_to_end(make_project):
@@ -199,7 +187,6 @@ def test_registered_plugin_number_facet_previews_and_filters_end_to_end(make_pro
             {"score": {"between": {"start": "2", "end": "3"}}},
         ) == [rows[1]]
     finally:
-        project.close()
         column_types.unregister_column_type(type_name)
 
 
@@ -229,42 +216,36 @@ def test_boolean_in_rejects_unknown_spellings(make_project):
         ({"lte": "Infinity"}, "requires a finite value"),
     ],
 )
-def test_faceted_filter_payloads_fail_closed(tmp_path, condition, match):
-    project, sheet, _rows = _seed(tmp_path)
-    try:
-        with pytest.raises(SheetRowSetError, match=match):
-            _row_ids(project, sheet, {"amount": condition})
-    finally:
-        project.close()
+def test_faceted_filter_payloads_fail_closed(make_project, condition, match):
+    project, sheet, _rows = _seed(make_project)
+    with pytest.raises(SheetRowSetError, match=match):
+        _row_ids(project, sheet, {"amount": condition})
 
 
-def test_column_preview_includes_exact_numeric_and_date_histograms(tmp_path):
-    project, sheet, _rows = _seed(tmp_path)
-    try:
-        amount = resolve_column_values_preview(
-            project,
-            sheet_id=sheet,
-            input_column="amount",
-            limit=2,
-        )
-        assert amount["truncated"] is True
-        assert amount["distribution"]["kind"] == "number"
-        assert amount["distribution"]["min"] == 10
-        assert amount["distribution"]["max"] == 100
-        assert sum(bin_["count"] for bin_ in amount["distribution"]["bins"]) == 5
+def test_column_preview_includes_exact_numeric_and_date_histograms(make_project):
+    project, sheet, _rows = _seed(make_project)
+    amount = resolve_column_values_preview(
+        project,
+        sheet_id=sheet,
+        input_column="amount",
+        limit=2,
+    )
+    assert amount["truncated"] is True
+    assert amount["distribution"]["kind"] == "number"
+    assert amount["distribution"]["min"] == 10
+    assert amount["distribution"]["max"] == 100
+    assert sum(bin_["count"] for bin_ in amount["distribution"]["bins"]) == 5
 
-        filed = resolve_column_values_preview(
-            project,
-            sheet_id=sheet,
-            input_column="filed",
-            limit=2,
-        )
-        assert filed["distribution"]["kind"] == "date"
-        assert filed["distribution"]["min"] == "2026-01-01"
-        assert filed["distribution"]["max"] == "2026-04-01"
-        assert sum(bin_["count"] for bin_ in filed["distribution"]["bins"]) == 5
-    finally:
-        project.close()
+    filed = resolve_column_values_preview(
+        project,
+        sheet_id=sheet,
+        input_column="filed",
+        limit=2,
+    )
+    assert filed["distribution"]["kind"] == "date"
+    assert filed["distribution"]["min"] == "2026-01-01"
+    assert filed["distribution"]["max"] == "2026-04-01"
+    assert sum(bin_["count"] for bin_ in filed["distribution"]["bins"]) == 5
 
 
 def test_histograms_include_timestamps_and_extreme_finite_numbers(make_project):

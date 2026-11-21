@@ -1,8 +1,8 @@
 from __future__ import annotations
+from contextlib import closing
 
 import json
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -119,87 +119,84 @@ def test_resumable_session_reopens_without_duplicate_rows(make_project) -> None:
 
 @pytest.mark.parametrize("terminal", ["completed", "kept", "removed"])
 def test_resumable_session_preserves_reserved_receipt_through_terminalization(
-    tmp_path: Path, terminal: str
+    make_project, terminal: str
 ) -> None:
-    project = Project.create(tmp_path / f"reserved-{terminal}.frisket", name="reserved")
-    try:
-        reserved = Receipt(
-            receipt_id="receipt:inventory-one",
-            project_id="streaming-project",
-            action_id="act:inventory-one",
-            action_kind="import.files",
-            idempotency_key="inventory:one",
-            params_hash="sha256:inventory-one",
-            status="running",
-            inputs=[ReceiptIO(name="reservation", ref={"kind": "job_claim"})],
-            evidence=[ReceiptEvidence(ref={"kind": "consent", "id": "consent:one"})],
-            warnings=["reservation warning"],
-        )
-        ReceiptStore(project).insert_running(
-            reserved, edition_run_context={"edition": "desktop"}
-        )
+    project = make_project(f"reserved-{terminal}")
+    reserved = Receipt(
+        receipt_id="receipt:inventory-one",
+        project_id="streaming-project",
+        action_id="act:inventory-one",
+        action_kind="import.files",
+        idempotency_key="inventory:one",
+        params_hash="sha256:inventory-one",
+        status="running",
+        inputs=[ReceiptIO(name="reservation", ref={"kind": "job_claim"})],
+        evidence=[ReceiptEvidence(ref={"kind": "consent", "id": "consent:one"})],
+        warnings=["reservation warning"],
+    )
+    ReceiptStore(project).insert_running(
+        reserved, edition_run_context={"edition": "desktop"}
+    )
 
-        writer = _start_session(project)
-        stored = ReceiptStore(project).find_by_id("receipt:inventory-one")
-        assert stored is not None
-        adopted = stored.parsed()
-        assert adopted.op_ids == [writer._op_id]
-        assert adopted.inputs[:-1] == reserved.inputs
-        assert adopted.inputs[-1] == ReceiptIO(
-            name="source",
-            ref={"kind": "file_inventory", "inventory_id": "inventory:one"},
-        )
-        assert adopted.evidence == reserved.evidence
-        assert adopted.warnings == reserved.warnings
-        writer.abort()
-        writer = StreamingSheetWriter.resume_session(
-            project,
-            session_id="import:one",
-            writer_authority="claim:resumed",
-            expected_cursor=0,
-        )
-        writer.set_warnings(["bounded parser warning"])
-        writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
-        if terminal == "completed":
-            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+    writer = _start_session(project)
+    stored = ReceiptStore(project).find_by_id("receipt:inventory-one")
+    assert stored is not None
+    adopted = stored.parsed()
+    assert adopted.op_ids == [writer._op_id]
+    assert adopted.inputs[:-1] == reserved.inputs
+    assert adopted.inputs[-1] == ReceiptIO(
+        name="source",
+        ref={"kind": "file_inventory", "inventory_id": "inventory:one"},
+    )
+    assert adopted.evidence == reserved.evidence
+    assert adopted.warnings == reserved.warnings
+    writer.abort()
+    writer = StreamingSheetWriter.resume_session(
+        project,
+        session_id="import:one",
+        writer_authority="claim:resumed",
+        expected_cursor=0,
+    )
+    writer.set_warnings(["bounded parser warning"])
+    writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+    if terminal == "completed":
+        writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+    else:
+        writer.cancel(expected_cursor=1)
+        if terminal == "kept":
+            writer.finalize_session(expected_cursor=1, keep_cancelled=True)
         else:
-            writer.cancel(expected_cursor=1)
-            if terminal == "kept":
-                writer.finalize_session(expected_cursor=1, keep_cancelled=True)
-            else:
-                writer.remove_session(expected_cursor=1)
+            writer.remove_session(expected_cursor=1)
 
-        terminal_receipt = ReceiptStore(project).find_by_id(reserved.receipt_id)
-        assert terminal_receipt is not None
-        parsed = terminal_receipt.parsed()
-        assert reserved.evidence[0] in parsed.evidence
-        assert any(
-            item.ref
-            == {
-                "kind": "import_source",
-                "inventory_id": "inventory:one",
-                "source_kind": "file_inventory",
-            }
-            for item in parsed.evidence
-        )
-        assert "bounded parser warning" in parsed.warnings
-        assert (
-            terminal_receipt.status
-            == {
-                "completed": "completed",
-                "kept": "partial",
-                "removed": "cancelled",
-            }[terminal]
-        )
-        assert (
-            project.db.execute(
-                "SELECT edition_run_context FROM receipts WHERE id=?",
-                (reserved.receipt_id,),
-            ).fetchone()[0]
-            == '{"edition": "desktop"}'
-        )
-    finally:
-        project.close()
+    terminal_receipt = ReceiptStore(project).find_by_id(reserved.receipt_id)
+    assert terminal_receipt is not None
+    parsed = terminal_receipt.parsed()
+    assert reserved.evidence[0] in parsed.evidence
+    assert any(
+        item.ref
+        == {
+            "kind": "import_source",
+            "inventory_id": "inventory:one",
+            "source_kind": "file_inventory",
+        }
+        for item in parsed.evidence
+    )
+    assert "bounded parser warning" in parsed.warnings
+    assert (
+        terminal_receipt.status
+        == {
+            "completed": "completed",
+            "kept": "partial",
+            "removed": "cancelled",
+        }[terminal]
+    )
+    assert (
+        project.db.execute(
+            "SELECT edition_run_context FROM receipts WHERE id=?",
+            (reserved.receipt_id,),
+        ).fetchone()[0]
+        == '{"edition": "desktop"}'
+    )
 
 
 def test_resumable_session_rejects_uncheckpointed_append_rows(make_project) -> None:
@@ -421,8 +418,7 @@ def test_committed_batches_stay_hidden_until_atomic_publish(client) -> None:
 
     # A separately opened project sees the first durable batch in raw storage,
     # while every normal list/read surface still treats its sheet as absent.
-    first_observer = Project(project.path)
-    try:
+    with closing(Project(project.path)) as first_observer:
         assert first_observer.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
         _assert_committed_staging(
             first_observer,
@@ -440,8 +436,6 @@ def test_committed_batches_stay_hidden_until_atomic_publish(client) -> None:
             "mime": "text/plain",
             "size": len(payload),
         }
-    finally:
-        first_observer.close()
 
     writer.append_rows(
         [
@@ -451,8 +445,7 @@ def test_committed_batches_stay_hidden_until_atomic_publish(client) -> None:
     )
 
     # Appends are durable bounded transactions, not one import-sized transaction.
-    observer = Project(project.path)
-    try:
+    with closing(Project(project.path)) as observer:
         staged = observer.db.execute(
             "SELECT id, hidden FROM sheets ORDER BY id"
         ).fetchall()
@@ -473,8 +466,6 @@ def test_committed_batches_stay_hidden_until_atomic_publish(client) -> None:
         assert list(
             observer.get_values(writer.sheet_id, int(attachment_column["id"])).values()
         ) == [None, None, None, None]
-    finally:
-        observer.close()
 
     listed = client.get(f"/api/projects/{project_id}/sheets")
     assert listed.status_code == 200, listed.text
@@ -717,8 +708,7 @@ def test_receipt_insert_failure_cannot_partially_publish(
     assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
-    observer = Project(project.path)
-    try:
+    with closing(Project(project.path)) as observer:
         assert observer.sheets() == []
         staged = observer.db.execute(
             "SELECT hidden FROM sheets WHERE id=?", (writer.sheet_id,)
@@ -726,8 +716,6 @@ def test_receipt_insert_failure_cannot_partially_publish(
         assert staged is None or staged["hidden"] == 1
         assert observer.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
         assert observer.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    finally:
-        observer.close()
 
     listed = client.get(f"/api/projects/{project_id}/sheets")
     assert listed.status_code == 200, listed.text

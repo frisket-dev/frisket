@@ -15,7 +15,6 @@ import importlib.util
 import subprocess
 import sys
 import tempfile
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -54,6 +53,7 @@ def test_entities_available_reflects_the_real_availability_flag(
 
 def test_graph_neighborhood_gates_gracefully_when_entities_extra_missing(
     monkeypatch: pytest.MonkeyPatch,
+    project: Project,
 ) -> None:
     monkeypatch.setattr(
         neighborhood,
@@ -63,13 +63,8 @@ def test_graph_neighborhood_gates_gracefully_when_entities_extra_missing(
             f"FollowTheMoney entity support is not installed. Install with {REMEDIATION}.",
         ),
     )
-    with tempfile.TemporaryDirectory() as td:
-        project = Project.create(Path(td) / "gate.frisket", name="gate")
-        try:
-            with pytest.raises(neighborhood.GraphNeighborhoodError) as excinfo:
-                neighborhood.build_graph_neighborhood(project, anchor_id="anything")
-        finally:
-            project.close()
+    with pytest.raises(neighborhood.GraphNeighborhoodError) as excinfo:
+        neighborhood.build_graph_neighborhood(project, anchor_id="anything")
     assert excinfo.value.code == "entities_extra_missing"
     assert excinfo.value.status_code == 503
     assert REMEDIATION in excinfo.value.message
@@ -179,7 +174,7 @@ def test_ftm_migration_harness_gates_gracefully_when_entities_extra_missing(
     ],
 )
 def test_native_ftm_actions_name_missing_extra_remediation(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     definition_name: str,
     params: dict[str, object],
@@ -209,8 +204,8 @@ def test_native_ftm_actions_name_missing_extra_remediation(
             idempotency_key=definition.name,
         ),
     )
-    with closing(Project.create(tmp_path / "project", name="FtM")) as project:
-        result = run_typed_callable_action(project, "p", request)
+    project = make_project("FtM")
+    result = run_typed_callable_action(project, "p", request)
 
     assert result.status == "failed"
     assert result.errors[0].code == "followthemoney_unavailable"

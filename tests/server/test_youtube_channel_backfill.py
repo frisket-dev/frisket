@@ -25,7 +25,6 @@ Two-part fix, tested independently:
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -197,15 +196,12 @@ def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
 # ---------------------------------------------------------------------------
 
 
-def _seed_channel_backfill_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
+def _seed_channel_backfill_project(project: Project) -> tuple[Project, int, list[int]]:
     """A sheet shaped like a YouTube playlist source-poll output (url +
     channel_id + channel_title columns), with row 1's channel cells EMPTY
     (the flat-null case a poll-time fallback couldn't fill -- e.g. a
     heterogeneous-owner playlist) and row 2's channel cells already
     populated (must never be clobbered)."""
-    project = Project.create(
-        tmp_path / "channel-backfill-download.frisket", name="YT Download"
-    )
     sheet_id = project.add_sheet("Videos")
     columns = {
         "url": project.add_column(sheet_id, "url", type="link"),
@@ -241,10 +237,12 @@ def _youtube_download_action(*, sheet_id: int, row_ids: list[int]) -> dict[str, 
 
 
 def test_download_backfills_empty_channel_cells_and_never_clobbers_non_empty(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, sheet_id, row_ids = _seed_channel_backfill_project(tmp_path)
+    project, sheet_id, row_ids = _seed_channel_backfill_project(
+        make_project("channel-backfill-download")
+    )
     empty_row_id, preset_row_id = row_ids
 
     calls: list[str] = []

@@ -358,7 +358,7 @@ def _row_error(
 
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
     usage = response.usage
-    estimate = usage.quote
+    estimate = usage.estimate
     return {
         "provider": usage.provider,
         "service": usage.service,
@@ -367,7 +367,7 @@ def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
         "provider_cost_usd": usage.provider_cost_usd,
         "cost_source": usage.cost_source,
         "units": {unit.name: unit.quantity for unit in usage.units},
-        "quote": (
+        "estimate": (
             {
                 "provider": estimate.provider,
                 "max_results": estimate.max_results,

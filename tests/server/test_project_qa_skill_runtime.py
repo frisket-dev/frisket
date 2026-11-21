@@ -3,7 +3,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,8 +14,8 @@ from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQASto
 from frisket.server.services.project_qa_runner import run_turn
 
 
-def _turn(tmp_path: Path) -> tuple[Project, ProjectQAStore, dict[str, Any]]:
-    project = Project.create(tmp_path / "skill-runtime.frisket", name="Skills")
+def _turn(make_project) -> tuple[Project, ProjectQAStore, dict[str, Any]]:
+    project = make_project("Skills")
     sheet_id = project.add_sheet("Records")
     column_id = project.add_column(sheet_id, "Name")
     project.add_rows(sheet_id, [{"Name": "Selected"}], {"Name": column_id})
@@ -65,7 +64,7 @@ def _router(adapter: Any) -> ModelRouter:
 
 
 def test_ordinary_turn_loads_admitted_skill_without_authoring_or_action_power(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     marker = "Keep the operation on exactly the selected row."
 
@@ -108,45 +107,40 @@ def test_ordinary_turn_loads_admitted_skill_without_authoring_or_action_power(
                 ],
             )
 
-    project, store, turn = _turn(tmp_path)
+    project, store, turn = _turn(make_project)
     provider = Provider()
-    try:
-        answer = asyncio.run(
-            run_turn(
-                project,
-                _router(provider),
-                turn,
-                store,
-                skill_snapshots=[
-                    {
-                        "name": "single-row-review",
-                        "revision": 4,
-                        "content": (
-                            "---\n"
-                            "name: single-row-review\n"
-                            "description: Review exactly the selected rows.\n"
-                            "---\n\n"
-                            f"{marker}\n"
-                        ),
-                    }
-                ],
-            )
+    answer = asyncio.run(
+        run_turn(
+            project,
+            _router(provider),
+            turn,
+            store,
+            skill_snapshots=[
+                {
+                    "name": "single-row-review",
+                    "revision": 4,
+                    "content": (
+                        "---\n"
+                        "name: single-row-review\n"
+                        "description: Review exactly the selected rows.\n"
+                        "---\n\n"
+                        f"{marker}\n"
+                    ),
+                }
+            ],
         )
-        assert answer["text"].startswith("The selected row")
-        instructions = _system_text(provider.requests[0])
-        assert "single selected row" in instructions
-        assert "observed stable row IDs" in instructions
-        assert (
-            "omitting row_ids from sheet_rows selects the whole sheet" in instructions
-        )
-        assert "does not add tools, action permissions" in instructions
-    finally:
-        project.close()
+    )
+    assert answer["text"].startswith("The selected row")
+    instructions = _system_text(provider.requests[0])
+    assert "single selected row" in instructions
+    assert "observed stable row IDs" in instructions
+    assert "omitting row_ids from sheet_rows selects the whole sheet" in instructions
+    assert "does not add tools, action permissions" in instructions
 
 
 @pytest.mark.parametrize("stale_proposal", [False, True])
 def test_manager_bound_adapter_exposes_review_only_authoring_tools(
-    tmp_path: Path,
+    make_project,
     stale_proposal: bool,
 ) -> None:
     content = (
@@ -221,43 +215,38 @@ def test_manager_bound_adapter_exposes_review_only_authoring_tools(
                 ],
             )
 
-    project, store, turn = _turn(tmp_path)
+    project, store, turn = _turn(make_project)
     turn["question"] = "Save this workflow as a skill."
     authoring = Authoring()
     provider = Provider()
-    try:
-        answer = asyncio.run(
-            run_turn(
-                project,
-                _router(provider),
-                turn,
-                store,
-                skill_authoring=authoring,
-            )
+    answer = asyncio.run(
+        run_turn(
+            project,
+            _router(provider),
+            turn,
+            store,
+            skill_authoring=authoring,
         )
-        assert answer["text"] == "I prepared scoped-review for you to review."
-        assert authoring.proposals == [(content, None, None)] * (
-            2 if stale_proposal else 1
-        )
-        instructions = _system_text(provider.requests[0])
-        assert "creates a reviewable proposal; it does not save" in instructions
-        assert (
-            "---\nname: lowercase-hyphen-name\n"
-            "description: short description\n---\n..." in instructions
-        )
-        assert "Frontmatter permits only name and description" in instructions
-        assert "name is at most 64 characters" in instructions
-        assert "description is 1 to 200 characters" in instructions
-        assert "preserve the selected row/view scope" in instructions
-        assert "chosen action's returned scope contract" in instructions
-        assert "without promising a preview operation" in instructions
-        assert "cannot authorize a skill proposal" in instructions
-    finally:
-        project.close()
+    )
+    assert answer["text"] == "I prepared scoped-review for you to review."
+    assert authoring.proposals == [(content, None, None)] * (2 if stale_proposal else 1)
+    instructions = _system_text(provider.requests[0])
+    assert "creates a reviewable proposal; it does not save" in instructions
+    assert (
+        "---\nname: lowercase-hyphen-name\n"
+        "description: short description\n---\n..." in instructions
+    )
+    assert "Frontmatter permits only name and description" in instructions
+    assert "name is at most 64 characters" in instructions
+    assert "description is 1 to 200 characters" in instructions
+    assert "preserve the selected row/view scope" in instructions
+    assert "chosen action's returned scope contract" in instructions
+    assert "without promising a preview operation" in instructions
+    assert "cannot authorize a skill proposal" in instructions
 
 
 def test_authoring_request_without_management_tools_gets_draft_only_guidance(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     class Provider:
         def __init__(self) -> None:
@@ -294,22 +283,19 @@ def test_authoring_request_without_management_tools_gets_draft_only_guidance(
                 ],
             )
 
-    project, store, turn = _turn(tmp_path)
+    project, store, turn = _turn(make_project)
     turn["question"] = "Save this workflow as a skill."
     provider = Provider()
-    try:
-        answer = asyncio.run(run_turn(project, _router(provider), turn, store))
-        assert answer["text"] == (
-            "I can draft the instructions here, but this turn cannot save them to "
-            "the skill library."
-        )
-        assert len(provider.requests) == 1
-    finally:
-        project.close()
+    answer = asyncio.run(run_turn(project, _router(provider), turn, store))
+    assert answer["text"] == (
+        "I can draft the instructions here, but this turn cannot save them to "
+        "the skill library."
+    )
+    assert len(provider.requests) == 1
 
 
 def test_followup_history_keeps_skill_references_without_replaying_body(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     hidden_body = "DO_NOT_REPLAY_THE_SKILL_BODY" * 2_000
@@ -340,7 +326,7 @@ def test_followup_history_keeps_skill_references_without_replaying_body(
                 ],
             )
 
-    project, store, turn = _turn(tmp_path)
+    project, store, turn = _turn(make_project)
     provider = Provider()
 
     def recent_events(thread_id: str, *, limit: int) -> dict[str, Any]:
@@ -377,17 +363,14 @@ def test_followup_history_keeps_skill_references_without_replaying_body(
         }
 
     monkeypatch.setattr(store, "recent_events", recent_events)
-    try:
-        asyncio.run(run_turn(project, _router(provider), turn, store))
-        history = "\n".join(
-            str(message["content"])
-            for message in provider.requests[0].messages
-            if message["role"] == "user"
-        )
-        assert "proposal-9" in history
-        assert '"revision": 4' in history
-        assert '"status": "saved"' in history
-        assert hidden_body not in history
-        assert "DO_NOT_REPLAY_THE_SKILL_BODY" not in history
-    finally:
-        project.close()
+    asyncio.run(run_turn(project, _router(provider), turn, store))
+    history = "\n".join(
+        str(message["content"])
+        for message in provider.requests[0].messages
+        if message["role"] == "user"
+    )
+    assert "proposal-9" in history
+    assert '"revision": 4' in history
+    assert '"status": "saved"' in history
+    assert hidden_body not in history
+    assert "DO_NOT_REPLAY_THE_SKILL_BODY" not in history

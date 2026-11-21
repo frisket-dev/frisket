@@ -140,46 +140,44 @@ def test_local_export_rejects_nonsemantic_path_before_writes(
 )
 def test_buffered_export_restores_destination_when_commit_fails_after_delivery(
     tmp_path: Path,
+    make_project,
     monkeypatch,
     kind: str,
     suffix: str,
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / f"{suffix}-rollback.frisket", name="Rollback")
-    try:
-        sheet_id = project.add_sheet("Stories")
-        name_column_id = project.add_column(sheet_id, "name", "text")
-        project.add_rows(sheet_id, [{"name": "Ada"}], {"name": name_column_id})
-        destination = tmp_path / f"artifact.{suffix}"
-        previous = b"previous artifact\n"
-        destination.write_bytes(previous)
-        wrapper = _wrap_project_db_commit(monkeypatch, project)
-        # Reservation commits first; the next commit follows artifact promotion.
-        wrapper.fail_commit_at = 2
-        promoted = []
-        wrapper.before_failed_commit = lambda: promoted.append(destination.read_bytes())
-        action = (
-            _work_log_action(destination)
-            if kind == "export.work_log"
-            else _dataset_action(kind, sheet_id=sheet_id, destination=destination)
-        )
-        result = executor_actions.run_action_spec(
-            project,
-            action,
-            project_id="project-export-rollback",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert wrapper.commit_count == 3
-        assert len(promoted) == 1 and promoted[0] != previous
-        assert destination.read_bytes() == previous
-        assert not list(tmp_path.glob(f".{destination.name}.*"))
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt.status == "failed"
-        assert not receipt.outputs and not receipt.evidence and not receipt.exports
-    finally:
-        project.close()
+    project = make_project(f"{suffix}-rollback")
+    sheet_id = project.add_sheet("Stories")
+    name_column_id = project.add_column(sheet_id, "name", "text")
+    project.add_rows(sheet_id, [{"name": "Ada"}], {"name": name_column_id})
+    destination = tmp_path / f"artifact.{suffix}"
+    previous = b"previous artifact\n"
+    destination.write_bytes(previous)
+    wrapper = _wrap_project_db_commit(monkeypatch, project)
+    # Reservation commits first; the next commit follows artifact promotion.
+    wrapper.fail_commit_at = 2
+    promoted = []
+    wrapper.before_failed_commit = lambda: promoted.append(destination.read_bytes())
+    action = (
+        _work_log_action(destination)
+        if kind == "export.work_log"
+        else _dataset_action(kind, sheet_id=sheet_id, destination=destination)
+    )
+    result = executor_actions.run_action_spec(
+        project,
+        action,
+        project_id="project-export-rollback",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert wrapper.commit_count == 3
+    assert len(promoted) == 1 and promoted[0] != previous
+    assert destination.read_bytes() == previous
+    assert not list(tmp_path.glob(f".{destination.name}.*"))
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.status == "failed"
+    assert not receipt.outputs and not receipt.evidence and not receipt.exports
 
 
 def test_export_work_log_removes_new_destination_when_commit_fails_after_delivery(
@@ -257,6 +255,7 @@ def test_export_sheet_csv_restores_destination_when_commit_fails_after_delivery(
 )
 def test_buffered_export_removes_partial_staging_write(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
     suffix: str,
@@ -264,45 +263,42 @@ def test_buffered_export_removes_partial_staging_write(
     """A failed buffered write must not strand its partially written tmp file."""
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / f"partial-{suffix}.frisket", name="Partial")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "name", "text")
-        project.add_rows(sheet_id, [{"name": "Ada"}], {"name": column_id})
-        destination = tmp_path / f"artifact.{suffix}"
-        destination.write_bytes(b"previous artifact")
-        before_receipts = _receipt_count(project)
-        original_write_bytes = Path.write_bytes
+    project = make_project(f"partial-{suffix}")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "name", "text")
+    project.add_rows(sheet_id, [{"name": "Ada"}], {"name": column_id})
+    destination = tmp_path / f"artifact.{suffix}"
+    destination.write_bytes(b"previous artifact")
+    before_receipts = _receipt_count(project)
+    original_write_bytes = Path.write_bytes
 
-        def partial_then_fail(path: Path, data: bytes) -> int:
-            if path.name.startswith(f".{destination.name}."):
-                original_write_bytes(path, data[: max(1, len(data) // 2)])
-                raise OSError("injected partial staging write")
-            return original_write_bytes(path, data)
+    def partial_then_fail(path: Path, data: bytes) -> int:
+        if path.name.startswith(f".{destination.name}."):
+            original_write_bytes(path, data[: max(1, len(data) // 2)])
+            raise OSError("injected partial staging write")
+        return original_write_bytes(path, data)
 
-        monkeypatch.setattr(Path, "write_bytes", partial_then_fail)
-        action = (
-            _work_log_action(destination)
-            if kind == "export.work_log"
-            else _dataset_action(kind, sheet_id=sheet_id, destination=destination)
-        )
+    monkeypatch.setattr(Path, "write_bytes", partial_then_fail)
+    action = (
+        _work_log_action(destination)
+        if kind == "export.work_log"
+        else _dataset_action(kind, sheet_id=sheet_id, destination=destination)
+    )
 
-        result = executor_actions.run_action_spec(
-            project, action, project_id="project-export-partial-write"
-        )
+    result = executor_actions.run_action_spec(
+        project, action, project_id="project-export-partial-write"
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_export_destination"
-        assert destination.read_bytes() == b"previous artifact"
-        assert not list(tmp_path.glob(f".{destination.name}.*.tmp"))
-        assert _receipt_count(project) == before_receipts + 1
-        receipt_id = project.db.execute("SELECT id FROM receipts").fetchone()[0]
-        receipt = ReceiptStore(project).parsed_by_id(receipt_id)
-        assert receipt.status == "failed"
-        assert receipt.errors[0].code == "invalid_export_destination"
-        assert not receipt.outputs and not receipt.exports
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_export_destination"
+    assert destination.read_bytes() == b"previous artifact"
+    assert not list(tmp_path.glob(f".{destination.name}.*.tmp"))
+    assert _receipt_count(project) == before_receipts + 1
+    receipt_id = project.db.execute("SELECT id FROM receipts").fetchone()[0]
+    receipt = ReceiptStore(project).parsed_by_id(receipt_id)
+    assert receipt.status == "failed"
+    assert receipt.errors[0].code == "invalid_export_destination"
+    assert not receipt.outputs and not receipt.exports
 
 
 @pytest.mark.parametrize(
@@ -316,6 +312,7 @@ def test_buffered_export_removes_partial_staging_write(
 )
 def test_export_renders_once_before_transaction_and_not_on_replay(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
     render_name: str,
@@ -324,71 +321,68 @@ def test_export_renders_once_before_transaction_and_not_on_replay(
     from frisket.engine.executor import actions as executor_actions
     from frisket.engine.executor.action_families import exports as export_action
 
-    project = Project.create(tmp_path / f"once-{suffix}.frisket", name="Once")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "name", "text")
-        project.add_rows(sheet_id, [{"name": "Ada"}], {"name": column_id})
-        destination = tmp_path / f"once.{suffix}"
-        original = getattr(export_action, render_name)
-        calls = 0
-        capability_calls = 0
+    project = make_project(f"once-{suffix}")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "name", "text")
+    project.add_rows(sheet_id, [{"name": "Ada"}], {"name": column_id})
+    destination = tmp_path / f"once.{suffix}"
+    original = getattr(export_action, render_name)
+    calls = 0
+    capability_calls = 0
 
-        def observed(*args: Any, **kwargs: Any) -> Any:
-            nonlocal calls
-            calls += 1
-            assert project.db.in_transaction is False
-            return original(*args, **kwargs)
+    def observed(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        assert project.db.in_transaction is False
+        return original(*args, **kwargs)
 
-        monkeypatch.setattr(export_action, render_name, observed)
-        capability_type, capability_method = {
-            "export.work_log": (
-                export_action.WorkLogExportCapability,
-                "write_work_log",
-            ),
-            "export.sheet_csv": (
-                export_action.SheetCsvExportCapability,
-                "write_sheet_csv",
-            ),
-            "export.sheet_jsonl": (
-                export_action.SheetJsonlExportCapability,
-                "write_sheet_jsonl",
-            ),
-            "export.sheet_parquet": (
-                export_action.SheetParquetExportCapability,
-                "write_sheet_parquet",
-            ),
-        }[kind]
-        original_capability = getattr(capability_type, capability_method)
+    monkeypatch.setattr(export_action, render_name, observed)
+    capability_type, capability_method = {
+        "export.work_log": (
+            export_action.WorkLogExportCapability,
+            "write_work_log",
+        ),
+        "export.sheet_csv": (
+            export_action.SheetCsvExportCapability,
+            "write_sheet_csv",
+        ),
+        "export.sheet_jsonl": (
+            export_action.SheetJsonlExportCapability,
+            "write_sheet_jsonl",
+        ),
+        "export.sheet_parquet": (
+            export_action.SheetParquetExportCapability,
+            "write_sheet_parquet",
+        ),
+    }[kind]
+    original_capability = getattr(capability_type, capability_method)
 
-        def observed_capability(*args: Any, **kwargs: Any) -> Any:
-            nonlocal capability_calls
-            capability_calls += 1
-            assert project.db.in_transaction is False
-            return original_capability(*args, **kwargs)
+    def observed_capability(*args: Any, **kwargs: Any) -> Any:
+        nonlocal capability_calls
+        capability_calls += 1
+        assert project.db.in_transaction is False
+        return original_capability(*args, **kwargs)
 
-        monkeypatch.setattr(capability_type, capability_method, observed_capability)
-        if kind == "export.work_log":
-            action = _work_log_action(destination)
-        elif kind == "export.sheet_csv":
-            action = _sheet_csv_action(sheet_id=sheet_id, destination=destination)
-        else:
-            action = _dataset_action(kind, sheet_id=sheet_id, destination=destination)
+    monkeypatch.setattr(capability_type, capability_method, observed_capability)
+    if kind == "export.work_log":
+        action = _work_log_action(destination)
+    elif kind == "export.sheet_csv":
+        action = _sheet_csv_action(sheet_id=sheet_id, destination=destination)
+    else:
+        action = _dataset_action(kind, sheet_id=sheet_id, destination=destination)
 
-        first = executor_actions.run_action_spec(
-            project, action, project_id="project-export-render-once"
-        )
-        replay = executor_actions.run_action_spec(
-            project, action, project_id="project-export-render-once"
-        )
+    first = executor_actions.run_action_spec(
+        project, action, project_id="project-export-render-once"
+    )
+    replay = executor_actions.run_action_spec(
+        project, action, project_id="project-export-render-once"
+    )
 
-        assert first.status == "completed", first.errors
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-        assert calls == 1
-        assert capability_calls == 1
-    finally:
-        project.close()
+    assert first.status == "completed", first.errors
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
+    assert calls == 1
+    assert capability_calls == 1
 
 
 @pytest.mark.parametrize("destination_kind", ["local_dir", "project_file"])

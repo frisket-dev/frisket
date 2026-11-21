@@ -54,7 +54,7 @@ def test_missing_capable_transform_keeps_null_but_does_not_coerce_invalid_to_mis
     )
 
 
-def test_canonical_current_outcome_retains_uncompleted_reason(tmp_path):
+def test_canonical_current_outcome_retains_uncompleted_reason(make_project):
     from frisket.engine.store.result_generations import ResultGenerationStore
     from test_result_generation_store import (
         _seed_project,
@@ -64,31 +64,28 @@ def test_canonical_current_outcome_retains_uncompleted_reason(tmp_path):
         _seal,
     )
 
-    project, sheet, column, rows = _seed_project(tmp_path, row_count=1)
-    try:
-        run = _start_claimed_run(
-            project,
-            sheet_id=sheet,
-            output_column_id=column,
-            row_ids=rows,
-            label="unavailable input",
-        )
-        _declare(ResultGenerationStore(project), run, column, write_mode="create")
-        reason = input_unavailability(
-            "source", {"outcome": "pending", "validity": "missing"}
-        )
-        _write(
-            project,
-            run,
-            [{"row_id": rows[0], "column_id": column, **not_completed_result(reason)}],
-        )
-        _seal(ResultGenerationStore(project), run, column)
-        values, refs = project.get_values_with_refs(sheet, column, row_ids=rows)
-        assert values[rows[0]] is None
-        assert refs[rows[0]]["outcome"] == "not_completed"
-        result = project.db.execute(
-            "SELECT error_code,outcome FROM results WHERE run_id=?", (run.run_id,)
-        ).fetchone()
-        assert tuple(result) == ("input_pending", "not_completed")
-    finally:
-        project.close()
+    project, sheet, column, rows = _seed_project(make_project, row_count=1)
+    run = _start_claimed_run(
+        project,
+        sheet_id=sheet,
+        output_column_id=column,
+        row_ids=rows,
+        label="unavailable input",
+    )
+    _declare(ResultGenerationStore(project), run, column, write_mode="create")
+    reason = input_unavailability(
+        "source", {"outcome": "pending", "validity": "missing"}
+    )
+    _write(
+        project,
+        run,
+        [{"row_id": rows[0], "column_id": column, **not_completed_result(reason)}],
+    )
+    _seal(ResultGenerationStore(project), run, column)
+    values, refs = project.get_values_with_refs(sheet, column, row_ids=rows)
+    assert values[rows[0]] is None
+    assert refs[rows[0]]["outcome"] == "not_completed"
+    result = project.db.execute(
+        "SELECT error_code,outcome FROM results WHERE run_id=?", (run.run_id,)
+    ).fetchone()
+    assert tuple(result) == ("input_pending", "not_completed")

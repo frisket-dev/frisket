@@ -51,11 +51,8 @@ def _counts(project: Project) -> dict[str, int]:
     }
 
 
-def _seed_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(
-        tmp_path / "to-markdown-text-spans.frisket",
-        name="Text spans",
-    )
+def _seed_project(make_project) -> dict[str, Any]:
+    project = make_project("Text spans")
     sheet_id = project.add_sheet("Documents")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -132,8 +129,8 @@ def _markdown_column_id(project: Project, sheet_id: int) -> int:
     return int(row["id"])
 
 
-def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    seeded = _seed_project(tmp_path)
+def _run(make_project, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    seeded = _seed_project(make_project)
     project: Project = seeded["project"]
     monkeypatch.setattr(
         _BoundDocumentConverter,
@@ -153,180 +150,162 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 def test_markdown_row_writes_quote_free_source_provenance(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_a = seeded["row_ids"][0]
-    try:
-        markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_a,
-            column_id=markdown_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        assert cell_evidence["links"][0]["role"] == "source_provenance"
-        assert cell_evidence["links"][0]["snippet"] is None
-        link_stable_id = cell_evidence["links"][0]["stable_id"]
+    markdown_column_id = _markdown_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_a,
+        column_id=markdown_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    assert cell_evidence["links"][0]["role"] == "source_provenance"
+    assert cell_evidence["links"][0]["snippet"] is None
+    link_stable_id = cell_evidence["links"][0]["stable_id"]
 
-        viewer = resolve_citation_viewer(project, link_stable_id, project_id=PROJECT_ID)
-        assert len(viewer["artifacts"]) == 1
-        artifact = viewer["artifacts"][0]
-        assert artifact["artifact_kind"] == "file"
-        assert artifact["media_type"] == "text/html"
+    viewer = resolve_citation_viewer(project, link_stable_id, project_id=PROJECT_ID)
+    assert len(viewer["artifacts"]) == 1
+    artifact = viewer["artifacts"][0]
+    assert artifact["artifact_kind"] == "file"
+    assert artifact["media_type"] == "text/html"
 
-        spans = artifact["spans"]
-        assert len(spans) == 1
-        span = spans[0]
-        assert span["span_kind"] == "whole"
-        assert span["quote"] is None
-        assert span["snippet"] is None
-        assert "char_start" not in span["selector"]
-        assert span["text_layer_hash"] is None
-    finally:
-        project.close()
+    spans = artifact["spans"]
+    assert len(spans) == 1
+    span = spans[0]
+    assert span["span_kind"] == "whole"
+    assert span["quote"] is None
+    assert span["snippet"] is None
+    assert "char_start" not in span["selector"]
+    assert span["text_layer_hash"] is None
 
 
 def test_markdown_support_span_claims_no_surface_and_is_not_a_layer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A whole-output support quote needs neither offsets nor a reader layer."""
     from frisket.engine.store.text_annotations import resolve_text_annotations
 
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_a = seeded["row_ids"][0]
-    try:
-        markdown_column_id = _markdown_column_id(project, sheet_id)
-        surface = project.db.execute(
-            "SELECT surface_kind, text_column_id FROM text_surfaces "
-            "WHERE text_row_id=? AND surface_kind='cell'",
-            (row_a,),
-        ).fetchone()
-        assert surface is None
+    markdown_column_id = _markdown_column_id(project, sheet_id)
+    surface = project.db.execute(
+        "SELECT surface_kind, text_column_id FROM text_surfaces "
+        "WHERE text_row_id=? AND surface_kind='cell'",
+        (row_a,),
+    ).fetchone()
+    assert surface is None
 
-        res = resolve_text_annotations(
-            project, sheet_id=sheet_id, row_id=row_a, column_id=markdown_column_id
-        )
-        assert res["layers"] == []  # support span is never a reader layer
-    finally:
-        project.close()
+    res = resolve_text_annotations(
+        project, sheet_id=sheet_id, row_id=row_a, column_id=markdown_column_id
+    )
+    assert res["layers"] == []  # support span is never a reader layer
 
 
 def test_provenance_span_does_not_copy_the_derived_markdown(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_a = seeded["row_ids"][0]
-    try:
-        markdown_column_id = _markdown_column_id(project, sheet_id)
-        stored_markdown = project.get_values(
-            sheet_id, markdown_column_id, row_ids=[row_a]
-        )[row_a]
-        assert stored_markdown == _MARKDOWN_BY_BLOB["a"]
+    markdown_column_id = _markdown_column_id(project, sheet_id)
+    stored_markdown = project.get_values(sheet_id, markdown_column_id, row_ids=[row_a])[
+        row_a
+    ]
+    assert stored_markdown == _MARKDOWN_BY_BLOB["a"]
 
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_a,
-            column_id=markdown_column_id,
-            project_id=PROJECT_ID,
-        )
-        viewer = resolve_citation_viewer(
-            project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        span = viewer["artifacts"][0]["spans"][0]
-        assert span["quote"] is None
-        assert span["snippet"] is None
-        assert "char_start" not in span["selector"]
-        assert span["text_layer_hash"] is None
-    finally:
-        project.close()
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_a,
+        column_id=markdown_column_id,
+        project_id=PROJECT_ID,
+    )
+    viewer = resolve_citation_viewer(
+        project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    span = viewer["artifacts"][0]["spans"][0]
+    assert span["quote"] is None
+    assert span["snippet"] is None
+    assert "char_start" not in span["selector"]
+    assert span["text_layer_hash"] is None
 
 
 def test_zero_content_row_writes_no_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_b = seeded["row_ids"][1]
-    try:
-        markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_b,
-            column_id=markdown_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert cell_evidence["links"] == []
-        no_artifact = project.db.execute(
-            "SELECT COUNT(*) FROM source_artifacts WHERE source_row_id=?",
-            (row_b,),
-        ).fetchone()[0]
-        assert no_artifact == 0
-    finally:
-        project.close()
+    markdown_column_id = _markdown_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_b,
+        column_id=markdown_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert cell_evidence["links"] == []
+    no_artifact = project.db.execute(
+        "SELECT COUNT(*) FROM source_artifacts WHERE source_row_id=?",
+        (row_b,),
+    ).fetchone()[0]
+    assert no_artifact == 0
 
 
 def test_evidence_link_binds_to_markdown_output_cell_not_input_doc_cell(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_a = seeded["row_ids"][0]
-    try:
-        markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_a,
-            column_id=markdown_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        link = cell_evidence["links"][0]
-        assert link["status"] == "active"
+    markdown_column_id = _markdown_column_id(project, sheet_id)
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_a,
+        column_id=markdown_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    link = cell_evidence["links"][0]
+    assert link["status"] == "active"
 
-        doc_column_id = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='doc'", (sheet_id,)
-        ).fetchone()["id"]
-        doc_cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_a,
-            column_id=int(doc_column_id),
-            project_id=PROJECT_ID,
-        )
-        assert doc_cell_evidence["links"] == []
-    finally:
-        project.close()
+    doc_column_id = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='doc'", (sheet_id,)
+    ).fetchone()["id"]
+    doc_cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_a,
+        column_id=int(doc_column_id),
+        project_id=PROJECT_ID,
+    )
+    assert doc_cell_evidence["links"] == []
 
 
 def test_evidence_counts_match_multi_row_expectations(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run(tmp_path, monkeypatch)
+    seeded = _run(make_project, monkeypatch)
     project: Project = seeded["project"]
-    try:
-        after = _counts(project)
-        before = seeded["before_counts"]
-        # 1 row (A) writes evidence; B (empty markdown) writes nothing.
-        assert after["source_artifacts"] == before["source_artifacts"] + 1
-        assert after["source_spans"] == before["source_spans"] + 1
-        assert after["evidence_links"] == before["evidence_links"] + 1
-        assert after["evidence_link_spans"] == before["evidence_link_spans"] + 1
-    finally:
-        project.close()
+    after = _counts(project)
+    before = seeded["before_counts"]
+    # 1 row (A) writes evidence; B (empty markdown) writes nothing.
+    assert after["source_artifacts"] == before["source_artifacts"] + 1
+    assert after["source_spans"] == before["source_spans"] + 1
+    assert after["evidence_links"] == before["evidence_links"] + 1
+    assert after["evidence_link_spans"] == before["evidence_link_spans"] + 1
 
 
 def test_inline_text_input_writes_text_artifact_kind(
@@ -385,26 +364,21 @@ def test_inline_text_input_writes_text_artifact_kind(
 
 
 def test_replay_does_not_duplicate_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_project(tmp_path)
+    seeded = _seed_project(make_project)
     project: Project = seeded["project"]
     monkeypatch.setattr(
         _BoundDocumentConverter,
         "_convert_markitdown",
         _fake_markitdown(seeded["blobs"]),
     )
-    try:
-        action = _to_markdown_action(
-            sheet_id=seeded["sheet_id"], row_ids=seeded["row_ids"]
-        )
-        first = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert first.status == "completed"
-        after_first = _counts(project)
+    action = _to_markdown_action(sheet_id=seeded["sheet_id"], row_ids=seeded["row_ids"])
+    first = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert first.status == "completed"
+    after_first = _counts(project)
 
-        replay = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert _counts(project) == after_first
-    finally:
-        project.close()
+    replay = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert _counts(project) == after_first

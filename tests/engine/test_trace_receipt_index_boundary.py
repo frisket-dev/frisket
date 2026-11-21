@@ -128,8 +128,7 @@ def _insert_receipt(
     project.db.commit()
 
 
-def _receipt_project(tmp_path: Path) -> Project:
-    project = Project.create(tmp_path / "receipt-index.frisket", name="Receipts")
+def _receipt_project(project: Project) -> Project:
     _insert_receipt(
         project,
         receipt_id="wf_import_a",
@@ -196,10 +195,10 @@ def test_trace_row_deep_dive_scans_compressed_log_for_latest_record(
 
 
 def test_work_log_receipt_summaries_keep_complete_audit_export_from_index(
-    tmp_path: Path,
+    project: Project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project = _receipt_project(tmp_path)
+    _receipt_project(project)
     receipt_index.build_receipt_index(project)
 
     def fail_body_parse(_raw: str | None) -> dict[str, Any]:

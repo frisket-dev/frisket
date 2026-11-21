@@ -132,7 +132,8 @@ def estimate_pages(
         inventory,
         request_context=request_context,
     )
-    header["page_ocr_quote"] = holder.snapshot(directory)
+    header["page_ocr_estimate"] = holder.snapshot(directory)
+    header.pop("page_ocr_quote", None)
     estimate = dict(holder.public["estimate"])
     count = int(holder.public["pages"])
     authorization = holder.estimated.get("authorization") or {}
@@ -181,7 +182,9 @@ def approve_pages(
         inventory,
         request_context=request_context,
     )
-    saved = header.get("page_ocr_quote")
+    saved = header.get("page_ocr_estimate")
+    if saved is None:
+        saved = header.get("page_ocr_quote")
     holder = (
         PdfPacketOcrEstimate.restore(saved, directory) if saved is not None else None
     )
@@ -212,7 +215,8 @@ def approve_pages(
         )
     except ValueError as exc:
         raise PdfImportDraftError(409, str(exc)) from exc
-    header["page_ocr_quote"] = holder.snapshot(directory)
+    header["page_ocr_estimate"] = holder.snapshot(directory)
+    header.pop("page_ocr_quote", None)
     native = {
         key: {
             page: path

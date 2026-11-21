@@ -1,7 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from pathlib import Path
 from typing import Any
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
@@ -73,37 +72,33 @@ def _failing_router() -> tuple[ModelRouter, _FailingAdapter]:
     return router, adapter
 
 
-def _seed_project(project_path: Path) -> int:
-    project = Project.create(project_path, name="Confirmation Contract")
-    try:
-        sheet_id = project.add_sheet("Stories")
-        columns = {
-            "story": project.add_column(sheet_id, "story", type="text"),
-            "beat": project.add_column(sheet_id, "beat", type="text"),
-            "risk_score": project.add_column(sheet_id, "risk_score", type="integer"),
-            "country": project.add_column(sheet_id, "country", type="text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [
-                {
-                    "story": "City hall awarded a no-bid software contract",
-                    "beat": "accountability",
-                    "risk_score": 8,
-                    "country": "USA",
-                },
-                {
-                    "story": "Audit found duplicate vendor payments",
-                    "beat": "accountability",
-                    "risk_score": 9,
-                    "country": "Canada",
-                },
-            ],
-            columns,
-        )
-        return sheet_id
-    finally:
-        project.close()
+def _seed_project(project: Project) -> int:
+    sheet_id = project.add_sheet("Stories")
+    columns = {
+        "story": project.add_column(sheet_id, "story", type="text"),
+        "beat": project.add_column(sheet_id, "beat", type="text"),
+        "risk_score": project.add_column(sheet_id, "risk_score", type="integer"),
+        "country": project.add_column(sheet_id, "country", type="text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [
+            {
+                "story": "City hall awarded a no-bid software contract",
+                "beat": "accountability",
+                "risk_score": 8,
+                "country": "USA",
+            },
+            {
+                "story": "Audit found duplicate vendor payments",
+                "beat": "accountability",
+                "risk_score": 9,
+                "country": "Canada",
+            },
+        ],
+        columns,
+    )
+    return sheet_id
 
 
 def _reduce_action(sheet_id: int, *, model: str, key: str) -> dict[str, Any]:
@@ -162,83 +157,66 @@ def _confirmation_reason(result: Any) -> str:
 
 
 def test_unconfirmed_model_action_pauses_with_generic_reason_and_no_durable_state(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project_path = tmp_path / "model.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _summary_router()
-    project = Project(project_path)
-    try:
-        before = _counts(project)
-        result = executor_actions.run_action_spec(
-            project,
-            _reduce_action(sheet_id, model="unknown/frontier", key="unconfirmed"),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        # The pause itself: a 402 envelope carrying the exact quote token,
-        # with no durable state and no provider call.
-        assert result.status == "needs_confirmation", result.errors
-        assert result.errors[0].needs_confirmation is True
-        details = result.errors[0].details or {}
-        assert isinstance(details.get("promise_set_hash"), str)
-        assert isinstance(details.get("estimate"), dict)
-        assert _counts(project) == before
-        assert adapter.requests == []
-        # unpriced model => the gate cannot certify "cheap" => unknown_estimate.
-        assert _confirmation_reason(result) == "unknown_estimate"
-    finally:
-        project.close()
+    before = _counts(project)
+    result = executor_actions.run_action_spec(
+        project,
+        _reduce_action(sheet_id, model="unknown/frontier", key="unconfirmed"),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    # The pause itself: a 402 envelope carrying the exact quote token,
+    # with no durable state and no provider call.
+    assert result.status == "needs_confirmation", result.errors
+    assert result.errors[0].needs_confirmation is True
+    details = result.errors[0].details or {}
+    assert isinstance(details.get("promise_set_hash"), str)
+    assert isinstance(details.get("estimate"), dict)
+    assert _counts(project) == before
+    assert adapter.requests == []
+    # unpriced model => the gate cannot certify "cheap" => unknown_estimate.
+    assert _confirmation_reason(result) == "unknown_estimate"
 
 
-def test_confirmed_model_action_proceeds_and_creates_state(tmp_path: Path) -> None:
+def test_confirmed_model_action_proceeds_and_creates_state(project: Project) -> None:
     from executor_harness import run_action_with_confirmation
 
-    project_path = tmp_path / "confirmed.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _summary_router()
-    project = Project(project_path)
-    try:
-        before = _counts(project)
-        # Quote first, then echo the exact token: the only consent there is.
-        result = run_action_with_confirmation(
-            project,
-            _reduce_action(
-                sheet_id, model="anthropic/claude-haiku-4-5", key="confirmed"
-            ),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        assert _counts(project) != before
-        assert adapter.requests, "confirmed run must reach the provider"
-    finally:
-        project.close()
+    before = _counts(project)
+    # Quote first, then echo the exact token: the only consent there is.
+    result = run_action_with_confirmation(
+        project,
+        _reduce_action(sheet_id, model="anthropic/claude-haiku-4-5", key="confirmed"),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    assert _counts(project) != before
+    assert adapter.requests, "confirmed run must reach the provider"
 
 
-def test_post_provider_failure_is_terminal_not_confirmation(tmp_path: Path) -> None:
+def test_post_provider_failure_is_terminal_not_confirmation(project: Project) -> None:
     from executor_harness import run_action_with_confirmation
 
-    project_path = tmp_path / "failure.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _failing_router()
-    project = Project(project_path)
-    try:
-        result = run_action_with_confirmation(
-            project,
-            _reduce_action(sheet_id, model="anthropic/claude-haiku-4-5", key="failure"),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        # the provider was reached and failed: a terminal action error, never a
-        # confirmation pause.
-        assert result.status != "needs_confirmation"
-        assert result.status in {"failed", "partial"}
-        assert adapter.requests, "the provider should have been called"
-    finally:
-        project.close()
+    result = run_action_with_confirmation(
+        project,
+        _reduce_action(sheet_id, model="anthropic/claude-haiku-4-5", key="failure"),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    # the provider was reached and failed: a terminal action error, never a
+    # confirmation pause.
+    assert result.status != "needs_confirmation"
+    assert result.status in {"failed", "partial"}
+    assert adapter.requests, "the provider should have been called"
 
 
 # --- builder-level reason vocabulary ---------------------------------------

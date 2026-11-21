@@ -56,7 +56,6 @@ from frisket.contracts.actions.schemas._engines import (
     project_transcription_engine_options,
 )
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.ai.models.metadata import model_calls_cost_actual
 
@@ -98,7 +97,7 @@ def _ctx(handler) -> ActionContext:
 
 
 def _transcribe_action(
-    tmp_path, monkeypatch, handler, *, engine="whisper-turbo", **options
+    project, tmp_path, monkeypatch, handler, *, engine="whisper-turbo", **options
 ):
     async def post(_client, url, **kwargs):
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -106,45 +105,37 @@ def _transcribe_action(
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     path = _wav(tmp_path / "a.wav")
-    project = Project.create(tmp_path / "transcribe.frisket")
-    try:
-        sheet = project.add_sheet("Audio")
-        column = project.add_column(sheet, "audio", type="audio")
-        digest = project.add_blob(path.read_bytes(), filename="a.wav", mime="audio/wav")
-        project.add_rows(
-            sheet,
-            [{"audio": {"blob": digest, "filename": "a.wav", "mime": "audio/wav"}}],
-            {"audio": column},
-        )
-        request = {
-            "action_id": "media.transcribe",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "audio", "engine": engine, **options},
-            "output_names": {
-                "text": "transcript",
-                "segments": "transcript_segments",
-            },
-            "idempotency_key": "sidecar-transcription",
-        }
-        if transcribe_engines.transcribe_engine_capabilities(engine).detects_language:
-            request["output_names"]["detected_language"] = "detected_language"
+    sheet = project.add_sheet("Audio")
+    column = project.add_column(sheet, "audio", type="audio")
+    digest = project.add_blob(path.read_bytes(), filename="a.wav", mime="audio/wav")
+    project.add_rows(
+        sheet,
+        [{"audio": {"blob": digest, "filename": "a.wav", "mime": "audio/wav"}}],
+        {"audio": column},
+    )
+    request = {
+        "action_id": "media.transcribe",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "audio", "engine": engine, **options},
+        "output_names": {
+            "text": "transcript",
+            "segments": "transcript_segments",
+        },
+        "idempotency_key": "sidecar-transcription",
+    }
+    if transcribe_engines.transcribe_engine_capabilities(engine).detects_language:
+        request["output_names"]["detected_language"] = "detected_language"
+    result = run_action_spec(project, request, project_id="sidecar")
+    if result.status == "needs_confirmation":
+        request["confirmation"] = result.errors[0].details["promise_set_hash"]
         result = run_action_spec(project, request, project_id="sidecar")
-        if result.status == "needs_confirmation":
-            request["confirmation"] = result.errors[0].details["promise_set_hash"]
-            result = run_action_spec(project, request, project_id="sidecar")
-        values = {
-            output.name: next(
-                iter(project.get_values(sheet, output.column_id).values())
-            )
-            for output in result.outputs
-            if output.column_id is not None
-        }
-        calls = (
-            RunResultStore(project).model_calls(result.run_id) if result.run_id else []
-        )
-        return result, values, calls
-    finally:
-        project.close()
+    values = {
+        output.name: next(iter(project.get_values(sheet, output.column_id).values()))
+        for output in result.outputs
+        if output.column_id is not None
+    }
+    calls = RunResultStore(project).model_calls(result.run_id) if result.run_id else []
+    return result, values, calls
 
 
 def _routed_gateway_ctx(handler) -> ActionContext:
@@ -266,7 +257,7 @@ def synthetic_v1_engine(monkeypatch) -> str:
 # transcribe sidecar tier
 
 
-def test_transcribe_sidecar_roundtrip(tmp_path, monkeypatch):
+def test_transcribe_sidecar_roundtrip(project, tmp_path, monkeypatch):
     """Whisper Turbo uses the strict v1 route and controls."""
     seen = {}
 
@@ -306,7 +297,7 @@ def test_transcribe_sidecar_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
     result, out, calls = _transcribe_action(
-        tmp_path, monkeypatch, handler, language=["en"]
+        project, tmp_path, monkeypatch, handler, language=["en"]
     )
     assert result.status == "completed", result.errors
     assert seen["url"].endswith("/v1/transcribe")
@@ -326,7 +317,9 @@ def test_transcribe_sidecar_roundtrip(tmp_path, monkeypatch):
     assert model_calls_cost_actual(calls) == 0.0
 
 
-def test_transcribe_gateway_wire_uses_the_named_turbo_identity(tmp_path, monkeypatch):
+def test_transcribe_gateway_wire_uses_the_named_turbo_identity(
+    project, tmp_path, monkeypatch
+):
     """Whisper Turbo has one identity across the authored route and v1 wire."""
     seen = {}
 
@@ -352,12 +345,12 @@ def test_transcribe_gateway_wire_uses_the_named_turbo_identity(tmp_path, monkeyp
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    result, _, _ = _transcribe_action(tmp_path, monkeypatch, handler)
+    result, _, _ = _transcribe_action(project, tmp_path, monkeypatch, handler)
     assert result.status == "completed", result.errors
     assert seen["engine_on_wire"]
 
 
-def test_transcribe_sidecar_needs_url(tmp_path, monkeypatch):
+def test_transcribe_sidecar_needs_url(project, tmp_path, monkeypatch):
     """An unrouted gateway engine (moss) without FRISKET_MODELS_URL fails
     with the target's activation remedy via the ephemeral binding deref —
     never a silent fallback, never a crash."""
@@ -368,7 +361,7 @@ def test_transcribe_sidecar_needs_url(tmp_path, monkeypatch):
         raise AssertionError("Missing route must refuse before HTTP dispatch")
 
     result, values, calls = _transcribe_action(
-        tmp_path, monkeypatch, forbidden, engine="moss"
+        project, tmp_path, monkeypatch, forbidden, engine="moss"
     )
     assert result.status == "failed", result.errors
     assert "FRISKET_MODELS_URL" in str(result.errors)

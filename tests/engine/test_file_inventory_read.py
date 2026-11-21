@@ -1,5 +1,3 @@
-from contextlib import closing
-
 import pytest
 
 from frisket.actions.types import TableError
@@ -8,15 +6,13 @@ from frisket.engine.executor.file_inventory_read import (
     FileInventoryAdmission,
 )
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-from frisket.engine.store import Project
 from frisket.engine.store.import_inventory import ImportInventory
 
 
 def test_page_admission_bounds_occurrences_without_touching_originals(
-    tmp_path, monkeypatch
+    tmp_path, project, monkeypatch
 ):
     with (
-        closing(Project.create(tmp_path / "p.frisket")) as project,
         ImportInventory(tmp_path / "inventory.db") as inventory,
         AdmittedImportBlobStager() as stager,
     ):
@@ -61,9 +57,10 @@ def test_page_admission_bounds_occurrences_without_touching_originals(
         assert last.complete
 
 
-def test_unsealed_empty_page_is_not_complete_and_ref_cannot_select_inventory(tmp_path):
+def test_unsealed_empty_page_is_not_complete_and_ref_cannot_select_inventory(
+    tmp_path, project
+):
     with (
-        closing(Project.create(tmp_path / "p.frisket")) as project,
         ImportInventory(tmp_path / "inventory.db") as inventory,
         AdmittedImportBlobStager() as stager,
     ):

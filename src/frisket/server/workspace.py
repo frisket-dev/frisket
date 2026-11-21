@@ -111,7 +111,7 @@ class ImportChildAdmissionPort(Protocol):
         project_id: str,
         parent_receipt_id: str,
         child_key: str,
-        quote: Mapping[str, Any],
+        estimate: Mapping[str, Any],
         receipt_id: str | None = None,
     ) -> Any: ...
 

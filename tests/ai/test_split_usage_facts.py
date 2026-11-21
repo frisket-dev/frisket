@@ -8,7 +8,6 @@ import inspect
 import json
 import re
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -53,26 +52,20 @@ def _stub_router():
     return router
 
 
-def _seed_project(project_path: Path) -> int:
-    from frisket.engine.store import Project
-
-    project = Project.create(project_path, name="Usage Facts")
-    try:
-        sheet_id = project.add_sheet("Stories")
-        columns = {
-            "story": project.add_column(sheet_id, "story", type="text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [
-                {"story": "City hall awarded a no-bid contract"},
-                {"story": "Routine road work finished early"},
-            ],
-            columns,
-        )
-        return sheet_id
-    finally:
-        project.close()
+def _seed_project(project) -> int:
+    sheet_id = project.add_sheet("Stories")
+    columns = {
+        "story": project.add_column(sheet_id, "story", type="text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [
+            {"story": "City hall awarded a no-bid contract"},
+            {"story": "Routine road work finished early"},
+        ],
+        columns,
+    )
+    return sheet_id
 
 
 def _map_classify_action(sheet_id: int) -> dict[str, Any]:
@@ -99,13 +92,9 @@ def _map_classify_action(sheet_id: int) -> dict[str, Any]:
     }
 
 
-def _run_stub_action(tmp_path: Path):
+def _run_stub_action(project):
     """Execute one stubbed map.classify run; return (project, run_id)."""
-    from frisket.engine.store import Project
-
-    project_path = tmp_path / "usage-facts.frisket"
-    sheet_id = _seed_project(project_path)
-    project = Project(project_path)
+    sheet_id = _seed_project(project)
     result = run_action_with_exact_confirmation(
         project,
         _map_classify_action(sheet_id),
@@ -180,80 +169,75 @@ def test_model_calls_schema_is_neutral(make_project) -> None:
 
 
 def test_run_fact_rows_are_neutral_and_carry_credential_provenance(
-    tmp_path: Path,
+    project,
 ) -> None:
     from frisket.engine.store.runs import RunResultStore
 
-    project, run_id = _run_stub_action(tmp_path)
-    try:
-        rows = RunResultStore(project).model_calls(run_id)
-        assert len(rows) == 2
+    project, run_id = _run_stub_action(project)
+    rows = RunResultStore(project).model_calls(run_id)
+    assert len(rows) == 2
 
-        for row in rows:
-            keys = set(row.keys())
+    for row in rows:
+        keys = set(row.keys())
 
-            leaked = keys & TARIFF_FACT_KEYS
-            assert not leaked, (
-                f"persisted model-call fact still carries tariff/billability "
-                f"fields {sorted(leaked)} — open code records neutral facts; "
-                "billability and credit charges are computed by the private "
-                "settlement consumer"
-            )
-
-            # Neutral facts stay present.
-            assert row["provider"] == "anthropic"
-            cost_key = (
-                "provider_cost_usd"
-                if "provider_cost_usd" in keys
-                else "provider_reported_cost_usd"
-            )
-            assert row[cost_key] == pytest.approx(0.004)
-            units = json.loads(row["units"])
-            assert units.get("tokens_in") == 61
-            assert units.get("tokens_out") == 23
-
-            # Gate 7: enum-like credential provenance, populated on a real
-            # fact produced through the map-runner stub path.
-            provenance_keys = [
-                k for k in keys if k == "credential_source" or "provenance" in k.lower()
-            ]
-            assert provenance_keys, "fact row has no credential provenance field"
-            provenance = next((row[k] for k in provenance_keys if row[k]), None)
-            assert isinstance(provenance, str) and provenance, (
-                "credential provenance must be populated on every model-call fact"
-            )
-            assert provenance not in {"none", "unknown"}, (
-                f"credential provenance must be a definite source, got {provenance!r}"
-            )
-            assert ENUMISH_PROVENANCE.match(provenance), (
-                f"credential provenance must be a small enum-like token, got "
-                f"{provenance!r}"
-            )
-
-            # No secret material rides on the fact row.
-            for k in keys:
-                assert not SECRETISH_FIELD_NAME.search(k), (
-                    f"fact row field name {k!r} suggests secret material"
-                )
-                value = row[k]
-                if isinstance(value, str):
-                    assert not KEY_MATERIAL_VALUE.search(value), (
-                        f"fact row field {k} carries key-like material"
-                    )
-                    assert not LONG_OPAQUE_VALUE.match(value.strip()), (
-                        f"fact row field {k} carries a long opaque blob "
-                        "(possible secret)"
-                    )
-
-        # runs.cost_actual accumulates PROVIDER cost only.
-        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        assert run is not None
-        assert run["cost_actual"] == pytest.approx(0.008), (
-            "runs.cost_actual must equal the sum of per-call provider cost "
-            "(2 stub calls x 0.004), never a marked-up customer price"
+        leaked = keys & TARIFF_FACT_KEYS
+        assert not leaked, (
+            f"persisted model-call fact still carries tariff/billability "
+            f"fields {sorted(leaked)} — open code records neutral facts; "
+            "billability and credit charges are computed by the private "
+            "settlement consumer"
         )
-    finally:
-        project.close()
+
+        # Neutral facts stay present.
+        assert row["provider"] == "anthropic"
+        cost_key = (
+            "provider_cost_usd"
+            if "provider_cost_usd" in keys
+            else "provider_reported_cost_usd"
+        )
+        assert row[cost_key] == pytest.approx(0.004)
+        units = json.loads(row["units"])
+        assert units.get("tokens_in") == 61
+        assert units.get("tokens_out") == 23
+
+        # Gate 7: enum-like credential provenance, populated on a real
+        # fact produced through the map-runner stub path.
+        provenance_keys = [
+            k for k in keys if k == "credential_source" or "provenance" in k.lower()
+        ]
+        assert provenance_keys, "fact row has no credential provenance field"
+        provenance = next((row[k] for k in provenance_keys if row[k]), None)
+        assert isinstance(provenance, str) and provenance, (
+            "credential provenance must be populated on every model-call fact"
+        )
+        assert provenance not in {"none", "unknown"}, (
+            f"credential provenance must be a definite source, got {provenance!r}"
+        )
+        assert ENUMISH_PROVENANCE.match(provenance), (
+            f"credential provenance must be a small enum-like token, got {provenance!r}"
+        )
+
+        # No secret material rides on the fact row.
+        for k in keys:
+            assert not SECRETISH_FIELD_NAME.search(k), (
+                f"fact row field name {k!r} suggests secret material"
+            )
+            value = row[k]
+            if isinstance(value, str):
+                assert not KEY_MATERIAL_VALUE.search(value), (
+                    f"fact row field {k} carries key-like material"
+                )
+                assert not LONG_OPAQUE_VALUE.match(value.strip()), (
+                    f"fact row field {k} carries a long opaque blob (possible secret)"
+                )
+
+    # runs.cost_actual accumulates PROVIDER cost only.
+    run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    assert run is not None
+    assert run["cost_actual"] == pytest.approx(0.008), (
+        "runs.cost_actual must equal the sum of per-call provider cost "
+        "(2 stub calls x 0.004), never a marked-up customer price"
+    )
 
 
 # --------------------------------------------------------------------------

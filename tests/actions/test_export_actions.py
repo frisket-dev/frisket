@@ -212,58 +212,53 @@ def test_export_format_is_derived_from_the_action_identity() -> None:
     ],
 )
 def test_export_runtime_refusal_only_records_its_failed_invocation(
-    tmp_path, action_id, missing_sheet
+    tmp_path, project, action_id, missing_sheet
 ) -> None:
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
 
-    project = Project.create(tmp_path / "project")
-    try:
-        sheet_id = project.add_sheet("Data")
-        tables = (
-            "sheets",
-            "columns",
-            "rows",
-            "cells",
-            "ops",
-            "runs",
-            "blobs",
-            "receipts",
-        )
-        before = {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in tables
-        }
-        destination = tmp_path / "missing-sheet.csv" if missing_sheet else tmp_path
-        params = {"destination": {"kind": "local_file", "path": str(destination)}}
-        if action_id == "export.sheet_csv":
-            params["sheet_id"] = 999 if missing_sheet else sheet_id
-        result = run_action_spec(
-            project,
-            {
-                "action_id": action_id,
-                "scope": {"kind": "project"},
-                "params": params,
-                "idempotency_key": "failed-export",
-            },
-            project_id="p",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == (
-            "invalid_sheet_ref" if missing_sheet else "invalid_export_destination"
-        )
-        assert result.receipt_id is not None
-        assert (
-            project.db.execute(
-                "SELECT status FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()[0]
-            == "failed"
-        )
-        assert {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in tables
-        } == {**before, "receipts": before["receipts"] + 1}
-        if missing_sheet:
-            assert not destination.exists()
-    finally:
-        project.close()
+    sheet_id = project.add_sheet("Data")
+    tables = (
+        "sheets",
+        "columns",
+        "rows",
+        "cells",
+        "ops",
+        "runs",
+        "blobs",
+        "receipts",
+    )
+    before = {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in tables
+    }
+    destination = tmp_path / "missing-sheet.csv" if missing_sheet else tmp_path
+    params = {"destination": {"kind": "local_file", "path": str(destination)}}
+    if action_id == "export.sheet_csv":
+        params["sheet_id"] = 999 if missing_sheet else sheet_id
+    result = run_action_spec(
+        project,
+        {
+            "action_id": action_id,
+            "scope": {"kind": "project"},
+            "params": params,
+            "idempotency_key": "failed-export",
+        },
+        project_id="p",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == (
+        "invalid_sheet_ref" if missing_sheet else "invalid_export_destination"
+    )
+    assert result.receipt_id is not None
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()[0]
+        == "failed"
+    )
+    assert {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in tables
+    } == {**before, "receipts": before["receipts"] + 1}
+    if missing_sheet:
+        assert not destination.exists()

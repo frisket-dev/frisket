@@ -14,7 +14,6 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionRequest, TableError
 from frisket.authoring.column_types import register_column_type, unregister_column_type
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 
@@ -239,7 +238,7 @@ def test_xlsx_refuses_invalid_or_retired_params(changes):
         _params(**changes)
 
 
-def test_xlsx_public_execution_normalizes_once_renames_and_replays(tmp_path):
+def test_xlsx_public_execution_normalizes_once_renames_and_replays(tmp_path, project):
     assert ACTION_REGISTRY.get("import.xlsx").definition is XLSX
     calls = []
 
@@ -254,7 +253,6 @@ def test_xlsx_public_execution_normalizes_once_renames_and_replays(tmp_path):
         parse=parse,
         validate=lambda value: isinstance(value, str) and value.endswith("!"),
     )
-    project = Project.create(tmp_path / "project")
     try:
         raw = _workbook([["name"], ["Ada"], ["Grace"]])
         source = tmp_path / "names.xlsx"
@@ -315,37 +313,30 @@ def test_xlsx_public_execution_normalizes_once_renames_and_replays(tmp_path):
         assert conflict.status == "failed"
         assert conflict.errors[0].code == "idempotency_conflict"
     finally:
-        project.close()
         unregister_column_type("xlsx_once")
 
 
-def test_xlsx_late_invalid_cell_never_publishes_partial_sheet(tmp_path):
+def test_xlsx_late_invalid_cell_never_publishes_partial_sheet(tmp_path, project):
     source = tmp_path / "late.xlsx"
     source.write_bytes(
         _workbook([["name"], *[[index] for index in range(1200)], ["bad"]])
     )
-    project = Project.create(tmp_path / "project")
-    try:
-        request = ActionRequest(
-            action_id="import.xlsx",
-            scope={"kind": "project"},
-            sheet_name="Late failure",
-            params={
-                "source": {"kind": "file", "path": str(source)},
-                "columns": [{"name": "name", "type": "integer"}],
-            },
-            idempotency_key="xlsx-late",
-        )
-        result = run_action_spec(
-            project, request.model_dump(mode="json"), project_id="p"
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_xlsx_value"
-        assert result.errors[0].details["line"] == 1202
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    finally:
-        project.close()
+    request = ActionRequest(
+        action_id="import.xlsx",
+        scope={"kind": "project"},
+        sheet_name="Late failure",
+        params={
+            "source": {"kind": "file", "path": str(source)},
+            "columns": [{"name": "name", "type": "integer"}],
+        },
+        idempotency_key="xlsx-late",
+    )
+    result = run_action_spec(project, request.model_dump(mode="json"), project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_xlsx_value"
+    assert result.errors[0].details["line"] == 1202
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize(
@@ -353,7 +344,7 @@ def test_xlsx_late_invalid_cell_never_publishes_partial_sheet(tmp_path):
     [("close", "xlsx_parse_failed"), ("hash", "invalid_file_source")],
 )
 def test_xlsx_final_source_failure_removes_already_staged_rows(
-    tmp_path, monkeypatch, failure, code
+    tmp_path, project, monkeypatch, failure, code
 ):
     raw = _workbook([["name"], *[[index] for index in range(601)]])
     borrowed = io.BytesIO(raw)
@@ -364,7 +355,6 @@ def test_xlsx_final_source_failure_removes_already_staged_rows(
             path: BoundLocalFile(stream=borrowed, sha256="sha256:" + expected)
         }
     )
-    project = Project.create(tmp_path / "project")
     appended = []
     closed = []
     append_rows = StreamingSheetWriter.append_rows
@@ -422,5 +412,4 @@ def test_xlsx_final_source_failure_removes_already_staged_rows(
         borrowed.seek(0)
         assert borrowed.read() == raw
     finally:
-        project.close()
         borrowed.close()

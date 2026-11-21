@@ -2440,9 +2440,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.v1_action_compare_preview_quote.post",
+      "id": "tenant.v1_action_compare_preview_estimate.post",
       "method": "POST",
-      "path": "/api/projects/{pid}/actions/v1/compare-preview-quote",
+      "path": "/api/projects/{pid}/actions/v1/compare-preview-estimate",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -2814,6 +2814,35 @@ export type HttpActionCompareContextResponse = ({
 });
 });
 
+type HttpActionCompareEstimateResponse_ActionEstimate = ({
+  "audio_seconds"?: (((number)) | ((null)));
+  "avg_input_tokens"?: (((number)) | ((null)));
+  "billed_cost": (((number)) | ((null)));
+  "billing_label"?: (((string)) | ((null)));
+  "claims"?: (((Array<(HttpActionCompareEstimateResponse_ActionEstimateClaim)>)) | ((null)));
+  "cost": (((number)) | ((null)));
+  "cost_source": (string);
+  "engine"?: (((string)) | ((null)));
+  "policy_id": (string);
+  "pricing_key"?: (((string)) | ((null)));
+  "promise_set_hash"?: (((string)) | ((null)));
+  "remote_capability"?: (((string)) | ((null)));
+  "requires_confirmation"?: (((boolean)) | ((null)));
+  "rows": (number);
+  "venue_label"?: (((string)) | ((null)));
+  "warning"?: (((string)) | ((null)));
+});
+
+type HttpActionCompareEstimateResponse_ActionEstimateClaim = ({
+  "display": (string);
+  "field": (string);
+});
+
+export type HttpActionCompareEstimateResponse = ({
+  "estimate": (HttpActionCompareEstimateResponse_ActionEstimate);
+  "schema_version": ("frisket.action_compare_estimate.v1") & (string);
+});
+
 type HttpActionComparePreviewRequest_ActionCompareDraftSource = ({
   "draft": (HttpActionComparePreviewRequest_ActionDraft);
   "kind": ("draft") & (string);
@@ -2855,35 +2884,6 @@ export type HttpActionComparePreviewRequest = ({
   [key: string]: (HttpActionComparePreviewRequest_JsonValue);
 });
   "comparison": (HttpActionComparePreviewRequest_ActionComparePreviewAdmission);
-});
-
-type HttpActionCompareQuoteResponse_ActionEstimate = ({
-  "audio_seconds"?: (((number)) | ((null)));
-  "avg_input_tokens"?: (((number)) | ((null)));
-  "billed_cost": (((number)) | ((null)));
-  "billing_label"?: (((string)) | ((null)));
-  "claims"?: (((Array<(HttpActionCompareQuoteResponse_ActionEstimateClaim)>)) | ((null)));
-  "cost": (((number)) | ((null)));
-  "cost_source": (string);
-  "engine"?: (((string)) | ((null)));
-  "policy_id": (string);
-  "pricing_key"?: (((string)) | ((null)));
-  "promise_set_hash"?: (((string)) | ((null)));
-  "remote_capability"?: (((string)) | ((null)));
-  "requires_confirmation"?: (((boolean)) | ((null)));
-  "rows": (number);
-  "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
-});
-
-type HttpActionCompareQuoteResponse_ActionEstimateClaim = ({
-  "display": (string);
-  "field": (string);
-});
-
-export type HttpActionCompareQuoteResponse = ({
-  "estimate": (HttpActionCompareQuoteResponse_ActionEstimate);
-  "schema_version": ("frisket.action_compare_quote.v1") & (string);
 });
 
 export type HttpActionError = ({
@@ -20210,12 +20210,12 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.v1_action_compare_preview_quote.post": {
+  readonly "tenant.v1_action_compare_preview_estimate.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: HttpActionComparePreviewRequest;
     readonly responses: {
-      readonly "200": HttpActionCompareQuoteResponse;
+      readonly "200": HttpActionCompareEstimateResponse;
       readonly "400": HttpActionPreviewErrorResponse;
       readonly "401": HttpError;
       readonly "402": HttpActionPreviewErrorResponse;

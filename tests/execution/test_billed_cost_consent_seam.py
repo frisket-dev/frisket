@@ -257,7 +257,7 @@ def _confirm_and_enqueue(client, project_id: str, action: dict) -> tuple[int, st
 
 def _consent_rows(project) -> list[Any]:
     return project.db.execute(
-        "SELECT id, quote_json FROM consents WHERE subject_kind='run'"
+        "SELECT id, estimate_json FROM consents WHERE subject_kind='run'"
     ).fetchall()
 
 
@@ -288,7 +288,7 @@ def test_the_402_states_the_billed_figure_and_persists_it(
 
     rows = _consent_rows(project)
     assert len(rows) == 1, "the confirmed 402 must record exactly one consent"
-    stored = json.loads(rows[0]["quote_json"])
+    stored = json.loads(rows[0]["estimate_json"])
     consent_estimate = ConsentEstimate.model_validate(stored)
     assert consent_estimate.policy_id == IDENTITY_PRICING_POLICY.policy_id
     assert consent_estimate.billed_cost == estimate["billed_cost"]
@@ -348,7 +348,7 @@ def test_severing_the_persisted_estimate_refuses_the_dispatch(
     action = _classify_action(sheet_id)
     run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
-    project.db.execute("UPDATE consents SET quote_json=NULL")
+    project.db.execute("UPDATE consents SET estimate_json=NULL")
     project.db.commit()
 
     drain_queue(client, worker_id="severed-quote")
@@ -384,7 +384,7 @@ def test_a_malformed_persisted_estimate_refuses_the_dispatch(
     action = _classify_action(sheet_id)
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
-    project.db.execute("UPDATE consents SET quote_json=?", ('{"cost": "banana"}',))
+    project.db.execute("UPDATE consents SET estimate_json=?", ('{"cost": "banana"}',))
     project.db.commit()
 
     drain_queue(client, worker_id="malformed-quote")
@@ -403,7 +403,7 @@ def test_a_truncated_estimate_blob_refuses_instead_of_escaping(
     """A corrupt blob is the modeled refusal, not a raw decode error.
 
     ``RouteStore.consents()`` is called by the dispatch fence BEFORE its
-    normalizing try block, so a ``quote_json`` decoded eagerly in the store
+    normalizing try block, so an ``estimate_json`` decoded eagerly in the store
     would raise ``JSONDecodeError`` straight out of admission and become a
     generic job retry — a paid run left flapping instead of a durable
     "re-confirm this". The column is therefore handed back as raw text and
@@ -416,16 +416,16 @@ def test_a_truncated_estimate_blob_refuses_instead_of_escaping(
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
     (row,) = _consent_rows(project)
-    truncated = row["quote_json"][: len(row["quote_json"]) // 2]
+    truncated = row["estimate_json"][: len(row["estimate_json"]) // 2]
     project.db.execute(
-        "UPDATE consents SET quote_json=? WHERE id=?", (truncated, row["id"])
+        "UPDATE consents SET estimate_json=? WHERE id=?", (truncated, row["id"])
     )
     project.db.commit()
 
     # The store itself must survive reading it — the decode is the reader's.
     from frisket.engine.store.execution_routes import RouteStore
 
-    assert RouteStore.for_run(project, _run_id).consents()[0].quote_json == truncated
+    assert RouteStore.for_run(project, _run_id).consents()[0].estimate_json == truncated
 
     drain_queue(client, worker_id="truncated-quote")
 
@@ -458,7 +458,7 @@ def test_one_corrupt_consent_does_not_block_a_sibling_that_proves(
     project.db.execute(
         "INSERT INTO consents (id, subject_kind, subject_id, "
         "action_identity_hash, promise_set_hash, standing_policy, actor, "
-        "granted_at, grant_basis, quote_json) "
+        "granted_at, grant_basis, estimate_json) "
         "SELECT 'consent_corrupt', subject_kind, subject_id, "
         "action_identity_hash, promise_set_hash, standing_policy, actor, "
         "'1970-01-01T00:00:00+00:00', grant_basis, '{not json' "
@@ -495,12 +495,12 @@ def test_a_poisoned_rated_field_does_not_deny_a_valid_sibling(
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
     (row,) = _consent_rows(project)
-    poisoned = json.loads(row["quote_json"])
+    poisoned = json.loads(row["estimate_json"])
     poisoned["billed_cost"] = -1
     project.db.execute(
         "INSERT INTO consents (id, subject_kind, subject_id, "
         "action_identity_hash, promise_set_hash, standing_policy, actor, "
-        "granted_at, grant_basis, quote_json) "
+        "granted_at, grant_basis, estimate_json) "
         "SELECT 'consent_poisoned', subject_kind, subject_id, "
         "action_identity_hash, promise_set_hash, standing_policy, actor, "
         "'1970-01-01T00:00:00+00:00', grant_basis, ? "
@@ -553,12 +553,12 @@ def test_recorded_estimate_is_not_dispatch_or_accounting_authority(
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
     (row,) = _consent_rows(project)
-    consent_estimate = json.loads(row["quote_json"])
+    consent_estimate = json.loads(row["estimate_json"])
     consent_estimate["billed_cost"] = (
         int(consent_estimate["billed_cost"] or 0) + 100_000
     )
     project.db.execute(
-        "UPDATE consents SET quote_json=? WHERE id=?",
+        "UPDATE consents SET estimate_json=? WHERE id=?",
         (json.dumps(consent_estimate), row["id"]),
     )
     project.db.commit()
@@ -585,11 +585,11 @@ def test_a_tampered_neutral_fact_in_the_record_is_ignored(
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
     (row,) = _consent_rows(project)
-    consent_estimate = json.loads(row["quote_json"])
+    consent_estimate = json.loads(row["estimate_json"])
     consent_estimate["cost"] = (consent_estimate["cost"] or 0.0) + 5.0
     consent_estimate["rows"] = int(consent_estimate["rows"] or 0) + 99
     project.db.execute(
-        "UPDATE consents SET quote_json=? WHERE id=?",
+        "UPDATE consents SET estimate_json=? WHERE id=?",
         (json.dumps(consent_estimate), row["id"]),
     )
     project.db.commit()

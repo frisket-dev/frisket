@@ -22,7 +22,6 @@ from action_test_helpers import legacy_params_hash
 from frisket.engine.executor.action_inventory import BoundLocalFile
 from frisket.engine.executor.local_file_read import AdmittedLocalFileReader
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk import (
     ActionParams,
@@ -55,7 +54,7 @@ def streaming_feed(params: FeedParams, files: LocalFileReader) -> TableResult[Fe
 
 
 def test_renamed_source_static_producer_reuses_streaming_reader_and_actual_hash(
-    tmp_path,
+    tmp_path, project
 ):
     raw = "Café\t3\r\nAda\t5\r\n".encode()
     source = tmp_path / "people.tsv"
@@ -80,33 +79,27 @@ def test_renamed_source_static_producer_reuses_streaming_reader_and_actual_hash(
             idempotency_key="feed-once",
         ),
     )
-    project = Project.create(tmp_path / "project")
-    try:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        assert list(
-            project.get_values(sheet["sheet_id"], sheet["columns"]["name"]).values()
-        ) == ["CAFÉ", "ADA"]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert [
-            item.ref
-            for item in receipt.inputs
-            if item.ref.get("kind") == "local_file_read"
-        ] == [
-            {
-                "kind": "local_file_read",
-                "path": str(source),
-                "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
-                "byte_count": len(raw),
-            }
-        ]
-        source.unlink()
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    assert list(
+        project.get_values(sheet["sheet_id"], sheet["columns"]["name"]).values()
+    ) == ["CAFÉ", "ADA"]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert [
+        item.ref for item in receipt.inputs if item.ref.get("kind") == "local_file_read"
+    ] == [
+        {
+            "kind": "local_file_read",
+            "path": str(source),
+            "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+            "byte_count": len(raw),
+        }
+    ]
+    source.unlink()
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
 
 
 @pytest.mark.parametrize("refusal", [None, "partial", "changed"])
@@ -218,51 +211,45 @@ def test_csv_source_headers_preserve_group_order_and_labels():
 
 
 @pytest.mark.parametrize("source_count", [1, 2])
-def test_csv_receipt_preserves_only_unambiguous_source_label(tmp_path, source_count):
+def test_csv_receipt_preserves_only_unambiguous_source_label(
+    tmp_path, project, source_count
+):
     sources = []
     for index in range(source_count):
         path = tmp_path / f"source-{index}.csv"
         path.write_text("name\nAda\n")
         sources.append({"path": str(path), "label": f"Original source {index}"})
-    project = Project.create(tmp_path / "project")
-    try:
-        result = run_action_spec(
-            project,
-            ActionRequest(
-                action_id="import.csv",
-                scope={"kind": "project"},
-                sheet_name="Imported",
-                params=_params(sources=sources).model_dump(mode="json"),
-                idempotency_key="source-label",
-            ).model_dump(mode="json"),
-            project_id="p",
+    result = run_action_spec(
+        project,
+        ActionRequest(
+            action_id="import.csv",
+            scope={"kind": "project"},
+            sheet_name="Imported",
+            params=_params(sources=sources).model_dump(mode="json"),
+            idempotency_key="source-label",
+        ).model_dump(mode="json"),
+        project_id="p",
+    )
+    assert result.status == "completed", result.errors
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    summary = next(
+        item.ref for item in receipt.evidence if item.ref.get("kind") == "import_source"
+    )
+    assert summary.get("label") == ("Original source 0" if source_count == 1 else None)
+    spec = json.loads(project.db.execute("SELECT spec FROM ops").fetchone()[0])
+    assert [source["label"] for source in spec["params"]["sources"]] == [
+        source["label"] for source in sources
+    ]
+    assert (
+        len(
+            [
+                item
+                for item in receipt.inputs
+                if item.ref.get("kind") == "local_file_read"
+            ]
         )
-        assert result.status == "completed", result.errors
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        summary = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "import_source"
-        )
-        assert summary.get("label") == (
-            "Original source 0" if source_count == 1 else None
-        )
-        spec = json.loads(project.db.execute("SELECT spec FROM ops").fetchone()[0])
-        assert [source["label"] for source in spec["params"]["sources"]] == [
-            source["label"] for source in sources
-        ]
-        assert (
-            len(
-                [
-                    item
-                    for item in receipt.inputs
-                    if item.ref.get("kind") == "local_file_read"
-                ]
-            )
-            == source_count
-        )
-    finally:
-        project.close()
+        == source_count
+    )
 
 
 def test_csv_encoding_delimiter_decimal_boolean_json_and_nulls():

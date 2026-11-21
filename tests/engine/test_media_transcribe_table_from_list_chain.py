@@ -18,8 +18,8 @@ from frisket.engine.store import Project
 PROJECT_ID = "project-media-transcribe-chain"
 
 
-def _seed_project(project_path: Path) -> tuple[Project, int, list[int], list[str]]:
-    project = Project.create(project_path, name="Transcribe Chain")
+def _seed_project(make_project) -> tuple[Project, int, list[int], list[str]]:
+    project = make_project("Transcribe Chain")
     sheet_id = project.add_sheet("Episodes")
     columns = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -164,12 +164,10 @@ def _counts(project: Project) -> dict[str, int]:
 
 
 def test_media_transcribe_segments_feed_derive_table_from_list(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
-    project, sheet_id, source_row_ids, blobs = _seed_project(
-        tmp_path / "media-transcribe-chain.frisket"
-    )
+    project, sheet_id, source_row_ids, blobs = _seed_project(make_project)
 
     async def fake_faster_whisper(
         self: transcribe_engines.FasterWhisperAdapter,
@@ -193,102 +191,97 @@ def test_media_transcribe_segments_feed_derive_table_from_list(
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter, "transcribe", fake_faster_whisper
     )
-    try:
-        transcribed = run_action_spec(
-            project,
-            _transcribe_action(sheet_id),
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(),
-        )
-        assert transcribed.status == "completed", transcribed.errors
-        assert transcribed.run_id is not None
-        assert transcribed.receipt_id is not None
-        assert ("column", "transcript") in [
-            (output.kind, output.name) for output in transcribed.outputs
-        ]
-        named_output = next(
-            output
-            for output in transcribed.outputs
-            if output.kind == "named_result" and output.name == "transcript_segments"
-        )
-        assert named_output.ref["source_action_kind"] == "media.transcribe"
-        assert named_output.ref["row_ids"] == source_row_ids
-        actual_fields = named_output.ref["item_schema"]["properties"]
-        for name, expected in _segment_item_schema()["properties"].items():
-            assert actual_fields[name]["type"] == expected["type"]
-        column_id = int(named_output.column_id or named_output.ref["column_id"])
+    transcribed = run_action_spec(
+        project,
+        _transcribe_action(sheet_id),
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(),
+    )
+    assert transcribed.status == "completed", transcribed.errors
+    assert transcribed.run_id is not None
+    assert transcribed.receipt_id is not None
+    assert ("column", "transcript") in [
+        (output.kind, output.name) for output in transcribed.outputs
+    ]
+    named_output = next(
+        output
+        for output in transcribed.outputs
+        if output.kind == "named_result" and output.name == "transcript_segments"
+    )
+    assert named_output.ref["source_action_kind"] == "media.transcribe"
+    assert named_output.ref["row_ids"] == source_row_ids
+    actual_fields = named_output.ref["item_schema"]["properties"]
+    for name, expected in _segment_item_schema()["properties"].items():
+        assert actual_fields[name]["type"] == expected["type"]
+    column_id = int(named_output.column_id or named_output.ref["column_id"])
 
-        derived = run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id,
-                column_id=column_id,
-                run_id=transcribed.run_id,
-                item_schema=named_output.ref["item_schema"],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert derived.status == "completed", derived.errors
-        child_sheet_id = next(
-            output.sheet_id for output in derived.outputs if output.kind == "sheet"
-        )
-        assert child_sheet_id is not None
-        child_rows = project.db.execute(
-            "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
+    derived = run_action_spec(
+        project,
+        _derive_action(
+            sheet_id=sheet_id,
+            column_id=column_id,
+            run_id=transcribed.run_id,
+            item_schema=named_output.ref["item_schema"],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert derived.status == "completed", derived.errors
+    child_sheet_id = next(
+        output.sheet_id for output in derived.outputs if output.kind == "sheet"
+    )
+    assert child_sheet_id is not None
+    child_rows = project.db.execute(
+        "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [int(row["parent_row_id"]) for row in child_rows] == [
+        source_row_ids[0],
+        source_row_ids[0],
+        source_row_ids[1],
+        source_row_ids[1],
+    ]
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=? ORDER BY position",
             (child_sheet_id,),
         ).fetchall()
-        assert [int(row["parent_row_id"]) for row in child_rows] == [
-            source_row_ids[0],
-            source_row_ids[0],
-            source_row_ids[1],
-            source_row_ids[1],
-        ]
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=? ORDER BY position",
-                (child_sheet_id,),
-            ).fetchall()
-        }
-        assert list(columns) == ["segment_index", "start", "end", "text"]
-        assert project.get_values(
-            child_sheet_id, int(columns["segment_index"]["id"])
-        ) == {
-            int(child_rows[0]["id"]): 0,
-            int(child_rows[1]["id"]): 1,
-            int(child_rows[2]["id"]): 0,
-            int(child_rows[3]["id"]): 1,
-        }
-        texts = project.get_values(child_sheet_id, int(columns["text"]["id"]))
-        assert list(texts.values()) == [
-            "episode one",
-            "closing",
-            "episode two",
-            "closing",
-        ]
+    }
+    assert list(columns) == ["segment_index", "start", "end", "text"]
+    assert project.get_values(child_sheet_id, int(columns["segment_index"]["id"])) == {
+        int(child_rows[0]["id"]): 0,
+        int(child_rows[1]["id"]): 1,
+        int(child_rows[2]["id"]): 0,
+        int(child_rows[3]["id"]): 1,
+    }
+    texts = project.get_values(child_sheet_id, int(columns["text"]["id"]))
+    assert list(texts.values()) == [
+        "episode one",
+        "closing",
+        "episode two",
+        "closing",
+    ]
 
-        receipt = _receipt(project, derived.receipt_id or "")
-        source_ref = next(
-            ref.ref for ref in receipt.inputs if ref.ref["kind"] == "list_table_read"
-        )
-        assert (
-            _receipt(project, source_ref["source_receipt_id"]).action_kind
-            == "media.transcribe"
-        )
-        assert source_ref["source_receipt_id"] == transcribed.receipt_id
-        before_replay = _counts(project)
-        replay = run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id,
-                column_id=column_id,
-                run_id=transcribed.run_id,
-                item_schema=named_output.ref["item_schema"],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == derived.receipt_id
-        assert _counts(project) == before_replay
-    finally:
-        project.close()
+    receipt = _receipt(project, derived.receipt_id or "")
+    source_ref = next(
+        ref.ref for ref in receipt.inputs if ref.ref["kind"] == "list_table_read"
+    )
+    assert (
+        _receipt(project, source_ref["source_receipt_id"]).action_kind
+        == "media.transcribe"
+    )
+    assert source_ref["source_receipt_id"] == transcribed.receipt_id
+    before_replay = _counts(project)
+    replay = run_action_spec(
+        project,
+        _derive_action(
+            sheet_id=sheet_id,
+            column_id=column_id,
+            run_id=transcribed.run_id,
+            item_schema=named_output.ref["item_schema"],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == derived.receipt_id
+    assert _counts(project) == before_replay

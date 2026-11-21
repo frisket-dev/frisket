@@ -15,7 +15,6 @@ from frisket.engine.projections.runtime import (
     runtime_projection_build,
     runtime_projection_status,
 )
-from frisket.engine.store import Project
 from workbench_runtime_test_helpers import activate_runtime_plugin_for_project
 
 
@@ -26,6 +25,7 @@ HANDLER_KEY = f"{PLUGIN_ID}:projection"
 
 def test_projection_runtime_contract_calls_trusted_status_and_build_handler(
     tmp_path: Path,
+    project,
 ) -> None:
     _reset_default_registry_for_tests()
     calls: list[dict[str, Any]] = []
@@ -81,7 +81,6 @@ def test_projection_runtime_contract_calls_trusted_status_and_build_handler(
             handler=trusted_projection_handler,
             plugin=PLUGIN_ID,
         )
-        project = Project.create(tmp_path / "runtime-projection.frisket")
         activate_runtime_plugin_for_project(
             project,
             tmp_path,
@@ -166,7 +165,7 @@ def test_projection_runtime_contract_fails_closed_for_unbound_kind(
 
 
 def test_projection_runtime_contract_fails_closed_without_handler(
-    tmp_path: Path,
+    project,
 ) -> None:
     _reset_default_registry_for_tests()
     try:
@@ -177,7 +176,6 @@ def test_projection_runtime_contract_fails_closed_without_handler(
             handler=None,
             plugin=PLUGIN_ID,
         )
-        project = Project.create(tmp_path / "missing-handler-projection.frisket")
 
         assert projection_runtime_binding(PROJECTION_KIND) is None
 
@@ -200,6 +198,7 @@ def test_projection_runtime_contract_fails_closed_without_handler(
 
 def test_projection_runtime_contract_rejects_invalid_handler_response(
     tmp_path: Path,
+    project,
 ) -> None:
     _reset_default_registry_for_tests()
 
@@ -219,7 +218,6 @@ def test_projection_runtime_contract_rejects_invalid_handler_response(
             handler=invalid_handler,
             plugin=PLUGIN_ID,
         )
-        project = Project.create(tmp_path / "bad-projection.frisket")
         activate_runtime_plugin_for_project(
             project,
             tmp_path,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from frisket.execution.dispatch_control import STANDALONE
 import asyncio
-from contextlib import closing
 from typing import Any
 
 import pytest
@@ -30,7 +29,6 @@ from frisket.contracts.http.cloud_connection import (
     CloudTranscriptionUsage,
 )
 from frisket.engine.executor.document_convert import AdmittedDocumentConverter
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteRow
 from frisket.execution.attempt import (
     ATTEMPT_EXTRA,
@@ -557,7 +555,7 @@ def _route_extras(
 
 
 def test_cloud_document_convert_keeps_source_provenance_and_external_accounting(
-    tmp_path,
+    make_project,
 ):
     engine = "docling"
     response = _response(
@@ -568,41 +566,39 @@ def test_cloud_document_convert_keeps_source_provenance_and_external_accounting(
         engine=engine,
     )
     transport = _Transport(response)
-    with closing(
-        Project.create(tmp_path / "cloud-doc.frisket", name="cloud-doc")
-    ) as project:
-        sheet_id = project.add_sheet("data")
-        column_id = project.add_column(sheet_id, "doc", type="text")
-        [row_id] = project.add_rows(
-            sheet_id, [{"doc": "source document"}], {"doc": column_id}
-        )
-        extras = {**_route_extras(engine), "preview": True, "cancelled": lambda: False}
-        ctx = ActionContext(
-            project=project,
-            extras=extras,
-            cloud_execution=CloudMediaExecutionBinding(
-                transport=transport,
-                attempt=_attempt(engine=engine),
-                capability="document.convert",
-            ),
-        )
-        owner = AdmittedDocumentConverter(ctx, engine=engine)
-        row = Row({"doc": "source document"})
-        bound = owner.bind_row(
-            row,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            sources={
-                "doc": {
-                    "column_id": column_id,
-                    "column_type": "text",
-                    "value": "source document",
-                }
-            },
-            ctx=ctx,
-        )
+    project = make_project("cloud-doc")
+    sheet_id = project.add_sheet("data")
+    column_id = project.add_column(sheet_id, "doc", type="text")
+    [row_id] = project.add_rows(
+        sheet_id, [{"doc": "source document"}], {"doc": column_id}
+    )
+    extras = {**_route_extras(engine), "preview": True, "cancelled": lambda: False}
+    ctx = ActionContext(
+        project=project,
+        extras=extras,
+        cloud_execution=CloudMediaExecutionBinding(
+            transport=transport,
+            attempt=_attempt(engine=engine),
+            capability="document.convert",
+        ),
+    )
+    owner = AdmittedDocumentConverter(ctx, engine=engine)
+    row = Row({"doc": "source document"})
+    bound = owner.bind_row(
+        row,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        sources={
+            "doc": {
+                "column_id": column_id,
+                "column_type": "text",
+                "value": "source document",
+            }
+        },
+        ctx=ctx,
+    )
 
-        converted = asyncio.run(bound.convert(row, ColumnRef("doc")))
+    converted = asyncio.run(bound.convert(row, ColumnRef("doc")))
 
     assert converted.markdown == "# Cloud result"
     assert converted.ocr_used == [True, False]

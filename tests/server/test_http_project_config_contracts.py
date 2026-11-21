@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import closing
+
 from contextlib import contextmanager
 import json
 
@@ -202,23 +204,22 @@ def test_concurrent_partial_retrieval_patches_merge_after_writer_lock(
         "id"
     ]
     project = client.app.state.workspace.get(pid)
-    concurrent = Project(project.path)
-    original_transaction_scope = Project.transaction_scope
-    injected = False
+    with closing(Project(project.path)) as concurrent:
+        original_transaction_scope = Project.transaction_scope
+        injected = False
 
-    @contextmanager
-    def transaction_after_concurrent_patch(self):
-        nonlocal injected
-        if self is project and not injected:
-            injected = True
-            write_preparation_policy(
-                concurrent,
-                PreparationPolicy(audio_recipe=AudioWindowRecipe()),
-            )
-        with original_transaction_scope(self):
-            yield
+        @contextmanager
+        def transaction_after_concurrent_patch(self):
+            nonlocal injected
+            if self is project and not injected:
+                injected = True
+                write_preparation_policy(
+                    concurrent,
+                    PreparationPolicy(audio_recipe=AudioWindowRecipe()),
+                )
+            with original_transaction_scope(self):
+                yield
 
-    try:
         monkeypatch.setattr(
             Project, "transaction_scope", transaction_after_concurrent_patch
         )
@@ -232,8 +233,6 @@ def test_concurrent_partial_retrieval_patches_merge_after_writer_lock(
         assert injected
         assert response.json()["retrieval"]["text_enabled"] is False
         assert response.json()["retrieval"]["audio_enabled"] is True
-    finally:
-        concurrent.close()
 
 
 @pytest.mark.parametrize(

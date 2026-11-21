@@ -1282,7 +1282,7 @@ def test_compare_estimate_is_write_free_and_its_confirmation_starts_same_preview
         assert estimated.status_code == 200, estimated.payload
         assert not service._registry._jobs
         wire_estimate = client.post(
-            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+            f"/api/projects/{pid}/actions/v1/compare-preview-estimate", json=body
         )
         assert wire_estimate.status_code == 200, wire_estimate.text
         assert wire_estimate.json()["estimate"] == estimated.payload["estimate"]
@@ -1386,7 +1386,7 @@ def test_translate_comparison_estimates_confirms_and_previews_without_writing_ce
             "context": "Use a formal newsroom style.",
         }
         estimated = client.post(
-            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+            f"/api/projects/{pid}/actions/v1/compare-preview-estimate", json=body
         )
         assert estimated.status_code == 200, estimated.text
         estimate = estimated.json()["estimate"]

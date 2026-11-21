@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -167,11 +168,9 @@ def test_ask_does_not_bypass_a_selected_own_route_refusal(tmp_path, monkeypatch)
         ),
     )
 
-    try:
+    with closing(project):
         with pytest.raises(CloudExecutionRefused) as exc_info:
             SoloCloudProjectQARuntimePort(workspace)._prepare_turn(project, turn["id"])
-    finally:
-        project.close()
 
     assert exc_info.value.code == "execution_route_unavailable"
 
@@ -215,10 +214,8 @@ def test_project_ask_default_uses_the_only_cloud_catalog_model(tmp_path):
         workspace.edition_execution_composition_context_for(),
     )
 
-    try:
+    with closing(project):
         assert default_project_ask_model(router, composition) == FLASH_LITE
-    finally:
-        project.close()
 
 
 def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
@@ -284,7 +281,7 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
         model=MODEL,
     )
 
-    try:
+    with closing(cloud_project), closing(own_project):
         with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
             SoloCloudProjectQARuntimePort(cloud_workspace)._prepare_turn(
                 cloud_project, cloud_turn["id"]
@@ -293,9 +290,6 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
             SoloCloudProjectQARuntimePort(own_workspace)._prepare_turn(
                 own_project, own_turn["id"]
             )
-    finally:
-        cloud_project.close()
-        own_project.close()
 
 
 def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
@@ -333,12 +327,10 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
         model=model,
     )
 
-    try:
+    with closing(project):
         runtime = SoloCloudProjectQARuntimePort(workspace)._prepare_turn(
             project, turn["id"]
         )
-    finally:
-        project.close()
 
     assert runtime.cloud_llm_coordinator is None
 
@@ -377,11 +369,9 @@ def test_ask_does_not_use_local_endpoint_for_saved_cloud_route(tmp_path):
         model=model,
     )
 
-    try:
+    with closing(project):
         with pytest.raises(CloudExecutionRefused) as exc_info:
             SoloCloudProjectQARuntimePort(workspace)._prepare_turn(project, turn["id"])
-    finally:
-        project.close()
 
     assert exc_info.value.code == "cloud_route_unavailable"
 

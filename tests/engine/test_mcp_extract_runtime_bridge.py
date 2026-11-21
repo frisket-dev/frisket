@@ -8,6 +8,7 @@ the transport-client test suite.
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import json
 import os
@@ -222,7 +223,7 @@ def test_registered_recipe_runs_saved_stdio_server_and_keeps_secret_out_of_run_d
     from frisket.actions.registry import ACTION_REGISTRY
 
     ACTION_REGISTRY.get("map.mcp_extract")
-    try:
+    with closing(project):
         # Constructing/selecting the recipe is not a credential read.  The
         # child-bound plaintext is resolved only when the run opens its scope.
         assert plaintext_reads == []
@@ -314,8 +315,6 @@ def test_registered_recipe_runs_saved_stdio_server_and_keeps_secret_out_of_run_d
             default=str,
         )
         assert _SECRET not in durable
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("selected_id", ["disabled", "missing"])
@@ -329,7 +328,7 @@ def test_disabled_or_missing_saved_server_halts_before_any_row_is_run(
             project,
             [_server(tmp_path, server_id="disabled", events=events, enabled=False)],
         )
-    try:
+    with closing(project):
         adapter = _ToolThenStrictAdapter()
         result = run_action_with_confirmation(
             project,
@@ -341,8 +340,6 @@ def test_disabled_or_missing_saved_server_halts_before_any_row_is_run(
         assert result.errors[0].code == "local_artifact_unavailable"
         assert adapter.requests == []
         assert _events(events) == []
-    finally:
-        project.close()
 
 
 def test_one_failed_saved_server_does_not_hide_tools_from_another(
@@ -365,7 +362,7 @@ def test_one_failed_saved_server_does_not_hide_tools_from_another(
             ],
         )
     adapter = _ToolThenStrictAdapter()
-    try:
+    with closing(project):
         progress = run_action_with_confirmation(
             project,
             _spec(sheet_id, ["unavailable/server", good_id], row_id),
@@ -375,8 +372,6 @@ def test_one_failed_saved_server_does_not_hide_tools_from_another(
         assert progress.status == "completed", progress.errors
         assert [event["event"] for event in _events(good_events)].count("started") == 1
         assert any(request.tools for request in adapter.requests)
-    finally:
-        project.close()
 
 
 def test_tool_inventory_echoing_a_configured_secret_is_rejected_before_model_use(
@@ -398,7 +393,7 @@ def test_tool_inventory_echoing_a_configured_secret_is_rejected_before_model_use
             ],
         )
     adapter = _ToolThenStrictAdapter()
-    try:
+    with closing(project):
         progress = run_action_with_confirmation(
             project,
             _spec(sheet_id, [server_id], row_id),
@@ -411,8 +406,6 @@ def test_tool_inventory_echoing_a_configured_secret_is_rejected_before_model_use
         started = [event for event in _events(events) if event["event"] == "started"]
         assert len(started) == 1
         _wait_for_process_stop(int(started[0]["pid"]))
-    finally:
-        project.close()
 
 
 def test_lost_saved_server_tool_response_halts_without_automatic_retry(
@@ -434,7 +427,7 @@ def test_lost_saved_server_tool_response_halts_without_automatic_retry(
                 )
             ],
         )
-    try:
+    with closing(project):
         progress = run_action_with_confirmation(
             project,
             _spec(sheet_id, [server_id], row_id),
@@ -448,5 +441,3 @@ def test_lost_saved_server_tool_response_halts_without_automatic_retry(
             for event in _events(events)
             if event["event"] == "request" and event["method"] == "tools/call"
         ] == ["tools/call"]
-    finally:
-        project.close()

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import sqlite3
 import threading
@@ -21,8 +22,8 @@ from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 OLD_SCHEMA_DIGEST = "frisket.schema.v1:caa3ac7c8aaa66153dd8e2cad5950942"
 
 
-def _research(tmp_path):
-    project = Project.create(tmp_path / "research.frisket", name="Research")
+def _research(make_project):
+    project = make_project("Research")
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Investigate")
     turn = qa.submit_turn(thread["id"], request_id="request-1", question="Why?")
@@ -38,56 +39,65 @@ def _research(tmp_path):
     return project, store, research
 
 
-def test_create_is_idempotent_and_lifecycle_updates_use_revision_cas(tmp_path) -> None:
-    project, store, research = _research(tmp_path)
-    try:
-        replay = store.create(
+def test_create_is_idempotent_and_lifecycle_updates_use_revision_cas(
+    make_project,
+) -> None:
+    project, store, research = _research(make_project)
+    replay = store.create(
+        turn_id=research["turn_id"],
+        actor="owner",
+        budget_micros=100,
+        currency="USD",
+        write_mode="ask_each",
+        max_turns=None,
+    )
+    assert replay == research
+    with pytest.raises(ProjectQAResearchConflictError, match="different"):
+        store.create(
             turn_id=research["turn_id"],
-            actor="owner",
+            actor="other",
             budget_micros=100,
             currency="USD",
             write_mode="ask_each",
             max_turns=None,
         )
-        assert replay == research
-        with pytest.raises(ProjectQAResearchConflictError, match="different"):
-            store.create(
-                turn_id=research["turn_id"],
-                actor="other",
-                budget_micros=100,
-                currency="USD",
-                write_mode="ask_each",
-                max_turns=None,
-            )
 
-        store.checkpoint(research["id"], [{"role": "assistant", "content": "partial"}])
-        store.add_output_grant(research["id"], "receipt-8")
-        pending = {"id": "approval-1", "operation_id": "write-1", "kind": "action"}
-        paused = store.publish_pause(research["id"], pending)
-        assert paused["revision"] == 4
-        assert paused["state"] == "paused"
-        assert paused["saved_messages"][0]["content"] == "partial"
-        assert paused["pending_approval"] == pending
-        assert paused["output_grants"] == ["receipt-8"]
-        assert paused["turn_count"] == 0
-        with pytest.raises(ProjectQAResearchConflictError, match="revision"):
-            store.resume(
-                research["id"],
-                pause_id="approval-1",
-                expected_revision=1,
-                decision="approve",
-                actor="owner",
-            )
-    finally:
-        project.close()
+    store.checkpoint(research["id"], [{"role": "assistant", "content": "partial"}])
+    store.add_output_grant(research["id"], "receipt-8")
+    pending = {"id": "approval-1", "operation_id": "write-1", "kind": "action"}
+    paused = store.publish_pause(research["id"], pending)
+    assert paused["revision"] == 4
+    assert paused["state"] == "paused"
+    assert paused["saved_messages"][0]["content"] == "partial"
+    assert paused["pending_approval"] == pending
+    assert paused["output_grants"] == ["receipt-8"]
+    assert paused["turn_count"] == 0
+    with pytest.raises(ProjectQAResearchConflictError, match="revision"):
+        store.resume(
+            research["id"],
+            pause_id="approval-1",
+            expected_revision=1,
+            decision="approve",
+            actor="owner",
+        )
 
 
 def test_admission_is_exact_idempotent_and_settlement_replaces_reservation(
-    tmp_path,
+    make_project,
 ) -> None:
-    project, store, research = _research(tmp_path)
-    try:
-        admitted = store.admit_operation(
+    project, store, research = _research(make_project)
+    admitted = store.admit_operation(
+        research["id"],
+        operation_id="call-1",
+        payload_identity="sha256:one",
+        operation_kind="model",
+        estimate_micros=70,
+        metadata={"provider": "example"},
+    )
+    assert admitted["actual_micros"] is None
+    assert store.get(research["id"])["turn_count"] == 1
+    assert (
+        store.admit_operation(
             research["id"],
             operation_id="call-1",
             payload_identity="sha256:one",
@@ -95,128 +105,113 @@ def test_admission_is_exact_idempotent_and_settlement_replaces_reservation(
             estimate_micros=70,
             metadata={"provider": "example"},
         )
-        assert admitted["actual_micros"] is None
-        assert store.get(research["id"])["turn_count"] == 1
-        assert (
-            store.admit_operation(
-                research["id"],
-                operation_id="call-1",
-                payload_identity="sha256:one",
-                operation_kind="model",
-                estimate_micros=70,
-                metadata={"provider": "example"},
-            )
-            == admitted
+        == admitted
+    )
+    with pytest.raises(ProjectQAResearchConflictError, match="payload"):
+        store.admit_operation(
+            research["id"],
+            operation_id="call-1",
+            payload_identity="sha256:other",
+            operation_kind="model",
+            estimate_micros=70,
         )
-        with pytest.raises(ProjectQAResearchConflictError, match="payload"):
-            store.admit_operation(
-                research["id"],
-                operation_id="call-1",
-                payload_identity="sha256:other",
-                operation_kind="model",
-                estimate_micros=70,
-            )
-        with pytest.raises(ProjectQAResearchUnknownCost):
-            store.admit_operation(
-                research["id"],
-                operation_id="unknown",
-                payload_identity="sha256:unknown",
-                operation_kind="search",
-                estimate_micros=None,
-            )
-        with pytest.raises(ProjectQAResearchBudgetExceeded) as exc:
-            store.admit_operation(
-                research["id"],
-                operation_id="call-2",
-                payload_identity="sha256:two",
-                operation_kind="action",
-                estimate_micros=31,
-            )
-        assert (exc.value.needed_micros, exc.value.remaining_micros) == (31, 30)
+    with pytest.raises(ProjectQAResearchUnknownCost):
+        store.admit_operation(
+            research["id"],
+            operation_id="unknown",
+            payload_identity="sha256:unknown",
+            operation_kind="search",
+            estimate_micros=None,
+        )
+    with pytest.raises(ProjectQAResearchBudgetExceeded) as exc:
+        store.admit_operation(
+            research["id"],
+            operation_id="call-2",
+            payload_identity="sha256:two",
+            operation_kind="action",
+            estimate_micros=31,
+        )
+    assert (exc.value.needed_micros, exc.value.remaining_micros) == (31, 30)
 
-        settled = store.settle_operation(
+    settled = store.settle_operation(
+        research["id"],
+        operation_id="call-1",
+        payload_identity="sha256:one",
+        actual_micros=40,
+    )
+    assert settled["actual_micros"] == 40
+    assert (
+        store.settle_operation(
             research["id"],
             operation_id="call-1",
             payload_identity="sha256:one",
             actual_micros=40,
         )
-        assert settled["actual_micros"] == 40
-        assert (
-            store.settle_operation(
-                research["id"],
-                operation_id="call-1",
-                payload_identity="sha256:one",
-                actual_micros=40,
-            )
-            == settled
-        )
-        with pytest.raises(ProjectQAResearchConflictError, match="settled"):
-            store.settle_operation(
-                research["id"],
-                operation_id="call-1",
-                payload_identity="sha256:one",
-                actual_micros=41,
-            )
-        assert store.budget_summary(research["id"]) == {
-            "budget_micros": 100,
-            "currency": "USD",
-            "reserved_micros": 0,
-            "settled_micros": 40,
-            "committed_micros": 40,
-            "remaining_micros": 60,
-        }
-        assert store.get_operation(research["id"], "call-1")["metadata"] == {
-            "provider": "example"
-        }
-
-        store.publish_pause(
+        == settled
+    )
+    with pytest.raises(ProjectQAResearchConflictError, match="settled"):
+        store.settle_operation(
             research["id"],
-            {"id": "limit", "operation_id": "call-3", "kind": "turn_limit"},
+            operation_id="call-1",
+            payload_identity="sha256:one",
+            actual_micros=41,
         )
-        limited = store.resume(
+    assert store.budget_summary(research["id"]) == {
+        "budget_micros": 100,
+        "currency": "USD",
+        "reserved_micros": 0,
+        "settled_micros": 40,
+        "committed_micros": 40,
+        "remaining_micros": 60,
+    }
+    assert store.get_operation(research["id"], "call-1")["metadata"] == {
+        "provider": "example"
+    }
+
+    store.publish_pause(
+        research["id"],
+        {"id": "limit", "operation_id": "call-3", "kind": "turn_limit"},
+    )
+    limited = store.resume(
+        research["id"],
+        pause_id="limit",
+        expected_revision=2,
+        decision="continue",
+        actor="owner",
+        max_turns=1,
+    )
+    assert limited["turn_count"] == 1
+    with pytest.raises(ProjectQAResearchTurnLimitReached):
+        store.admit_operation(
             research["id"],
-            pause_id="limit",
-            expected_revision=2,
-            decision="continue",
-            actor="owner",
-            max_turns=1,
+            operation_id="call-3",
+            payload_identity="sha256:three",
+            operation_kind="model",
+            estimate_micros=1,
         )
-        assert limited["turn_count"] == 1
-        with pytest.raises(ProjectQAResearchTurnLimitReached):
-            store.admit_operation(
-                research["id"],
-                operation_id="call-3",
-                payload_identity="sha256:three",
-                operation_kind="model",
-                estimate_micros=1,
-            )
-    finally:
-        project.close()
 
 
-def test_two_connections_cannot_overcommit_one_budget(tmp_path) -> None:
-    project, _store, research = _research(tmp_path)
+def test_two_connections_cannot_overcommit_one_budget(make_project) -> None:
+    project, _store, research = _research(make_project)
     path = project.path
     project.close()
     barrier = threading.Barrier(2)
     outcomes: list[str] = []
 
     def admit(operation_id: str) -> None:
-        opened = Project(path)
-        try:
-            barrier.wait()
-            ProjectQAResearchStore(opened).admit_operation(
-                research["id"],
-                operation_id=operation_id,
-                payload_identity=f"sha256:{operation_id}",
-                operation_kind="model",
-                estimate_micros=60,
-            )
-            outcomes.append("admitted")
-        except ProjectQAResearchBudgetExceeded:
-            outcomes.append("refused")
-        finally:
-            opened.close()
+        with closing(Project(path)) as opened:
+            try:
+                barrier.wait()
+                ProjectQAResearchStore(opened).admit_operation(
+                    research["id"],
+                    operation_id=operation_id,
+                    payload_identity=f"sha256:{operation_id}",
+                    operation_kind="model",
+                    estimate_micros=60,
+                )
+                outcomes.append("admitted")
+            except ProjectQAResearchBudgetExceeded:
+                outcomes.append("refused")
 
     threads = [
         threading.Thread(  # realtime: real concurrent SQLite admission; no clock assertions
@@ -231,8 +226,10 @@ def test_two_connections_cannot_overcommit_one_budget(tmp_path) -> None:
     assert sorted(outcomes) == ["admitted", "refused"]
 
 
-def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> None:
-    project, _store, research_row = _research(tmp_path)
+def test_research_schema_migration_preserves_existing_project_data(
+    make_project,
+) -> None:
+    project, _store, research_row = _research(make_project)
     path = project.path
     project.db.execute("INSERT INTO sheets (name) VALUES ('Existing')")
     project.db.commit()
@@ -251,8 +248,7 @@ def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> 
             (OLD_SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY),
         )
 
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert (
             reopened.db.execute("SELECT name FROM sheets").fetchone()[0] == "Existing"
@@ -270,5 +266,3 @@ def test_research_schema_migration_preserves_existing_project_data(tmp_path) -> 
         }
         assert "project_qa_research_runs" in tables
         assert "project_qa_research_operations" in tables
-    finally:
-        reopened.close()

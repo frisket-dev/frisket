@@ -450,85 +450,76 @@ def test_large_append_keeps_undo_metadata_bounded(make_project) -> None:
 
 @pytest.mark.parametrize("text_action", ["media.read_pdf_text", "media.ocr"])
 def test_import_undo_after_derived_text_result_preserves_existing_rows(
-    tmp_path: Path,
+    make_project,
     text_action: str,
 ) -> None:
-    project = Project.create(
-        tmp_path / f"derived-{text_action.rsplit('.', 1)[-1]}.frisket", name="append"
+    project = make_project(f"derived-{text_action.rsplit('.', 1)[-1]}")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    [imported_row] = writer.append_page(
+        [{"filename": "generated.pdf", "size": 13}],
+        expected_cursor=0,
+        next_cursor=1,
     )
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
-        [imported_row] = writer.append_page(
-            [{"filename": "generated.pdf", "size": 13}],
-            expected_cursor=0,
-            next_cursor=1,
-        )
-        publication = writer.finalize_session(
-            expected_cursor=1, enumeration_complete=True
-        )
+    publication = writer.finalize_session(expected_cursor=1, enumeration_complete=True)
 
-        derived = _start_claimed_run(
-            project,
-            sheet_id=sheet_id,
-            output_column_id=columns["text"],
-            row_ids=[imported_row],
-            label="PDF native text",
-            replace_existing=True,
-        )
-        project.db.execute(
-            "UPDATE ops SET kind=? WHERE id=?", (text_action, derived.op_id)
-        )
-        project.db.execute(
-            "UPDATE runs SET action_kind=? WHERE id=?", (text_action, derived.run_id)
-        )
-        project.db.commit()
-        generations = ResultGenerationStore(project)
-        _declare(
-            generations,
-            derived,
-            columns["text"],
-            write_mode="replace_scope",
-        )
-        _write(
-            project,
-            derived,
-            [
-                {
-                    "row_id": imported_row,
-                    "column_id": columns["text"],
-                    "value": "generated document text",
-                    "publication_effect": "publish_value",
-                }
-            ],
-        )
-        _seal(generations, derived, columns["text"])
-        RunResultStore(project).finish_run(
-            derived.run_id, **derived.authority.terminal_kwargs()
-        )
-        _release(project, derived)
+    derived = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=columns["text"],
+        row_ids=[imported_row],
+        label="PDF native text",
+        replace_existing=True,
+    )
+    project.db.execute("UPDATE ops SET kind=? WHERE id=?", (text_action, derived.op_id))
+    project.db.execute(
+        "UPDATE runs SET action_kind=? WHERE id=?", (text_action, derived.run_id)
+    )
+    project.db.commit()
+    generations = ResultGenerationStore(project)
+    _declare(
+        generations,
+        derived,
+        columns["text"],
+        write_mode="replace_scope",
+    )
+    _write(
+        project,
+        derived,
+        [
+            {
+                "row_id": imported_row,
+                "column_id": columns["text"],
+                "value": "generated document text",
+                "publication_effect": "publish_value",
+            }
+        ],
+    )
+    _seal(generations, derived, columns["text"])
+    RunResultStore(project).finish_run(
+        derived.run_id, **derived.authority.terminal_kwargs()
+    )
+    _release(project, derived)
 
-        assert (
-            project.db.execute(
-                "SELECT status FROM runs WHERE id=?", (derived.run_id,)
-            ).fetchone()["status"]
-            == "completed"
-        )
-        assert project.get_values(sheet_id, columns["text"])[imported_row] == (
-            "generated document text"
-        )
-        assert project.undo() == derived.op_id
-        assert project.undo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-        existing_row = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
-        ).fetchone()
-        assert (
-            project.get_values(sheet_id, columns["text"])[int(existing_row["id"])]
-            == "existing"
-        )
-    finally:
-        project.close()
+    assert (
+        project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (derived.run_id,)
+        ).fetchone()["status"]
+        == "completed"
+    )
+    assert project.get_values(sheet_id, columns["text"])[imported_row] == (
+        "generated document text"
+    )
+    assert project.undo() == derived.op_id
+    assert project.undo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+    existing_row = project.db.execute(
+        "SELECT id FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
+    ).fetchone()
+    assert (
+        project.get_values(sheet_id, columns["text"])[int(existing_row["id"])]
+        == "existing"
+    )
 
 
 def test_unreadable_import_row_uses_standard_run_error_and_null_text(
@@ -657,4 +648,3 @@ def test_existing_import_files_page_adapter_uses_append_writer(
         assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
     finally:
         inventory.close()
-        project.close()

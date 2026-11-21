@@ -1,5 +1,7 @@
 """Durable returned-file recovery and schema-bound occurrence contracts."""
 
+from contextlib import closing
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -82,8 +84,9 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
         "SELECT hash FROM blobs WHERE hash=?", (digest,)
     ).fetchone()
     archive = project.export(tmp_path / "returned.zip")
-    restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(archive, tmp_path / "restored.frisket")
+    ) as restored:
         bound = typed_action_for_request(body)
         plan = build_typed_map_rows_plan(restored, bound, _allow_existing_outputs=True)
         verify_row_files(
@@ -133,8 +136,6 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
             ).fetchone()[0]
             == 2
         )
-    finally:
-        restored.close()
 
 
 @pytest.mark.parametrize("tamper", ["row", "key", "path", "missing", "duplicate"])

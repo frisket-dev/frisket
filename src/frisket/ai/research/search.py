@@ -42,7 +42,7 @@ class SearchUsage:
     provider_cost_usd: float | None
     cost_source: Literal["provider_reported", "configured_catalog", "free", "unknown"]
     units: tuple[SearchUsageUnit, ...] = ()
-    quote: SearchEstimate | None = None
+    estimate: SearchEstimate | None = None
 
 
 @dataclass(frozen=True)
@@ -247,7 +247,7 @@ class SearchService:
         if estimate is None:
             estimate = self.estimate(max_results=max_results)
         elif estimate.provider != self._provider or estimate.max_results != max_results:
-            raise ValueError("search quote does not match provider and result limit")
+            raise ValueError("search estimate does not match provider and result limit")
         else:
             self._validate_result_limit(max_results)
         query = query.strip() if isinstance(query, str) else ""
@@ -262,7 +262,7 @@ class SearchService:
                     provider_reported_cost_usd=None,
                     provider_cost_usd=0.0,
                     cost_source="free",
-                    quote=estimate,
+                    estimate=estimate,
                 ),
             )
         if self._provider == "exa":
@@ -376,7 +376,7 @@ class SearchService:
                     if provider_cost is not None
                     else "unknown"
                 ),
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 
@@ -445,7 +445,7 @@ class SearchService:
                 if provider_cost is not None
                 else "unknown",
                 units=units,
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 
@@ -502,13 +502,13 @@ class SearchService:
                 provider_reported_cost_usd=None,
                 provider_cost_usd=0.0,
                 cost_source="free",
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 
 
 def _rated_cost(estimate: SearchEstimate, quantity: int | float) -> float | None:
-    """Rate actual provider units against the pre-call captured quote."""
+    """Rate actual provider units against the pre-call captured estimate."""
     if estimate.unit_price_usd is None:
         return None
     return float(Decimal(estimate.unit_price_usd) * Decimal(str(quantity)))
