@@ -6,6 +6,7 @@ import base64
 import copy
 import types
 from dataclasses import replace
+from pathlib import Path
 from typing import Annotated, Union, get_args, get_origin
 
 from pydantic import BaseModel, TypeAdapter
@@ -29,6 +30,20 @@ from frisket.engine.store.row_files import (
     row_file_descriptors,
     register_returned_row_files,
 )
+
+
+def _verify_staged_image_mime(path: Path | None, expected_mime: str) -> None:
+    if path is None:
+        raise ValueError("staged image path is unavailable")
+    from PIL import Image
+
+    with Image.open(path) as observed:
+        actual_mime = (
+            Image.MIME.get(observed.format) if observed.format is not None else None
+        )
+        observed.verify()
+    if actual_mime != expected_mime:
+        raise ValueError("image MIME differs from observed bytes")
 
 
 class RowFileStager:
@@ -92,14 +107,10 @@ class RowFileStager:
         if image:
             if not blobs[0].mime.startswith("image/"):
                 raise RowError("invalid_output", "Staged image requires image bytes.")
-            from PIL import Image
-
             try:
-                with Image.open(self._stager._admitted(handle).path) as observed:
-                    actual_mime = Image.MIME.get(observed.format)
-                    observed.verify()
-                if actual_mime != blobs[0].mime:
-                    raise ValueError("image MIME differs from observed bytes")
+                _verify_staged_image_mime(
+                    self._stager._admitted(handle).path, blobs[0].mime
+                )
             except Exception:
                 raise RowError(
                     "invalid_output", "Staged image bytes are invalid."
@@ -157,6 +168,8 @@ class RowFileStager:
                     "mime": primary.mime,
                     "filename": primary.filename,
                 }
+            if blob.path is None:
+                raise RowError("invalid_output", "Staged image bytes are unavailable.")
             self._preview_count += 1
             self._preview_bytes += blob.size
             return {

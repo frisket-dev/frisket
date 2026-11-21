@@ -1,6 +1,7 @@
 """Single historical project conversion boundary; current runtime stays outside."""
 
 from __future__ import annotations
+from collections.abc import Callable
 import sqlite3
 from pathlib import Path
 from frisket.review_predicate import (
@@ -147,7 +148,11 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     )
     for step in _STEPS_BEFORE_PREPARED_CONTENT:
         run_step(db, *step)
-    run_rebuild_step(db, *PREPARED_CONTENT_STEP, bundle_path=bundle_path)
+    prepared_from, prepared_to, prepared_payload = PREPARED_CONTENT_STEP
+    assert callable(prepared_payload)
+    run_rebuild_step(
+        db, prepared_from, prepared_to, prepared_payload, bundle_path=bundle_path
+    )
     for step in _STEPS_BEFORE_DOMAIN:
         run_step(db, *step)
     migrate_domain(db)
@@ -347,7 +352,7 @@ def _rebuild_active_columns(db: sqlite3.Connection) -> None:
             )
 
 
-_ACTIVE_COLUMNS_STEP: SchemaStep = (
+_ACTIVE_COLUMNS_STEP: tuple[str, str, Callable[[sqlite3.Connection], None]] = (
     _ACTIVE_COLUMNS_FROM_DIGEST,
     _ACTIVE_COLUMNS_TO_DIGEST,
     _rebuild_active_columns,
