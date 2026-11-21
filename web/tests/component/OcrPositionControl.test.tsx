@@ -12,7 +12,7 @@ type Props = ComponentProps<typeof OcrParamsBody>;
 const genericVision: EngineOption = {
   id: 'example/vision-model',
   label: 'Example vision model',
-  tier: 'hosted',
+  tier: 'remote',
   billable: true,
   available: true,
   ocr_options: { keep_text_position: true },

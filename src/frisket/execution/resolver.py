@@ -544,7 +544,7 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
         EngineDeclaration(
             id=f"{provider}/{entry['id']}",
             label=str(entry["label"]),
-            tier="local" if provider == "ollama" else "hosted",
+            tier="local" if provider == "ollama" else "remote",
             provider=provider,
             billable=provider != "ollama",
         )

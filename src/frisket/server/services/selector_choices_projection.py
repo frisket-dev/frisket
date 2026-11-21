@@ -1160,7 +1160,7 @@ def _engine_destination(engine: Mapping[str, Any], target: Any) -> dict[str, str
         return {"kind": "local", "label": "On this device"}
     if tier == "sidecar":
         return {"kind": "unknown", "label": "Model server"}
-    if tier == "hosted":
+    if tier == "remote":
         return {"kind": "external", "label": "External provider"}
     return {"kind": "unknown", "label": "Destination unknown"}
 

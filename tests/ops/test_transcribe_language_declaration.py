@@ -361,7 +361,7 @@ def test_openai_whisper_1_availability_follows_effective_provider_keys(
     whisper1 = {e["id"]: e for e in _action_engines("media.transcribe", {})}[
         "openai/whisper-1"
     ]
-    assert whisper1["tier"] == "hosted"
+    assert whisper1["tier"] == "remote"
     assert whisper1["billable"] is True
     assert whisper1["available"] is False
     assert whisper1["label"] == "OpenAI Whisper"
