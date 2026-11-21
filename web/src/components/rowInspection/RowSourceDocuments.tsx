@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { RowSourceDocumentsPayload } from '../../api/types';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { AnchoredMenu } from '../MenuPop';
-import { CitationChip } from '../evidence/CitationChip';
+import { CitationChip } from '../citations/CitationChip';
 import './RowSourceDocuments.css';
 
 type SourceState =

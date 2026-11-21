@@ -33,7 +33,7 @@ import {
   type Theme,
 } from '@glideapps/glide-data-grid';
 import { GridViewport } from './GridViewport';
-import { activateSourceLink } from '../components/evidence/sourceLink';
+import { activateSourceLink } from '../components/citations/sourceLink';
 import {
   type ViewColumnGroup,
   type CellValue,

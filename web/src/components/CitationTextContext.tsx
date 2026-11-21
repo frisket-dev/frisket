@@ -1,5 +1,5 @@
 import './PanelPrimitives.css';
-import './evidence/CitationReading.css';
+import './citations/CitationReading.css';
 import { Button } from './Button';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';

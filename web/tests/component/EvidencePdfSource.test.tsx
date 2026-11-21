@@ -21,7 +21,7 @@ vi.mock('../../src/media/PdfViewer', () => ({
   },
 }));
 
-import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
+import { ArtifactSource } from '../../src/components/citations/ArtifactSource';
 import type { CitationArtifact } from '../../src/api/types';
 import { artifactRef, blobRef, evidenceArtifact } from '../support/evidenceFixtures';
 
