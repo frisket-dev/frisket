@@ -70,12 +70,16 @@ def _table_decls(
 
 
 def _sidecar_engine(
-    capabilities: dict[str, Any], *, route: str, name: str
+    capabilities: dict[str, Any], *, route: str | None, name: str
 ) -> tuple[bool, str | None, list[str]]:
     for engine in capabilities.get("engines", []):
         if not isinstance(engine, dict):
             continue
-        if engine.get("route") == route and engine.get("name") == name:
+        if (
+            route is not None
+            and engine.get("route") == route
+            and engine.get("name") == name
+        ):
             models = engine.get("models", [])
             if capabilities.get("managed_roster") is True:
                 return True, None, []
@@ -729,7 +733,7 @@ def _project_execution_composition_engines(
                 or use_decision_declaration
             ):
                 available, error = projected_liveness(preferred_target.id)
-                engine_update = {"available": available}
+                engine_update: dict[str, Any] = {"available": available}
                 if preferred_offer is not None:
                     engine_update.update(
                         {
