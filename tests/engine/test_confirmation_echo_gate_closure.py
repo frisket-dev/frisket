@@ -719,9 +719,9 @@ def _drive_derive_join(
 
     from frisket.engine.executor import run_action_spec
 
-    seed = _seed_fanout(tmp_path / "join.frisket")
-    project = Project(tmp_path / "join.frisket")
+    project = Project.create(tmp_path / "join.frisket", name="join")
     try:
+        seed = _seed_fanout(project)
         action = _join_action(
             left_sheet_id=seed["left_sheet_id"],
             right_sheet_id=seed["right_sheet_id"],
@@ -755,9 +755,9 @@ def _drive_derive_collection_expand(
     monkeypatch.setattr(
         family, "_ENUMERATOR_PROVIDER", _fake_channel_provider(150, 150)
     )
-    seed = _seed_source_cell(tmp_path / "expand.frisket")
-    project = Project(tmp_path / "expand.frisket")
+    project = Project.create(tmp_path / "expand.frisket", name="expand")
     try:
+        seed = _seed_source_cell(project)
         action = _expand_action(
             source_sheet_id=seed["sheet_id"],
             source_column_id=seed["column_id"],

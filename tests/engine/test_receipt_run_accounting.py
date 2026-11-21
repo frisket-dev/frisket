@@ -8,8 +8,8 @@ from frisket.engine.store.transactions import write_transaction
 from tests.engine.test_run_cost_projection import _seed, _fact, _writer
 
 
-def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp_path):
-    project, store, run_id, row_id, column_id = _seed(tmp_path)
+def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(project):
+    store, run_id, row_id, column_id = _seed(project)
     with closing(project):
         authority = _writer(project, run_id, column_id)
         with write_transaction(project.db):

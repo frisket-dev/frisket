@@ -360,7 +360,7 @@ def test_grounding_references_validate_missing_sources_and_refuse_required_pdf_c
 
 @pytest.mark.parametrize("template", [False, True])
 def test_grounding_only_transcript_never_augments_model_prompt(
-    tmp_path, monkeypatch, template
+    make_project, monkeypatch, template
 ):
     from test_extract_scalar_temporal_anchors import (
         _run_transcribe,
@@ -368,7 +368,7 @@ def test_grounding_only_transcript_never_augments_model_prompt(
         _stub_router,
     )
 
-    seeded = _seed_transcript_project(tmp_path)
+    seeded = _seed_transcript_project(make_project("p"))
     project = seeded["project"]
     _run_transcribe(seeded, monkeypatch)
     router, adapter = _stub_router(
