@@ -22,6 +22,7 @@ from frisket.engine.store.purge import (
     require_restore_available,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.effect_checkpoints import row_effect_ref
 
 
 @pytest.fixture
@@ -308,11 +309,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
             claim_token=authority.claim_token,
             terminal_disposition="completed",
         )
-    runs.finish_run(
-        source_run,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    runs.finish_run(source_run, fence=authority.fence())
     destination = project.add_sheet("copies")
     output = project.add_column(destination, "saved", type="text", ai_generated=True)
     first, second = project.add_rows(
@@ -408,11 +405,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
             claim_token=authority.claim_token,
             terminal_disposition="completed",
         )
-    runs.finish_run(
-        run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    runs.finish_run(run_id, fence=authority.fence())
     # The independently retained outcome on the row being purged keeps its
     # source result alive while that source row itself is removed.
     saved_sheet = project.add_sheet("independent-copy")
@@ -529,11 +522,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
             claim_token=authority.claim_token,
             terminal_disposition="completed",
         )
-    runs.finish_run(
-        run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    runs.finish_run(run_id, fence=authority.fence())
 
     # The global immutability backstop remains active without exact purge scope.
     with pytest.raises(sqlite3.IntegrityError, match="published result is immutable"):
@@ -1163,22 +1152,21 @@ def test_active_or_unaccounted_work_must_resolve_before_purge(project):
         begin_purge(project, sheet_ids=[first[0]])
     assert project.db.execute("SELECT count(*) FROM project_purges").fetchone()[0] == 0
     RunResultStore(project).finish_run(run)
+
     checkpoints = EffectCheckpointStore(project.db)
-    unit = {
-        "family": "row_effect",
-        "group_key": str(run),
-        "unit_key": "1",
-        "action_kind": "test.run",
-        "identity": "fingerprint",
-    }
-    assert checkpoints.reserve("checkpoint", **unit)
-    checkpoints.complete("checkpoint", **unit, payload={})
+    ref = row_effect_ref(
+        "checkpoint",
+        run_id=run,
+        row_id=1,
+        action_kind="test.run",
+        identity="fingerprint",
+    )
+    assert checkpoints.reserve(ref)
+    checkpoints.complete(ref, payload={})
     with pytest.raises(ValueError, match="unrecorded usage"):
         begin_purge(project, sheet_ids=[first[0]])
     with write_transaction(checkpoints.db):
-        checkpoints.account_returned(
-            "checkpoint", **unit, payload={"secret": 42}, accrue=lambda _: 0.0
-        )
+        checkpoints.account_returned(ref, payload={"secret": 42}, accrue=lambda _: 0.0)
     finish_purge(project, begin_purge(project, sheet_ids=[first[0]]))
     checkpoint = project.db.execute(
         "SELECT id,state,accounting_persisted,payload FROM effect_checkpoints"

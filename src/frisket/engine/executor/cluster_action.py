@@ -32,7 +32,13 @@ from frisket.engine.executor.map_rows_action import (
     _typed_receipt,
     typed_request_hash,
 )
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointStore,
+    is_operator_attestation,
+    model_call_ref,
+)
 from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.value_cluster import (
     ClusterSourceChanged,
     cluster_source_snapshot,
@@ -271,11 +277,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run["cancel_requested_at"] is not None:
         return abort("cancelled", "Clustering was stopped", status="cancelled")
-    from frisket.engine.store.effect_checkpoints import (
-        EffectCheckpointStore,
-        is_operator_attestation,
-    )
-
     if any(
         checkpoint["state"] == "consumed"
         and is_operator_attestation(checkpoint.get("payload"))
@@ -313,11 +314,14 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             return result
         claims = OutputColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
-        claims.require_current_writer(
-            project.db,
+        writer_fence = WriterFence.claimed(
             run_id=run_id,
             writer_attempt_id=writer,
             claim_token=claim,
+        )
+        claims.require_current_writer(
+            project.db,
+            fence=writer_fence,
             output_column_ids=column_ids,
         )
         validate_cluster_source(project, state["source"])
@@ -385,8 +389,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                         "cost_actual": 0.0,
                     }
                 ]
-        from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-
         checkpoints = EffectCheckpointStore(project.db)
         for checkpoint_id in fact.get("embedding_checkpoint_ids", []):
             checkpoint = checkpoints.get(checkpoint_id)
@@ -395,15 +397,14 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                     "Cluster embedding checkpoint is missing or belongs to another run"
                 )
             checkpoints.consume_and_retire_in_transaction(
-                checkpoint_id,
-                family="model_call",
-                group_key=str(run_id),
-                unit_key=checkpoint_id,
-                action_kind=action.kind,
-                identity=checkpoint["identity"],
-                run_id=run_id,
-                writer_attempt_id=writer,
-                claim_token=claim,
+                model_call_ref(
+                    checkpoint_id,
+                    group_key=str(run_id),
+                    unit_key=checkpoint_id,
+                    action_kind=action.kind,
+                    identity=checkpoint["identity"],
+                ),
+                fence=writer_fence,
             )
         receipt = receipt.model_copy(
             update={
@@ -738,9 +739,11 @@ def run_typed_cluster_action(
 
         try:
             OutputColumnClaimStore(project).finish_current_writer(
-                run_id=direct_writer["run_id"],
-                writer_attempt_id=direct_writer["writer_attempt_id"],
-                claim_token=direct_writer["claim_token"],
+                fence=WriterFence.claimed(
+                    run_id=direct_writer["run_id"],
+                    writer_attempt_id=direct_writer["writer_attempt_id"],
+                    claim_token=direct_writer["claim_token"],
+                ),
                 attempt_state="halted",
                 claim_status="released",
             )

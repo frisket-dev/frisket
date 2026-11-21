@@ -57,6 +57,7 @@ from frisket.execution.pricing_policy import (
 )
 from tests.execution_composition_helpers import open_attempt_authority
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 class _AboveLimitPricingPolicy:
@@ -977,8 +978,7 @@ def test_head_that_moved_between_admission_and_the_claim_refuses(
         claim(
             project,
             attempt,
-            claimless_direct_effect=False,
-            claim_token=claim_token,
+            fence=WriterFence(run_id=run_id, claim_token=claim_token),
             output_column_ids=output_column_ids,
         )
     assert exc_info.value.code == "stale_head"
@@ -1147,14 +1147,14 @@ def test_the_claim_transaction_must_own_its_write_lock(
         program=_program(spec), spec=spec, run_id=run_id, scope=(1,)
     )
     claim_token, output_column_ids = _claimed_output_authority(project, run_id)
+
     project.db.execute("BEGIN IMMEDIATE")
     try:
         with pytest.raises(AttemptClaimRefused):
             claim(
                 project,
                 attempt,
-                claimless_direct_effect=False,
-                claim_token=claim_token,
+                fence=WriterFence(run_id=run_id, claim_token=claim_token),
                 output_column_ids=output_column_ids,
             )
     finally:

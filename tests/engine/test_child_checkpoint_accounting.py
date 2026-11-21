@@ -8,8 +8,11 @@ import pytest
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointStore,
+    EffectCheckpointUnit,
     InvalidCheckpointState,
+    row_effect_ref,
 )
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_execution import CloudEstimateAuthority
 from tests.test_cloud_llm_checkpoint import (
@@ -73,9 +76,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         estimate_authority=CloudEstimateAuthority(100),
         group_key="same-logical-row",
         action_kind="map.extract",
-        run_id=first_run,
-        writer_attempt_id="attempt-first",
-        claimless_direct_effect=True,
+        fence=WriterFence.claimless(run_id=first_run, attempt_id="attempt-first"),
     )
     asyncio.run(coordinator.execute(_request()))
     project.db.execute(
@@ -101,16 +102,17 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         )
         project.db.commit()
     store = RunResultStore(project)
-    store.reserve_row_effect_checkpoint(
+    second_fence = WriterFence.claimless(
+        run_id=current_run, attempt_id="attempt-second"
+    )
+    parent_ref = row_effect_ref(
         "parent",
         run_id=current_run,
         row_id=row,
         action_kind="map.extract",
         identity="parent-identity",
-        authorized_attempt_id="attempt-second",
-        writer_attempt_id="attempt-second",
-        claimless_direct_effect=True,
     )
+    store.reserve_row_effect_checkpoint(parent_ref, fence=second_fence)
     # The normal tracing wrapper records a replayed child response before
     # the parent accounts/publishes it, so Explain retains the recovered call.
     from frisket.ai.llm import ModelRouter, LLMRequest
@@ -132,9 +134,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         estimate_authority=CloudEstimateAuthority(100),
         group_key="same-logical-row",
         action_kind="map.extract",
-        run_id=current_run,
-        writer_attempt_id="attempt-second",
-        claimless_direct_effect=True,
+        fence=second_fence,
     )
 
     async def trace_replay():
@@ -181,11 +181,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         payload["model_calls"] = []
     replay = {"answer": {**payload, "cost": 0}}
     delta = store.complete_row_effect_checkpoint(
-        "parent",
-        run_id=current_run,
-        row_id=row,
-        action_kind="map.extract",
-        identity="parent-identity",
+        parent_ref,
         batch=[{"row_id": row, "column_id": output, **payload}],
         replay_response=replay,
         child_checkpoints=coordinator.returned_checkpoints,
@@ -195,8 +191,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
             if supplemental
             else ()
         ),
-        writer_attempt_id="attempt-second",
-        claimless_direct_effect=True,
+        fence=second_fence,
     )
     fact = project.db.execute(
         "SELECT run_id,attempt_id FROM model_calls WHERE id='child-call'"
@@ -251,6 +246,7 @@ def test_unaccounted_cloud_child_cannot_be_retired(make_project):
     project = make_project("unaccounted-child")
     project.add_sheet("data")
     run = _claimless_run(project, attempt_id="attempt-first")
+    first_fence = WriterFence.claimless(run_id=run, attempt_id="attempt-first")
     coordinator = CloudLLMCheckpointCoordinator(
         project,
         _Transport([_response(execution_id="child-call")]),
@@ -258,25 +254,13 @@ def test_unaccounted_cloud_child_cannot_be_retired(make_project):
         estimate_authority=CloudEstimateAuthority(100),
         group_key="row",
         action_kind="map.extract",
-        run_id=run,
-        writer_attempt_id="attempt-first",
-        claimless_direct_effect=True,
+        fence=first_fence,
     )
     asyncio.run(coordinator.execute(_request()))
     ref = coordinator.returned_checkpoints[0]
     store = EffectCheckpointStore(project.db)
     with pytest.raises(InvalidCheckpointState, match="accounting"):
-        store.consume_and_retire(
-            ref.checkpoint_id,
-            family="model_call",
-            group_key=ref.group_key,
-            unit_key=ref.unit_key,
-            action_kind=ref.action_kind,
-            identity=ref.identity,
-            run_id=run,
-            writer_attempt_id="attempt-first",
-            claimless_direct_effect=True,
-        )
+        store.consume_and_retire(ref, fence=first_fence)
     assert store.get(ref.checkpoint_id)["state"] == "returned"
 
 
@@ -314,11 +298,24 @@ def test_equal_decoded_input_with_new_unavailability_cannot_adopt_reserved_effec
     assert checkpoint == changed_checkpoint
     assert identity != changed_identity
     store = EffectCheckpointStore(project.db)
-    unit = dict(
-        family="row_effect", group_key="1", unit_key="1", action_kind="map.extract"
+    store.reserve(
+        row_effect_ref(
+            checkpoint,
+            run_id=1,
+            row_id=1,
+            action_kind="map.extract",
+            identity=identity,
+        )
     )
-    store.reserve(checkpoint, identity=identity, **unit)
     with pytest.raises(IdentityMismatch):
-        store.returned_for_replay(identity=changed_identity, **unit)
+        store.returned_for_replay(
+            EffectCheckpointUnit(
+                family="row_effect",
+                group_key="1",
+                unit_key="1",
+                action_kind="map.extract",
+                identity=changed_identity,
+            )
+        )
     assert store.get(checkpoint)["state"] == "reserved"
     assert store.get(checkpoint)["accounting_persisted"] is False

@@ -9,6 +9,7 @@ from frisket.ai.research.row_answer import model_call_accounting
 from frisket.ai.models.accounting import merge_accounting_meta
 from frisket.ai.llm.types import wire_responses
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import attempt_in_scope
 from frisket.ops.base import ActionProgramInvocationHalt
 
@@ -93,7 +94,10 @@ class AccountedAgentRouter:
             RunResultStore(ctx.project).write_returned_call_accounting(
                 ctx.extras["run_id"],
                 [{"row_id": row_id, "column_id": None, "model_calls": facts}],
-                writer_attempt_id=attempt.attempt_id,
-                authorized_attempt_id=attempt.attempt_id,
-                claim_token=ctx.extras.get("claim_token"),
+                fence=WriterFence(
+                    run_id=ctx.extras["run_id"],
+                    writer_attempt_id=attempt.attempt_id,
+                    claim_token=ctx.extras.get("claim_token"),
+                    authorized_attempt_id=attempt.attempt_id,
+                ),
             )

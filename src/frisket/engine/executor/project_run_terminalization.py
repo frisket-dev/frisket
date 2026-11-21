@@ -22,6 +22,7 @@ from frisket.engine.store.receipts import (
     ReceiptStore,
 )
 from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import (
     StaleAttemptWriter,
     set_attempt_state_in_transaction,
@@ -522,11 +523,13 @@ def _terminalize_project_run_body(
 
             closed_cancellation = require_terminal_writer(
                 project,
+                fence=WriterFence(
+                    run_id=run_id,
+                    writer_attempt_id=authority.writer_attempt_id,
+                    claim_token=authority.claim_token,
+                    claimless_direct_effect=authority.claimless_direct_effect,
+                ),
                 terminal_status=terminal_run_status,
-                run_id=run_id,
-                writer_attempt_id=authority.writer_attempt_id,
-                claim_token=authority.claim_token,
-                claimless_direct_effect=authority.claimless_direct_effect,
             )
         except StaleAttemptWriter as exc:
             terminal_retry = (

@@ -13,6 +13,7 @@ from frisket.engine.store.prepared_ocr import (
     prepare_ocr_results,
 )
 from frisket.engine.store.prepared_content import PreparedContentStore
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
 
 def _setup(project):
@@ -63,21 +64,23 @@ def test_compact_checkpoint_reopens_without_repeating_ocr(tmp_path):
         run, result = _setup(project)
         original = result["value"]
         replay = {"text": copy.deepcopy(result)}
+
         checkpoints = EffectCheckpointStore(project.db)
-        identity = dict(
+        ref = EffectCheckpointRef(
+            checkpoint_id="checkpoint",
             family="test",
             group_key="1",
             unit_key="1",
             action_kind="media.ocr",
             identity="same",
         )
-        checkpoints.reserve("checkpoint", **identity, authorized_attempt_id=None)
+        checkpoints.reserve(ref)
 
         def accrue(_checkpoint):
             prepare_ocr_results(project, run, [result, *replay.values()])
             return 0.0
 
-        checkpoints.complete("checkpoint", **identity, payload=replay, accrue=accrue)
+        checkpoints.complete(ref, payload=replay, accrue=accrue)
         stored = json.loads(
             project.db.execute("SELECT payload FROM effect_checkpoints").fetchone()[0]
         )

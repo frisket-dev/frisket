@@ -54,6 +54,7 @@ from frisket.ops.base import ActionProgram
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.receipts import ReceiptStatus, ReceiptStore
+from frisket.engine.store.writer_fence import WriterFence
 
 LOG = logging.getLogger("frisket.worker")
 
@@ -781,8 +782,7 @@ def queued_v1_terminal_receipt_transition(
     action_kind: str | None = None,
     action_id: str | None = None,
     job_id: int | None = None,
-    writer_attempt_id: str | None = None,
-    claim_token: str | None = None,
+    fence: WriterFence | None = None,
     receipt_only: bool = False,
     repair_terminal_run_receipt: bool = False,
     terminal_run_status: str | None = None,
@@ -845,9 +845,13 @@ def queued_v1_terminal_receipt_transition(
                 else {"queued", "running"}
             ),
         )
-    caller_supplied_fence = writer_attempt_id is not None or claim_token is not None
+    caller_supplied_fence = fence is not None and (
+        fence.writer_attempt_id is not None or fence.claim_token is not None
+    )
     if caller_supplied_fence and (
-        not isinstance(writer_attempt_id, str) or not writer_attempt_id
+        fence is None
+        or not isinstance(fence.writer_attempt_id, str)
+        or not fence.writer_attempt_id
     ):
         from frisket.execution.attempt import StaleAttemptWriter
 
@@ -876,11 +880,13 @@ def queued_v1_terminal_receipt_transition(
         raise ValueError("queued project-run terminalization has no receipt id")
 
     if caller_supplied_fence:
-        assert writer_attempt_id is not None
+        assert fence is not None and fence.writer_attempt_id is not None
         authority = CurrentWriterTerminalAuthority(
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            writer_attempt_id=fence.writer_attempt_id,
+            claim_token=fence.claim_token,
+            claimless_direct_effect=(
+                fence.claimless_direct_effect or claimless_direct_effect
+            ),
         )
     elif receipt_only:
         authority = ReceiptOnlyOrphanAuthority(
@@ -1012,8 +1018,7 @@ def queued_v1_terminal_failure_result(
     project_id: str,
     run_id: int,
     error: ActionError,
-    writer_attempt_id: str | None = None,
-    claim_token: str | None = None,
+    fence: WriterFence | None = None,
     never_dispatched: bool = False,
     publication_refusal: DocumentTextPublicationRefused | None = None,
 ) -> ActionResult:
@@ -1024,8 +1029,7 @@ def queued_v1_terminal_failure_result(
         run_id=run_id,
         status="failed",
         error=error,
-        writer_attempt_id=writer_attempt_id,
-        claim_token=claim_token,
+        fence=fence,
         never_dispatched=never_dispatched,
         publication_refusal=publication_refusal,
     )

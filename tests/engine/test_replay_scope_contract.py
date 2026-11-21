@@ -122,9 +122,7 @@ class _Fixture:
             )
         store.finish_run(run_id, **authority.terminal_kwargs())
         OutputColumnClaimStore(self.project).finish_current_writer(
-            run_id=run_id,
-            writer_attempt_id=authority.writer_attempt_id,
-            claim_token=claim_token,
+            fence=authority.fence(),
             attempt_state="effected",
         )
         return run_id

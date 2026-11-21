@@ -36,6 +36,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.writer_fence import WriterFence
+
 from pydantic import ValidationError
 
 from frisket.engine.store.transactions import require_transaction, write_transaction
@@ -798,8 +800,12 @@ def mint_direct_effect_attempt(
     claim(
         project,
         commitment,
-        claim_token=claim_token,
-        claimless_direct_effect=claim_token is None,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=commitment.attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=claim_token is None,
+        ),
     )
     return commitment
 

@@ -43,6 +43,7 @@ from frisket.engine.store.result_generations import GenerationDeclarationConflic
 from frisket.engine.store.receipts import (
     ReceiptStore,
 )
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.transactions import write_transaction
 from frisket.execution.attempt import (
     StaleAttemptWriter,
@@ -768,7 +769,7 @@ def _terminalize_unclaimed_prepared_run(
             # grant this run terminal write authority; finish the exact
             # unclaimed prepared run, then let the caller release its receipt
             # reservation.
-            generation_claim_token=None,
+            fence=WriterFence(run_id=run_id),
             keep_zero_success_generated_columns=bool(
                 prepared_run.program.keep_zero_success_generated_columns
             ),
@@ -1340,9 +1341,11 @@ def _run_reserved_maprunner_action(
         if attempt_row is not None and attempt_row["state"] == "dispatching":
             try:
                 OutputColumnClaimStore(project).finish_current_writer(
-                    run_id=progress.run_id,
-                    writer_attempt_id=progress.writer_attempt_id,
-                    claim_token=claim_token,
+                    fence=WriterFence(
+                        run_id=progress.run_id,
+                        writer_attempt_id=progress.writer_attempt_id,
+                        claim_token=claim_token,
+                    ),
                     attempt_state="effected",
                     claim_status=(
                         "failed" if result.status == "failed" else "released"

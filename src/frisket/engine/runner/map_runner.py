@@ -90,7 +90,12 @@ from frisket.engine.store.transactions import (
     roll_back_failed_work,
     write_transaction,
 )
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+    row_effect_ref,
+)
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.output_claims import (
     ClaimLeaseRenewalFailed,
     OutputColumnClaimStore,
@@ -261,17 +266,9 @@ def _row_effect_identity(
 def _cloud_row_request_id(
     project: Project,
     *,
-    current_checkpoint_id: str,
-    current_group_key: str,
-    current_unit_key: str,
-    action_kind: str,
-    identity: str,
-    current_authorized_attempt_id: str,
-    run_id: int,
-    writer_attempt_id: str,
-    claim_token: str | None,
-    claimless_direct_effect: bool,
-) -> tuple[str, str, bool]:
+    current: EffectCheckpointRef,
+    fence: WriterFence,
+) -> tuple[EffectCheckpointRef, str, bool]:
     """Return the globally scoped Cloud key for this unresolved row effect.
 
     A fresh run may be the only way to recover after a create response was
@@ -285,7 +282,7 @@ def _cloud_row_request_id(
         "WHERE family='row_effect' AND action_kind=? AND identity=? "
         "AND state='reserved' AND id<>? ORDER BY created_at, id LIMIT 1"
     )
-    params = (action_kind, identity, current_checkpoint_id)
+    params = (current.action_kind, current.identity, current.checkpoint_id)
     prior = project.db.execute(query, params).fetchone()
     if prior is None:
         # A reopened worker may have started its SQLite snapshot before the
@@ -293,7 +290,7 @@ def _cloud_row_request_id(
         # reservation without exposing the current uncommitted checkpoint.
         with project.read_snapshot() as snapshot:
             prior = snapshot.db.execute(query, params).fetchone()
-    owner_checkpoint_id = current_checkpoint_id
+    owner_ref = current
     adopted = False
     if prior is not None:
         owner_checkpoint_id = str(prior["id"])
@@ -303,33 +300,31 @@ def _cloud_row_request_id(
                 "external_effect_reconciliation_required",
                 "The prior Cloud reservation disappeared during recovery.",
             )
-        EffectCheckpointStore(project.db).adopt_reserved_for_recovery(
-            owner_checkpoint_id,
-            current_checkpoint_id=current_checkpoint_id,
+        source_ref = EffectCheckpointRef(
+            checkpoint_id=owner_checkpoint_id,
             family="row_effect",
-            source_group_key=str(source["group_key"]),
-            source_unit_key=str(source["unit_key"]),
-            current_group_key=current_group_key,
-            current_unit_key=current_unit_key,
-            action_kind=action_kind,
-            identity=identity,
-            current_authorized_attempt_id=current_authorized_attempt_id,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            group_key=str(source["group_key"]),
+            unit_key=str(source["unit_key"]),
+            action_kind=current.action_kind,
+            identity=current.identity,
         )
+        EffectCheckpointStore(project.db).adopt_reserved_for_recovery(
+            source_ref,
+            current=current,
+            fence=fence,
+        )
+        owner_ref = replace(current, checkpoint_id=owner_checkpoint_id)
         adopted = True
     logical = {
         "schema_version": "frisket.cloud_map_row_request.v1",
         "project_storage_identity": project.storage_identity,
-        "row_checkpoint_id": owner_checkpoint_id,
+        "row_checkpoint_id": owner_ref.checkpoint_id,
     }
     encoded = json.dumps(
         logical, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
     return (
-        owner_checkpoint_id,
+        owner_ref,
         "cloud_row_" + hashlib.sha256(encoded).hexdigest(),
         adopted,
     )
@@ -822,9 +817,11 @@ class MapRunner:
                 )
             OutputColumnClaimStore.require_current_writer(
                 self.project.db,
-                run_id=run_id,
-                writer_attempt_id=admitted_attempt.attempt_id,
-                claim_token=claim_token,
+                fence=WriterFence(
+                    run_id=run_id,
+                    writer_attempt_id=admitted_attempt.attempt_id,
+                    claim_token=claim_token,
+                ),
                 output_column_ids=frozenset(output_column_ids),
             )
         # The lazy writer creates one sidecar only if a row actually reaches a
@@ -889,14 +886,26 @@ class MapRunner:
         )
 
         publication_cancelled = False
+        pre_dispatch_fence = WriterFence(run_id=run_id, claim_token=claim_token)
+
+        def current_writer_fence() -> WriterFence:
+            attempt_id = attempt.attempt_id if attempt is not None else None
+            return WriterFence(
+                run_id=run_id,
+                writer_attempt_id=attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=self.claimless_direct_effect,
+                authorized_attempt_id=attempt_id,
+            )
 
         def persist_result_batch(
             batch: list[dict[str, Any]],
             *,
-            checkpoint: tuple[str, int, str] | None = None,
+            checkpoint: EffectCheckpointRef | None = None,
         ) -> None:
             nonlocal publication_cancelled
-            writer_attempt_id = attempt.attempt_id if attempt is not None else None
+            fence = current_writer_fence()
+            writer_attempt_id = fence.writer_attempt_id
 
             citation_writer: Callable[[], None] | None = None
             consumed = {
@@ -947,14 +956,8 @@ class MapRunner:
                 self.run_store.publish_result_batch(
                     run_id,
                     batch,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    authorized_attempt_id=writer_attempt_id,
-                    claimless_direct_effect=self.claimless_direct_effect,
+                    fence=fence,
                     checkpoint=checkpoint,
-                    checkpoint_action_kind=(
-                        spec["action_kind"] if checkpoint else None
-                    ),
                     defer_generation_seal=defer_generation_seal,
                     citation_writer=citation_writer,
                 )
@@ -975,11 +978,8 @@ class MapRunner:
 
                 closed_publication = require_terminal_writer(
                     self.project,
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
+                    fence=fence,
                     terminal_status="cancelled",
-                    claimless_direct_effect=self.claimless_direct_effect,
                     output_column_ids=output_column_ids,
                 )
                 if not closed_publication:
@@ -1059,7 +1059,7 @@ class MapRunner:
                 out_cols=(
                     out_cols if finalization_out_cols is None else finalization_out_cols
                 ),
-                generation_claim_token=claim_token,
+                fence=pre_dispatch_fence,
                 keep_zero_success_generated_columns=(
                     action_program.keep_zero_success_generated_columns
                 ),
@@ -1089,7 +1089,7 @@ class MapRunner:
                 run_id=run_id,
                 status="cancelled",
                 out_cols=out_cols,
-                generation_claim_token=claim_token,
+                fence=pre_dispatch_fence,
                 keep_zero_success_generated_columns=(
                     action_program.keep_zero_success_generated_columns
                 ),
@@ -1219,9 +1219,8 @@ class MapRunner:
                 claim_attempt(
                     self.project,
                     attempt,
-                    claim_token=claim_token,
+                    fence=current_writer_fence(),
                     output_column_ids=frozenset(output_column_ids),
-                    claimless_direct_effect=self.claimless_direct_effect,
                 )
                 progress.writer_attempt_claimed = True
             except AttemptClaimRefused as exc:
@@ -1372,7 +1371,6 @@ class MapRunner:
                         self.project,
                         self.run_store,
                         op_id=op_id,
-                        run_id=run_id,
                         status=(
                             "cancelled"
                             if batch_progress.cancelled
@@ -1384,9 +1382,7 @@ class MapRunner:
                             action_program.keep_zero_success_generated_columns
                         ),
                         auto_verify=bool(action_program.auto_verify),
-                        writer_attempt_id=attempt.attempt_id,
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        fence=current_writer_fence(),
                         defer_terminal_status=cooperative_cancel,
                         defer_generation_seal=defer_generation_seal,
                         terminal_attempt_state=(
@@ -1408,7 +1404,7 @@ class MapRunner:
                             else "completed"
                         ),
                         out_cols=out_cols,
-                        generation_claim_token=claim_token,
+                        fence=pre_dispatch_fence,
                         keep_zero_success_generated_columns=(
                             action_program.keep_zero_success_generated_columns
                         ),
@@ -1436,15 +1432,12 @@ class MapRunner:
                         self.project,
                         self.run_store,
                         op_id=op_id,
-                        run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
                             action_program.keep_zero_success_generated_columns
                         ),
-                        writer_attempt_id=attempt.attempt_id,
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        fence=current_writer_fence(),
                         terminal_attempt_state=None,
                     )
                 else:
@@ -1455,7 +1448,7 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        generation_claim_token=claim_token,
+                        fence=pre_dispatch_fence,
                         keep_zero_success_generated_columns=(
                             action_program.keep_zero_success_generated_columns
                         ),
@@ -1484,7 +1477,6 @@ class MapRunner:
                         self.project,
                         self.run_store,
                         op_id=op_id,
-                        run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
@@ -1492,9 +1484,7 @@ class MapRunner:
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
-                        writer_attempt_id=attempt.attempt_id,
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        fence=current_writer_fence(),
                         terminal_attempt_state=(
                             None if defer_attempt_close else "halted"
                         ),
@@ -1508,7 +1498,7 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        generation_claim_token=claim_token,
+                        fence=pre_dispatch_fence,
                         keep_zero_success_generated_columns=(
                             action_program.keep_zero_success_generated_columns
                         ),
@@ -1545,7 +1535,6 @@ class MapRunner:
                         self.project,
                         self.run_store,
                         op_id=op_id,
-                        run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
@@ -1553,9 +1542,7 @@ class MapRunner:
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
-                        writer_attempt_id=attempt.attempt_id,
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        fence=current_writer_fence(),
                         terminal_attempt_state="halted",
                     )
                 else:
@@ -1566,7 +1553,7 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        generation_claim_token=claim_token,
+                        fence=pre_dispatch_fence,
                         keep_zero_success_generated_columns=(
                             action_program.keep_zero_success_generated_columns
                         ),
@@ -1654,6 +1641,7 @@ class MapRunner:
                 cloud_payer, CloudPayerSubject
             ):
                 raise TypeError("admitted Cloud payer has an invalid type")
+            checkpoint_ref: EffectCheckpointRef | None = None
             if (
                 row_effect_spends_or_meters(action_program, spec, self.router)
                 and (
@@ -1675,23 +1663,19 @@ class MapRunner:
                         cloud_payer.to_snapshot() if cloud_payer is not None else None
                     ),
                 )
+                checkpoint_ref = row_effect_ref(
+                    checkpoint_id,
+                    run_id=run_id,
+                    row_id=row_id,
+                    action_kind=spec["action_kind"],
+                    identity=checkpoint_identity,
+                )
                 checkpoint = self.run_store.row_effect_checkpoint(run_id, row_id)
                 if checkpoint is None:
                     checkpoint_created = self.run_store.reserve_row_effect_checkpoint(
-                        checkpoint_id,
-                        run_id=run_id,
-                        row_id=row_id,
-                        action_kind=spec["action_kind"],
-                        identity=checkpoint_identity,
-                        authorized_attempt_id=(
-                            attempt.attempt_id if attempt is not None else None
-                        ),
+                        checkpoint_ref,
                         consumed_capture=consumed_capture,
-                        writer_attempt_id=(
-                            attempt.attempt_id if attempt is not None else None
-                        ),
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        fence=current_writer_fence(),
                     )
                     if not checkpoint_created:
                         checkpoint = self.run_store.row_effect_checkpoint(
@@ -1731,6 +1715,9 @@ class MapRunner:
                                 "refusing another call until the effect is reconciled.",
                             )
                         checkpoint_id = str(checkpoint["id"])
+                        checkpoint_ref = replace(
+                            checkpoint_ref, checkpoint_id=checkpoint_id
+                        )
                         checkpoint_should_complete = True
                         checkpoint = None
                     if checkpoint is None:
@@ -1743,6 +1730,9 @@ class MapRunner:
                         )
                     else:
                         checkpoint_id = str(checkpoint["id"])
+                        checkpoint_ref = replace(
+                            checkpoint_ref, checkpoint_id=checkpoint_id
+                        )
                         results = _returned_row_response(checkpoint)
                         if (
                             callable(capture_result_evidence)
@@ -1759,7 +1749,7 @@ class MapRunner:
                                 output_columns=out_cols,
                             )
             unavailable = getattr(values, "unavailable_inputs", ())
-            if results is None and unavailable and checkpoint_id is None:
+            if results is None and unavailable and checkpoint_ref is None:
                 from frisket.engine.store.input_availability import not_completed_result
 
                 # Availability is decided before either local or Cloud dispatch.
@@ -1774,7 +1764,7 @@ class MapRunner:
 
             if results is None:
                 if cloud_payer is not None:
-                    if checkpoint_id is None or checkpoint_identity is None:
+                    if checkpoint_ref is None:
                         raise ActionProgramInvocationHalt(
                             "promise_violation",
                             "Cloud execution requires a durable admitted row effect",
@@ -1785,19 +1775,11 @@ class MapRunner:
                             "Cloud execution requires an authorized attempt",
                         )
                     try:
-                        checkpoint_id, cloud_request_id, adopted_checkpoint = (
+                        checkpoint_ref, cloud_request_id, adopted_checkpoint = (
                             _cloud_row_request_id(
                                 self.project,
-                                current_checkpoint_id=checkpoint_id,
-                                current_group_key=str(run_id),
-                                current_unit_key=str(row_id),
-                                action_kind=spec["action_kind"],
-                                identity=checkpoint_identity,
-                                current_authorized_attempt_id=attempt.attempt_id,
-                                run_id=run_id,
-                                writer_attempt_id=attempt.attempt_id,
-                                claim_token=claim_token,
-                                claimless_direct_effect=self.claimless_direct_effect,
+                                current=checkpoint_ref,
+                                fence=current_writer_fence(),
                             )
                         )
                     except BaseException:
@@ -1807,14 +1789,8 @@ class MapRunner:
                         # remain available to its still-live owner.
                         if checkpoint_created:
                             self.run_store.discard_reserved_row_effect_checkpoint(
-                                checkpoint_id,
-                                run_id=run_id,
-                                row_id=row_id,
-                                action_kind=spec["action_kind"],
-                                identity=checkpoint_identity,
-                                writer_attempt_id=attempt.attempt_id,
-                                claim_token=claim_token,
-                                claimless_direct_effect=(self.claimless_direct_effect),
+                                checkpoint_ref,
+                                fence=current_writer_fence(),
                             )
                         raise
                     if adopted_checkpoint:
@@ -1823,19 +1799,10 @@ class MapRunner:
                         # prove no egress and must not discard its recovery key.
                         checkpoint_created = False
                 if checkpoint_created and cancelled():
-                    assert checkpoint_id is not None
-                    assert checkpoint_identity is not None
+                    assert checkpoint_ref is not None
                     self.run_store.discard_reserved_row_effect_checkpoint(
-                        checkpoint_id,
-                        run_id=run_id,
-                        row_id=row_id,
-                        action_kind=spec["action_kind"],
-                        identity=checkpoint_identity,
-                        writer_attempt_id=(
-                            attempt.attempt_id if attempt is not None else None
-                        ),
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        checkpoint_ref,
+                        fence=current_writer_fence(),
                     )
                     return
                 try:
@@ -1843,7 +1810,7 @@ class MapRunner:
                     cloud_llm_binding = None
                     if cloud_payer is not None:
                         if (
-                            checkpoint_id is None
+                            checkpoint_ref is None
                             or cloud_request_id is None
                             or attempt is None
                             or attempt.routed is None
@@ -1865,9 +1832,7 @@ class MapRunner:
                             request_id=cloud_request_id,
                             group_key=f"map:{cloud_request_id}",
                             action_kind=spec["action_kind"],
-                            run_id=run_id,
-                            claim_token=claim_token,
-                            claimless_direct_effect=self.claimless_direct_effect,
+                            fence=current_writer_fence(),
                         )
                         if runtime_binding is None:
                             raise ActionProgramInvocationHalt(
@@ -1903,19 +1868,10 @@ class MapRunner:
                         )
                 except NetworkDisabled:
                     if checkpoint_created:
-                        assert checkpoint_id is not None
-                        assert checkpoint_identity is not None
+                        assert checkpoint_ref is not None
                         self.run_store.discard_reserved_row_effect_checkpoint(
-                            checkpoint_id,
-                            run_id=run_id,
-                            row_id=row_id,
-                            action_kind=spec["action_kind"],
-                            identity=checkpoint_identity,
-                            writer_attempt_id=(
-                                attempt.attempt_id if attempt is not None else None
-                            ),
-                            claim_token=claim_token,
-                            claimless_direct_effect=self.claimless_direct_effect,
+                            checkpoint_ref,
+                            fence=current_writer_fence(),
                         )
                     raise
                 except BaseException:
@@ -1923,19 +1879,10 @@ class MapRunner:
                     if checkpoint_created and row_effect_cannot_egress(
                         action_program, spec
                     ):
-                        assert checkpoint_id is not None
-                        assert checkpoint_identity is not None
+                        assert checkpoint_ref is not None
                         self.run_store.discard_reserved_row_effect_checkpoint(
-                            checkpoint_id,
-                            run_id=run_id,
-                            row_id=row_id,
-                            action_kind=spec["action_kind"],
-                            identity=checkpoint_identity,
-                            writer_attempt_id=(
-                                attempt.attempt_id if attempt is not None else None
-                            ),
-                            claim_token=claim_token,
-                            claimless_direct_effect=self.claimless_direct_effect,
+                            checkpoint_ref,
+                            fence=current_writer_fence(),
                         )
                     raise
                 if callable(capture_result_evidence) and input_capture is not None:
@@ -1958,8 +1905,7 @@ class MapRunner:
                             payload["__consumed_sources"] = consumed_capture
                             break
                 if checkpoint_should_complete:
-                    assert checkpoint_id is not None
-                    assert checkpoint_identity is not None
+                    assert checkpoint_ref is not None
                     supplemental_accounting: tuple[dict[str, Any], ...] = ()
                     if cloud_llm_coordinator is not None:
                         if attempt is None or attempt.routed is None:
@@ -2022,11 +1968,7 @@ class MapRunner:
                                 )
                         supplemental_accounting = tuple(missing_accounting)
                     progress.cost += self.run_store.complete_row_effect_checkpoint(
-                        checkpoint_id,
-                        run_id=run_id,
-                        row_id=row_id,
-                        action_kind=spec["action_kind"],
-                        identity=checkpoint_identity,
+                        checkpoint_ref,
                         batch=returned_batch,
                         replay_response=replay_response,
                         child_checkpoints=(
@@ -2035,11 +1977,7 @@ class MapRunner:
                             else ()
                         ),
                         supplemental_accounting=supplemental_accounting,
-                        writer_attempt_id=(
-                            attempt.attempt_id if attempt is not None else None
-                        ),
-                        claim_token=claim_token,
-                        claimless_direct_effect=self.claimless_direct_effect,
+                        fence=current_writer_fence(),
                     )
                     results = replay_response
                     # A cancellation during provider retry may carry paid usage.
@@ -2063,15 +2001,11 @@ class MapRunner:
                 # Stop future dispatch, but retain this already-submitted work.
                 # The ordinary result writer still checks the attempt/claim owner.
                 cancelled()
-                if checkpoint_id is None:
+                if checkpoint_ref is None:
                     pending.extend(returned_batch)
                     pending_row_count += 1
                 else:
-                    assert checkpoint_identity is not None
-                    persist_result_batch(
-                        returned_batch,
-                        checkpoint=(checkpoint_id, row_id, checkpoint_identity),
-                    )
+                    persist_result_batch(returned_batch, checkpoint=checkpoint_ref)
                 failed_results = [
                     p
                     for p in results.values()
@@ -2284,7 +2218,6 @@ class MapRunner:
                 self.project,
                 self.run_store,
                 op_id=op_id,
-                run_id=run_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
                 keep_zero_success_generated_columns=(
@@ -2297,9 +2230,7 @@ class MapRunner:
                     and progress.halted_code is None
                     and teardown_error is None
                 ),
-                writer_attempt_id=attempt.attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=self.claimless_direct_effect,
+                fence=current_writer_fence(),
                 defer_terminal_status=cooperative_cancel,
                 defer_generation_seal=defer_generation_seal,
                 terminal_attempt_state=(
@@ -2318,7 +2249,7 @@ class MapRunner:
                 run_id=run_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
-                generation_claim_token=claim_token,
+                fence=pre_dispatch_fence,
                 keep_zero_success_generated_columns=(
                     action_program.keep_zero_success_generated_columns
                 ),

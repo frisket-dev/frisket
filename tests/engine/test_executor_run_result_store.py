@@ -145,11 +145,7 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
     with pytest.raises(StaleAttemptWriter):
         store.finish_run(run_id)
     assert store.get_run(run_id)["status"] == "running"
-    store.finish_run(
-        run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    store.finish_run(run_id, fence=authority.fence())
     with write_transaction(store.db):
         store.point_column_at_run(op_id, columns["score"], run_id)
     assert project.get_column(columns["score"])["current_run_id"] == run_id

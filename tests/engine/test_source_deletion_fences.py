@@ -23,6 +23,7 @@ from tests.engine.test_result_generation_store import (
     _write,
 )
 from tests.engine.test_change_history_navigation import _step
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _consumer(project, sheet, output, rows, source_sheet, source_column):
@@ -209,8 +210,9 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
         sheet_ids=[sheet], column_ids=[source, note]
     )
     delete_sheet(project, sheet)
+
     with pytest.raises(AttemptClaimRefused, match="cancelled") as exc:
-        claim(project, attempt, claimless_direct_effect=True)
+        claim(project, attempt, fence=WriterFence(claimless_direct_effect=True))
     assert exc.value.code == "input_source_unavailable"
     assert (
         project.db.execute(

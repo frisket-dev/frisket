@@ -10,6 +10,7 @@ one `sys.modules["conftest"]` slot.
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 import importlib.util
 import io
@@ -195,21 +196,22 @@ class RunWriterAuthorityFixture:
     writer_attempt_id: str
     claim_token: str | None
     claimless_direct_effect: bool
+    run_id: int | None = None
+
+    def fence(self) -> WriterFence:
+        return WriterFence(
+            run_id=self.run_id,
+            writer_attempt_id=self.writer_attempt_id,
+            claim_token=self.claim_token,
+            claimless_direct_effect=self.claimless_direct_effect,
+            authorized_attempt_id=self.writer_attempt_id,
+        )
 
     def kwargs(self) -> dict[str, Any]:
-        return {
-            "writer_attempt_id": self.writer_attempt_id,
-            "claim_token": self.claim_token,
-            "claimless_direct_effect": self.claimless_direct_effect,
-            "authorized_attempt_id": self.writer_attempt_id,
-        }
+        return {"fence": self.fence()}
 
     def terminal_kwargs(self) -> dict[str, Any]:
-        return {
-            "writer_attempt_id": self.writer_attempt_id,
-            "claim_token": self.claim_token,
-            "claimless_direct_effect": self.claimless_direct_effect,
-        }
+        return {"fence": self.fence()}
 
 
 def run_writer_authority_fixture(
@@ -283,7 +285,7 @@ def run_writer_authority_fixture(
             raise AssertionError(
                 "claimless test authority cannot reuse a claimed output run"
             )
-        return RunWriterAuthorityFixture(attempt_id, None, True)
+        return RunWriterAuthorityFixture(attempt_id, None, True, run_id=int(run_id))
 
     by_token: dict[str, set[int]] = {}
     for claim in active_claims:
@@ -294,7 +296,9 @@ def run_writer_authority_fixture(
         )
     for token, claimed_ids in by_token.items():
         if column_ids <= claimed_ids:
-            return RunWriterAuthorityFixture(attempt_id, token, False)
+            return RunWriterAuthorityFixture(
+                attempt_id, token, False, run_id=int(run_id)
+            )
     if active_claims:
         raise AssertionError(
             "fixture run already has an active claim that does not cover "
@@ -333,7 +337,7 @@ def run_writer_authority_fixture(
             run_id=int(run_id),
             expected_output_names=[str(column["name"]) for column in columns],
         )
-    return RunWriterAuthorityFixture(attempt_id, token, False)
+    return RunWriterAuthorityFixture(attempt_id, token, False, run_id=int(run_id))
 
 
 def write_claimed_test_results(
@@ -470,17 +474,13 @@ def write_claimed_test_results(
             )
     except BaseException:
         OutputColumnClaimStore(project).finish_current_writer(
-            run_id=run_id,
-            writer_attempt_id=authority.writer_attempt_id,
-            claim_token=authority.claim_token,
+            fence=authority.fence(),
             attempt_state="halted",
         )
         raise
     project.db.commit()
     OutputColumnClaimStore(project).finish_current_writer(
-        run_id=run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
+        fence=authority.fence(),
         attempt_state="effected",
     )
 

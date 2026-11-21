@@ -8,6 +8,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
@@ -91,8 +92,11 @@ def test_result_write_renews_claim_inside_callers_transaction(
         RunResultStore(project).write_results_in_transaction(
             run_id,
             [{"row_id": row_id, "column_id": output_column_id, "value": "one"}],
-            writer_attempt_id="attempt_in_transaction_renewal",
-            claim_token=claim_token,
+            fence=WriterFence.claimed(
+                run_id=run_id,
+                writer_attempt_id="attempt_in_transaction_renewal",
+                claim_token=claim_token,
+            ),
         )
 
         lease = project.db.execute(

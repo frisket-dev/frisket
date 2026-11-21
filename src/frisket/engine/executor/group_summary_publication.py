@@ -9,6 +9,7 @@ from dataclasses import replace
 from typing import Any
 
 from frisket.engine.store.changes import ChangeStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.derived_refresh_stage import DerivedRefreshStage
 from frisket.engine.store.derived_updates import (
@@ -445,9 +446,11 @@ class GroupPublication:
         ChangeStore(self.project).require_publication(self._started_write.op_id)
         OutputColumnClaimStore.require_current_writer(
             self.project.db,
-            run_id=int(self._started_envelope["run_id"]),
-            writer_attempt_id=str(self._started_envelope["attempt_id"]),
-            claim_token=self.claim_token,
+            fence=WriterFence(
+                run_id=int(self._started_envelope["run_id"]),
+                writer_attempt_id=str(self._started_envelope["attempt_id"]),
+                claim_token=self.claim_token,
+            ),
         )
         if self.params.refresh_target is not None:
             target = self.params.refresh_target

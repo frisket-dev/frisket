@@ -16,15 +16,16 @@ def test_cancel_after_last_row_before_terminal_transaction_keeps_results(
 
     def stop_before_finalize(project, store, **kwargs):
         store = RunResultStore(project)
-        assert store.request_cancel(kwargs["run_id"])
-        first = store.get_run(kwargs["run_id"])["cancel_requested_at"]
+        run_id = kwargs["fence"].run_id
+        assert store.request_cancel(run_id)
+        first = store.get_run(run_id)["cancel_requested_at"]
         manual_edits.append(
             project.apply_edits(
                 [{"row_id": row, "column_id": source, "value": "manual"}]
             )
         )
-        assert store.request_cancel(kwargs["run_id"])
-        assert store.get_run(kwargs["run_id"])["cancel_requested_at"] == first
+        assert store.request_cancel(run_id)
+        assert store.get_run(run_id)["cancel_requested_at"] == first
         return finalize(project, store, **kwargs)
 
     monkeypatch.setattr(map_runner, "finalize_dispatched_run", stop_before_finalize)

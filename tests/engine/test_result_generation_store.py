@@ -21,6 +21,8 @@ from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.attempt import set_attempt_state
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
+from frisket.engine.store.effect_checkpoints import row_effect_ref
 
 
 @dataclass(frozen=True)
@@ -649,10 +651,7 @@ def test_result_publication_rolls_back_callback_result_and_head_together(
                         "publication_effect": "publish_value",
                     }
                 ],
-                writer_attempt_id=claimed_run.authority.writer_attempt_id,
-                claim_token=claimed_run.authority.claim_token,
-                claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
-                authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+                fence=claimed_run.authority.fence(),
                 citation_writer=fail_after_evidence_write,
             )
 
@@ -704,9 +703,11 @@ def test_result_publication_keeps_writer_fence_before_callback(
                         "publication_effect": "publish_value",
                     }
                 ],
-                writer_attempt_id=claimed_run.authority.writer_attempt_id,
-                claim_token="output-claim:wrong",
-                authorized_attempt_id=claimed_run.authority.writer_attempt_id,
+                fence=WriterFence.claimed(
+                    run_id=claimed_run.run_id,
+                    writer_attempt_id=claimed_run.authority.writer_attempt_id,
+                    claim_token="output-claim:wrong",
+                ),
                 citation_writer=write_evidence,
             )
 
@@ -739,6 +740,14 @@ def test_checkpoint_result_publication_defers_heads_until_seal(
             "publication_effect": "publish_value",
         }
     ]
+
+    ref = row_effect_ref(
+        checkpoint_id,
+        run_id=claimed_run.run_id,
+        row_id=row_ids[0],
+        action_kind="map.regex_extract",
+        identity=checkpoint_identity,
+    )
     try:
         _declare(
             generations,
@@ -748,35 +757,20 @@ def test_checkpoint_result_publication_defers_heads_until_seal(
             defer_publication=True,
         )
         assert store.reserve_row_effect_checkpoint(
-            checkpoint_id,
-            run_id=claimed_run.run_id,
-            row_id=row_ids[0],
-            action_kind="map.regex_extract",
-            identity=checkpoint_identity,
-            authorized_attempt_id=claimed_run.authority.writer_attempt_id,
-            writer_attempt_id=claimed_run.authority.writer_attempt_id,
-            claim_token=claimed_run.authority.claim_token,
+            ref, fence=claimed_run.authority.fence()
         )
         store.complete_row_effect_checkpoint(
-            checkpoint_id,
-            run_id=claimed_run.run_id,
-            row_id=row_ids[0],
-            action_kind="map.regex_extract",
-            identity=checkpoint_identity,
+            ref,
             batch=batch,
             replay_response={"value": {"value": "deferred checkpoint"}},
-            writer_attempt_id=claimed_run.authority.writer_attempt_id,
-            claim_token=claimed_run.authority.claim_token,
+            fence=claimed_run.authority.fence(),
         )
 
         store.publish_result_batch(
             claimed_run.run_id,
             batch,
-            writer_attempt_id=claimed_run.authority.writer_attempt_id,
-            claim_token=claimed_run.authority.claim_token,
-            claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
-            checkpoint=(checkpoint_id, row_ids[0], checkpoint_identity),
-            checkpoint_action_kind="map.regex_extract",
+            fence=claimed_run.authority.fence(),
+            checkpoint=ref,
             defer_generation_seal=True,
             citation_writer=lambda: project.db.execute(
                 "UPDATE ops SET label='evidence saved' WHERE id=?",
@@ -835,29 +829,25 @@ def test_result_publication_preserves_ambient_transaction_ownership(
             "publication_effect": "publish_value",
         }
     ]
+
+    ref = row_effect_ref(
+        checkpoint_id,
+        run_id=claimed_run.run_id,
+        row_id=row_ids[0],
+        action_kind="map.regex_extract",
+        identity=checkpoint_identity,
+    )
     try:
         _declare(generations, claimed_run, output_column_id, write_mode="create")
         if with_checkpoint:
             assert store.reserve_row_effect_checkpoint(
-                checkpoint_id,
-                run_id=claimed_run.run_id,
-                row_id=row_ids[0],
-                action_kind="map.regex_extract",
-                identity=checkpoint_identity,
-                authorized_attempt_id=claimed_run.authority.writer_attempt_id,
-                writer_attempt_id=claimed_run.authority.writer_attempt_id,
-                claim_token=claimed_run.authority.claim_token,
+                ref, fence=claimed_run.authority.fence()
             )
             store.complete_row_effect_checkpoint(
-                checkpoint_id,
-                run_id=claimed_run.run_id,
-                row_id=row_ids[0],
-                action_kind="map.regex_extract",
-                identity=checkpoint_identity,
+                ref,
                 batch=batch,
                 replay_response={"value": {"value": "ambient publication"}},
-                writer_attempt_id=claimed_run.authority.writer_attempt_id,
-                claim_token=claimed_run.authority.claim_token,
+                fence=claimed_run.authority.fence(),
             )
 
         project.db.execute("BEGIN IMMEDIATE")
@@ -868,16 +858,8 @@ def test_result_publication_preserves_ambient_transaction_ownership(
         store.publish_result_batch_in_transaction(
             claimed_run.run_id,
             batch,
-            writer_attempt_id=claimed_run.authority.writer_attempt_id,
-            claim_token=claimed_run.authority.claim_token,
-            claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
-            authorized_attempt_id=claimed_run.authority.writer_attempt_id,
-            checkpoint=(
-                (checkpoint_id, row_ids[0], checkpoint_identity)
-                if with_checkpoint
-                else None
-            ),
-            checkpoint_action_kind=("map.regex_extract" if with_checkpoint else None),
+            fence=claimed_run.authority.fence(),
+            checkpoint=ref if with_checkpoint else None,
             citation_writer=(lambda: None) if with_evidence else None,
         )
 

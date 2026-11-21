@@ -23,6 +23,8 @@ from frisket.contracts.action import Receipt
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_run_review_stats import _managed_run
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
+from frisket.engine.store.writer_fence import WriterFence
 
 CALLER_SHEET_NAME = "Caller edit"
 
@@ -302,8 +304,9 @@ UNIT = {
 @pytest.fixture
 def returned_checkpoint(project):
     store = EffectCheckpointStore(project.db)
-    assert store.reserve("cp-1", **UNIT) is True
-    store.complete("cp-1", **UNIT, payload={"envelope": "raw"})
+    ref = EffectCheckpointRef(checkpoint_id="cp-1", **UNIT)
+    assert store.reserve(ref) is True
+    store.complete(ref, payload={"envelope": "raw"})
     return store
 
 
@@ -761,7 +764,7 @@ def test_returned_accounting_commit_true_inside_caller_transaction_refuses(
         RunResultStore(project).write_returned_call_accounting(
             run_id,
             [{"row_id": 1, "column_id": None, "model_calls": [_unscoped_call("c")]}],
-            claimless_direct_effect=True,
+            fence=WriterFence(run_id=run_id, claimless_direct_effect=True),
         )
 
     assert _committed_sheet_name(project) == "Source"

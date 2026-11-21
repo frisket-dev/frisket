@@ -28,6 +28,7 @@ from frisket.engine.store.prepared_content import (
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _text_identity(
@@ -373,7 +374,7 @@ def publish_pdf_ocr_sample(
             run_id,
             "completed",
             rebuild_review_stats=False,
-            claim_token=token,
+            fence=WriterFence(run_id=run_id, claim_token=token),
         )
         OutputColumnClaimStore(project).release(claim_token=token)
     return {

@@ -26,6 +26,7 @@ from tests.execution_composition_helpers import open_attempt_authority
 from tests.preview.test_preview_inmemory import _summarize_action, _seed
 from tests.engine.test_ocr_read import source as source
 from tests.execution.test_resolve_for_action import audio_project as audio_project
+from frisket.engine.store.writer_fence import WriterFence
 
 
 class _Adapter:
@@ -119,7 +120,8 @@ def _admit(runner, plan):
         spec=spec,
         scope=tuple(prepared.row_ids),
     )
-    claim(project, attempt, claimless_direct_effect=True)
+
+    claim(project, attempt, fence=WriterFence(claimless_direct_effect=True))
     return spec, attempt
 
 

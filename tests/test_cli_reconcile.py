@@ -22,6 +22,7 @@ from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import (
     OPERATOR_RESOLUTION_SCHEMA_VERSION,
+    EffectCheckpointRef,
     EffectCheckpointStore,
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -61,114 +62,111 @@ def test_list_surfaces_each_family_stuck_shape_and_orphans(
     # Ambiguous reserved rows, one per family. model_call carries its
     # reserve-time recovery payload (where a secret could lurk).
     assert store.reserve(
-        "cp-row-live",
-        family="row_effect",
-        group_key=str(run_id),
-        unit_key="7",
-        action_kind="classify",
-        identity=f"digest-{FAKE_SECRET}",
+        EffectCheckpointRef(
+            checkpoint_id="cp-row-live",
+            family="row_effect",
+            group_key=str(run_id),
+            unit_key="7",
+            action_kind="classify",
+            identity=f"digest-{FAKE_SECRET}",
+        )
     )
     assert store.reserve(
-        "cp-row-orphan",
-        family="row_effect",
-        group_key="424242",
-        unit_key="9",
-        action_kind="classify",
-        identity="digest-2",
+        EffectCheckpointRef(
+            checkpoint_id="cp-row-orphan",
+            family="row_effect",
+            group_key="424242",
+            unit_key="9",
+            action_kind="classify",
+            identity="digest-2",
+        )
     )
     assert store.reserve(
-        "cp-model-call",
-        family="model_call",
-        group_key="entities.extract",
-        unit_key="cp-model-call",
-        action_kind="entities.extract",
-        identity="cp-model-call",
+        EffectCheckpointRef(
+            checkpoint_id="cp-model-call",
+            family="model_call",
+            group_key="entities.extract",
+            unit_key="cp-model-call",
+            action_kind="entities.extract",
+            identity="cp-model-call",
+        ),
         payload={"payload": {"api_key": FAKE_SECRET}, "provider_fact_id": None},
     )
     assert store.reserve(
-        "cp-plugin",
-        family="plugin_effect",
-        group_key="ns.effect",
-        unit_key="unit-1",
-        action_kind="plugin.kind",
-        identity="{}",
+        EffectCheckpointRef(
+            checkpoint_id="cp-plugin",
+            family="plugin_effect",
+            group_key="ns.effect",
+            unit_key="unit-1",
+            action_kind="plugin.kind",
+            identity="{}",
+        )
     )
     assert store.reserve(
-        "cp-reduce",
-        family="reduce_group_summary",
-        group_key="params:abc",
-        unit_key="group:def",
-        action_kind="reduce.group_summary",
-        identity="digest-3",
+        EffectCheckpointRef(
+            checkpoint_id="cp-reduce",
+            family="reduce_group_summary",
+            group_key="params:abc",
+            unit_key="group:def",
+            action_kind="reduce.group_summary",
+            identity="digest-3",
+        )
     )
     assert store.reserve(
-        "cp-embed-orphan",
-        family="embedding_index_refresh",
-        group_key="idx-gone",
-        unit_key="batch-1",
-        action_kind="embeddings.refresh",
-        identity="digest-4",
+        EffectCheckpointRef(
+            checkpoint_id="cp-embed-orphan",
+            family="embedding_index_refresh",
+            group_key="idx-gone",
+            unit_key="batch-1",
+            action_kind="embeddings.refresh",
+            identity="digest-4",
+        )
     )
 
     # A returned row_effect carrying a durable provider ERROR: stuck
     # (replay re-commits the error), so listed.
-    assert store.reserve(
-        "cp-row-error",
+    row_error_ref = EffectCheckpointRef(
+        checkpoint_id="cp-row-error",
         family="row_effect",
         group_key=str(run_id),
         unit_key="8",
         action_kind="classify",
         identity="digest-5",
     )
+    assert store.reserve(row_error_ref)
     store.complete(
-        "cp-row-error",
-        family="row_effect",
-        group_key=str(run_id),
-        unit_key="8",
-        action_kind="classify",
-        identity="digest-5",
+        row_error_ref,
         payload={"field": {"error": f"provider said no ({FAKE_SECRET})"}},
     )
 
     # A returned SUCCESS with a live referent: automatic resume consumes
     # it free — not stuck, must NOT be listed.
-    assert store.reserve(
-        "cp-row-success",
+    row_success_ref = EffectCheckpointRef(
+        checkpoint_id="cp-row-success",
         family="row_effect",
         group_key=str(run_id),
         unit_key="11",
         action_kind="classify",
         identity="digest-6",
     )
+    assert store.reserve(row_success_ref)
     store.complete(
-        "cp-row-success",
-        family="row_effect",
-        group_key=str(run_id),
-        unit_key="11",
-        action_kind="classify",
-        identity="digest-6",
+        row_success_ref,
         payload={"field": {"value": FAKE_SECRET, "cost": 0.1}},
     )
 
     # A returned row whose payload got corrupted: replay refuses forever,
     # so listed for any family.
-    assert store.reserve(
-        "cp-corrupt",
+    corrupt_ref = EffectCheckpointRef(
+        checkpoint_id="cp-corrupt",
         family="reduce_group_summary",
         group_key="params:zzz",
         unit_key="group:zzz",
         action_kind="reduce.group_summary",
         identity="digest-7",
     )
-    store.complete(
-        "cp-corrupt",
-        family="reduce_group_summary",
-        group_key="params:zzz",
-        unit_key="group:zzz",
-        action_kind="reduce.group_summary",
-        identity="digest-7",
-        payload={"ok": True},
-    )
+    assert store.reserve(corrupt_ref)
+    store.complete(corrupt_ref, payload={"ok": True})
     project.db.execute(
         "UPDATE effect_checkpoints SET payload='{not json' WHERE id='cp-corrupt'"
     )
@@ -176,23 +174,16 @@ def test_list_surfaces_each_family_stuck_shape_and_orphans(
 
     # A consumed provider-audit row (the retained-forever plugin shape):
     # deliberately kept, not stuck, must NOT be listed.
-    assert store.reserve(
-        "cp-plugin-audit",
+    plugin_audit_ref = EffectCheckpointRef(
+        checkpoint_id="cp-plugin-audit",
         family="plugin_effect",
         group_key="ns.done",
         unit_key="unit-2",
         action_kind="plugin.kind",
         identity="{}",
     )
-    store.complete(
-        "cp-plugin-audit",
-        family="plugin_effect",
-        group_key="ns.done",
-        unit_key="unit-2",
-        action_kind="plugin.kind",
-        identity="{}",
-        payload={"envelope": FAKE_SECRET},
-    )
+    assert store.reserve(plugin_audit_ref)
+    store.complete(plugin_audit_ref, payload={"envelope": FAKE_SECRET})
     store.consume_group_retained(
         family="plugin_effect",
         group_key="ns.done",
@@ -537,12 +528,14 @@ def test_accept_charged_records_the_decision_and_refuses_a_recall(
         # taken forever, and resume refuses rather than calling the provider.
         assert (
             store.reserve(
-                "cp-fresh-attempt",
-                family="row_effect",
-                group_key=decided["group_key"],
-                unit_key=decided["unit_key"],
-                action_kind=decided["action_kind"],
-                identity=decided["identity"],
+                EffectCheckpointRef(
+                    checkpoint_id="cp-fresh-attempt",
+                    family="row_effect",
+                    group_key=decided["group_key"],
+                    unit_key=decided["unit_key"],
+                    action_kind=decided["action_kind"],
+                    identity=decided["identity"],
+                )
             )
             is False
         )
@@ -584,25 +577,17 @@ def test_accept_charged_records_the_decision_and_refuses_a_recall(
 def _returned_unit(
     store: EffectCheckpointStore, unit_key: str, payload: dict, group_key: str
 ) -> str:
-    checkpoint_id = f"cp-{unit_key}"
-    assert store.reserve(
-        checkpoint_id,
+    ref = EffectCheckpointRef(
+        checkpoint_id=f"cp-{unit_key}",
         family="row_effect",
         group_key=group_key,
         unit_key=unit_key,
         action_kind="classify",
         identity=f"digest-{unit_key}",
     )
-    store.complete(
-        checkpoint_id,
-        family="row_effect",
-        group_key=group_key,
-        unit_key=unit_key,
-        action_kind="classify",
-        identity=f"digest-{unit_key}",
-        payload=payload,
-    )
-    return checkpoint_id
+    assert store.reserve(ref)
+    store.complete(ref, payload=payload)
+    return ref.checkpoint_id
 
 
 def test_discard_refusals_are_named_and_leave_rows_intact(tmp_path, capsys):
@@ -616,23 +601,16 @@ def test_discard_refusals_are_named_and_leave_rows_intact(tmp_path, capsys):
             {"field": {"value": FAKE_SECRET, "cost": 0.2}},
             str(run_id),
         )
-        assert store.reserve(
-            "cp-audit",
+        audit_ref = EffectCheckpointRef(
+            checkpoint_id="cp-audit",
             family="plugin_effect",
             group_key="ns.x",
             unit_key="u1",
             action_kind="plugin.kind",
             identity="{}",
         )
-        store.complete(
-            "cp-audit",
-            family="plugin_effect",
-            group_key="ns.x",
-            unit_key="u1",
-            action_kind="plugin.kind",
-            identity="{}",
-            payload={"envelope": "raw"},
-        )
+        assert store.reserve(audit_ref)
+        store.complete(audit_ref, payload={"envelope": "raw"})
         store.consume_group_retained(
             family="plugin_effect",
             group_key="ns.x",
@@ -738,16 +716,17 @@ def test_discard_refuses_when_checkpoint_completes_between_read_and_delete(
     with closing(Project.create(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         run_id = _live_run_id(project)
-    unit = {
-        "family": "row_effect",
-        "group_key": str(run_id),
-        "unit_key": "7",
-        "action_kind": "classify",
-        "identity": "digest-race",
-    }
+    ref = EffectCheckpointRef(
+        checkpoint_id="cp-race",
+        family="row_effect",
+        group_key=str(run_id),
+        unit_key="7",
+        action_kind="classify",
+        identity="digest-race",
+    )
     with closing(Project(bundle)) as project:
         store = EffectCheckpointStore(project.db)
-        assert store.reserve("cp-race", **unit)
+        assert store.reserve(ref)
 
     real_discard = EffectCheckpointStore.operator_discard
 
@@ -755,8 +734,14 @@ def test_discard_refuses_when_checkpoint_completes_between_read_and_delete(
         # The in-flight process was NOT dead: its paid response lands between
         # the CLI's policy read and the operator delete.
         self.complete(
-            checkpoint_id,
-            **unit,
+            EffectCheckpointRef(
+                checkpoint_id=checkpoint_id,
+                family=ref.family,
+                group_key=ref.group_key,
+                unit_key=ref.unit_key,
+                action_kind=ref.action_kind,
+                identity=ref.identity,
+            ),
             payload={"field": {"value": FAKE_SECRET, "cost": 0.1}},
         )
         return real_discard(self, checkpoint_id, expected_state=expected_state)
@@ -784,12 +769,14 @@ def test_reconcile_never_prints_payload_secrets_on_decisions(tmp_path, capsys):
     with closing(Project.create(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         assert store.reserve(
-            "cp-secret",
-            family="model_call",
-            group_key="entities.extract",
-            unit_key="cp-secret",
-            action_kind="entities.extract",
-            identity="cp-secret",
+            EffectCheckpointRef(
+                checkpoint_id="cp-secret",
+                family="model_call",
+                group_key="entities.extract",
+                unit_key="cp-secret",
+                action_kind="entities.extract",
+                identity="cp-secret",
+            ),
             payload={
                 "payload": {"headers": {"x-api-key": FAKE_SECRET}},
                 "provider_fact_id": None,

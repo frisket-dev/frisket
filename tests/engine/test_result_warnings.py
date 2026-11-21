@@ -83,11 +83,7 @@ def warning_run(make_project, request):
                 claim_token=authority.claim_token,
                 terminal_disposition="completed",
             )
-        store.finish_run(
-            run_id,
-            writer_attempt_id=authority.writer_attempt_id,
-            claim_token=authority.claim_token,
-        )
+        store.finish_run(run_id, fence=authority.fence())
         with write_transaction(store.db):
             store.point_column_at_run(op_id, output_id, run_id)
     yield project, sheet_id, source_id, output_id, row_ids, run_id

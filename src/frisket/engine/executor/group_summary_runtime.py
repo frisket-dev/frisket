@@ -24,6 +24,7 @@ from frisket.engine.executor.action_families._errors import (
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.action_receipts import (
     receipt_status_from_failures,
     _positive_ref_int,
@@ -435,11 +436,16 @@ async def _complete_reduce_group_summaries(
         scope=tuple(resolved["source_row_ids"]),
     )
     # The same writer owns deterministic membership and model results: one Undo.
+    recovery_claim_token = publication.recovery_claim_token()
     claim(
         project,
         commitment,
-        claim_token=publication.recovery_claim_token(),
-        claimless_direct_effect=publication.recovery_claim_token() is None,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=commitment.attempt_id,
+            claim_token=recovery_claim_token,
+            claimless_direct_effect=recovery_claim_token is None,
+        ),
     )
     publication.start(
         resolved,

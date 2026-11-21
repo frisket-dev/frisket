@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.ops.base import ActionContext
 
 
@@ -135,9 +136,12 @@ def record_embedding_batch_in_transaction(
     return RunResultStore(ctx.project).write_returned_call_accounting_in_transaction(
         run_id,
         [{"row_id": fact["row_id"], "column_id": None, "model_calls": [fact]}],
-        writer_attempt_id=attempt_id,
-        claim_token=claim_token,
-        authorized_attempt_id=attempt_id,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=attempt_id,
+            claim_token=claim_token,
+            authorized_attempt_id=attempt_id,
+        ),
     )
 
 
@@ -158,7 +162,10 @@ def record_embedding_batch(
     return RunResultStore(ctx.project).write_returned_call_accounting(
         run_id,
         [{"row_id": fact["row_id"], "column_id": None, "model_calls": [fact]}],
-        writer_attempt_id=attempt_id,
-        claim_token=claim_token,
-        authorized_attempt_id=attempt_id,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=attempt_id,
+            claim_token=claim_token,
+            authorized_attempt_id=attempt_id,
+        ),
     )

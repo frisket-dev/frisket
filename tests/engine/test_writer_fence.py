@@ -32,7 +32,7 @@ def test_writer_fence_defaults_and_immutability() -> None:
     assert fence.fact_owner_attempt_id is None
 
     with pytest.raises(FrozenInstanceError):
-        fence.claim_token = "claim:mutated"  # type: ignore[misc]
+        setattr(fence, "claim_token", "claim:mutated")
 
 
 def test_writer_fence_claimless_constructor() -> None:

@@ -13,6 +13,7 @@ from frisket.actions.types import Row, RowError, RowResult, SheetColumnRef
 from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
 from frisket.engine.executor.semantic_join_matcher import AdmittedSemanticMatcher
 from frisket.engine.runner.row_inputs import RowInputValues, row_source_snapshot
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.ops.cost_source import (
     cost_estimate,
     free_local_estimate,
@@ -174,9 +175,11 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
             with ctx.project.transaction_scope():
                 OutputColumnClaimStore.require_current_writer(
                     ctx.project.db,
-                    run_id=ctx.extras["run_id"],
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=ctx.extras["claim_token"],
+                    fence=WriterFence.claimed(
+                        run_id=ctx.extras["run_id"],
+                        writer_attempt_id=writer_attempt_id,
+                        claim_token=ctx.extras["claim_token"],
+                    ),
                 )
                 store_capture(
                     ctx.project,
@@ -229,9 +232,11 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
                 writer_attempt_id = _require_writer_attempt_id(ctx.extras)
                 ReceiptStore(ctx.project).record_semantic_match(
                     matcher.evidence(),
-                    run_id=ctx.extras["run_id"],
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=ctx.extras["claim_token"],
+                    fence=WriterFence.claimed(
+                        run_id=ctx.extras["run_id"],
+                        writer_attempt_id=writer_attempt_id,
+                        claim_token=ctx.extras["claim_token"],
+                    ),
                 )
             publication = self._prepare_publication(produced)
             if ctx.extras.get("preview") is not True:

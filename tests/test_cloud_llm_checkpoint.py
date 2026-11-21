@@ -27,6 +27,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudTokenPrice,
 )
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 
 MODEL = "anthropic/claude-sonnet-4-5"
 
@@ -222,9 +223,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(project):
             estimate_authority=CloudEstimateAuthority(100),
             group_key="map:stable-parent-key",
             action_kind="map.extract",
-            run_id=first_run,
-            writer_attempt_id="attempt-first",
-            claimless_direct_effect=True,
+            fence=WriterFence.claimless(run_id=first_run, attempt_id="attempt-first"),
         )
         with pytest.raises(RuntimeError, match="lost response"):
             await first.execute(_request())
@@ -237,6 +236,9 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(project):
         project.db.commit()
 
         second_run = _claimless_run(project, attempt_id="attempt-second")
+        second_fence = WriterFence.claimless(
+            run_id=second_run, attempt_id="attempt-second"
+        )
         recovered_transport = _Transport([_response(execution_id="exec-1")])
         recovered = CloudLLMCheckpointCoordinator(
             project,
@@ -245,9 +247,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(project):
             estimate_authority=CloudEstimateAuthority(100),
             group_key="map:stable-parent-key",
             action_kind="map.extract",
-            run_id=second_run,
-            writer_attempt_id="attempt-second",
-            claimless_direct_effect=True,
+            fence=second_fence,
         )
         await recovered.execute(_request())
 
@@ -266,8 +266,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(project):
                 {"row_id": None, "column_id": None, **entry}
                 for entry in recovered.returned_accounting
             ],
-            writer_attempt_id="attempt-second",
-            claimless_direct_effect=True,
+            fence=second_fence,
         )
         recovered.retire_returned()
         assert (

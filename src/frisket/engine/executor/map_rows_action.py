@@ -43,6 +43,7 @@ from frisket.actions.translate_types import Translator
 from frisket.actions.research_types import Researcher, SearchAnswerer, WebSearcher
 from frisket.actions.mcp_types import McpExtractor
 from frisket.actions.opencorporates_types import OpenCorporates
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.actions.core import (
     resolved_engine_options,
     CreateSheet,
@@ -725,9 +726,11 @@ class _TypedMapRowsProgram(ActionProgram):
                             )
                         record = partial(
                             ReceiptStore(ctx.project).record_python_code_hash,
-                            run_id=ctx.extras["run_id"],
-                            writer_attempt_id=attempt.attempt_id,
-                            claim_token=ctx.extras["claim_token"],
+                            fence=WriterFence.claimed(
+                                run_id=ctx.extras["run_id"],
+                                writer_attempt_id=attempt.attempt_id,
+                                claim_token=ctx.extras["claim_token"],
+                            ),
                         )
                     reader = AdmittedPythonEvaluator(
                         cancelled=ctx.extras.get("cancelled"), record_code_hash=record
@@ -999,9 +1002,12 @@ class _TypedMapRowsProgram(ActionProgram):
         RunResultStore(ctx.project).write_returned_call_accounting(
             attempt.run_id,
             batch,
-            writer_attempt_id=attempt.attempt_id,
-            authorized_attempt_id=attempt.attempt_id,
-            claim_token=ctx.extras.get("claim_token"),
+            fence=WriterFence(
+                run_id=attempt.run_id,
+                writer_attempt_id=attempt.attempt_id,
+                claim_token=ctx.extras.get("claim_token"),
+                authorized_attempt_id=attempt.attempt_id,
+            ),
             receipt_id=attempt.receipt_id,
         )
 
@@ -1386,9 +1392,11 @@ class _TypedMapRowsProgram(ActionProgram):
                     for artifact in call.get("artifacts", ()):
                         ReceiptStore(project)._record_writer_supporting_record(
                             {**artifact, "kind": "map_translate_artifact"},
-                            run_id=run_id,
-                            writer_attempt_id=self._admitted_translation_writer(),
-                            claim_token=claim_token,
+                            fence=WriterFence.claimed(
+                                run_id=run_id,
+                                writer_attempt_id=self._admitted_translation_writer(),
+                                claim_token=claim_token,
+                            ),
                         )
 
         if self._uses_extract:

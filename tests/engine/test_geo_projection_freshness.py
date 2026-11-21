@@ -165,15 +165,9 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
             claim_token=authority.claim_token,
             terminal_disposition="completed",
         )
-    RunResultStore(project).finish_run(
-        run2,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    RunResultStore(project).finish_run(run2, fence=authority.fence())
     OutputColumnClaimStore(project).finish_current_writer(
-        run_id=run2,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
+        fence=authority.fence(),
         attempt_state="effected",
     )
 
