@@ -530,4 +530,76 @@ describe('AlertsPanel pending actions', () => {
     expect(projectApi.checkAlert).not.toHaveBeenCalled();
     expect(container.innerHTML).toMatchSnapshot();
   });
+
+  it('confirms a 402 embedding refresh cost gate before re-running the blocked alert', async () => {
+    const { ConfirmationRequiredError } = await import('../../src/api/open');
+    const alpha = blockedEmbeddingAlert(1, 'Alpha');
+    const estimate = {
+      cost: 0.08,
+      billed_cost: 80_000,
+      policy_id: 'frisket.pricing.identity.v1',
+      rows: 8,
+      promise_set_hash: '9'.repeat(64),
+    };
+    const refreshEmbeddingIndex = vi.fn()
+      .mockRejectedValueOnce(new ConfirmationRequiredError(estimate, 'Confirm remote embedding refresh.'))
+      .mockResolvedValueOnce({ jobId: null, status: 'completed' });
+    const checkAlert = vi.fn().mockResolvedValue({
+      alert: { ...alpha, name: 'Alpha confirmed', latestRun: null },
+    } as AlertCheckResult);
+    const projectApi = projectApiWith({
+      qa: projectQAFixture(),
+      listAlerts: vi.fn().mockResolvedValue([alpha]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      refreshEmbeddingIndex,
+      checkAlert,
+    });
+    const harness = createWorkspaceTestHarness({ projectId: 'refresh-index-confirm', api: { projectApi } });
+    harness.render(<AlertsPanel canEdit />);
+
+    fireEvent.click(await screen.findByTestId('alert-refresh-index-1'));
+    await waitFor(() => expect(harness.stores.job.store.get().costGate).not.toBeNull());
+    expect(checkAlert).not.toHaveBeenCalled();
+
+    harness.stores.job.confirmCostGate();
+    await waitFor(() => {
+      expect(refreshEmbeddingIndex).toHaveBeenCalledWith('idx-1', 'incremental', {
+        confirmation: '9'.repeat(64),
+      });
+    });
+    await waitFor(() => expect(checkAlert).toHaveBeenCalledWith(1));
+  });
+
+  it('aborts alert refresh cleanly when the user cancels the cost gate', async () => {
+    const { ConfirmationRequiredError } = await import('../../src/api/open');
+    const alpha = blockedEmbeddingAlert(1, 'Alpha');
+    const estimate = {
+      cost: 0.08,
+      billed_cost: 80_000,
+      policy_id: 'frisket.pricing.identity.v1',
+      rows: 8,
+      promise_set_hash: '8'.repeat(64),
+    };
+    const refreshEmbeddingIndex = vi.fn().mockRejectedValueOnce(
+      new ConfirmationRequiredError(estimate, 'Confirm remote embedding refresh.'),
+    );
+    const projectApi = projectApiWith({
+      qa: projectQAFixture(),
+      listAlerts: vi.fn().mockResolvedValue([alpha]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      refreshEmbeddingIndex,
+      checkAlert: vi.fn(),
+    });
+    const harness = createWorkspaceTestHarness({ projectId: 'refresh-index-cancel', api: { projectApi } });
+    harness.render(<AlertsPanel canEdit />);
+
+    fireEvent.click(await screen.findByTestId('alert-refresh-index-1'));
+    await waitFor(() => expect(harness.stores.job.store.get().costGate).not.toBeNull());
+
+    harness.stores.job.cancelCostGate();
+    await waitFor(() => expect(screen.getByTestId('alert-refresh-index-1')).toBeEnabled());
+    expect(refreshEmbeddingIndex).toHaveBeenCalledTimes(1);
+    expect(projectApi.checkAlert).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('alerts-error')).not.toBeInTheDocument();
+  });
 });

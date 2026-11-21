@@ -3,6 +3,7 @@ import { Button } from './Button';
 import { Plus } from 'lucide-react';
 import type { SheetMeta } from '../api/open';
 import type { EmbeddingApiPort } from '../api/ports';
+import { useJobsHandle } from '../bind/useJobsHandle';
 import { CreateEmbeddingIndexDialog } from './embeddings/CreateEmbeddingIndexDialog';
 import { EmbeddingIndexCard } from './embeddings/EmbeddingIndexCard';
 import { OpenViewContext } from './embeddings/openViewContext';
@@ -39,7 +40,12 @@ export function EmbeddingsPanel({
   selectedRowIds,
   onFindSimilar,
 }: EmbeddingsPanelProps) {
-  const panel = useEmbeddingsPanelController({ apiPort, sheet });
+  const { requestCostConfirmation } = useJobsHandle();
+  const panel = useEmbeddingsPanelController({
+    apiPort,
+    sheet,
+    requestCostConfirmation,
+  });
 
   return (
     <OpenViewContext.Provider value={onOpenView}>

@@ -790,6 +790,8 @@ def run_action_spec(
                 typed,
                 router=executor_deps.router,
                 embedding_gateway=executor_deps.embedding_gateway,
+                consent_coverage=executor_deps.consent_coverage,
+                edition=product_edition_from_snapshot(edition_run_context),
             )
         return run_typed_export_action(project, project_id, typed, deps=deps)
     if isinstance(typed.action.definition.run, SemanticJoin):

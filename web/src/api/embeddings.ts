@@ -384,12 +384,16 @@ export function createEmbeddingsApi(
     async refreshEmbeddingIndex(
       indexId: string,
       mode: 'incremental' | 'full',
+      options?: { confirmation?: string },
     ): Promise<{ jobId: number | null; status: string }> {
       const spec = v1ActionSession.registeredProjectActionSpec(
         'embedding.index_refresh',
         { index_id: indexId, mode },
         projectId,
       );
+      if (options?.confirmation) {
+        spec.confirmation = options.confirmation;
+      }
       const out = await runEmbeddingAction(v1ActionSession, projectId, spec, {
         allowQueued: true,
       });

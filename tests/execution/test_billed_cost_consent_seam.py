@@ -787,6 +787,7 @@ def test_an_installed_policy_is_what_every_lane_actually_rates_through(
 #: ``joined_tables_read`` (see ``_SCOPE_GATE_MODULES``).
 _GATE_MODULES = (
     "src/frisket/engine/runner/validation.py",
+    "src/frisket/engine/executor/action_families/embeddings.py",
     "src/frisket/engine/executor/action_support.py",
     "src/frisket/engine/executor/find_action.py",
     "src/frisket/engine/executor/group_summary_action.py",

@@ -20,16 +20,20 @@ same refresh action over the appended rows). That module owns the recurring path
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Mapping
+from contextlib import ExitStack
+from dataclasses import dataclass, replace
+from decimal import Decimal
+import hashlib
 import json
 import logging
 import math
 from functools import partial
-import asyncio
-import hashlib
-from contextlib import ExitStack
 from typing import Any, TypeGuard
 
 
+from frisket.authoring.action_metadata import product_edition_from_snapshot
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.embeddings import (
@@ -91,6 +95,12 @@ from frisket.sdk.plain import build_plain_action_run_fn
 from frisket.engine.executor.action_inventory import (
     _TypedProjectEnvelope,
 )
+from frisket.engine.executor.action_jobs import (
+    bind_typed_action_job,
+    probe_queued_action_job_receipt,
+    reserve_typed_action_job,
+)
+from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.action_receipts import (
     _receipt_ref,
     _result_from_receipt,
@@ -103,8 +113,25 @@ from frisket.engine.executor.action_reservations import (
 )
 from frisket.engine.executor.action_support import (
     ActionCtx,
+    _estimate_confirmation_reason,
     _new_id,
 )
+from frisket.engine.runner.confirmation_context import (
+    ActionScope,
+    action_confirmation,
+    estimated_usd,
+    mint_confirmation_hash,
+    rate_estimate,
+)
+from frisket.engine.runner.validation import (
+    ProviderKeyRefusal,
+    assert_provider_spend_cap,
+)
+from frisket.execution.consent_coverage import (
+    ConsentCoverage,
+    effective_consent_coverage,
+)
+from frisket.execution.pricing_policy import default_pricing_policy
 from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
     terminalize_project_run,
@@ -694,6 +721,540 @@ def _automatic_cost_gate(
             "estimated_cost_usd": estimate.cost_usd,
             "allowance_usd": float(allowance),
         },
+    )
+
+
+_EMBEDDING_REFRESH_ADMISSION_SCHEMA = "frisket.embedding_refresh_admission.v1"
+
+
+@dataclass(frozen=True)
+class _RefreshConsent:
+    """Explicit consent facts carried by value into embedding refresh."""
+
+    confirmation: str | None = None
+    consent_coverage: ConsentCoverage | None = None
+    edition: str | None = None
+
+
+@dataclass(frozen=True)
+class _RefreshRequest:
+    """Bound request facts needed to plan and gate one embedding refresh."""
+
+    action: _TypedProjectEnvelope
+    params: IndexRefreshParams
+    project_id: str
+    params_hash: str
+    consent: _RefreshConsent
+
+
+@dataclass(frozen=True)
+class _PreparedRefresh:
+    """Read-only plan and rated estimate for one embedding.index_refresh."""
+
+    index: Any
+    space: Any
+    modality: str
+    remote: bool
+    automatic: bool
+    candidate_row_ids: list[int]
+    to_embed: list[dict[str, Any]]
+    estimate: dict[str, Any]
+    confirmation_hash: str
+    requires_confirmation: bool
+    cloud_unpriceable: bool
+
+    def wire_estimate(self) -> dict[str, Any]:
+        from frisket.contracts.http.action_estimate_validation import ActionEstimate
+
+        payload: dict[str, Any] = {
+            key: value
+            for key, value in self.estimate.items()
+            if key in ActionEstimate.model_fields
+        }
+        payload.update(
+            {
+                "rows": int(self.estimate["rows"]),
+                "cost_source": str(self.estimate["cost_source"]),
+                "billed_cost": self.estimate["billed_cost"],
+                "policy_id": str(self.estimate["policy_id"]),
+                "requires_confirmation": self.requires_confirmation,
+                "promise_set_hash": (
+                    None if self.cloud_unpriceable else self.confirmation_hash
+                ),
+            }
+        )
+        return payload
+
+
+def _plan_refresh_to_embed(
+    project: Project,
+    index: Any,
+    space: Any,
+    params: IndexRefreshParams,
+    row_ids: list[int],
+) -> list[dict[str, Any]]:
+    """Compute which items require provider embedding without creating sidecar state."""
+    source_columns = json.loads(index["source_columns_json"])
+    payloads = build_source_payloads(project, index, source_columns, row_ids)
+    _, planned_items = plan_named_index_items(
+        project, index=index, space=space, payloads=payloads
+    )
+    payload_by_key = {str(item["source_key"]): item for item in payloads}
+    if params.mode == "full" or not RetrievalStore(project).path.exists():
+        return [payload_by_key[planned.source_key] for planned in planned_items]
+    planned_by_key = {item.source_key: item for item in planned_items}
+    retrieval = RetrievalStore(project).open()
+    try:
+        existing_pairs = set(dataset_rows(retrieval, str(index["id"])).values())
+        to_publish = [
+            planned_by_key[str(item["source_key"])]
+            for item in payloads
+            if (
+                planned_by_key[str(item["source_key"])].part_id,
+                planned_by_key[str(item["source_key"])].representation_id,
+            )
+            not in existing_pairs
+        ]
+        cached: dict[str, Any] = {}
+        hashes = [item.input_hash for item in to_publish]
+        for offset in range(0, len(hashes), 1000):
+            cached.update(
+                retrieval.get_representations(
+                    str(space["id"]), hashes[offset : offset + 1000]
+                )
+            )
+        return [
+            payload_by_key[planned.source_key]
+            for planned in to_publish
+            if planned.input_hash not in cached
+        ]
+    finally:
+        retrieval.close()
+
+
+def _build_refresh_estimate(
+    space: Any,
+    modality: str,
+    to_embed: list[dict[str, Any]],
+    *,
+    remote: bool,
+) -> dict[str, Any]:
+    """Rate one embedding refresh batch through the shared pricing policy."""
+    engine = f"{space['provider_id']}/{space['actual_model_id']}"
+    if not remote or not to_embed:
+        raw: dict[str, Any] = {
+            "rows": len(to_embed),
+            "cost": 0.0,
+            "cost_source": "free_local",
+            "engine": engine,
+            "input_tokens": 0,
+            "batch_unit_key": None,
+        }
+        return rate_estimate(raw, policy=default_pricing_policy())
+    cost_est = estimate_embedding_cost(
+        [str(item["payload"]) for item in to_embed],
+        modality=modality,
+        provider=str(space["provider_id"]),
+        model=str(space["actual_model_id"]),
+    )
+    unit = _embedding_refresh_effect_unit(space, modality, to_embed)
+    raw = {
+        "rows": len(to_embed),
+        "cost": cost_est.cost_usd,
+        "cost_source": "pricing_data" if cost_est.cost_usd is not None else "unknown",
+        "engine": engine,
+        "remote_capability": f"provider:{space['provider_kind']}",
+        "input_tokens": cost_est.input_tokens,
+        "avg_input_tokens": round(cost_est.input_tokens / cost_est.units),
+        "batch_unit_key": unit["unit_key"],
+    }
+    return rate_estimate(raw, policy=default_pricing_policy())
+
+
+def _manual_refresh_exceeds_allowance(
+    estimate: Mapping[str, Any], *, threshold_usd: Decimal
+) -> tuple[float | None, bool]:
+    """Compare a rated remote refresh estimate against the standing allowance."""
+    price = estimated_usd(estimate)
+    if price is None:
+        return None, True
+    exceeds = Decimal(str(price)) > threshold_usd
+    if (
+        not exceeds
+        and threshold_usd == 0
+        and estimate.get("cost_source") != "free_local"
+        and int(estimate.get("rows") or 0) > 0
+    ):
+        exceeds = True
+    return price, exceeds
+
+
+def _refresh_confirmation_token(
+    action_kind: str, params_hash: str, estimate: Mapping[str, Any]
+) -> str:
+    return mint_confirmation_hash(
+        action_confirmation(
+            family_kind=action_kind,
+            scope=ActionScope(action_hash=params_hash),
+            estimate=estimate,
+        )
+    )
+
+
+def _load_refresh_target(
+    project: Project, req: _RefreshRequest
+) -> tuple[Any, Any, str] | ActionResult:
+    store = EmbeddingStore(project)
+    index = store.get_index(req.params.index_id)
+    if index is None:
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_index_not_found",
+            f"no embedding index {req.params.index_id!r}",
+            field="params.index_id",
+        )
+    space = store.get_space(index["space_id"])
+    if space is None:
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_index_not_found",
+            f"embedding index {req.params.index_id!r} references a missing space",
+            field="params.index_id",
+        )
+    modality = str(space["modality"])
+    if modality not in _EMBEDDABLE_MODALITIES:
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_source_unsupported",
+            f"modality {modality!r} cannot be embedded in this build",
+            field="params.index_id",
+        )
+    return index, space, modality
+
+
+def _validate_refresh_remote_policy(
+    project: Project, req: _RefreshRequest, index: Any, space: Any
+) -> ActionResult | None:
+    provider_kind = space["provider_kind"]
+    provider_policy = _json_obj(index["provider_policy_json"])
+    remote = provider_kind in REMOTE_PROVIDER_KINDS
+    automatic = _is_automatic_refresh(req.params)
+    if provider_network_blocked(
+        provider_kind, network_off=project.effective_network_policy() == "off"
+    ):
+        return _error(
+            req.action,
+            req.project_id,
+            "network_disabled",
+            (
+                f"this project's network setting is off; it blocks "
+                f"provider:{provider_kind}. Turn network on in the project "
+                "settings to refresh this remote-backed index."
+            ),
+            field="params.index_id",
+            details={"capability": f"provider:{provider_kind}"},
+        )
+    if not remote:
+        return None
+    if provider_policy.get("allow_remote") is not True:
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_remote_confirmation_required",
+            (
+                f"index provider_kind={provider_kind!r} is remote; its provider "
+                "policy must set allow_remote=true before refresh can egress data"
+            ),
+            field="params.index_id",
+            details={"provider_kind": provider_kind},
+        )
+    try:
+        assert_provider_spend_cap(project, str(space["provider_id"]))
+    except ProviderKeyRefusal as exc:
+        return _error(
+            req.action,
+            req.project_id,
+            exc.error_code,
+            exc.action_message(),
+            field="params.index_id",
+            details=exc.details,
+        )
+    if automatic and provider_policy.get("allow_remote_automatic_refresh") is not True:
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_remote_confirmation_required",
+            (
+                "automatic remote refresh requires provider policy "
+                "allow_remote_automatic_refresh=true"
+            ),
+            field="params.index_id",
+            details={"provider_kind": provider_kind, "automatic": True},
+        )
+    return None
+
+
+def _prepare_refresh_plan(
+    project: Project, req: _RefreshRequest
+) -> _PreparedRefresh | ActionResult:
+    loaded = _load_refresh_target(project, req)
+    if isinstance(loaded, ActionResult):
+        return loaded
+    index, space, modality = loaded
+    policy_error = _validate_refresh_remote_policy(project, req, index, space)
+    if policy_error is not None:
+        return policy_error
+    try:
+        candidate_row_ids = _resolve_refresh_rows(project, index, req.params)
+    except _RefreshScopeError as exc:
+        return _error(
+            req.action, req.project_id, exc.code, exc.message, field="params.index_id"
+        )
+    try:
+        to_embed = _plan_refresh_to_embed(
+            project, index, space, req.params, candidate_row_ids
+        )
+    except (TypeError, ValueError) as exc:
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_source_unsupported",
+            str(exc),
+            field="params.index_id",
+        )
+    remote = space["provider_kind"] in REMOTE_PROVIDER_KINDS
+    automatic = _is_automatic_refresh(req.params)
+    estimate = _build_refresh_estimate(space, modality, to_embed, remote=remote)
+    token = _refresh_confirmation_token(req.action.kind, req.params_hash, estimate)
+    coverage = effective_consent_coverage(project, req.consent.consent_coverage)
+    if remote and to_embed and not automatic:
+        price, exceeds = _manual_refresh_exceeds_allowance(
+            estimate, threshold_usd=coverage.threshold_usd
+        )
+        cloud_unpriceable = price is None and req.consent.edition == "cloud"
+        requires_confirmation = cloud_unpriceable or (
+            exceeds and req.consent.confirmation != token
+        )
+    else:
+        cloud_unpriceable = False
+        requires_confirmation = False
+    return _PreparedRefresh(
+        index=index,
+        space=space,
+        modality=modality,
+        remote=remote,
+        automatic=automatic,
+        candidate_row_ids=candidate_row_ids,
+        to_embed=to_embed,
+        estimate=estimate,
+        confirmation_hash=token,
+        requires_confirmation=requires_confirmation,
+        cloud_unpriceable=cloud_unpriceable,
+    )
+
+
+def _manual_cost_gate(
+    project: Project,
+    req: _RefreshRequest,
+    *,
+    space: Any,
+    to_embed: list[dict[str, Any]],
+) -> ActionResult | None:
+    """Standing allowance and explicit consent gate for manual remote refresh."""
+    remote = space["provider_kind"] in REMOTE_PROVIDER_KINDS
+    if not remote or not to_embed or _is_automatic_refresh(req.params):
+        return None
+    estimate = _build_refresh_estimate(
+        space, str(space["modality"]), to_embed, remote=True
+    )
+    token = _refresh_confirmation_token(req.action.kind, req.params_hash, estimate)
+    coverage = effective_consent_coverage(project, req.consent.consent_coverage)
+    price, exceeds = _manual_refresh_exceeds_allowance(
+        estimate, threshold_usd=coverage.threshold_usd
+    )
+    if price is None and req.consent.edition == "cloud":
+        return _error(
+            req.action,
+            req.project_id,
+            "unpriceable_model",
+            (
+                "Remote embedding refresh with an unknown price for "
+                f"{space['provider_id']}/{space['actual_model_id']} is not "
+                "allowed on Cloud; choose a model with a published price."
+            ),
+            field="params.index_id",
+            details={
+                "estimate": estimate,
+                "provider": str(space["provider_id"]),
+                "model": str(space["actual_model_id"]),
+            },
+        )
+    if not exceeds or req.consent.confirmation == token:
+        return None
+    message = (
+        (
+            f"Estimated cost is unknown for "
+            f"{space['provider_id']}/{space['actual_model_id']} — confirm to "
+            "refresh this remote embedding index."
+        )
+        if price is None
+        else (
+            f"Confirm remote embedding refresh for "
+            f"{space['provider_id']}/{space['actual_model_id']} before running."
+        )
+    )
+    return ActionResult(
+        action=ActionIdentity(kind=req.action.kind, action_id=_new_id("act")),
+        project_id=req.project_id,
+        status="needs_confirmation",
+        errors=[
+            ActionError(
+                code="model_cost_requires_confirmation",
+                message=message,
+                action_kind=req.action.kind,
+                field="confirmation",
+                needs_confirmation=True,
+                details={
+                    "reason": _estimate_confirmation_reason(price),
+                    "estimate": estimate,
+                    "promise_set_hash": token,
+                },
+            )
+        ],
+    )
+
+
+def _refresh_request_from_bound(
+    bound: BoundTypedActionRequest,
+    *,
+    project_id: str,
+    consent: _RefreshConsent,
+) -> _RefreshRequest:
+    params = IndexRefreshParams.model_validate(bound.params.model_dump(mode="json"))
+    envelope = _typed_params_envelope(bound)
+    return _RefreshRequest(
+        action=envelope,
+        params=params,
+        project_id=project_id,
+        params_hash=typed_request_hash(bound),
+        consent=consent,
+    )
+
+
+def prepare_embedding_refresh(
+    project: Project,
+    bound: BoundTypedActionRequest,
+    *,
+    project_id: str,
+    consent_coverage: ConsentCoverage | None = None,
+    edition: str | None = None,
+) -> _PreparedRefresh | ActionError:
+    """Compute a read-only rated estimate and consent state for embedding.index_refresh."""
+    consent = _RefreshConsent(
+        confirmation=bound.request.confirmation,
+        consent_coverage=consent_coverage,
+        edition=edition,
+    )
+    req = _refresh_request_from_bound(bound, project_id=project_id, consent=consent)
+    prepared = _prepare_refresh_plan(project, req)
+    if isinstance(prepared, ActionResult):
+        return prepared.errors[0]
+    return prepared
+
+
+def reserve_typed_embedding_refresh_action_job(
+    project: Project,
+    project_id: str,
+    bound: BoundTypedActionRequest,
+    *,
+    edition_run_context: Mapping[str, Any] | None = None,
+    consent_coverage: ConsentCoverage | None = None,
+) -> Any:
+    """Admit embedding.index_refresh before reserving its queued action.run job."""
+    identity = _TypedProjectEnvelope(
+        bound.action.action_id, bound.request.idempotency_key, bound.request.params
+    )
+    replay = probe_queued_action_job_receipt(
+        project, identity, project_id=project_id, params_hash=typed_request_hash(bound)
+    )
+    if replay is not None:
+        return replay
+    edition = product_edition_from_snapshot(edition_run_context)
+    effective = effective_consent_coverage(project, consent_coverage)
+    consent = _RefreshConsent(
+        confirmation=bound.request.confirmation,
+        consent_coverage=effective,
+        edition=edition,
+    )
+    req = _refresh_request_from_bound(bound, project_id=project_id, consent=consent)
+    prepared = _prepare_refresh_plan(project, req)
+    if isinstance(prepared, ActionResult):
+        return prepared
+    if prepared.automatic:
+        gate = _automatic_cost_gate(
+            req.action,
+            req.params,
+            prepared.index,
+            prepared.space,
+            project_id,
+            to_embed=prepared.to_embed,
+        )
+    else:
+        gate = _manual_cost_gate(
+            project, req, space=prepared.space, to_embed=prepared.to_embed
+        )
+    if gate is not None:
+        return gate
+    envelope = reserve_typed_action_job(
+        project, project_id, bound, edition_run_context=edition_run_context
+    )
+    if isinstance(envelope, ActionResult):
+        return envelope
+    admission = {
+        "schema_version": _EMBEDDING_REFRESH_ADMISSION_SCHEMA,
+        "consent_principal": effective.principal,
+        "consent_threshold_usd": str(effective.threshold_usd),
+        "edition": edition,
+    }
+    return replace(envelope, resolved_snapshot=admission)
+
+
+def _consent_from_job_envelope(
+    project: Project, envelope: Any, confirmation: str | None
+) -> _RefreshConsent:
+    """Reconstruct carried consent facts by value inside the refresh worker."""
+    snapshot = (
+        envelope.resolved_snapshot
+        if isinstance(envelope.resolved_snapshot, Mapping)
+        else {}
+    )
+    coverage: ConsentCoverage | None = None
+    if (
+        snapshot.get("schema_version") == _EMBEDDING_REFRESH_ADMISSION_SCHEMA
+        and isinstance(snapshot.get("consent_principal"), str)
+        and isinstance(snapshot.get("consent_threshold_usd"), str)
+    ):
+        coverage = ConsentCoverage(
+            snapshot["consent_principal"],
+            Decimal(snapshot["consent_threshold_usd"]),
+        )
+    edition = (
+        snapshot.get("edition") if isinstance(snapshot.get("edition"), str) else None
+    )
+    if edition is None:
+        row = project.db.execute(
+            "SELECT edition_run_context FROM receipts WHERE id=?",
+            (envelope.receipt_id,),
+        ).fetchone()
+        raw = None if row is None else row["edition_run_context"]
+        edition = product_edition_from_snapshot(json.loads(raw) if raw else None)
+    return _RefreshConsent(
+        confirmation=confirmation,
+        consent_coverage=coverage,
+        edition=edition,
     )
 
 
@@ -1897,6 +2458,7 @@ def _refresh_index(
     reserved_receipt_id: str | None = None,
     skip_replay: bool = False,
     parent_execution=None,
+    consent: _RefreshConsent | None = None,
 ) -> ActionResult:
     if parent_execution is not None:
         parent_execution.check()
@@ -1910,125 +2472,29 @@ def _refresh_index(
         if replay is not None:
             return replay
 
+    effective_consent = consent or _RefreshConsent()
+    req = _RefreshRequest(
+        action=action,
+        params=params,
+        project_id=project_id,
+        params_hash=params_hash,
+        consent=effective_consent,
+    )
+    prepared = _prepare_refresh_plan(project, req)
+    if isinstance(prepared, ActionResult):
+        return prepared
+    if not prepared.automatic:
+        manual_block = _manual_cost_gate(
+            project, req, space=prepared.space, to_embed=prepared.to_embed
+        )
+        if manual_block is not None:
+            return manual_block
+
     store = EmbeddingStore(project)
-    index = store.get_index(params.index_id)
-    if index is None:
-        return _error(
-            action,
-            project_id,
-            "embedding_index_not_found",
-            f"no embedding index {params.index_id!r}",
-            field="params.index_id",
-        )
-    space = store.get_space(index["space_id"])
-    if space is None:
-        return _error(
-            action,
-            project_id,
-            "embedding_index_not_found",
-            f"embedding index {params.index_id!r} references a missing space",
-            field="params.index_id",
-        )
-    modality = space["modality"]
-    if modality not in _EMBEDDABLE_MODALITIES:
-        return _error(
-            action,
-            project_id,
-            "embedding_source_unsupported",
-            f"modality {modality!r} cannot be embedded in this build",
-            field="params.index_id",
-        )
-
-    # Remote egress gate — BEFORE any claim or provider call. A remote-backed
-    # index without an explicit allow_remote policy blocks here; no data leaves.
-    provider_kind = space["provider_kind"]
-    provider_policy = _json_obj(index["provider_policy_json"])
-    remote = provider_kind in REMOTE_PROVIDER_KINDS
-    automatic = _is_automatic_refresh(params)
-    # Per-project network gate: a remote-backed index's
-    # refresh egresses row content to the provider, but the kind carries no
-    # static ``external:*`` tag (a LOCAL-provider refresh is genuinely
-    # offline, so a static kind-level tag would be a lie in the other
-    # direction). The gate is therefore taught about remote-backed indexes
-    # here, at the same pre-claim/pre-provider choke point as the
-    # allow_remote policy — which stays the primary consent gate; this one
-    # only enforces the project-wide ``network=off`` safety default.
-    if provider_network_blocked(
-        provider_kind, network_off=project.effective_network_policy() == "off"
-    ):
-        return _error(
-            action,
-            project_id,
-            "network_disabled",
-            (
-                f"this project's network setting is off; it blocks "
-                f"provider:{provider_kind}. Turn network on in the project "
-                "settings to refresh this remote-backed index."
-            ),
-            field="params.index_id",
-            details={"capability": f"provider:{provider_kind}"},
-        )
-    if remote and provider_policy.get("allow_remote") is not True:
-        return _error(
-            action,
-            project_id,
-            "embedding_remote_confirmation_required",
-            (
-                f"index provider_kind={provider_kind!r} is remote; its provider "
-                "policy must set allow_remote=true before refresh can egress data"
-            ),
-            field="params.index_id",
-            details={"provider_kind": provider_kind},
-        )
-    if remote:
-        # The refresh calls the same project-owned provider key as chat/media
-        # paths, even though embeddings are not a MapRunner LLM program.  Check
-        # the durable key ledger at this final pre-claim/pre-egress choke point.
-        from frisket.engine.runner.validation import (
-            ProviderKeyRefusal,
-            assert_provider_spend_cap,
-        )
-
-        try:
-            assert_provider_spend_cap(project, str(space["provider_id"]))
-        except ProviderKeyRefusal as exc:
-            return _error(
-                action,
-                project_id,
-                exc.error_code,
-                exc.action_message(),
-                field="params.index_id",
-                details=exc.details,
-            )
-    # Automatic (scheduled / source-triggered) remote refresh needs a SECOND
-    # explicit opt-in: allow_remote alone confirms a manual remote refresh, not
-    # unattended ones. Blocks here, before claim/provider — no data leaves.
-    if (
-        remote
-        and automatic
-        and provider_policy.get("allow_remote_automatic_refresh") is not True
-    ):
-        return _error(
-            action,
-            project_id,
-            "embedding_remote_confirmation_required",
-            (
-                "automatic remote refresh requires provider policy "
-                "allow_remote_automatic_refresh=true"
-            ),
-            field="params.index_id",
-            details={"provider_kind": provider_kind, "automatic": True},
-        )
-
-    # Resolve the row scope (stored source_query narrowed by params.row_scope)
-    # BEFORE the claim/provider: an unsupported or mismatched query fails here
-    # without holding the index or calling a provider.
-    try:
-        candidate_row_ids = _resolve_refresh_rows(project, index, params)
-    except _RefreshScopeError as exc:
-        return _error(
-            action, project_id, exc.code, exc.message, field="params.index_id"
-        )
+    index = prepared.index
+    space = prepared.space
+    modality = prepared.modality
+    candidate_row_ids = prepared.candidate_row_ids
 
     claim = store.acquire_refresh_claim(params.index_id)
     if claim is None:
@@ -2064,6 +2530,7 @@ def _refresh_index(
             parent_execution=parent_execution,
             reserved_action_id=reserved_action_id,
             reserved_receipt_id=reserved_receipt_id,
+            consent=effective_consent,
         )
         if result.status == "completed":
             release_status = "ready"
@@ -2111,6 +2578,7 @@ def _do_refresh(
     reserved_action_id=None,
     reserved_receipt_id=None,
     parent_execution=None,
+    consent: _RefreshConsent | None = None,
 ) -> ActionResult:
     from frisket.engine.store.effect_checkpoints import (
         EffectCheckpointRefused,
@@ -2178,6 +2646,20 @@ def _do_refresh(
             )
             if cost_block is not None:
                 return cost_block
+            manual_block = _manual_cost_gate(
+                project,
+                _RefreshRequest(
+                    action=action,
+                    params=params,
+                    project_id=project_id,
+                    params_hash=params_hash,
+                    consent=consent or _RefreshConsent(),
+                ),
+                space=space,
+                to_embed=to_embed,
+            )
+            if manual_block is not None:
+                return manual_block
             # A remote-provider batch operates under
             # effect-checkpoint authority.  Local providers spend nothing and
             # produce zero durable checkpoint writes.
@@ -2968,15 +3450,13 @@ def run_index_refresh_action_job(
     embedding_gateway: Any | None = None,
 ) -> ActionResult:
     """Run embedding.index_refresh inside the generic action.run worker."""
-
-    from frisket.engine.executor.action_jobs import bind_typed_action_job
-
     bound = bind_typed_action_job(envelope)
     if isinstance(bound, ActionResult):
         return bound
     if bound.action.definition.run.capabilities != (IndexRefresher,):
         raise TypeError("embedding refresh worker requires IndexRefresher")
-    return run_typed_embedding_action(
+    consent = _consent_from_job_envelope(project, envelope, bound.request.confirmation)
+    result = run_typed_embedding_action(
         project,
         envelope.project_id,
         bound,
@@ -2986,7 +3466,12 @@ def run_index_refresh_action_job(
         reserved_receipt_id=envelope.receipt_id,
         skip_replay=True,
         parent_execution=execution,
+        consent_coverage=consent.consent_coverage,
+        edition=consent.edition,
     )
+    if result.status == "needs_confirmation":
+        return result.model_copy(update={"status": "failed"})
+    return result
 
 
 def _refresh_receipt(
@@ -3422,9 +3907,8 @@ class _EmbeddingLifecycleCapability:
         reserved_receipt_id,
         skip_replay,
         parent_execution,
+        consent: _RefreshConsent | None = None,
     ):
-        from frisket.engine.executor.map_rows_action import typed_request_hash
-
         self.project = project
         self.bound = bound
         self.project_id = project_id
@@ -3435,6 +3919,7 @@ class _EmbeddingLifecycleCapability:
         self.reserved_receipt_id = reserved_receipt_id
         self.skip_replay = skip_replay
         self.parent_execution = parent_execution
+        self.consent = consent
         self.result: ActionResult | None = None
         self.called = False
 
@@ -3463,25 +3948,31 @@ class _EmbeddingLifecycleCapability:
             idempotency_key=self.bound.request.idempotency_key,
             params=admitted,
         )
-        kwargs = dict(
-            project_id=self.project_id,
-            params_hash=self.params_hash,
-            router=self.router,
-            embedding_gateway=self.embedding_gateway,
-        )
-        if not create:
-            kwargs.update(
+        if isinstance(params, IndexCreateParams):
+            result = _create_index(
+                self.project,
+                action,
+                params,
+                project_id=self.project_id,
+                params_hash=self.params_hash,
+                router=self.router,
+                embedding_gateway=self.embedding_gateway,
+            )
+        else:
+            result = _refresh_index(
+                self.project,
+                action,
+                params,
+                project_id=self.project_id,
+                params_hash=self.params_hash,
+                router=self.router,
+                embedding_gateway=self.embedding_gateway,
                 reserved_action_id=self.reserved_action_id,
                 reserved_receipt_id=self.reserved_receipt_id,
                 skip_replay=self.skip_replay,
                 parent_execution=self.parent_execution,
+                consent=self.consent,
             )
-        result = (_create_index if create else _refresh_index)(
-            self.project,
-            action,
-            params,
-            **kwargs,
-        )
         self.result = result.model_copy(deep=True)
         if result.status != "completed":
             raise _EmbeddingOperationRefused(result)
@@ -3568,9 +4059,9 @@ def run_typed_embedding_action(
     reserved_receipt_id=None,
     skip_replay=False,
     parent_execution=None,
+    consent_coverage: ConsentCoverage | None = None,
+    edition: str | None = None,
 ) -> ActionResult:
-    from frisket.engine.executor.map_rows_action import typed_request_hash
-
     terminal = bound.action.definition.run
     if not supports_typed_embedding_action(terminal):
         raise TypeError("typed embedding executor requires an embedding capability")
@@ -3592,6 +4083,11 @@ def run_typed_embedding_action(
             if terminal.capabilities == (IndexCreator,)
             else _IndexRefresher
         )
+        consent = _RefreshConsent(
+            confirmation=bound.request.confirmation,
+            consent_coverage=consent_coverage,
+            edition=edition,
+        )
         capability = capability_type(
             project,
             bound,
@@ -3602,6 +4098,7 @@ def run_typed_embedding_action(
             reserved_receipt_id=reserved_receipt_id,
             skip_replay=skip_replay,
             parent_execution=parent_execution,
+            consent=consent,
         )
         try:
             returned = terminal.handler(bound.params, capability)

@@ -50,6 +50,8 @@ from typing import Any
 
 import pytest
 
+from frisket.ai.embeddings import build_batch_result
+from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 from frisket.execution.pricing_policy import (
     EstimateFacts,
@@ -248,10 +250,9 @@ def _counts(project: Project) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 _NO_PAIR_EXCLUSIONS = {
-    # Typed embedding lifecycle admission uses durable provider policy (remote
-    # opt-in and automatic-refresh ceilings), not an invocation echo protocol.
+    # Typed embedding index creation uses durable provider policy (remote opt-in
+    # for optional dimension probes), not an invocation echo protocol.
     "embedding.index_create",
-    "embedding.index_refresh",
     "media.enclosure_materialize",
     "source.poll",
     # Typed transcript repetition is semantic Params intent, not paid consent.
@@ -980,7 +981,72 @@ def _geospatial_driver(kind: str) -> Driver:
     return drive
 
 
+@contextmanager
+def _drive_embedding_index_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    del monkeypatch
+
+    class _NeverCalledGateway:
+        def embed(self, texts, *, provider, model, modality="text"):
+            pytest.fail("wrong-echo closure reached the embedding provider")
+            return build_batch_result(
+                vectors=[[0.0] * 1536 for _ in texts],
+                provider_id=provider,
+                provider_kind="platform_api",
+                requested_model=model,
+                actual_model_id=model,
+                modality=modality,
+            )
+
+    project = Project.create(tmp_path / "embedding-refresh.frisket")
+    try:
+        sheet_id = project.add_sheet("Stories")
+        col_id = project.add_column(sheet_id, "headline")
+        project.add_rows(
+            sheet_id,
+            [{"headline": "story one"}, {"headline": "story two"}],
+            {"headline": col_id},
+        )
+        created = run_action_spec(
+            project,
+            {
+                "action_id": "embedding.index_create",
+                "scope": {"kind": "project"},
+                "params": {
+                    "sheet_id": sheet_id,
+                    "source_columns": ["headline"],
+                    "modality": "text",
+                    "provider": "openai",
+                    "model": "text-embedding-3-small",
+                    "provider_policy": {"allow_remote": True},
+                },
+                "idempotency_key": "embedding-refresh-closure-create@1",
+            },
+            project_id="p-echo-closure",
+        )
+        assert created.status == "completed", created.errors
+        index_id = created.outputs[0].ref["index_id"]
+        action = {
+            "action_id": "embedding.index_refresh",
+            "scope": {"kind": "project"},
+            "params": {"index_id": index_id, "mode": "full"},
+            "idempotency_key": "embedding.index_refresh@echo-closure",
+        }
+
+        def run(spec):
+            return run_action_spec(
+                project,
+                spec,
+                project_id="p-echo-closure",
+                deps=ExecutorDeps(embedding_gateway=_NeverCalledGateway()),
+            )
+
+        yield project, action, run
+    finally:
+        project.close()
+
+
 _BESPOKE_DRIVERS: dict[str, Driver] = {
+    "embedding.index_refresh": _drive_embedding_index_refresh,
     "research.extract": _drive_research_extract,
     "enrich.geocode": _geospatial_driver("enrich.geocode"),
     "enrich.census_demographics": _geospatial_driver("enrich.census_demographics"),

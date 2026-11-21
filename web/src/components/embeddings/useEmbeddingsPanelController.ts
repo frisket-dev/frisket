@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
+  ConfirmationRequiredError,
   type EmbeddingIndexSummary,
   type EmbeddingProvider,
   type SheetMeta,
 } from '../../api/open';
+import type { CostConfirmationRequester } from '../../api/backfillWithConfirmation';
 import type { EmbeddingApiPort } from '../../api/ports';
 import {
   emptyCreateEmbeddingIndexForm,
@@ -51,11 +53,13 @@ async function pollEmbeddingJobUntilTerminal(
 interface UseEmbeddingsPanelControllerOptions {
   apiPort: EmbeddingApiPort;
   sheet: SheetMeta;
+  requestCostConfirmation?: CostConfirmationRequester;
 }
 
 export function useEmbeddingsPanelController({
   apiPort,
   sheet,
+  requestCostConfirmation,
 }: UseEmbeddingsPanelControllerOptions) {
   const sheetId = Number(sheet.id);
   const [indexes, setIndexes] = useState<EmbeddingIndexSummary[] | null>(null);
@@ -165,8 +169,33 @@ export function useEmbeddingsPanelController({
       const generation = scopeGeneration.current;
       setBusyId(indexId);
       try {
-        const launch = await apiPort.refreshEmbeddingIndex(indexId, mode);
+        let confirmation: string | undefined;
+        let launch: { jobId: number | null; status: string };
+        for (;;) {
+          try {
+            launch = confirmation === undefined
+              ? await apiPort.refreshEmbeddingIndex(indexId, mode)
+              : await apiPort.refreshEmbeddingIndex(indexId, mode, { confirmation });
+            break;
+          } catch (caught) {
+            if (
+              !(caught instanceof ConfirmationRequiredError)
+              || !caught.estimate.promise_set_hash
+              || !requestCostConfirmation
+            ) {
+              throw caught;
+            }
+            if (!isCurrentScope(generation)) return;
+            const confirmed = await requestCostConfirmation(
+              caught.estimate,
+              caught.message,
+            );
+            if (!confirmed || !isCurrentScope(generation)) return;
+            confirmation = caught.estimate.promise_set_hash;
+          }
+        }
         if (!isCurrentScope(generation)) return;
+        setError(null);
         if (launch.jobId != null && !TERMINAL_JOB_STATUSES.has(launch.status)) {
           await pollEmbeddingJobUntilTerminal(apiPort, launch.jobId, {
             shouldContinue: () => isCurrentScope(generation),
@@ -183,7 +212,7 @@ export function useEmbeddingsPanelController({
         }
       }
     },
-    [apiPort, isCurrentScope, load],
+    [apiPort, isCurrentScope, load, requestCostConfirmation],
   );
 
   const submitCreate = useCallback(

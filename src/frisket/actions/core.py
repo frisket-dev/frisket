@@ -634,6 +634,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                     "embedding_cost_requires_confirmation",
                     "Automatic refresh needs an allowance that covers its estimate.",
                 ),
+                *extra_errors,
                 (
                     "external_effect_reconciliation_required",
                     "A prior provider call requires reconciliation.",
@@ -644,17 +645,28 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             effects,
             required_capabilities=("project:write", "model:embed"),
             cost_kind="model_metered",
+            requires_confirmation=requires_confirmation,
         )
-        for capability, output, effects in (
+        for capability, output, effects, requires_confirmation, extra_errors in (
             (
                 IndexCreator,
                 CreatedEmbeddingIndex,
                 ("probe_embedding_dimension", "create_embedding_index"),
+                False,
+                (),
             ),
             (
                 IndexRefresher,
                 RefreshedEmbeddingIndex,
                 ("embed_index_sources", "write_sidecar_vectors"),
+                True,
+                (
+                    ("model_cost_requires_confirmation", "Confirm the embedding cost."),
+                    (
+                        "unpriceable_model",
+                        "Remote embedding refresh with an unknown price is not allowed on Cloud.",
+                    ),
+                ),
             ),
         )
     ),

@@ -14,7 +14,10 @@ from pydantic import ValidationError
 from frisket.execution.action_admission import (
     missing_action_credential_error as missing_action_credential_error,
 )
-from frisket.actions.types import RowError
+from frisket.actions.types import IndexRefresher, RowError
+from frisket.engine.executor.action_families.embeddings import (
+    reserve_typed_embedding_refresh_action_job,
+)
 
 from frisket.contracts.action import (
     ActionResultStatus,
@@ -735,6 +738,16 @@ def queue_v1_action_run(
                 )
 
                 envelope = reserve_typed_find_action_job(
+                    project,
+                    project_id,
+                    bound,
+                    edition_run_context=execution_context.edition_snapshot,
+                    consent_coverage=ctx.request_executor_deps().consent_coverage,
+                )
+            elif getattr(bound.action.definition.run, "capabilities", ()) == (
+                IndexRefresher,
+            ):
+                envelope = reserve_typed_embedding_refresh_action_job(
                     project,
                     project_id,
                     bound,
