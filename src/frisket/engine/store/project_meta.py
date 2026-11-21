@@ -75,7 +75,7 @@ DEFAULT_NETWORK_POLICY: dict[str, Any] = {
     # reason `sensitive` syncs): the gate reads policy from the Project at
     # validate/dispatch/replay time, where no control-plane handle exists.
     # Local edition never writes it — None resolves to "on".
-    "org_default": None,
+    "organization_default": None,
 }
 
 
@@ -90,11 +90,18 @@ def _normalize_network_policy(data: object | None = None) -> dict[str, Any]:
         if mode not in SUPPORTED_NETWORK_POLICY_MODES:
             raise ValueError(f"unsupported network mode: {mode}")
         policy["mode"] = mode
-    if "org_default" in data and data["org_default"] is not None:
-        org_default = str(data["org_default"])
-        if org_default not in SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS:
-            raise ValueError(f"unsupported network org default: {org_default}")
-        policy["org_default"] = org_default
+    raw_default = (
+        data["organization_default"]
+        if "organization_default" in data
+        else data.get("org_default")
+    )
+    if raw_default is not None:
+        organization_default = str(raw_default)
+        if organization_default not in SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS:
+            raise ValueError(
+                f"unsupported network organization default: {organization_default}"
+            )
+        policy["organization_default"] = organization_default
     return policy
 
 
@@ -339,7 +346,7 @@ def set_retention_policy(
 def network_policy(project: Any) -> dict[str, Any]:
     """Project-level network policy.
 
-    ``{"mode": "inherit"|"on"|"off", "org_default": "on"|"off"|None}``.
+    ``{"mode": "inherit"|"on"|"off", "organization_default": "on"|"off"|None}``.
     A safety default, explicitly NOT a guarantee: enforcement is
     app-level (picker filter + dispatch/replay gate); plugins,
     notification delivery and source polling are not covered here.
@@ -364,9 +371,9 @@ def set_network_policy(
     if mode is not None:
         policy["mode"] = mode
     if organization_default is not None:
-        policy["org_default"] = organization_default
+        policy["organization_default"] = organization_default
     if clear_organization_default:
-        policy["org_default"] = None
+        policy["organization_default"] = None
     return _persist_network_policy(project, policy)
 
 
@@ -379,7 +386,7 @@ def effective_network_policy(project: Any) -> str:
     policy = project.network_policy()
     if policy["mode"] in ("on", "off"):
         return str(policy["mode"])
-    return str(policy["org_default"] or "on")
+    return str(policy["organization_default"] or "on")
 
 
 def _read_manifest(project: Any) -> dict[str, Any]:

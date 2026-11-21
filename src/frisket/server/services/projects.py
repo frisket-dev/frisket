@@ -109,7 +109,7 @@ def _network_policy_response(project: Any) -> dict[str, Any]:
     return {
         "schemaVersion": NETWORK_POLICY_SCHEMA_VERSION,
         "mode": policy["mode"],
-        "organization_default": policy["org_default"],
+        "organization_default": policy["organization_default"],
         # The resolved two-state value the gate actually reads, so the UI can
         # honestly say what "inherit" currently means for this project.
         "effective": project.effective_network_policy(),

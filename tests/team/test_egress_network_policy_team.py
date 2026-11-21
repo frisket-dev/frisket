@@ -59,7 +59,10 @@ def test_organization_default_flows_into_bundles_and_project_mode_overrides(
         "/api/organization/network", json={"network_default": "off"}
     )
     assert response.status_code == 200, response.text
-    assert project.network_policy() == {"mode": "inherit", "org_default": "off"}
+    assert project.network_policy() == {
+        "mode": "inherit",
+        "organization_default": "off",
+    }
     assert project.effective_network_policy() == "off"
 
     # Project owner overrides to on: project mode beats the organization default,

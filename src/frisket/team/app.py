@@ -549,7 +549,7 @@ def _sync_project_network_policy(
     policy from the Project bundle at validate/dispatch/replay time, where no
     control-plane handle exists — so both the project's mode and the organization
     default live there, reconciled on drift."""
-    org_default = cx.execute(
+    organization_default = cx.execute(
         sa.select(orgs.c.network_default).where(orgs.c.id == org_id)
     ).scalar_one_or_none()
     mode = (
@@ -567,11 +567,11 @@ def _sync_project_network_policy(
         # completion calls this sync again once the bundle exists.
         return
     policy = project.network_policy()
-    if policy["mode"] != mode or policy["org_default"] != org_default:
+    if policy["mode"] != mode or policy["organization_default"] != organization_default:
         project.set_network_policy(
             mode=mode,
-            organization_default=org_default,
-            clear_organization_default=org_default is None,
+            organization_default=organization_default,
+            clear_organization_default=organization_default is None,
         )
 
 
@@ -1583,7 +1583,7 @@ def create_team_app(
             {
                 "schemaVersion": "frisket.project_network_policy.v1",
                 "mode": policy["mode"],
-                "organization_default": policy["org_default"],
+                "organization_default": policy["organization_default"],
                 "effective": project.effective_network_policy(),
             }
         )
