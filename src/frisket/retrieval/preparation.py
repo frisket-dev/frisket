@@ -33,8 +33,8 @@ from frisket.retrieval.content import (
     ImageSurface,
     PreparedDocumentSurface,
     ProducedPart,
-    TextChunkRecipe,
     TextCursor,
+    TextSliceSpec,
     TextSurface,
     TranscriptChunkRecipe,
     TranscriptCursor,
@@ -239,13 +239,13 @@ def publish_lexical_source(
     store.register_preparation(
         resolved.source,
         (_binding(resolved),),
-        recipe_id=LEXICAL_RECIPE_ID,
+        slice_id=LEXICAL_RECIPE_ID,
         channel=LEXICAL_CHANNEL,
         space_id=None,
     )
     state = store.preparation_state(
         resolved.source.source_id,
-        recipe_id=LEXICAL_RECIPE_ID,
+        slice_id=LEXICAL_RECIPE_ID,
         channel=LEXICAL_CHANNEL,
     )
     if state is not None and state.status == "ready":
@@ -253,7 +253,7 @@ def publish_lexical_source(
     published = store.publish_source(
         SourcePublication(
             source_revision=resolved.source,
-            recipe_id=LEXICAL_RECIPE_ID,
+            slice_id=LEXICAL_RECIPE_ID,
             channel=LEXICAL_CHANNEL,
             parts=(),
             bindings=(),
@@ -269,7 +269,7 @@ def queue_text_preparation(
     store: RetrievalStore,
     resolved: ResolvedCellTextSource,
     *,
-    recipe: TextChunkRecipe = DEFAULT_TEXT_RECIPE,
+    recipe: TextSliceSpec = DEFAULT_TEXT_RECIPE,
     space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
 ) -> None:
     """Register a scoped semantic target without copying its source surface."""
@@ -277,7 +277,7 @@ def queue_text_preparation(
     store.register_preparation(
         resolved.source,
         (_binding(resolved),),
-        recipe_id=recipe.recipe_id,
+        slice_id=recipe.slice_id,
         channel=TEXT_CHANNEL,
         space_id=space.identity,
         replace_channel_recipes=True,
@@ -292,21 +292,17 @@ def dispatch_resolved_cited_source(
     policy: PreparationPolicy = DEFAULT_PREPARATION_POLICY,
 ) -> None:
     if isinstance(resolved, ResolvedCellTranscriptSource):
-        recipe: TranscriptChunkRecipe | TextChunkRecipe | None = (
-            policy.transcript_recipe
-        )
-        recipe_id = (
-            DISABLED_TRANSCRIPT_RECIPE_ID if recipe is None else recipe.recipe_id
-        )
+        recipe: TranscriptChunkRecipe | TextSliceSpec | None = policy.transcript_recipe
+        slice_id = DISABLED_TRANSCRIPT_RECIPE_ID if recipe is None else recipe.slice_id
         channel = TRANSCRIPT_CHANNEL
     else:
         recipe = policy.text_recipe
-        recipe_id = DISABLED_TEXT_RECIPE_ID if recipe is None else recipe.recipe_id
+        slice_id = DISABLED_TEXT_RECIPE_ID if recipe is None else recipe.slice_id
         channel = OCR_TEXT_CHANNEL
     store.register_preparation(
         resolved.surface.source,
         (_binding(resolved),),
-        recipe_id=recipe_id,
+        slice_id=slice_id,
         channel=channel,
         space_id=space.identity,
         replace_channel_recipes=True,
@@ -315,7 +311,7 @@ def dispatch_resolved_cited_source(
     if recipe is None:
         store.mark_preparation_unavailable(
             resolved.surface.source,
-            recipe_id=recipe_id,
+            slice_id=slice_id,
             channel=channel,
             space_id=space.identity,
             error_code=POLICY_DISABLED_ERROR,
@@ -335,24 +331,24 @@ def dispatch_resolved_blob_source(
     mime = resolved.mime_type.lower().split(";", 1)[0].strip()
     targets: list[tuple[str, str, str | None]]
     if mime.startswith("image/"):
-        recipe_id = (
+        slice_id = (
             IMAGE_BYTES_RECIPE_ID if policy.image_enabled else DISABLED_IMAGE_RECIPE_ID
         )
-        targets = [(recipe_id, IMAGE_CHANNEL, None)]
+        targets = [(slice_id, IMAGE_CHANNEL, None)]
     elif mime == "application/pdf":
-        recipe_id = (
+        slice_id = (
             PDF_PAGE_RECIPE_ID if policy.pdf_pages_enabled else DISABLED_PDF_RECIPE_ID
         )
-        targets = [(recipe_id, PDF_PAGE_CHANNEL, None)]
+        targets = [(slice_id, PDF_PAGE_CHANNEL, None)]
     elif mime.startswith("video/"):
-        video_recipe_id = (
+        video_slice_id = (
             DISABLED_VIDEO_RECIPE_ID
             if policy.video_recipe is None
-            else policy.video_recipe.recipe_id
+            else policy.video_recipe.slice_id
         )
-        targets = [(video_recipe_id, VIDEO_CHANNEL, None)]
+        targets = [(video_slice_id, VIDEO_CHANNEL, None)]
         if policy.audio_recipe is not None:
-            targets.append((policy.audio_recipe.recipe_id, AUDIO_CHANNEL, None))
+            targets.append((policy.audio_recipe.slice_id, AUDIO_CHANNEL, None))
         elif (
             store.db.execute(
                 "SELECT 1 FROM preparation WHERE source_id=? AND channel=? LIMIT 1",
@@ -360,16 +356,16 @@ def dispatch_resolved_blob_source(
             ).fetchone()
             is not None
         ):
-            # Replacing with the disabled recipe removes prior audio parts and
+            # Replacing with the disabled slice removes prior audio parts and
             # prevents a policy change from leaving soundtrack hits searchable.
             targets.append((DISABLED_AUDIO_RECIPE_ID, AUDIO_CHANNEL, None))
     elif mime.startswith("audio/"):
-        recipe_id = (
+        slice_id = (
             DISABLED_AUDIO_RECIPE_ID
             if policy.audio_recipe is None
-            else policy.audio_recipe.recipe_id
+            else policy.audio_recipe.slice_id
         )
-        targets = [(recipe_id, AUDIO_CHANNEL, None)]
+        targets = [(slice_id, AUDIO_CHANNEL, None)]
     else:
         targets = [
             (
@@ -378,16 +374,16 @@ def dispatch_resolved_blob_source(
                 UNSUPPORTED_MEDIA_ERROR,
             )
         ]
-    for recipe_id, channel, unavailable_code in targets:
+    for slice_id, channel, unavailable_code in targets:
         store.register_preparation(
             resolved.source,
             (_binding(resolved),),
-            recipe_id=recipe_id,
+            slice_id=slice_id,
             channel=channel,
             space_id=space.identity,
             replace_channel_recipes=True,
         )
-        policy_disabled = recipe_id.startswith("policy-disabled-")
+        policy_disabled = slice_id.startswith("policy-disabled-")
         if unavailable_code is not None or policy_disabled:
             error_code = unavailable_code or (
                 POLICY_DISABLED_ERROR if policy_disabled else None
@@ -395,7 +391,7 @@ def dispatch_resolved_blob_source(
             assert error_code is not None
             store.mark_preparation_unavailable(
                 resolved.source,
-                recipe_id=recipe_id,
+                slice_id=slice_id,
                 channel=channel,
                 space_id=space.identity,
                 error_code=error_code,
@@ -413,15 +409,15 @@ def dispatch_resolved_text_source(
     store: RetrievalStore,
     resolved: ResolvedCellTextSource,
     *,
-    recipe: TextChunkRecipe | None = DEFAULT_TEXT_RECIPE,
+    recipe: TextSliceSpec | None = DEFAULT_TEXT_RECIPE,
     space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
 ) -> None:
-    recipe_id = DISABLED_TEXT_RECIPE_ID if recipe is None else recipe.recipe_id
+    slice_id = DISABLED_TEXT_RECIPE_ID if recipe is None else recipe.slice_id
     if recipe is None:
         store.register_preparation(
             resolved.source,
             (_binding(resolved),),
-            recipe_id=recipe_id,
+            slice_id=slice_id,
             channel=TEXT_CHANNEL,
             space_id=space.identity,
             replace_channel_recipes=True,
@@ -432,7 +428,7 @@ def dispatch_resolved_text_source(
     if recipe is None:
         store.mark_preparation_unavailable(
             resolved.source,
-            recipe_id=recipe_id,
+            slice_id=slice_id,
             channel=TEXT_CHANNEL,
             space_id=space.identity,
             error_code=POLICY_DISABLED_ERROR,
@@ -457,7 +453,7 @@ def _cursor_json(cursor: TextCursor | None) -> str | None:
         {
             "kind": "text",
             "source_identity": cursor.source_identity,
-            "recipe_id": cursor.recipe_id,
+            "slice_id": cursor.slice_id,
             "next_offset": cursor.next_offset,
         },
         ensure_ascii=False,
@@ -474,7 +470,7 @@ def _text_cursor(value: str | None) -> TextCursor | None:
         raise ValueError("invalid text preparation cursor")
     return TextCursor(
         source_identity=str(payload["source_identity"]),
-        recipe_id=str(payload["recipe_id"]),
+        slice_id=str(payload["slice_id"]),
         next_offset=int(payload["next_offset"]),
     )
 
@@ -486,7 +482,7 @@ def _transcript_cursor_json(cursor: TranscriptCursor | None) -> str | None:
         {
             "kind": "transcript",
             "source_identity": cursor.source_identity,
-            "recipe_id": cursor.recipe_id,
+            "slice_id": cursor.slice_id,
             "next_segment": cursor.next_segment,
             "next_offset": cursor.next_offset,
         },
@@ -504,7 +500,7 @@ def _transcript_cursor(value: str | None) -> TranscriptCursor | None:
         raise ValueError("invalid transcript preparation cursor")
     return TranscriptCursor(
         source_identity=str(payload["source_identity"]),
-        recipe_id=str(payload["recipe_id"]),
+        slice_id=str(payload["slice_id"]),
         next_segment=int(payload["next_segment"]),
         next_offset=int(payload["next_offset"]),
     )
@@ -612,7 +608,7 @@ def _resolve_work_source(
 
 def _produced_batch(
     resolved: ResolvedCellTextSource,
-    recipe: TextChunkRecipe,
+    recipe: TextSliceSpec,
     *,
     max_parts: int,
     cursor: TextCursor | None,
@@ -658,7 +654,7 @@ def _document_text_bindings_current(project, resolved: ResolvedCellTextSource) -
 def _publication(
     resolved: ResolvedProducerSource,
     *,
-    recipe_id: str,
+    slice_id: str,
     channel: str = TEXT_CHANNEL,
     items: tuple[ProducedPart, ...],
     vectors: Sequence[tuple[float, ...]],
@@ -694,7 +690,7 @@ def _publication(
         )
     return SourcePublication(
         source_revision=resolved.source,
-        recipe_id=recipe_id,
+        slice_id=slice_id,
         channel=channel,
         parts=tuple(
             StoredPart(
@@ -736,7 +732,7 @@ def _record_encoding_error(
     if error.code == "model_unavailable":
         store.mark_preparation_unavailable(
             work.source_revision,
-            recipe_id=work.recipe_id,
+            slice_id=work.slice_id,
             channel=work.channel,
             space_id=work.space_id,
             reason=str(error),
@@ -744,7 +740,7 @@ def _record_encoding_error(
         return
     store.fail_preparation(
         work.source_revision,
-        recipe_id=work.recipe_id,
+        slice_id=work.slice_id,
         channel=work.channel,
         space_id=work.space_id,
         error_code=error.code,
@@ -756,7 +752,7 @@ def process_text_preparation_batch(
     project,
     *,
     encoder: PreparationEncoder | None,
-    recipe: TextChunkRecipe = DEFAULT_TEXT_RECIPE,
+    recipe: TextSliceSpec = DEFAULT_TEXT_RECIPE,
     space: EmbeddingGemma2Space = DEFAULT_TEXT_SPACE,
     max_parts: int = 32,
     cancelled: Callable[[], bool] | None = None,
@@ -774,7 +770,7 @@ def process_text_preparation_batch(
         if not isinstance(resolved, ResolvedCellTextSource):
             store.fail_preparation(
                 work.source_revision,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=work.channel,
                 space_id=work.space_id,
                 error_code="stale_source",
@@ -788,7 +784,7 @@ def process_text_preparation_batch(
         if encoder is None or not encoder.available():
             store.mark_preparation_unavailable(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=work.channel,
                 space_id=work.space_id,
                 reason="the configured local retrieval encoder is unavailable",
@@ -798,7 +794,7 @@ def process_text_preparation_batch(
                 is not None
             )
             return PreparationProgress(0, pending, not pending)
-        if work.recipe_id != recipe.recipe_id:
+        if work.slice_id != recipe.slice_id:
             # A policy edit can land after dirty dispatch but before this
             # bounded channel pass. Leave the new target for the next claim,
             # whose composition root reads the new policy.
@@ -806,7 +802,7 @@ def process_text_preparation_batch(
 
         store.begin_preparation(
             resolved.source,
-            recipe_id=work.recipe_id,
+            slice_id=work.slice_id,
             channel=TEXT_CHANNEL,
             space_id=space.identity,
         )
@@ -842,7 +838,7 @@ def process_text_preparation_batch(
         ) and not _document_text_bindings_current(project, resolved):
             store.fail_preparation(
                 work.source_revision,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=work.channel,
                 space_id=work.space_id,
                 error_code="stale_source",
@@ -856,7 +852,7 @@ def process_text_preparation_batch(
         published = store.publish_source(
             _publication(
                 resolved,
-                recipe_id=recipe.recipe_id,
+                slice_id=recipe.slice_id,
                 items=batch.items,
                 vectors=vectors,
                 space=space,
@@ -873,7 +869,7 @@ def process_text_preparation_batch(
             )
             if cursor_json is None or not store.advance_preparation(
                 resolved.source,
-                recipe_id=recipe.recipe_id,
+                slice_id=recipe.slice_id,
                 channel=TEXT_CHANNEL,
                 space_id=space.identity,
                 cursor_json=cursor_json,
@@ -918,7 +914,7 @@ def process_cited_text_preparation_batch(
         if not isinstance(resolved, expected):
             store.fail_preparation(
                 work.source_revision,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=work.channel,
                 space_id=work.space_id,
                 error_code="stale_source",
@@ -932,7 +928,7 @@ def process_cited_text_preparation_batch(
         if encoder is None or not encoder.available():
             store.mark_preparation_unavailable(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=work.channel,
                 space_id=work.space_id,
                 reason="the configured local retrieval encoder is unavailable",
@@ -947,10 +943,10 @@ def process_cited_text_preparation_batch(
             selected_transcript = policy.transcript_recipe
             if (
                 selected_transcript is None
-                or work.recipe_id != selected_transcript.recipe_id
+                or work.slice_id != selected_transcript.slice_id
             ):
                 return PreparationProgress(0, True, False)
-            selected_id = selected_transcript.recipe_id
+            selected_id = selected_transcript.slice_id
             batch = produce_transcript(
                 resolved.surface,
                 selected_transcript,
@@ -960,9 +956,9 @@ def process_cited_text_preparation_batch(
             )
         else:
             selected_text = policy.text_recipe
-            if selected_text is None or work.recipe_id != selected_text.recipe_id:
+            if selected_text is None or work.slice_id != selected_text.slice_id:
                 return PreparationProgress(0, True, False)
-            selected_id = selected_text.recipe_id
+            selected_id = selected_text.slice_id
             batch = produce_text(
                 resolved.surface,
                 selected_text,
@@ -972,7 +968,7 @@ def process_cited_text_preparation_batch(
             )
         store.begin_preparation(
             resolved.source,
-            recipe_id=work.recipe_id,
+            slice_id=work.slice_id,
             channel=channel,
             space_id=space.identity,
         )
@@ -998,7 +994,7 @@ def process_cited_text_preparation_batch(
         if not store.publish_source(
             _publication(
                 resolved,
-                recipe_id=selected_id,
+                slice_id=selected_id,
                 channel=channel,
                 items=batch.items,
                 vectors=vectors,
@@ -1014,7 +1010,7 @@ def process_cited_text_preparation_batch(
                 cursor_json = _cursor_json(batch.continuation)
             if cursor_json is None or not store.advance_preparation(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 cursor_json=cursor_json,
@@ -1038,7 +1034,7 @@ def _pdf_cursor_payload(
         {
             "kind": "pdf_pages",
             "source_id": resolved.source.source_id,
-            "recipe_id": PDF_PAGE_RECIPE_ID,
+            "slice_id": PDF_PAGE_RECIPE_ID,
             "next_page": next_page,
             "page_count": page_count,
         },
@@ -1056,7 +1052,7 @@ def _pdf_cursor(
     if (
         not isinstance(payload, dict)
         or payload.get("kind") != "pdf_pages"
-        or payload.get("recipe_id") != PDF_PAGE_RECIPE_ID
+        or payload.get("slice_id") != PDF_PAGE_RECIPE_ID
         or payload.get("source_id") != resolved.source.source_id
     ):
         raise ValueError("invalid PDF preparation cursor")
@@ -1138,7 +1134,7 @@ def _blob_image_batch(
                             input_hash(data),
                             pages=PageRange(page, page),
                         ),
-                        recipe_id=PDF_PAGE_RECIPE_ID,
+                        slice_id=PDF_PAGE_RECIPE_ID,
                         cancelled=cancelled,
                     ).items
                 )
@@ -1183,7 +1179,7 @@ def process_blob_image_preparation_batch(
         if not isinstance(resolved, ResolvedCellBlobSource):
             store.fail_preparation(
                 work.source_revision,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=work.space_id,
                 error_code="stale_source",
@@ -1197,7 +1193,7 @@ def process_blob_image_preparation_batch(
         if encoder is None or not encoder.available():
             store.mark_preparation_unavailable(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 reason="the configured local retrieval encoder is unavailable",
@@ -1207,7 +1203,7 @@ def process_blob_image_preparation_batch(
                 is not None
             )
             return PreparationProgress(0, pending, not pending)
-        expected_recipe = (
+        expected_slice = (
             IMAGE_BYTES_RECIPE_ID if channel == IMAGE_CHANNEL else PDF_PAGE_RECIPE_ID
         )
         enabled = (
@@ -1215,11 +1211,11 @@ def process_blob_image_preparation_batch(
             if channel == IMAGE_CHANNEL
             else policy.pdf_pages_enabled
         )
-        if not enabled or work.recipe_id != expected_recipe:
+        if not enabled or work.slice_id != expected_slice:
             return PreparationProgress(0, True, False)
         store.begin_preparation(
             resolved.source,
-            recipe_id=work.recipe_id,
+            slice_id=work.slice_id,
             channel=channel,
             space_id=space.identity,
         )
@@ -1254,7 +1250,7 @@ def process_blob_image_preparation_batch(
             )
             store.fail_preparation(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 error_code=error_code,
@@ -1286,7 +1282,7 @@ def process_blob_image_preparation_batch(
         if not store.publish_source(
             _publication(
                 resolved,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 items=items,
                 vectors=vectors,
@@ -1297,7 +1293,7 @@ def process_blob_image_preparation_batch(
             raise RuntimeError("blob preparation was superseded during publication")
         if continuation is not None and not store.advance_preparation(
             resolved.source,
-            recipe_id=work.recipe_id,
+            slice_id=work.slice_id,
             channel=channel,
             space_id=space.identity,
             cursor_json=continuation,
@@ -1312,7 +1308,7 @@ def process_blob_image_preparation_batch(
 
 
 def _media_cursor(
-    value: str | None, resolved: ResolvedCellBlobSource, recipe_id: str
+    value: str | None, resolved: ResolvedCellBlobSource, slice_id: str
 ) -> tuple[int, float | None]:
     if value is None:
         return 0, None
@@ -1321,7 +1317,7 @@ def _media_cursor(
         not isinstance(payload, dict)
         or payload.get("kind") != "media"
         or payload.get("source_id") != resolved.source.source_id
-        or payload.get("recipe_id") != recipe_id
+        or payload.get("slice_id") != slice_id
     ):
         raise ValueError("invalid media preparation cursor")
     if "next_seconds" in payload:
@@ -1337,7 +1333,7 @@ def _media_cursor(
 
 def _media_cursor_json(
     resolved: ResolvedCellBlobSource,
-    recipe_id: str,
+    slice_id: str,
     *,
     next_index: int | None = None,
     next_seconds: float | None = None,
@@ -1353,7 +1349,7 @@ def _media_cursor_json(
         {
             "kind": "media",
             "source_id": resolved.source.source_id,
-            "recipe_id": recipe_id,
+            "slice_id": slice_id,
             **position,
         },
         separators=(",", ":"),
@@ -1363,7 +1359,7 @@ def _media_cursor_json(
 
 def _located_media_part(
     resolved: ResolvedCellBlobSource,
-    recipe_id: str,
+    slice_id: str,
     item: LocatedFrame | LocatedVideoClip | AudioWindow,
 ) -> ProducedPart:
     if isinstance(item, LocatedFrame):
@@ -1385,7 +1381,7 @@ def _located_media_part(
         {
             "source": resolved.source.source_id,
             "version": resolved.source.version_value,
-            "recipe": recipe_id,
+            "slice": slice_id,
             "kind": part_kind,
             "start": start_seconds,
             "end": end_seconds,
@@ -1393,7 +1389,7 @@ def _located_media_part(
         },
     )
     return ProducedPart(
-        IndexedPart(part_id, resolved.source, recipe_id, part_kind, locator), item.input
+        IndexedPart(part_id, resolved.source, slice_id, part_kind, locator), item.input
     )
 
 
@@ -1422,7 +1418,7 @@ def process_timed_media_preparation_batch(
         if not isinstance(resolved, ResolvedCellBlobSource):
             store.fail_preparation(
                 work.source_revision,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=work.space_id,
                 error_code="stale_source",
@@ -1436,7 +1432,7 @@ def process_timed_media_preparation_batch(
         if encoder is None or not encoder.available():
             store.mark_preparation_unavailable(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 reason="the configured local retrieval encoder is unavailable",
@@ -1449,10 +1445,10 @@ def process_timed_media_preparation_batch(
         base_recipe = (
             policy.video_recipe if channel == VIDEO_CHANNEL else policy.audio_recipe
         )
-        if base_recipe is None or work.recipe_id != base_recipe.recipe_id:
+        if base_recipe is None or work.slice_id != base_recipe.slice_id:
             return PreparationProgress(0, True, False)
         start_index, start_seconds = _media_cursor(
-            work.cursor_json, resolved, base_recipe.recipe_id
+            work.cursor_json, resolved, base_recipe.slice_id
         )
         if isinstance(base_recipe, PeriodicFrameRecipe):
             recipe = replace(base_recipe, max_frames=max_parts)
@@ -1462,7 +1458,7 @@ def process_timed_media_preparation_batch(
             recipe = replace(base_recipe, max_windows=max_parts)
         store.begin_preparation(
             resolved.source,
-            recipe_id=work.recipe_id,
+            slice_id=work.slice_id,
             channel=channel,
             space_id=space.identity,
         )
@@ -1481,7 +1477,7 @@ def process_timed_media_preparation_batch(
         except MediaProductionError as exc:
             store.fail_preparation(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 error_code=exc.code,
@@ -1495,7 +1491,7 @@ def process_timed_media_preparation_batch(
         except (BlobIntegrityError, BlobNotFoundError) as exc:
             store.fail_preparation(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 error_code=(
@@ -1513,7 +1509,7 @@ def process_timed_media_preparation_batch(
         if produced.coverage.truncation_reason == "missing_samples":
             store.fail_preparation(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 error_code="missing_samples",
@@ -1525,7 +1521,7 @@ def process_timed_media_preparation_batch(
             )
             return PreparationProgress(0, pending, not pending)
         items = tuple(
-            _located_media_part(resolved, work.recipe_id, item)
+            _located_media_part(resolved, work.slice_id, item)
             for item in produced.items
             if isinstance(item, LocatedFrame | LocatedVideoClip | AudioWindow)
         )
@@ -1551,7 +1547,7 @@ def process_timed_media_preparation_batch(
         if not store.publish_source(
             _publication(
                 resolved,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 items=items,
                 vectors=vectors,
@@ -1566,18 +1562,18 @@ def process_timed_media_preparation_batch(
                     raise RuntimeError("shot preparation made no timeline progress")
                 cursor_json = _media_cursor_json(
                     resolved,
-                    work.recipe_id,
+                    work.slice_id,
                     next_seconds=produced.coverage.indexed_spans[-1][1],
                 )
             else:
                 cursor_json = _media_cursor_json(
                     resolved,
-                    work.recipe_id,
+                    work.slice_id,
                     next_index=start_index + max_parts,
                 )
             if not store.advance_preparation(
                 resolved.source,
-                recipe_id=work.recipe_id,
+                slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
                 cursor_json=cursor_json,
@@ -1606,11 +1602,11 @@ def preparation_work_marker(project_path: str | Path) -> str | None:
         if exists is None:
             return None
         row = db.execute(
-            "SELECT source_id,recipe_id,channel,space_id,target_version_kind,"
+            "SELECT source_id,slice_id,channel,space_id,target_version_kind,"
             "target_version_value,target_version_type,cursor_json "
             "FROM preparation WHERE status IN ('pending','preparing') "
             "ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,"
-            "source_id,recipe_id,channel LIMIT 1"
+            "source_id,slice_id,channel LIMIT 1"
         ).fetchone()
         if row is None:
             return None

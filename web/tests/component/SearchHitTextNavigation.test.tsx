@@ -38,7 +38,7 @@ function hit(start = tail): ProjectSearchHitWire {
   const text = { text_surface_id: 'cell:20:7', content_hash: 'hash', start, end: start + 6 };
   return {
     source: { source_id: 'cell:20:7', source_kind: 'text', version_kind: 'retrieval_revision', version_value: 9, content_hash: 'hash' },
-    part: { part_id: 'tail', part_kind: 'text_chunk', producer_recipe_id: 'text-v1' },
+    part: { part_id: 'tail', part_kind: 'text_chunk', producer_slice_id: 'text-v1' },
     binding: { binding_id: 'binding:20:7', sheet_id: 2, row_id: 20, column_id: 7,
       dependencies: [{ row_id: 20, column_id: 7, retrieval_revision: 9 }] },
     location: { kind: 'text', precision: 'exact', text, pages: null, time: null, source_span_ids: [] },

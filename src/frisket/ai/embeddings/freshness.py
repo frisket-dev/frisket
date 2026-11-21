@@ -108,7 +108,7 @@ def _safe_columns(index: Any) -> list[str]:
 
 def _member_status_sql(plan: Any) -> str:
     current = (
-        "part.recipe_id=? AND representation.space_id=? AND "
+        "part.slice_id=? AND representation.space_id=? AND "
         "EXISTS (SELECT 1 FROM idx.binding_dependencies AS required "
         "WHERE required.binding_key=binding.binding_key) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS dependency "
@@ -172,14 +172,14 @@ def _member_status(
     plan: Any,
     dataset_id: str,
     sheet_id: int,
-    recipe_id: str,
+    slice_id: str,
     space_id: str,
 ) -> tuple[int, int, int, tuple[str, ...], tuple[str, ...]]:
     row = reader.db.execute(
         _member_status_sql(plan),
         [
             *plan.filter_params,
-            recipe_id,
+            slice_id,
             space_id,
             dataset_id,
             sheet_id,
@@ -202,13 +202,13 @@ def _stale_scope_row_pages(
     plan: Any,
     dataset_id: str,
     sheet_id: int,
-    recipe_id: str,
+    slice_id: str,
     space_id: str,
 ):
     """Yield in-scope rows whose published member is no longer current."""
 
     current = (
-        "part.recipe_id=? AND representation.space_id=? AND "
+        "part.slice_id=? AND representation.space_id=? AND "
         "EXISTS (SELECT 1 FROM idx.binding_dependencies AS required "
         "WHERE required.binding_key=binding.binding_key) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS dependency "
@@ -252,7 +252,7 @@ def _stale_scope_row_pages(
                 *plan.filter_params,
                 dataset_id,
                 sheet_id,
-                recipe_id,
+                slice_id,
                 space_id,
                 _MISSING_PAGE_SIZE,
                 offset,
@@ -399,7 +399,7 @@ def index_freshness(
                 plan=plan,
                 dataset_id=dataset_id,
                 sheet_id=sheet_id,
-                recipe_id=recipe.recipe_id,
+                slice_id=recipe.slice_id,
                 space_id=space_id,
             )
             missing = 0
@@ -416,7 +416,7 @@ def index_freshness(
                     plan=plan,
                     dataset_id=dataset_id,
                     sheet_id=sheet_id,
-                    recipe_id=recipe.recipe_id,
+                    slice_id=recipe.slice_id,
                     space_id=space_id,
                 ):
                     stale_targets += len(

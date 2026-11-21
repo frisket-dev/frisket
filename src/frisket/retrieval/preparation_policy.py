@@ -9,7 +9,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from frisket.retrieval.content import TextChunkRecipe, TranscriptChunkRecipe
+from frisket.retrieval.content import TextSliceSpec, TranscriptChunkRecipe
 from frisket.retrieval.media import (
     AudioWindowRecipe,
     FixedClipRecipe,
@@ -19,7 +19,7 @@ from frisket.retrieval.media import (
 
 
 PREPARATION_POLICY_META_KEY = "retrieval_preparation_policy_v1"
-DEFAULT_TEXT_RECIPE = TextChunkRecipe()
+DEFAULT_TEXT_RECIPE = TextSliceSpec()
 DEFAULT_TRANSCRIPT_RECIPE = TranscriptChunkRecipe()
 DEFAULT_VIDEO_RECIPE = ShotClipRecipe()
 DEFAULT_AUDIO_RECIPE: AudioWindowRecipe | None = None
@@ -30,7 +30,7 @@ LOG = logging.getLogger(__name__)
 class PreparationPolicy:
     """Persistent selection of bounded local producer strategies."""
 
-    text_recipe: TextChunkRecipe | None = DEFAULT_TEXT_RECIPE
+    text_recipe: TextSliceSpec | None = DEFAULT_TEXT_RECIPE
     transcript_recipe: TranscriptChunkRecipe | None = DEFAULT_TRANSCRIPT_RECIPE
     image_enabled: bool = True
     pdf_pages_enabled: bool = True
@@ -41,9 +41,9 @@ class PreparationPolicy:
 
     def __post_init__(self) -> None:
         if self.text_recipe is not None and not isinstance(
-            self.text_recipe, TextChunkRecipe
+            self.text_recipe, TextSliceSpec
         ):
-            raise TypeError("text_recipe must be TextChunkRecipe or None")
+            raise TypeError("text_recipe must be TextSliceSpec or None")
         if self.transcript_recipe is not None and not isinstance(
             self.transcript_recipe, TranscriptChunkRecipe
         ):
@@ -64,15 +64,15 @@ class PreparationPolicy:
 
 _VideoStrategy = PeriodicFrameRecipe | FixedClipRecipe | ShotClipRecipe
 _AnyStrategy = (
-    TextChunkRecipe | TranscriptChunkRecipe | _VideoStrategy | AudioWindowRecipe
+    TextSliceSpec | TranscriptChunkRecipe | _VideoStrategy | AudioWindowRecipe
 )
 _StrategyT = TypeVar("_StrategyT", bound=_AnyStrategy)
 
 DEFAULT_PREPARATION_POLICY = PreparationPolicy()
 _MISSING = object()
 _POLICY_KEYS = frozenset(field.name for field in dataclasses.fields(PreparationPolicy))
-_TEXT_STRATEGIES: dict[str, type[TextChunkRecipe]] = {
-    "text_codepoint_windows": TextChunkRecipe,
+_TEXT_STRATEGIES: dict[str, type[TextSliceSpec]] = {
+    "text_codepoint_windows": TextSliceSpec,
 }
 _TRANSCRIPT_STRATEGIES: dict[str, type[TranscriptChunkRecipe]] = {
     "transcript_segment_windows": TranscriptChunkRecipe,

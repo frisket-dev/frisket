@@ -268,13 +268,13 @@ export function createProjectQAStore(api: ProjectQAApi) {
     async resumeResearch(decision: AskResearchResume['decision'], update: Partial<Pick<AskResearchResume, 'budget_usd' | 'max_turns' | 'write_mode'>> = {}) {
       const { thread, activeTurn } = store.get();
       const research = activeTurn?.research_state;
-      const pauseId = research?.pending_approval?.id;
+      const pauseId = research?.pending_pause?.id;
       if (!thread || !activeTurn || research?.state !== 'paused' || typeof pauseId !== 'string') return;
       const current = generation;
       store.set((s) => ({ ...s, busy: true, error: null }));
       try {
         const turn = await api.resumeResearch(thread.id, activeTurn.id, {
-          expected_revision: research.revision, approval_id: pauseId, decision, ...update,
+          expected_revision: research.revision, pause_id: pauseId, decision, ...update,
         }, controller.signal);
         if (current !== generation) return;
         store.set((s) => ({ ...s, activeTurn: turn.status === 'running' || turn.status === 'stopping' ? turn : null, busy: false }));

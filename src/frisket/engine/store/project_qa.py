@@ -1253,7 +1253,7 @@ class ProjectQAStore:
                     (target, turn_id),
                 )
                 db.execute(
-                    "UPDATE project_qa_research_runs SET state='running',pending_approval_json=NULL,"
+                    "UPDATE project_qa_research_runs SET state='running',pending_pause_json=NULL,"
                     "revision=revision+1,updated_at=? WHERE turn_id=?",
                     (now, turn_id),
                 )
@@ -1450,7 +1450,7 @@ class ProjectQAStore:
         # Research state is a stored projection of the parent outcome. There
         # is no independently writable research terminal transition.
         db.execute(
-            "UPDATE project_qa_research_runs SET state=?,pending_approval_json=NULL,"
+            "UPDATE project_qa_research_runs SET state=?,pending_pause_json=NULL,"
             "revision=revision+1,updated_at=? WHERE turn_id=?",
             ("completed" if status == "completed" else "interrupted", now, turn_id),
         )
@@ -1528,7 +1528,7 @@ class ProjectQAStore:
                 "JOIN project_qa_research_runs r ON r.turn_id=t.id "
                 "WHERE t.status NOT IN ('running','stopping') AND "
                 "(r.state != CASE WHEN t.status='completed' THEN 'completed' ELSE 'interrupted' END "
-                "OR r.pending_approval_json IS NOT NULL)"
+                "OR r.pending_pause_json IS NOT NULL)"
             ).fetchall():
                 self._finish_research(db, row["id"], row["status"], _now())
             return reconciled

@@ -220,20 +220,20 @@ def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
         for source, next_page, page_count in zip(sources, (3, 1897), (10, 24909)):
             store.begin_preparation(
                 source,
-                recipe_id=PDF_PAGE_RECIPE_ID,
+                slice_id=PDF_PAGE_RECIPE_ID,
                 channel="pdf_page",
                 space_id=DEFAULT_TEXT_SPACE.identity,
             )
             assert store.advance_preparation(
                 source,
-                recipe_id=PDF_PAGE_RECIPE_ID,
+                slice_id=PDF_PAGE_RECIPE_ID,
                 channel="pdf_page",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 cursor_json=json.dumps(
                     {
                         "kind": "pdf_pages",
                         "source_id": source.source_id,
-                        "recipe_id": PDF_PAGE_RECIPE_ID,
+                        "slice_id": PDF_PAGE_RECIPE_ID,
                         "next_page": next_page,
                         "page_count": page_count,
                     }
@@ -254,14 +254,14 @@ def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
     with RetrievalStore(project) as store:
         assert store.advance_preparation(
             sources[1],
-            recipe_id=PDF_PAGE_RECIPE_ID,
+            slice_id=PDF_PAGE_RECIPE_ID,
             channel="pdf_page",
             space_id=DEFAULT_TEXT_SPACE.identity,
             cursor_json=json.dumps(
                 {
                     "kind": "pdf_pages",
                     "source_id": sources[1].source_id,
-                    "recipe_id": PDF_PAGE_RECIPE_ID,
+                    "slice_id": PDF_PAGE_RECIPE_ID,
                     "next_page": 1905,
                     "page_count": 24909,
                 }

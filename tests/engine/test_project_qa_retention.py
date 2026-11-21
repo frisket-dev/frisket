@@ -211,7 +211,7 @@ def test_source_read_removes_tool_payload_but_keeps_questions_answers_and_cost(
     from pydantic_ai.messages import ModelMessagesTypeAdapter
 
     ModelMessagesTypeAdapter.validate_python(kept["saved_messages"])
-    assert kept["pending_approval"] is None
+    assert kept["pending_pause"] is None
     assert store.get_turn(turn["id"])["cost_actual"] == 0.23
     assert (
         project.db.execute(

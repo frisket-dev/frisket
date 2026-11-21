@@ -59,6 +59,10 @@ from frisket.upgrades.project.edit_precedence_migration import (
     EDIT_PRECEDENCE_TO_DIGEST,
     apply_edit_precedence,
 )
+from frisket.upgrades.project.research_pause_migration import (
+    RESEARCH_PAUSE_TO_DIGEST,
+    apply_research_pause,
+)
 
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
@@ -168,6 +172,9 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         COPY_PRECEDENCE_TO_DIGEST,
         CONSENT_ESTIMATE_TO_DIGEST,
         ("ALTER TABLE consents RENAME COLUMN quote_json TO estimate_json",),
+    )
+    run_step(
+        db, CONSENT_ESTIMATE_TO_DIGEST, RESEARCH_PAUSE_TO_DIGEST, apply_research_pause
     )
 
 
