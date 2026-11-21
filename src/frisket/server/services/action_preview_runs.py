@@ -65,7 +65,10 @@ from frisket.execution.resolve_for_action import (
     project_uncovered_user_claims,
     record_resolved_execution,
 )
-from frisket.engine.store.execution_routes import CONSENT_BASIS_EXACT_MATCH
+from frisket.engine.store.execution_routes import (
+    CONSENT_BASIS_ALLOWANCE,
+    CONSENT_BASIS_EXACT_MATCH,
+)
 from frisket.engine.executor.table_preview import (
     PreviewFile,
     TablePreviewResult,
@@ -344,8 +347,6 @@ class ActionPreviewRunService:
             p.audience == "user_claim" for p in resolved.promise_set.promises
         )
         consent_required = has_user_claims
-        from frisket.engine.store.execution_routes import CONSENT_BASIS_PREAPPROVED
-
         consent_basis = (
             trusted_decision.grant_basis
             if trusted_decision is not None
@@ -358,7 +359,7 @@ class ActionPreviewRunService:
                 resolved.promise_set,
                 consent_coverage=plan.consent_coverage,
             )
-            else CONSENT_BASIS_PREAPPROVED
+            else CONSENT_BASIS_ALLOWANCE
         )
         receipt = None
         if has_user_claims or require_receipt or receipt_id is not None:

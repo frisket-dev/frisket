@@ -1492,20 +1492,20 @@ def project_uncovered_user_claims(
         # The rated retail quote is what the user will pay. It governs
         # allowance; neutral provider cost bounds retain their own rates.
         estimated = estimated_usd(json.loads(quote_json))
-        preapproved = (
+        within_allowance = (
             estimated is not None and Decimal(str(estimated)) <= effective.threshold_usd
         )
     else:
         # Before a quote is attached, only known bounded costs can be covered.
         costs = [p for p in claims if p.field == "cost"]
-        preapproved = bool(costs) and all(
+        within_allowance = bool(costs) and all(
             p.op == "le"
             and (bound := _bound_decimal(p.value)) is not None
             and bound <= effective.threshold_usd
             for p in costs
         )
-    preapproved_payer: Promise | None = None
-    if preapproved and quote_json is not None:
+    allowance_payer: Promise | None = None
+    if within_allowance and quote_json is not None:
         from frisket.cloud_execution import CloudPayerSubject
         from frisket.project_settings import read_project_settings
 
@@ -1521,13 +1521,13 @@ def project_uncovered_user_claims(
                 settings.cloud_user_id,
                 settings.cloud_account_id,
             ):
-                preapproved_payer = claim
+                allowance_payer = claim
     uncovered = [
         p
         for p in claims
         if not (
-            preapproved
-            and (p.field in {"cost", "egress_class"} or p == preapproved_payer)
+            within_allowance
+            and (p.field in {"cost", "egress_class"} or p == allowance_payer)
         )
     ]
     if not uncovered or spec is None or run_id is None:
