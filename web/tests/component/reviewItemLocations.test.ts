@@ -11,7 +11,7 @@ function field(value: unknown): ReviewBundleField {
 }
 function source(spans: ReturnType<typeof evidenceSpan>[]): ReviewCitationSource {
   const artifact = evidenceArtifact({ spans });
-  return { id: 'source', artifact, fieldIds: ['entities'], kind: 'TXT', title: 'Transcript', members: [{ fieldId: 'entities', artifact, spans }] };
+  return { id: 'source', artifact, fieldIds: ['entities'], kind: 'TXT', title: 'Transcript', members: [{ fieldId: 'entities', evidenceLinkId: 'link-1', artifact, spans }] };
 }
 
 describe('review item locations', () => {

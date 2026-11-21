@@ -4,7 +4,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, createProjectApi } from '../../src/api/real';
-import { isGeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type GeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { ClusterParamsBody } from '../../src/components/action-panel/ClusterParamsBody';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
@@ -13,8 +13,11 @@ import { servedActionCatalog } from '../support/servedActionCatalog';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
 
-const entry = servedActionCatalog().actions.find((item) => item.kind === 'cluster.values');
-if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing typed cluster catalog');
+const entry: GeneratedActionCatalogEntry = (() => {
+  const item = servedActionCatalog().actions.find((candidate) => candidate.kind === 'cluster.values');
+  if (!item || !isGeneratedActionCatalogEntry(item)) throw new Error('Missing typed cluster catalog');
+  return item;
+})();
 const template = generatedActionTemplateFromCatalogEntry(entry)!;
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({ projectId: 'test-project', api: { projectApi: api } });

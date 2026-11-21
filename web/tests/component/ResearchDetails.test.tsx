@@ -151,7 +151,8 @@ describe('research evidence presentation', () => {
   it('uses the shared dialog dismissal lifecycle and preserves content across focus changes', () => {
     const close = vi.fn();
     const ancestorCancel = vi.fn();
-    render(<div onCancel={ancestorCancel}><ResearchDetails evidence={evidence()} onClose={close} /></div>);
+    const { container } = render(<ResearchDetails evidence={evidence()} onClose={close} />);
+    container.addEventListener('cancel', ancestorCancel);
     const dialog = screen.getByRole('dialog');
     fireEvent.blur(dialog);
     expect(dialog).toBeVisible();

@@ -18,7 +18,7 @@ import { columnDef } from '../support/domainFixtures';
 const api = vi.hoisted(() => ({ start: vi.fn(), read: vi.fn(), cancel: vi.fn() }));
 vi.mock('../../src/api/engineSetup', async (original) => ({ ...await original<typeof import('../../src/api/engineSetup')>(), startEngineSetup: api.start }));
 vi.mock('../../src/api/modelPullOperations', () => ({ readModelPull: api.read, cancelScopedModelPull: api.cancel }));
-const setup: NonNullable<ActionParamResolution['runtime_setup']> = {
+const setup: Extract<NonNullable<ActionParamResolution['runtime_setup']>, { kind: 'engine_setup' }> = {
   kind: 'engine_setup', scope: 'workspace', setup_ref: 'engine-setup:chromium.local@1',
   can_start: true, can_mutate: true, blocked_by_operation: null,
 };

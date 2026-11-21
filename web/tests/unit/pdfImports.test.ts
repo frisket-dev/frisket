@@ -118,7 +118,7 @@ describe('PDF imports API', () => {
     const api = createPdfImportsApi();
 
     await expect(api.get('project-1', 'draft-1', { fetch })).rejects.toEqual(
-      expect.objectContaining<PdfImportResponseError>({
+      expect.objectContaining<Partial<PdfImportResponseError>>({
         name: 'PdfImportResponseError',
         status: 409,
         message: 'revision changed',

@@ -9,6 +9,7 @@ import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model
 import { createProjectApi } from '../../src/api/real';
 import type {
   ActionParamResolution,
+  GeneratedActionCatalogEntry,
   GeneratedActionDraft,
   GeneratedActionRequest,
   SheetMeta,
@@ -91,7 +92,7 @@ function exactResolver(
   });
 }
 
-function installSelector(entry: typeof judgeEntry) {
+function installSelector(entry: GeneratedActionCatalogEntry) {
   installActionSelectorFixture(entry, async () => selectorProviderCatalog(['test/model']));
 }
 

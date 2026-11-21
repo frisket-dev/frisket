@@ -34,13 +34,13 @@ import { installPopoverPolyfill } from '../support/domPolyfills';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { chooseActionSelector, installActionSelectorFixture, selectorProviderCatalog, selectorTrigger } from '../support/selectorChoicesFixture';
 
-let stores: WorkspaceStores | undefined;
+let stores: WorkspaceStores | null = null;
 
 beforeAll(installPopoverPolyfill);
 afterEach(() => {
   cleanup();
   stores?.dispose();
-  stores = undefined;
+  stores = null;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -84,7 +84,8 @@ function renderTypedForm(
   expect(resolveActionPresentation(template)).toEqual({ kind: 'generated' });
   const api = createProjectApi('presentation-foundation');
   vi.spyOn(api, 'listMcpServers').mockResolvedValue([]);
-  stores = createWorkspaceStores('presentation-foundation', api);
+  const activeStores = createWorkspaceStores('presentation-foundation', api);
+  stores = activeStores;
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No provider request in this test')));
   const onExecute = vi.fn();
   const draft: GeneratedActionDraft = {
@@ -102,7 +103,7 @@ function renderTypedForm(
   // template, draft, and callbacks arrive again, exactly as ActionPanel
   // re-renders the mounted typed form on unrelated state changes.
   const tree = () => (
-    <WorkspaceStoresContext.Provider value={stores}>
+    <WorkspaceStoresContext.Provider value={activeStores}>
       <GeneratedActionForm
         projectId="presentation-foundation"
         catalogEntry={entry}

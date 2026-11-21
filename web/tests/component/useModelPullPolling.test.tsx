@@ -5,8 +5,10 @@ import type { ModelPullDto } from '../../src/api/types';
 import { useModelPullPolling } from '../../src/hooks/useModelPullPolling';
 
 const pull: ModelPullDto = {
+  schemaVersion: 'frisket.model_pull.v4',
   id: 1, model: 'test', display_name: 'Test', operation_kind: 'local_model',
   capabilities: { cancel: true, retry: false, remove: false },
+  endpoint_id: null, endpoint_origin: null, initiated_by: null, artifact: null,
   status: 'running', phase: 'downloading', total_bytes: null, completed_bytes: null,
   error: null, resolved_digest: null, resolved_size: null, created_at: '',
   started_at: null, finished_at: null, cancel_requested: false,
