@@ -918,7 +918,7 @@ def test_cloud_vision_ocr_uses_model_transport_and_unbounded_receipt_pricing():
     assert resolved.resolution.support.transport == "frisket.cloud.llm.v1"
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.estimated_quantity is None
-    assert resolved.cost_basis.row_quote_quantities is None
+    assert resolved.cost_basis.row_estimate_quantities is None
     assert resolved.cost_basis.quantity_unit == "usd"
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
     assert resolved.cost_basis.pricing_key.endswith(":openai:ocr:openai/gpt-5-mini")
@@ -1371,7 +1371,7 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
     assert "Add credits" in blocked_cloud.remedy
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
-    assert resolved.cost_basis.row_quote_quantities is None
+    assert resolved.cost_basis.row_estimate_quantities is None
     assert resolved.cost_basis.estimated_quantity is not None
     assert resolved.cost_basis.bound is not None
     assert resolved.cost_basis.bound > 0

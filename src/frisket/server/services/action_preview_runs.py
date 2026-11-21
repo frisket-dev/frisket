@@ -758,8 +758,8 @@ class ActionPreviewRunService:
                     return _error_response(
                         409,
                         _preview_error(
-                            "preview_quote_unavailable",
-                            "The preview did not provide a complete confirmation quote.",
+                            "preview_estimate_unavailable",
+                            "The preview did not provide a complete confirmation estimate.",
                             plan.action_kind,
                         ),
                     )
@@ -1041,11 +1041,11 @@ class ActionPreviewRunService:
                 400,
                 _preview_error(
                     "invalid_comparison_request",
-                    "Compare quote requires action and comparison objects.",
+                    "Compare estimate requires action and comparison objects.",
                     None,
                 ),
             )
-        # A quote must not be suppressed by a caller-supplied echo.
+        # An estimate must not be suppressed by a caller-supplied echo.
         action = {key: value for key, value in action.items() if key != "confirmation"}
         return self.start_preview(
             project_id,

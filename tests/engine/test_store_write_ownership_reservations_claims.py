@@ -553,9 +553,9 @@ def test_admit_attempt_rolls_back_when_row_authorizations_insert_fails(project):
         meter_key="rows",
         meter_units_per_quantity_unit="1",
         ceiling_mode="none",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="platform_commercial_terms",
-        row_quote_quantities=((1, "1"),),
+        row_estimate_quantities=((1, "1"),),
     )
     commitment = AttemptCommitment(
         attempt_id=attempt_id,

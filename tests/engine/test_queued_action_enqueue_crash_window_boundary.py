@@ -661,7 +661,7 @@ def _prepared_tuple(
         (attempt_id,),
     ).fetchall()
     cost_basis = json.loads(attempt["cost_basis_json"])
-    row_estimates = cost_basis.get("row_quote_quantities", [])
+    row_estimates = cost_basis.get("row_estimate_quantities", [])
     assert [
         (int(value["row_id"]), str(value["quoted_quantity"]))
         for value in row_authorizations

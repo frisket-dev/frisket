@@ -626,7 +626,7 @@ async def test_estimate_becoming_unknown_pauses_before_admission_or_dispatch(
             "operation_id": prepared["event_ref"]["dispatch_id"],
             "action_id": "map.template",
             "payload_identity": session.pauses[0]["payload_identity"],
-            "reason": "normal action quote is unavailable",
+            "reason": "normal action estimate is unavailable",
         }
     ]
     assert session.store.admissions == []
@@ -648,7 +648,7 @@ async def test_action_that_stays_unpriced_pauses_before_dispatch(make_project):
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
     prepared = await service.prepare_action("Greet", _draft(sheet_id))
-    assert prepared["preparation_reason"] == "normal action quote is unavailable"
+    assert prepared["preparation_reason"] == "normal action estimate is unavailable"
     with pytest.raises(ResearchActionSkipped, match="unknown cost"):
         await service.execute_action(prepared["event_ref"])
     assert session.pauses[0]["kind"] == "unknown_cost"
@@ -759,6 +759,6 @@ async def test_malformed_reference_and_forbidden_authority_are_refused(
                 "required_capabilities": ["unsafe:local_code"],
                 "catalog_effects": ["execute_trusted_local_python"],
                 "effects": {"replace_existing": False},
-                "quote": {"estimate": {"promise_set_hash": "promise"}},
+                "estimate": {"estimate": {"promise_set_hash": "promise"}},
             }
         )
