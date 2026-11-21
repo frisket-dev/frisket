@@ -777,8 +777,8 @@ class _BoundDocumentConverter:
                 )
             except BaseException as error:
                 if accepted_accounting is not None:
-                    error.accounting = accepted_accounting
-                    error.provider_job_accepted = True
+                    setattr(error, "accounting", accepted_accounting)
+                    setattr(error, "provider_job_accepted", True)
                 raise
 
         def observe(result):

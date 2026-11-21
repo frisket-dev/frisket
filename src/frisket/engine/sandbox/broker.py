@@ -47,7 +47,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
-from frisket.ai.llm import LLMError, LLMRequest, ModelRouter
+from frisket.ai.llm import LLMError, LLMRequest
+from frisket.ai.llm.types import ModelRouterTransport
 from frisket.ai.llm.structured import (
     StructuredCompleter,
     StructuredRequest,
@@ -73,7 +74,7 @@ def _clamp_repair_attempts(requested: object) -> int:
 
 
 class KeyBroker:
-    def __init__(self, router: ModelRouter, socket_path: str | Path):
+    def __init__(self, router: ModelRouterTransport, socket_path: str | Path):
         self.router = router
         self.structured = StructuredCompleter(router)
         # POSIX requires and uses this path for the Unix domain socket.

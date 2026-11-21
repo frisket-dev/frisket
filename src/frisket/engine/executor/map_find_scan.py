@@ -237,21 +237,22 @@ async def scan_find_plans(
                     },
                 )
             )
-        units = {unit.unit_id: unit for unit in plan.window.units}
+        window = plan.window
+        units = {unit.unit_id: unit for unit in window.units}
 
         def candidate_order(candidate: FindCandidate) -> tuple[int, int]:
-            location = locate_unique_match(plan.window, candidate)
+            location = locate_unique_match(window, candidate)
             assert location is not None
             return (
                 min(
-                    plan.window.unit_ids.index(unit_id)
+                    window.unit_ids.index(unit_id)
                     for unit_id in candidate.source_unit_ids
                 ),
                 location[1],
             )
 
         for candidate in sorted(admitted.accepted, key=candidate_order):
-            location = locate_unique_match(plan.window, candidate)
+            location = locate_unique_match(window, candidate)
             if location is None:  # admitted candidates already prove this
                 continue
             location_unit_id, match_start, match_end = location
