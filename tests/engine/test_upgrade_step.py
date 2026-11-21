@@ -7,8 +7,14 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.schema import (
+    BundleSchemaMismatch,
+    SCHEMA_DIGEST,
+    SCHEMA_DIGEST_META_KEY,
+)
+from frisket.upgrades.project import domain_migration, edit_precedence_migration
 from frisket.upgrades.project._step import run_rebuild_step, run_step, schema_step
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 
 _FROM = "frisket.schema.v1:from"
 _TO = "frisket.schema.v1:to"
@@ -86,3 +92,26 @@ def test_unreadable_metadata_reaches_the_schema_fence_refusal(tmp_path):
         db.execute("CREATE TABLE unrelated (id INTEGER)")
     with pytest.raises(BundleSchemaMismatch, match="unstamped"):
         Project(path, maintenance=True)
+
+
+def test_chain_tip_matches_current_schema_digest():
+    assert CURRENT_CHAIN_TIP_DIGEST == SCHEMA_DIGEST
+
+
+def test_guarded_migrations_refuse_unregistered_schema_digest(tmp_path, monkeypatch):
+    db = _stamped(tmp_path, digest=domain_migration.DOMAIN_FROM_DIGEST)
+    monkeypatch.setattr(domain_migration, "SCHEMA_DIGEST", "frisket.schema.v1:drifted")
+    monkeypatch.setattr(
+        edit_precedence_migration, "SCHEMA_DIGEST", "frisket.schema.v1:drifted"
+    )
+    with pytest.raises(
+        BundleSchemaMismatch,
+        match="Domain migration endpoint needs updating for this build",
+    ):
+        domain_migration.migrate_domain(db)
+    with pytest.raises(
+        BundleSchemaMismatch,
+        match="Edit precedence migration endpoint needs updating for this build",
+    ):
+        edit_precedence_migration.apply_edit_precedence(db)
+    db.close()
