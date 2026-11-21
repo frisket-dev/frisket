@@ -99,6 +99,37 @@ def _validate(db_path: Path) -> None:
         engine.dispose()
 
 
+def _jobs_columns(db_path: Path) -> set[str]:
+    return {str(row[1]) for row in _query(db_path, "PRAGMA table_info(jobs)")}
+
+
+def _seed_v11_queue(
+    tmp_path: Path, *rows: tuple[int, str, str, int, int | None]
+) -> Path:
+    open_queue(workspace=tmp_path).close()
+    db_path = _db(tmp_path)
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute(
+            "ALTER TABLE jobs ADD COLUMN priority_class INTEGER NOT NULL DEFAULT 0"
+        )
+        con.execute("ALTER TABLE jobs ADD COLUMN preferred_row_id INTEGER")
+        con.executemany(
+            "INSERT INTO jobs"
+            " (id, kind, status, available_at, created_at, priority_class, preferred_row_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (job_id, kind, status, _ISO, _ISO, priority_class, preferred_row_id)
+                for job_id, kind, status, priority_class, preferred_row_id in rows
+            ],
+        )
+        con.execute(f"UPDATE {QUEUE_SCHEMA_LEDGER} SET version = 11")
+        con.commit()
+    finally:
+        con.close()
+    return db_path
+
+
 def test_fresh_queue_is_created_current_and_validates(tmp_path) -> None:
     open_queue(workspace=tmp_path).close()
 
@@ -108,6 +139,9 @@ def test_fresh_queue_is_created_current_and_validates(tmp_path) -> None:
     ]
     jobs_ddl = _query(db_path, "SELECT sql FROM sqlite_master WHERE name = 'jobs'")
     assert "AUTOINCREMENT" in jobs_ddl[0][0]
+    columns = _jobs_columns(db_path)
+    assert "priority_class" not in columns
+    assert "preferred_row_id" not in columns
     _validate(db_path)
 
 
@@ -184,6 +218,67 @@ def test_replacing_an_autoincrement_queue_keeps_its_sequence_high_water(
         assert queue.enqueue("project.run", {"project_id": "alpha"}) == 4
     finally:
         queue.close()
+
+
+def test_v11_queue_with_priority_columns_upgrades_and_drops_them(tmp_path) -> None:
+    db_path = _seed_v11_queue(
+        tmp_path,
+        (10, "project.run", "done", 10, 42),
+        (12, "search.index", "queued", 0, None),
+    )
+    assert {"priority_class", "preferred_row_id"} <= _jobs_columns(db_path)
+    with pytest.raises(QueueSchemaError, match="older"):
+        _validate(db_path)
+
+    queue = open_queue(workspace=tmp_path)
+    try:
+        assert queue.list_jobs() == []
+        assert queue.job_execution_stopped(10)
+        new_id = queue.enqueue("project.run", {"project_id": "alpha"})
+        claimed = queue.claim("worker-1")
+        assert claimed is not None
+        assert claimed.id == new_id
+        assert not hasattr(claimed, "priority_class")
+        assert not hasattr(claimed, "preferred_row_id")
+    finally:
+        queue.close()
+
+    assert new_id == 13
+    columns = _jobs_columns(db_path)
+    assert "priority_class" not in columns
+    assert "preferred_row_id" not in columns
+    assert _query(db_path, f"SELECT version FROM {QUEUE_SCHEMA_LEDGER}") == [
+        (QUEUE_SCHEMA_VERSION,)
+    ]
+    _validate(db_path)
+
+
+def test_v11_queue_with_unfinished_user_work_refuses_upgrade_untouched(
+    tmp_path,
+) -> None:
+    db_path = _seed_v11_queue(
+        tmp_path,
+        (7, "project.run", "queued", 10, 99),
+        (8, "action.run", "running", 0, None),
+    )
+    before = _query(
+        db_path,
+        "SELECT id, kind, status, priority_class, preferred_row_id FROM jobs ORDER BY id",
+    )
+
+    with pytest.raises(QueueUpgradeBlocked, match="unfinished work"):
+        open_queue(workspace=tmp_path)
+
+    assert {"priority_class", "preferred_row_id"} <= _jobs_columns(db_path)
+    assert (
+        _query(
+            db_path,
+            "SELECT id, kind, status, priority_class, preferred_row_id"
+            " FROM jobs ORDER BY id",
+        )
+        == before
+    )
+    assert _query(db_path, f"SELECT version FROM {QUEUE_SCHEMA_LEDGER}") == [(11,)]
 
 
 @pytest.mark.parametrize(
