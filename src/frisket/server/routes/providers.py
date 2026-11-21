@@ -87,8 +87,10 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             # Workspace.get raises its own 404 for unknown/malformed ids.
             project = workspace.get(project_id)
             network_off = project.effective_network_policy() == "off"
-        return provider_config.build_provider_catalog(
-            root, dict(os.environ), network_off=network_off
+        return LocalProviderCatalog.model_validate(
+            provider_config.build_provider_catalog(
+                root, dict(os.environ), network_off=network_off
+            )
         )
 
     @app.get(
@@ -144,7 +146,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             raise
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return provider_config.build_provider_catalog(root, dict(os.environ))
+        return LocalProviderCatalog.model_validate(
+            provider_config.build_provider_catalog(root, dict(os.environ))
+        )
 
     @app.delete(
         "/api/providers/keys/{provider}",
@@ -156,7 +160,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         normalized_provider = provider_config.normalize_provider(provider)
         model_routes.pin_all_projects()
         provider_config.delete_local_provider_key(root, normalized_provider)
-        return provider_config.build_provider_catalog(root, dict(os.environ))
+        return LocalProviderCatalog.model_validate(
+            provider_config.build_provider_catalog(root, dict(os.environ))
+        )
 
     @app.post(
         "/api/providers/local-endpoints",
@@ -179,7 +185,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             )
         except (InvalidProviderConfigError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
-        return provider_config.build_provider_catalog(root, dict(os.environ))
+        return LocalProviderCatalog.model_validate(
+            provider_config.build_provider_catalog(root, dict(os.environ))
+        )
 
     @app.post(
         "/api/providers/local-endpoints/discover",
@@ -218,7 +226,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             ) from exc
         except (InvalidProviderConfigError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
-        return provider_config.build_provider_catalog(root, dict(os.environ))
+        return LocalProviderCatalog.model_validate(
+            provider_config.build_provider_catalog(root, dict(os.environ))
+        )
 
     @app.delete(
         "/api/providers/local-endpoints/{endpoint_id}",
@@ -242,7 +252,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             raise HTTPException(400, str(exc)) from exc
         if not deleted:
             raise HTTPException(404, f"unknown local model endpoint: {endpoint_id}")
-        return provider_config.build_provider_catalog(root, dict(os.environ))
+        return LocalProviderCatalog.model_validate(
+            provider_config.build_provider_catalog(root, dict(os.environ))
+        )
 
     @app.get(
         "/api/providers/models/pulls",
@@ -252,7 +264,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     def list_model_pulls() -> ModelPullListResponse:
         engine = workspace.queue.engine
         rows = model_pull_store.list_recent(engine, str(root), limit=20)
-        return {"pulls": [_pull_dto(r) for r in rows]}
+        return ModelPullListResponse(
+            pulls=[ModelPull.model_validate(_pull_dto(r)) for r in rows]
+        )
 
     @app.get(
         "/api/providers/models/pulls/{pull_id}",
@@ -270,7 +284,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                     "message": f"no pull with id {pull_id} in this workspace",
                 },
             )
-        return _pull_dto(row)
+        return ModelPull.model_validate(_pull_dto(row))
 
     @app.post(
         "/api/providers/models/pulls/{pull_id}/cancel",
@@ -300,8 +314,8 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             report = workspace.queue.cancel_with_report(row.job_id)
             if report.cancelled and report.previous_status == "queued":
                 model_pull_store.mark_cancelled(engine, pull_id)
-        row = model_pull_store.get(engine, pull_id)
-        return _pull_dto(row)
+        updated = model_pull_store.get(engine, pull_id)
+        return ModelPull.model_validate(_pull_dto(updated or row))
 
     def _ollama_reachability_preflight(
         env: dict, endpoint_id: str
@@ -376,7 +390,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         endpoint_id: str | None,
         endpoint_origin: str | None,
         payload_extra: dict,
-    ) -> dict:
+    ) -> ModelPullStartResponse:
         try:
             row, created = schedule_model_pull(
                 workspace.queue,
@@ -408,7 +422,10 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                     "message": "failed to schedule the model pull",
                 },
             ) from exc
-        return {"pull": _pull_dto(row), "deduplicated": not created}
+        return ModelPullStartResponse(
+            pull=ModelPull.model_validate(_pull_dto(row)),
+            deduplicated=not created,
+        )
 
     @app.post(
         "/api/providers/models/pull",
@@ -430,6 +447,14 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         endpoint_origin: str | None = None
         payload_extra: dict = {}
         if art.is_ollama:
+            if not art.endpoint_id:
+                raise RouteError(
+                    400,
+                    {
+                        "code": "invalid_model_ref",
+                        "message": "Ollama artifact ref must name an endpoint id",
+                    },
+                )
             endpoint = _ollama_reachability_preflight(env, art.endpoint_id)
             endpoint_id = endpoint.endpoint_id
             endpoint_origin = endpoint.origin
@@ -576,7 +601,8 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         from frisket.ops.integrations import opus_mt
 
         opus_mt._clear_translator_cache()
-        return _pull_dto(model_pull_store.get(engine, row.id))
+        updated = model_pull_store.get(engine, row.id)
+        return ModelPull.model_validate(_pull_dto(updated or row))
 
     @app.post(
         "/api/providers/{provider}/validate",
