@@ -46,12 +46,16 @@ function reviewField(id: string, columnId: string): ReviewBundleField {
 function cellEvidence(linkIds: string[]): CellCitationsPayload {
   return {
     schema_version: 'frisket.cell_evidence.v1',
+    sheet_id: 1,
+    row_id: 3,
+    column_id: 1,
+    stale_count: 0,
     current_value_ref: { kind: 'run_result', run_id: 'run-9' },
     links: linkIds.map((stable_id, index) => ({
       id: index + 1, stable_id, export_ref: stable_id, status: 'active', role: 'citation', evidence_kind: 'source',
       span_count: 1, artifact_count: 1, snippet: null, viewer_href: `/evidence/${stable_id}`,
     })),
-  } as CellCitationsPayload;
+  };
 }
 
 function viewer(linkId: string, sourceId: string, spanId: string, title: string): CitationViewerPayload {
@@ -102,8 +106,8 @@ describe('ReviewSourcePreview', () => {
   it('keeps declared null inputs visible alongside saved citations', async () => {
     projectApi.getCellEvidence.mockResolvedValue(cellEvidence(['link:a']));
     projectApi.getEvidenceViewer.mockResolvedValue(viewer('link:a', 'source:a', 'span:a', 'Notes'));
-    const row = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Empty input',
-      columnType: 'text' as const, value: null }] };
+    const row: ReviewBundle = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'Empty input',
+      columnType: 'text', semanticType: null, format: null, value: null }] };
     render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
     await screen.findByTestId('artifact-source');
     fireEvent.click(screen.getByRole('button', { name: 'Inputs · 1' }));
