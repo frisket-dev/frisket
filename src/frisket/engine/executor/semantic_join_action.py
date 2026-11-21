@@ -478,19 +478,33 @@ def finalize_semantic_join(
             "semantic join finalization needs its exact writer claim"
         )
 
+    from frisket.engine.executor.project_run_terminalization import (
+        CurrentWriterTerminalAuthority,
+        terminalize_project_run,
+        terminalize_project_run_in_transaction,
+    )
+    from frisket.engine.store.receipts import ReceiptStore
+
+    def _abort_errors(code: str | None, message: str | None) -> list[ActionError]:
+        return (
+            [ActionError(code=code, message=message or "", action_kind=action.kind)]
+            if code
+            else []
+        )
+
+    def _finish_abort(outcome):
+        if outcome.disposition not in {"terminalized", "already_terminal"}:
+            raise StaleAttemptWriter(
+                f"semantic join publication abort was refused: {outcome.reason}"
+            )
+        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
+
     def abort(
         code: str | None,
         message: str | None,
         *,
         status: ReceiptStatus = "failed",
-        commit: bool = True,
     ):
-        from frisket.engine.executor.project_run_terminalization import (
-            CurrentWriterTerminalAuthority,
-            terminalize_project_run,
-        )
-        from frisket.engine.store.receipts import ReceiptStore
-
         outcome = terminalize_project_run(
             project,
             run_id=run_id,
@@ -499,22 +513,27 @@ def finalize_semantic_join(
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=writer, claim_token=claim
             ),
-            errors=[
-                ActionError(
-                    code=code,
-                    message=message or "",
-                    action_kind=action.kind,
-                )
-            ]
-            if code
-            else [],
-            commit=commit,
+            errors=_abort_errors(code, message),
         )
-        if outcome.disposition not in {"terminalized", "already_terminal"}:
-            raise StaleAttemptWriter(
-                f"semantic join publication abort was refused: {outcome.reason}"
-            )
-        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
+        return _finish_abort(outcome)
+
+    def abort_in_transaction(
+        code: str | None,
+        message: str | None,
+        *,
+        status: ReceiptStatus = "failed",
+    ):
+        outcome = terminalize_project_run_in_transaction(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=status,
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=writer, claim_token=claim
+            ),
+            errors=_abort_errors(code, message),
+        )
+        return _finish_abort(outcome)
 
     from frisket.ops.base import persisted_action_program_invocation_halt
 
@@ -532,7 +551,7 @@ def finalize_semantic_join(
         project.db.execute("BEGIN IMMEDIATE")
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         if run["cancel_requested_at"] is not None:
-            result = abort(None, None, status="cancelled", commit=False)
+            result = abort_in_transaction(None, None, status="cancelled")
             project.db.commit()
             return result
         column_ids = OutputColumnClaimStore(project).active_column_ids(
@@ -758,10 +777,10 @@ def finalize_semantic_join(
         )
         from frisket.engine.executor.project_run_terminalization import (
             CurrentWriterTerminalAuthority,
-            terminalize_project_run,
+            terminalize_project_run_in_transaction,
         )
 
-        outcome = terminalize_project_run(
+        outcome = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -771,7 +790,6 @@ def finalize_semantic_join(
                 writer_attempt_id=writer, claim_token=claim
             ),
             terminal_receipt=receipt,
-            commit=False,
         )
         if outcome.disposition != "terminalized":
             raise StaleAttemptWriter(

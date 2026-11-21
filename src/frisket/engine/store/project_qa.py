@@ -11,6 +11,7 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Callable, Collection, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Final
@@ -19,7 +20,11 @@ from statemachine import State, StateMachine
 from statemachine.exceptions import TransitionNotAllowed
 
 from frisket.ai.models.usage_counts import sum_known_counts
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import (
+    read_transaction,
+    require_transaction,
+    write_transaction,
+)
 
 
 class AskTurnLifecycle(StateMachine):
@@ -225,6 +230,17 @@ def _bool(value: Any, *, name: str) -> bool:
     return value
 
 
+@dataclass(frozen=True)
+class ProjectQACitationInput:
+    """Inputs for recording one Project Ask turn citation."""
+
+    label: str
+    source_kind: str
+    locator: Mapping[str, Any]
+    excerpt: str | None = None
+    metadata: Mapping[str, Any] | None = None
+
+
 class ProjectQAStore:
     """Small transactional store over a project's thread-owned SQLite connection."""
 
@@ -237,7 +253,7 @@ class ProjectQAStore:
 
     def _write(self, write: Callable[[sqlite3.Connection], Any]) -> Any:
         db = self.db
-        with write_transaction(db, commit=not db.in_transaction):
+        with write_transaction(db, what="project QA"):
             return write(db)
 
     @staticmethod
@@ -1106,10 +1122,7 @@ class ProjectQAStore:
         """Read one event page and its active turn from one SQLite snapshot."""
 
         db = self.db
-        owns = not db.in_transaction
-        if owns:
-            db.execute("BEGIN")
-        try:
+        with read_transaction(db):
             if recent:
                 last_seq = int(
                     db.execute(
@@ -1126,13 +1139,7 @@ class ProjectQAStore:
                 (thread_id,),
             ).fetchone()
             page["active_turn"] = self._turn_record(row) if row is not None else None
-            if owns:
-                db.commit()
             return page
-        except Exception:
-            if owns:
-                db.rollback()
-            raise
 
     def detail_with_history(
         self, thread_id: str, *, limit: int = 100
@@ -1140,10 +1147,7 @@ class ProjectQAStore:
         """Read thread preferences, newest history page, and active turn together."""
 
         db = self.db
-        owns = not db.in_transaction
-        if owns:
-            db.execute("BEGIN")
-        try:
+        with read_transaction(db):
             thread = self._thread_record(
                 db.execute(
                     "SELECT * FROM project_qa_threads WHERE id=?", (thread_id,)
@@ -1163,13 +1167,50 @@ class ProjectQAStore:
                 (thread_id,),
             ).fetchone()
             active = self._turn_record(row) if row is not None else None
-            if owns:
-                db.commit()
             return {"thread": thread, "active_turn": active, "history": history}
-        except Exception:
-            if owns:
-                db.rollback()
-            raise
+
+    def add_citation_in_transaction(
+        self,
+        turn_id: str,
+        citation: ProjectQACitationInput,
+    ) -> dict[str, Any]:
+        if (
+            not isinstance(citation.label, str)
+            or not citation.label.strip()
+            or not isinstance(citation.source_kind, str)
+            or not citation.source_kind.strip()
+        ):
+            raise ValueError("citation label and source_kind must be non-empty strings")
+        if citation.excerpt is not None and not isinstance(citation.excerpt, str):
+            raise ValueError("excerpt must be a string or null")
+        saved_locator, saved_metadata = (
+            _json_object(citation.locator, name="locator"),
+            _json_object(citation.metadata or {}, name="metadata"),
+        )
+        db = self.db
+        require_transaction(db, "project QA citation")
+        turn = self._turn_record(
+            db.execute(
+                "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
+            ).fetchone()
+        )
+        if turn["status"] != "running":
+            raise ProjectQAConflictError("cannot append content to a terminal turn")
+        citation_id, now = _id("qa_citation"), _now()
+        db.execute(
+            "INSERT INTO project_qa_citations (id,turn_id,label,source_kind,locator_json,excerpt,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                citation_id,
+                turn_id,
+                citation.label,
+                citation.source_kind,
+                _json(saved_locator),
+                citation.excerpt,
+                _json(saved_metadata),
+                now,
+            ),
+        )
+        return self.get_citation(citation_id)
 
     def add_citation(
         self,
@@ -1181,45 +1222,16 @@ class ProjectQAStore:
         excerpt: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if (
-            not isinstance(label, str)
-            or not label.strip()
-            or not isinstance(source_kind, str)
-            or not source_kind.strip()
-        ):
-            raise ValueError("citation label and source_kind must be non-empty strings")
-        if excerpt is not None and not isinstance(excerpt, str):
-            raise ValueError("excerpt must be a string or null")
-        saved_locator, saved_metadata = (
-            _json_object(locator, name="locator"),
-            _json_object(metadata or {}, name="metadata"),
+        citation = ProjectQACitationInput(
+            label=label,
+            source_kind=source_kind,
+            locator=locator,
+            excerpt=excerpt,
+            metadata=metadata,
         )
-
-        def write(db: sqlite3.Connection) -> dict[str, Any]:
-            turn = self._turn_record(
-                db.execute(
-                    "SELECT * FROM project_qa_turns WHERE id=?", (turn_id,)
-                ).fetchone()
-            )
-            if turn["status"] != "running":
-                raise ProjectQAConflictError("cannot append content to a terminal turn")
-            citation_id, now = _id("qa_citation"), _now()
-            db.execute(
-                "INSERT INTO project_qa_citations (id,turn_id,label,source_kind,locator_json,excerpt,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    citation_id,
-                    turn_id,
-                    label,
-                    source_kind,
-                    _json(saved_locator),
-                    excerpt,
-                    _json(saved_metadata),
-                    now,
-                ),
-            )
-            return self.get_citation(citation_id)
-
-        return self._write(write)
+        return self._write(
+            lambda _db: self.add_citation_in_transaction(turn_id, citation)
+        )
 
     def get_citation(self, citation_id: str) -> dict[str, Any]:
         row = self.db.execute(
@@ -1484,53 +1496,60 @@ class ProjectQAStore:
             None if unknown_cost else total_cost,
         )
 
-    def reconcile_abandoned_turns(self, *, live_turn_ids: Collection[str]) -> list[str]:
+    def reconcile_abandoned_turns_in_transaction(
+        self, *, live_turn_ids: Collection[str]
+    ) -> list[str]:
         live = frozenset(live_turn_ids)
         if not all(isinstance(turn_id, str) and turn_id for turn_id in live):
             raise ValueError("live_turn_ids must contain non-empty strings")
+        db = self.db
+        require_transaction(db, "reconcile abandoned project QA turns")
+        placeholders = ",".join("?" for _ in live) or "''"
+        rows = db.execute(
+            f"SELECT * FROM project_qa_turns WHERE status IN ('running','stopping') AND id NOT IN ({placeholders})",
+            tuple(live),
+        ).fetchall()
+        reconciled: list[str] = []
+        for row in rows:
+            turn = self._turn_record(row)
+            status = _turn_transition(
+                turn["status"],
+                "stop" if turn["status"] == "stopping" else "interrupt",
+            )
+            now = _now()
+            db.execute(
+                "UPDATE project_qa_turns SET status=?,finished_at=? WHERE id=?",
+                (status, now, turn["id"]),
+            )
+            db.execute(
+                "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
+                (now, turn["thread_id"]),
+            )
+            self._append_event(
+                db,
+                thread_id=turn["thread_id"],
+                turn_id=turn["id"],
+                kind="status",
+                payload={"status": status},
+                created_at=now,
+            )
+            self._finish_research(db, turn["id"], status, now)
+            reconciled.append(turn["id"])
+        # Repair projections written by an earlier process that finished
+        # parent and research separately. Never revive or dispatch work.
+        for row in db.execute(
+            "SELECT t.id,t.status FROM project_qa_turns t "
+            "JOIN project_qa_research_runs r ON r.turn_id=t.id "
+            "WHERE t.status NOT IN ('running','stopping') AND "
+            "(r.state != CASE WHEN t.status='completed' THEN 'completed' ELSE 'interrupted' END "
+            "OR r.pending_pause_json IS NOT NULL)"
+        ).fetchall():
+            self._finish_research(db, row["id"], row["status"], _now())
+        return reconciled
 
-        def write(db: sqlite3.Connection) -> list[str]:
-            placeholders = ",".join("?" for _ in live) or "''"
-            rows = db.execute(
-                f"SELECT * FROM project_qa_turns WHERE status IN ('running','stopping') AND id NOT IN ({placeholders})",
-                tuple(live),
-            ).fetchall()
-            reconciled: list[str] = []
-            for row in rows:
-                turn = self._turn_record(row)
-                status = _turn_transition(
-                    turn["status"],
-                    "stop" if turn["status"] == "stopping" else "interrupt",
-                )
-                now = _now()
-                db.execute(
-                    "UPDATE project_qa_turns SET status=?,finished_at=? WHERE id=?",
-                    (status, now, turn["id"]),
-                )
-                db.execute(
-                    "UPDATE project_qa_threads SET updated_at=? WHERE id=?",
-                    (now, turn["thread_id"]),
-                )
-                self._append_event(
-                    db,
-                    thread_id=turn["thread_id"],
-                    turn_id=turn["id"],
-                    kind="status",
-                    payload={"status": status},
-                    created_at=now,
-                )
-                self._finish_research(db, turn["id"], status, now)
-                reconciled.append(turn["id"])
-            # Repair projections written by an earlier process that finished
-            # parent and research separately. Never revive or dispatch work.
-            for row in db.execute(
-                "SELECT t.id,t.status FROM project_qa_turns t "
-                "JOIN project_qa_research_runs r ON r.turn_id=t.id "
-                "WHERE t.status NOT IN ('running','stopping') AND "
-                "(r.state != CASE WHEN t.status='completed' THEN 'completed' ELSE 'interrupted' END "
-                "OR r.pending_pause_json IS NOT NULL)"
-            ).fetchall():
-                self._finish_research(db, row["id"], row["status"], _now())
-            return reconciled
-
-        return self._write(write)
+    def reconcile_abandoned_turns(self, *, live_turn_ids: Collection[str]) -> list[str]:
+        return self._write(
+            lambda _db: self.reconcile_abandoned_turns_in_transaction(
+                live_turn_ids=live_turn_ids
+            )
+        )

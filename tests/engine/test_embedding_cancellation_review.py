@@ -83,15 +83,17 @@ def test_refresh_cancel_after_counts_before_terminal_receipt(
 ):
     gateway = PaidRemoteGateway()
     index_id = _create_remote_index(project, gateway=gateway)
-    real_update = EmbeddingStore.update_index_counts
+    real_update = EmbeddingStore.update_index_counts_in_transaction
 
-    def interrupt_after_counts(self, *args, **kwargs):
-        result = real_update(self, *args, **kwargs)
-        if kwargs.get("commit") is False:
+    def interrupt_after_counts(self, index_id_arg, counts):
+        result = real_update(self, index_id_arg, counts)
+        if counts.last_refresh_receipt_id is not None:
             raise interruption("cancelled terminal publication")
         return result
 
-    monkeypatch.setattr(EmbeddingStore, "update_index_counts", interrupt_after_counts)
+    monkeypatch.setattr(
+        EmbeddingStore, "update_index_counts_in_transaction", interrupt_after_counts
+    )
     with pytest.raises(interruption):
         _run(project, _refresh_action(index_id, key="cancel-refresh"), gateway=gateway)
     observed = state(project)

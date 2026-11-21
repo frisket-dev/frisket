@@ -116,7 +116,7 @@ class ProjectQAResearchStore:
 
     def _write(self, write: Callable[[sqlite3.Connection], Any]) -> Any:
         db = self.db
-        with write_transaction(db, commit=not db.in_transaction):
+        with write_transaction(db, what="project QA research"):
             return write(db)
 
     @staticmethod

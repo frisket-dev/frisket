@@ -148,22 +148,23 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
             bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
         )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row],
-        spans=[
-            {"span_id": int(heading_span["id"])},
-            {"span_id": int(phrase_span["id"])},
-        ],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=text_column,
-        run_id=run,
-        op_id=op,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": "rapidocr"},
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row],
+            spans=[
+                {"span_id": int(heading_span["id"])},
+                {"span_id": int(phrase_span["id"])},
+            ],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=text_column,
+            run_id=run,
+            op_id=op,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr", "engine": "rapidocr"},
+        )
     return {
         "sheet": sheet,
         "row": row,
@@ -375,15 +376,16 @@ def test_file_scope_attaches_prepared_search_source_only_to_its_file_cell(make_p
             quote="The council approved the bluewharf repair.",
         )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row],
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=text_column,
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=text_column,
+        )
     scope = {
         "kind": "sources",
         "sources": [

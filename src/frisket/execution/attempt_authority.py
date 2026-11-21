@@ -48,6 +48,7 @@ from frisket.execution.attempt import (
     cost_basis_from_promises,
     open_attempt,
     set_attempt_state,
+    set_attempt_state_in_transaction,
     _attempt_owner,
 )
 from frisket.execution.promise_compiler import PricedCostBasis
@@ -288,7 +289,7 @@ class AttemptAuthority:
                 receipt_id=None,
             )
         except ActionProgramInvocationHalt:
-            set_attempt_state(self.project, attempt_id, "halted", commit=False)
+            set_attempt_state_in_transaction(self.project, attempt_id, "halted")
             raise
         commitment = self._commitment_from_admission(
             opened,

@@ -898,7 +898,7 @@ class MapRunner:
             nonlocal publication_cancelled
             writer_attempt_id = attempt.attempt_id if attempt is not None else None
 
-            evidence_writer: Callable[[], None] | None = None
+            citation_writer: Callable[[], None] | None = None
             consumed = {
                 int(item["row_id"]): item["__consumed_sources"]
                 for item in batch
@@ -938,7 +938,7 @@ class MapRunner:
                             run_id, writer_attempt_id
                         ) from exc
 
-                evidence_writer = _write_citations
+                citation_writer = _write_citations
 
             from frisket.engine.store.changes import ChangePublicationClosed
             from frisket.engine.store.result_generations import GenerationStateError
@@ -956,7 +956,7 @@ class MapRunner:
                         spec["action_kind"] if checkpoint else None
                     ),
                     defer_generation_seal=defer_generation_seal,
-                    evidence_writer=evidence_writer,
+                    citation_writer=citation_writer,
                 )
             except (
                 ChangePublicationClosed,

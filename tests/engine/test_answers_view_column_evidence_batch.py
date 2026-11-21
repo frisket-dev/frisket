@@ -88,19 +88,20 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
 
     links = {}
     for row_id in row_ids:
-        links[row_id] = record_citation(
-            project,
-            subject_kind="cell_value",
-            subject_ref=refs[row_id],
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=output_col,
-            run_id=run_id,
-            op_id=op_id,
-            link_role="primary_support",
-            confidence=0.9,
-            spans=[{"span_id": span["id"], "rank": 0}],
-        )
+        with write_transaction(project.db):
+            links[row_id] = record_citation(
+                project,
+                subject_kind="cell_value",
+                subject_ref=refs[row_id],
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=output_col,
+                run_id=run_id,
+                op_id=op_id,
+                link_role="primary_support",
+                confidence=0.9,
+                spans=[{"span_id": span["id"], "rank": 0}],
+            )
     return {
         "sheet_id": sheet_id,
         "row_ids": row_ids,

@@ -233,7 +233,8 @@ class TestStore:
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="integer")
         first = p.add_rows(sheet, [{"value": value}], {"value": cid})[0]
-        second = p.add_row_with_undo(sheet, {"value": value}, {"value": cid})
+        with write_transaction(p.db):
+            second = p.add_row_with_undo(sheet, {"value": value}, {"value": cid})
         assert p.get_values(sheet, cid) == {first: None, second: None}
         assert p.get_values(sheet, cid, preserve_invalid=True) == {
             first: value,

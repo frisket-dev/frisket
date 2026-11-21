@@ -25,7 +25,7 @@ from frisket.engine.executor.temporal_materialization import (
     ResolvedTemporalMediaSource,
     ResolvedTemporalSource,
     StagedTemporalClip,
-    revalidate_action_sources,
+    revalidate_action_sources_in_transaction,
     revalidate_temporal_media_source,
     selection_snapshot_ref,
     source_snapshot_ref,
@@ -198,7 +198,7 @@ def _write_extract_in_transaction(
     """Publish every staged map output. Caller owns the transaction boundary."""
 
     sources = tuple(item.clip.source for item in staged)
-    revalidate_action_sources(project, sources)
+    revalidate_action_sources_in_transaction(project, sources)
     for item in staged:
         revalidate_temporal_media_source(
             project,

@@ -104,18 +104,19 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
             span_kind="text",
             quote="risk score 0.82",
         )
-    evidence = record_citation(
-        project,
-        stable_id="evidence_link:fixture-risk",
-        subject_kind="cell_value",
-        subject_ref=refs[row_ids[0]],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_ids[0],
-        column_id=columns["risk"],
-        run_id=run_id,
-        op_id=op_id,
-    )
+    with write_transaction(project.db):
+        evidence = record_citation(
+            project,
+            stable_id="evidence_link:fixture-risk",
+            subject_kind="cell_value",
+            subject_ref=refs[row_ids[0]],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_ids[0],
+            column_id=columns["risk"],
+            run_id=run_id,
+            op_id=op_id,
+        )
 
     resolved = resolve_investigative_rowset(
         project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"

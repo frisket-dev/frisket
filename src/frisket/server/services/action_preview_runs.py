@@ -55,7 +55,7 @@ from frisket.engine.store.transactions import (
     roll_back_failed_work,
     write_transaction,
 )
-from frisket.execution.attempt import claim, set_attempt_state
+from frisket.execution.attempt import claim, set_attempt_state_in_transaction
 from frisket.execution.attempt_authority import AttemptAuthority, attempt_identity
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.execution.resolve_for_action import (
@@ -532,11 +532,10 @@ class ActionPreviewRunService:
                         (terminal_outcome, attempt.attempt_id, SCRATCH_PREVIEW_UNIT_ID),
                     )
             if attempt is not None:
-                set_attempt_state(
+                set_attempt_state_in_transaction(
                     project,
                     attempt.attempt_id,
                     "effected" if status == "completed" else "halted",
-                    commit=False,
                 )
             if not ReceiptStore(project).update_body_status_in_transaction(
                 finished, require_status="running"

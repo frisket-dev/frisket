@@ -110,16 +110,17 @@ def test_row_ref_mapping_normalizes_typed_values_and_preserves_refs(
             span_kind="text",
             quote="Jane Smith",
         )
-    evidence = record_citation(
-        project,
-        stable_id="evidence_link:profile-name",
-        subject_kind="cell_value",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=columns["name"],
-    )
+    with write_transaction(project.db):
+        evidence = record_citation(
+            project,
+            stable_id="evidence_link:profile-name",
+            subject_kind="cell_value",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=columns["name"],
+        )
 
     rowset = resolve_investigative_rowset(
         project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"

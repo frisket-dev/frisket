@@ -419,7 +419,7 @@ def test_output_family_and_evidence_publish_atomically(
                         (evidence_column, "citation"),
                     )
                 ],
-                evidence_writer=evidence_writer,
+                citation_writer=evidence_writer,
                 **authority.kwargs(),
             )
 

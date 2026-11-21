@@ -7,6 +7,7 @@ from typing import Any
 
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.cloud_targets import cloud_fallback_is_blocked
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.execution.resolver import (
     ModelRoute,
     Refusal,
@@ -105,15 +106,20 @@ class ProjectModelRoutesService:
         self,
         project_id: str,
         *,
-        commit: bool = True,
         request_context: Any = None,
     ) -> ProjectSettings:
         project = self._workspace.get(project_id)
-        if commit:
-            with project.transaction_scope():
-                return self._pin_ready_routes(project, request_context)
-        if not project.db.in_transaction:
-            raise RuntimeError("commit=False requires a caller-owned transaction")
+        with write_transaction(project.db, what="project model route pinning"):
+            return self._pin_ready_routes(project, request_context)
+
+    def pin_ready_routes_in_transaction(
+        self,
+        project_id: str,
+        *,
+        request_context: Any = None,
+    ) -> ProjectSettings:
+        project = self._workspace.get(project_id)
+        require_transaction(project.db, "project model route pinning")
         return self._pin_ready_routes(project, request_context)
 
     def pin_cloud_connection_routes(

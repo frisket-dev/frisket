@@ -39,7 +39,7 @@ from frisket.engine.executor.action_support import (
 )
 from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
-    terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.engine.store.materialization import (
@@ -652,7 +652,7 @@ def _write_reduce_group_summary_result(
             raise StaleAttemptWriter(
                 "reduce.group_summary terminal write supplied no writer attempt"
             )
-        terminalization = terminalize_project_run(
+        terminalization = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -665,7 +665,6 @@ def _write_reduce_group_summary_result(
             ),
             terminal_receipt=receipt,
             receipt_source_statuses={"running"},
-            commit=False,
         )
         if (
             terminalization.disposition != "terminalized"

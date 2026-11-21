@@ -32,7 +32,6 @@ from frisket.engine.store.retrieval_lifecycle import (
 from frisket.engine.store.transactions import (
     inserted_rowid,
     require_transaction,
-    write_transaction,
 )
 
 
@@ -413,60 +412,60 @@ def record_citation(
 
     if layer_family is not None and not _LAYER_FAMILY_RE.fullmatch(layer_family):
         raise ValueError(f"invalid layer_family: {layer_family!r}")
+    require_transaction(project.db, "citation")
     link_stable_id = stable_id or _stable_id("evidence_link")
     cur = project.db.cursor()
-    with write_transaction(project.db, commit=not project.db.in_transaction):
+    cur.execute(
+        "INSERT INTO evidence_links ("
+        "stable_id, subject_kind, subject_ref_json, sheet_id, row_id, "
+        "column_id, run_id, op_id, receipt_id, link_role, status, "
+        "confidence, pinned, producer_json, layer_family, stale_reason, metadata"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            link_stable_id,
+            subject_kind,
+            citation_subject_ref_json(subject_ref),
+            sheet_id,
+            row_id,
+            column_id,
+            run_id,
+            op_id,
+            receipt_id,
+            link_role,
+            status,
+            confidence,
+            int(pinned),
+            _json_dumps(producer or {}),
+            layer_family,
+            stale_reason,
+            _json_dumps(metadata or {}),
+        ),
+    )
+    link_id = inserted_rowid(cur)
+    for index, span in enumerate(spans):
+        span_id = _span_id_for_ref(project, span)
         cur.execute(
-            "INSERT INTO evidence_links ("
-            "stable_id, subject_kind, subject_ref_json, sheet_id, row_id, "
-            "column_id, run_id, op_id, receipt_id, link_role, status, "
-            "confidence, pinned, producer_json, layer_family, stale_reason, metadata"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO evidence_link_spans ("
+            "link_id, span_id, rank, span_role, required, note"
+            ") VALUES (?, ?, ?, ?, ?, ?)",
             (
-                link_stable_id,
-                subject_kind,
-                citation_subject_ref_json(subject_ref),
-                sheet_id,
-                row_id,
-                column_id,
-                run_id,
-                op_id,
-                receipt_id,
-                link_role,
-                status,
-                confidence,
-                int(pinned),
-                _json_dumps(producer or {}),
-                layer_family,
-                stale_reason,
-                _json_dumps(metadata or {}),
+                link_id,
+                span_id,
+                int(span.get("rank", index)),
+                str(span.get("span_role") or "support"),
+                int(bool(span.get("required", False))),
+                span.get("note"),
             ),
         )
-        link_id = inserted_rowid(cur)
-        for index, span in enumerate(spans):
-            span_id = _span_id_for_ref(project, span)
-            cur.execute(
-                "INSERT INTO evidence_link_spans ("
-                "link_id, span_id, rank, span_role, required, note"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    link_id,
-                    span_id,
-                    int(span.get("rank", index)),
-                    str(span.get("span_role") or "support"),
-                    int(bool(span.get("required", False))),
-                    span.get("note"),
-                ),
-            )
-        if (
-            status == "active"
-            and link_role in RETRIEVAL_CITATION_ROLES
-            and type(row_id) is int
-            and row_id > 0
-            and type(column_id) is int
-            and column_id > 0
-        ):
-            touch_binding_revisions(project.db, [(row_id, column_id)])
+    if (
+        status == "active"
+        and link_role in RETRIEVAL_CITATION_ROLES
+        and type(row_id) is int
+        and row_id > 0
+        and type(column_id) is int
+        and column_id > 0
+    ):
+        touch_binding_revisions(project.db, [(row_id, column_id)])
     return _link_row(project, link_id)
 
 
@@ -1119,87 +1118,82 @@ def mark_citations_stale_for_cell_refs(
     Callers MUST invoke this BEFORE writing the new run's active link, so the
     just-written link is never caught by its own stale sweep.
 
-    Transaction-safe standalone (``owns_transaction`` -- the same guard
-    ``record_citation``/``record_source_artifact`` use): the two
-    existing manual-edit/review-decision call sites run inside the
-    executor's own BEGIN IMMEDIATE/commit envelope, so this is a no-op
-    there; the reprocess call site (``media/ocr.py``) has no such envelope
-    around the write step, so it commits its own update.
+    Caller owns the transaction; refuses when no transaction is active.
     """
 
+    require_transaction(project.db, "citation staleness")
     stale_ids: list[str] = []
-    with write_transaction(project.db, commit=not project.db.in_transaction):
-        for target in targets:
-            ref = target.get("current_value_ref")
-            if target.get("match_all_active"):
-                subject_ref_json = None
-            elif isinstance(ref, dict):
-                subject_ref_json = citation_subject_ref_json(ref)
-            else:
-                continue
-            row_id = int(target["row_id"])
-            column_id = int(target["column_id"])
-            if subject_ref_json is None:
-                select_sql = (
-                    "SELECT stable_id FROM evidence_links "
-                    "WHERE status='active' AND row_id=? AND column_id=?"
-                )
-                select_params: tuple[Any, ...] = (row_id, column_id)
-                update_sql = (
-                    "UPDATE evidence_links SET status='stale', stale_reason=?, "
-                    "stale_at=datetime('now') "
-                    "WHERE status='active' AND row_id=? AND column_id=?"
-                )
-                update_params: tuple[Any, ...] = (reason, row_id, column_id)
-            else:
-                preserve_sql = (
-                    " AND COALESCE(CASE WHEN json_valid(metadata) THEN ("
-                    "COALESCE(json_extract(metadata,'$.schema_version'),'')=? "
-                    "AND json_type(metadata,'$.item_index')='integer' "
-                    "AND json_extract(metadata,'$.item_index')>=0 "
-                    "AND json_type(metadata,'$.value_hash')='text' "
-                    "AND run_id IS NOT NULL"
-                    ") ELSE 0 END,0)=0"
+    for target in targets:
+        ref = target.get("current_value_ref")
+        if target.get("match_all_active"):
+            subject_ref_json = None
+        elif isinstance(ref, dict):
+            subject_ref_json = citation_subject_ref_json(ref)
+        else:
+            continue
+        row_id = int(target["row_id"])
+        column_id = int(target["column_id"])
+        if subject_ref_json is None:
+            select_sql = (
+                "SELECT stable_id FROM evidence_links "
+                "WHERE status='active' AND row_id=? AND column_id=?"
+            )
+            select_params: tuple[Any, ...] = (row_id, column_id)
+            update_sql = (
+                "UPDATE evidence_links SET status='stale', stale_reason=?, "
+                "stale_at=datetime('now') "
+                "WHERE status='active' AND row_id=? AND column_id=?"
+            )
+            update_params: tuple[Any, ...] = (reason, row_id, column_id)
+        else:
+            preserve_sql = (
+                " AND COALESCE(CASE WHEN json_valid(metadata) THEN ("
+                "COALESCE(json_extract(metadata,'$.schema_version'),'')=? "
+                "AND json_type(metadata,'$.item_index')='integer' "
+                "AND json_extract(metadata,'$.item_index')>=0 "
+                "AND json_type(metadata,'$.value_hash')='text' "
+                "AND run_id IS NOT NULL"
+                ") ELSE 0 END,0)=0"
+                if preserve_map_extract_item_links
+                else ""
+            )
+            select_sql = (
+                "SELECT stable_id FROM evidence_links "
+                "WHERE status='active' AND row_id=? AND column_id=? "
+                "AND subject_ref_json=?" + preserve_sql
+            )
+            select_params = (
+                row_id,
+                column_id,
+                subject_ref_json,
+                *(
+                    (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                     if preserve_map_extract_item_links
-                    else ""
-                )
-                select_sql = (
-                    "SELECT stable_id FROM evidence_links "
-                    "WHERE status='active' AND row_id=? AND column_id=? "
-                    "AND subject_ref_json=?" + preserve_sql
-                )
-                select_params = (
-                    row_id,
-                    column_id,
-                    subject_ref_json,
-                    *(
-                        (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
-                        if preserve_map_extract_item_links
-                        else ()
-                    ),
-                )
-                update_sql = (
-                    "UPDATE evidence_links SET status='stale', stale_reason=?, "
-                    "stale_at=datetime('now') "
-                    "WHERE status='active' AND row_id=? AND column_id=? "
-                    "AND subject_ref_json=?" + preserve_sql
-                )
-                update_params = (
-                    reason,
-                    row_id,
-                    column_id,
-                    subject_ref_json,
-                    *(
-                        (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
-                        if preserve_map_extract_item_links
-                        else ()
-                    ),
-                )
-            rows = project.db.execute(select_sql, select_params).fetchall()
-            if not rows:
-                continue
-            stale_ids.extend(str(row["stable_id"]) for row in rows)
-            project.db.execute(update_sql, update_params)
+                    else ()
+                ),
+            )
+            update_sql = (
+                "UPDATE evidence_links SET status='stale', stale_reason=?, "
+                "stale_at=datetime('now') "
+                "WHERE status='active' AND row_id=? AND column_id=? "
+                "AND subject_ref_json=?" + preserve_sql
+            )
+            update_params = (
+                reason,
+                row_id,
+                column_id,
+                subject_ref_json,
+                *(
+                    (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
+                    if preserve_map_extract_item_links
+                    else ()
+                ),
+            )
+        rows = project.db.execute(select_sql, select_params).fetchall()
+        if not rows:
+            continue
+        stale_ids.extend(str(row["stable_id"]) for row in rows)
+        project.db.execute(update_sql, update_params)
     return stale_ids
 
 

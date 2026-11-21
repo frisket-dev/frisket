@@ -555,10 +555,10 @@ def test_connection_pinning_keeps_earlier_project_when_a_later_pin_fails(
     original_pin = service.pin_ready_routes
     pinned: list[str] = []
 
-    def fail_second(project_id: str, *, commit: bool = True):
+    def fail_second(project_id: str):
         if pinned:
             raise ProjectModelRouteError(409, "pin_failed", "pin failed")
-        result = original_pin(project_id, commit=commit)
+        result = original_pin(project_id)
         pinned.append(project_id)
         return result
 

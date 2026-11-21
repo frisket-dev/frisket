@@ -553,64 +553,62 @@ def add_rows(
 def add_row_with_undo(
     project: Any, sheet_id: int, record: dict[str, Any], column_ids: dict[str, int]
 ) -> int:
-    """Append one hand-entered row and its undo op atomically."""
+    """Append one hand-entered row and its undo op inside the caller's transaction."""
+    require_transaction(project.db, "add_row_with_undo")
     cur = project.db.cursor()
-    with write_transaction(project.db, commit=not project.db.in_transaction):
-        base = cur.execute(
-            "SELECT COALESCE(MAX(position),0) FROM rows WHERE sheet_id=?",
-            (sheet_id,),
-        ).fetchone()[0]
-        cur.execute(
-            "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
-            (sheet_id, base + 1, None),
-        )
-        row_id = cur.lastrowid
-        cur.execute(
-            "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
-            "VALUES (?, ?, ?, ?, 0)",
-            (
-                "add_row",
-                "add row",
-                json.dumps(
-                    {"sheet_id": sheet_id, "row_ids": [row_id], "cells": record}
-                ),
-                json.dumps({"created_rows": [row_id]}),
-            ),
-        )
-        op_id = cur.lastrowid
-        from .changes import start_change
-        from .structural_changes import record_structural_changes
+    base = cur.execute(
+        "SELECT COALESCE(MAX(position),0) FROM rows WHERE sheet_id=?",
+        (sheet_id,),
+    ).fetchone()[0]
+    cur.execute(
+        "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
+        (sheet_id, base + 1, None),
+    )
+    row_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+        "VALUES (?, ?, ?, ?, 0)",
+        (
+            "add_row",
+            "add row",
+            json.dumps({"sheet_id": sheet_id, "row_ids": [row_id], "cells": record}),
+            json.dumps({"created_rows": [row_id]}),
+        ),
+    )
+    op_id = cur.lastrowid
+    from .changes import start_change
+    from .structural_changes import record_structural_changes
 
-        start_change(project.db, op_id, writing=True)
-        record_structural_changes(project.db, op_id, {"created_rows": [row_id]})
-        producer_id = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_id}", op_id=op_id
-        )
-        initialize_base_cells(
-            project.db,
-            producer_id=producer_id,
-            cells=(
-                BaseCellWrite(row_id, column_ids[name], value)
-                for name, value in record.items()
-                if name in column_ids and value is not None
-            ),
-        )
-        from .structural_changes import note_row_additions
+    start_change(project.db, op_id, writing=True)
+    record_structural_changes(project.db, op_id, {"created_rows": [row_id]})
+    producer_id = create_base_cell_producer(
+        project.db, stage_id=f"op:{op_id}", op_id=op_id
+    )
+    initialize_base_cells(
+        project.db,
+        producer_id=producer_id,
+        cells=(
+            BaseCellWrite(row_id, column_ids[name], value)
+            for name, value in record.items()
+            if name in column_ids and value is not None
+        ),
+    )
+    from .structural_changes import note_row_additions
 
-        note_row_additions(
-            project.db,
-            sheet_id,
-            [row_id],
-            initialized_columns={
-                column_ids[name]
-                for name, value in record.items()
-                if name in column_ids and value is not None
-            },
-        )
-        from .changes import ChangeStore
+    note_row_additions(
+        project.db,
+        sheet_id,
+        [row_id],
+        initialized_columns={
+            column_ids[name]
+            for name, value in record.items()
+            if name in column_ids and value is not None
+        },
+    )
+    from .changes import ChangeStore
 
-        ChangeStore(project).close(op_id)
-        return row_id
+    ChangeStore(project).close(op_id)
+    return row_id
 
 
 def row_count(project: Any, sheet_id: int) -> int:

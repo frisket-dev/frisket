@@ -349,18 +349,19 @@ def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
             text_layer_hash=text_hash,
             text_surface_id=surface["id"],
         )
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=output_col,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_to_markdown_grounding",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_col,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_to_markdown_grounding",
+        )
     return {
         "project": project,
         "sheet_id": sheet_id,
