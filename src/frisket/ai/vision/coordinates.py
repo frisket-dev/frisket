@@ -387,7 +387,12 @@ def decode_bounding_box(
         for value in raw_bbox
     ):
         return None
-    values = tuple(float(value) for value in raw_bbox)
+    values: tuple[float, float, float, float] = (
+        float(raw_bbox[0]),
+        float(raw_bbox[1]),
+        float(raw_bbox[2]),
+        float(raw_bbox[3]),
+    )
     if not all(math.isfinite(value) for value in values):
         return None
     if profile.coordinate_order == "xyxy":

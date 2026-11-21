@@ -40,7 +40,7 @@ def _sheet(project, rows=2):
 
 
 def _publish(project, plan, sheet, columns):
-    op_id = op_log.append_change(project, "import.pdf", spec={}, commit=False)
+    op_id = op_log.append_change_in_transaction(project, "import.pdf", spec={})
     return publish_import_blobs(
         project,
         plan,
@@ -254,7 +254,7 @@ def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(make_proj
         )
 
         project.db.execute("BEGIN IMMEDIATE")
-        op_id = op_log.append_change(project, "import.pdf", spec={}, commit=False)
+        op_id = op_log.append_change_in_transaction(project, "import.pdf", spec={})
         producer_id = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )

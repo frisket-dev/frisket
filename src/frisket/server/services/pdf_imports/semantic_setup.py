@@ -9,14 +9,29 @@ from typing import Any, Protocol
 
 
 class SemanticSetupRequirement(Protocol):
-    setup_ref: str
-    display_name: str
-    runtime_ready: bool
-    weights_ready: bool
-    runtime_installable: bool
-    download_bytes_if_missing: int
-    license: str
-    source_url: str
+    @property
+    def setup_ref(self) -> str: ...
+
+    @property
+    def display_name(self) -> str: ...
+
+    @property
+    def runtime_ready(self) -> bool: ...
+
+    @property
+    def weights_ready(self) -> bool: ...
+
+    @property
+    def runtime_installable(self) -> bool: ...
+
+    @property
+    def download_bytes_if_missing(self) -> int: ...
+
+    @property
+    def license(self) -> str: ...
+
+    @property
+    def source_url(self) -> str: ...
 
 
 def bind_semantic_setup_consent(value: Mapping[str, Any]) -> dict[str, Any]:

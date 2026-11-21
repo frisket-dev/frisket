@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol, TypedDict
 
@@ -139,7 +139,11 @@ class _AdmissionBlocked(Exception):
 async def _await_launch_result(awaitable: Awaitable[Any]) -> tuple[Any, bool]:
     """Keep a canonical launch result available when its caller is cancelled."""
 
-    task = asyncio.create_task(awaitable)
+    async def _run() -> Any:
+        return await awaitable
+
+    coro = awaitable if isinstance(awaitable, Coroutine) else _run()
+    task = asyncio.create_task(coro)
     cancelled = False
     while True:
         try:

@@ -6,6 +6,7 @@ from __future__ import annotations
 from helpers import write_claimed_test_results
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_sheet(project: Project) -> int:
@@ -103,7 +104,8 @@ def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
         ],
     )
     store.finish_run(first_run)
-    store.point_column_at_run(first_op, column_id, first_run)
+    with write_transaction(store.db):
+        store.point_column_at_run(first_op, column_id, first_run)
 
     second_op = project.append_change(
         "map", {"action_kind": "map.summarize"}, label="second"

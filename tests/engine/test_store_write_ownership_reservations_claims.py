@@ -680,8 +680,8 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
     receipt_id = "receipt-terminal-atomic"
     claim_token = f"output-claim:{receipt_id}"
     with write_transaction(project.db):
-        ReceiptStore(project).insert_running(
-            _running_receipt(receipt_id, run_id=run_id), commit=False
+        ReceiptStore(project).insert_running_in_transaction(
+            _running_receipt(receipt_id, run_id=run_id)
         )
         OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,

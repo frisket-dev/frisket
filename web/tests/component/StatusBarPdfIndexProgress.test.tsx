@@ -40,7 +40,7 @@ function importSession(): ImportSessionStatus {
     cancel_requested: false,
     sealed: true,
     error: null,
-    search_preparation_status: 'running',
+    search_preparation_status: 'pending',
     search_preparation_batch_id: null,
     selected_total: 2,
     preparation_completed: 1,

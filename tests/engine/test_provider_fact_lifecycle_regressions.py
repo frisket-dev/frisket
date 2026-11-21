@@ -113,7 +113,7 @@ def test_embedding_receipt_failure_never_leaves_completed_billable_run(
     def fail_receipt(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("fault before receipt finalization")
 
-    monkeypatch.setattr(ReceiptStore, "insert", fail_receipt)
+    monkeypatch.setattr(ReceiptStore, "insert_in_transaction", fail_receipt)
     result = run_action_spec(
         project,
         _refresh(index_id, key="fact-lifecycle-receipt-fault@1"),

@@ -463,8 +463,8 @@ def run_typed_sheet_refresh_action(
 
         ChangeStore(project).close(facts.op_id)
         release_refresh_claim(project, facts.sheet_id, receipt_id)
-        if not ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        if not ReceiptStore(project).update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise TableError(
                 "stale_refresh", "The refresh receipt is no longer writable"
@@ -916,7 +916,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
     )
 
     receipt_id = _new_id("receipt")
-    op_id = project.append_change(
+    op_id = project.append_change_in_transaction(
         "sheet.refresh",
         {
             "sheet_id": prepared.sheet_id,
@@ -928,7 +928,6 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
             SOURCE_BINDING: prepared.source_binding,
         },
         label=f"Refresh sheet {prepared.sheet_id}",
-        commit=False,
     )
     require_execution_sources(project, op_id)
     receipt = Receipt(
@@ -947,7 +946,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
             )
         ],
     )
-    ReceiptStore(project).insert_running(receipt, commit=False)
+    ReceiptStore(project).insert_running_in_transaction(receipt)
     acquire_refresh_claim(
         project,
         sheet_id=prepared.sheet_id,
@@ -1067,8 +1066,8 @@ def _finish_refresh_failure(project, receipt, error):
                 "errors": [error],
             }
         )
-        ReceiptStore(project).update_body_status(
-            terminal, require_status="running", commit=False
+        ReceiptStore(project).update_body_status_in_transaction(
+            terminal, require_status="running"
         )
         project.db.commit()
         return _result_from_receipt(terminal)

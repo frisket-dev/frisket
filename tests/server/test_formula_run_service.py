@@ -1,10 +1,7 @@
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from frisket.engine.jobs.queue import ACTION_RUN_KIND
 from frisket.engine.jobs.worker import Worker
-from frisket.server.app import create_app
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
@@ -49,8 +46,8 @@ def test_formula_runs_through_normal_service_without_model_configuration(
     assert values.get(rows[0]) is None
 
 
-def test_formula_http_run_enqueues_worker_before_compute(tmp_path: Path) -> None:
-    with TestClient(create_app(tmp_path / "http-workspace")) as client:
+def test_formula_http_run_enqueues_worker_before_compute(client) -> None:
+    with client:
         project_id = client.post("/api/projects", json={"name": "Formula"}).json()["id"]
         workspace = client.app.state.workspace
         project = workspace.get(project_id)

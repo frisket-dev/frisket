@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
 import * as apiModule from '../../src/api/open';
-import type { RegisteredActionRequest } from '../../src/api/types';
+import type { ActionParamResolution, RegisteredActionRequest } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -33,7 +33,7 @@ beforeEach(() => {
   vi.stubGlobal('crypto', { randomUUID: () => 'columns-json-request' });
   vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
   stores = createWorkspaceStores('columns-from-json-canonical');
-  vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params }) => {
+  vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params }): Promise<ActionParamResolution> => {
     const routes = Array.isArray(params.routes) ? params.routes : [];
     const incomplete = routes.some((route) => (
       !route || typeof route !== 'object'

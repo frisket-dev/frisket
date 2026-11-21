@@ -10,7 +10,7 @@ function run(spec: Record<string, unknown>): ColumnRun {
     runId: '88', actionKind: 'map.ner', actionName: 'Extract entities', model: '',
     status: 'completed', spec, totalRows: 2, completedRows: 2, failedRows: 0,
     cost: 0, startedAt: null, finishedAt: null, durationMs: null, tokensIn: null,
-    tokensOut: null, current: true,
+    tokensOut: null, current: true, humanScore: { passed: 0, graded: 0 }, judgeScores: [],
   };
 }
 const params = { source: ['body'], labels: ['person'], engine: 'spacy', threshold: 0.4 };

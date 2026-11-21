@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import type { GeneratedActionDraft, JsonValue } from '../../src/api/types';
 import { decodeSavedActionSpec, encodeSavedActionSpec } from '../../src/actions/savedActionSpec';
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -45,15 +45,20 @@ describe('typed video frame resize', () => {
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(onExecute).not.toHaveBeenCalled();
   });
-  it.each([
+  it.each<{ sampling: JsonValue; max_dimension?: number | null }>([
     { sampling: { kind: 'count', count: 6 } },
     { sampling: { kind: 'interval', seconds: 5 } },
     { sampling: { kind: 'count', count: 6 }, max_dimension: null },
     { sampling: { kind: 'count', count: 6 }, max_dimension: 1080 },
   ])('preserves saved sampling/resize and exact rows/names: %j', async (options) => {
+    const params: Record<string, JsonValue> = {
+      source: 'clip',
+      sampling: options.sampling,
+      ...(options.max_dimension !== undefined ? { max_dimension: options.max_dimension } : {}),
+    };
     const initialDraft: GeneratedActionDraft = { action_id: 'media.video_frames',
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [11, 13] },
-      params: { source: 'clip', ...options }, output_names: { frames: 'Saved frames' } };
+      params, output_names: { frames: 'Saved frames' } };
     const { onExecute, catalog } = renderMediaAction('media.video_frames', {
       sheet, initialDraft, selectedRowIds: ['11', '13'], hasExactRowScopeInitializer: true });
     expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, initialDraft))).toEqual(initialDraft);

@@ -3,19 +3,15 @@ from __future__ import annotations
 import json
 from contextlib import closing
 
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 
 def test_project_retention_policy_is_explicit_and_blocks_default_compaction(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     created = client.post("/api/projects", json={"name": "Retention"}).json()
     pid = created["id"]
-    project_path = tmp_path / "ws" / f"{pid}.frisket"
+    project_path = client.app.state.workspace.root / f"{pid}.frisket"
 
     manifest = json.loads((project_path / "manifest.json").read_text())
     assert manifest["schema_version"] == "frisket.project.v1"

@@ -24,8 +24,8 @@ function serveChoices(otherProviders = false) {
     const model = subject.model ?? 'default';
     const choiceId = `${provider}:${model}`;
     const response: HttpSelectorChoicesResponse = {
-      schema_version: 'frisket.selector_choices.v2', project_id: 'embedding-project',
-      subject: { kind: 'embedding', provider, model }, depends_on: [],
+      schema_version: 'frisket.selector_choices.v3', project_id: 'embedding-project',
+      subject: { kind: 'embedding', modality: 'text', source_column_type: 'text' }, depends_on: [],
       current_choice_id: choiceId, default_choice_id: choiceId, orphaned_current: null,
       cloud_setup: null,
       groups: [{ group_id: provider, kind: 'local', label: provider, status: 'ready', choices: [{
@@ -33,6 +33,7 @@ function serveChoices(otherProviders = false) {
         model_card_url: null, authored_selection: { kind: 'embedding', provider, model },
         resolved_target: null, processing_destination: { kind: 'local', label: 'On this device' },
         status: 'ready', can_author: true, can_run: true, blocker: null, setup: null,
+        execution_route: null, route_selection: null,
         active_operation: null, configuration_actions: [], is_current: true, is_default: false,
       }] }],
     };
@@ -53,14 +54,15 @@ const providerCard: EmbeddingProvider = {
   providerId: 'fastembed', providerKind: 'local', modelId: 'default', label: 'FastEmbed',
   modalities: ['text'], dimensions: [384], local: true, available: true, disabledReason: null,
   egress: 'local', recommended: false, sizeGb: null, maxInputTokens: null,
+  pricing: { policy: 'local', inputUsdPerMillionTokens: null, sourceUrl: null, updated: null },
   modalityCompatible: true, dimensionDiscoveryRequired: false,
 };
 
-const sheet = {
+const sheet: SheetMeta = {
   id: '7', name: 'People', rowCount: 1,
   columns: [{ id: '11', name: 'bio', type: 'text' }],
-  citedColumnIds: [], annotatedTextColumnIds: [],
-} as SheetMeta;
+  citedColumnIds: [], annotatedTextColumnIds: [], documentTextColumnIds: [],
+};
 
 describe('CreateEmbeddingIndexDialog custom model', () => {
   it('keeps provider-bound opaque custom model editing inside selector details', async () => {

@@ -7,14 +7,16 @@ import type { Row, SheetMeta } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { useReplayReviewController } from '../../src/workspace/useReplayReviewController';
 import { columnDef, row } from '../support/domainFixtures';
+import { sheetMeta } from '../support/actionFormFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const api = createProjectApi('replay-identity');
 const { render, stores } = createWorkspaceTestHarness({ projectId: 'replay-identity', api: { projectApi: api } });
-const sheets: SheetMeta[] = [1, 2].map((id) => ({ id: String(id), name: `Sheet ${id}`, rowCount: 1,
-  columns: [columnDef({ id: String(id * 11), name: 'Answer', type: 'text', latestRunId: String(id * 100), replayPendingCount: 1 })],
-}));
+const sheets: SheetMeta[] = [1, 2].map((id) => sheetMeta(
+  [columnDef({ id: String(id * 11), name: 'Answer', type: 'text', latestRunId: String(id * 100), replayPendingCount: 1 })],
+  { id: String(id), name: `Sheet ${id}`, rowCount: 1 },
+));
 let latest: ReturnType<typeof useReplayReviewController>;
 const showError = vi.fn();
 function Probe({ sheet }: { sheet: SheetMeta }) {

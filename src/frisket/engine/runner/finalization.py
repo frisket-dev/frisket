@@ -146,7 +146,6 @@ def _finalize_run_in_transaction(
             sorted(managed_column_ids),
             claim_token=generation_claim_token,
             terminal_disposition=status,
-            commit=False,
         )
     # Coupled publishers retain the current writer and running status until
     # their materialization transaction seals outputs and terminalizes the run.
@@ -155,10 +154,9 @@ def _finalize_run_in_transaction(
             "deferred publication cannot close its current writer before materialization"
         )
     if not defer_terminal_status and not defer_generation_seal:
-        run_store.finish_run(
+        run_store.finish_run_in_transaction(
             run_id,
             status,
-            commit=False,
             rebuild_review_stats=False,
             writer_attempt_id=writer_attempt_id,
             claim_token=generation_claim_token,

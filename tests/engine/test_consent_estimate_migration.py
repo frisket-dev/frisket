@@ -23,6 +23,10 @@ def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None
         db.execute("BEGIN")
         db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
         db.execute(
+            "ALTER TABLE project_qa_research_runs "
+            "RENAME COLUMN pending_pause_json TO pending_approval_json"
+        )
+        db.execute(
             "INSERT INTO consents (id, subject_kind, subject_id, "
             "action_identity_hash, promise_set_hash, standing_policy, "
             "actor, granted_at, grant_basis, quote_json) "

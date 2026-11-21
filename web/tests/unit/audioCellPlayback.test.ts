@@ -25,7 +25,9 @@ describe('audio grid cell playback affordance', () => {
       label: 'meeting.mp3',
     });
     const playing = withAudioPlayback(cell, true);
-    expect(playing.kind).toBe(GridCellKind.Custom);
+    if (playing.kind !== GridCellKind.Custom || cell.kind !== GridCellKind.Custom) {
+      throw new Error('Expected custom audio cells');
+    }
     expect((playing.data as MediaCellData).playback).toBe('playing');
     expect((cell.data as MediaCellData).playback).toBeUndefined();
   });

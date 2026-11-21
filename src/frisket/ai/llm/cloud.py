@@ -44,7 +44,7 @@ class CloudLLMAdapter:
         wire = CloudLLMRequest(
             model=request.model,
             messages=request.messages,
-            schema_=request.schema,
+            schema=request.schema,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             params=request.params,

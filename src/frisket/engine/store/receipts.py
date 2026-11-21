@@ -243,8 +243,8 @@ class ReceiptStore:
                 if provider_use_fact is not None:
                     receipt.provider_use.append(dict(provider_use_fact))
                 receipt.run_id = run_id
-                if not self.update_body_status(
-                    receipt, require_status=stored.status, commit=False
+                if not self.update_body_status_in_transaction(
+                    receipt, require_status=stored.status
                 ):
                     raise RuntimeError("Python evaluation lost its reserved receipt")
             db.execute("RELEASE SAVEPOINT python_code_evidence")
@@ -470,29 +470,41 @@ class ReceiptStore:
         rows = self.db.execute(query, params).fetchall()
         return [str(row["body"]) for row in rows]
 
+    def insert_in_transaction(
+        self,
+        receipt: Receipt,
+        *,
+        edition_run_context: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Insert a receipt in the caller's open transaction."""
+        require_transaction(self.db, "receipt insert")
+        self.db.execute(
+            "INSERT INTO receipts (id, run_id, action_kind, action_id, "
+            "idempotency_key, params_hash, status, body, edition_run_context) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                receipt.receipt_id,
+                receipt.run_id,
+                receipt.action_kind,
+                receipt.action_id,
+                receipt.idempotency_key,
+                receipt.params_hash,
+                receipt.status,
+                receipt_body(receipt),
+                edition_run_context_body(edition_run_context),
+            ),
+        )
+
     def insert(
         self,
         receipt: Receipt,
         *,
         edition_run_context: Mapping[str, Any] | None = None,
-        commit: bool = True,
     ) -> None:
-        with write_transaction(self.db, commit=commit, what="receipt insert"):
-            self.db.execute(
-                "INSERT INTO receipts (id, run_id, action_kind, action_id, "
-                "idempotency_key, params_hash, status, body, edition_run_context) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    receipt.receipt_id,
-                    receipt.run_id,
-                    receipt.action_kind,
-                    receipt.action_id,
-                    receipt.idempotency_key,
-                    receipt.params_hash,
-                    receipt.status,
-                    receipt_body(receipt),
-                    edition_run_context_body(edition_run_context),
-                ),
+        with write_transaction(self.db, what="receipt insert"):
+            self.insert_in_transaction(
+                receipt,
+                edition_run_context=edition_run_context,
             )
 
     def insert_with_status(
@@ -501,62 +513,80 @@ class ReceiptStore:
         status: ReceiptStatus,
         *,
         edition_run_context: Mapping[str, Any] | None = None,
-        commit: bool = True,
     ) -> None:
+        """Insert a receipt matching ``status`` in the caller's open transaction."""
         if receipt.status != status:
             raise ValueError(
                 f"receipt {receipt.receipt_id} status is {receipt.status!r}, "
                 f"expected {status!r}"
             )
-        self.insert(
+        self.insert_in_transaction(
             receipt,
             edition_run_context=edition_run_context,
-            commit=commit,
         )
 
     def insert_queued(self, receipt: Receipt) -> None:
         """Insert a queued receipt in the caller's open transaction."""
-        self.insert_with_status(receipt, "queued", commit=False)
+        self.insert_with_status(receipt, "queued")
+
+    def insert_running_in_transaction(
+        self,
+        receipt: Receipt,
+        *,
+        edition_run_context: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Insert a running receipt in the caller's open transaction."""
+        self.insert_with_status(
+            receipt,
+            "running",
+            edition_run_context=edition_run_context,
+        )
 
     def insert_running(
         self,
         receipt: Receipt,
         *,
         edition_run_context: Mapping[str, Any] | None = None,
-        commit: bool = True,
     ) -> None:
-        self.insert_with_status(
-            receipt,
-            "running",
-            edition_run_context=edition_run_context,
-            commit=commit,
-        )
+        with write_transaction(self.db, what="running receipt insert"):
+            self.insert_running_in_transaction(
+                receipt,
+                edition_run_context=edition_run_context,
+            )
 
     def insert_completed(self, receipt: Receipt) -> None:
         """Insert a completed receipt in the caller's open transaction."""
-        self.insert_with_status(receipt, "completed", commit=False)
+        self.insert_with_status(receipt, "completed")
 
-    def insert_partial(self, receipt: Receipt, *, commit: bool = True) -> None:
-        self.insert_with_status(receipt, "partial", commit=commit)
+    def insert_partial(self, receipt: Receipt) -> None:
+        """Insert a partial receipt in the caller's open transaction."""
+        self.insert_with_status(receipt, "partial")
 
-    def insert_failed(self, receipt: Receipt, *, commit: bool = True) -> None:
-        self.insert_with_status(receipt, "failed", commit=commit)
+    def insert_failed(self, receipt: Receipt) -> None:
+        """Insert a failed receipt in the caller's open transaction."""
+        self.insert_with_status(receipt, "failed")
 
-    def insert_finished(self, receipt: Receipt, *, commit: bool = True) -> None:
+    def insert_finished_in_transaction(self, receipt: Receipt) -> None:
+        """Insert a finished receipt in the caller's open transaction."""
         if receipt.status not in FINISHED_RECEIPT_STATUSES:
             raise ValueError(
                 f"receipt {receipt.receipt_id} status is {receipt.status!r}, "
                 "expected completed, partial, failed, or cancelled"
             )
-        self.insert(receipt, commit=commit)
+        self.insert_in_transaction(receipt)
 
-    def update_body_status(
+    def insert_finished(self, receipt: Receipt) -> None:
+        with write_transaction(self.db, what="finished receipt insert"):
+            self.insert_finished_in_transaction(receipt)
+
+    def update_body_status_in_transaction(
         self,
         receipt: Receipt,
         *,
         require_status: str | None = None,
-        commit: bool = True,
     ) -> bool:
+        """Update a receipt body and status in the caller's open transaction."""
+        require_transaction(self.db, "receipt update")
         where_clause = "WHERE id=?"
         params: list[Any] = [
             receipt.run_id,
@@ -570,13 +600,24 @@ class ReceiptStore:
         if require_status is not None:
             where_clause += " AND status=?"
             params.append(require_status)
-        with write_transaction(self.db, commit=commit, what="receipt update"):
-            updated = self.db.execute(
-                "UPDATE receipts SET run_id=?, action_kind=?, action_id=?, "
-                f"params_hash=?, status=?, body=? {where_clause}",
-                params,
-            )
+        updated = self.db.execute(
+            "UPDATE receipts SET run_id=?, action_kind=?, action_id=?, "
+            f"params_hash=?, status=?, body=? {where_clause}",
+            params,
+        )
         return updated.rowcount == 1
+
+    def update_body_status(
+        self,
+        receipt: Receipt,
+        *,
+        require_status: str | None = None,
+    ) -> bool:
+        with write_transaction(self.db, what="receipt update"):
+            return self.update_body_status_in_transaction(
+                receipt,
+                require_status=require_status,
+            )
 
     def update_if_status_in(
         self,
@@ -615,14 +656,13 @@ class ReceiptStore:
         )
         return deleted.rowcount == 1
 
-    def delete_running(
-        self,
-        receipt_id: str,
-        *,
-        commit: bool = True,
-    ) -> bool:
-        with write_transaction(self.db, commit=commit, what="running receipt delete"):
-            return self.delete_if_status(receipt_id, "running")
+    def delete_running_in_transaction(self, receipt_id: str) -> bool:
+        """Delete a running receipt in the caller's open transaction."""
+        return self.delete_if_status(receipt_id, "running")
+
+    def delete_running(self, receipt_id: str) -> bool:
+        with write_transaction(self.db, what="running receipt delete"):
+            return self.delete_running_in_transaction(receipt_id)
 
     def delete_queued(self, receipt_id: str) -> bool:
         """Delete a queued receipt in the caller's open transaction."""

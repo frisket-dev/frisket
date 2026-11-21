@@ -23,7 +23,7 @@ from frisket.contracts.http.instance_runtime import (
     InstanceInfoResponse,
     RuntimeConfigResponse,
 )
-from frisket.server.app import create_app
+from helpers import make_client as _local_client
 from tests.team_setup_helpers import claim_server
 
 
@@ -86,10 +86,6 @@ def _wire_bytes(payload: dict[str, Any]) -> bytes:
 
 def _serialized(model: Any) -> bytes:
     return _wire_bytes(model.model_dump(exclude_unset=True))
-
-
-def _local_client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspace"))
 
 
 def _team_app(tmp_path: Path) -> Any:

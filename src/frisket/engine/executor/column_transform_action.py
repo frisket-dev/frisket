@@ -662,14 +662,13 @@ def run_typed_column_transform_action(
             op_spec=op_spec,
         )
         runs = RunResultStore(project)
-        run_id = runs.start_run(
+        run_id = runs.start_run_in_transaction(
             op_id,
             int(source["sheet_id"]),
             bound.action.action_id,
             params=bound.params.model_dump(mode="json"),
             row_ids=source["row_ids"],
             total_rows=len(source["row_ids"]),
-            commit=False,
         )
         receipt_id = _new_id("receipt")
         receipt = _receipt(
@@ -686,8 +685,8 @@ def run_typed_column_transform_action(
             run_id=run_id,
         )
         receipts = ReceiptStore(project)
-        receipts.insert_running(
-            receipt.model_copy(update={"status": "running"}), commit=False
+        receipts.insert_running_in_transaction(
+            receipt.model_copy(update={"status": "running"})
         )
         token = f"output-claim:{receipt_id}"
         field = {"name": output_name, "column_type": output_type}
@@ -711,7 +710,6 @@ def run_typed_column_transform_action(
             compatibility_key=_compatibility_key(field=field),
             write_mode="create",
             claim_token=token,
-            commit=False,
         )
         runs.write_precomputed_results(
             run_id,
@@ -749,18 +747,16 @@ def run_typed_column_transform_action(
             [output_column_id],
             claim_token=token,
             terminal_disposition="completed",
-            commit=False,
         )
-        runs.finish_run(
+        runs.finish_run_in_transaction(
             run_id,
             "completed",
-            commit=False,
             rebuild_review_stats=False,
             claim_token=token,
         )
         OutputColumnClaimStore(project).release(claim_token=token)
-        if not receipts.update_body_status(
-            receipt, require_status="running", commit=False
+        if not receipts.update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise RuntimeError("column transform receipt changed during publication")
         result = _result_from_receipt(receipt)

@@ -4,7 +4,6 @@ import json
 import tracemalloc
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.prepared_content import (
@@ -13,12 +12,10 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.value_codec import PreparedContentRef
-from frisket.server.app import create_app
 from frisket.engine.store.transactions import write_transaction
 
 
-def _fixture(tmp_path, values, *, column_type="text"):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def _fixture(client, values, *, column_type="text"):
     pid = client.post("/api/projects", json={"name": "facets"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("data")
@@ -40,13 +37,13 @@ def _preview(client, pid, sheet, **options):
 
 @pytest.mark.parametrize("column_type", ["text", "json"])
 def test_automatic_facets_omit_large_cells_without_loading_exact_values(
-    tmp_path, monkeypatch, column_type
+    client, monkeypatch, column_type
 ):
     large = "😀" + "a" * (5 * 1024 * 1024) + "TAIL-UNIQUE"
     large_value = large if column_type == "text" else [large]
     small = "small" if column_type == "text" else ["small", True]
     client, pid, project, sheet, column, rows = _fixture(
-        tmp_path, [large_value, small, small, None], column_type=column_type
+        client, [large_value, small, small, None], column_type=column_type
     )
     # Warm the public route before measuring request allocations.
     _preview(client, pid, sheet, value_mode="bounded")
@@ -101,8 +98,8 @@ def test_automatic_facets_omit_large_cells_without_loading_exact_values(
     assert [row["id"] for row in filtered.json()["rows"]] == [rows[0]]
 
 
-def test_prepared_large_text_uses_same_omission_contract(tmp_path):
-    client, pid, project, sheet, column, _ = _fixture(tmp_path, ["ordinary"])
+def test_prepared_large_text_uses_same_omission_contract(client):
+    client, pid, project, sheet, column, _ = _fixture(client, ["ordinary"])
     with write_transaction(project.db):
         artifact = record_source_artifact(
             project,
@@ -137,9 +134,9 @@ def test_prepared_large_text_uses_same_omission_contract(tmp_path):
     ],
 )
 def test_small_numeric_histograms_and_collection_selectors_keep_exact_semantics(
-    tmp_path, column_type, values
+    client, column_type, values
 ):
-    client, pid, _, sheet, _, _ = _fixture(tmp_path, values, column_type=column_type)
+    client, pid, _, sheet, _, _ = _fixture(client, values, column_type=column_type)
     exact = _preview(client, pid, sheet).json()
     bounded = _preview(client, pid, sheet, value_mode="bounded").json()
     assert bounded["inventory_complete"] is True
@@ -155,9 +152,9 @@ def test_small_numeric_histograms_and_collection_selectors_keep_exact_semantics(
         assert bounded[field] == exact[field]
 
 
-def test_response_budget_keeps_only_complete_selectable_values(tmp_path):
+def test_response_budget_keeps_only_complete_selectable_values(client):
     values = [f"{index:03}:" + "😀" * 1000 for index in range(30)]
-    client, pid, _, sheet, _, _ = _fixture(tmp_path, values)
+    client, pid, _, sheet, _, _ = _fixture(client, values)
     response = _preview(client, pid, sheet, value_mode="bounded", limit=100)
     assert len(response.content) < 64 * 1024
     body = response.json()
@@ -170,10 +167,10 @@ def test_response_budget_keeps_only_complete_selectable_values(tmp_path):
     assert [entry["value"] for entry in exact["values"]] == values
 
 
-def test_response_budget_never_crops_collection_selectors(tmp_path):
+def test_response_budget_never_crops_collection_selectors(client):
     labels = [f"{index:03}:" + "z" * 2000 for index in range(30)]
     client, pid, _, sheet, _, _ = _fixture(
-        tmp_path, [[label] for label in labels], column_type="json"
+        client, [[label] for label in labels], column_type="json"
     )
     response = _preview(client, pid, sheet, value_mode="bounded", limit=100)
     assert len(response.content) < 64 * 1024

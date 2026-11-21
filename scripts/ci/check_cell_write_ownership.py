@@ -127,8 +127,6 @@ HAND_WRITTEN_TRANSACTIONS = frozenset(
         "src/frisket/engine/store/execution_routes.py",
         # Deferred read-or-write scopes and staged garbage-collection commits.
         "src/frisket/engine/store/project_blobs.py",
-        # Savepoint scope that begins first when it is the outermost write.
-        "src/frisket/engine/store/result_generations.py",
         # Savepoint scopes around result and provider-fact batches.
         "src/frisket/engine/store/runs.py",
     }

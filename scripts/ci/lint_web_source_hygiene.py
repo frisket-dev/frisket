@@ -20,11 +20,10 @@ NATIVE_SELECT = re.compile(r"<select\b")
 NATIVE_SELECT_ESCAPE = re.compile(r'data-native-select-escape="([^"]+)"')
 
 # PanelSelect deliberately retains a native select as its semantic/form trigger.
-# Two older rich controls retain hidden mirrors for selectOption()/toHaveValue()
+# An older rich control retains a hidden mirror for selectOption()/toHaveValue()
 # compatibility. Keeping the exact file + reason pairs here makes an exception a
 # reviewed design-system decision rather than a copyable inline suppression.
 NATIVE_SELECT_ESCAPES = {
-    "src/components/EnginePicker.tsx": "engine-picker-mirror",
     "src/components/PanelPrimitives.tsx": "segmented-toggle-mirror",
     "src/components/PanelSelect.tsx": "panel-select-trigger",
 }
@@ -106,7 +105,7 @@ def native_select_failures() -> list[str]:
             match = NATIVE_SELECT_ESCAPE.search(line)
             reason = match.group(1) if match else None
             allowed_reason = NATIVE_SELECT_ESCAPES.get(rel)
-            if reason == allowed_reason:
+            if allowed_reason is not None and reason == allowed_reason:
                 continue
             escape_help = (
                 f"; unrecognized escape {reason!r}"

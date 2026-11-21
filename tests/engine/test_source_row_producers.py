@@ -11,7 +11,7 @@ def test_add_rows_nested_batch_publishes_when_caller_commits(make_project):
     column_id = project.add_column(sheet_id, "value")
 
     project.db.execute("BEGIN IMMEDIATE")
-    project.add_rows(
+    project.add_rows_in_transaction(
         sheet_id,
         [{"value": "one"}, {"value": "two"}],
         {"value": column_id},
@@ -47,16 +47,15 @@ def test_add_rows_nested_batch_publishes_when_caller_commits(make_project):
 def test_add_rows_failure_rolls_back_only_its_nested_savepoint(make_project):
     project = make_project("project")
     project.db.execute("BEGIN IMMEDIATE")
-    sheet_id = project.add_sheet("Outer", commit=False)
-    column_id = project.add_column(sheet_id, "value", commit=False)
+    sheet_id = project.add_sheet_in_transaction("Outer")
+    column_id = project.add_column_in_transaction(sheet_id, "value")
 
     with pytest.raises(ValueError, match="unknown base-cell producer"):
-        project.add_rows(
+        project.add_rows_in_transaction(
             sheet_id,
             [{"value": "discarded"}],
             {"value": column_id},
             producer_id=999,
-            commit=False,
         )
 
     assert (

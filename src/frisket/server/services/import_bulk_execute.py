@@ -7,7 +7,7 @@ import json
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from frisket.actions.types import EmailInput
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps, run_action_spec
@@ -450,12 +450,16 @@ class BulkExecutor:
         action_sources = []
         for index, item in enumerate(items):
             logical_path = str(item["logical_path"])
-            email_format = item.get("email_format")
-            if email_format not in {"eml", "mbox"}:
-                email_format = import_bulk_sources.source_suffix(
+            raw_format = item.get("email_format")
+            if raw_format not in {"eml", "mbox"}:
+                raw_format = import_bulk_sources.source_suffix(
                     logical_path
                 ).removeprefix(".")
-            if email_format not in {"eml", "mbox"}:
+            if raw_format == "eml":
+                email_format: Literal["eml", "mbox"] = "eml"
+            elif raw_format == "mbox":
+                email_format = "mbox"
+            else:
                 raise ImportBulkRouteError(404, "bulk import plan not found")
             source_ref = stable_identifier(
                 "bulk-email-source",

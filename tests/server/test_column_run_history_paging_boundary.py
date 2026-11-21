@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.server.run_payloads import column_run_provenance_payload
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _assert_no_recipe_keys(value: object) -> None:
@@ -21,9 +19,8 @@ def _assert_no_recipe_keys(value: object) -> None:
 
 
 def _seed_column_run_history(
-    tmp_path: Path,
+    client: TestClient,
 ) -> tuple[TestClient, str, int, int, list[int]]:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Column run paging"}
     ).json()["id"]
@@ -75,16 +72,16 @@ def _seed_column_run_history(
             ],
         )
         RunResultStore(project).finish_run(run_id)
-        RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
         run_ids.append(run_id)
-    RunResultStore(project).point_column_at_run(op_id, topic_col, run_ids[1])
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, topic_col, run_ids[1])
     return client, project_id, topic_col, sheet_id, run_ids
 
 
-def test_column_run_history_route_returns_bounded_pages(tmp_path: Path) -> None:
-    client, project_id, topic_col, _sheet_id, run_ids = _seed_column_run_history(
-        tmp_path
-    )
+def test_column_run_history_route_returns_bounded_pages(client: TestClient) -> None:
+    client, project_id, topic_col, _sheet_id, run_ids = _seed_column_run_history(client)
     newest = list(reversed(run_ids))
 
     first_page = client.get(
@@ -149,11 +146,9 @@ def test_column_run_history_route_returns_bounded_pages(tmp_path: Path) -> None:
 
 
 def test_column_run_history_helper_is_paged_and_route_delegates(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, topic_col, _sheet_id, run_ids = _seed_column_run_history(
-        tmp_path
-    )
+    client, project_id, topic_col, _sheet_id, run_ids = _seed_column_run_history(client)
     project = client.app.state.workspace.get(project_id)
     direct = column_run_provenance_payload(project, topic_col, offset=1, limit=3)
     response = client.get(

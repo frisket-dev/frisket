@@ -16,7 +16,7 @@ def queue_feed_poll(
     project: Any, project_id: str, body: dict, ctx: Any
 ) -> ActionResult | None:
     bound = typed_action_for_request(body)
-    feed_id = bound.params.source
+    feed_id = getattr(bound.params, "source", None)
     if type(feed_id) is not int:
         return None
     feed = FeedStore(project).get_feed(feed_id)

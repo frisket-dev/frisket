@@ -8,76 +8,13 @@ import { httpContract, type HttpContractSuccessResponse, type RequestOptions } f
 import { runEstimateFromV1Wire } from './actionEstimateValidation';
 import type { RunEstimate } from './types';
 
-export interface ImportPreparationChild {
-  action_id: 'media.read_pdf_text' | 'media.ocr';
-  row_count: number;
-  completed_rows: number;
-  status: string;
-  receipt_id: string | null;
-  run_id: number | null;
-  job_id: number | null;
-}
-
-export type ImportSessionStatus = HttpImportSessionStatus & {
-  committed_rows: number;
-  committed_bytes: number;
-  sheet_id: number | null;
-  error: string | null;
-  search_preparation_batch_id: string | null;
-  selected_total: number | null;
-  preparation_completed: number;
-  preparation_total: number;
-  ocr_completed: number;
-  ocr_total: number;
-  unreadable_total: number;
-  preparation_children: ImportPreparationChild[];
-  reading_row_ids: number[];
-  waiting_row_ids: number[];
-  failed_pages: number;
-};
+export type ImportSessionStatus = HttpImportSessionStatus;
+export type ImportPreparationChild = HttpImportSessionStatus['preparation_children'][number];
 
 interface ImportPreparationRetryEstimate {
   planToken: string;
   pages: number;
   estimate: RunEstimate;
-}
-
-type ImportSessionList = Omit<HttpImportSessionList, 'sessions'> & {
-  sessions: ImportSessionStatus[];
-};
-
-function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionStatus {
-  return {
-    ...status,
-    committed_rows: status.committed_rows ?? 0,
-    committed_bytes: status.committed_bytes ?? 0,
-    sheet_id: status.sheet_id ?? null,
-    error: status.error ?? null,
-    search_preparation_batch_id: status.search_preparation_batch_id ?? null,
-    selected_total: 'selected_total' in status && typeof status.selected_total === 'number'
-      ? status.selected_total
-      : null,
-    preparation_completed: 'preparation_completed' in status
-      && typeof status.preparation_completed === 'number' ? status.preparation_completed : 0,
-    preparation_total: 'preparation_total' in status
-      && typeof status.preparation_total === 'number' ? status.preparation_total : 0,
-    ocr_completed: 'ocr_completed' in status && typeof status.ocr_completed === 'number'
-      ? status.ocr_completed
-      : 0,
-    ocr_total: 'ocr_total' in status && typeof status.ocr_total === 'number'
-      ? status.ocr_total
-      : 0,
-    unreadable_total: 'unreadable_total' in status && typeof status.unreadable_total === 'number'
-      ? status.unreadable_total
-      : 0,
-    preparation_children: 'preparation_children' in status
-      && Array.isArray(status.preparation_children)
-      ? status.preparation_children as ImportPreparationChild[]
-      : [],
-    reading_row_ids: status.reading_row_ids ?? [],
-    waiting_row_ids: status.waiting_row_ids ?? [],
-    failed_pages: status.failed_pages ?? 0,
-  };
 }
 
 interface ImportSessionCreateOptions extends RequestOptions {
@@ -424,19 +361,16 @@ export function createImportSession(
     pathParams: { pid: projectId },
     body: { sheet_name: options.sheetName?.trim() || 'files' },
     signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 export function listImportSessions(
   projectId: string,
   options: RequestOptions = {},
-): Promise<ImportSessionList> {
+): Promise<HttpImportSessionList> {
   return httpContract('tenant.list_import_sessions.get', {
     pathParams: { pid: projectId }, signal: options.signal,
-  }, (wire): ImportSessionList => ({
-    ...wire,
-    sessions: wire.sessions.map(normalizeImportSession),
-  }));
+  });
 }
 
 export function getImportSession(
@@ -446,7 +380,7 @@ export function getImportSession(
 ): Promise<ImportSessionStatus> {
   return httpContract('tenant.get_import_session.get', {
     pathParams: { pid: projectId, ref: importRef }, signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 export function uploadImportSessionFiles(
@@ -470,28 +404,28 @@ export function uploadImportSessionFiles(
   return httpContract('tenant.upload_import_session_files.post', {
     pathParams: { pid: projectId, ref: importRef }, body,
     signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 export function sealImportSession(projectId: string, importRef: string, options: RequestOptions = {}) {
   return httpContract('tenant.seal_import_session.post', {
     pathParams: { pid: projectId, ref: importRef },
     signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 export function cancelImportSession(projectId: string, importRef: string, options: RequestOptions = {}) {
   return httpContract('tenant.cancel_import_session.post', {
     pathParams: { pid: projectId, ref: importRef },
     signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 export function resumeImportSession(projectId: string, importRef: string, options: RequestOptions = {}) {
   return httpContract('tenant.resume_import_session.post', {
     pathParams: { pid: projectId, ref: importRef },
     signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 export function resolveImportSession(
@@ -503,7 +437,7 @@ export function resolveImportSession(
   return httpContract('tenant.resolve_import_session.post', {
     pathParams: { pid: projectId, ref: importRef }, body: { decision },
     signal: options.signal,
-  }, normalizeImportSession);
+  });
 }
 
 /** Prices reading an import's failed pages again; the plan token names exactly those pages. */
@@ -531,7 +465,7 @@ export function retryImportPreparation(
   return httpContract('tenant.retry_import_preparation.post', {
     pathParams: { pid: projectId, ref: importRef },
     body: { plan_token: planToken, confirmation },
-  }, normalizeImportSession);
+  });
 }
 
 export async function uploadFilesToImportSession(

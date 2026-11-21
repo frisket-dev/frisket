@@ -109,7 +109,7 @@ describe('runtime plugin host assembly', () => {
       else if (kind === 'peek') render(<PluginPeekHost {...common} onDismiss={onDismiss} />);
       else if (kind === 'detail') render(<PluginDetailHost {...common} host="rowDetail" subject={subject} />);
       else render(<PluginMainViewHost {...common} descriptor={{ ...view(panel), ...(kind === 'projection' ? { projectionKind: 'timeline' } : {}) }}
-        projectId="project" queryRows={async () => ({ rows: [], total: 0 })} openRow={vi.fn()}
+        projectId="project" queryRows={async () => ({ rows: [], columns: [], total: 0 })} openRow={vi.fn()}
         projectionApi={projectionApi()} />);
 
       const frame = screen.getByTestId('workbench-contribution-plugin-test');
@@ -143,7 +143,7 @@ describe('runtime plugin host assembly', () => {
 
   it('keeps native gallery and timeline fallback instead of loading a runtime component', () => {
     const context = hostContext();
-    const common = { projectId: 'project', sheet, hostContext: context, queryRows: async () => ({ rows: [], total: 0 }), openRow: vi.fn() };
+    const common = { projectId: 'project', sheet, hostContext: context, queryRows: async () => ({ rows: [], columns: [], total: 0 }), openRow: vi.fn() };
     render(<PluginMainViewHost {...common} descriptor={IMAGE_GALLERY_VIEW_DESCRIPTOR} />);
     render(<PluginMainViewHost {...common} descriptor={{ ...view(descriptor()), runtimeComponent: undefined,
       componentKey: 'trustedLocal.demoTimeline.TimelineView', projectionKind: 'timeline' }} projectionApi={projectionApi()} />);

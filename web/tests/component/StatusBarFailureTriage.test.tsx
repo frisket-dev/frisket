@@ -16,7 +16,11 @@ import { installPopoverPolyfill } from '../support/domPolyfills';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 import type { RunProgress } from '../../src/api/types';
 const projectApi = createProjectApi('status-bar-failure-triage');
-vi.spyOn(projectApi, 'getRunRows').mockResolvedValue({ rows: [], total: 0 });
+vi.spyOn(projectApi, 'getRunRows').mockResolvedValue({
+  offset: 0, limit: 50, hasMore: false, nextOffset: null,
+  run: { id: 'run-1', actionKind: 'map.extract', actionName: 'Extract', status: 'done', totalRows: 0, completedRows: 0, failedRows: 0 },
+  rows: [], total: 0,
+});
 const { render } = createWorkspaceTestHarness({
   projectId: 'status-bar-failure-triage',
   api: { projectApi: projectApi },

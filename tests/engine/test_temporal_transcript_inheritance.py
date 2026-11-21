@@ -66,7 +66,8 @@ def _add_timestamped_transcript(
         [{"row_id": row_id, "column_id": column_id, "value": text}],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, column_id, run_id)
 
     spans = []
     for index, (start, end, quote) in enumerate(span_values):

@@ -1,5 +1,6 @@
 import './SettingsPrimitives.css';
 import { TextArea, TextInput } from '../components/FormControls';
+import { PanelSelect } from '../components/PanelSelect';
 import { useMemo, useState } from 'react';
 
 type McpServerEnvironmentValue =
@@ -287,18 +288,18 @@ export function McpServersSection({
               </label>
               <div>
                 <span>{entry.name ? titleCase(entry.name) : 'Project Secret'}</span>
-                <select aria-label={`${entry.name ? titleCase(entry.name) : 'Environment'} value kind`} value={entry.kind} onChange={(event) => updateEnv(index, { kind: event.currentTarget.value as EnvironmentDraft['kind'] })}>
+                <PanelSelect aria-label={`${entry.name ? titleCase(entry.name) : 'Environment'} value kind`} value={entry.kind} onChange={(event) => updateEnv(index, { kind: event.currentTarget.value as EnvironmentDraft['kind'] })}>
                   <option value="project_secret">Project Secret</option><option value="value">Literal value</option>
-                </select>
+                </PanelSelect>
                 {entry.kind === 'value' ? <TextInput aria-label={entry.name ? titleCase(entry.name) : 'Literal value'} value={entry.literalValue} onChange={(event) => updateEnv(index, { literalValue: event.currentTarget.value })} /> : (
-                <select
+                <PanelSelect
                   aria-label={entry.name ? titleCase(entry.name) : 'Project Secret'}
                   value={entry.projectSecret}
                   onChange={(event) => updateEnv(index, { projectSecret: event.currentTarget.value })}
                 >
                   <option value="">Select a Project Secret</option>
                   {projectSecrets.map((secret) => <option key={secret} value={secret}>{secret}</option>)}
-                </select>
+                </PanelSelect>
                 )}
               </div>
               <button type="button" aria-label={`Remove ${entry.name || 'environment variable'}`} onClick={() => updateForm({ env: form.env.filter((_, entryIndex) => entryIndex !== index) })}>Remove</button>

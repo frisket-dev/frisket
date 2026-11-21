@@ -21,7 +21,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as api from '../../src/api/open';
-import type { EngineOption, GeneratedActionRequest, RunEstimate, SheetMeta } from '../../src/api/types';
+import type { ActionParamResolution, EngineOption, GeneratedActionRequest, RunEstimate, SheetMeta } from '../../src/api/types';
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { chooseActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
@@ -66,7 +66,7 @@ const LANGUAGE_REQUIRED = 'invalid_language_selection';
 /** Mirrors the server's language rules: a no-auto engine (opus_mt) refuses
  *  an unset source language; otherwise translate resolves one translation
  *  output plus detected_language when the sidecar is requested. */
-const resolveTranslate: TypedResolveParams = async ({ params }) => {
+const resolveTranslate: TypedResolveParams = async ({ params }): Promise<ActionParamResolution> => {
   const engine = typeof params.engine === 'string' ? params.engine : 'llm';
   const language = Array.isArray(params.language) ? params.language : [];
   if (engine === 'opus_mt' && language.length === 0) {

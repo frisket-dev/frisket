@@ -38,8 +38,10 @@ class _FakeProject:
     def get_meta(self, key: str, default: str | None = None) -> str | None:
         return self.meta.get(key, default)
 
-    def set_meta(self, key: str, value: str, *, commit: bool = True) -> None:
-        del commit
+    def set_meta(self, key: str, value: str) -> None:
+        self.meta[key] = value
+
+    def set_meta_in_transaction(self, key: str, value: str) -> None:
         self.meta[key] = value
 
     @contextmanager

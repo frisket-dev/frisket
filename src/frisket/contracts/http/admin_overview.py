@@ -18,10 +18,10 @@ class AdminOverviewTotals(WireModel):
 
     orgs: int
     # These open-team counts are absent from the managed producer. Keeping the
-    # annotation non-null while defaulting to None makes each optional only by
-    # omission: exclude_unset preserves managed bytes and explicit null fails.
-    users: int = Field(default=None)
-    projects: int = Field(default=None)
+    # annotation non-null with a default makes each optional only by omission:
+    # exclude_unset preserves managed bytes and explicit null fails.
+    users: int = Field(default=0)
+    projects: int = Field(default=0)
     pending_invites: int
 
 

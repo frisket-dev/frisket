@@ -404,7 +404,7 @@ def test_ready_freshness_uses_bindings_without_rebuilding_payloads(
 @pytest.mark.parametrize(
     "statement",
     [
-        "UPDATE parts SET recipe_id='unexpected-recipe'",
+        "UPDATE parts SET slice_id='unexpected-slice'",
         "UPDATE representations SET space_id='unexpected-space'",
     ],
 )

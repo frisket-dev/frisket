@@ -89,19 +89,21 @@ def complete_extraction(
     )
     for name, field in output_fields.items():
         raw = response.root.get(name)
-        grounded = name in grounded_names and isinstance(raw, dict)
+        grounded_raw = raw if name in grounded_names and isinstance(raw, dict) else None
         value = normalize_extracted_value(
-            name, raw.get("value") if grounded else raw, dict(field.schema)
+            name,
+            grounded_raw.get("value") if grounded_raw is not None else raw,
+            dict(field.schema),
         )
         claims, warnings = [], []
-        if grounded:
-            raw_warnings = raw.get("warnings")
+        if grounded_raw is not None:
+            raw_warnings = grounded_raw.get("warnings")
             warnings = [
                 str(item)
                 for item in (raw_warnings if isinstance(raw_warnings, list) else [])
                 if item is not None
             ]
-            raw_citations = raw.get("evidence")
+            raw_citations = grounded_raw.get("evidence")
             citations = raw_citations if isinstance(raw_citations, list) else []
             entries = (
                 (

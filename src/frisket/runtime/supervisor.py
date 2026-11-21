@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+from typing import IO, Any
 
 from frisket.runtime.launch import PythonRuntime, optional_runtime_root
 from frisket.runtime._environment_use import LOCK_NAME
@@ -57,9 +58,9 @@ def guarded_argv(
 def spawn_service(
     argv: list[str],
     *,
-    stdin: int | None = None,
-    stdout: int | None = None,
-    stderr: int | None = None,
+    stdin: int | IO[Any] | None = None,
+    stdout: int | IO[Any] | None = None,
+    stderr: int | IO[Any] | None = None,
     env: dict[str, str] | None = None,
     runtime_root: Path | None = None,
     runtime_ready: bool = True,

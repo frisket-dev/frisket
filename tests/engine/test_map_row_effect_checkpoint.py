@@ -178,7 +178,7 @@ def test_resume_replays_returned_row_without_buying_it_again(
 
     # This is the exact vulnerable boundary: the adapter has returned,
     # but the normal result + provider-fact transaction has not begun.
-    first.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    first.run_store.write_results_in_transaction = die_before_result_commit  # type: ignore[method-assign]
     with pytest.raises(InjectedProcessDeath, match="after provider return"):
         asyncio.run(
             first.run(
@@ -310,7 +310,7 @@ def test_returned_checkpoint_accounts_spend_before_result_commit(
     def die_before_result_commit(*_args, **_kwargs) -> None:
         raise RuntimeError("after accounted provider return")
 
-    runner.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    runner.run_store.write_results_in_transaction = die_before_result_commit  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="after accounted provider return"):
         asyncio.run(
             runner.run(
@@ -374,7 +374,7 @@ def test_returned_checkpoint_replays_every_structured_wire_ordinal(
     def die_before_result_commit(*_args, **_kwargs) -> None:
         raise RuntimeError("after repaired provider return")
 
-    first.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    first.run_store.write_results_in_transaction = die_before_result_commit  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="after repaired provider return"):
         asyncio.run(
             first.run(
@@ -440,7 +440,7 @@ def test_identical_prompts_keep_distinct_row_effect_identities(
     def die_before_first_result(*_args, **_kwargs) -> None:
         raise RuntimeError("first identical row returned")
 
-    first.run_store.write_results = die_before_first_result  # type: ignore[method-assign]
+    first.run_store.write_results_in_transaction = die_before_first_result  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="first identical row returned"):
         asyncio.run(
             first.run(
@@ -820,7 +820,7 @@ def test_row_refresh_cannot_erase_unreconciled_external_effect(
     def die_before_result_commit(*_args, **_kwargs) -> None:
         raise RuntimeError("returned before refresh")
 
-    runner.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    runner.run_store.write_results_in_transaction = die_before_result_commit  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="returned before refresh"):
         asyncio.run(
             runner.run(

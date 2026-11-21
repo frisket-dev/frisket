@@ -513,7 +513,7 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
         def fail_insert(*args, **kwargs):
             raise RuntimeError("receipt unavailable")
 
-        monkeypatch.setattr(ReceiptStore, "insert_finished", fail_insert)
+        monkeypatch.setattr(ReceiptStore, "insert_finished_in_transaction", fail_insert)
         result = run_action_spec(
             project, _feed_poll_action(source_id=source_id), project_id=PROJECT_ID
         )

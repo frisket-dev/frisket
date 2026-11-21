@@ -117,11 +117,10 @@ def adopt_document_text_role(
     if writes:
         from .changes import close_change
 
-        adoption_op = project.append_change(
+        adoption_op = project.append_change_in_transaction(
             "document_text.adopt",
             {"source_column_id": source_column_id, "text_column_id": text_column_id},
             label="Adopt document text",
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             db, stage_id=f"op:{adoption_op}", op_id=adoption_op

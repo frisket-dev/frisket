@@ -164,11 +164,11 @@ def _publish(
         memberships.append(
             NamedDatasetMember("named:included", part_id, representation_id)
         )
-    store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+    store.begin_preparation(revision, slice_id="passages:v1", channel="text")
     assert store.publish_source(
         SourcePublication(
             source_revision=revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             parts=tuple(stored_parts),
             bindings=(
@@ -434,7 +434,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -449,7 +449,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
             PreparedPageDraft(2, "The council approved the bluewharf repair."),
         ),
     )
-    project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
+    project.add_rows_in_transaction(sheet, [{"body": prepared}], {"body": column})
     project.db.commit()
     drain_index(project)
 
@@ -491,7 +491,7 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
         {"File": file_column, "Notes": notes_column},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -870,7 +870,7 @@ def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
     )
     locator = SourceLocator("transcript_chunk", source_span_ids=("span:spoken",))
     with RetrievalStore(project).open() as store:
-        store.begin_preparation(source, recipe_id="transcript:v1", channel="transcript")
+        store.begin_preparation(source, slice_id="transcript:v1", channel="transcript")
         assert store.publish_source(
             SourcePublication(
                 source,
@@ -1081,11 +1081,11 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(
             native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
             3,
         )
-        store.begin_preparation(revision, recipe_id="row:v1", channel="row")
+        store.begin_preparation(revision, slice_id="row:v1", channel="row")
         assert store.publish_source(
             SourcePublication(
                 source_revision=revision,
-                recipe_id="row:v1",
+                slice_id="row:v1",
                 channel="row",
                 parts=(part,),
                 bindings=(
@@ -1409,11 +1409,11 @@ def test_semantic_group_aggregation_preserves_global_binding_counts_and_channels
         for channel in ("text", "transcript")
     )
     with RetrievalStore(project).open() as store:
-        store.begin_preparation(revision, recipe_id="ties:v1", channel="text")
+        store.begin_preparation(revision, slice_id="ties:v1", channel="text")
         assert store.publish_source(
             SourcePublication(
                 source_revision=revision,
-                recipe_id="ties:v1",
+                slice_id="ties:v1",
                 channel="text",
                 parts=parts,
                 bindings=(
@@ -1809,7 +1809,7 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
         link_role="primary_support",
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("import.pdf", commit=False)
+    op_id = project.append_change_in_transaction("import.pdf")
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
         producing_op_id=op_id,
@@ -1872,7 +1872,7 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     # prepared text result exists.
     drain_index(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.read_pdf_text", commit=False)
+    op_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -1933,13 +1933,13 @@ def test_coverage_includes_failed_channel_without_a_top_k_hit(make_project):
     with RetrievalStore(project).open() as store:
         store.begin_preparation(
             source,
-            recipe_id="transcript:v1",
+            slice_id="transcript:v1",
             channel="transcript",
             space_id="space:test",
         )
         assert store.fail_preparation(
             source,
-            recipe_id="transcript:v1",
+            slice_id="transcript:v1",
             channel="transcript",
             space_id="space:test",
             error_code="encoder_failed",
@@ -1989,7 +1989,7 @@ def test_coverage_respects_preparation_channel_and_space(
     )
     with RetrievalStore(project) as store:
         store.begin_preparation(
-            source, recipe_id="pending:v1", channel=channel, space_id=space_id
+            source, slice_id="pending:v1", channel=channel, space_id=space_id
         )
     response = search(
         project,
@@ -2018,11 +2018,11 @@ def test_unavailable_work_in_ready_channel_is_partial(make_project):
     )
     with RetrievalStore(project) as store:
         store.begin_preparation(
-            source, recipe_id="optional:v1", channel="text", space_id="space:test"
+            source, slice_id="optional:v1", channel="text", space_id="space:test"
         )
         store.mark_preparation_unavailable(
             source,
-            recipe_id="optional:v1",
+            slice_id="optional:v1",
             channel="text",
             space_id="space:test",
             reason="missing_runtime",

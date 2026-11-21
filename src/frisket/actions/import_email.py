@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -62,7 +61,7 @@ def import_email(
                     attachment_dir=Path(scratch),
                     warnings=warnings,
                 )
-                with closing(parsed):
+                try:
                     for message in parsed:
                         attachments = []
                         for attachment in message.attachments:
@@ -81,6 +80,10 @@ def import_email(
                         values["attachments"] = attachments
                         found = True
                         yield TableRow(output=EmailRow.model_validate(values))
+                finally:
+                    close = getattr(parsed, "close", None)
+                    if callable(close):
+                        close()
         if not found:
             raise TableError("email_parse_failed", "no valid email messages were found")
 

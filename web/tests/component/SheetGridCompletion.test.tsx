@@ -72,7 +72,7 @@ it('keeps streamed results, canvas, selection and scroll visible while completio
   expect(view.getByTestId('grid')).toBe(host);
   expect(view.queryByTestId('grid-data-loading')).toBeNull();
   expect(editor.props?.getCellContent([0, 0])).toMatchObject({ data: 'Streamed result' });
-  expect(editor.props?.gridSelection.current?.cell).toEqual([0, 0]);
+  expect(editor.props?.gridSelection?.current?.cell).toEqual([0, 0]);
   expect(view.getByTestId('canvas-scroller')).toBe(scroller);
   expect(scroller.scrollTop).toBe(320);
   expect(editor.mounts).toBe(1);
@@ -80,7 +80,7 @@ it('keeps streamed results, canvas, selection and scroll visible while completio
   await act(async () => publishFinal({ columns: sheet.columns, total: 1, rows: [row({ answer: 'Final result' })] }));
   await waitFor(() => expect(editor.props?.getCellContent([0, 0])).toMatchObject({ data: 'Final result' }));
   expect(view.queryByTestId('grid-data-loading')).toBeNull();
-  expect(editor.props?.gridSelection.current?.cell).toEqual([0, 0]);
+  expect(editor.props?.gridSelection?.current?.cell).toEqual([0, 0]);
   expect(editor.mounts).toBe(1);
 });
 

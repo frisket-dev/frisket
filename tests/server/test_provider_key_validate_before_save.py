@@ -7,10 +7,8 @@ nothing, and existing configured keys can be probed without exposing values.
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from frisket.server import provider_config
-from frisket.server.app import create_app
+from helpers import make_client
 
 
 def _probe_stub(monkeypatch):
@@ -35,7 +33,7 @@ def test_local_provider_key_save_requires_successful_validation(
     tmp_path, monkeypatch
 ) -> None:
     _probe_stub(monkeypatch)
-    client = TestClient(create_app(tmp_path / "ws"))
+    client = make_client(tmp_path)
 
     direct = client.put("/api/providers/keys/openai", json={"key": "sk-direct-valid"})
     assert direct.status_code == 400

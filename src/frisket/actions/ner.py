@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, ClassVar, TypeAlias
 
 from pydantic import BaseModel, Field, StrictStr, field_validator, model_validator
@@ -144,8 +145,11 @@ class NerModelOutput(BaseModel):
     entities: list[EntityModelValue]
 
 
-def normalize_ner_output(raw: list[dict[str, Any]]) -> NerOutput:
-    return NerOutput(entities=canonicalize_entities(raw))
+def normalize_ner_output(raw: Sequence[Mapping[str, Any]]) -> NerOutput:
+    entities = canonicalize_entities(
+        [dict(item) for item in raw if isinstance(item, Mapping)]
+    )
+    return NerOutput.model_validate({"entities": entities})
 
 
 def ner_prompt(params: NerParams, row: Row) -> ModelPrompt[NerModelOutput]:

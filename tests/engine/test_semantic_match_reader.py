@@ -379,7 +379,7 @@ def test_late_receipt_failure_rolls_back_table_and_both_memberships(
     def fail(*args, **kwargs):
         raise RuntimeError("injected receipt write failure")
 
-    monkeypatch.setattr(ReceiptStore, "insert", fail)
+    monkeypatch.setattr(ReceiptStore, "insert_in_transaction", fail)
     result = _run(project, _derive_link_action(seed["join_receipt_id"]))
     assert result.status == "failed"
     assert _counts(project) == before

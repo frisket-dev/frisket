@@ -668,7 +668,7 @@ def test_refresh_does_not_set_receipt_id_when_receipt_fails(project, monkeypatch
 
     # Run-bearing refresh receipt insertion now belongs to the shared
     # terminal kernel; inject at the durable store seam it calls.
-    monkeypatch.setattr(fam.ReceiptStore, "insert", boom)
+    monkeypatch.setattr(fam.ReceiptStore, "insert_in_transaction", boom)
     result = _run(project, _refresh_action(index_id), gateway=FakeGateway())
     assert result.status == "failed"
     assert result.errors[0].code == "project_write_failed"

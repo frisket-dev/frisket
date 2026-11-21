@@ -24,7 +24,7 @@ const requests = [
   { action_id: 'join.semantic', params: semantic },
 ].map((request) => ({
   ...request,
-  scope: { kind: 'sheet_rows', sheet_id: 1 },
+  scope: { kind: 'sheet_rows' as const, sheet_id: 1 },
   sheet_name: 'Discovery',
 }));
 const root = resolve(process.cwd(), '..');
@@ -95,7 +95,7 @@ it('renders actual semantic child source/carry keys alongside the shared match o
   expect(schemas[2].logical_outputs.map(({ key }) => key)).toEqual([
     'match_value', 'match_score', 'matched_row_id', 'source', 'carry.state',
   ]);
-  const view = renderJoinForm({ initialDraft: { ...requests[2], sheet_name: 'Matches' },
+  const view = renderJoinForm({ initialDraft: { ...requests[2], sheet_name: 'Matches', output_names: {} },
     resolveParams: async () => schemas[2] }, 'join.semantic');
   await ready();
   fireEvent.change(screen.getByTestId('field-output-source'), { target: { value: 'Original city' } });
@@ -106,7 +106,7 @@ it('renders actual semantic child source/carry keys alongside the shared match o
 
 it('does not carry a transient custom editor problem into another generated action', async () => {
   joinApi.listSheets.mockReturnValueOnce(new Promise(() => {}));
-  const view = open({ ...requests[0], sheet_name: 'Joined' });
+  const view = open({ ...requests[0], sheet_name: 'Joined', output_names: {} });
   expect(screen.getByTestId('generated-editor-problem')).toHaveTextContent('Loading');
   const raw = servedActionCatalog().actions.find((entry) => entry.kind === 'map.regex_extract')!;
   if (!isGeneratedActionCatalogEntry(raw)) throw new Error('Missing generated regex');

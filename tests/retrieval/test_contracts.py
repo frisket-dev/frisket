@@ -68,7 +68,7 @@ def part() -> IndexedPart:
     return IndexedPart(
         part_id="part:transcript:2",
         source=source(),
-        producer_recipe_id="recipe:transcript-passages:v1",
+        producer_slice_id="recipe:transcript-passages:v1",
         part_kind="transcript_passage",
         locator=locator(),
     )
@@ -252,7 +252,7 @@ def test_result_keeps_selected_binding_location_and_method_scores() -> None:
                 ChannelCoverage(
                     channel="transcript_text",
                     state="ready",
-                    recipe_id="recipe:transcript-passages:v1",
+                    slice_id="recipe:transcript-passages:v1",
                 ),
             ),
         ),
@@ -269,7 +269,7 @@ def test_coverage_accepts_only_cheap_optional_maintenance_counts() -> None:
     coverage = ChannelCoverage(
         channel="video_frames",
         state="pending",
-        recipe_id="recipe:frames:periodic-v1",
+        slice_id="recipe:frames:periodic-v1",
         eligible_count=10,
         prepared_count=4,
         failed_count=1,

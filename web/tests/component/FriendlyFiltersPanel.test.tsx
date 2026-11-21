@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FriendlyFiltersPanel } from '../../src/components/FriendlyFiltersPanel';
-import type { ColumnValuesPreview, SheetMeta } from '../../src/api/open';
+import type { ColumnValuesPreview, GridFilterSpec, SheetMeta } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -867,13 +867,14 @@ describe('FriendlyFiltersPanel', () => {
     const view = render(<FriendlyFiltersPanel {...props} />);
     const amount = within(screen.getByTestId('friendly-facet-amount'));
     await amount.findByTestId('facet-range-start-amount');
-    for (const condition of [
+    const conditions: Array<GridFilterSpec | null> = [
       { status: { eq: 'Planning' } },
       { status: { in: ['Planning', 'Housing'] } },
       null,
       { amount: { between: { start: '20', end: '80' } } },
       null,
-    ]) {
+    ];
+    for (const condition of conditions) {
       view.rerender(<FriendlyFiltersPanel {...props} gridFilter={condition} />);
       fireEvent.click(screen.getByTestId('facets-refresh'));
       await waitFor(() => {

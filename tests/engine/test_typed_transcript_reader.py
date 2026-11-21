@@ -645,7 +645,9 @@ def test_completion_cas_loss_rolls_back_projection_and_keeps_reservation(
     before = _counts(project)
     prior = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
     monkeypatch.setattr(
-        ReceiptStore, "update_body_status", lambda *_args, **_kwargs: False
+        ReceiptStore,
+        "update_body_status_in_transaction",
+        lambda *_args, **_kwargs: False,
     )
     with pytest.raises(ActionJobTerminalizationError, match="completion did not land"):
         run_typed_table_action_job(project, envelope, execution=STANDALONE)

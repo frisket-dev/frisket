@@ -16,6 +16,7 @@ from http_test_helpers import (
     post_review_decision_as_v1_action,
     post_row_add_as_v1_action,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_sheet(client: TestClient) -> tuple[str, int]:
@@ -49,7 +50,8 @@ def _seed_generated_column(client: TestClient, pid: str, sheet_id: int) -> int:
         [{"row_id": source_row_id, "column_id": col_id, "value": "done"}],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, col_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, col_id, run_id)
     return col_id
 
 

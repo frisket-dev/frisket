@@ -106,6 +106,8 @@ describe('the estimate endpoint projection', () => {
     const projected = runEstimateFromV1Wire({
       rows: 4,
       cost: null,
+      billed_cost: null,
+      policy_id: 'free_public_api',
       cost_source: 'free_public_api',
     });
 
@@ -114,7 +116,16 @@ describe('the estimate endpoint projection', () => {
   });
 
   it('preserves absence so the selector can refuse an incomplete verdict', () => {
-    const projected = runEstimateFromV1Wire({ rows: 1, cost: 0.11 });
+    const incomplete = {
+      rows: 1,
+      cost: 0.11,
+      billed_cost: null,
+      policy_id: 'acme.v1',
+      cost_source: 'commercial_offering',
+    };
+    Reflect.deleteProperty(incomplete, 'billed_cost');
+    Reflect.deleteProperty(incomplete, 'policy_id');
+    const projected = runEstimateFromV1Wire(incomplete);
     expect(projected.billed_cost).toBeUndefined();
     expect(projected.policy_id).toBeUndefined();
     expect(estimatedCost(projected)).toEqual({ usd: null, refused: true });
@@ -126,6 +137,7 @@ describe('the estimate endpoint projection', () => {
       cost: 0.11,
       billed_cost: null,
       policy_id: 'acme.cost_plus.v1',
+      cost_source: 'commercial_offering',
     });
     expect(estimatedCost(projected)).toEqual({ usd: null, refused: true });
   });

@@ -891,6 +891,15 @@ def route_row_by_id(db: sqlite3.Connection, route_id: str) -> RouteRow | None:
 # ---------- shared low-level writers (usable under any transaction) ----------
 
 
+def _target_cloud_payer(
+    target_snapshot: Mapping[str, object],
+) -> Mapping[str, Any] | None:
+    cloud_payer = target_snapshot.get("cloud_payer")
+    if cloud_payer is not None and not isinstance(cloud_payer, Mapping):
+        raise RouteStoreError("target_snapshot cloud_payer must be a mapping")
+    return cloud_payer
+
+
 def _append_route_cas(
     db: sqlite3.Connection,
     *,
@@ -964,7 +973,7 @@ def _append_route_cas(
         region=region,
         credential_source=credential_source,
         cost_posture=cost_posture,
-        cloud_payer=target_snapshot.get("cloud_payer"),
+        cloud_payer=_target_cloud_payer(target_snapshot),
     )
 
     def _reusable_successor() -> RouteRow | None:
@@ -1347,11 +1356,10 @@ def instance_principal(project: Any) -> str:
     )
     cached = project.get_meta(INSTANCE_PRINCIPAL_META_KEY)
     if cached != principal:
-        project.set_meta(
-            INSTANCE_PRINCIPAL_META_KEY,
-            principal,
-            commit=not project.db.in_transaction,
-        )
+        if project.db.in_transaction:
+            project.set_meta_in_transaction(INSTANCE_PRINCIPAL_META_KEY, principal)
+        else:
+            project.set_meta(INSTANCE_PRINCIPAL_META_KEY, principal)
     return principal
 
 

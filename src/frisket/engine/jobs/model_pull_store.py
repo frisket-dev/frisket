@@ -358,7 +358,8 @@ def list_recent(
             .order_by(active_first, c.id.desc())
             .limit(limit)
         ).fetchall()
-    return [_read_repair(engine, _row(r), persist=persist) for r in rows]
+    repaired = (_read_repair(engine, _row(r), persist=persist) for r in rows)
+    return [item for item in repaired if item is not None]
 
 
 class ModelPullBusyError(RuntimeError):

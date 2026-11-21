@@ -13,6 +13,7 @@ from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import ActionContext, ActionProgram
 from runner_test_helpers import run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 
 class _EvidenceBatchProgram(ActionProgram):
@@ -201,7 +202,8 @@ def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
     source = next(
         column["id"] for column in project.columns(sheet) if column["name"] == "source"
     )
-    project.set_column_type(source, "integer")
+    with write_transaction(project.db):
+        project.set_column_type(source, "integer")
     calls = []
 
     async def never_dispatch(*args, **kwargs):

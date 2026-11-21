@@ -25,13 +25,14 @@ async def ocr_sidecar(engine: str, pages: list[Path], ctx: ActionContext) -> lis
     files = [("files", (p.name, p.read_bytes(), "image/png")) for p in pages]
     admission = routed_admission_in_scope(ctx.extras)
     preview = preview_resolution_in_scope(ctx.extras)
-    if admission is None and preview is None:
+    if admission is not None:
+        connection = admission.binding.connection
+    elif preview is not None:
+        connection = preview.connection
+    else:
         raise ActionProgramInvocationHalt(
             "promise_violation", "OCR gateway requires its admitted route"
         )
-    connection = (
-        admission.binding.connection if admission is not None else preview.connection
-    )
     body = await sidecar_post(
         ctx,
         "/ocr",

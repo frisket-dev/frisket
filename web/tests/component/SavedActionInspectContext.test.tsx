@@ -112,10 +112,14 @@ const SHEET = sheetMeta([
 
 let stores: WorkspaceStores | null = null;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function exampleParams(kind: string): Record<string, unknown> {
   const entry = CATALOG.actions.find((candidate) => candidate.kind === kind);
   const params = entry?.examples[0]?.params;
-  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+  if (!isRecord(params)) {
     throw new Error(`Missing example params for ${kind}`);
   }
   return structuredClone(params);

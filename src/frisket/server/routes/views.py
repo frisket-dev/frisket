@@ -21,7 +21,12 @@ _VIEW_ERRORS = (400, 401, 403, 404, 409, 422, 500)
 
 def register_view_routes(app: FastAPI, *, service: ViewService) -> None:
     register_typed_error(app, ViewNotFound, 404, "view not found")
-    register_typed_error(app, ViewRequestError, 400, lambda exc: exc.detail())
+    register_typed_error(
+        app,
+        ViewRequestError,
+        400,
+        lambda exc: exc.detail() if isinstance(exc, ViewRequestError) else str(exc),
+    )
 
     @app.get(
         "/api/projects/{pid}/views",

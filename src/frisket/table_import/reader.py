@@ -15,6 +15,7 @@ from .models import (
     RawRow,
     PrefixRead,
     RowIssue,
+    RowRole,
     SourceColumn,
     SourceKind,
     TableReadSettings,
@@ -235,7 +236,7 @@ class _ConfiguredTableReader(TableReader):
         role = self._role(row)
         return TableRow(role, row, tuple(cells), tuple(extras), tuple(issues))
 
-    def _role(self, row: RawRow) -> str:
+    def _role(self, row: RawRow) -> RowRole:
         ordinal = row.record_ordinal
         if ordinal <= self._settings.skip_rows_start:
             return "skipped_start"

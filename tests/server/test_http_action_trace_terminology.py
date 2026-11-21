@@ -4,10 +4,8 @@ from model_doubles import canned_reply_router
 
 import json
 
-from fastapi.testclient import TestClient
-
 from frisket.contracts.action import ActionResult
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
 
 
@@ -32,9 +30,7 @@ _REPLY = {"beat": "civic"}
 
 
 def test_action_run_trace_uses_action_metadata_without_recipe_bridge(tmp_path) -> None:
-    client = TestClient(
-        create_app(tmp_path / "ws", router=canned_reply_router(_REPLY)[0])
-    )
+    client = make_client(tmp_path, router=canned_reply_router(_REPLY)[0])
     project_id = client.post("/api/projects", json={"name": "Trace v1"}).json()["id"]
     imported = client.post(
         f"/api/projects/{project_id}/import/csv",

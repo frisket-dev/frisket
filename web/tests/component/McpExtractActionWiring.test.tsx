@@ -35,17 +35,6 @@ const servers = [
 ];
 
 describe('Tool-assisted Extract MCP wiring', () => {
-  // PRODUCT BUG (left red on purpose): a FRESH map.mcp_extract form crashes on
-  // mount with `TypeError: mcpServerIds.filter is not a function`.
-  // GeneratedActionForm.initialParams
-  // (web/src/components/action-panel/GeneratedActionForm.tsx:216-218) seeds
-  // a param whose schema is a bare `$ref` (McpServers) as `''` because it
-  // reads `schema.type` off the unresolved property, and
-  // McpExtractParamsBody (ExtractParamsBody.tsx:94) forwards that string as
-  // `mcpServerIds`. Reachable from the launcher: DeriveActionForm passes a
-  // fresh launch (no initialDraft) straight through. Smallest repair: add
-  // `mcp_server_ids: []` to the 'map.mcp_extract' customization's
-  // initialParams (generatedActionCustomizations.tsx:292).
   it('loads enabled servers, saves stable mcp_server_ids into the run, and never exposes tool ids', async () => {
     const user = userEvent.setup();
     const mounted = mountTypedForm({ kind: 'map.mcp_extract', sheet: sheet(), listMcpServers: servers });

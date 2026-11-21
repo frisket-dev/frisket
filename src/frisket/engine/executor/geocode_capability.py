@@ -154,6 +154,11 @@ class AdmittedGeocoder:
                         "promise_violation",
                         "OpenCage credential is unavailable; review and re-consent",
                     )
+                if ctx.credential_use_context is None:
+                    raise ActionProgramInvocationHalt(
+                        "promise_violation",
+                        "OpenCage credential context is unavailable; review and re-consent",
+                    )
                 try:
                     require_consented_credential(
                         cost_posture=admission.route.cost_posture,
@@ -508,7 +513,11 @@ class AdmittedGeocoder:
                 )
             except (PurchaseRecordingError, asyncio.CancelledError) as error:
                 if getattr(error, "observation", None) is not None:
-                    error.accounting = self.accounting_by_row[ctx.extras["row_id"]]
+                    setattr(
+                        error,
+                        "accounting",
+                        self.accounting_by_row[ctx.extras["row_id"]],
+                    )
                 raise
             if resp.status_code != 429:
                 break

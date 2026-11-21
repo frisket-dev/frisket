@@ -649,7 +649,7 @@ def _export_error(exc: ExportError, action_kind: str) -> ActionError:
         message=exc.message,
         action_kind=action_kind,
         field=exc.field,
-        details=exc.details or None,
+        details=dict(exc.details or {}),
     )
 
 
@@ -658,7 +658,7 @@ def _dataset_error(exc: DatasetFormatError, action_kind: str) -> ActionError:
         code=exc.code,
         message=exc.message,
         action_kind=action_kind,
-        details=exc.details or None,
+        details=dict(exc.details or {}),
     )
 
 
@@ -1758,7 +1758,7 @@ def _export_error_to_action_error(exc: ExportError, action_kind: str) -> ActionE
         message=exc.message,
         action_kind=action_kind,
         field=exc.field,
-        details=exc.details or None,
+        details=dict(exc.details or {}),
     )
 
 

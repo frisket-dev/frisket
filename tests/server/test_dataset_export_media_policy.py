@@ -7,16 +7,13 @@ blobs table. No blob bytes, base64, or local filesystem paths are exported.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.exports.plan import build_sheet_export_plan, iter_export_row_batches
 from frisket.exports.rowset import ExportError
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
-from frisket.server.app import create_app
 
 MEDIA_SIBLINGS = [
     "media.blob",
@@ -32,8 +29,7 @@ MEDIA_SIBLINGS = [
 ]
 
 
-def _project(tmp_path: Path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def _project(client):
     pid = client.post("/api/projects", json={"name": "Media"}).json()["id"]
     return client.app.state.workspace.get(pid)
 
@@ -59,8 +55,8 @@ def _add_audio_blob(project) -> tuple[str, bytes]:
     return digest, data
 
 
-def test_audio_media_cell_exports_fixed_reference_columns(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_audio_media_cell_exports_fixed_reference_columns(client) -> None:
+    project = _project(client)
     sheet_id = project.add_sheet("clips")
     cols = {
         "title": project.add_column(sheet_id, "title"),
@@ -86,8 +82,8 @@ def test_audio_media_cell_exports_fixed_reference_columns(tmp_path: Path) -> Non
         assert str(path) not in {str(v) for v in row.values()}
 
 
-def test_sparse_media_cell_enriches_from_blobs(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_sparse_media_cell_enriches_from_blobs(client) -> None:
+    project = _project(client)
     sheet_id = project.add_sheet("clips")
     cols = {"media": project.add_column(sheet_id, "media", type="audio")}
     digest, data = _add_audio_blob(project)
@@ -103,8 +99,8 @@ def test_sparse_media_cell_enriches_from_blobs(tmp_path: Path) -> None:
     assert row["media.source_url"] == "https://example.org/clip.mp3"
 
 
-def test_pdf_page_references_remain_distinct_in_exports(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_pdf_page_references_remain_distinct_in_exports(client) -> None:
+    project = _project(client)
     sheet_id = project.add_sheet("pages")
     cols = {"media": project.add_column(sheet_id, "media", type="file")}
     digest = project.add_blob(
@@ -131,8 +127,8 @@ def test_pdf_page_references_remain_distinct_in_exports(tmp_path: Path) -> None:
     assert {row["media.pages"] for row in rows} == {2}
 
 
-def test_url_string_media_cell_uses_source_url(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_url_string_media_cell_uses_source_url(client) -> None:
+    project = _project(client)
     sheet_id = project.add_sheet("pics")
     cols = {"media": project.add_column(sheet_id, "media", type="image")}
     project.add_rows(sheet_id, [{"media": "https://example.org/p.png"}], cols)
@@ -144,8 +140,8 @@ def test_url_string_media_cell_uses_source_url(tmp_path: Path) -> None:
     assert row["media.blob"] is None
 
 
-def test_media_sibling_collision_with_user_column_fails(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_media_sibling_collision_with_user_column_fails(client) -> None:
+    project = _project(client)
     sheet_id = project.add_sheet("clips")
     # a user column literally named "media.blob" collides with the generated sibling
     project.add_column(sheet_id, "media", type="audio")
@@ -157,8 +153,8 @@ def test_media_sibling_collision_with_user_column_fails(tmp_path: Path) -> None:
     assert excinfo.value.details.get("name") == "media.blob"
 
 
-def test_media_policy_omit_drops_media_columns(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_media_policy_omit_drops_media_columns(client) -> None:
+    project = _project(client)
     sheet_id = project.add_sheet("clips")
     cols = {
         "title": project.add_column(sheet_id, "title"),

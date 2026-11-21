@@ -533,7 +533,7 @@ def _sidecar_has_index_rows(project: Project, index_id: str) -> bool:
 
 
 def _insert_receipt(project: Project, receipt: Receipt) -> None:
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
 
 
 def _resolve_modality(modality: str) -> str:
@@ -1546,10 +1546,9 @@ def _mark_embedding_probe_egress_reserved(
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        landed = ReceiptStore(project).update_body_status(
+        landed = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not landed:
             raise RuntimeError("embedding probe reservation was lost before egress")
@@ -1653,16 +1652,15 @@ def _run_paid_embedding_dimension_probe(
         )
     except Exception:
         with write_transaction(project.db):
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
             set_attempt_state(project, attempt_id, "halted", commit=False)
-            ReceiptStore(project).delete_running(receipt_id, commit=False)
+            ReceiptStore(project).delete_running_in_transaction(receipt_id)
         return _error(
             action,
             project_id,
@@ -1687,11 +1685,10 @@ def _run_paid_embedding_dimension_probe(
         project.db.rollback()
         project.db.execute("BEGIN IMMEDIATE")
         try:
-            run_store.request_cancel(run_id, commit=False)
-            run_store.finish_run(
+            run_store.request_cancel_in_transaction(run_id)
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled",
-                commit=False,
                 rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
@@ -1704,16 +1701,15 @@ def _run_paid_embedding_dimension_probe(
         raise
     except EmbeddingBackendUnavailable as exc:
         with write_transaction(project.db):
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
             set_attempt_state(project, attempt_id, "halted", commit=False)
-            ReceiptStore(project).delete_running(receipt_id, commit=False)
+            ReceiptStore(project).delete_running_in_transaction(receipt_id)
         return _error(
             action,
             project_id,
@@ -1793,10 +1789,9 @@ def _run_paid_embedding_dimension_probe(
                 claimless_direct_effect=True,
                 authorized_attempt_id=attempt_id,
             )
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
@@ -1874,8 +1869,8 @@ def _run_paid_embedding_dimension_probe(
             claimless_direct_effect=True,
             authorized_attempt_id=attempt_id,
         )
-        landed = ReceiptStore(project).update_body_status(
-            checkpoint_receipt, require_status="running", commit=False
+        landed = ReceiptStore(project).update_body_status_in_transaction(
+            checkpoint_receipt, require_status="running"
         )
         if not landed:
             raise RuntimeError("embedding probe reservation was lost")
@@ -1893,10 +1888,9 @@ def _run_paid_embedding_dimension_probe(
                 raise RuntimeError(
                     "embedding probe run changed before returned-effect settlement"
                 )
-        run_store.finish_run(
+        run_store.finish_run_in_transaction(
             run_id,
             "cancelled" if cancelled_after_return else "completed",
-            commit=False,
             rebuild_review_stats=False,
             writer_attempt_id=attempt_id,
             claimless_direct_effect=True,
@@ -1928,10 +1922,9 @@ def _run_paid_embedding_dimension_probe(
                 authorized_attempt_id=attempt_id,
             )
             project.db.execute("BEGIN IMMEDIATE")
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
@@ -2366,8 +2359,8 @@ def _create_index(
             ],
         )
         if reserved_receipt_id is not None:
-            landed = ReceiptStore(project).update_body_status(
-                receipt, require_status="running", commit=False
+            landed = ReceiptStore(project).update_body_status_in_transaction(
+                receipt, require_status="running"
             )
             if not landed:
                 raise RuntimeError("embedding probe reservation was lost")
@@ -2390,8 +2383,8 @@ def _create_index(
                     raise RuntimeError(
                         "embedding probe run disappeared or changed scope before completion"
                     )
-                probe_run_store.finish_run(
-                    probe_run_id, "completed", commit=False, rebuild_review_stats=False
+                probe_run_store.finish_run_in_transaction(
+                    probe_run_id, "completed", rebuild_review_stats=False
                 )
         project.db.commit()
     except BaseException as exc:
@@ -3272,7 +3265,7 @@ def _do_refresh(
                 # Retire the batch checkpoint in the SAME transaction as the
                 # terminal receipt: the refresh can never finalize while
                 # replay authority survives, and a rollback keeps both.
-                checkpoint_store.consume_and_retire(
+                checkpoint_store.consume_and_retire_in_transaction(
                     effect_unit["checkpoint_id"],
                     family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
                     group_key=str(params.index_id),
@@ -3282,7 +3275,6 @@ def _do_refresh(
                     run_id=run_id,
                     writer_attempt_id=attempt_id,
                     claimless_direct_effect=True,
-                    commit=False,
                 )
             if run_id is not None:
                 assert attempt_id is not None
@@ -3372,7 +3364,7 @@ def _do_refresh(
                     # must not be relabeled failure or leave an open transaction.
                     project.db.execute("BEGIN IMMEDIATE")
                     try:
-                        run_store.finish_run(
+                        run_store.finish_run_in_transaction(
                             run_id,
                             "cancelled"
                             if run_store.cancellation_requested(run_id)
@@ -3383,7 +3375,6 @@ def _do_refresh(
                             claimless_direct_effect=bool(
                                 attempt_id and not attempt_closed
                             ),
-                            commit=False,
                             rebuild_review_stats=False,
                         )
                         if attempt_id is not None and not attempt_closed:

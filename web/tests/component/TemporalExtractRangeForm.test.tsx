@@ -76,7 +76,7 @@ it('output discovery and renaming do not change acknowledged literal repetition'
 });
 
 it('reopens saved repetition unchecked and requires explicit canonical acknowledgement', async () => {
-  render(<Harness value={{ ...initial, selection: { ...initial.selection, repeat_for_rows: true } }} />);
+  render(<Harness value={{ ...initial, selection: { kind: 'draft_range', start_ms: 10_000, end_ms: 20_000, repeat_for_rows: true } }} />);
   expect(screen.getByTestId('extract-range-batch-confirm')).not.toBeChecked();
   await userEvent.click(screen.getByTestId('extract-range-batch-confirm'));
   expect(current().selection).toMatchObject({ repeat_for_rows: true });
@@ -106,7 +106,7 @@ it('uses only single-range columns and never retargets missing saved selection',
 });
 
 it('does not claim all-row literal scope but explains all-row column selection', async () => {
-  render(<Harness context={{ scope: { kind: 'sheet_rows', sheet_id: 7 } }} />);
+  render(<Harness context={{ scope: { kind: 'sheet_rows', sheet_id: 7 }, output_names: {} }} />);
   expect(screen.getByTestId('extract-range-row-required')).toBeInTheDocument();
   await userEvent.click(screen.getByTestId('extract-range-selection-column'));
   expect(screen.queryByTestId('extract-range-row-required')).toBeNull();

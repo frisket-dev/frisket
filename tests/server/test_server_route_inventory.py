@@ -2,16 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
-from pathlib import Path
 
 from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
-
-def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspace"))
 
 
 def _api_route_inventory(app) -> list[tuple[list[str], str, str]]:
@@ -123,7 +115,7 @@ def test_route_overlap_inventory_allows_same_path_with_disjoint_methods():
     )
 
 
-def test_no_order_sensitive_route_overlaps(tmp_path):
+def test_no_order_sensitive_route_overlaps(client):
     """No two /api routes should ever ambiguously match the same URL+method.
 
     FastAPI/Starlette resolves routes in REGISTRATION order, so if two
@@ -135,14 +127,13 @@ def test_no_order_sensitive_route_overlaps(tmp_path):
     an explicit relative-order pin scoped to just that pair -- not a
     full-list route-order transcript (deleted 2026-07-19, rule 19).
     """
-    app = create_app(tmp_path / "workspace")
-    conflicts = _overlapping_same_method_route_pairs(_api_route_inventory(app))
+    conflicts = _overlapping_same_method_route_pairs(_api_route_inventory(client.app))
 
     assert conflicts == [], f"order-sensitive route overlaps found: {conflicts}"
 
 
-def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
-    app = create_app(tmp_path / "workspace")
+def test_route_inventory_captures_query_aliases_and_defaults(client):
+    app = client.app
 
     assert _query_defaults(
         _route(app, "/api/projects/{pid}/sheets/{sheet_id}/data")
@@ -180,8 +171,7 @@ def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
     }
 
 
-def test_inventory_captures_download_blob_and_import_headers(tmp_path):
-    client = _client(tmp_path)
+def test_inventory_captures_download_blob_and_import_headers(client):
     pid = client.post("/api/projects", json={"name": "Inventory"}).json()["id"]
     imported = client.post(
         f"/api/projects/{pid}/import/csv",

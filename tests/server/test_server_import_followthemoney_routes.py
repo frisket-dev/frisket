@@ -7,16 +7,15 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.actions.entity_package_types import ImportedEntityDataset
 from frisket.authoring.plugin_registry import _reset_default_registry_for_tests
 from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.server.app import create_app
 from frisket.server.services import action_runs
 from frisket.server.services.action_runs import ActionRunResponse, ActionRunService
+from helpers import make_client
 
 
 def test_upload_route_forwards_verified_borrowed_source_and_preserves_refusal(
@@ -52,7 +51,7 @@ def test_upload_route_forwards_verified_borrowed_source_and_preserves_refusal(
         )
 
     monkeypatch.setattr(ActionRunService, "run_action", observe)
-    client = TestClient(create_app(tmp_path / "workspace"))
+    client = make_client(tmp_path)
     project_id = client.post("/api/projects", json={"name": "Upload"}).json()["id"]
     for filename in ("case.jsonl", "renamed.jsonl"):
         response = client.post(
@@ -64,7 +63,7 @@ def test_upload_route_forwards_verified_borrowed_source_and_preserves_refusal(
         assert response.json()["errors"][0]["code"] == "not_enabled"
         assert requests[-1][1].closed
     assert requests[0][0] == requests[1][0]
-    assert not (tmp_path / "workspace" / ".v1_import_uploads").exists()
+    assert not (client.app.state.workspace.root / ".v1_import_uploads").exists()
     operation = client.get("/openapi.json").json()["paths"][
         "/api/projects/{pid}/import/followthemoney"
     ]["post"]
@@ -86,8 +85,8 @@ def test_normal_action_service_preserves_request_dependencies_and_admitted_sourc
         calls.append((project_id, request))
         return ExecutorDeps(cancelled=cancelled)
 
-    app = create_app(tmp_path / "workspace", executor_deps_factory=factory)
-    client = TestClient(app)
+    client = make_client(tmp_path, executor_deps_factory=factory)
+    app = client.app
     project_id = client.post("/api/projects", json={"name": "Dependencies"}).json()[
         "id"
     ]
@@ -146,7 +145,7 @@ def test_installed_ftm_http_upload_replay_and_downloadable_native_export(tmp_pat
     content = (root / "tests/goldens/ftm_bundled_plugin/case.ftm.json").read_bytes()
     _reset_default_registry_for_tests()
     try:
-        with TestClient(create_app(tmp_path / "workspace")) as client:
+        with make_client(tmp_path) as client:
             pid = client.post("/api/projects", json={"name": "FtM HTTP"}).json()["id"]
             plugin_url = f"/api/projects/{pid}/workbench/plugins/frisket.ftm"
             installed = client.post(
@@ -205,7 +204,7 @@ def test_installed_ftm_http_upload_replay_and_downloadable_native_export(tmp_pat
                 if item.ref["kind"] == "local_file_read"
             )
             assert source["sha256"] == "sha256:" + hashlib.sha256(content).hexdigest()
-            assert not (tmp_path / "workspace" / ".v1_import_uploads").exists()
+            assert not (client.app.state.workspace.root / ".v1_import_uploads").exists()
             raw_entities = []
             for sheet in dataset.sheets:
                 raw_entities.extend(

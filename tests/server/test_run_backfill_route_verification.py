@@ -33,7 +33,6 @@ from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import asyncio
 import json
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -56,7 +55,7 @@ from frisket.execution.pricing_policy import (
     RatedEstimate,
     install_pricing_policy,
 )
-from frisket.server.app import create_app
+from helpers import make_client as _client
 from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
@@ -78,10 +77,6 @@ class _AboveLimitPolicy:
 # Shared harness (mirrors tests/engine/test_worker_route_verification.py and
 # tests/server/test_run_backfill_executor.py).
 # ---------------------------------------------------------------------------
-
-
-def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspace"))
 
 
 def _seed_audio_project(client: TestClient) -> tuple[str, object, int]:

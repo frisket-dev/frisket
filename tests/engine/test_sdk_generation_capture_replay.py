@@ -176,14 +176,15 @@ def _publish_managed(
     )
     assert authority.claim_token is not None
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        column_id,
-        output_role=output_role,
-        compatibility_key="sha256:text-output-v1",
-        write_mode=write_mode,
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            column_id,
+            output_role=output_role,
+            compatibility_key="sha256:text-output-v1",
+            write_mode=write_mode,
+            claim_token=authority.claim_token,
+        )
     batch: list[dict[str, Any]] = []
     for row_id, value in values.items():
         effect = (effects or {}).get(row_id, "publish_value")
@@ -197,14 +198,16 @@ def _publish_managed(
             item.update(error="fixture error", error_code="fixture_error")
         batch.append(item)
     RunResultStore(project).write_results(run_id, batch, **authority.kwargs())
-    generations.seal(
-        run_id,
-        [column_id],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [column_id],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
-    RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
 
@@ -234,7 +237,8 @@ def _publish_legacy(
         **authority.kwargs(),
     )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
-    RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
 
@@ -361,14 +365,15 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
         ("generated", generated_column_id),
         ("generated_optional", optional_column_id),
     ):
-        generations.declare(
-            run_id,
-            column_id,
-            output_role=role,
-            compatibility_key="sha256:text-output-v1",
-            write_mode="create",
-            claim_token=authority.claim_token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                column_id,
+                output_role=role,
+                compatibility_key="sha256:text-output-v1",
+                write_mode="create",
+                claim_token=authority.claim_token,
+            )
     RunResultStore(project).write_results(
         run_id,
         [
@@ -385,12 +390,13 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [generated_column_id, optional_column_id],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [generated_column_id, optional_column_id],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
 
     with pytest.raises(GenerationStateError, match="unexpected=.*generated_optional"):
