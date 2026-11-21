@@ -878,7 +878,15 @@ def _manual_refresh_exceeds_allowance(
     price = estimated_usd(estimate)
     if price is None:
         return None, True
-    return price, Decimal(str(price)) > threshold_usd
+    exceeds = Decimal(str(price)) > threshold_usd
+    if (
+        not exceeds
+        and threshold_usd == 0
+        and estimate.get("cost_source") != "free_local"
+        and int(estimate.get("rows") or 0) > 0
+    ):
+        exceeds = True
+    return price, exceeds
 
 
 def _refresh_confirmation_token(
