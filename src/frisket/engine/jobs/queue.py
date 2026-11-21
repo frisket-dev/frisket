@@ -62,8 +62,6 @@ IMPORT_FILES_PAGE_KIND = "import.files.page"
 IMPORT_TABLE_ANALYSIS_KIND = "import.table.analysis"
 IMPORT_TABLE_STREAM_KIND = "import.table.stream"
 PDF_SPLIT_APPLY_KIND = "pdf.split.apply"
-FOREGROUND_PRIORITY_CLASS = 0
-BACKGROUND_PRIORITY_CLASS = 10
 CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY = "__frisket_claimed_project_storage_key"
 # Server-owned jobs require an explicit marker; missing tenant identity fails closed.
 SERVER_SCOPED_JOB_PAYLOAD_KEY = "server_scoped"
@@ -401,7 +399,6 @@ class Job:
     trace_id: str | None = None
     workspace_root: str | None = None
     dedupe_key: str | None = None
-    priority_class: int = FOREGROUND_PRIORITY_CLASS
     # Version fields are diagnostic/legacy metadata only; never gate claims.
     code_version: str | None = None
     claimed_code_version: str | None = None
@@ -613,14 +610,6 @@ jobs_table = sa.Table(
     sa.Column("trace_id", sa.String),
     sa.Column("workspace_root", sa.String),
     sa.Column("dedupe_key", sa.String),
-    sa.Column(
-        "priority_class",
-        sa.Integer,
-        nullable=False,
-        default=FOREGROUND_PRIORITY_CLASS,
-        server_default=sa.text(str(FOREGROUND_PRIORITY_CLASS)),
-    ),
-    sa.Column("preferred_row_id", sa.Integer),
     sa.Column("code_version", sa.String),
     sa.Column("claimed_code_version", sa.String),
     sa.Column(
@@ -830,7 +819,6 @@ class JobQueue:
             trace_id=row.trace_id,
             workspace_root=row.workspace_root,
             dedupe_key=row.dedupe_key,
-            priority_class=row.priority_class,
             code_version=row.code_version,
             claimed_code_version=row.claimed_code_version,
             version_mismatch_requeues=row.version_mismatch_requeues or 0,
@@ -868,7 +856,6 @@ class JobQueue:
                         trace_id=refs["trace_id"],
                         workspace_root=refs["workspace_root"],
                         dedupe_key=refs["dedupe_key"],
-                        priority_class=FOREGROUND_PRIORITY_CLASS,
                         code_version=code_version(),
                         status="queued",
                         attempts=0,
@@ -928,7 +915,6 @@ class JobQueue:
             # Alert continuations depend on index progress, so keep their FIFO
             # together. Sustained foreground work may postpone this class.
             .order_by(
-                c.priority_class,
                 sa.case(
                     (
                         c.kind.in_(
