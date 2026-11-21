@@ -177,17 +177,18 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('ribbon-tab-analyze').click();
   await page.getByTestId('compare-menu-trigger').click();
   captures.push(await captureCheckpoint(page, { id: 'compare-actions-entry', root: page.getByRole('menu'), annotations: [] }, stage));
-  let score: import('../../../src/api/evaluation').EvaluationResponse | null = null;
+  const scoreRef: { current: import('../../../src/api/evaluation').EvaluationResponse | null } = { current: null };
   page.on('response', async response => {
-    if (response.url().endsWith('/evaluation/score') && response.ok()) score = await response.json();
+    if (response.url().endsWith('/evaluation/score') && response.ok()) scoreRef.current = await response.json();
   });
   await page.getByRole('menuitem', { name: /vs expected/ }).click();
   await expect(page.getByTestId('action-compare-toolbar')).toBeVisible();
   for (const name of ['case_number', 'filed_at', 'plaintiff', 'defendant_as_filed']) {
     await page.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name, exact: true }).click();
   }
-  await expect.poll(() => score?.link?.id ?? null, { timeout: 30_000 }).not.toBeNull();
-  const scored = score as import('../../../src/api/evaluation').EvaluationResponse;
+  await expect.poll(() => scoreRef.current?.link?.id ?? null, { timeout: 30_000 }).not.toBeNull();
+  if (!scoreRef.current) throw new Error('Expected evaluation score response');
+  const scored = scoreRef.current;
   expect([...scored.row_ids].sort((a, b) => a - b)).toEqual(selectedRowIds);
   writeFileSync(path.join(stage, 'court-comparison-score.json'), JSON.stringify(scored, null, 2));
   await expect(page.getByText('Join a sheet of expected answers to check this action.')).toHaveCount(0, { timeout: 30_000 });
@@ -293,7 +294,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('compare-menu-trigger').click();
   const expectedChoices = page.getByRole('menuitem', { name: /Extract structured fields vs expected/ });
   await expect(expectedChoices).toHaveCount(2);
-  score = null;
+  scoreRef.current = null;
   await expectedChoices.last().click();
   const replaceComparison = page.getByRole('alertdialog', { name: 'Start a new comparison?' });
   await expect(replaceComparison).toBeVisible();
@@ -303,7 +304,7 @@ test('court sample imports and runs the selected filings through strict replay',
   await fullComparison.getByRole('group', { name: 'Comparison field' }).getByRole('button', { name: 'plaintiff_2', exact: true }).click();
   const missedRow = String(initialData.rows[5].id);
   await expect.poll(() => {
-    const current = score as import('../../../src/api/evaluation').EvaluationResponse | null;
+    const current = scoreRef.current;
     return [current?.expected?.[missedRow]?.plaintiff, current?.variants.find(variant => variant.key === 'A')?.verdicts?.[missedRow]?.plaintiff,
       current?.link?.fields.find(field => field.logical_key === 'plaintiff')?.output_column_id];
   }, { timeout: 30_000 }).toEqual(['Mei Chen and proposed library patron class', 'miss', Number(actualColumns.plaintiff_2)]);

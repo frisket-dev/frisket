@@ -28,6 +28,9 @@ test('real document API composes cursor paging, selection, and title search', as
   const filename = columns.find((column) => column.name === 'filename')!;
   const first = (await sheetData(page.request, pid, sheet.id, 0, 1)).rows[0];
   const blob = first.cells[String(media.id)];
+  if (typeof blob !== 'object' || blob === null || Array.isArray(blob)) {
+    throw new Error('Expected media cell object');
+  }
 
   for (let index = 1; index <= 104; index += 1) {
     const title = index === 104 ? 'needle-final.pdf' : `document-${String(index).padStart(3, '0')}.pdf`;

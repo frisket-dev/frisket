@@ -19,7 +19,14 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import type { GeneratedActionDraft, LocalProviderCatalog, SheetMeta } from '../../src/api/types';
+import type {
+  ActionParamResolution,
+  GeneratedActionDraft,
+  JsonValue,
+  LocalProviderCatalog,
+  ParamValidationResult,
+  SheetMeta,
+} from '../../src/api/types';
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { chooseActionSelector, openActionSelector, selectorTrigger } from '../support/selectorChoicesFixture';
@@ -62,18 +69,34 @@ interface ClassifyFieldParam {
   labels?: string[];
 }
 
+function parseClassifyFields(raw: JsonValue | undefined): ClassifyFieldParam[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item): ClassifyFieldParam[] => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+    const name = typeof item.name === 'string' ? item.name : '';
+    const type = typeof item.type === 'string' ? item.type : undefined;
+    const labels = Array.isArray(item.labels)
+      ? item.labels.filter((label): label is string => typeof label === 'string')
+      : undefined;
+    return [{ name, type, labels }];
+  });
+}
+
 /** Mirrors the server: a category field without labels is refused on
  *  `fields`; otherwise every field is one logical output keyed by its name. */
-const resolveClassify: TypedResolveParams = async ({ params }) => {
-  const fields = Array.isArray(params.fields) ? params.fields as ClassifyFieldParam[] : [];
+const resolveClassify: TypedResolveParams = async ({ params }): Promise<ActionParamResolution> => {
+  const fields = parseClassifyFields(params.fields);
   const unlabeledIndex = fields.findIndex((field) => (
     (field.type ?? 'category') === 'category' && !(field.labels?.length)
   ));
   if (unlabeledIndex >= 0) {
-    return { diagnostics: { fields: {
-      ok: false, code: 'category_labels_required', message: CATEGORY_LABELS_REQUIRED,
-      path: [unlabeledIndex, 'labels'],
-    } }, logical_outputs: [] };
+    const diagnostics: ParamValidationResult = {
+      fields: {
+        ok: false, code: 'category_labels_required', message: CATEGORY_LABELS_REQUIRED,
+        path: [unlabeledIndex, 'labels'],
+      },
+    };
+    return { diagnostics, logical_outputs: [] };
   }
   return {
     diagnostics: {},
@@ -117,7 +140,7 @@ async function selectSourceColumn(user: ReturnType<typeof userEvent.setup>, name
 }
 
 function savedClassifyDraft(
-  fields: Array<Record<string, unknown>>,
+  fields: Array<Record<string, JsonValue>>,
   outputNames: Record<string, string> = {},
 ): GeneratedActionDraft {
   return {

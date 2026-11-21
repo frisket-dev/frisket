@@ -4,7 +4,18 @@ import { mockHostedSettingsShell } from './settingsTestHelpers';
 test('Project AI Providers stores project overrides without exposing raw keys', async ({ page }) => {
   await mockHostedSettingsShell(page);
 
-  let providers = [
+  let providers: Array<{
+    id: string;
+    label: string;
+    secret_name: string;
+    kind: string;
+    policy_fields: string[];
+    configured: boolean;
+    hint: string | null;
+    spend_cap_usd: number | null;
+    spent_usd: number;
+    updated_at: string | null;
+  }> = [
     {
       id: 'anthropic',
       label: 'Anthropic',
