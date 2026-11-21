@@ -170,6 +170,15 @@ def _label_phrase(
     return chosen
 
 
+def _compiled_anchor_sort_key(field: CompiledField) -> tuple[int, float, float]:
+    anchor = field.anchor
+    if anchor is None:
+        raise ValueError(
+            f"Repeated section field {field.field.name!r} requires a key anchor"
+        )
+    return (anchor.region.page, anchor.region.box.y0, anchor.region.box.x0)
+
+
 def compile_template(
     template: ExtractionTemplate, reference: PositionedDocument
 ) -> CompiledTemplate:
@@ -316,11 +325,7 @@ def compile_template(
     for section in template.sections:
         group_fields = sorted(
             (field for field in compiled if field.field.section_id == section.id),
-            key=lambda field: (
-                field.anchor.region.page,
-                field.anchor.region.box.y0,
-                field.anchor.region.box.x0,
-            ),
+            key=_compiled_anchor_sort_key,
         )
         if not group_fields:
             raise ValueError("Each repeated section needs at least one annotated field")
@@ -793,11 +798,7 @@ def extract_document(
             for field in compiled.fields
             if field.field.section_id == repeat_group_id
         ),
-        key=lambda field: (
-            field.anchor.region.page,
-            field.anchor.region.box.y0,
-            field.anchor.region.box.x0,
-        ),
+        key=_compiled_anchor_sort_key,
     )
     if not fields:
         raise ValueError("Repeated section has no annotated fields")

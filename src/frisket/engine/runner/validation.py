@@ -9,6 +9,7 @@ from __future__ import annotations
 from frisket.actions.types import RowError
 
 import json
+import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
@@ -243,7 +244,7 @@ def _queued_resume_consent_covers(
     from frisket.engine.store.execution_routes import RouteStore
     from frisket.execution.attempt_authority import attempt_identity
 
-    identity = attempt_identity(program, spec)
+    identity = attempt_identity(program, dict(spec))
     return any(
         consent.actor == principal
         and consent.action_identity_hash == identity
@@ -614,7 +615,7 @@ class _ValidatedSpec:
 
     program: ActionProgram
     sheet_id: int
-    columns: list[dict[str, Any]]
+    columns: list[sqlite3.Row]
     col_map: dict[str, int]
     row_ids: list[int]
     output_fields: list[dict[str, Any]]
@@ -1258,7 +1259,7 @@ def validate_spec(
         if spec.get("row_ids") is not None:
             explicit_resume_scope = target_rows(project, spec)
     # Ordinary resumes retain their stored scope; backfill may extend it.
-    if has_stored_run_scope:
+    if has_stored_run_scope and resume_run_id is not None:
         if explicit_resume_scope is None:
             row_ids = []
         else:
@@ -1789,11 +1790,12 @@ def persist_resolved_execution(
         )
         from frisket.execution.attempt_authority import attempt_identity
 
-        store = (
-            RouteStore.for_receipt(project, receipt_id)
-            if receipt_id is not None
-            else RouteStore.for_run(project, run_id)
-        )
+        if receipt_id is not None:
+            store = RouteStore.for_receipt(project, receipt_id)
+        elif run_id is not None:
+            store = RouteStore.for_run(project, run_id)
+        else:
+            raise ValueError("execution resolution requires an owner")
         store.record_consent(
             action_identity_hash=attempt_identity(validated.program, spec),
             promise_set_hash=validated.unrouted_confirmation_hash,
@@ -1806,7 +1808,7 @@ def persist_resolved_execution(
         return
     confirmation = validated.resume_confirmation
     if confirmation is not None:
-        if receipt_id is not None:
+        if receipt_id is not None or run_id is None:
             raise ValueError("preview receipts cannot resume")
         from frisket.execution.resolve_for_action import confirm_changed_claims
 
