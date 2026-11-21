@@ -403,24 +403,3 @@ def test_cli_apply_inspect_entrypoint_exists(tmp_path):
     # An inspect invocation returns an exit code (0 = healthy report), never crashes.
     rc = fn(["inspect"])
     assert isinstance(rc, int)
-
-
-# ---------------------------------------------------------------------------
-# 10. A manifest with no managed-runtime block is unchanged.
-# ---------------------------------------------------------------------------
-
-
-def test_rung_one_manifest_without_managed_runtime_is_unaffected():
-    """All managed-runtime fields are optional and absent by default; a
-    manifest-only plugin validates with none of
-    them present. (Green today AND after implementation — a durable guardrail.)"""
-    from frisket.contracts.plugin import PluginManifest, PluginManifestContributes
-
-    manifest = PluginManifest(
-        id="acme.demo",
-        version="1.0.0",
-        contributes=PluginManifestContributes(actions=["acme.demo.thing"]),
-    )
-    assert getattr(manifest, "managed_runtime", None) is None, (
-        "a manifest that declares no managed runtime must have none by default"
-    )

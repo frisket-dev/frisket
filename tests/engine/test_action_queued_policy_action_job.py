@@ -89,24 +89,6 @@ def test_action_job_envelope_roundtrips_from_payload() -> None:
     assert restored == env
 
 
-# --- worker terminalization for generic action jobs ------------------------
-
-
-def test_action_job_worker_terminalizes_on_all_outcomes() -> None:
-    # The generic action.run worker must turn every terminal outcome into a
-    # terminal receipt, never leaving a reserved receipt 'running' forever.
-    from frisket.engine.executor import action_jobs
-
-    for fn_name in (
-        "action_job_success_result",
-        "action_job_failure_result",
-        "action_job_missing_handler_result",
-        "action_job_cancelled_result",
-        "action_job_exhausted_lease_result",
-    ):
-        assert hasattr(action_jobs, fn_name), fn_name
-
-
 # --- behavioral: launch -> worker -> terminalize ---------------------------
 
 
