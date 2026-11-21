@@ -163,7 +163,7 @@ class PdfSplitPreparationStore:
                 PRIMARY KEY(work_key,generation,row_id,page_number));
             CREATE TABLE IF NOT EXISTS pdf_split_page_grants (
                 plan_token TEXT PRIMARY KEY, grant_json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS pdf_split_page_quotes (
+            CREATE TABLE IF NOT EXISTS pdf_split_page_estimates (
                 plan_token TEXT PRIMARY KEY, grant_json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS pdf_split_original_samples (
                 generation TEXT PRIMARY KEY, capture_json TEXT NOT NULL);
@@ -586,7 +586,7 @@ class PdfSplitPreparationStore:
     def approve(self, *, grant: Any, confirmation: str | None) -> None:
         grant._validate()
         expected = self.db.execute(
-            "SELECT grant_json FROM pdf_split_page_quotes WHERE plan_token=?",
+            "SELECT grant_json FROM pdf_split_page_estimates WHERE plan_token=?",
             (grant.scope["plan_token"],),
         ).fetchone()
         if expected is None or str(expected[0]) != _json(grant.as_mapping()):
@@ -845,9 +845,9 @@ class PdfSplitPreparationAdapter:
                             "target": target_snapshot(resolved.resolution),
                             "route": _route_snapshot(resolved),
                             "promises": promise_rows(resolved.promise_set),
-                            "quote": ConsentEstimate.from_estimate(estimate).model_dump(
-                                mode="json"
-                            ),
+                            "estimate": ConsentEstimate.from_estimate(
+                                estimate
+                            ).model_dump(mode="json"),
                         }
                     )
                 finally:
@@ -878,7 +878,7 @@ class PdfSplitPreparationAdapter:
         )
         with PdfSplitPreparationStore(self.inventory_path) as store, store.db:
             store.db.execute(
-                "INSERT OR REPLACE INTO pdf_split_page_quotes VALUES(?,?)",
+                "INSERT OR REPLACE INTO pdf_split_page_estimates VALUES(?,?)",
                 (plan_token, _json(estimated.authorization)),
             )
         return {"pages": len(children), **estimated.as_mapping()}

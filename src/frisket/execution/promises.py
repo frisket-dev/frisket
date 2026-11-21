@@ -623,8 +623,10 @@ def basis_identity(promise: Promise) -> str:
     }
     if basis.get("ceiling_mode") == "consented_quantity":
         settlement_identity["estimated_quantity"] = basis.get("estimated_quantity")
-    if basis.get("row_settlement_mode") == "quoted_successful_rows":
-        settlement_identity["row_quote_quantities"] = basis.get("row_quote_quantities")
+    if basis.get("row_settlement_mode") == "estimated_successful_rows":
+        settlement_identity["row_estimate_quantities"] = basis.get(
+            "row_estimate_quantities"
+        )
     return content_hash(
         DOMAIN_BASIS_IDENTITY,
         settlement_identity,

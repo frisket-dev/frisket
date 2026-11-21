@@ -113,15 +113,15 @@ UNKNOWN_COST_ESTIMATE: dict[str, Any] = {
 GOLDEN = {
     "priced": (
         PRICED_ESTIMATE,
-        "4c4311fbcd33ce4122fdc415c5e4669e099d787d55ebc64fb151a9516386bcd1",
+        "768d81f044d4d0f834b3c03b9fdf763f6f76e5a0df2effa22ab31f948cb83c38",
     ),
     "free_local": (
         FREE_LOCAL_ESTIMATE,
-        "3427a8076e361ef9ee59dd65d83805c846ae3889e5b85539b50cc49ad33ef34e",
+        "6f603c654c165d0e759253b7d04de1a841de9c5a2207d266b3f62d17d3a4fd0c",
     ),
     "unknown_cost": (
         UNKNOWN_COST_ESTIMATE,
-        "5bd2c6d4a9d8bc64b8ffdd2c6bed4e82c905898afb9438771b0bf9cdae0217bd",
+        "4d25e2e1e700b82fe6c662b02782177d24fc7f54526e82092c69d9f12f15a673",
     ),
 }
 

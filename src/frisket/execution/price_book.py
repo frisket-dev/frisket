@@ -442,25 +442,25 @@ def estimate_commercial_offering(
         estimated_quantity_total = Decimal(0)
         for row_id, raw_metered in sorted(row_metered_quantities.items()):
             if isinstance(row_id, bool) or not isinstance(row_id, int) or row_id <= 0:
-                raise ValueError("row quote ids must be positive integers")
+                raise ValueError("row estimate ids must be positive integers")
             raw_quantity = _to_decimal(raw_metered)
             if raw_quantity < 0:
-                raise ValueError("row quote quantities must be non-negative")
+                raise ValueError("row estimate quantities must be non-negative")
             raw_quantity_total += raw_quantity
             row_quantity = _rounded_quantity(
                 raw_quantity / scale,
                 mode=rounding.mode,
                 decimal_places=rounding.decimal_places,
             )
-            if offering.settlement.row_settlement_mode == "quoted_successful_rows":
+            if offering.settlement.row_settlement_mode == "estimated_successful_rows":
                 allocations.append((row_id, decimal_str(row_quantity)))
                 estimated_quantity_total += row_quantity
-        if offering.settlement.row_settlement_mode == "quoted_successful_rows":
+        if offering.settlement.row_settlement_mode == "estimated_successful_rows":
             quantity = estimated_quantity_total
             row_estimates = tuple(allocations)
         else:
             # Non-row settlement still benefits from the authoritative row scan,
-            # but its quote is one aggregate quantity and carries no row pin.
+            # but its estimate is one aggregate quantity and carries no row pin.
             quantity = _rounded_quantity(
                 raw_quantity_total / scale,
                 mode=rounding.mode,
@@ -468,9 +468,9 @@ def estimate_commercial_offering(
             )
     elif metered_quantity is None:
         quantity = None
-    elif offering.settlement.row_settlement_mode == "quoted_successful_rows":
+    elif offering.settlement.row_settlement_mode == "estimated_successful_rows":
         raise ValueError(
-            "a bounded quoted_successful_rows offer requires per-row quantities"
+            "a bounded estimated_successful_rows offer requires per-row quantities"
         )
     else:
         quantity = _rounded_quantity(
@@ -483,7 +483,7 @@ def estimate_commercial_offering(
         unit_rate=decimal_str(offering.estimate.unit_rate),
         estimated_quantity=(None if quantity is None else decimal_str(quantity)),
         **commercial_offering_basis_terms(offering),
-        row_quote_quantities=row_estimates,
+        row_estimate_quantities=row_estimates,
     )
 
 
@@ -1135,7 +1135,7 @@ def settle(
         or not isinstance(ceiling_mode, str)
         or ceiling_mode not in ("none", "consented_quantity")
         or not isinstance(row_mode, str)
-        or row_mode not in ("all_metered", "quoted_successful_rows")
+        or row_mode not in ("all_metered", "estimated_successful_rows")
         or not isinstance(rounding_mode, str)
         or rounding_mode not in ("exact", "half_even", "half_up")
         or (rounding_mode == "exact" and rounding_places is not None)
@@ -1147,7 +1147,7 @@ def settle(
                 or not 0 <= rounding_places <= 18
             )
         )
-        or (all_rows_cancelled and row_mode != "quoted_successful_rows")
+        or (all_rows_cancelled and row_mode != "estimated_successful_rows")
     ):
         return {
             "price_card_version": price_card_version,

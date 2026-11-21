@@ -163,9 +163,9 @@ def test_cloud_row_estimate_authority_keeps_cohort_without_price_cap():
         meter_key="pages",
         meter_units_per_quantity_unit="1",
         ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=((11, "2"), (12, "3")),
+        row_estimate_quantities=((11, "2"), (12, "3")),
     )
 
     authority = cloud_estimate_authority_for_row(basis, row_id=11)
@@ -191,7 +191,7 @@ def test_cloud_priced_unknown_quantity_consent_is_explicitly_unbounded():
         meter_key="pages",
         meter_units_per_quantity_unit="1",
         ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="frisket_cloud_receipt",
     )
 
@@ -212,9 +212,9 @@ def test_cloud_fractional_unit_approval_does_not_become_a_price_cap():
         meter_key="audio_seconds",
         meter_units_per_quantity_unit="1",
         ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=((11, "10.5"),),
+        row_estimate_quantities=((11, "10.5"),),
     )
 
     authority = cloud_estimate_authority_for_row(basis, row_id=11)
