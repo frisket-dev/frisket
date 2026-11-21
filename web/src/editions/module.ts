@@ -27,10 +27,10 @@ export interface AdminOverviewSlotProps {
   readonly overview: Readonly<AdminOverview>;
 }
 
-export interface WatchControlSlotProps {
+export interface AlertControlSlotProps {
   readonly projectId: string;
-  readonly watch: Readonly<AlertInfo>;
-  readonly refreshWatches: () => void;
+  readonly alert: Readonly<AlertInfo>;
+  readonly refreshAlerts: () => void;
 }
 
 export type PersonalProfileSlotProps = Record<string, never>;
@@ -43,7 +43,7 @@ export interface EditionModuleDefinition {
   readonly walkthroughs?: readonly WalkthroughDefinition[];
   readonly AdminOverviewSlot?: ComponentType<AdminOverviewSlotProps>;
   readonly PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
-  readonly WatchControlSlot?: ComponentType<WatchControlSlotProps>;
+  readonly AlertControlSlot?: ComponentType<AlertControlSlotProps>;
 }
 
 /** One immutable, fully resolved edition passed to the application mount. */
@@ -55,7 +55,7 @@ export interface EditionModule {
   readonly walkthroughs: readonly WalkthroughDefinition[];
   readonly AdminOverviewSlot?: ComponentType<AdminOverviewSlotProps>;
   readonly PersonalProfileSlot?: ComponentType<PersonalProfileSlotProps>;
-  readonly WatchControlSlot?: ComponentType<WatchControlSlotProps>;
+  readonly AlertControlSlot?: ComponentType<AlertControlSlotProps>;
 }
 
 function immutableRoute(route: EditionRoute): EditionRoute {
@@ -136,6 +136,6 @@ export function defineEditionModule(
     ),
     AdminOverviewSlot: definition.AdminOverviewSlot,
     PersonalProfileSlot: definition.PersonalProfileSlot,
-    WatchControlSlot: definition.WatchControlSlot,
+    AlertControlSlot: definition.AlertControlSlot,
   });
 }

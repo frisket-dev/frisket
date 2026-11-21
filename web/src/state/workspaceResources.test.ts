@@ -159,7 +159,7 @@ describe('scoped chrome preferences', () => {
     commands.project.setRibbonMode('menu');
     commands.project.setActiveRibbonTab('act');
     commands.project.setDiscoverOpen(false);
-    commands.project.setDiscoverTab('Watches');
+    commands.project.setDiscoverTab('Alerts');
     commands.project.setPromotedViews([]);
     commands.sheet.setOpenSplit(split);
     commands.sheet.setDocumentView(null);
@@ -169,7 +169,7 @@ describe('scoped chrome preferences', () => {
     expect(storage.values.get(chromeStorageKeys.ribbonMode(projectId))).toBe('menu');
     expect(storage.values.get(chromeStorageKeys.activeRibbonTab(projectId))).toBe('act');
     expect(storage.values.get(chromeStorageKeys.discoverOpen(projectId))).toBe('0');
-    expect(storage.values.get(chromeStorageKeys.discoverTab(projectId))).toBe('Watches');
+    expect(storage.values.get(chromeStorageKeys.discoverTab(projectId))).toBe('Alerts');
     expect(storage.values.get(chromeStorageKeys.promotedViews(projectId))).toBe('[]');
     expect(storage.values.get(chromeStorageKeys.openSplit(projectId))).toBe(
       JSON.stringify(split),

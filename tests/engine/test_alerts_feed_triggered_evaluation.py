@@ -222,7 +222,7 @@ def test_completed_source_poll_evaluates_affected_enabled_alerts(
 
         triggered = trigger_source_materialized_alerts(project, materialized)
 
-        assert [item["watch_id"] for item in triggered] == [project_alert, sheet_alert]
+        assert [item["alert_id"] for item in triggered] == [project_alert, sheet_alert]
         assert {item["trigger_kind"] for item in triggered} == {
             "source_poll_materialized"
         }
@@ -312,7 +312,7 @@ def test_source_poll_selects_sheet_filter_alert_from_owned_query(
 
         triggered = trigger_source_materialized_alerts(project, materialized)
 
-        assert [item["watch_id"] for item in triggered] == [filter_id, later_id]
+        assert [item["alert_id"] for item in triggered] == [filter_id, later_id]
         assert triggered[0]["run"]["status"] == "ok"
         assert triggered[0]["run"]["matched_rows"] == 2
         assert triggered[1]["run"]["matched_rows"] == 2

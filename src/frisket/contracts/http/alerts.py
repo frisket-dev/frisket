@@ -14,7 +14,7 @@ from frisket.contracts.actions.schemas._validators import nonblank
 
 # The schema_version literals below are the ones the producers emit
 # (server/services/alerts.py and
-# frisket.features.watchlists.events.WATCH_RUN_EVENT_SCHEMA_VERSION). Restated
+# frisket.alerts.events.ALERT_CHECK_EVENT_SCHEMA_VERSION). Restated
 # here because the contracts package stays out of the service/runtime layers;
 # the backend contract test pins the events literal against the producer's own
 # constant.
@@ -26,7 +26,7 @@ class _ClosedRequest(WireModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
 
-class WatchCreateRequest(_ClosedRequest):
+class AlertCreateRequest(_ClosedRequest):
     name: Annotated[str, nonblank("name is required")]
     view_id: int
     detection_policy: dict[str, JsonValue] | None = None
@@ -34,16 +34,16 @@ class WatchCreateRequest(_ClosedRequest):
     schedule: str | None = "@hourly"
 
 
-class WatchPatchRequest(_ClosedRequest):
+class AlertPatchRequest(_ClosedRequest):
     name: str | None = None
     enabled: bool | None = None
     schedule: str | None = None
     detection_policy: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
-    def _is_nonempty_and_nonnull(self) -> "WatchPatchRequest":
+    def _is_nonempty_and_nonnull(self) -> "AlertPatchRequest":
         if not self.model_fields_set:
-            raise ValueError("at least one watch field is required")
+            raise ValueError("at least one alert field is required")
         if "name" in self.model_fields_set:
             if self.name is None or not (name := self.name.strip()):
                 raise ValueError("name is required")
@@ -58,9 +58,9 @@ class WatchPatchRequest(_ClosedRequest):
         return self
 
 
-class WatchRun(WireModel):
+class AlertCheck(WireModel):
     id: int
-    watch_id: int
+    alert_id: int
     status: str
     op_cursor_before: int
     op_cursor_after: int
@@ -74,7 +74,7 @@ class WatchRun(WireModel):
     finished_at: str | None
 
 
-class WatchHit(WireModel):
+class AlertCheckHit(WireModel):
     run_id: int
     sheet_id: int
     row_id: int
@@ -84,13 +84,13 @@ class WatchHit(WireModel):
     is_new: bool
 
 
-class WatchRunWithHits(WatchRun):
-    hits: list[WatchHit]
+class AlertCheckWithHits(AlertCheck):
+    hits: list[AlertCheckHit]
     hits_limit: int
     hits_truncated: bool
 
 
-class Watch(WireModel):
+class Alert(WireModel):
     id: int
     name: str
     view_id: int
@@ -103,27 +103,27 @@ class Watch(WireModel):
     last_status: str | None
     created_at: str
     updated_at: str
-    latest_run: WatchRun | None
+    latest_run: AlertCheck | None
 
 
-class WatchList(RootModel[list[Watch]]):
+class AlertList(RootModel[list[Alert]]):
     model_config = ConfigDict(strict=True)
 
 
-class WatchDelete(WireModel):
+class AlertDelete(WireModel):
     ok: bool
     deleted: int
 
 
-class WatchRunResult(WireModel):
-    schema_version: Literal["frisket.watch_run.v1"]
-    watch: Watch
-    run: WatchRun
-    hits: list[WatchHit]
+class AlertCheckResult(WireModel):
+    schema_version: Literal["frisket.alert_check.v1"]
+    alert: Alert
+    run: AlertCheck
+    hits: list[AlertCheckHit]
 
 
-class WatchRunsPage(WireModel):
-    schema_version: Literal["frisket.watch_runs_page.v1"]
+class AlertChecksPage(WireModel):
+    schema_version: Literal["frisket.alert_checks_page.v1"]
     order: Literal["desc"]
     offset: int
     limit: int
@@ -131,13 +131,13 @@ class WatchRunsPage(WireModel):
     has_more: bool
     next_offset: int | None
     hits_limit: int
-    runs: list[WatchRunWithHits]
+    runs: list[AlertCheckWithHits]
 
 
-class WatchRunEvent(WireModel):
+class AlertCheckEvent(WireModel):
     id: int
     run_id: int
-    watch_id: int
+    alert_id: int
     event_kind: str
     subject_kind: str
     subject_ref: dict[str, JsonValue]
@@ -150,28 +150,28 @@ class WatchRunEvent(WireModel):
     created_at: str
 
 
-class WatchRunEventsPage(WireModel):
-    schema_version: Literal["frisket.watch_run_events_page.v1"]
+class AlertCheckEventsPage(WireModel):
+    schema_version: Literal["frisket.alert_check_events_page.v1"]
     order: Literal["asc"]
     offset: int
     limit: int
     total: int
     has_more: bool
     next_offset: int | None
-    events: list[WatchRunEvent]
+    events: list[AlertCheckEvent]
 
 
 __all__ = [
-    "Watch",
-    "WatchCreateRequest",
-    "WatchDelete",
-    "WatchHit",
-    "WatchList",
-    "WatchPatchRequest",
-    "WatchRun",
-    "WatchRunEvent",
-    "WatchRunEventsPage",
-    "WatchRunResult",
-    "WatchRunWithHits",
-    "WatchRunsPage",
+    "Alert",
+    "AlertCheck",
+    "AlertCheckEvent",
+    "AlertCheckEventsPage",
+    "AlertCheckHit",
+    "AlertCheckResult",
+    "AlertCheckWithHits",
+    "AlertChecksPage",
+    "AlertCreateRequest",
+    "AlertDelete",
+    "AlertList",
+    "AlertPatchRequest",
 ]

@@ -11,7 +11,12 @@ def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_pr
         col = project.add_column(sheet, "status")
         project.add_rows(sheet, [{"status": "open"}], {"status": col})
         db = project.db
-        db.execute("DROP TABLE watches")
+        db.execute("DROP TABLE alert_row_field_state")
+        db.execute("DROP TABLE alert_seen_rows")
+        db.execute("DROP TABLE alert_check_events")
+        db.execute("DROP TABLE alert_check_hits")
+        db.execute("DROP TABLE alert_checks")
+        db.execute("DROP TABLE alerts")
         db.execute("DROP TABLE views")
         db.executescript("""
           CREATE TABLE views(id INTEGER PRIMARY KEY,sheet_id INTEGER NOT NULL REFERENCES sheets(id),name TEXT,spec TEXT,op_id INTEGER,created_at TEXT DEFAULT 'old',updated_at TEXT DEFAULT 'old');
@@ -19,6 +24,7 @@ def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_pr
           CREATE TABLE lenses(id INTEGER PRIMARY KEY,sheet_id INTEGER REFERENCES sheets(id),name TEXT,spec TEXT,op_id INTEGER,created_at TEXT DEFAULT 'old',updated_at TEXT DEFAULT 'old');
           CREATE TABLE watches(id INTEGER PRIMARY KEY,name TEXT,scope TEXT,sheet_id INTEGER REFERENCES sheets(id),query TEXT NOT NULL,query_version TEXT,query_hash TEXT,detection_policy TEXT,enabled INTEGER DEFAULT 1,last_evaluated_op INTEGER DEFAULT 0,last_run_id INTEGER,baseline_run_id INTEGER,last_status TEXT,created_at TEXT DEFAULT 'old',updated_at TEXT DEFAULT 'old');
           CREATE INDEX idx_watches_sheet ON watches(sheet_id);
+          CREATE TABLE watch_runs(id INTEGER PRIMARY KEY,watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,status TEXT NOT NULL DEFAULT 'ok',op_cursor_before INTEGER NOT NULL,op_cursor_after INTEGER NOT NULL,matched_rows INTEGER NOT NULL DEFAULT 0,new_rows INTEGER NOT NULL DEFAULT 0);
         """)
         spec = {
             "filter": {"status": {"eq": "open"}},
@@ -56,10 +62,10 @@ def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_pr
         db.commit()
         assert project.get_view(7)["name"] == "Normal"
         assert len(project.views()) == 4
-        alert = project.get_alert(9)
-        assert alert["last_run_id"] == 22
-        assert alert["baseline_run_id"] is None
-        assert project.get_alert_check(22) is not None
+        watch = db.execute("SELECT * FROM watches WHERE id=9").fetchone()
+        assert watch["last_run_id"] == 22
+        assert watch["baseline_run_id"] is None
+        assert db.execute("SELECT 1 FROM watch_runs WHERE id=22").fetchone() is not None
         assert not {"query", "scope", "sheet_id"} & {
             row[1] for row in db.execute("PRAGMA table_info(watches)")
         }

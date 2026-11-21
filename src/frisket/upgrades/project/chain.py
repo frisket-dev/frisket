@@ -55,6 +55,11 @@ from frisket.upgrades.project.edit_precedence_migration import (
     EDIT_PRECEDENCE_TO_DIGEST,
     apply_edit_precedence,
 )
+from frisket.upgrades.project.alerts_migration import (
+    ALERTS_FROM_DIGEST,
+    ALERTS_TO_DIGEST,
+    migrate_alerts,
+)
 
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
@@ -154,6 +159,13 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     run_step(db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
     run_step(
         db, EDIT_PRECEDENCE_TO_DIGEST, COPY_PRECEDENCE_TO_DIGEST, apply_edit_precedence
+    )
+    run_rebuild_step(
+        db,
+        ALERTS_FROM_DIGEST,
+        ALERTS_TO_DIGEST,
+        migrate_alerts,
+        bundle_path=bundle_path,
     )
 
 

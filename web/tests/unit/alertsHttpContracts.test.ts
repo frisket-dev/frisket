@@ -11,7 +11,7 @@ import type { AlertInput } from "../../src/api/types";
 
 const runRow = {
   id: 4,
-  watch_id: 1,
+  alert_id: 1,
   status: "ok",
   op_cursor_before: 0,
   op_cursor_after: 3,
@@ -53,14 +53,14 @@ const alertRow = {
 };
 
 const runResultFixture = {
-  schema_version: "frisket.watch_run.v1",
-  watch: alertRow,
+  schema_version: "frisket.alert_check.v1",
+  alert: alertRow,
   run: runRow,
   hits: [hitRow],
 };
 
 const runsPageFixture = {
-  schema_version: "frisket.watch_runs_page.v1",
+  schema_version: "frisket.alert_checks_page.v1",
   order: "desc",
   offset: 0,
   limit: 20,
@@ -74,7 +74,7 @@ const runsPageFixture = {
 const eventRow = {
   id: 9,
   run_id: 4,
-  watch_id: 1,
+  alert_id: 1,
   event_kind: "row_entered",
   subject_kind: "row",
   subject_ref: { sheet_id: 3, row_id: 7 },
@@ -88,7 +88,7 @@ const eventRow = {
 };
 
 const eventsPageFixture = {
-  schema_version: "frisket.watch_run_events_page.v1",
+  schema_version: "frisket.alert_check_events_page.v1",
   order: "asc",
   offset: 0,
   limit: 50,
@@ -173,13 +173,13 @@ type AlertsModule = typeof import("../../src/api/alerts");
 
 /** The seven browser operations, by public method. */
 const alertOperationIds: Record<string, string> = {
-  listAlerts: "tenant.list_watches.get",
-  createAlert: "tenant.create_watch.post",
-  updateAlert: "tenant.patch_watch.patch",
-  deleteAlert: "tenant.delete_watch.delete",
-  checkAlert: "tenant.run_watch.post",
-  getAlertChecks: "tenant.list_watch_runs.get",
-  getAlertCheckEvents: "tenant.list_watch_run_events.get",
+  listAlerts: "tenant.list_alerts.get",
+  createAlert: "tenant.create_alert.post",
+  updateAlert: "tenant.patch_alert.patch",
+  deleteAlert: "tenant.delete_alert.delete",
+  checkAlert: "tenant.check_alert.post",
+  getAlertChecks: "tenant.list_alert_checks.get",
+  getAlertCheckEvents: "tenant.list_alert_check_events.get",
 };
 
 interface TransportCall {
@@ -222,16 +222,16 @@ async function withMockedTransport<T>(
 
 /** Wire payload the transport hands back for each operation. */
 function transportResponse(operationId: string): unknown {
-  if (operationId === "tenant.list_watches.get") return [alertRow];
-  if (operationId === "tenant.create_watch.post") return alertRow;
-  if (operationId === "tenant.patch_watch.patch") {
+  if (operationId === "tenant.list_alerts.get") return [alertRow];
+  if (operationId === "tenant.create_alert.post") return alertRow;
+  if (operationId === "tenant.patch_alert.patch") {
     return { ...alertRow, name: "Renamed", enabled: false };
   }
-  if (operationId === "tenant.delete_watch.delete") {
+  if (operationId === "tenant.delete_alert.delete") {
     return { ok: true, deleted: alertRow.id };
   }
-  if (operationId === "tenant.run_watch.post") return runResultFixture;
-  if (operationId === "tenant.list_watch_runs.get") return runsPageFixture;
+  if (operationId === "tenant.check_alert.post") return runResultFixture;
+  if (operationId === "tenant.list_alert_checks.get") return runsPageFixture;
   return eventsPageFixture;
 }
 
@@ -284,19 +284,19 @@ describe("alert generated HTTP transport", () => {
     expect(
       requests.map((request) => [request.input, request.init?.method]),
     ).toEqual([
-      ["/api/projects/watch-contract/watches", "GET"],
-      ["/api/projects/watch-contract/watches", "POST"],
-      ["/api/projects/watch-contract/watches/1", "PATCH"],
-      ["/api/projects/watch-contract/watches/1", "DELETE"],
-      ["/api/projects/watch-contract/watches/1/run", "POST"],
-      ["/api/projects/watch-contract/watches/1/runs?offset=0&limit=20", "GET"],
-      ["/api/projects/watch-contract/watches/1/runs?offset=2&limit=3", "GET"],
+      ["/api/projects/watch-contract/alerts", "GET"],
+      ["/api/projects/watch-contract/alerts", "POST"],
+      ["/api/projects/watch-contract/alerts/1", "PATCH"],
+      ["/api/projects/watch-contract/alerts/1", "DELETE"],
+      ["/api/projects/watch-contract/alerts/1/check", "POST"],
+      ["/api/projects/watch-contract/alerts/1/checks?offset=0&limit=20", "GET"],
+      ["/api/projects/watch-contract/alerts/1/checks?offset=2&limit=3", "GET"],
       [
-        "/api/projects/watch-contract/watches/1/runs/4/events?offset=0&limit=50",
+        "/api/projects/watch-contract/alerts/1/checks/4/events?offset=0&limit=50",
         "GET",
       ],
       [
-        "/api/projects/watch-contract/watches/1/runs/4/events" +
+        "/api/projects/watch-contract/alerts/1/checks/4/events" +
           "?offset=1&limit=2&event_kind=row_entered",
         "GET",
       ],
@@ -367,17 +367,17 @@ describe("alert generated HTTP transport", () => {
     // AlertInfo keeps its camelCase fields and derived latestRun.
     expect(listed).toEqual([expectedAlert]);
     expect(created).toEqual(expectedAlert);
-    // WatchRunResult keeps its literal schemaVersion and mapped hits.
+    // AlertCheckResult keeps its literal schemaVersion and mapped hits.
     expect(runResult).toEqual({
-      schemaVersion: "frisket.watch_run.v1",
+      schemaVersion: "frisket.alert_check.v1",
       alert: expectedAlert,
       run: expectedRun,
       hits: [expectedHit],
     });
-    // WatchRunsPage keeps camelCase paging; toAlertCheck drops the per-run
+    // AlertChecksPage keeps camelCase paging; toAlertCheck drops the per-run
     // hits_limit/hits_truncated wire keys and keeps mapped hits.
     expect(runsPage).toEqual({
-      schemaVersion: "frisket.watch_runs_page.v1",
+      schemaVersion: "frisket.alert_checks_page.v1",
       order: "desc",
       offset: 0,
       limit: 20,
@@ -387,7 +387,7 @@ describe("alert generated HTTP transport", () => {
       runs: [{ ...expectedRun, hits: [expectedHit] }],
     });
     expect(eventsPage).toEqual({
-      schemaVersion: "frisket.watch_run_events_page.v1",
+      schemaVersion: "frisket.alert_check_events_page.v1",
       order: "asc",
       offset: 0,
       limit: 50,
@@ -398,11 +398,11 @@ describe("alert generated HTTP transport", () => {
     });
 
     expect(requests.map((request) => request.input)).toEqual([
-      "/api/projects/watch-domain/watches",
-      "/api/projects/watch-domain/watches",
-      "/api/projects/watch-domain/watches/1/run",
-      "/api/projects/watch-domain/watches/1/runs?offset=2&limit=3",
-      "/api/projects/watch-domain/watches/1/runs/4/events" +
+      "/api/projects/watch-domain/alerts",
+      "/api/projects/watch-domain/alerts",
+      "/api/projects/watch-domain/alerts/1/check",
+      "/api/projects/watch-domain/alerts/1/checks?offset=2&limit=3",
+      "/api/projects/watch-domain/alerts/1/checks/4/events" +
         "?offset=1&limit=2&event_kind=row_entered",
     ]);
     // Direct Alerts send only their independently captured query.
@@ -513,14 +513,14 @@ describe("alert generated HTTP transport", () => {
       const deleted = await domain.deleteAlert(1);
 
       expect(calls.map((call) => call.operationId)).toEqual([
-        "tenant.patch_watch.patch",
-        "tenant.patch_watch.patch",
-        "tenant.delete_watch.delete",
+        "tenant.patch_alert.patch",
+        "tenant.patch_alert.patch",
+        "tenant.delete_alert.delete",
       ]);
       expect(calls.map((call) => call.options.pathParams)).toEqual([
-        { pid: "watch-lifecycle", watch_id: 1 },
-        { pid: "watch-lifecycle", watch_id: 1 },
-        { pid: "watch-lifecycle", watch_id: 1 },
+        { pid: "watch-lifecycle", alert_id: 1 },
+        { pid: "watch-lifecycle", alert_id: 1 },
+        { pid: "watch-lifecycle", alert_id: 1 },
       ]);
       expect(calls.map((call) => call.options.query)).toEqual([
         undefined,
@@ -602,7 +602,7 @@ describe("alert generated HTTP transport", () => {
       });
       expect(results.deleteAlert).toBeUndefined();
       expect(results.checkAlert).toEqual({
-        schemaVersion: "frisket.watch_run.v1",
+        schemaVersion: "frisket.alert_check.v1",
         alert: expectedAlert,
         run: expectedRun,
         hits: [expectedHit],
@@ -622,7 +622,7 @@ describe("alert generated HTTP transport", () => {
       delta_json: { matched: "changed" },
     };
     await withMockedTransport((operationId) => {
-      if (operationId === "tenant.list_watch_runs.get") {
+      if (operationId === "tenant.list_alert_checks.get") {
         return {
           ...runsPageFixture,
           runs: [
@@ -631,10 +631,10 @@ describe("alert generated HTTP transport", () => {
           ],
         };
       }
-      if (operationId === "tenant.list_watch_run_events.get") {
+      if (operationId === "tenant.list_alert_check_events.get") {
         return { ...eventsPageFixture, events: [eventWithIdentity] };
       }
-      if (operationId === "tenant.create_watch.post") {
+      if (operationId === "tenant.create_alert.post") {
         return {
           ...alertRow,
           view_id: 4,
@@ -661,18 +661,18 @@ describe("alert generated HTTP transport", () => {
       ]);
 
       expect(calls.map((call) => call.operationId)).toEqual([
-        "tenant.create_watch.post",
-        "tenant.list_watches.get",
-        "tenant.run_watch.post",
-        "tenant.list_watch_runs.get",
-        "tenant.list_watch_run_events.get",
+        "tenant.create_alert.post",
+        "tenant.list_alerts.get",
+        "tenant.check_alert.post",
+        "tenant.list_alert_checks.get",
+        "tenant.list_alert_check_events.get",
       ]);
       expect(calls.map((call) => call.options.pathParams)).toEqual([
         { pid: "watch-domain-a" },
         { pid: "watch-domain-a" },
-        { pid: "watch-domain-a", watch_id: 1 },
-        { pid: "watch-domain-a", watch_id: 1 },
-        { pid: "watch-domain-a", watch_id: 1, run_id: 4 },
+        { pid: "watch-domain-a", alert_id: 1 },
+        { pid: "watch-domain-a", alert_id: 1 },
+        { pid: "watch-domain-a", alert_id: 1, check_id: 4 },
       ]);
       expect(calls[0].options.body).toEqual({
         name: "Budget",
@@ -724,7 +724,7 @@ describe("alert generated HTTP transport", () => {
       });
 
       expect(calls[0]).toMatchObject({
-        operationId: "tenant.create_watch.post",
+        operationId: "tenant.create_alert.post",
         options: {
           body: {
             name: "Open rows",

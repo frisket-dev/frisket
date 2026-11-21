@@ -11,7 +11,7 @@ import {
   type EditionRoute,
   type EditionSettingsSection,
   type ShellIdentity,
-  type WatchControlSlotProps,
+  type AlertControlSlotProps,
 } from '@frisket/frontend-host';
 
 const publicRoute = (): ReactNode => (
@@ -71,16 +71,16 @@ const edition = defineEditionModule({
   },
   routes,
   settingsSections,
-  WatchControlSlot: ({
+  AlertControlSlot: ({
     projectId,
-    watch,
-  }: WatchControlSlotProps): ReactNode => (
+    alert,
+  }: AlertControlSlotProps): ReactNode => (
     <button
       type="button"
       data-project-id={projectId}
       onClick={() => void loadAdminUsers()}
     >
-      Configure {watch.name} for {projectId}
+      Configure {alert.name} for {projectId}
     </button>
   ),
 });

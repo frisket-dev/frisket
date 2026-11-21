@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-ALERT_CHECK_EVENT_SCHEMA_VERSION = "frisket.watch_run_events_page.v1"
+ALERT_CHECK_EVENT_SCHEMA_VERSION = "frisket.alert_check_events_page.v1"
 ALERT_EVENT_ROW_ENTERED = "row_entered"
 ALERT_EVENT_ROW_EXITED = "row_exited"
 ALERT_EVENT_COUNT_CHANGED = "count_changed"
@@ -81,7 +81,7 @@ def row_entered_event(
         after_json["reentered"] = True
     return {
         "run_id": int(run_id),
-        "watch_id": int(alert_id),
+        "alert_id": int(alert_id),
         "event_kind": ALERT_EVENT_ROW_ENTERED,
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},
@@ -105,7 +105,7 @@ def row_exited_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(alert_id),
+        "alert_id": int(alert_id),
         "event_kind": ALERT_EVENT_ROW_EXITED,
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},
@@ -129,7 +129,7 @@ def count_changed_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(alert_id),
+        "alert_id": int(alert_id),
         "event_kind": ALERT_EVENT_COUNT_CHANGED,
         "subject_kind": "aggregate",
         "subject_ref": {"metric": "matched_rows"},
@@ -159,7 +159,7 @@ def threshold_crossed_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(alert_id),
+        "alert_id": int(alert_id),
         "event_kind": ALERT_EVENT_THRESHOLD_CROSSED,
         "subject_kind": "aggregate",
         "subject_ref": {"metric": "matched_rows", "threshold": int(threshold)},
@@ -191,7 +191,7 @@ def row_changed_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(alert_id),
+        "alert_id": int(alert_id),
         "event_kind": ALERT_EVENT_ROW_CHANGED,
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},

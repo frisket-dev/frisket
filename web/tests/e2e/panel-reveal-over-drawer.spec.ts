@@ -63,15 +63,15 @@ test('a notification-run reveal (Alerts tab) also closes an open Action drawer',
 
   const notification = {
     id: 501,
-    source_kind: 'watch',
-    source_ref: { watch_id: 7 },
+    source_kind: 'alert',
+    source_ref: { alert_id: 7 },
     source_event_ids: [901],
     event_count: 1,
     event_kinds: ['watch_run_completed'],
     title: 'Watch run completed',
     summary: '1 new result',
     severity: 'info',
-    deep_link: { kind: 'watch_run', watch_id: 7, run_id: 55, event_ids: [901] },
+    deep_link: { kind: 'alert_check', alert_id: 7, run_id: 55, event_ids: [901] },
     created_at: '2026-07-08T12:00:00Z',
     updated_at: '2026-07-08T12:00:00Z',
     state: 'unseen',
@@ -145,6 +145,6 @@ test('a notification-run reveal (Alerts tab) also closes an open Action drawer',
   await openSource.dispatchEvent('click');
 
   await expect(page.getByTestId('action-drawer')).toHaveCount(0);
-  await expect(page.getByTestId('discover-tab-Watches')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-watches')).toBeVisible();
+  await expect(page.getByTestId('discover-tab-Alerts')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-alerts')).toBeVisible();
 });

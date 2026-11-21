@@ -131,7 +131,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
           onCancelConfirmation={cancelViewsConfirmation}
         />
       );
-    case 'frisket.core.panel.watches':
+    case 'frisket.core.panel.alerts':
       return (
         <AlertsWorkbenchPanel
           canEdit={canEditProject(project)}
@@ -193,7 +193,7 @@ const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
   Mentions: [MENTIONS_CONTRIBUTION_ID],
   Sources: [FEEDS_CONTRIBUTION_ID],
   Views: [VIEWS_CONTRIBUTION_ID],
-  Watches: [ALERTS_CONTRIBUTION_ID],
+  Alerts: [ALERTS_CONTRIBUTION_ID],
   Embeddings: [EMBEDDINGS_CONTRIBUTION_ID],
   Notifications: [NOTIFICATIONS_CONTRIBUTION_ID],
 };
@@ -203,12 +203,12 @@ const DISCOVER_TAB_ICON: Record<DiscoverTab, LucideIcon> = {
   Mentions: AtSign,
   Sources: Database,
   Views: BookOpen,
-  Watches: Watch,
+  Alerts: Watch,
   Embeddings: Boxes,
   Notifications: BellRing,
 };
 
-const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Facets: 'Filter', Sources: 'Feeds', Watches: 'Alerts' };
+const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Facets: 'Filter', Sources: 'Feeds' };
 
 const PLUGIN_TAB_ICONS: Record<string, LucideIcon> = {
   AtSign,

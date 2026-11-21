@@ -26,7 +26,7 @@ def scene(tmp_path):
     assert response.status_code == 200, response.text
     view = response.json()
     response = client.post(
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Changes",
             "view_id": view["id"],
@@ -43,7 +43,7 @@ def test_alert_grid_and_saved_definition_share_full_membership(tmp_path):
     grid = client.get(f"{prefix}/views/{view['id']}/resolve?limit=1").json()
     assert grid["total"] == 2
     assert [ref["row_id"] for ref in grid["refs"]] == rows[2:]
-    check = client.post(f"{prefix}/watches/{alert['id']}/run").json()
+    check = client.post(f"{prefix}/alerts/{alert['id']}/check").json()
     assert check["run"]["matched_rows"] == 2
     assert check["run"]["new_rows"] == 0
     selected = {**view["spec"]["selection"], "limit": 1}
@@ -53,11 +53,11 @@ def test_alert_grid_and_saved_definition_share_full_membership(tmp_path):
         ).status_code
         == 200
     )
-    next_check = client.post(f"{prefix}/watches/{alert['id']}/run").json()
+    next_check = client.post(f"{prefix}/alerts/{alert['id']}/check").json()
     assert next_check["run"]["matched_rows"] == 1
     assert next_check["run"]["new_rows"] == 0
     project.apply_edits([{"row_id": rows[0], "column_id": col, "value": 99}])
-    final = client.post(f"{prefix}/watches/{alert['id']}/run").json()
+    final = client.post(f"{prefix}/alerts/{alert['id']}/check").json()
     assert final["run"]["matched_rows"] == 1
     assert final["run"]["new_rows"] == 1
     assert {
@@ -71,20 +71,20 @@ def test_alert_grid_and_saved_definition_share_full_membership(tmp_path):
 def test_one_alert_per_view_and_owned_query_is_rejected(tmp_path):
     client, pid, project, _, _, _, view, alert = scene(tmp_path)
     response = client.post(
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={"name": "Duplicate", "view_id": view["id"]},
     )
     assert response.status_code == 400
     response = client.post(
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={"name": "Legacy", "query": {"kind": "filter"}, "view_id": view["id"]},
     )
     assert response.status_code == 422
     with pytest.raises(sqlite3.IntegrityError):
-        project.db.execute("INSERT INTO watches(name) VALUES('No view')")
+        project.db.execute("INSERT INTO alerts(name) VALUES('No view')")
     project.db.rollback()
     changed = client.patch(
-        f"/api/projects/{pid}/watches/{alert['id']}",
+        f"/api/projects/{pid}/alerts/{alert['id']}",
         json={
             "detection_policy": {
                 "kind": "conditions",

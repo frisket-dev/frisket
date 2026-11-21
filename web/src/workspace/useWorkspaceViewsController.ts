@@ -238,7 +238,7 @@ export function useWorkspaceViewsController({
       if (existing) alertCheckLink.clearPendingCreateDraft();
       else alertCheckLink.setPendingCreateDraft({ view_id: view.id, sheet_id: view.sheet_id, name: view.name });
       if (isContributionHidden(ALERTS_CONTRIBUTION_ID)) revealContribution(ALERTS_CONTRIBUTION_ID);
-      openDiscover('Watches');
+      openDiscover('Alerts');
     } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
   }, [activeView, currentViewDefinition, ensureViewsLoaded, isContributionHidden, openDiscover, project, projectApi, revealContribution, sheet, showError, alertCheckLink]);
 

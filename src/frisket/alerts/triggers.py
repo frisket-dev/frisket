@@ -115,7 +115,7 @@ def trigger_source_materialized_alerts(
             if exc.code != "search_index_not_ready" or not _is_keyword_alert(alert):
                 out.append(
                     {
-                        "watch_id": int(alert["id"]),
+                        "alert_id": int(alert["id"]),
                         "status": "error",
                         "error_code": exc.code,
                         "error": str(exc),

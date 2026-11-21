@@ -75,15 +75,15 @@ def _threshold_crossing(
 
 def alerts(project: Any) -> list[sqlite3.Row]:
     return project.db.execute(
-        "SELECT watches.*, views.spec AS view_spec, views.sheet_id FROM watches "
-        "JOIN views ON views.id=watches.view_id ORDER BY watches.created_at, watches.id"
+        "SELECT alerts.*, views.spec AS view_spec, views.sheet_id FROM alerts "
+        "JOIN views ON views.id=alerts.view_id ORDER BY alerts.created_at, alerts.id"
     ).fetchall()
 
 
 def get_alert(project: Any, alert_id: int) -> sqlite3.Row | None:
     return project.db.execute(
-        "SELECT watches.*, views.spec AS view_spec, views.sheet_id FROM watches "
-        "JOIN views ON views.id=watches.view_id WHERE watches.id=?",
+        "SELECT alerts.*, views.spec AS view_spec, views.sheet_id FROM alerts "
+        "JOIN views ON views.id=alerts.view_id WHERE alerts.id=?",
         (alert_id,),
     ).fetchone()
 
@@ -117,14 +117,14 @@ def add_alert(
         raise ValueError("view not found")
     normalize_selection(project, stored_selection(json.loads(view["spec"])))
     if project.db.execute(
-        "SELECT 1 FROM watches WHERE view_id=?", (view_id,)
+        "SELECT 1 FROM alerts WHERE view_id=?", (view_id,)
     ).fetchone():
         raise ValueError("This view already has alert settings.")
     _validate_schedule(schedule)
     policy = detection_conditions(normalize_detection_policy(detection_policy))
     with write_transaction(project.db, what="alert add"):
         cur = project.db.execute(
-            "INSERT INTO watches (name,view_id,detection_policy,enabled,schedule,last_status) VALUES (?,?,?,?,?, 'never')",
+            "INSERT INTO alerts (name,view_id,detection_policy,enabled,schedule,last_status) VALUES (?,?,?,?,?, 'never')",
             (name, view_id, canonical_json(policy), int(enabled), schedule),
         )
     return inserted_rowid(cur)
@@ -165,7 +165,7 @@ def update_alert(
     values.append(int(alert_id))
     with write_transaction(project.db, what="alert update"):
         cur = project.db.execute(
-            f"UPDATE watches SET {', '.join(sets)} WHERE id=?",
+            f"UPDATE alerts SET {', '.join(sets)} WHERE id=?",
             values,
         )
         if cur.rowcount == 0:
@@ -177,7 +177,7 @@ def update_alert(
 def delete_alert(project: Any, alert_id: int) -> bool:
     """Delete one Alert and the local notifications explicitly scoped to it.
 
-    Watch-owned runs and state are covered by the schema foreign keys.  The
+    Alert-owned checks and state are covered by the schema foreign keys.  The
     notification tables intentionally use JSON source references, so their
     matching local projections and routes must be removed in this transaction
     before deleting the Alert.  Delivery outside this database is not touched.
@@ -190,27 +190,27 @@ def delete_alert_rows(project: Any, alert_id: int) -> bool:
     """``delete_alert`` inside the caller's open transaction."""
     require_transaction(project.db, "alert delete")
     db = project.db
-    if db.execute("SELECT 1 FROM watches WHERE id=?", (alert_id,)).fetchone() is None:
+    if db.execute("SELECT 1 FROM alerts WHERE id=?", (alert_id,)).fetchone() is None:
         return False
     db.execute(
         "DELETE FROM notification_items "
-        "WHERE source_kind='watch' "
-        "AND json_extract(source_ref, '$.watch_id')=?",
+        "WHERE source_kind='alert' "
+        "AND json_extract(source_ref, '$.alert_id')=?",
         (alert_id,),
     )
     db.execute(
         "DELETE FROM notification_routes "
-        "WHERE source_kind='watch' "
-        "AND json_extract(source_ref_match_json, '$.watch_id')=?",
+        "WHERE source_kind='alert' "
+        "AND json_extract(source_ref_match_json, '$.alert_id')=?",
         (alert_id,),
     )
-    db.execute("DELETE FROM watches WHERE id=?", (alert_id,))
+    db.execute("DELETE FROM alerts WHERE id=?", (alert_id,))
     return True
 
 
 def alert_latest_run(project: Any, alert_id: int) -> sqlite3.Row | None:
     return project.db.execute(
-        "SELECT * FROM watch_runs WHERE watch_id=? "
+        "SELECT * FROM alert_checks WHERE alert_id=? "
         "ORDER BY started_at DESC, id DESC LIMIT 1",
         (alert_id,),
     ).fetchone()
@@ -218,7 +218,7 @@ def alert_latest_run(project: Any, alert_id: int) -> sqlite3.Row | None:
 
 def get_alert_check(project: Any, run_id: int) -> sqlite3.Row | None:
     return project.db.execute(
-        "SELECT * FROM watch_runs WHERE id=?",
+        "SELECT * FROM alert_checks WHERE id=?",
         (run_id,),
     ).fetchone()
 
@@ -230,7 +230,7 @@ def alert_checks_page(
     limit: int = 50,
 ) -> list[sqlite3.Row]:
     return project.db.execute(
-        "SELECT * FROM watch_runs WHERE watch_id=? "
+        "SELECT * FROM alert_checks WHERE alert_id=? "
         "ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
         (alert_id, limit, offset),
     ).fetchall()
@@ -238,7 +238,7 @@ def alert_checks_page(
 
 def alert_checks_total(project: Any, alert_id: int) -> int:
     row = project.db.execute(
-        "SELECT COUNT(*) AS count FROM watch_runs WHERE watch_id=?",
+        "SELECT COUNT(*) AS count FROM alert_checks WHERE alert_id=?",
         (alert_id,),
     ).fetchone()
     return int(row["count"] if row else 0)
@@ -250,7 +250,7 @@ def alert_check_matches(
     limit: int = 20,
 ) -> list[sqlite3.Row]:
     return project.db.execute(
-        "SELECT * FROM watch_run_hits WHERE run_id=? ORDER BY rank LIMIT ?",
+        "SELECT * FROM alert_check_hits WHERE run_id=? ORDER BY rank LIMIT ?",
         (run_id, limit),
     ).fetchall()
 
@@ -269,7 +269,7 @@ def alert_check_events(
         where += " AND event_kind=?"
         params.append(event_kind)
     return project.db.execute(
-        f"SELECT * FROM watch_run_events WHERE {where} "
+        f"SELECT * FROM alert_check_events WHERE {where} "
         "ORDER BY rank ASC, id ASC LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
@@ -287,7 +287,7 @@ def alert_check_events_total(
         where += " AND event_kind=?"
         params.append(event_kind)
     row = project.db.execute(
-        f"SELECT COUNT(*) AS count FROM watch_run_events WHERE {where}",
+        f"SELECT COUNT(*) AS count FROM alert_check_events WHERE {where}",
         tuple(params),
     ).fetchone()
     return int(row["count"] if row else 0)
@@ -300,7 +300,7 @@ def alert_events_for_notification(
         return []
     placeholders = ",".join("?" for _ in event_ids)
     return project.db.execute(
-        "SELECT * FROM watch_run_events WHERE watch_id=? AND run_id=? "
+        "SELECT * FROM alert_check_events WHERE alert_id=? AND run_id=? "
         f"AND id IN ({placeholders}) ORDER BY id ASC",
         (int(alert_id), int(run_id), *(int(value) for value in event_ids)),
     ).fetchall()
@@ -368,7 +368,7 @@ def record_alert_check(
             status, error, error_code, advance_cursor = (
                 "error",
                 str(exc),
-                "watch_inputs_unavailable",
+                "alert_inputs_unavailable",
                 False,
             )
             staged = stack.enter_context(stage_alert_observation(source, (), []))
@@ -397,7 +397,7 @@ def record_alert_check(
                         "source rows were permanently removed during evaluation; retry"
                     )
                 previous = db.execute(
-                    "SELECT * FROM watch_runs WHERE id=? AND watch_id=? AND status='ok'",
+                    "SELECT * FROM alert_checks WHERE id=? AND alert_id=? AND status='ok'",
                     (current["baseline_run_id"], alert_id),
                 ).fetchone()
                 baseline = (
@@ -416,7 +416,7 @@ def record_alert_check(
                     "SELECT COUNT(*) FROM alert_observation.members"
                 ).fetchone()[0]
                 run_id = db.execute(
-                    "INSERT INTO watch_runs (watch_id,status,op_cursor_before,op_cursor_after,"
+                    "INSERT INTO alert_checks (alert_id,status,op_cursor_before,op_cursor_after,"
                     "matched_rows,new_rows,error,resolved_query_hash,resolved_query,detection_policy,error_code,finished_at) "
                     "VALUES (?,?,?,?,?,0,?,?,?,?,?,datetime('now'))",
                     (
@@ -438,7 +438,7 @@ def record_alert_check(
                     nonlocal rank
                     rank += 1
                     db.execute(
-                        "INSERT INTO watch_run_events (run_id,watch_id,event_kind,subject_kind,subject_ref,"
+                        "INSERT INTO alert_check_events (run_id,alert_id,event_kind,subject_kind,subject_ref,"
                         "before_json,after_json,delta_json,severity,rank,snippet) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             run_id,
@@ -459,14 +459,14 @@ def record_alert_check(
                 if status == "ok" and baseline:
                     new_count = db.execute(
                         "SELECT COUNT(*) FROM alert_observation.members now WHERE NOT EXISTS "
-                        "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
+                        "(SELECT 1 FROM alert_seen_rows old WHERE old.alert_id=? "
                         "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)",
                         (alert_id,),
                     ).fetchone()[0]
                     if policy["entered"]:
                         for hit in db.execute(
                             "SELECT now.* FROM alert_observation.members now WHERE NOT EXISTS "
-                            "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
+                            "(SELECT 1 FROM alert_seen_rows old WHERE old.alert_id=? "
                             "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id) ORDER BY now.rank",
                             (alert_id,),
                         ):
@@ -483,9 +483,9 @@ def record_alert_check(
                     if policy["exited"]:
                         for hit in db.execute(
                             "SELECT old.*,COALESCE(unavailable.reason,'membership_changed') AS exit_reason "
-                            "FROM watch_seen_rows old LEFT JOIN alert_observation.unavailable_rows unavailable "
+                            "FROM alert_seen_rows old LEFT JOIN alert_observation.unavailable_rows unavailable "
                             "ON unavailable.sheet_id=old.sheet_id AND unavailable.row_id=old.row_id "
-                            "WHERE old.watch_id=? AND NOT EXISTS "
+                            "WHERE old.alert_id=? AND NOT EXISTS "
                             "(SELECT 1 FROM alert_observation.members now WHERE old.sheet_id=now.sheet_id "
                             "AND old.row_id=now.row_id) ORDER BY old.sheet_id,old.row_id",
                             (alert_id,),
@@ -537,9 +537,9 @@ def record_alert_check(
                             )
                     changed = db.execute(
                         "SELECT now.sheet_id,now.row_id,now.column_id,col.name,old.value_json before_value,now.value_json after_value "
-                        "FROM alert_observation.fields now JOIN watch_row_field_state old "
-                        "ON old.watch_id=? AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id AND old.column_id=now.column_id "
-                        "JOIN watch_seen_rows member ON member.watch_id=old.watch_id AND member.sheet_id=old.sheet_id AND member.row_id=old.row_id "
+                        "FROM alert_observation.fields now JOIN alert_row_field_state old "
+                        "ON old.alert_id=? AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id AND old.column_id=now.column_id "
+                        "JOIN alert_seen_rows member ON member.alert_id=old.alert_id AND member.sheet_id=old.sheet_id AND member.row_id=old.row_id "
                         "JOIN columns col ON col.id=now.column_id WHERE old.value_json!=now.value_json "
                         "ORDER BY now.sheet_id,now.row_id,now.column_id",
                         (alert_id,),
@@ -571,46 +571,46 @@ def record_alert_check(
                 if status == "ok":
                     # Save a bounded preview before replacing baseline membership.
                     db.execute(
-                        "INSERT INTO watch_run_hits (run_id,sheet_id,row_id,column_id,rank,snippet,is_new) "
+                        "INSERT INTO alert_check_hits (run_id,sheet_id,row_id,column_id,rank,snippet,is_new) "
                         "SELECT ?,now.sheet_id,now.row_id,now.column_id,now.rank,now.snippet,"
-                        "(? AND NOT EXISTS (SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
+                        "(? AND NOT EXISTS (SELECT 1 FROM alert_seen_rows old WHERE old.alert_id=? "
                         "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)) "
                         "FROM alert_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
                         (run_id, int(baseline), alert_id),
                     )
                     # Diff-apply: unchanged million-row checks must not rewrite their baseline.
                     db.execute(
-                        "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM alert_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
+                        "DELETE FROM alert_seen_rows WHERE alert_id=? AND NOT EXISTS (SELECT 1 FROM alert_observation.members now WHERE now.sheet_id=alert_seen_rows.sheet_id AND now.row_id=alert_seen_rows.row_id)",
                         (alert_id,),
                     )
                     db.execute(
-                        "INSERT INTO watch_seen_rows (watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
+                        "INSERT INTO alert_seen_rows (alert_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
                         "SELECT ?,sheet_id,row_id,?,? FROM alert_observation.members WHERE 1 "
-                        "ON CONFLICT(watch_id,sheet_id,row_id) DO NOTHING",
+                        "ON CONFLICT(alert_id,sheet_id,row_id) DO NOTHING",
                         (alert_id, run_id, run_id),
                     )
                     db.execute(
-                        "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM alert_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
+                        "DELETE FROM alert_row_field_state WHERE alert_id=? AND NOT EXISTS (SELECT 1 FROM alert_observation.fields now WHERE now.sheet_id=alert_row_field_state.sheet_id AND now.row_id=alert_row_field_state.row_id AND now.column_id=alert_row_field_state.column_id)",
                         (alert_id,),
                     )
                     db.execute(
-                        "INSERT INTO watch_row_field_state (watch_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
+                        "INSERT INTO alert_row_field_state (alert_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
                         "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM alert_observation.fields WHERE 1 "
-                        "ON CONFLICT(watch_id,sheet_id,row_id,column_id) DO UPDATE SET "
+                        "ON CONFLICT(alert_id,sheet_id,row_id,column_id) DO UPDATE SET "
                         "value_json=excluded.value_json,value_hash=excluded.value_hash,last_observed_run_id=excluded.last_observed_run_id "
-                        "WHERE watch_row_field_state.value_json!=excluded.value_json",
+                        "WHERE alert_row_field_state.value_json!=excluded.value_json",
                         (alert_id, run_id),
                     )
                     db.execute(
-                        "UPDATE watches SET baseline_run_id=? WHERE id=?",
+                        "UPDATE alerts SET baseline_run_id=? WHERE id=?",
                         (run_id, alert_id),
                     )
                 db.execute(
-                    "UPDATE watch_runs SET new_rows=?,notification_pending=? WHERE id=?",
+                    "UPDATE alert_checks SET new_rows=?,notification_pending=? WHERE id=?",
                     (new_count, int(rank > 0), run_id),
                 )
                 db.execute(
-                    "UPDATE watches SET last_evaluated_op=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
+                    "UPDATE alerts SET last_evaluated_op=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
                     (
                         op_cursor_after if advance_cursor else op_cursor_before,
                         run_id,

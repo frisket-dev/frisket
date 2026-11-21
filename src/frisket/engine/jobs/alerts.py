@@ -1,11 +1,11 @@
-"""Queued ``watch.evaluate`` jobs — dependency-aware alert evaluation.
+"""Queued ``alert.evaluate`` jobs — dependency-aware alert evaluation.
 
 The source-append pipeline must sequence: source poll -> embedding refresh -> alert
 evaluation. The source poll evaluates non-embedding alerts inline, but an
 ``embedding_similarity`` alert must wait until its index's refresh job COMPLETES (or
 it blocks on ``embedding_index_incomplete`` because the appended rows aren't
 embedded yet, and never re-fires). So the embedding-refresh worker enqueues one
-``watch.evaluate`` job per dependent alert on completion, and this handler runs it.
+``alert.evaluate`` job per dependent alert on completion, and this handler runs it.
 
 Reuses the generic SqliteJobQueue — no new automation framework. The alert
 evaluator itself never calls a provider (row anchors only).
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from frisket.retrieval.preparation import PreparationEncoder
 
 
-ALERT_EVALUATE_KIND = "watch.evaluate"
+ALERT_EVALUATE_KIND = "alert.evaluate"
 
 
 def _alert_query(row: Any) -> dict[str, Any]:
@@ -76,7 +76,7 @@ def _alert_eval_dedupe_key(alert_id: int, trigger_ref: dict[str, Any] | None) ->
         tag = f"dk-{trigger_ref['dedupe_key']}"
     else:
         tag = "manual"
-    return f"watch:{alert_id}:eval:{tag}"
+    return f"alert:{alert_id}:eval:{tag}"
 
 
 def enqueue_due_alert_evaluations(
@@ -105,7 +105,7 @@ def enqueue_due_alert_evaluations(
             if interval is None:
                 continue
             alert_id = int(alert["id"])
-            prefix = f"watch:{alert_id}:eval:"
+            prefix = f"alert:{alert_id}:eval:"
             if (
                 queue.find_job_by_refs(
                     ALERT_EVALUATE_KIND,
@@ -152,7 +152,7 @@ def enqueue_due_alert_evaluations(
                 ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "workspace_root": str(root),
                     "trigger_ref": trigger,
                     "dedupe_key": key,
@@ -165,7 +165,7 @@ def enqueue_due_alert_evaluations(
                 max_attempts=3,
             )
             enqueued.append(
-                {"project_id": project_id, "watch_id": alert_id, "job_id": job_id}
+                {"project_id": project_id, "alert_id": alert_id, "job_id": job_id}
             )
 
     scan_projects(
@@ -187,7 +187,7 @@ def enqueue_index_alert_evaluations(
     index_id: str,
     trigger_ref: dict[str, Any] | None = None,
 ) -> list[int]:
-    """Enqueue one ``watch.evaluate`` job per dependent embedding_similarity alert,
+    """Enqueue one ``alert.evaluate`` job per dependent embedding_similarity alert,
     deduped per (alert, trigger). Enqueue-only — never evaluates inline."""
     if queue is None:
         return []
@@ -215,7 +215,7 @@ def enqueue_index_alert_evaluations(
                         if storage_org_id is not None
                         else {}
                     ),
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "index_id": index_id,
                     "trigger_ref": trigger_ref or {},
                     "dedupe_key": dedupe_key,
@@ -256,7 +256,7 @@ def enqueue_keyword_alert_evaluations(
                 ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "trigger_ref": trigger_ref,
                     "dedupe_key": dedupe_key,
                     "workspace_root": str(workspace_root),
@@ -286,7 +286,7 @@ def register_alert_evaluate_handler(
 
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         project_id = str(payload["project_id"])
-        alert_id = int(payload["watch_id"])
+        alert_id = int(payload["alert_id"])
         if project_opener is None:
             project_root = Path(payload.get("workspace_root") or root)
             project = Project(project_root / f"{project_id}.frisket")
@@ -309,7 +309,7 @@ def register_alert_evaluate_handler(
 
             continuation = {
                 "project_id": project_id,
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "trigger_ref": payload.get("trigger_ref") or {},
                 "workspace_root": str(project_root),
             }
@@ -326,7 +326,7 @@ def register_alert_evaluate_handler(
             )
             return {
                 "project_id": project_id,
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "status": "indexing",
                 "indexed": processed,
             }
@@ -336,14 +336,14 @@ def register_alert_evaluate_handler(
             if row is None:
                 return {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "skipped": True,
                     "reason": "not_found",
                 }
             if not bool(row["enabled"]):
                 return {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "skipped": True,
                     "reason": "disabled",
                 }
@@ -352,7 +352,7 @@ def register_alert_evaluate_handler(
             ):
                 return {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "skipped": True,
                     "reason": "manual_only",
                 }
@@ -389,7 +389,7 @@ def register_alert_evaluate_handler(
             run = evaluation["run"]
             return {
                 "project_id": project_id,
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "run_id": evaluation["run_id"],
                 "status": run.get("status"),
                 "error_code": run.get("error_code"),
@@ -400,5 +400,5 @@ def register_alert_evaluate_handler(
     return registry.add(
         ALERT_EVALUATE_KIND,
         handle,
-        origin="frisket.production.watch_evaluate",
+        origin="frisket.production.alert_evaluate",
     )

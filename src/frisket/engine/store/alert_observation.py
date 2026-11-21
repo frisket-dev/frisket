@@ -121,9 +121,9 @@ def stage_alert_observation(
                     project.db.execute(
                         "SELECT old.sheet_id,old.row_id,CASE WHEN sheets.id IS NULL OR sheets.hidden=1 "
                         "THEN 'sheet_deleted' ELSE 'row_deleted' END "
-                        "FROM watch_seen_rows old LEFT JOIN sheets ON sheets.id=old.sheet_id "
+                        "FROM alert_seen_rows old LEFT JOIN sheets ON sheets.id=old.sheet_id "
                         "LEFT JOIN rows ON rows.id=old.row_id AND rows.sheet_id=old.sheet_id "
-                        "WHERE old.watch_id=? AND (sheets.id IS NULL OR sheets.hidden=1 OR rows.id IS NULL OR rows.hidden=1)",
+                        "WHERE old.alert_id=? AND (sheets.id IS NULL OR sheets.hidden=1 OR rows.id IS NULL OR rows.hidden=1)",
                         (alert_id,),
                     )
                 )

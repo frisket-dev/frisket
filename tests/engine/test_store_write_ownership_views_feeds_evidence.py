@@ -129,7 +129,7 @@ def test_view_whose_row_delete_fails_keeps_its_alert(project):
         project.delete_view(view_id)
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "watches") == 1
+    assert _committed_count(project, "alerts") == 1
 
 
 @pytest.mark.parametrize("write", ["add_alert", "update_alert"])
@@ -160,7 +160,7 @@ def test_alert_row_delete_joins_and_rolls_back_with_its_caller(project):
     assert alerts.delete_alert_rows(project, alert_id) is True
     project.db.rollback()
 
-    assert _committed_count(project, "watches") == 1
+    assert _committed_count(project, "alerts") == 1
 
 
 # -- feeds -------------------------------------------------------------------

@@ -648,12 +648,12 @@ def _check_constraints(sql):
     return sorted(checks)
 
 
-def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path):
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "migrated.frisket")
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
@@ -678,12 +678,6 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
                 row[1]: tuple(row[2:])
                 for row in fresh.execute(f'PRAGMA table_info("{table}")')
             }
-            # ADD COLUMN retains these historical representation differences.
-            # Neither changes existing rows or the typed writer's required data.
-            if table == "watches":
-                name = "view_id"
-                assert before[name][1] == 0 and after[name][1] == 1
-                before[name] = (before[name][0], 1, *before[name][2:])
             assert before == after, table
             assert sorted(
                 tuple(row[2:])
@@ -764,8 +758,8 @@ def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outc
         )
 
 
-def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db, tmp_path):
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     def objects(db):
@@ -780,7 +774,7 @@ def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
         }
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "migrated.frisket")
     with sqlite3.connect(":memory:") as fresh:
         fresh.executescript(SCHEMA)
         expected = objects(fresh)

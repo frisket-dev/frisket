@@ -2337,14 +2337,14 @@ export interface AlertInfo {
 }
 
 export interface AlertCheckResult {
-  schemaVersion: 'frisket.watch_run.v1';
+  schemaVersion: 'frisket.alert_check.v1';
   alert: AlertInfo;
   run: AlertCheck;
   hits: AlertMatch[];
 }
 
 export interface AlertChecksPage extends PageMeta {
-  schemaVersion: 'frisket.watch_runs_page.v1';
+  schemaVersion: 'frisket.alert_checks_page.v1';
   order: 'desc';
   runs: AlertCheck[];
 }
@@ -2366,7 +2366,7 @@ export interface AlertCheckEvent {
 }
 
 export interface AlertCheckEventsPage extends PageMeta {
-  schemaVersion: 'frisket.watch_run_events_page.v1';
+  schemaVersion: 'frisket.alert_check_events_page.v1';
   order: 'asc';
   events: AlertCheckEvent[];
 }

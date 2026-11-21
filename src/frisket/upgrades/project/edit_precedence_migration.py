@@ -12,6 +12,7 @@ import sqlite3
 from frisket.engine.store.change_schema import CHANGE_SCHEMA_SQL
 from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST
 from frisket.upgrades.project._step import execute_ddl
+from frisket.upgrades.project.alerts_migration import ALERTS_TO_DIGEST
 
 
 # Edits outrank later run results.
@@ -78,7 +79,7 @@ def _invalidate_hidden_edits(db: sqlite3.Connection) -> None:
 
 
 def apply_edit_precedence(db: sqlite3.Connection) -> None:
-    if SCHEMA_DIGEST != COPY_PRECEDENCE_TO_DIGEST:
+    if SCHEMA_DIGEST != ALERTS_TO_DIGEST:
         raise BundleSchemaMismatch(
             "Edit precedence migration endpoint needs updating for this build"
         )

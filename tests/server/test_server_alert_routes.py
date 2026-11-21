@@ -17,16 +17,16 @@ from frisket.server.services.alerts import (
 
 
 ALERT_ROUTE_ENTRIES = [
-    (["GET"], "/api/projects/{pid}/watches", "list_watches"),
-    (["POST"], "/api/projects/{pid}/watches", "create_watch"),
-    (["PATCH"], "/api/projects/{pid}/watches/{watch_id}", "patch_watch"),
-    (["DELETE"], "/api/projects/{pid}/watches/{watch_id}", "delete_watch"),
-    (["POST"], "/api/projects/{pid}/watches/{watch_id}/run", "run_watch"),
-    (["GET"], "/api/projects/{pid}/watches/{watch_id}/runs", "list_watch_runs"),
+    (["GET"], "/api/projects/{pid}/alerts", "list_alerts"),
+    (["POST"], "/api/projects/{pid}/alerts", "create_alert"),
+    (["PATCH"], "/api/projects/{pid}/alerts/{alert_id}", "patch_alert"),
+    (["DELETE"], "/api/projects/{pid}/alerts/{alert_id}", "delete_alert"),
+    (["POST"], "/api/projects/{pid}/alerts/{alert_id}/check", "check_alert"),
+    (["GET"], "/api/projects/{pid}/alerts/{alert_id}/checks", "list_alert_checks"),
     (
         ["GET"],
-        "/api/projects/{pid}/watches/{watch_id}/runs/{run_id}/events",
-        "list_watch_run_events",
+        "/api/projects/{pid}/alerts/{alert_id}/checks/{check_id}/events",
+        "list_alert_check_events",
     ),
 ]
 
@@ -59,12 +59,12 @@ def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
     register_alert_routes(app, service=service)
     client = TestClient(app)
 
-    listed = client.get("/api/projects/p/watches")
+    listed = client.get("/api/projects/p/alerts")
     assert listed.status_code == 200
     assert listed.json() == [_alert_payload(1)]
 
     created = client.post(
-        "/api/projects/p/watches",
+        "/api/projects/p/alerts",
         json={
             "name": "Budget",
             "view_id": 7,
@@ -83,7 +83,7 @@ def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
     )
 
     bad_create = client.post(
-        "/api/projects/p/watches",
+        "/api/projects/p/alerts",
         json={
             "name": "bad",
             "view_id": 7,
@@ -92,11 +92,11 @@ def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
     assert bad_create.status_code == 400
     assert bad_create.json()["detail"] == "bad watch"
 
-    incomplete_create = client.post("/api/projects/p/watches", json={"name": "bad"})
+    incomplete_create = client.post("/api/projects/p/alerts", json={"name": "bad"})
     assert incomplete_create.status_code == 422
 
     retired_source = client.post(
-        "/api/projects/p/watches",
+        "/api/projects/p/alerts",
         json={
             "name": "Retired source",
             "view_id": 7,
@@ -106,7 +106,7 @@ def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
     assert retired_source.status_code == 422
 
     retired_inline = client.post(
-        "/api/projects/p/watches",
+        "/api/projects/p/alerts",
         json={
             "name": "Inline source",
             "view_id": 7,
@@ -115,37 +115,37 @@ def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
     )
     assert retired_inline.status_code == 422
 
-    renamed = client.patch("/api/projects/p/watches/9", json={"name": " Renamed "})
+    renamed = client.patch("/api/projects/p/alerts/9", json={"name": " Renamed "})
     assert renamed.status_code == 200
     assert renamed.json()["name"] == "Renamed"
     assert service.calls[-1] == ("patch_watch", "p", 9, {"name": "Renamed"})
 
-    paused = client.patch("/api/projects/p/watches/9", json={"enabled": False})
+    paused = client.patch("/api/projects/p/alerts/9", json={"enabled": False})
     assert paused.status_code == 200
     assert paused.json()["enabled"] is False
     assert service.calls[-1] == ("patch_watch", "p", 9, {"enabled": False})
 
-    empty_patch = client.patch("/api/projects/p/watches/9", json={})
+    empty_patch = client.patch("/api/projects/p/alerts/9", json={})
     assert empty_patch.status_code == 422
 
-    deleted = client.delete("/api/projects/p/watches/9")
+    deleted = client.delete("/api/projects/p/alerts/9")
     assert deleted.status_code == 200
     assert deleted.json() == {"ok": True, "deleted": 9}
     assert service.calls[-1] == ("delete_watch", "p", 9)
 
-    missing = client.post("/api/projects/p/watches/404/run")
+    missing = client.post("/api/projects/p/alerts/404/check")
     assert missing.status_code == 404
     assert missing.json()["detail"] == "alert not found"
 
     runs = client.get(
-        "/api/projects/p/watches/9/runs",
+        "/api/projects/p/alerts/9/checks",
         params={"offset": 2, "limit": 3, "hits_limit": 4},
     )
     assert runs.status_code == 200
     assert service.calls[-1] == ("list_watch_runs", "p", 9, 2, 3, 4)
 
     events = client.get(
-        "/api/projects/p/watches/9/runs/7/events",
+        "/api/projects/p/alerts/9/checks/7/events",
         params={"offset": 1, "limit": 2, "event_kind": "row_entered"},
     )
     assert events.status_code == 200
@@ -160,13 +160,13 @@ def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
     )
 
     bad_event = client.get(
-        "/api/projects/p/watches/9/runs/7/events",
+        "/api/projects/p/alerts/9/checks/7/events",
         params={"event_kind": "bad"},
     )
     assert bad_event.status_code == 400
     assert bad_event.json()["detail"] == "unsupported alert check event kind"
 
-    wrong_run = client.get("/api/projects/p/watches/9/runs/404/events")
+    wrong_run = client.get("/api/projects/p/alerts/9/checks/404/events")
     assert wrong_run.status_code == 404
     assert wrong_run.json()["detail"] == "alert check not found"
 
@@ -176,7 +176,7 @@ def _run_payload(run_id: int, *, alert_id: int) -> dict[str, Any]:
 
     return {
         "id": run_id,
-        "watch_id": alert_id,
+        "alert_id": alert_id,
         "status": "ok",
         "op_cursor_before": 0,
         "op_cursor_after": 0,
@@ -249,8 +249,8 @@ class _FakeAlertService:
         if alert_id == 404:
             raise AlertNotFound("alert not found")
         return {
-            "schema_version": "frisket.watch_run.v1",
-            "watch": _alert_payload(alert_id),
+            "schema_version": "frisket.alert_check.v1",
+            "alert": _alert_payload(alert_id),
             "run": _run_payload(7, alert_id=alert_id),
             "hits": [],
         }
@@ -291,7 +291,7 @@ class _FakeAlertService:
             ("list_watch_runs", project_id, alert_id, offset, limit, hits_limit)
         )
         return {
-            "schema_version": "frisket.watch_runs_page.v1",
+            "schema_version": "frisket.alert_checks_page.v1",
             "order": "desc",
             "offset": offset,
             "limit": limit,
@@ -328,7 +328,7 @@ class _FakeAlertService:
         if event_kind == "bad":
             raise AlertRequestError("unsupported alert check event kind")
         return {
-            "schema_version": "frisket.watch_run_events_page.v1",
+            "schema_version": "frisket.alert_check_events_page.v1",
             "order": "asc",
             "offset": offset,
             "limit": limit,
@@ -362,10 +362,10 @@ def test_listing_legacy_alert_policy_returns_canonical_conditions(
         alert_id = project.add_alert("Legacy watch", view_id=view_id)
         for stored in ('{"kind":"new_matches"}', "invalid json"):
             project.db.execute(
-                "UPDATE watches SET detection_policy=? WHERE id=?", (stored, alert_id)
+                "UPDATE alerts SET detection_policy=? WHERE id=?", (stored, alert_id)
             )
             project.db.commit()
-            response = client.get(f"/api/projects/{pid}/watches")
+            response = client.get(f"/api/projects/{pid}/alerts")
             assert response.status_code == 200, response.text
             assert response.json()[0]["detection_policy"] == {
                 "kind": "conditions",

@@ -158,7 +158,7 @@ describe('Alerts panel — re-run labels say what they buy (ruling 4)', () => {
           team: true,
         },
       },
-      WatchControlSlot: ({ projectId, watch: alert, refreshWatches: refreshAlerts }) => (
+      AlertControlSlot: ({ projectId, alert, refreshAlerts }) => (
         <button type="button" data-testid="edition-alert-control" onClick={refreshAlerts}>
           Destination for {alert.name} in {projectId}
         </button>

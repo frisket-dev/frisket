@@ -61,7 +61,7 @@ def test_first_observation_silent_and_returning_rows_alert_again(scene):
     assert kinds(project, record(scene, [])) == ["row_exited"]
     assert kinds(project, record(scene, rows[:1])) == ["row_entered"]
     assert kinds(project, record(scene, rows[:1])) == []
-    assert project.db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 1
+    assert project.db.execute("SELECT count(*) FROM alert_seen_rows").fetchone()[0] == 1
 
 
 def test_conditions_share_one_check_and_incomplete_preserves_baseline(scene):
@@ -70,7 +70,7 @@ def test_conditions_share_one_check_and_incomplete_preserves_baseline(scene):
     project.apply_edits([{"row_id": rows[0], "column_id": column, "value": "updated"}])
     failed = record(scene, [], status="error")
     assert kinds(project, failed) == []
-    assert project.db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 2
+    assert project.db.execute("SELECT count(*) FROM alert_seen_rows").fetchone()[0] == 2
     changed = record(scene, [rows[0], rows[2]])
     assert kinds(project, changed) == ["row_entered", "row_exited", "row_changed"]
     event = project.alert_check_events(changed)[-1]
@@ -95,7 +95,7 @@ def test_definition_change_during_staging_cannot_publish_old_check(scene):
     def arriving_hits():
         yield {"sheet_id": sheet, "row_id": rows[0]}
         project.db.execute(
-            "UPDATE views SET spec=? WHERE id=(SELECT view_id FROM watches WHERE id=?)",
+            "UPDATE views SET spec=? WHERE id=(SELECT view_id FROM alerts WHERE id=?)",
             (
                 json.dumps(
                     {
@@ -114,7 +114,7 @@ def test_definition_change_during_staging_cannot_publish_old_check(scene):
     with pytest.raises(ValueError, match="definition changed"):
         record(scene, [], hits=arriving_hits())
     assert project.get_alert(alert)["last_run_id"] == before
-    assert project.db.execute("SELECT count(*) FROM watch_runs").fetchone()[0] == 1
+    assert project.db.execute("SELECT count(*) FROM alert_checks").fetchone()[0] == 1
 
 
 def test_all_changes_counted_with_bounded_previews_and_one_summary_key(scene):
@@ -145,7 +145,7 @@ def test_new_condition_initializes_without_swallowing_existing_entry_alerts(scen
     project.update_alert(alert, name="Renamed")
     assert kinds(project, record(scene, rows[:2])) == ["row_entered"]
     project.db.execute(
-        "UPDATE watches SET detection_policy=? WHERE id=?",
+        "UPDATE alerts SET detection_policy=? WHERE id=?",
         (
             json.dumps({"kind": "conditions", "entered": True, "count_changed": True}),
             alert,
@@ -181,10 +181,10 @@ def test_pending_monitored_value_preserves_successful_baseline(scene):
     incomplete = record(scene, rows)
     assert project.get_alert_check(incomplete)["status"] == "error"
     assert (
-        project.get_alert_check(incomplete)["error_code"] == "watch_inputs_unavailable"
+        project.get_alert_check(incomplete)["error_code"] == "alert_inputs_unavailable"
     )
     assert project.get_alert(alert)["baseline_run_id"] == baseline
-    assert project.db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 3
+    assert project.db.execute("SELECT count(*) FROM alert_seen_rows").fetchone()[0] == 3
 
 
 def test_saved_observation_notification_recovers_without_requery(scene, monkeypatch):
@@ -208,14 +208,14 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
     assert project.get_alert_check(run)["notification_pending"] == 0
     assert (
         project.db.execute(
-            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+            "SELECT count(*) FROM notification_items WHERE source_kind='alert'"
         ).fetchone()[0]
         == 1
     )
     emit_alert_check_notification(project, alert_id=alert, run_id=run)
     assert (
         project.db.execute(
-            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+            "SELECT count(*) FROM notification_items WHERE source_kind='alert'"
         ).fetchone()[0]
         == 1
     )
@@ -232,7 +232,7 @@ def test_notification_persists_total_not_preview_count(scene):
     run = record(scene, rows)
     emit_alert_check_notification(project, alert_id=alert, run_id=run)
     notification = project.db.execute(
-        "SELECT event_count FROM notification_items WHERE source_kind='watch'"
+        "SELECT event_count FROM notification_items WHERE source_kind='alert'"
     ).fetchone()
     assert notification[0] == 501
 
@@ -257,14 +257,14 @@ def test_worker_recovers_saved_notification_without_an_expired_lease(scene):
     assert project.get_alert_check(run)["notification_pending"] == 0
     assert (
         project.db.execute(
-            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+            "SELECT count(*) FROM notification_items WHERE source_kind='alert'"
         ).fetchone()[0]
         == 1
     )
     assert worker.run_once() is False
     assert (
         project.db.execute(
-            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+            "SELECT count(*) FROM notification_items WHERE source_kind='alert'"
         ).fetchone()[0]
         == 1
     )
@@ -298,7 +298,7 @@ def test_failed_notification_does_not_block_later_checks(scene, monkeypatch):
     assert project.get_alert_check(first)["notification_pending"] == 0
     assert (
         project.db.execute(
-            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+            "SELECT count(*) FROM notification_items WHERE source_kind='alert'"
         ).fetchone()[0]
         == 2
     )
@@ -310,13 +310,13 @@ def test_unchanged_membership_and_fields_are_not_rewritten(scene):
     first_members = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (alert,)
+            "SELECT * FROM alert_seen_rows WHERE alert_id=?", (alert,)
         )
     ]
     first_fields = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (alert,)
+            "SELECT * FROM alert_row_field_state WHERE alert_id=?", (alert,)
         )
     ]
     statements = []
@@ -329,13 +329,13 @@ def test_unchanged_membership_and_fields_are_not_rewritten(scene):
     assert [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (alert,)
+            "SELECT * FROM alert_seen_rows WHERE alert_id=?", (alert,)
         )
     ] == first_members
     assert [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (alert,)
+            "SELECT * FROM alert_row_field_state WHERE alert_id=?", (alert,)
         )
     ] == first_fields
 

@@ -129,7 +129,7 @@ class TestBackgroundIndexPriority:
         queue = request.getfixturevalue(queue_fixture)
         first_index = queue.enqueue(SEARCH_INDEX_KIND, {})
         action = queue.enqueue(ACTION_RUN_KIND, {})
-        alert = queue.enqueue("watch.evaluate", {})
+        alert = queue.enqueue("alert.evaluate", {})
         second_index = queue.enqueue(SEARCH_INDEX_KIND, {})
         project_run = queue.enqueue(PROJECT_RUN_KIND, {})
         other = queue.enqueue("echo", {})

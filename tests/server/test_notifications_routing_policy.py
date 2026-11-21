@@ -31,7 +31,7 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     drain_index(client.app.state.workspace.get(pid))
     alert_response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget watch",
             "scope": {"kind": "project"},
@@ -41,11 +41,11 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     assert alert_response.status_code == 200, alert_response.text
     alert = alert_response.json()
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
+    run_response = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
@@ -62,16 +62,16 @@ def _emit_alert_candidate(
     response = client.post(
         f"/api/projects/{pid}/notifications/emit",
         json={
-            "source_kind": "watch",
-            "source_ref": {"watch_id": alert_id, "run_id": run_id},
+            "source_kind": "alert",
+            "source_ref": {"alert_id": alert_id, "run_id": run_id},
             "source_event_ids": event_ids,
-            "dedupe_key": f"watch:{alert_id}:run:{run_id}:events:route-policy",
+            "dedupe_key": f"alert:{alert_id}:run:{run_id}:events:route-policy",
             "title": f"Budget watch found {len(event_ids)} new rows",
             "summary": f'{len(event_ids)} rows newly matched Search "budget".',
             "severity": "warning",
             "deep_link": {
-                "kind": "watch_run",
-                "watch_id": alert_id,
+                "kind": "alert_check",
+                "alert_id": alert_id,
                 "run_id": run_id,
                 "event_ids": event_ids,
             },
@@ -135,8 +135,8 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
         json={
             "name": "Budget Slack",
             "channel_id": slack["id"],
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
             "event_kinds": ["row_entered"],
             "severity_min": "info",
             "delivery_mode": "immediate",
@@ -148,8 +148,8 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
         json={
             "name": "Budget daily digest",
             "channel_id": email["id"],
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
             "delivery_mode": "digest",
             "digest_cadence": "daily",
         },
@@ -161,8 +161,8 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
             "name": "Disabled email",
             "channel_id": email["id"],
             "enabled": False,
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
@@ -172,8 +172,8 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
         json={
             "name": "Other watch",
             "channel_id": email["id"],
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id + 999},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id + 999},
             "delivery_mode": "immediate",
         },
     )
@@ -213,8 +213,8 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
         json={
             "name": "Budget email immediate",
             "channel_id": email["id"],
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
@@ -263,7 +263,7 @@ def test_route_api_rejects_user_owner_kind_without_hosted_session_and_in_app_rou
         json={
             "name": "In app route",
             "channel_id": in_app["id"],
-            "source_kind": "watch",
+            "source_kind": "alert",
         },
     )
     assert implicit_in_app.status_code == 400

@@ -124,9 +124,9 @@ test('Discover tabs switch content; collapse to rail; rail icon re-expands to th
   await expect(page.getByTestId('discover-rail')).toBeVisible();
 
   // Clicking a rail icon re-expands to THAT tab.
-  await page.getByTestId('discover-rail-icon-Watches').click();
+  await page.getByTestId('discover-rail-icon-Alerts').click();
   await expect(page.getByTestId('discover-panel')).toBeVisible();
-  await expect(page.getByTestId('discover-tab-Watches')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('discover-tab-Alerts')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('resident Discover controls collapse and re-expand the panel', async ({ page, request }) => {

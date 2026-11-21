@@ -180,10 +180,10 @@ def test_manual_query_preparation_is_explicit_then_reused_for_view_and_alert(tmp
     assert gateway.calls == 1
     assert client.get(path).status_code == 200
     alert = client.post(
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={"name": "Prepared query", "view_id": view["id"]},
     ).json()
-    check = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
+    check = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check")
     assert check.status_code == 200, check.text
     assert check.json()["run"]["status"] == "ok"
     assert gateway.calls == 1

@@ -918,7 +918,7 @@ class JobQueue:
                 sa.case(
                     (
                         c.kind.in_(
-                            (SEARCH_INDEX_KIND, SOURCE_VERIFY_KIND, "watch.evaluate")
+                            (SEARCH_INDEX_KIND, SOURCE_VERIFY_KIND, "alert.evaluate")
                         ),
                         1,
                     ),

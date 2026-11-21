@@ -45,7 +45,7 @@ def _create_fts_alert(
 ) -> dict[str, Any]:
     response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget watch",
             "scope": {"kind": "project"},
@@ -57,10 +57,10 @@ def _create_fts_alert(
 
 
 def _check_alert(client: TestClient, pid: str, alert_id: int) -> dict[str, Any]:
-    response = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
+    response = client.post(f"/api/projects/{pid}/alerts/{alert_id}/check")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["schema_version"] == "frisket.watch_run.v1"
+    assert body["schema_version"] == "frisket.alert_check.v1"
     return body
 
 
@@ -152,12 +152,12 @@ def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
     assert [hit["is_new"] for hit in first["hits"]] == [True, True]
 
     route = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{first['run']['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{first['run']['id']}/events",
         params={"offset": 0, "limit": 1},
     )
     assert route.status_code == 200, route.text
     events_page = route.json()
-    assert events_page["schema_version"] == "frisket.watch_run_events_page.v1"
+    assert events_page["schema_version"] == "frisket.alert_check_events_page.v1"
     assert events_page["order"] == "asc"
     assert events_page["offset"] == 0
     assert events_page["limit"] == 1
@@ -178,14 +178,14 @@ def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
     assert event["snippet"] is None
 
     filtered = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{first['run']['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{first['run']['id']}/events",
         params={"event_kind": "row_entered", "limit": 10},
     )
     assert filtered.status_code == 200, filtered.text
     assert filtered.json()["total"] == 2
 
     no_such_kind = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{first['run']['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{first['run']['id']}/events",
         params={"event_kind": "row_exited", "limit": 10},
     )
     assert no_such_kind.status_code == 200, no_such_kind.text
@@ -194,7 +194,7 @@ def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
     second = _check_alert(client, pid, alert["id"])
     assert second["run"]["new_rows"] == 0
     second_events = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{second['run']['id']}/events"
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{second['run']['id']}/events"
     )
     assert second_events.status_code == 200, second_events.text
     assert second_events.json()["total"] == 0
@@ -214,7 +214,7 @@ def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
     third = _check_alert(client, pid, alert["id"])
     assert third["run"]["new_rows"] == 1
     third_events = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{third['run']['id']}/events"
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{third['run']['id']}/events"
     )
     assert third_events.status_code == 200, third_events.text
     assert third_events.json()["total"] == 1
@@ -226,11 +226,11 @@ def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
         )
     }
     assert {
-        "watches",
-        "watch_runs",
-        "watch_run_hits",
-        "watch_seen_rows",
-        "watch_run_events",
+        "alerts",
+        "alert_checks",
+        "alert_check_hits",
+        "alert_seen_rows",
+        "alert_check_events",
     }.issubset(tables)
     indexes = {
         row["name"]
@@ -239,9 +239,9 @@ def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
         )
     }
     assert {
-        "idx_watch_run_events_run_rank",
-        "idx_watch_run_events_watch_id",
-        "idx_watch_run_events_kind",
+        "idx_alert_check_events_run_rank",
+        "idx_alert_check_events_alert_id",
+        "idx_alert_check_events_kind",
     }.issubset(indexes)
 
 
@@ -255,7 +255,7 @@ def test_alert_check_events_route_rejects_run_from_another_alert(
     run = _check_alert(client, pid, first_alert["id"])
 
     wrong_alert = client.get(
-        f"/api/projects/{pid}/watches/{second_alert['id']}/runs/{run['run']['id']}/events"
+        f"/api/projects/{pid}/alerts/{second_alert['id']}/checks/{run['run']['id']}/events"
     )
     assert wrong_alert.status_code == 404, wrong_alert.text
     assert "alert check not found" in wrong_alert.json()["detail"]

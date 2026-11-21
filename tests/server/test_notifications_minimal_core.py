@@ -32,7 +32,7 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     drain_index(client.app.state.workspace.get(pid))
     alert_response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget watch",
             "scope": {"kind": "project"},
@@ -44,11 +44,11 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     from alert_helpers import seed_empty_alert_baseline
 
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
+    run_response = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
@@ -65,16 +65,16 @@ def _emit_alert_candidate(
     response = client.post(
         f"/api/projects/{pid}/notifications/emit",
         json={
-            "source_kind": "watch",
-            "source_ref": {"watch_id": alert_id, "run_id": run_id},
+            "source_kind": "alert",
+            "source_ref": {"alert_id": alert_id, "run_id": run_id},
             "source_event_ids": event_ids,
-            "dedupe_key": f"watch:{alert_id}:run:{run_id}:events:{','.join(map(str, sorted(event_ids)))}",
+            "dedupe_key": f"alert:{alert_id}:run:{run_id}:events:{','.join(map(str, sorted(event_ids)))}",
             "title": f"Budget watch found {len(event_ids)} new rows",
             "summary": f'{len(event_ids)} rows newly matched Search "budget".',
             "severity": "warning",
             "deep_link": {
-                "kind": "watch_run",
-                "watch_id": alert_id,
+                "kind": "alert_check",
+                "alert_id": alert_id,
                 "run_id": run_id,
                 "event_ids": event_ids,
             },
@@ -145,9 +145,9 @@ def test_notification_tables_routes_and_actor_state_for_alert_events(
     assert page["order"] == "desc"
     assert page["total"] == 1
     item = page["notifications"][0]
-    assert item["source_kind"] == "watch"
+    assert item["source_kind"] == "alert"
     assert item["source_ref"] == {
-        "watch_id": refs["watch"]["id"],
+        "alert_id": refs["watch"]["id"],
         "run_id": refs["run"]["id"],
     }
     assert item["source_event_ids"] == event_ids
@@ -167,11 +167,11 @@ def test_notification_tables_routes_and_actor_state_for_alert_events(
     assert summary_body["total"] == 1
     assert summary_body["unseen"] == 1
     assert summary_body["by_severity"] == {"warning": 1}
-    assert summary_body["by_source_kind"] == {"watch": 1}
+    assert summary_body["by_source_kind"] == {"alert": 1}
     assert summary_body["by_source_ref"] == [
         {
-            "source_kind": "watch",
-            "source_ref": {"watch_id": refs["watch"]["id"]},
+            "source_kind": "alert",
+            "source_ref": {"alert_id": refs["watch"]["id"]},
             "unseen": 1,
         }
     ]
@@ -223,13 +223,13 @@ def test_notification_tables_routes_and_actor_state_for_alert_events(
 
     bulk_ack = client.post(
         f"/api/projects/{pid}/notifications/ack",
-        json={"source_kind": "watch", "source_ref": {"watch_id": refs["watch"]["id"]}},
+        json={"source_kind": "alert", "source_ref": {"alert_id": refs["watch"]["id"]}},
     )
     assert bulk_ack.status_code == 200, bulk_ack.text
     assert bulk_ack.json() == {"acknowledged_count": 1}
 
     stored_events = client.get(
-        f"/api/projects/{pid}/watches/{refs['watch']['id']}/runs/{refs['run']['id']}/events",
+        f"/api/projects/{pid}/alerts/{refs['watch']['id']}/checks/{refs['run']['id']}/events",
         params={"limit": 10},
     ).json()["events"]
     assert [event["id"] for event in stored_events] == event_ids

@@ -606,7 +606,7 @@ def register_production_handlers(
         registrations = {
             "project.run": project_run_registration,
             "action.run": action_run_registration,
-            "watch.evaluate": alert_evaluate_registration,
+            "alert.evaluate": alert_evaluate_registration,
             "source.poll": feed_poll_registration,
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,

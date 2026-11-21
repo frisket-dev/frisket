@@ -57,7 +57,7 @@ def _seed_alert(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     drain_index(client.app.state.workspace.get(pid))
     alert = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget",
             "scope": {"kind": "project"},
@@ -65,9 +65,9 @@ def _seed_alert(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
         },
     ).json()
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
-    run = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run").json()["run"]
+    run = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check").json()["run"]
     events = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{run['id']}/events",
         params={"limit": 10},
     ).json()["events"]
     return pid, {"watch": alert, "run": run}, events
@@ -89,8 +89,8 @@ def _create_email_route(client: TestClient, pid: str, alert_id: int) -> None:
         json={
             "name": "Email route",
             "channel_id": channel.json()["id"],
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
         },
     )
     assert route.status_code == 200, route.text
@@ -102,9 +102,9 @@ def _emit(
     response = client.post(
         f"/api/projects/{pid}/notifications/emit",
         json={
-            "source_kind": "watch",
+            "source_kind": "alert",
             "source_ref": {
-                "watch_id": refs["watch"]["id"],
+                "alert_id": refs["watch"]["id"],
                 "run_id": refs["run"]["id"],
             },
             "source_event_ids": [event["id"] for event in events],
@@ -112,7 +112,7 @@ def _emit(
             "title": "Budget rows",
             "summary": "Budget rows matched.",
             "severity": "warning",
-            "deep_link": {"kind": "watch_run", "watch_id": refs["watch"]["id"]},
+            "deep_link": {"kind": "alert_check", "alert_id": refs["watch"]["id"]},
             "payload": {},
         },
     )
