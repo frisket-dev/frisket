@@ -628,7 +628,7 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
                 provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
                 units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 
