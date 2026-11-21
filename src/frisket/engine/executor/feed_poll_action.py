@@ -641,7 +641,6 @@ def _materialize_registered_feed_poll_in_txn(
                 "created_rows": publication.created,
                 "restored_rows": publication.restored,
             },
-            commit=False,
         )
     return {
         "sheet_id": sheet_id,

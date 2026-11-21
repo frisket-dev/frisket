@@ -146,7 +146,6 @@ def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
             project,
             source_column_id=source_column_id,
             text_column_id=text_column_id,
-            commit=False,
         )
 
     text_op_id = project.append_change("media.read_pdf_text")
@@ -301,12 +300,12 @@ def test_existing_designated_text_name_and_identity_are_reused_without_rename(
     project = make_project("existing-text-role")
     sheet_id, source_column_id = _source(project)
     text_column_id = project.add_column(sheet_id, "Text", type="text")
-    ensure_document_text_role(
-        project,
-        source_column_id=source_column_id,
-        text_column_id=text_column_id,
-        commit=True,
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project,
+            source_column_id=source_column_id,
+            text_column_id=text_column_id,
+        )
     for kind in ("native_pdf", "ocr"):
         body = _body(
             project,
@@ -526,7 +525,6 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
             project,
             source_column_id=source_column_id,
             text_column_id=text_column_id,
-            commit=False,
         )
     immutable_counts = tuple(
         int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])

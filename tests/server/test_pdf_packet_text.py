@@ -150,7 +150,6 @@ def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
             project,
             source_column_id=file_column,
             text_column_id=text_column,
-            commit=False,
         )
     op = project.append_change("media.read_pdf_text")
     with write_transaction(project.db):

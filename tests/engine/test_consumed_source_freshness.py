@@ -212,7 +212,7 @@ def test_equal_descriptor_value_from_new_owner_is_stale_until_reverted(tmp_path)
             "column_types": {str(column): "text"},
             "column_types_after": {str(column): "text"},
         }
-        project.set_undo_info(descriptor_change, info, commit=False)
+        project.set_undo_info(descriptor_change, info)
         record_descriptor_changes(project.db, descriptor_change, info)
         refresh_current_cells(project.db, column_ids=[column], row_ids=rows)
         ChangeStore(project).close(descriptor_change)

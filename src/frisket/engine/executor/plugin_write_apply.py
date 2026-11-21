@@ -265,7 +265,7 @@ def apply_additive_tables(
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(op_spec, sort_keys=True), op_id),
         )
-        set_undo_info(project, op_id, undo_info, commit=False)
+        set_undo_info(project, op_id, undo_info)
         # This helper owns the complete materialization, even inside a caller's
         # receipt transaction. Empty tables are Changes too; source-cell writes
         # must not be what incidentally makes them navigable.

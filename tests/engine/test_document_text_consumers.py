@@ -88,9 +88,8 @@ def _document(project, *, page=None, pdf=b"two-page fixture"):
         [{"File": {"blob": blob, **({"page": page} if page else {})}}],
         {"File": source},
     )
-    ensure_document_text_role(
-        project, source_column_id=source, text_column_id=text, commit=True
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(project, source_column_id=source, text_column_id=text)
     cell = (sheet, row, source)
     chosen = _text_output(
         project, cell, text, blob, ["chosen first", "chosen second"], page=page

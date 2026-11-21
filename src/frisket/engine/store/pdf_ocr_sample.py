@@ -168,13 +168,12 @@ def publish_pdf_ocr_sample(
                     project,
                     source_column_id=column,
                     text_column_id=output_column,
-                    commit=False,
                 )
         else:
             output_column = role.text_column_id
             name = str(project.get_column(output_column)["name"])
         if created:
-            project.set_undo_info(op_id, {"created_columns": created}, commit=False)
+            project.set_undo_info(op_id, {"created_columns": created})
         if selection is not None:
             artifact_id = selection.source_artifact_id
         else:

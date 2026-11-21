@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.transactions import require_transaction
+
 
 DOCUMENT_TEXT_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS document_text_column_roles (
@@ -380,15 +382,13 @@ def ensure_document_text_role(
     *,
     source_column_id: int,
     text_column_id: int,
-    commit: bool = False,
 ) -> DocumentTextRole:
-    """Bind one exact active File/Text pair; replay is idempotent."""
+    """Bind one exact active File/Text pair in the caller's transaction; replay is idempotent."""
 
     db = _db(project)
     source_column_id = _positive(source_column_id, "source_column_id")
     text_column_id = _positive(text_column_id, "text_column_id")
-    if not commit and not db.in_transaction:
-        raise RuntimeError("document text role writes require a caller transaction")
+    require_transaction(db, "document text role writes")
     if not _role_table_exists(db):
         raise DocumentTextRoleError("document text role schema is unavailable")
     rows = db.execute(
@@ -425,8 +425,6 @@ def ensure_document_text_role(
         "(source_column_id,text_column_id) VALUES (?,?)",
         (source_column_id, text_column_id),
     )
-    if commit:
-        db.commit()
     role = document_text_role(db, source_column_id=source_column_id)
     assert role is not None
     return role

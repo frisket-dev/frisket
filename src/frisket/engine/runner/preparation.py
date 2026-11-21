@@ -757,11 +757,10 @@ def prepare_validated(
         if created_columns:
             undo_info["created_columns"] = created_columns
         if undo_info:
-            project.set_undo_info(
-                op_id,
-                undo_info,
-                commit=not defer_commits,
-            )
+            with write_transaction(
+                project.db, commit=not defer_commits, what="change undo info"
+            ):
+                project.set_undo_info(op_id, undo_info)
         run_id = run_store.start_run(
             op_id,
             sheet_id,
@@ -798,15 +797,19 @@ def prepare_validated(
                             op_id, created_cid, run_id, commit=False
                         )
         # Retire dropped output roles instead of exposing stale values.
-        retire_dropped_generated_columns(
-            project,
-            op_id=op_id,
-            program=program,
-            spec=spec,
-            columns=columns,
-            current_output_names=set(out_cols),
+        with write_transaction(
+            project.db,
             commit=not defer_commits,
-        )
+            what="retire dropped generated columns",
+        ):
+            retire_dropped_generated_columns(
+                project,
+                op_id=op_id,
+                program=program,
+                spec=spec,
+                columns=columns,
+                current_output_names=set(out_cols),
+            )
     run_scope_run_id = run_id if run_store.has_run_row_scope(run_id) else None
     if run_scope_run_id is not None and resume_run_id is not None and not row_ids:
         row_count = run_store.pending_run_row_scope_count(

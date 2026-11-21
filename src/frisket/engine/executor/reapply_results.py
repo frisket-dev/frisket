@@ -222,7 +222,7 @@ def reapply_results(project, project_id, bound):
                     or "{}"
                 )
                 info["created_columns"] = created
-                set_undo_info(project, op_id, info, commit=False)
+                set_undo_info(project, op_id, info)
                 from frisket.engine.store.review_stats import ensure_run_review_stats
 
                 ensure_run_review_stats(project.db, source)

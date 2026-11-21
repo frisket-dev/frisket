@@ -20,6 +20,7 @@ from frisket.engine.runner.column_retirement import (
     retire_dropped_generated_columns,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 
 
 class _FakeProgram(ActionProgram):
@@ -81,14 +82,15 @@ def test_declared_dropped_roles_are_retired(project: Project):
     conf = _generated_column(project, sheet, "out_confidence")  # dropped
     just = _generated_column(project, sheet, "out_justification")  # dropped
 
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=op_id,
-        program=_FakeProgram(),
-        spec={"action_kind": "map.fake"},
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"out"},
-    )
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=_FakeProgram(),
+            spec={"action_kind": "map.fake"},
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"out"},
+        )
 
     assert set(retired) == {conf, just}
     # hide-by-default (values preserved, revealable); the live output untouched
@@ -113,14 +115,15 @@ def test_a_role_still_in_the_current_output_is_not_retired(project: Project):
     conf = _generated_column(project, sheet, "out_confidence")
 
     # out_confidence is STILL emitted this run -> not an orphan
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=op_id,
-        program=_FakeProgram(),
-        spec={"action_kind": "map.fake"},
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"out", "out_confidence"},
-    )
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=_FakeProgram(),
+            spec={"action_kind": "map.fake"},
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"out", "out_confidence"},
+        )
     assert retired == []
     assert _column(project, conf)["default_hidden"] == 0
 
@@ -213,18 +216,19 @@ def test_output_instance_guard_across_two_generic_outputs(project: Project):
 
     # B (Parakeet) reruns onto its own output "interview"
     b_op = project.append_change("map", {"recipe": "transcribe"})
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=b_op,
-        program=_AbsoluteDetectedProgram(),
-        spec={
-            "action_kind": "map.translate",
-            "engine": "parakeet-tdt",
-            "output_name": "interview",
-        },
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"interview", "interview_segments"},
-    )
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=b_op,
+            program=_AbsoluteDetectedProgram(),
+            spec={
+                "action_kind": "map.translate",
+                "engine": "parakeet-tdt",
+                "output_name": "interview",
+            },
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"interview", "interview_segments"},
+        )
     assert retired == []  # A's detected_language is a DIFFERENT output instance
     assert _column(project, a_detected)["default_hidden"] == 0
 
@@ -238,18 +242,19 @@ def test_output_instance_guard_retires_own_detected_language(project: Project):
     _point(project, a_detected, run_a)
 
     a_rerun_op = project.append_change("map", {"recipe": "transcribe"})
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=a_rerun_op,
-        program=_AbsoluteDetectedProgram(),
-        spec={
-            "action_kind": "map.translate",
-            "engine": "parakeet-tdt",
-            "output_name": "transcript",
-        },
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"transcript", "transcript_segments"},
-    )
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=a_rerun_op,
+            program=_AbsoluteDetectedProgram(),
+            spec={
+                "action_kind": "map.translate",
+                "engine": "parakeet-tdt",
+                "output_name": "transcript",
+            },
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"transcript", "transcript_segments"},
+        )
     assert retired == [a_detected]
     assert _column(project, a_detected)["default_hidden"] == 1
 
@@ -263,14 +268,16 @@ def test_unattributed_absolute_name_survives_a_cross_action_rerun(project: Proje
     detected = _generated_column(
         project, sheet, "detected_language"
     )  # NULL pointer, absolute
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=project.append_change("map", {"recipe": "translate"}),
-        program=_AbsoluteDetectedProgram(),
-        spec={"action_kind": "map.translate", "output_name": "es"},
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"es"},
-    )
+    op_id = project.append_change("map", {"recipe": "translate"})
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=_AbsoluteDetectedProgram(),
+            spec={"action_kind": "map.translate", "output_name": "es"},
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"es"},
+        )
     assert retired == []
     assert _column(project, detected)["default_hidden"] == 0
 
@@ -281,18 +288,20 @@ def test_unattributed_absolute_name_survives_same_action_other_output(project: P
     sheet = project.add_sheet("data")
     _generated_column(project, sheet, "other")
     detected = _generated_column(project, sheet, "detected_language")  # NULL, absolute
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=project.append_change("map", {"recipe": "transcribe"}),
-        program=_AbsoluteDetectedProgram(),
-        spec={
-            "action_kind": "map.translate",
-            "engine": "parakeet-tdt",
-            "output_name": "other",
-        },
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"other", "other_segments"},
-    )
+    op_id = project.append_change("map", {"recipe": "transcribe"})
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=_AbsoluteDetectedProgram(),
+            spec={
+                "action_kind": "map.translate",
+                "engine": "parakeet-tdt",
+                "output_name": "other",
+            },
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"other", "other_segments"},
+        )
     assert retired == []
     assert _column(project, detected)["default_hidden"] == 0
 
@@ -307,14 +316,16 @@ def test_output_name_comparison_is_case_folded(project: Project):
     detected = _generated_column(project, sheet, "es_detected_language")
     _point(project, detected, prior)
 
-    retired = retire_dropped_generated_columns(
-        project,
-        op_id=project.append_change("map", {"recipe": "translate"}),
-        program=_DerivedDetectedProgram(),
-        spec={"action_kind": "map.translate", "output_name": "es"},
-        columns=project.columns(sheet, include_hidden=True),
-        current_output_names={"es"},
-    )
+    op_id = project.append_change("map", {"recipe": "translate"})
+    with write_transaction(project.db):
+        retired = retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=_DerivedDetectedProgram(),
+            spec={"action_kind": "map.translate", "output_name": "es"},
+            columns=project.columns(sheet, include_hidden=True),
+            current_output_names={"es"},
+        )
     assert retired == [detected]
     assert _column(project, detected)["default_hidden"] == 1
 
@@ -323,17 +334,18 @@ def test_recipe_with_nothing_to_retire_is_a_noop(project: Project):
     sheet = project.add_sheet("data")
     op_id = project.append_change("map", {"recipe": "plain"})
     _generated_column(project, sheet, "out")
-    assert (
-        retire_dropped_generated_columns(
-            project,
-            op_id=op_id,
-            program=ActionProgram(),  # base: retired_output_names == []
-            spec={},
-            columns=project.columns(sheet, include_hidden=True),
-            current_output_names={"out"},
+    with write_transaction(project.db):
+        assert (
+            retire_dropped_generated_columns(
+                project,
+                op_id=op_id,
+                program=ActionProgram(),  # base: retired_output_names == []
+                spec={},
+                columns=project.columns(sheet, include_hidden=True),
+                current_output_names={"out"},
+            )
+            == []
         )
-        == []
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -367,15 +379,17 @@ def test_typed_transcribe_only_touches_declared_outputs(project: Project):
     _, queued, program = typed_queued_map_spec(bound)
     spec = queued.runner_spec_fn(bound.params)
     assert program.retired_output_names(spec) == []
-    assert (
-        retire_dropped_generated_columns(
-            project,
-            op_id=project.append_change("map", spec),
-            program=program,
-            spec=spec,
-            columns=project.columns(sheet, include_hidden=True),
-            current_output_names=set(request.output_names.values()),
+    op_id = project.append_change("map", spec)
+    with write_transaction(project.db):
+        assert (
+            retire_dropped_generated_columns(
+                project,
+                op_id=op_id,
+                program=program,
+                spec=spec,
+                columns=project.columns(sheet, include_hidden=True),
+                current_output_names=set(request.output_names.values()),
+            )
+            == []
         )
-        == []
-    )
     assert _column(project, detected)["default_hidden"] == 0

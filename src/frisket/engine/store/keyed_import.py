@@ -128,7 +128,7 @@ def publish_keyed_page(
             info["restored_rows"] = sorted(
                 set(info.get("restored_rows", [])) | set(publication.restored)
             )
-            project.set_undo_info(writer._op_id, info, commit=False)
+            project.set_undo_info(writer._op_id, info)
         result = db.execute(
             "UPDATE import_sessions SET cursor=?,committed_rows=committed_rows+?,committed_bytes=committed_bytes+?,updated_at=datetime('now') WHERE id=? AND writer_authority=? AND cursor=? AND state='active'",
             (
