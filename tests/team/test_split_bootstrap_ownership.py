@@ -1088,7 +1088,12 @@ def test_concurrent_v8_to_v9_upgrade_is_race_free_sqlite(
         except (PreSplitSchemaError, sa.exc.SQLAlchemyError, RuntimeError) as exc:
             errors.append(exc)
 
-    threads = [threading.Thread(target=worker, args=(eng,)) for eng in engines]
+    threads = [
+        threading.Thread(  # realtime: concurrent bootstrap
+            target=worker, args=(eng,)
+        )
+        for eng in engines
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -1158,7 +1163,9 @@ def test_v8_identity_schema_upgrades_organization_tables_and_columns_postgres() 
                 errors.append(exc)
 
         threads = [
-            threading.Thread(target=worker, args=(eng,))
+            threading.Thread(  # realtime: concurrent bootstrap
+                target=worker, args=(eng,)
+            )
             for eng in (engine, peer_engine)
         ]
         for thread in threads:
