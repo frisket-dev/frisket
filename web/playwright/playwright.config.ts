@@ -59,7 +59,13 @@ export default defineConfig({
     { name: 'seed', testMatch: /seed\.setup\.ts/, retries: 0 },
     {
       name: 'chromium',
-      testIgnore: [...TEAM_SPEC_PATTERNS, '**/cloud-connection.spec.ts'],
+      // Goldens require live GEMINI_API_KEY and run under playwright.goldens.config.ts.
+      testIgnore: [
+        ...TEAM_SPEC_PATTERNS,
+        '**/cloud-connection.spec.ts',
+        '**/golden-tariff.spec.ts',
+        '**/golden-ntsb.spec.ts',
+      ],
       // The Workbench IA redesign adds resident right-edge panels (Inspect
       // Detail + Discover, workbench-ia-right-edge-v1). Keep a desktop-width
       // viewport so the Work grid stays usable — and coordinate-based cell
