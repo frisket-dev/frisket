@@ -158,6 +158,8 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     run_step(
         db, EDIT_PRECEDENCE_TO_DIGEST, COPY_PRECEDENCE_TO_DIGEST, apply_edit_precedence
     )
+    # Keep `CURRENT_CHAIN_TIP_DIGEST` in `upgrades.project._tip` aligned with
+    # the final step's destination digest whenever appending a new step.
     run_step(
         db,
         COPY_PRECEDENCE_TO_DIGEST,

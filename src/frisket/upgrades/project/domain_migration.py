@@ -18,9 +18,7 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST,
 )
 from frisket.upgrades.project._step import execute_ddl, schema_digest, schema_step
-from frisket.upgrades.project.consent_estimate_migration import (
-    CONSENT_ESTIMATE_TO_DIGEST,
-)
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 
 
 DOMAIN_FROM_DIGEST = "frisket.schema.v1:7e339a8995763aa40346e7d36187837d"
@@ -372,10 +370,9 @@ def migrate_domain(db: sqlite3.Connection) -> None:
 
     if schema_digest(db) != DOMAIN_FROM_DIGEST:
         return
-    # The cutover installs runtime DDL; only the edit-precedence and
-    # consent-estimate steps, which leave the change views intact, may
-    # separate it from this build.
-    if SCHEMA_DIGEST != CONSENT_ESTIMATE_TO_DIGEST:
+    # The cutover installs runtime DDL; only subsequent steps compatible with
+    # its change views may separate it from this build's schema tip.
+    if SCHEMA_DIGEST != CURRENT_CHAIN_TIP_DIGEST:
         raise BundleSchemaMismatch(
             "Domain migration endpoint needs updating for this build"
         )
