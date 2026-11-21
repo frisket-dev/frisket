@@ -28,10 +28,13 @@ from frisket.engine.executor.action_receipts import (
 )
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.receipts import ReceiptStore
 
 
-def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
+def _semantic_origin(
+    project: Project | ProjectReadSnapshot, receipt: Receipt
+) -> str | None:
     """Recognize the registered semantic producer and its exact durable run."""
     try:
         terminal = ACTION_REGISTRY.get(receipt.action_kind).definition.run
@@ -50,6 +53,8 @@ def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
             if _positive_ref_int(source, "successor_run_id") != receipt.run_id:
                 return None
             origin = source.get("source_action_kind")
+            if not isinstance(origin, str):
+                return None
             terminal = ACTION_REGISTRY.get(origin).definition.run
         if not isinstance(terminal, SemanticJoin):
             return None
@@ -68,7 +73,7 @@ def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
 
 
 def _resolve_semantic_matches(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     receipt_id: str,
     row_ids: tuple[int, ...] | None,
@@ -317,7 +322,7 @@ def _semantic_join_output_refs_by_role(receipt: Receipt) -> dict[str, dict[str, 
 
 
 def _validate_derive_link_table_columns(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     source_sheet_id: int,
     target_sheet_id: int,
@@ -402,7 +407,7 @@ def _validate_derive_link_table_columns(
 
 
 def _target_join_value(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     target_sheet_id: int,
     target_column_id: int,
@@ -430,7 +435,7 @@ def _link_table_text_value(value: Any) -> str | None:
 
 
 def _derive_link_table_review_refs(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     source_run_id: int,
     output_column_ids: set[int],

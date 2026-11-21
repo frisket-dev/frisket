@@ -4,12 +4,10 @@ from model_doubles import canned_reply_router
 
 import json
 
-from fastapi.testclient import TestClient
-
 from frisket.authoring.action_metadata import action_metadata_for_action_kind
 from frisket.contracts.action import ActionResult
 from frisket.server import review_payloads
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
 
 
@@ -56,9 +54,7 @@ def test_review_payload_page_resolves_each_action_kind_once(monkeypatch) -> None
 
 
 def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
-    client = TestClient(
-        create_app(tmp_path / "ws", router=canned_reply_router(_REPLY)[0])
-    )
+    client = make_client(tmp_path, router=canned_reply_router(_REPLY)[0])
     project_id = client.post("/api/projects", json={"name": "Review v1"}).json()["id"]
     imported = client.post(
         f"/api/projects/{project_id}/import/csv",

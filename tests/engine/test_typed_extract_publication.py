@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
@@ -678,7 +679,7 @@ def test_grounding_publication_rolls_back_links_with_failed_receipt_write(
 
 @pytest.mark.parametrize("source_name", ["transcript", "transcript_segments"])
 def test_transcript_prompt_and_evidence_use_captured_version(
-    tmp_path, monkeypatch, source_name
+    make_project, monkeypatch, source_name
 ):
     import json
 
@@ -692,9 +693,8 @@ def test_transcript_prompt_and_evidence_use_captured_version(
         _run_transcribe,
     )
 
-    seeded = _seed_transcript_project(tmp_path)
-    project = seeded["project"]
-    try:
+    seeded = _seed_transcript_project(make_project("p"))
+    with closing(seeded["project"]) as project:
         _run_transcribe(seeded, monkeypatch)
         sheet, row = seeded["sheet_id"], seeded["row_ids"][0]
         column = next(c for c in project.columns(sheet) if c["name"] == source_name)
@@ -780,5 +780,3 @@ def test_transcript_prompt_and_evidence_use_captured_version(
         assert (
             _captured_transcript(project, captured, sheet_id=sheet, row_id=row) is None
         )
-    finally:
-        project.close()

@@ -989,19 +989,19 @@ class SelectorChoiceService:
             composition.provider_for_resolution(),
             composition.facts,
         )
-        refusal = outcome if isinstance(outcome, Refusal) else None
-        target = (
-            next(
+        if isinstance(outcome, Refusal):
+            refusal: Refusal | None = outcome
+            target = next(
                 (
                     row
                     for row in composition.resolution_targets()
-                    if row.id == refusal.target_id
+                    if row.id == outcome.target_id
                 ),
                 None,
             )
-            if refusal is not None
-            else outcome.target
-        )
+        else:
+            refusal = None
+            target = outcome.target
         policy_forbidden = _network_policy_forbids_target(_network_off(project), target)
         ready = refusal is None and not policy_forbidden
         destination = _engine_destination(engine, target)
@@ -1230,7 +1230,7 @@ class SelectorChoiceService:
             policy_forbidden = (
                 outcome is None
                 and _network_off(project)
-                and engine.get("tier") == "hosted"
+                and engine.get("tier") == "remote"
             )
             status = "ready" if available else "unavailable"
             blocker = (

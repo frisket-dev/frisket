@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from frisket.features.url_classification.matchers import UrlMatcher
-from frisket.features.url_classification.registry import (
+from frisket.url_classification.matchers import UrlMatcher
+from frisket.url_classification.registry import (
     _validate_matcher,
     register_matcher,
     registered_matchers,

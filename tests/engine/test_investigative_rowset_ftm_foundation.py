@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,7 +9,7 @@ from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
 )
-from frisket.features.investigations.rowsets import (
+from frisket.exports.investigative_rowsets import (
     INVESTIGATIVE_ROWSET_SCHEMA_VERSION,
     InvestigativeRowsetError,
     resolve_investigative_rowset,
@@ -76,7 +75,8 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
     edit_op_id = project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["age"], "value": 41}],
         label="correct age",
@@ -279,14 +279,10 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
 
 @pytest.mark.parametrize("kind", ["union", "virtual", "graph"])
 def test_unsupported_rowset_kinds_fail_with_typed_errors(
-    tmp_path: Path, kind: str
+    project: Project, kind: str
 ) -> None:
-    project = Project.create(tmp_path / f"{kind}.frisket", name="Unsupported")
-    try:
-        with pytest.raises(InvestigativeRowsetError) as excinfo:
-            resolve_investigative_rowset(project, {"kind": kind, "sheet_id": 1})
-    finally:
-        project.close()
+    with pytest.raises(InvestigativeRowsetError) as excinfo:
+        resolve_investigative_rowset(project, {"kind": kind, "sheet_id": 1})
 
     assert excinfo.value.code == "unsupported_rowset_kind"
     assert excinfo.value.field == "rowset.kind"
@@ -296,7 +292,7 @@ def test_unsupported_rowset_kinds_fail_with_typed_errors(
 def test_rowset_metadata_drift_fails_with_typed_error(
     make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from frisket.features.investigations import rowsets
+    from frisket.exports import investigative_rowsets as rowsets
 
     project = make_project("Drift")
     sheet_id = project.add_sheet("Rows")

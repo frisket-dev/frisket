@@ -152,7 +152,7 @@ def test_forged_payload_organization_never_resolves_credentials_and_fails_closed
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
 
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     port = _RecordingCredentialPort()
     registry = default_registry()
     register_project_run_handler(
@@ -203,7 +203,7 @@ def test_agreeing_payload_organization_resolves_trusted_organization_and_runs(
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
 
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     port = _RecordingCredentialPort()
     registry = default_registry()
     register_project_run_handler(
@@ -284,7 +284,7 @@ def test_queued_cache_factory_uses_trusted_context_and_owns_cache(
 ) -> None:
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     _run_id, job_id = _enqueue_canonical_regex_run(
         ws / str(TRUSTED_ORGANIZATION),
         queue,
@@ -337,7 +337,7 @@ def test_queued_cache_factory_closes_cache_when_composition_fails(
 ) -> None:
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     _run_id, job_id = _enqueue_canonical_regex_run(
         ws / str(TRUSTED_ORGANIZATION),
         queue,
@@ -379,7 +379,7 @@ def test_queued_cache_factory_none_explicitly_disables_template_cache(
 ) -> None:
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     _run_id, job_id = _enqueue_canonical_regex_run(
         ws / str(TRUSTED_ORGANIZATION),
         queue,
@@ -500,7 +500,7 @@ def test_column_present_payload_missing_organization_fails_closed(
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
 
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     port = _RecordingCredentialPort()
     registry = default_registry()
     register_project_run_handler(

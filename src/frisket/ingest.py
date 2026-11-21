@@ -320,7 +320,7 @@ def ingest_rss(
     if sheet_id is None or sheet_id not in sheet_ids:
         title = (getattr(parsed, "feed", {}) or {}).get("title") or source["name"]
         with write_transaction(project.db, what="feed sheet"):
-            sheet_id = project.add_sheet(str(title)[:80] or "feed", commit=False)
+            sheet_id = project.add_sheet_in_transaction(str(title)[:80] or "feed")
             FeedStore(project).update_feed(source_id, sheet_id=sheet_id)
 
     seen = _load_cursor(source)
@@ -382,7 +382,7 @@ def ingest_rss(
     # --- one logged op for the whole poll's inserts (undo/provenance) ---
     inserted_records = new_records + revision_records
     with write_transaction(project.db, what="feed poll rows"):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "ingest",
             {
                 "source_id": source_id,
@@ -392,17 +392,15 @@ def ingest_rss(
                 "url": url,
             },
             label=f"ingest {total_new} from {source['name']}",
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
-        row_ids = project.add_rows(
+        row_ids = project.add_rows_in_transaction(
             sheet_id,
             inserted_records,
             col_ids,
             producer_id=producer_id,
-            commit=False,
         )
         # The dedup cursor advances with the rows it covers, so a re-poll
         # after a failure neither duplicates nor skips them.

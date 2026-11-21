@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 
 class DispatchControl(Protocol):
@@ -120,7 +120,7 @@ def dispatch_for_context(ctx: Any) -> DispatchControl:
         cancelled = ctx.extras.get("cancelled")
         if not callable(cancelled):
             raise RuntimeError("Preview dispatch requires its cancellation owner")
-        return TransientDispatch(cancelled)
+        return TransientDispatch(cast(Callable[[], bool], cancelled))
     if ctx.project is None and ctx.extras.get("standalone_dispatch") is STANDALONE:
         return STANDALONE
     raise RuntimeError("Model dispatch requires a run or explicit preview context")

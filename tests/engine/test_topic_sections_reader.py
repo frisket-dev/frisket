@@ -40,8 +40,8 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.contracts.temporal_values import TimelineRangesValue
-from frisket.features.topic_segmentation import engines
-from frisket.features.topic_segmentation.contracts import SegmentationExecutionError
+from frisket.topic_segmentation import engines
+from frisket.topic_segmentation.contracts import SegmentationExecutionError
 from frisket.ops.base import ActionContext
 from tests.engine.test_temporal_finder_actions import (
     _ExactTopicSegmenter,

@@ -17,7 +17,7 @@ from frisket.engine.store.artifact_timeline import (
     root_clock_extent,
     validate_timeline_anchor,
 )
-from frisket.features.temporal_annotation_projection import (
+from frisket.temporal.annotation_projection import (
     TemporalAnnotationProjection,
     project_temporal_annotation,
     project_temporal_annotation_items,

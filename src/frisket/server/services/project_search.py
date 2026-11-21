@@ -218,7 +218,7 @@ def _citation_navigation(
             candidates = [row for score, row in scored if score == best]
 
     row = candidates[0]
-    navigation = {
+    navigation: dict[str, Any] = {
         "kind": "citation",
         "citation_id": str(row["citation_id"]),
         "span_id": str(row["span_id"]),
@@ -303,7 +303,7 @@ def _search_hit_payload(
         "part": {
             "part_id": hit.part.part_id,
             "part_kind": hit.part.part_kind,
-            "producer_recipe_id": hit.part.producer_recipe_id,
+            "producer_slice_id": hit.part.producer_slice_id,
         },
         "binding": _binding_payload(hit.binding),
         "location": _location_payload(hit),
@@ -343,7 +343,7 @@ def _coverage_payload(
             {
                 "channel": channel.channel,
                 "state": channel.state,
-                "recipe_id": channel.recipe_id,
+                "slice_id": channel.slice_id,
                 "eligible_count": channel.eligible_count,
                 "prepared_count": channel.prepared_count,
                 "failed_count": channel.failed_count,

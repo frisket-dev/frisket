@@ -116,20 +116,6 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
   const timeout = request.timeout ?? 30;
   const maxRequestsPerSecond = request.max_requests_per_second ?? '';
   const followRedirects = request.follow_redirects ?? true;
-  const setMethod = (value: HttpRequest['method']) => update({ method: value });
-  const setUrl = (value: string) => update({ url: value });
-  const setHeaders = (value: [string, string][]) => update({ headers: value });
-  const setQueryParams = (value: [string, string][]) => update({ query_params: value });
-  const setCookies = (value: [string, string][]) => update({ cookies: value });
-  const setFormBody = (value: [string, string][]) => update({ form_body: value });
-  const setBodyMode = (value: ApiBodyMode) => update({ body_mode: value });
-  const setBody = (value: string) => update({ body: value });
-  const setContentType = (value: string) => update({ content_type: value || null });
-  const setTimeoutValue = (value: string) => update({ timeout: Number(value) });
-  const setMaxRequestsPerSecond = (value: string) => update({
-    max_requests_per_second: value.trim() ? Number(value) : null,
-  });
-  const setFollowRedirects = (value: boolean) => update({ follow_redirects: value });
   const [curlOpen, setCurlOpen] = useState(false);
   const [curlText, setCurlText] = useState('');
   const [curlError, setCurlError] = useState<string | null>(null);
@@ -214,7 +200,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
           <span className="field-labels">URL</span>
           <TemplateComposer
             value={url}
-            onChange={setUrl}
+            onChange={(value) => update({ url: value })}
             columns={(sheet?.columns ?? [])}
             knownTokenPrefixes={['secret.']}
             hideHint
@@ -235,7 +221,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
               className="form-input"
               value={method}
               data-testid="api-call-method"
-              onChange={(event) => setMethod(event.target.value as HttpRequest['method'])}
+              onChange={(event) => update({ method: event.target.value as HttpRequest['method'] })}
             >
               {HTTP_METHODS.map((option) => <option key={option}>{option}</option>)}
             </PanelSelect>
@@ -247,7 +233,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
           label="Headers"
           entries={headers}
           columns={(sheet?.columns ?? [])}
-          onChange={setHeaders}
+          onChange={(value) => update({ headers: value })}
           valuePlaceholder="Header value"
         />
         <PairEditor
@@ -255,7 +241,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
           label="Query parameters"
           entries={queryParams}
           columns={(sheet?.columns ?? [])}
-          onChange={setQueryParams}
+          onChange={(value) => update({ query_params: value })}
           namePlaceholder="Parameter"
           valuePlaceholder="Parameter value"
         />
@@ -267,7 +253,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                 className="form-input"
                 value={bodyMode}
                 data-testid="api-call-body-mode"
-                onChange={(event) => setBodyMode(event.target.value as ApiBodyMode)}
+                onChange={(event) => update({ body_mode: event.target.value as ApiBodyMode })}
               >
                 {BODY_MODES.map((option) => <option key={option} value={option}>{option}</option>)}
               </PanelSelect>
@@ -278,7 +264,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                 label="Form fields"
                 entries={formBody}
                 columns={(sheet?.columns ?? [])}
-                onChange={setFormBody}
+                onChange={(value) => update({ form_body: value })}
                 namePlaceholder="Field"
                 valuePlaceholder="Field value"
               />
@@ -288,7 +274,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                 <span className="field-labels">{bodyMode === 'json' ? 'JSON body' : 'Raw body'}</span>
                 <TemplateComposer
                   value={body}
-                  onChange={setBody}
+                  onChange={(value) => update({ body: value })}
                   columns={(sheet?.columns ?? [])}
                   knownTokenPrefixes={['secret.']}
             hideHint
@@ -308,7 +294,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                   value={contentType}
                   placeholder="text/plain"
                   data-testid="api-call-content-type"
-                  onChange={(event) => setContentType(event.target.value)}
+                  onChange={(event) => update({ content_type: event.target.value || null })}
                 />
               </label>
             )}
@@ -322,7 +308,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
               label="Cookies"
               entries={cookies}
               columns={(sheet?.columns ?? [])}
-              onChange={setCookies}
+              onChange={(value) => update({ cookies: value })}
               namePlaceholder="Cookie"
               valuePlaceholder="Cookie value"
             />
@@ -336,7 +322,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                   step="0.1"
                   value={timeout}
                   data-testid="api-call-timeout"
-                  onChange={(event) => setTimeoutValue(event.target.value)}
+                  onChange={(event) => update({ timeout: Number(event.target.value) })}
                 />
               </label>
               <label className="field-group form-field">
@@ -348,7 +334,9 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                   value={maxRequestsPerSecond}
                   placeholder="Unlimited"
                   data-testid="api-call-max-rps"
-                  onChange={(event) => setMaxRequestsPerSecond(event.target.value)}
+                  onChange={(event) => update({
+                    max_requests_per_second: event.target.value.trim() ? Number(event.target.value) : null,
+                  })}
                 />
               </label>
             </div>
@@ -357,7 +345,7 @@ export function ApiCallParamsBody({ params, setParams, sheet }:
                 type="checkbox"
                 checked={followRedirects}
                 data-testid="api-call-follow-redirects"
-                onChange={(event) => setFollowRedirects(event.target.checked)}
+                onChange={(event) => update({ follow_redirects: event.target.checked })}
               />
               <span>Follow redirects</span>
             </label>

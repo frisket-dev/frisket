@@ -169,7 +169,7 @@ class AdmittedLocalFileReader:
             self._active.discard(opened)
 
     @contextmanager
-    def _open(self, path: str) -> Iterator[io.BufferedReader]:
+    def _open(self, path: str) -> Iterator[io.BufferedReader[_ObservedRaw]]:
         with self._source(path) as (stream, actual_path, expected):
             observed = _ObservedRaw(stream, actual_path, expected, self.facts)
             with io.BufferedReader(observed) as buffered:

@@ -260,7 +260,7 @@ test('report issue button does not overlap footer undo redo or review controls',
 });
 
 test('report issue stays above an open action drawer on a real project route', async ({ page }, testInfo) => {
-  await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', cost_preapproval_usd: '0' } }));
+  await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', allowance_usd: '0' } }));
   const pid = await createProject(page.request, uniqueName('report-drawer'));
   const sid = await importCsv(page.request, pid, 'rows.csv', 'name\nAda\n');
   await page.goto(`/p/${pid}/s/${sid}/action/map.ask`);
@@ -281,7 +281,7 @@ test('report issue stays above an open action drawer on a real project route', a
 for (const stage of ['project', 'sheets', 'sheets-error'] as const) {
   test(`report issue remains available while ${stage} loading is stalled`, async ({ page }, testInfo) => {
     const pid = await createProject(page.request, uniqueName(`report-${stage}-loading`));
-    await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', cost_preapproval_usd: '0' } }));
+    await page.route('**/api/me', route => route.fulfill({ json: { email: 'admin@example.com', allowance_usd: '0' } }));
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     await page.route(stage === 'project' ? '**/api/projects' : `**/api/projects/${pid}/sheets`, async route => {

@@ -106,7 +106,7 @@ export interface GridReadFragment {
   sort: GridSortSpec | null;
   visibleColumnIds: string[];
   frozenColumnCount: number;
-  activeLensId: number | null;
+  activeViewId: number | null;
 }
 
 /** Present only with `action.run`; `run` awaits the host cost gate. */

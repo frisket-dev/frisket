@@ -40,7 +40,7 @@ from frisket.engine.store.media_splice import (
 from frisket.engine.store.runs import RunResultStore
 from helpers import replace_test_source_cell, write_claimed_test_results
 from frisket.contracts.temporal_values import canonical_temporal_hash
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
@@ -126,11 +126,12 @@ def _seed_media(
             ],
         )
         runs.finish_run(transcript_run_id)
-        runs.point_column_at_run(
-            transcript_op_id,
-            columns["transcript"],
-            transcript_run_id,
-        )
+        with write_transaction(runs.db):
+            runs.point_column_at_run(
+                transcript_op_id,
+                columns["transcript"],
+                transcript_run_id,
+            )
     return {
         "sheet_id": sheet_id,
         "columns": columns,
@@ -343,32 +344,29 @@ def test_split_warns_when_a_typed_transcript_cannot_be_inherited(
     ],
 )
 def test_split_manual_missing_ids_are_stable_across_repeated_prepare(
-    tmp_path: Path,
+    make_project,
     selection: dict[str, Any],
     item_id_prefix: str,
 ) -> None:
-    project = Project.create(tmp_path / f"split-stable-{item_id_prefix}.frisket")
-    try:
-        seeded = _seed_media(project)
-        params = _request(seeded, selection)
+    project = make_project(f"split-stable-{item_id_prefix}")
+    seeded = _seed_media(project)
+    params = _request(seeded, selection)
 
-        first = _plan(project, params)
-        second = _plan(project, params)
+    first = _plan(project, params)
+    second = _plan(project, params)
 
-        assert not isinstance(first, ActionError)
-        assert not isinstance(second, ActionError)
-        first_source = first.sources[0].source
-        second_source = second.sources[0].source
-        assert first_source.selection_value == second_source.selection_value
-        assert first_source.selection_hash == second_source.selection_hash
-        assert [item.item_id for item in first_source.ranges] == [
-            item.item_id for item in second_source.ranges
-        ]
-        item_ids = [item["id"] for item in first_source.selection_value["items"]]
-        assert len(item_ids) == len(set(item_ids))
-        assert all(item_id.startswith(item_id_prefix) for item_id in item_ids)
-    finally:
-        project.close()
+    assert not isinstance(first, ActionError)
+    assert not isinstance(second, ActionError)
+    first_source = first.sources[0].source
+    second_source = second.sources[0].source
+    assert first_source.selection_value == second_source.selection_value
+    assert first_source.selection_hash == second_source.selection_hash
+    assert [item.item_id for item in first_source.ranges] == [
+        item.item_id for item in second_source.ranges
+    ]
+    item_ids = [item["id"] for item in first_source.selection_value["items"]]
+    assert len(item_ids) == len(set(item_ids))
+    assert all(item_id.startswith(item_id_prefix) for item_id in item_ids)
 
 
 def test_typed_selection_snapshot_expands_defaults_before_hashing(
@@ -1026,7 +1024,7 @@ def test_split_failure_preserves_error_facts_by_value(make_project) -> None:
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])
 def test_split_failure_preserves_prior_terminal_receipt(
-    tmp_path: Path,
+    make_project,
     prior_status: str,
 ) -> None:
     from frisket.engine.executor.action_reservations import (
@@ -1034,7 +1032,7 @@ def test_split_failure_preserves_prior_terminal_receipt(
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / f"split-prior-{prior_status}.frisket")
+    project = make_project(f"split-prior-{prior_status}")
     receipt_id = f"receipt_split_prior_{prior_status}"
     prior_error = ActionError(
         code="prior_failure",
@@ -1042,33 +1040,30 @@ def test_split_failure_preserves_prior_terminal_receipt(
         action_kind=ACTION_KIND,
         details={"attempt": 1},
     )
-    try:
-        prior = _insert_split_failure_receipt(
-            project,
-            receipt_id=receipt_id,
-            status=prior_status,
-            errors=[prior_error] if prior_status == "failed" else None,
-        )
-        result = _terminalize_claimless_direct_failure(
-            project,
-            project_id=PROJECT_ID,
+    prior = _insert_split_failure_receipt(
+        project,
+        receipt_id=receipt_id,
+        status=prior_status,
+        errors=[prior_error] if prior_status == "failed" else None,
+    )
+    result = _terminalize_claimless_direct_failure(
+        project,
+        project_id=PROJECT_ID,
+        action_kind=ACTION_KIND,
+        stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
+        project_write_failed_message="Split failure receipt could not be finalized.",
+        error=ActionError(
+            code="late_failure",
+            message="late failure must not rewrite the receipt",
             action_kind=ACTION_KIND,
-            stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
-            project_write_failed_message="Split failure receipt could not be finalized.",
-            error=ActionError(
-                code="late_failure",
-                message="late failure must not rewrite the receipt",
-                action_kind=ACTION_KIND,
-            ),
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+        ),
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.status == prior_status
-        assert result.receipt_id == prior.receipt_id
-        assert result.errors == prior.errors
-        assert stored == prior
-    finally:
-        project.close()
+    assert result.status == prior_status
+    assert result.receipt_id == prior.receipt_id
+    assert result.errors == prior.errors
+    assert stored == prior
 
 
 def test_queued_split_failure_leaves_worker_owned_receipt_untouched(
@@ -1271,11 +1266,12 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         ],
     )
     runs.finish_run(alternate_run_id)
-    runs.point_column_at_run(
-        alternate_op_id,
-        alternate_column_id,
-        alternate_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            alternate_op_id,
+            alternate_column_id,
+            alternate_run_id,
+        )
     with write_transaction(project.db):
         alternate_span = record_source_span(
             project,
@@ -1410,8 +1406,10 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         ],
     )
     runs.finish_run(topic_run_id)
-    runs.point_column_at_run(topic_op_id, topic_column_id, topic_run_id)
-    runs.point_column_at_run(topic_op_id, sidecar_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(topic_op_id, topic_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(topic_op_id, sidecar_column_id, topic_run_id)
     params = _request(
         seeded,
         {"kind": "column", "column": "Topic sections"},

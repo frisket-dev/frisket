@@ -85,6 +85,11 @@ def preview_table_source(source: TableSource, *, progress, cancelled):
 
     def file_value(handle):
         if handle not in exported:
+            if stager is None:
+                raise TableError(
+                    "invalid_table_source",
+                    "Table produced a staged file without a blob stager.",
+                )
             descriptor = stager.describe(handle)
             reference = PreviewFile(uuid.uuid4().hex)
             exported[handle] = reference

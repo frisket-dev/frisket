@@ -6,7 +6,7 @@ import json
 import sqlite3
 from collections.abc import Mapping
 from typing import Any
-from .transactions import require_transaction, write_transaction
+from .transactions import require_transaction
 
 
 DESCRIPTOR_FIELDS = {
@@ -96,65 +96,59 @@ def project_column_descriptors(db: sqlite3.Connection, column_ids) -> None:
 
 
 def set_descriptor(
-    project,
-    column_id,
-    property_name,
-    value,
+    project: Any,
+    column_id: int,
+    property_name: str,
+    value: Any,
     *,
-    op_id=None,
-    initialize=False,
-    commit=True,
-):
-    """Set a descriptor through its owner, or explicitly initialize a new schema."""
+    op_id: int | None = None,
+    initialize: bool = False,
+) -> None:
+    """Set a descriptor through its owner in the caller's transaction."""
     if property_name not in DESCRIPTOR_FIELDS:
         raise ValueError("unknown column descriptor property")
     db = project.db
-    with write_transaction(db, commit=commit, what="column descriptor change"):
-        column = db.execute(
-            f"SELECT {property_name} FROM columns WHERE id=?", (column_id,)
-        ).fetchone()
-        if column is None:
-            raise KeyError(f"no column {column_id}")
-        if initialize:
-            if op_id is not None:
-                raise ValueError("initial descriptor cannot also specify an owner")
-            if db.execute(
-                "SELECT 1 FROM column_descriptor_changes WHERE column_id=? UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
-                (column_id, column_id),
-            ).fetchone():
-                raise ValueError(
-                    "an existing column descriptor requires a Change owner"
-                )
-            db.execute(
-                f"UPDATE columns SET {property_name}=? WHERE id=?", (value, column_id)
+    require_transaction(db, "column descriptor change")
+    column = db.execute(
+        f"SELECT {property_name} FROM columns WHERE id=?", (column_id,)
+    ).fetchone()
+    if column is None:
+        raise KeyError(f"no column {column_id}")
+    if initialize:
+        if op_id is not None:
+            raise ValueError("initial descriptor cannot also specify an owner")
+        if db.execute(
+            "SELECT 1 FROM column_descriptor_changes WHERE column_id=? UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
+            (column_id, column_id),
+        ).fetchone():
+            raise ValueError("an existing column descriptor requires a Change owner")
+        db.execute(
+            f"UPDATE columns SET {property_name}=? WHERE id=?", (value, column_id)
+        )
+    else:
+        from .changes import ChangeStore, start_change
+        from .op_log import append_change_in_transaction, set_undo_info
+
+        if op_id is None:
+            op_id = append_change_in_transaction(
+                project,
+                "column.descriptor",
+                {"column_id": column_id, "property": property_name},
+                label=f"change column {property_name}",
             )
+            start_change(db, op_id)
         else:
-            from .changes import start_change, ChangeStore
-            from .op_log import append_change, set_undo_info
+            start_change(db, op_id, writing=True)
+            ChangeStore(project).require_publication(op_id)
+        info = json.loads(
+            db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()[0]
+            or "{}"
+        )
+        field = DESCRIPTOR_FIELDS[property_name]
+        info.setdefault(field, {}).setdefault(str(column_id), column[0])
+        info.setdefault(f"{field}_after", {})[str(column_id)] = value
+        set_undo_info(project, op_id, info)
+        project_column_descriptors(db, [column_id])
+    from .current_cells import refresh_current_cells
 
-            if op_id is None:
-                op_id = append_change(
-                    project,
-                    "column.descriptor",
-                    {"column_id": column_id, "property": property_name},
-                    label=f"change column {property_name}",
-                    commit=False,
-                )
-                start_change(db, op_id)
-            else:
-                start_change(db, op_id, writing=True)
-                ChangeStore(project).require_publication(op_id)
-            info = json.loads(
-                db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()[
-                    0
-                ]
-                or "{}"
-            )
-            field = DESCRIPTOR_FIELDS[property_name]
-            info.setdefault(field, {}).setdefault(str(column_id), column[0])
-            info.setdefault(f"{field}_after", {})[str(column_id)] = value
-            set_undo_info(project, op_id, info)
-            project_column_descriptors(db, [column_id])
-        from .current_cells import refresh_current_cells
-
-        refresh_current_cells(db, column_ids=[column_id])
+    refresh_current_cells(db, column_ids=[column_id])

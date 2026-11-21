@@ -226,7 +226,8 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
 
     # Leave the retired scalar pointed at the newest subset run. Exact readers
     # must still retain the first head on the untargeted row.
-    runs.point_column_at_run(second_op_id, output_column_id, second_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(second_op_id, output_column_id, second_run_id)
     edit_op_id = project.apply_edits(
         [
             {
@@ -702,10 +703,15 @@ def test_entity_mentions_coverage_typed_gates_mixed_origins(
     mixed_reader: _MixedReaderFixture,
 ) -> None:
     fixture = mixed_reader
-    set_descriptor(fixture.project, fixture.output_column_id, "type", "json")
-    set_descriptor(
-        fixture.project, fixture.output_column_id, "semantic_type", "entity_mentions"
-    )
+    with write_transaction(fixture.project.db):
+        set_descriptor(fixture.project, fixture.output_column_id, "type", "json")
+    with write_transaction(fixture.project.db):
+        set_descriptor(
+            fixture.project,
+            fixture.output_column_id,
+            "semantic_type",
+            "entity_mentions",
+        )
     with pytest.raises(EntityMentionsPreviewError) as excinfo:
         resolve_entity_mentions_preview(
             fixture.project,

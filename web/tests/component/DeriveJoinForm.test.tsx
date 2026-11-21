@@ -12,7 +12,7 @@ function open(columns: null | Array<{ side: 'left' | 'right'; column: string }> 
   return renderJoinForm({ initialDraft: { action_id: 'derive.join',
     scope: { kind: 'sheet_rows', sheet_id: 1 }, sheet_name: 'Joined', params: {
       right: { sheet_id: 2 }, join_keys: [{ left_column: 'code', right_column: 'code' }], columns,
-    } } });
+    }, output_names: {} } });
 }
 async function ready() { await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled()); }
 function choose(id: string, value: string) { fireEvent.change(screen.getByTestId(id), { target: { value } }); }

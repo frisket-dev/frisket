@@ -9,6 +9,8 @@ local FastAPI app over httpx.ASGITransport, so the thin-client mapping
 live server or network.
 """
 
+from contextlib import closing
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -257,8 +259,7 @@ def test_public_tool_materializes_typed_table_with_generic_sheet_name(tmp_path, 
     )
     assert result["status"] == "completed", result
     assert result["done"] is True
-    project = Project(root / "demo.frisket")
-    try:
+    with closing(Project(root / "demo.frisket")) as project:
         sheet = project.db.execute(
             "SELECT id FROM sheets WHERE name=? AND hidden=0", (sheet_name,)
         ).fetchone()
@@ -269,8 +270,6 @@ def test_public_tool_materializes_typed_table_with_generic_sheet_name(tmp_path, 
         assert receipt.action_kind == kind
         assert receipt.outputs[0].ref["sheet_id"] == sheet["id"]
         assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("name", [None, "  New sheet  ", "", "   ", 123, True])
@@ -1274,8 +1273,7 @@ class TestRunAction:
 
         assert result["status"] == "started"
         assert result["done"] is True
-        project = Project(root / "demo.frisket")
-        try:
+        with closing(Project(root / "demo.frisket")) as project:
             output = next(
                 column
                 for column in project.columns(sheet)
@@ -1285,8 +1283,6 @@ class TestRunAction:
                 "alpha!",
                 "beta!",
             ]
-        finally:
-            project.close()
 
     def test_local_typed_action_executes_through_the_canonical_registry(
         self, tmp_path
@@ -1515,15 +1511,12 @@ class TestRunAction:
 
     def test_queued_run_keeps_request_allowance_at_worker(self, tmp_path):
         sheet = seed_workspace(tmp_path / "ws", ["small paid request"])
-        project = Project(tmp_path / "ws" / "demo.frisket")
-        try:
+        with closing(Project(tmp_path / "ws" / "demo.frisket")) as project:
             row_id = int(
                 project.db.execute(
                     "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
                 ).fetchone()["id"]
             )
-        finally:
-            project.close()
         action = classify_action(sheet, row_ids=[row_id])
         adapter = _FlakyAdapter(fail_marker=None)
         router = ModelRouter(
@@ -1566,15 +1559,12 @@ class TestRunAction:
 
         root = tmp_path / "ws"
         sheet = seed_workspace(root, ["small paid request"])
-        project = Project(root / "demo.frisket")
-        try:
+        with closing(Project(root / "demo.frisket")) as project:
             row_id = int(
                 project.db.execute(
                     "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
                 ).fetchone()["id"]
             )
-        finally:
-            project.close()
         action = classify_action(sheet, row_ids=[row_id])
         action["idempotency_key"] = "mcp-quote-drift@sha256:stable"
         adapter = _FlakyAdapter(fail_marker=None)
@@ -1725,7 +1715,7 @@ class TestRunAction:
             idempotency_key="mcp-canonical-authority@sha256:stable",
         )
         writes: list[dict[str, object]] = []
-        original_write_results = RunResultStore.write_results
+        original_write_results = RunResultStore.write_results_in_transaction
 
         def record_authority(
             store,
@@ -1742,7 +1732,9 @@ class TestRunAction:
             )
             return original_write_results(store, run_id, batch, **kwargs)
 
-        monkeypatch.setattr(RunResultStore, "write_results", record_authority)
+        monkeypatch.setattr(
+            RunResultStore, "write_results_in_transaction", record_authority
+        )
 
         def prepared_refs(run_id: int) -> list[dict]:
             body = json.loads(

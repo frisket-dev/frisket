@@ -165,12 +165,10 @@ async def run_research(
     sources: list[str] = []
     search_calls: list[dict[str, Any]] = []
 
-    search_source, fetch_source = search, fetch
-
-    async def search(query: str) -> str:
+    async def _search_tool(query: str) -> str:
         token = _capture(recorder, "start", "search", query=query)
         try:
-            searched = await search_source(query)
+            searched = await search(query)
         except BaseException as exc:
             _capture(recorder, "finish", token, error=exc)
             raise
@@ -190,10 +188,10 @@ async def run_research(
                 sources.append(u)
         return redact_research_text(obs, secret_values)
 
-    async def fetch(url: str) -> str:
+    async def _fetch_tool(url: str) -> str:
         token = _capture(recorder, "start", "fetch", url=url)
         try:
-            fetched = await fetch_source(url)
+            fetched = await fetch(url)
         except BaseException as exc:
             _capture(recorder, "finish", token, error=exc)
             raise
@@ -227,8 +225,8 @@ async def run_research(
         max_tokens=MAX_STEP_OUTPUT_TOKENS,
     )
     agent = Agent(model, output_type=str, instructions=system, retries=RETRIES)
-    for tool in (search, fetch):
-        agent.tool_plain(name=tool.__name__)(tool)
+    for name, tool in (("search", _search_tool), ("fetch", _fetch_tool)):
+        agent.tool_plain(name=name)(tool)
 
     malformed_answer_count = 0
 
@@ -360,7 +358,7 @@ def _row_error(
 
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
     usage = response.usage
-    estimate = usage.quote
+    estimate = usage.estimate
     return {
         "provider": usage.provider,
         "service": usage.service,
@@ -369,7 +367,7 @@ def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
         "provider_cost_usd": usage.provider_cost_usd,
         "cost_source": usage.cost_source,
         "units": {unit.name: unit.quantity for unit in usage.units},
-        "quote": (
+        "estimate": (
             {
                 "provider": estimate.provider,
                 "max_results": estimate.max_results,

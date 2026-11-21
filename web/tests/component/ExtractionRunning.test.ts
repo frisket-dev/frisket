@@ -4,6 +4,7 @@ import { createProjectApi } from '../../src/api/real';
 import type { ActionJob, RunActionLaunchResult } from '../../src/api/types';
 import { createJobStore, type JobStoreHandle } from '../../src/state/jobStore';
 import { isExtractionRunning } from '../../src/workbench/extract/extractionRunning';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('extraction-acceptance');
 let jobs: JobStoreHandle | null = null;
@@ -37,7 +38,7 @@ async function start() {
   expect(isExtractionRunning(jobs.store.get())).toBe(false);
   jobs.startRun({ action_id: 'media.extract_document', scope: { kind: 'sheet_rows', sheet_id: 1 },
     params: { source: 'Document' }, output_names: {}, sheet_name: 'Layout 1 results', idempotency_key: 'extract-acceptance' },
-  { id: '1', name: 'Documents', rowCount: 3, columns: [] });
+  sheetMeta([], { id: '1', name: 'Documents', rowCount: 3 }));
   return { launch, listing, progress, list, handle: jobs };
 }
 

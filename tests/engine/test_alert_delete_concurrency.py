@@ -58,4 +58,3 @@ def test_alert_delete_serializes_a_concurrent_different_row_update(
         release_delete.set()
         deleting.join(timeout=1)
         updating.join(timeout=1)
-        project.close()

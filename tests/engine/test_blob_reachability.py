@@ -66,7 +66,7 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     column = project.add_column(sheet, "text", type="text")
 
     with write_transaction(project.db):
-        producing_op_id = project.append_change("prepare.test", commit=False)
+        producing_op_id = project.append_change_in_transaction("prepare.test")
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact_id,
             producing_op_id=producing_op_id,
@@ -146,16 +146,17 @@ def test_receipt_owns_exports_but_model_response_is_not_a_file_publication(proje
     receipt, effect, orphan = [
         project.add_blob(value.encode()) for value in ("receipt", "effect", "orphan")
     ]
-    ReceiptStore(project).insert_failed(
-        Receipt(
-            receipt_id="receipt",
-            project_id="roots",
-            action_id="test",
-            action_kind="test",
-            status="failed",
-            exports=[{"kind": "export_project_file", "blob_hash": receipt}],
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_failed(
+            Receipt(
+                receipt_id="receipt",
+                project_id="roots",
+                action_id="test",
+                action_kind="test",
+                status="failed",
+                exports=[{"kind": "export_project_file", "blob_hash": receipt}],
+            )
         )
-    )
     checkpoints = EffectCheckpointStore(project.db)
     checkpoints.reserve(
         "paid",
@@ -296,38 +297,40 @@ def test_optional_or_nonpublication_receipt_fields_do_not_disable_gc(project, pa
                 (json.dumps(payload),),
             )
     else:
-        ReceiptStore(project).insert_failed(
-            Receipt(
-                receipt_id="valid",
-                project_id="roots",
-                action_id="test",
-                action_kind="test",
-                status="failed",
-                **payload,
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_failed(
+                Receipt(
+                    receipt_id="valid",
+                    project_id="roots",
+                    action_id="test",
+                    action_kind="test",
+                    status="failed",
+                    **payload,
+                )
             )
-        )
     assert project.gc_blobs()["hashes"] == [orphan]
 
 
 def test_receipt_export_metadata_mentions_do_not_own_blobs(project):
     published = project.add_blob(b"published export")
     mentioned = project.add_blob(b"only mentioned in metadata")
-    ReceiptStore(project).insert_failed(
-        Receipt(
-            receipt_id="receipt",
-            project_id="roots",
-            action_id="test",
-            action_kind="test",
-            status="failed",
-            exports=[
-                {
-                    "kind": "export_project_file",
-                    "blob_hash": published,
-                    "description": mentioned,
-                }
-            ],
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_failed(
+            Receipt(
+                receipt_id="receipt",
+                project_id="roots",
+                action_id="test",
+                action_kind="test",
+                status="failed",
+                exports=[
+                    {
+                        "kind": "export_project_file",
+                        "blob_hash": published,
+                        "description": mentioned,
+                    }
+                ],
+            )
         )
-    )
     assert project.gc_blobs()["hashes"] == [mentioned]
 
 

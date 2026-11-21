@@ -138,10 +138,8 @@ def _seed_two_run_link(
 
 
 def test_citation_temporal_runs_merges_within_tolerance_and_splits_beyond_it(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs.frisket", name="Runs")
     blob_hash = project.add_blob(
         _wav_bytes(20.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -159,17 +157,14 @@ def test_citation_temporal_runs_merges_within_tolerance_and_splits_beyond_it(
     assert runs[1]["start_ms"] == seeded["run1_start"]
     assert runs[1]["end_ms"] == seeded["run1_start"] + 1000
     assert runs[1]["span_stable_ids"] == [seeded["span_c"]["stable_id"]]
-    project.close()
 
 
 def test_citation_temporal_runs_gap_exactly_at_tolerance_still_merges(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """The gap check is <=, not <: a gap of EXACTLY the tolerance is still
     "same thought", matching the real data's wide (14,750ms) margin either
     side of the chosen 1500ms -- the boundary itself merges."""
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-boundary.frisket", name="Runs Boundary")
     blob_hash = project.add_blob(
         _wav_bytes(10.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -182,12 +177,9 @@ def test_citation_temporal_runs_gap_exactly_at_tolerance_still_merges(
     assert len(runs) == 1
     assert runs[0]["start_ms"] == 1000
     assert runs[0]["end_ms"] == seeded["run1_start"] + 1000
-    project.close()
 
 
-def test_citation_temporal_runs_ignores_uncited_spans(tmp_path: Path) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-uncited.frisket", name="Runs Uncited")
+def test_citation_temporal_runs_ignores_uncited_spans(project: Project) -> None:
     blob_hash = project.add_blob(
         _wav_bytes(10.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -244,22 +236,16 @@ def test_citation_temporal_runs_ignores_uncited_spans(tmp_path: Path) -> None:
 
     assert len(runs) == 1
     assert runs[0]["span_stable_ids"] == [cited["stable_id"]]
-    project.close()
 
 
 def test_citation_temporal_runs_raises_keyerror_for_unknown_link(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-missing.frisket", name="Runs Missing")
     with pytest.raises(KeyError):
         citation_temporal_runs(project, "evidence_link:does-not-exist")
-    project.close()
 
 
-def test_viewer_payload_attaches_run_index_and_clip_urls(tmp_path: Path) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-viewer.frisket", name="Runs Viewer")
+def test_viewer_payload_attaches_run_index_and_clip_urls(project: Project) -> None:
     blob_hash = project.add_blob(
         _wav_bytes(20.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -284,7 +270,6 @@ def test_viewer_payload_attaches_run_index_and_clip_urls(tmp_path: Path) -> None
     assert runs[1]["clip_url"] == (
         f"/api/projects/proj/citations/{link_stable_id}/runs/1/clip"
     )
-    project.close()
 
 
 # --------------------------------------------------------------------------- #

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState, useSyncExternalStore } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EvaluationResponse } from '../../src/api/evaluation';
+import type { GeneratedActionDraft } from '../../src/api/types';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareVariant } from '../../src/workbench/actionCompareSession';
 import { TrySeveral } from '../../src/workbench/evaluation/TrySeveral';
 import { installDialogPolyfill } from '../support/domPolyfills';
@@ -41,8 +42,8 @@ function fixture(capacity = 8, response: EvaluationResponse | null = null, model
       publish([...snapshot.variants, { ...snapshot.variants[0], id, displayKey: String.fromCharCode(65 + snapshot.variants.length), baseline: false, status: 'pending' }]);
       return id;
     },
-    updateVariant: (id, next) => { publish(snapshot.variants.map(v => v.id === id ? { ...v, draft: next } : v)); return true; },
-    removeVariant: (id) => { publish(snapshot.variants.filter(v => v.id !== id)); return true; },
+    updateVariant: (id: string, next: GeneratedActionDraft) => { publish(snapshot.variants.map(v => v.id === id ? { ...v, draft: next } : v)); return true; },
+    removeVariant: (id: string) => { publish(snapshot.variants.filter(v => v.id !== id)); return true; },
     runPending,
     useVariant: (id: string) => ({ variantId: id }),
   } as unknown as ActionCompareSession;

@@ -18,6 +18,8 @@ describe('action help content', () => {
     const servedKinds = new Set(servedActionCatalog().actions.map((entry) => entry.kind));
     for (const [kind, content] of Object.entries(BUILTIN_ACTION_HELP)) {
       expect(servedKinds.has(kind), kind).toBe(true);
+      expect(content, kind).toBeDefined();
+      if (!content) continue;
       expect(content.how, `${kind} how`).toMatch(/\.$/);
       expect(content.goodFor, `${kind} goodFor`).toMatch(/\.$/);
       expect(content.how.length, `${kind} how`).toBeGreaterThan(35);

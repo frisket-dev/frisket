@@ -15,7 +15,6 @@ import importlib.util
 import subprocess
 import sys
 import tempfile
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -38,7 +37,7 @@ FTM_PLUGIN_ROOT = (
 def test_entities_available_reflects_the_real_availability_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import frisket.features.followthemoney as ftm
+    import frisket.followthemoney as ftm
 
     monkeypatch.setattr(ftm, "ENTITIES_AVAILABLE", True)
     ok, err = ftm.entities_available()
@@ -54,6 +53,7 @@ def test_entities_available_reflects_the_real_availability_flag(
 
 def test_graph_neighborhood_gates_gracefully_when_entities_extra_missing(
     monkeypatch: pytest.MonkeyPatch,
+    project: Project,
 ) -> None:
     monkeypatch.setattr(
         neighborhood,
@@ -63,13 +63,8 @@ def test_graph_neighborhood_gates_gracefully_when_entities_extra_missing(
             f"FollowTheMoney entity support is not installed. Install with {REMEDIATION}.",
         ),
     )
-    with tempfile.TemporaryDirectory() as td:
-        project = Project.create(Path(td) / "gate.frisket", name="gate")
-        try:
-            with pytest.raises(neighborhood.GraphNeighborhoodError) as excinfo:
-                neighborhood.build_graph_neighborhood(project, anchor_id="anything")
-        finally:
-            project.close()
+    with pytest.raises(neighborhood.GraphNeighborhoodError) as excinfo:
+        neighborhood.build_graph_neighborhood(project, anchor_id="anything")
     assert excinfo.value.code == "entities_extra_missing"
     assert excinfo.value.status_code == 503
     assert REMEDIATION in excinfo.value.message
@@ -110,7 +105,7 @@ def test_doctor_entities_probe_stays_info_never_fails(
 ) -> None:
     """`entities_report()` is an INFO probe (diagnostics.run_diagnostics): a
     missing extra must never flip `healthy` to False."""
-    import frisket.features.followthemoney as ftm
+    import frisket.followthemoney as ftm
 
     monkeypatch.setattr(ftm, "ENTITIES_AVAILABLE", False)
     report = diagnostics.entities_report()
@@ -179,7 +174,7 @@ def test_ftm_migration_harness_gates_gracefully_when_entities_extra_missing(
     ],
 )
 def test_native_ftm_actions_name_missing_extra_remediation(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     definition_name: str,
     params: dict[str, object],
@@ -209,8 +204,8 @@ def test_native_ftm_actions_name_missing_extra_remediation(
             idempotency_key=definition.name,
         ),
     )
-    with closing(Project.create(tmp_path / "project", name="FtM")) as project:
-        result = run_typed_callable_action(project, "p", request)
+    project = make_project("FtM")
+    result = run_typed_callable_action(project, "p", request)
 
     assert result.status == "failed"
     assert result.errors[0].code == "followthemoney_unavailable"
@@ -230,15 +225,15 @@ def test_native_ftm_actions_name_missing_extra_remediation(
 @pytest.mark.parametrize(
     "module_name",
     [
-        "frisket.features.followthemoney.adapter",
-        "frisket.features.followthemoney.import_planner",
-        "frisket.features.followthemoney.mapping",
-        "frisket.features.followthemoney.schema_catalog",
-        "frisket.features.followthemoney.exporters",
+        "frisket.followthemoney.adapter",
+        "frisket.followthemoney.import_planner",
+        "frisket.followthemoney.mapping",
+        "frisket.followthemoney.schema_catalog",
+        "frisket.followthemoney.exporters",
     ],
 )
 def test_direct_submodule_import_gates_gracefully_no_extra(module_name: str) -> None:
-    """Every frisket.features.followthemoney submodule that hard-imports the SDK must
+    """Every frisket.followthemoney submodule that hard-imports the SDK must
     raise a clean, actionable ImportError on a DIRECT import -- not a bare
     ModuleNotFoundError, and not only when reached through the handful of
     known external call sites (graph/neighborhood.py, the bundled plugin)."""
@@ -253,11 +248,11 @@ def test_direct_submodule_import_gates_gracefully_no_extra(module_name: str) -> 
     reason="asserts the no-extra re-export contract; run without followthemoney installed",
 )
 def test_missing_public_reexport_gates_gracefully_no_extra() -> None:
-    """`from frisket.features.followthemoney import validate_entity` (or any other
+    """`from frisket.followthemoney import validate_entity` (or any other
     normally-real-exported name) must also raise a clean ImportError, not
     Python's generic "cannot import name"."""
     with pytest.raises(ImportError) as excinfo:
-        from frisket.features.followthemoney import validate_entity  # noqa: F401
+        from frisket.followthemoney import validate_entity  # noqa: F401
 
     assert REMEDIATION in str(excinfo.value)
 
@@ -267,7 +262,7 @@ def test_missing_public_reexport_gates_gracefully_no_extra() -> None:
 # followthemoney imports fine but a dependency underneath it is broken) must
 # degrade gracefully, not raise through entities_available()/diagnostics.
 # Runs in a fresh subprocess: sys.modules caching makes this untestable
-# in-process once frisket.features.followthemoney has already been imported once.
+# in-process once frisket.followthemoney has already been imported once.
 # --------------------------------------------------------------------------- #
 
 
@@ -282,7 +277,7 @@ def test_discoverable_but_broken_install_degrades_gracefully(tmp_path: Path) -> 
     script = (
         "import sys; "
         f"sys.path.insert(0, {str(stub_root)!r}); "
-        "import frisket.features.followthemoney as ftm; "
+        "import frisket.followthemoney as ftm; "
         "assert ftm.ENTITIES_AVAILABLE is False, ftm.ENTITIES_AVAILABLE; "
         "ok, err = ftm.entities_available(); "
         "assert ok is False; "

@@ -25,6 +25,7 @@ from http_test_helpers import (
     post_operation_undo_as_v1_action,
 )
 from workbench_runtime_test_helpers import activate_runtime_plugin_for_project
+from frisket.engine.store.transactions import write_transaction
 
 
 PLUGIN_TYPE_OWNER = "test.column_types"
@@ -217,10 +218,12 @@ class TestStore:
         p = make_project("t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "payload", type="text")
-        p.set_column_type(cid, plugin_type)
+        with write_transaction(p.db):
+            p.set_column_type(cid, plugin_type)
         assert p.get_column(cid)["type"] == plugin_type
         with pytest.raises(ValueError):
-            p.set_column_type(cid, "no_such_type")
+            with write_transaction(p.db):
+                p.set_column_type(cid, "no_such_type")
 
     @pytest.mark.parametrize("value", [-(2**63) - 1, 2**63, 1.0, True])
     def test_integer_storage_preserves_but_excludes_invalid_values(
@@ -244,7 +247,8 @@ class TestStore:
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="json")
         p.add_rows(sheet, [{"value": 2**63}], {"value": cid})
-        p.set_column_type(cid, "integer")
+        with write_transaction(p.db):
+            p.set_column_type(cid, "integer")
         assert p.get_column(cid)["type"] == "integer"
         assert p.get_values(sheet, cid) == {1: None}
         assert p.get_values(sheet, cid, preserve_invalid=True) == {1: 2**63}

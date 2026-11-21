@@ -262,7 +262,7 @@ def _document_browse(
         "video",
     } and source_column_id not in annotated_text_column_ids(project, sheet_id):
         raise ValueError("column is not a document source")
-    title = by_id.get(title_column_id)
+    title = by_id.get(title_column_id) if title_column_id is not None else None
     from frisket.engine.store.current_read_sql import current_values_sql
 
     descriptor_columns = [int(source["id"])] + (

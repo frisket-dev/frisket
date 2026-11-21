@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -50,16 +49,14 @@ def _stub_page(text: str) -> dict[str, Any]:
 
 
 def _project_with_media(
-    tmp_path: Path,
+    project: Project,
     payload: bytes,
     *,
     filename: str = "scan.pdf",
     mime: str = "application/pdf",
-) -> tuple[Project, dict[str, Any]]:
-    project = Project.create(tmp_path / "ocr-pdf.frisket", name="OCR PDF")
+) -> dict[str, Any]:
     digest = project.add_blob(payload, filename=filename, mime=mime)
-    cell = media_cell(digest, mime=mime, filename=filename)
-    return project, cell
+    return media_cell(digest, mime=mime, filename=filename)
 
 
 def _patch_engine(monkeypatch: pytest.MonkeyPatch, pages: list[dict[str, Any]]) -> None:
@@ -248,10 +245,10 @@ def test_validate_action_spec_rejects_remote_vlm_searchable_pdf() -> None:
 
 
 def test_execute_default_off_produces_no_pdf_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project, cell = _project_with_media(tmp_path, _source_pdf(1))
+    cell = _project_with_media(project, _source_pdf(1))
     spec = {"engine": "rapidocr", "dpi": DPI}
     result, out, field_errors = _run(project, cell, **spec)
     assert set(out) == {"ocr_text", "ocr_text_blocks"}
@@ -259,10 +256,10 @@ def test_execute_default_off_produces_no_pdf_output(
 
 
 def test_execute_pdf_mode_produces_searchable_pdf_blob(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project, cell = _project_with_media(tmp_path, _source_pdf(1))
+    cell = _project_with_media(project, _source_pdf(1))
     spec = {
         "engine": "rapidocr",
         "dpi": DPI,
@@ -286,10 +283,10 @@ def test_execute_pdf_mode_produces_searchable_pdf_blob(
 
 
 def test_execute_pdf_mode_multi_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("PAGE ONE"), _stub_page("PAGE TWO")])
-    project, cell = _project_with_media(tmp_path, _source_pdf(2))
+    cell = _project_with_media(project, _source_pdf(2))
     spec = {
         "engine": "rapidocr",
         "dpi": DPI,
@@ -304,12 +301,10 @@ def test_execute_pdf_mode_multi_page(
 
 
 def test_execute_uses_output_name_template_for_filename(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO")])
-    project, cell = _project_with_media(
-        tmp_path, _source_pdf(1), filename="quarterly-report.pdf"
-    )
+    cell = _project_with_media(project, _source_pdf(1), filename="quarterly-report.pdf")
     spec = {
         "engine": "rapidocr",
         "dpi": DPI,
@@ -328,12 +323,12 @@ def test_execute_uses_output_name_template_for_filename(
 
 
 def test_execute_compose_failure_errors_pdf_cell_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     # a corrupt "PDF" body: OCR text/blocks were produced from stubs, but the
     # compositor cannot parse the source, so only the _pdf cell fails.
-    project, cell = _project_with_media(tmp_path, b"%PDF-1.4 not really a pdf")
+    cell = _project_with_media(project, b"%PDF-1.4 not really a pdf")
     spec = {
         "engine": "rapidocr",
         "dpi": DPI,
@@ -348,12 +343,12 @@ def test_execute_compose_failure_errors_pdf_cell_only(
 
 
 def test_execute_image_input_errors_pdf_cell_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     # a single image has no source PDF to sandwich onto (v1 non-goal, SS12).
-    project, cell = _project_with_media(
-        tmp_path, b"\x89PNG\r\n\x1a\n", filename="scan.png", mime="image/png"
+    cell = _project_with_media(
+        project, b"\x89PNG\r\n\x1a\n", filename="scan.png", mime="image/png"
     )
     spec = {
         "engine": "rapidocr",
@@ -371,8 +366,7 @@ def test_execute_image_input_errors_pdf_cell_only(
 # --------------------------------------------------------------------------
 
 
-def _seed_pdf_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "action.frisket", name="OCR action")
+def _seed_pdf_project(project: Project) -> tuple[int, list[int]]:
     sheet_id = project.add_sheet("Scans")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -393,7 +387,7 @@ def _seed_pdf_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
         ],
         cols,
     )
-    return project, sheet_id, row_ids
+    return sheet_id, row_ids
 
 
 def _ocr_action(sheet_id: int, row_ids: list[int]) -> dict[str, Any]:
@@ -416,12 +410,12 @@ def _ocr_action(sheet_id: int, row_ids: list[int]) -> dict[str, Any]:
 
 
 def test_action_run_creates_pdf_file_column(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
+    sheet_id, row_ids = _seed_pdf_project(project)
     result = run_action_spec(
         project,
         _ocr_action(sheet_id, row_ids),
@@ -599,7 +593,7 @@ def test_action_run_is_partial_when_only_some_rows_fail_to_compose(
 # --------------------------------------------------------------------------
 
 
-def test_rapidocr_golden_real_searchable_pdf(tmp_path: Path) -> None:
+def test_rapidocr_golden_real_searchable_pdf(project: Project) -> None:
     pytest.importorskip("rapidocr")
     Image = pytest.importorskip("PIL.Image")
     ImageDraw = pytest.importorskip("PIL.ImageDraw")
@@ -612,9 +606,7 @@ def test_rapidocr_golden_real_searchable_pdf(tmp_path: Path) -> None:
     draw.text((60, 110), "INVOICE", fill="black")
     pdf_io = io.BytesIO()
     img.save(pdf_io, format="PDF", resolution=200.0)
-    project, cell = _project_with_media(
-        tmp_path, pdf_io.getvalue(), filename="invoice.pdf"
-    )
+    cell = _project_with_media(project, pdf_io.getvalue(), filename="invoice.pdf")
     spec = {
         "engine": "rapidocr",
         "dpi": 200,

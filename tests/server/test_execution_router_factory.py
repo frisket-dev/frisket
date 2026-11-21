@@ -273,7 +273,6 @@ def test_cached_app_builds_one_fresh_effective_router_per_execution(
         assert bases[1].model_call_policy == _BoundPolicy()
         assert template.model_call_policy == _BoundPolicy()
     finally:
-        project.close()
         workspace.queue.close()
         cache.close()
 

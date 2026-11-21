@@ -140,16 +140,25 @@ WHERE source_column.sheet_id=text_column.sheet_id
   );
 """
 
-# Historical adoption upgrades run before ordered authority and citation tables exist.
-LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
-    DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace("effective_current_cells", "current_cells")
-    .replace("JOIN citation_spans linked", "JOIN evidence_link_spans linked")
+# Post-domain upgrades prior to the citations cutover use effective_current_cells
+# while still joining the pre-cutover evidence_links / evidence_link_spans tables.
+PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
+    DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
+        "JOIN citation_spans linked", "JOIN evidence_link_spans linked"
+    )
     .replace(
         "JOIN citations source_link ON source_link.id=linked.citation_id",
         "JOIN evidence_links source_link ON source_link.id=linked.link_id",
     )
     .replace("ops citation_owner", "ops evidence_owner")
     .replace("citation_owner.", "evidence_owner.")
+)
+
+# Historical adoption upgrades run before ordered authority and citation tables exist.
+LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
+    PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
+        "effective_current_cells", "current_cells"
+    )
 )
 
 

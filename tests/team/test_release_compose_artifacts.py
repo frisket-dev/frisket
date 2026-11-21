@@ -69,11 +69,14 @@ def test_local_asr_hub_cache_uses_the_shared_persistent_data_mount() -> None:
 
 def test_multi_service_uses_an_existing_app_command_and_flat_worker_root() -> None:
     multi = _read("compose.multi-service.yaml")
-    assert multi["services"]["app"]["command"][:2] == [
+    command = multi["services"]["app"]["command"]
+    assert command[:2] == [
         "uvicorn",
         "frisket.team.asgi:app",
     ]
-    assert "--no-proxy-headers" in multi["services"]["app"]["command"]
+    assert "--no-proxy-headers" in command
+    assert "--loop" in command
+    assert command[command.index("--loop") + 1] == "asyncio"
     assert (
         multi["services"]["worker"]["environment"]["FRISKET_PROJECTS_ROOT"] == "/data"
     )

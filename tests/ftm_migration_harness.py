@@ -8,11 +8,11 @@ from frisket.contracts.plugin_write_plan import (
     PROJECT_WRITES_CAPABILITY,
 )
 from frisket.engine.executor.plugin_write_apply import apply_write_plan
-from frisket.features.followthemoney import entities_available
-from frisket.features.followthemoney.write_plan import (
+from frisket.followthemoney import entities_available
+from frisket.followthemoney.write_plan import (
     import_plan_to_write_plan as import_plan_to_write_plan,
 )
-from frisket.features.investigations.rowsets import resolve_investigative_rowset
+from frisket.exports.investigative_rowsets import resolve_investigative_rowset
 from frisket.engine.store.project import Project
 
 # This module is the shared byte-equivalence path for BOTH the frozen golden
@@ -86,7 +86,7 @@ def export_entities_bytes(project: Project, plan: dict[str, Any]) -> bytes:
     """Export the FtM entity stream (``entities.ftm.jsonl`` bytes) from a project
     written from ``plan`` through the shared core exporter."""
     _require_entities()
-    from frisket.features.followthemoney import build_followthemoney_export_package
+    from frisket.followthemoney import build_followthemoney_export_package
 
     source, mappings, rowsets_by_key = _canonical_export_inputs(project, plan)
     package = build_followthemoney_export_package(
@@ -117,7 +117,7 @@ def roundtrip_export_bytes(source_path: str | Path) -> bytes:
     """Import a FollowTheMoney file via WritePlan then export it; return the FtM
     entity stream bytes. Byte-equivalent to the pre-deletion core import->export."""
     _require_entities()
-    from frisket.features.followthemoney.import_planner import (
+    from frisket.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
 

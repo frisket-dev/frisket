@@ -12,7 +12,8 @@ import sqlite3
 import uuid
 from collections.abc import Callable, Collection, Mapping
 from datetime import datetime, timezone
-from typing import Any
+from enum import Enum
+from typing import Any, Final
 
 from statemachine import State, StateMachine
 from statemachine.exceptions import TransitionNotAllowed
@@ -71,7 +72,13 @@ EVENT_KINDS = frozenset(
 SKILL_CONTENT_EVENT_KINDS = frozenset({"skill_proposal", "skill_save_attempt"})
 MAX_SKILL_CONTENT_BYTES = 128 * 1024
 MAX_SKILL_EVENT_ENVELOPE_BYTES = 1024 * 1024
-_UNSET = object()
+
+
+class _Unset(Enum):
+    VALUE = object()
+
+
+_UNSET: Final = _Unset.VALUE
 
 
 class ProjectQAStoreError(RuntimeError):
@@ -364,11 +371,11 @@ class ProjectQAStore:
         *,
         expected_revision: int,
         title: str | None = None,
-        scope: Mapping[str, Any] | None | object = _UNSET,
-        model: str | None | object = _UNSET,
+        scope: Mapping[str, Any] | None | _Unset = _UNSET,
+        model: str | None | _Unset = _UNSET,
         web: bool | None = None,
         suggest_actions: bool | None = None,
-        research: Mapping[str, Any] | None | object = _UNSET,
+        research: Mapping[str, Any] | None | _Unset = _UNSET,
     ) -> dict[str, Any]:
         if (
             isinstance(expected_revision, bool)
@@ -977,8 +984,8 @@ class ProjectQAStore:
                 return None
             from frisket.engine.store.runs import RunResultStore
 
-            RunResultStore(self._project).write_unscoped_model_calls(
-                calls, row_id=None, column_id=None, commit=False
+            RunResultStore(self._project).write_unscoped_model_calls_in_transaction(
+                calls, row_id=None, column_id=None
             )
             event = self._append_event(
                 db,
@@ -1246,7 +1253,7 @@ class ProjectQAStore:
                     (target, turn_id),
                 )
                 db.execute(
-                    "UPDATE project_qa_research_runs SET state='running',pending_approval_json=NULL,"
+                    "UPDATE project_qa_research_runs SET state='running',pending_pause_json=NULL,"
                     "revision=revision+1,updated_at=? WHERE turn_id=?",
                     (now, turn_id),
                 )
@@ -1278,7 +1285,7 @@ class ProjectQAStore:
         *,
         status: str,
         usage: Mapping[str, Any] | None = None,
-        cost_actual: float | None | object = _UNSET,
+        cost_actual: float | None | _Unset = _UNSET,
         error_summary: str | None = None,
     ) -> dict[str, Any]:
         if status not in TERMINAL_TURN_STATUSES:
@@ -1443,7 +1450,7 @@ class ProjectQAStore:
         # Research state is a stored projection of the parent outcome. There
         # is no independently writable research terminal transition.
         db.execute(
-            "UPDATE project_qa_research_runs SET state=?,pending_approval_json=NULL,"
+            "UPDATE project_qa_research_runs SET state=?,pending_pause_json=NULL,"
             "revision=revision+1,updated_at=? WHERE turn_id=?",
             ("completed" if status == "completed" else "interrupted", now, turn_id),
         )
@@ -1521,7 +1528,7 @@ class ProjectQAStore:
                 "JOIN project_qa_research_runs r ON r.turn_id=t.id "
                 "WHERE t.status NOT IN ('running','stopping') AND "
                 "(r.state != CASE WHEN t.status='completed' THEN 'completed' ELSE 'interrupted' END "
-                "OR r.pending_approval_json IS NOT NULL)"
+                "OR r.pending_pause_json IS NOT NULL)"
             ).fetchall():
                 self._finish_research(db, row["id"], row["status"], _now())
             return reconciled

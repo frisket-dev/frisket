@@ -56,7 +56,7 @@ def _lexical_fallback(sheet_id: int, row_id: int, column_id: int) -> SearchRespo
                 version_kind="retrieval_revision",
                 version_value=1,
             ),
-            producer_recipe_id="recipe:text-v1",
+            producer_slice_id="slice:text-v1",
             part_kind="text",
             locator=SourceLocator(kind="text"),
         ),
@@ -153,13 +153,13 @@ def test_semantic_search_retries_encoder_work_completed_by_an_external_worker(
         with RetrievalStore(project) as store:
             store.begin_preparation(
                 source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
             )
             assert store.mark_preparation_unavailable(
                 source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 error_code="encoder_unavailable",
@@ -185,7 +185,7 @@ def test_semantic_search_retries_encoder_work_completed_by_an_external_worker(
 
         with RetrievalStore(project) as store:
             state = store.preparation_state(
-                source.source_id, recipe_id="text-v1", channel="text"
+                source.source_id, slice_id="text-v1", channel="text"
             )
         assert state is not None and state.status == "pending"
     finally:
@@ -255,7 +255,7 @@ def test_search_serializes_retrieval_media_preparation_coverage(
     assert gap == {
         "channel": "search_preparation",
         "state": "unavailable",
-        "recipe_id": None,
+        "slice_id": None,
         "eligible_count": 1,
         "prepared_count": 0,
         "failed_count": 0,

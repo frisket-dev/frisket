@@ -160,10 +160,7 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
     nativeTotal,
   ), 0);
   const unsuccessful = new Set(['failed', 'partial', 'cancelled']);
-  const nativeNeedsAttention = session.unreadable_total > 0
-    || session.preparation_children.some((child) => (
-      child.action_id === 'media.read_pdf_text' && unsuccessful.has(child.status)
-    ));
+  const nativeNeedsAttention = session.unreadable_total > 0;
   if (nativeTotal > 0) lines.push({
     key: 'native',
     label: 'Text layer',

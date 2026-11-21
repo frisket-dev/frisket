@@ -12,7 +12,7 @@ from frisket.feeds.youtube import (
     list_youtube_channel_with_ytdlp,
     list_youtube_playlist_with_ytdlp,
 )
-from frisket.features.url_classification import classify_url
+from frisket.url_classification import classify_url
 
 CHANNEL_URL = "https://www.youtube.com/@investigative"
 PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLabcd1234"

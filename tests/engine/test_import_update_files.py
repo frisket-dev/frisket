@@ -9,7 +9,6 @@ from openpyxl import Workbook
 
 from frisket.engine.executor import ExecutorDeps, ImportWorkloadLimits
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 
 
 def _source(tmp_path, kind, rows):
@@ -28,8 +27,7 @@ def _source(tmp_path, kind, rows):
     return path
 
 
-def _seed(tmp_path):
-    project = Project.create(tmp_path / "stock.frisket")
+def _seed(project):
     sheet = project.add_sheet("Stock")
     columns = {
         name: project.add_column(sheet, name, kind)
@@ -43,7 +41,7 @@ def _seed(tmp_path):
         ],
         columns,
     )
-    return project, sheet, columns, rows
+    return sheet, columns, rows
 
 
 def _request(kind, source, sheet, *, keep=False):
@@ -78,8 +76,8 @@ def _request(kind, source, sheet, *, keep=False):
 
 
 @pytest.mark.parametrize("kind", ["csv", "xlsx"])
-def test_file_mapping_unmapped_fields_and_undo(tmp_path, kind):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_file_mapping_unmapped_fields_and_undo(tmp_path, project, kind):
+    sheet, columns, rows = _seed(project)
     source = _source(
         tmp_path,
         kind,
@@ -105,8 +103,8 @@ def test_file_mapping_unmapped_fields_and_undo(tmp_path, kind):
 
 @pytest.mark.parametrize("kind", ["csv", "xlsx"])
 @pytest.mark.parametrize("keep", [False, True])
-def test_blank_policy_on_missing_trailing_field(tmp_path, kind, keep):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_blank_policy_on_missing_trailing_field(tmp_path, project, kind, keep):
+    sheet, columns, rows = _seed(project)
     source = _source(tmp_path, kind, [["code", "amount"], ["A1"]])
     result = run_action_spec(
         project, _request(kind, source, sheet, keep=keep), project_id="p"
@@ -117,8 +115,8 @@ def test_blank_policy_on_missing_trailing_field(tmp_path, kind, keep):
 
 
 @pytest.mark.parametrize("kind", ["csv", "xlsx"])
-def test_deployment_row_limit_rejects_before_any_publication(tmp_path, kind):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_deployment_row_limit_rejects_before_any_publication(tmp_path, project, kind):
+    sheet, columns, rows = _seed(project)
     source = _source(tmp_path, kind, [["code", "amount"], ["A1", 11], ["B2", 20]])
     result = run_action_spec(
         project,
@@ -133,8 +131,8 @@ def test_deployment_row_limit_rejects_before_any_publication(tmp_path, kind):
 
 
 @pytest.mark.parametrize("kind", ["csv", "xlsx"])
-def test_invalid_numeric_input_is_refused_before_publication(tmp_path, kind):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_invalid_numeric_input_is_refused_before_publication(tmp_path, project, kind):
+    sheet, columns, rows = _seed(project)
     source = _source(tmp_path, kind, [["code", "amount"], ["A1", "not a number"]])
     result = run_action_spec(project, _request(kind, source, sheet), project_id="p")
     assert result.status == "failed"
@@ -142,8 +140,10 @@ def test_invalid_numeric_input_is_refused_before_publication(tmp_path, kind):
 
 
 @pytest.mark.parametrize("formula_column", ["A", "B", "C"])
-def test_only_mapped_xlsx_formulas_require_cached_values(tmp_path, formula_column):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_only_mapped_xlsx_formulas_require_cached_values(
+    tmp_path, project, formula_column
+):
+    sheet, columns, rows = _seed(project)
     source = _source(
         tmp_path, "xlsx", [["code", "amount", "unused"], ["A1", 11, "ignored"]]
     )

@@ -65,8 +65,11 @@ CLOUD_LLM_TRANSPORT = "frisket.cloud.llm.v1"
 
 
 class _AccountIdentity(Protocol):
-    id: int
-    name: str
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def name(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,9 +185,10 @@ class CloudExecutionTargetProvider:
         if not callable(hook):
             return None
         try:
-            return hook(target_id, capability=capability)
+            remedy = hook(target_id, capability=capability)
         except TypeError:
-            return hook(target_id)
+            remedy = hook(target_id)
+        return remedy if isinstance(remedy, str) else None
 
 
 def compose_cloud_targets(

@@ -451,6 +451,8 @@ def _unpinned_hf_plan(art: ArtifactRef) -> tuple[str, list[PinnedFile]]:
 def artifact_staging_token(engine, pull_id: int) -> str:
     """Queue IDs are workspace-local; temporary model bytes are user-wide."""
     row = model_pull_store.get(engine, pull_id)
+    if row is None:
+        raise LookupError(f"artifact pull {pull_id} not found")
     scope = hashlib.sha256(
         (row.workspace_root + "\0" + row.model_ref).encode()
     ).hexdigest()

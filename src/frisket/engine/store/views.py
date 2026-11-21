@@ -1,4 +1,4 @@
-"""One saved View definition: selection plus display preferences."""
+"""One View definition: selection plus display preferences."""
 
 from __future__ import annotations
 
@@ -46,11 +46,10 @@ def add_view(
         raise ValueError("view sheet_id does not match selection scope")
     sheet_id = derived_sheet
     with write_transaction(project.db, what="view add"):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "view",
             {"name": name, "sheet_id": sheet_id, "spec": spec},
             label=f"view {name}",
-            commit=False,
         )
         cur = project.db.execute(
             "INSERT INTO views (sheet_id, name, spec, op_id) VALUES (?,?,?,?)",
@@ -81,11 +80,10 @@ def update_view(
     if not sets:
         return
     with write_transaction(project.db, what="view update"):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "view",
             {"view_id": view_id, "name": name, "spec": spec},
             label=f"update view {name or view_id}",
-            commit=False,
         )
         sets.append("op_id=?")
         vals.append(op_id)

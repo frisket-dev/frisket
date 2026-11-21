@@ -370,8 +370,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
 
     if schema_digest(db) != DOMAIN_FROM_DIGEST:
         return
-    # The cutover installs runtime DDL; only the edit-precedence and citation
-    # steps may separate it from this build.
+    # The cutover installs runtime DDL; only explicit chain-tail steps that leave
+    # its views and tables consistent may separate it from this build.
     if SCHEMA_DIGEST != CITATIONS_TO_DIGEST:
         raise BundleSchemaMismatch(
             "Domain migration endpoint needs updating for this build"
@@ -401,7 +401,9 @@ def _cut_over(db: sqlite3.Connection) -> None:
     from frisket.engine.store.structural_changes import STRUCTURAL_SCHEMA_SQL
     from frisket.engine.store.copied_results import COPIED_RESULTS_SCHEMA_SQL
     from frisket.upgrades.project.domain_alert_migration import migrate_alert_baselines
-    from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
+    from frisket.engine.store.document_text import (
+        PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+    )
     from frisket.upgrades.project.domain_document_text_migration import (
         adopt_legacy_document_text,
     )
@@ -490,7 +492,7 @@ def _cut_over(db: sqlite3.Connection) -> None:
     archive_history(db)
     db.execute("INSERT INTO meta(key,value) VALUES ('change_sequence','0')")
     execute_ddl(db, CURRENT_CELL_VALUES_SQL)
-    execute_ddl(db, DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+    execute_ddl(db, PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
     for name in (
         "trg_cell_result_heads_require_publishable_result",
         "trg_cell_result_heads_update_publishable_result",

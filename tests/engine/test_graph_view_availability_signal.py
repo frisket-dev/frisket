@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import itertools
 from pathlib import Path
@@ -46,8 +47,9 @@ def _sheet_id_by_name(project: Project, name: str) -> int:
 
 
 def _seed(ws: Path) -> dict[str, int]:
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Graph Avail")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Graph Avail")
+    ) as project:
         # --- plain CSV-shaped sheets (no membership) ---
         left_id = project.add_sheet("States")
         left_cols = {
@@ -127,8 +129,6 @@ def _seed(ws: Path) -> dict[str, int]:
             "join_id": join_id,
             "link_id": link_id,
         }
-    finally:
-        project.close()
 
 
 def _list_sheets(client: TestClient) -> dict[int, dict[str, Any]]:
@@ -179,8 +179,7 @@ def test_helper_requires_both_op_kind_and_membership(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     ws.mkdir()
     ids = _seed(ws)
-    project = Project(ws / f"{PROJECT_ID}.frisket")
-    try:
+    with closing(Project(ws / f"{PROJECT_ID}.frisket")) as project:
         assert (
             sheet_materialized_kind(project, ids["join_id"], op_kind="derive.join")
             == "join"
@@ -206,8 +205,6 @@ def test_helper_requires_both_op_kind_and_membership(tmp_path: Path) -> None:
             sheet_materialized_kind(project, ids["link_id"], op_kind="resolve.entities")
             is None
         )
-    finally:
-        project.close()
 
 
 def test_resolved_entities_are_aggregate_rows_not_graph_edges(seeded):

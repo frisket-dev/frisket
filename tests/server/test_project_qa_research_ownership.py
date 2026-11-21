@@ -45,13 +45,11 @@ async def _pending(ledger, research_id, *, operation_id=None, kind=None):
     async with asyncio.timeout(5):
         while True:
             snapshot = await await_thread_worker(ledger.get, research_id)
-            approval = snapshot["pending_approval"]
+            pause = snapshot["pending_pause"]
             if (
-                approval
-                and (
-                    operation_id is None or approval.get("operation_id") == operation_id
-                )
-                and (kind is None or approval.get("kind") == kind)
+                pause
+                and (operation_id is None or pause.get("operation_id") == operation_id)
+                and (kind is None or pause.get("kind") == kind)
             ):
                 return snapshot
             await asyncio.sleep(0)
@@ -61,7 +59,7 @@ async def _resume(
     session, snapshot, decision="approve", *, authorize=lambda: None, **preferences
 ):
     return await session.resume(
-        pause_id=snapshot["pending_approval"]["id"],
+        pause_id=snapshot["pending_pause"]["id"],
         expected_revision=snapshot["revision"],
         decision=decision,
         actor="reporter",
@@ -90,23 +88,17 @@ async def test_parallel_operations_never_share_a_pause(owned_research):
         second = asyncio.create_task(session.pause(_action("B")))
         # Let B enter the approval owner while A remains unanswered.
         await asyncio.sleep(0.02)
-        assert (
-            ledger.get(run["id"])["pending_approval"] == approval_a["pending_approval"]
-        )
+        assert ledger.get(run["id"])["pending_pause"] == approval_a["pending_pause"]
         await _resume(session, approval_a)
         assert await asyncio.wait_for(first, 5) == "approve"
 
         approval_b = await _pending(ledger, run["id"], operation_id="B")
         assert not second.done()
-        assert (
-            approval_b["pending_approval"]["id"] != approval_a["pending_approval"]["id"]
-        )
+        assert approval_b["pending_pause"]["id"] != approval_a["pending_pause"]["id"]
         with pytest.raises(ProjectQAResearchConflictError):
             await _resume(session, approval_a)
         assert not second.done()
-        assert (
-            ledger.get(run["id"])["pending_approval"] == approval_b["pending_approval"]
-        )
+        assert ledger.get(run["id"])["pending_pause"] == approval_b["pending_pause"]
 
         await _resume(session, approval_b, "skip")
         assert await asyncio.wait_for(second, 5) == "skip"
@@ -139,7 +131,7 @@ async def test_waiting_pause_rechecks_whether_it_is_still_needed(owned_research)
         await _resume(session, approval)
         assert await asyncio.wait_for(first, 5) == "approve"
         assert await asyncio.wait_for(second, 5) == "continue"
-        assert ledger.get(run["id"])["pending_approval"] is None
+        assert ledger.get(run["id"])["pending_pause"] is None
     finally:
         tasks = [first, *([second] if second is not None else [])]
         for task in tasks:
@@ -178,7 +170,7 @@ async def test_budget_increase_covers_a_waiting_operations_stale_pause(
         assert await asyncio.wait_for(first, 5) == "continue"
         assert await asyncio.wait_for(second, 5) == "continue"
         assert published == ["A"]
-        assert ledger.get(run["id"])["pending_approval"] is None
+        assert ledger.get(run["id"])["pending_pause"] is None
         assert ledger.budget_summary(run["id"])["budget_micros"] == 300
     finally:
         tasks = [first, *([second] if second is not None else [])]
@@ -279,7 +271,7 @@ async def test_disconnected_resume_commits_and_wakes_once_despite_duplicate_resu
             await duplicate
         assert await asyncio.wait_for(waiter, 5) == "approve"
         assert consumptions == [approval["revision"] + 1]
-        assert ledger.get(run["id"])["pending_approval"] is None
+        assert ledger.get(run["id"])["pending_pause"] is None
     finally:
         release.set()
         tasks = [
@@ -310,7 +302,7 @@ async def test_closing_owner_rejects_both_pending_and_queued_decisions(owned_res
         assert isinstance(outcomes[1], ProjectQAResearchConflictError)
         with pytest.raises(ProjectQAResearchConflictError):
             await _resume(session, approval)
-        assert ledger.get(run["id"])["pending_approval"] is None
+        assert ledger.get(run["id"])["pending_pause"] is None
     finally:
         tasks = [first, *([second] if second is not None else [])]
         for task in tasks:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from contextlib import closing
 
 import pytest
 from PIL import Image
@@ -19,7 +20,7 @@ from frisket.engine.store.prepared_content import (
     PreparedPageDraft,
 )
 from frisket.retrieval.content import (
-    TextChunkRecipe,
+    TextSliceSpec,
     TextSurface,
     TranscriptSegment,
     TranscriptSurface,
@@ -169,7 +170,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     make_project,
 ) -> None:
     project = make_project("resume")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
     sheet_id = project.add_sheet("Documents")
@@ -200,7 +201,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None
@@ -223,7 +224,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None and state.status == "ready"
@@ -286,7 +287,7 @@ def test_unsupported_media_is_scoped_unavailable_without_encoder(
         dispatch_resolved_blob_source(store, resolved)
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="unsupported-media-v1",
+            slice_id="unsupported-media-v1",
             channel=UNSUPPORTED_MEDIA_CHANNEL,
         )
         assert state is not None
@@ -300,146 +301,143 @@ def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
 ) -> None:
     project = make_project("pdf-page-views")
     encoder = _Encoder()
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "document", type="file")
-        digest = project.add_blob(
-            _two_page_pdf(), filename="two-pages.pdf", mime="application/pdf"
-        )
-        whole_row, page_one_row, page_two_row = project.add_rows(
-            sheet_id,
-            [
-                {"document": {"blob": digest, "mime": "application/pdf"}},
-                {
-                    "document": {
-                        "blob": digest,
-                        "mime": "application/pdf",
-                        "page": 1,
-                    }
-                },
-                {
-                    "document": {
-                        "blob": digest,
-                        "mime": "application/pdf",
-                        "page": 2,
-                    }
-                },
-            ],
-            {"document": column_id},
-        )
-        with project.read_snapshot() as snapshot:
-            whole = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=whole_row,
-                column_id=column_id,
-            )
-            page_one = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=page_one_row,
-                column_id=column_id,
-            )
-            page_two = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=page_two_row,
-                column_id=column_id,
-            )
-        assert whole is not None and page_one is not None and page_two is not None
-        assert (
-            len(
-                {
-                    whole.source.source_id,
-                    page_one.source.source_id,
-                    page_two.source.source_id,
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "document", type="file")
+    digest = project.add_blob(
+        _two_page_pdf(), filename="two-pages.pdf", mime="application/pdf"
+    )
+    whole_row, page_one_row, page_two_row = project.add_rows(
+        sheet_id,
+        [
+            {"document": {"blob": digest, "mime": "application/pdf"}},
+            {
+                "document": {
+                    "blob": digest,
+                    "mime": "application/pdf",
+                    "page": 1,
                 }
-            )
-            == 3
-        )
-        assert {
-            whole.source.content_hash,
-            page_one.source.content_hash,
-            page_two.source.content_hash,
-        } == {f"sha256:{digest}"}
-
-        _drain_dirty(project)
-        for _ in range(3):
-            progress = process_blob_image_preparation_batch(
-                project,
-                channel=PDF_PAGE_CHANNEL,
-                encoder=encoder,
-                max_parts=8,
-            )
-            assert progress.processed_parts in {1, 2}
-        assert progress.complete
-
-        with RetrievalStore(project).open() as store:
-            active = store.db.execute(
-                "SELECT binding.row_id,source.source_id,part.locator_json "
-                "FROM bindings binding JOIN sources source "
-                "ON source.source_key=binding.source_key "
-                "JOIN parts part ON part.source_key=source.source_key "
-                "WHERE binding.column_id=? ORDER BY binding.row_id,part.part_id",
-                (column_id,),
-            ).fetchall()
-        pages_by_row: dict[int, set[tuple[int, int]]] = {}
-        for row in active:
-            locator = json.loads(row["locator_json"])
-            pages_by_row.setdefault(int(row["row_id"]), set()).add(
-                (locator["pages"]["start"], locator["pages"]["end"])
-            )
-        assert pages_by_row == {
-            whole_row: {(1, 1), (2, 2)},
-            page_one_row: {(1, 1)},
-            page_two_row: {(2, 2)},
-        }
-
-        old_source = page_one.source
-        old_revision = page_one.binding.retrieval_revision
-        project.apply_edits(
-            [
-                {
-                    "row_id": page_one_row,
-                    "column_id": column_id,
-                    "value": {
-                        "blob": digest,
-                        "mime": "application/pdf",
-                        "page": 2,
-                    },
+            },
+            {
+                "document": {
+                    "blob": digest,
+                    "mime": "application/pdf",
+                    "page": 2,
                 }
-            ]
+            },
+        ],
+        {"document": column_id},
+    )
+    with project.read_snapshot() as snapshot:
+        whole = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=whole_row,
+            column_id=column_id,
         )
-        with project.read_snapshot() as snapshot:
-            edited = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=page_one_row,
-                column_id=column_id,
-            )
-        assert edited is not None
-        assert edited.source.content_hash == old_source.content_hash
-        assert edited.source.version_value == old_source.version_value == digest
-        assert edited.source.source_id == page_two.source.source_id
-        assert edited.source.source_id != old_source.source_id
-        assert edited.binding.retrieval_revision > old_revision
+        page_one = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=page_one_row,
+            column_id=column_id,
+        )
+        page_two = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=page_two_row,
+            column_id=column_id,
+        )
+    assert whole is not None and page_one is not None and page_two is not None
+    assert (
+        len(
+            {
+                whole.source.source_id,
+                page_one.source.source_id,
+                page_two.source.source_id,
+            }
+        )
+        == 3
+    )
+    assert {
+        whole.source.content_hash,
+        page_one.source.content_hash,
+        page_two.source.content_hash,
+    } == {f"sha256:{digest}"}
 
-        _drain_dirty(project)
-        with RetrievalStore(project).open() as store:
-            active = store.db.execute(
-                "SELECT binding.row_id,source.source_id,part.locator_json "
-                "FROM bindings binding JOIN sources source "
-                "ON source.source_key=binding.source_key "
-                "JOIN parts part ON part.source_key=source.source_key "
-                "WHERE binding.column_id=? AND binding.row_id=?",
-                (column_id, page_one_row),
-            ).fetchall()
-        assert len(active) == 1
-        assert active[0]["source_id"] == page_two.source.source_id
-        locator = json.loads(active[0]["locator_json"])
-        assert locator["pages"] == {"end": 2, "start": 2}
-    finally:
-        project.close()
+    _drain_dirty(project)
+    for _ in range(3):
+        progress = process_blob_image_preparation_batch(
+            project,
+            channel=PDF_PAGE_CHANNEL,
+            encoder=encoder,
+            max_parts=8,
+        )
+        assert progress.processed_parts in {1, 2}
+    assert progress.complete
+
+    with RetrievalStore(project).open() as store:
+        active = store.db.execute(
+            "SELECT binding.row_id,source.source_id,part.locator_json "
+            "FROM bindings binding JOIN sources source "
+            "ON source.source_key=binding.source_key "
+            "JOIN parts part ON part.source_key=source.source_key "
+            "WHERE binding.column_id=? ORDER BY binding.row_id,part.part_id",
+            (column_id,),
+        ).fetchall()
+    pages_by_row: dict[int, set[tuple[int, int]]] = {}
+    for row in active:
+        locator = json.loads(row["locator_json"])
+        pages_by_row.setdefault(int(row["row_id"]), set()).add(
+            (locator["pages"]["start"], locator["pages"]["end"])
+        )
+    assert pages_by_row == {
+        whole_row: {(1, 1), (2, 2)},
+        page_one_row: {(1, 1)},
+        page_two_row: {(2, 2)},
+    }
+
+    old_source = page_one.source
+    old_revision = page_one.binding.retrieval_revision
+    project.apply_edits(
+        [
+            {
+                "row_id": page_one_row,
+                "column_id": column_id,
+                "value": {
+                    "blob": digest,
+                    "mime": "application/pdf",
+                    "page": 2,
+                },
+            }
+        ]
+    )
+    with project.read_snapshot() as snapshot:
+        edited = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=page_one_row,
+            column_id=column_id,
+        )
+    assert edited is not None
+    assert edited.source.content_hash == old_source.content_hash
+    assert edited.source.version_value == old_source.version_value == digest
+    assert edited.source.source_id == page_two.source.source_id
+    assert edited.source.source_id != old_source.source_id
+    assert edited.binding.retrieval_revision > old_revision
+
+    _drain_dirty(project)
+    with RetrievalStore(project).open() as store:
+        active = store.db.execute(
+            "SELECT binding.row_id,source.source_id,part.locator_json "
+            "FROM bindings binding JOIN sources source "
+            "ON source.source_key=binding.source_key "
+            "JOIN parts part ON part.source_key=source.source_key "
+            "WHERE binding.column_id=? AND binding.row_id=?",
+            (column_id, page_one_row),
+        ).fetchall()
+    assert len(active) == 1
+    assert active[0]["source_id"] == page_two.source.source_id
+    locator = json.loads(active[0]["locator_json"])
+    assert locator["pages"] == {"end": 2, "start": 2}
 
 
 def test_pdf_render_failure_marks_target_failed_and_releases_queue(
@@ -480,7 +478,7 @@ def test_pdf_render_failure_marks_target_failed_and_releases_queue(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="pdf-page-png-v1:dpi=144:max-edge=1600",
+            slice_id="pdf-page-png-v1:dpi=144:max-edge=1600",
             channel=PDF_PAGE_CHANNEL,
         )
         assert state is not None
@@ -498,61 +496,56 @@ def test_pdf_render_failure_marks_target_failed_and_releases_queue(
     ],
 )
 def test_missing_canonical_blob_marks_native_preparation_failed(
-    tmp_path, mime_type: str, column_type: str, channel: str
+    make_project, mime_type: str, column_type: str, channel: str
 ) -> None:
-    project = Project.create(tmp_path / f"missing-{column_type}.frisket")
-    try:
-        sheet_id = project.add_sheet("Media")
-        column_id = project.add_column(sheet_id, "media", type=column_type)
-        digest = project.add_blob(b"placeholder", mime=mime_type)
-        row_id = project.add_rows(
-            sheet_id,
-            [{"media": {"blob": digest, "mime": mime_type}}],
-            {"media": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert resolved is not None
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-        (project.path / "blobs" / digest[:2] / digest).unlink()
+    project = make_project(f"missing-{column_type}")
+    sheet_id = project.add_sheet("Media")
+    column_id = project.add_column(sheet_id, "media", type=column_type)
+    digest = project.add_blob(b"placeholder", mime=mime_type)
+    row_id = project.add_rows(
+        sheet_id,
+        [{"media": {"blob": digest, "mime": mime_type}}],
+        {"media": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        )
+    assert resolved is not None
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
+    (project.path / "blobs" / digest[:2] / digest).unlink()
 
-        if channel == IMAGE_CHANNEL:
-            progress = process_blob_image_preparation_batch(
-                project, channel=channel, encoder=_Encoder()
-            )
-        else:
-            progress = process_timed_media_preparation_batch(
-                project, channel=channel, encoder=_Encoder()
-            )
+    if channel == IMAGE_CHANNEL:
+        progress = process_blob_image_preparation_batch(
+            project, channel=channel, encoder=_Encoder()
+        )
+    else:
+        progress = process_timed_media_preparation_batch(
+            project, channel=channel, encoder=_Encoder()
+        )
 
-        assert progress.complete and progress.processed_parts == 0
-        with RetrievalStore(project).open() as store:
-            state = store.db.execute(
-                "SELECT status,error_code FROM preparation "
-                "WHERE source_id=? AND channel=?",
-                (resolved.source.source_id, channel),
-            ).fetchone()
-            assert tuple(state) == ("failed", "missing_blob")
+    assert progress.complete and progress.processed_parts == 0
+    with RetrievalStore(project).open() as store:
+        state = store.db.execute(
+            "SELECT status,error_code FROM preparation WHERE source_id=? AND channel=?",
+            (resolved.source.source_id, channel),
+        ).fetchone()
+        assert tuple(state) == ("failed", "missing_blob")
 
-        # Restoration itself does not create a worker retry loop. The next
-        # authoritative source event re-registers this exact target.
-        assert project.add_blob(b"placeholder", mime=mime_type) == digest
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-            state = store.db.execute(
-                "SELECT status,error_code FROM preparation "
-                "WHERE source_id=? AND channel=?",
-                (resolved.source.source_id, channel),
-            ).fetchone()
-            assert tuple(state) == ("pending", None)
-    finally:
-        project.close()
+    # Restoration itself does not create a worker retry loop. The next
+    # authoritative source event re-registers this exact target.
+    assert project.add_blob(b"placeholder", mime=mime_type) == digest
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
+        state = store.db.execute(
+            "SELECT status,error_code FROM preparation WHERE source_id=? AND channel=?",
+            (resolved.source.source_id, channel),
+        ).fetchone()
+        assert tuple(state) == ("pending", None)
 
 
 def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
@@ -588,7 +581,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="image-bytes-v1",
+            slice_id="image-bytes-v1",
             channel=IMAGE_CHANNEL,
         )
         assert state is not None
@@ -605,7 +598,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
         dispatch_resolved_blob_source(store, resolved)
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="image-bytes-v1",
+            slice_id="image-bytes-v1",
             channel=IMAGE_CHANNEL,
         )
         assert state is not None
@@ -618,7 +611,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="image-bytes-v1",
+            slice_id="image-bytes-v1",
             channel=IMAGE_CHANNEL,
         )
         assert state is not None
@@ -666,24 +659,23 @@ def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
     make_project, monkeypatch
 ) -> None:
     project = make_project("policy-edit-during-index")
-    concurrent = Project(project.path)
-    old_policy = PreparationPolicy(
-        text_recipe=TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
-    )
-    current_policy = PreparationPolicy(
-        text_recipe=TextChunkRecipe(max_codepoints=16, overlap_codepoints=0)
-    )
-    original_read_snapshot = Project.read_snapshot
-    injected = False
+    with closing(Project(project.path)) as concurrent:
+        old_policy = PreparationPolicy(
+            text_recipe=TextSliceSpec(max_codepoints=8, overlap_codepoints=0)
+        )
+        current_policy = PreparationPolicy(
+            text_recipe=TextSliceSpec(max_codepoints=16, overlap_codepoints=0)
+        )
+        original_read_snapshot = Project.read_snapshot
+        injected = False
 
-    def read_snapshot_after_policy_edit(self):
-        nonlocal injected
-        if self is project and not injected:
-            injected = True
-            write_preparation_policy(concurrent, current_policy)
-        return original_read_snapshot(self)
+        def read_snapshot_after_policy_edit(self):
+            nonlocal injected
+            if self is project and not injected:
+                injected = True
+                write_preparation_policy(concurrent, current_policy)
+            return original_read_snapshot(self)
 
-    try:
         sheet_id = project.add_sheet("Documents")
         column_id = project.add_column(sheet_id, "body")
         project.add_rows(
@@ -702,15 +694,12 @@ def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
         assert not index_needs_work(project)
         with RetrievalStore(project).open() as store:
             recipes = store.db.execute(
-                "SELECT recipe_id,status FROM preparation WHERE channel=?",
+                "SELECT slice_id,status FROM preparation WHERE channel=?",
                 (TEXT_CHANNEL,),
             ).fetchall()
             assert [tuple(row) for row in recipes] == [
-                (current_policy.text_recipe.recipe_id, "ready")
+                (current_policy.text_recipe.slice_id, "ready")
             ]
-    finally:
-        concurrent.close()
-        project.close()
 
 
 @pytest.mark.parametrize(
@@ -721,15 +710,11 @@ def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
     ],
 )
 def test_preparation_policy_refuses_malformed_named_knob(
-    tmp_path, payload: str, knob: str
+    project, payload: str, knob: str
 ) -> None:
-    project = Project.create(tmp_path / f"malformed-{abs(hash(payload))}.frisket")
-    try:
-        project.set_meta(PREPARATION_POLICY_META_KEY, payload)
-        with pytest.raises(ValueError, match=knob.replace(".", r"\.")):
-            read_preparation_policy(project)
-    finally:
-        project.close()
+    project.set_meta(PREPARATION_POLICY_META_KEY, payload)
+    with pytest.raises(ValueError, match=knob.replace(".", r"\.")):
+        read_preparation_policy(project)
 
 
 def test_stored_future_policy_keys_are_ignored_without_enabling_paid_work(
@@ -761,7 +746,7 @@ def test_stored_future_policy_keys_are_ignored_without_enabling_paid_work(
 
     policy = read_preparation_policy(project)
 
-    assert policy.text_recipe == TextChunkRecipe(
+    assert policy.text_recipe == TextSliceSpec(
         max_codepoints=256, overlap_codepoints=32
     )
     assert policy.video_recipe is None
@@ -841,7 +826,7 @@ def test_video_audio_opt_in_fans_out_and_policy_disable_retires_recipe(
             store, resolved, policy=DEFAULT_PREPARATION_POLICY
         )
         audio = store.db.execute(
-            "SELECT recipe_id,status,error_code FROM preparation "
+            "SELECT slice_id,status,error_code FROM preparation "
             "WHERE source_id=? AND channel='audio'",
             (resolved.source.source_id,),
         ).fetchone()
@@ -906,7 +891,7 @@ def test_transcript_preparation_resumes_derived_segments(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             source.source_id,
-            recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
+            slice_id=DEFAULT_TRANSCRIPT_RECIPE.slice_id,
             channel=TRANSCRIPT_CHANNEL,
         )
         assert state is not None and state.status == "ready"
@@ -944,7 +929,7 @@ def test_dirty_dispatch_prepares_real_timestamped_transcript_column(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             work.source_revision.source_id,
-            recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
+            slice_id=DEFAULT_TRANSCRIPT_RECIPE.slice_id,
             channel=TRANSCRIPT_CHANNEL,
         )
         assert state is not None and state.status == "ready"
@@ -988,24 +973,21 @@ def test_ocr_preparation_keeps_authoritative_span_ids(
         "frisket.retrieval.preparation.resolve_cell_ocr_text_source",
         lambda *_args, **_kwargs: resolved,
     )
-    try:
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_cited_source(store, resolved)
-        progress = process_cited_text_preparation_batch(
-            project,
-            channel=OCR_TEXT_CHANNEL,
-            encoder=_Encoder(),
-        )
-        assert progress.complete and progress.processed_parts == 1
-        with RetrievalStore(project).open() as store:
-            locator = store.db.execute(
-                "SELECT part.locator_json FROM parts part JOIN sources source "
-                "ON source.source_key=part.source_key WHERE source.source_id=?",
-                (source.source_id,),
-            ).fetchone()[0]
-            assert "span:page" in locator
-    finally:
-        project.close()
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_cited_source(store, resolved)
+    progress = process_cited_text_preparation_batch(
+        project,
+        channel=OCR_TEXT_CHANNEL,
+        encoder=_Encoder(),
+    )
+    assert progress.complete and progress.processed_parts == 1
+    with RetrievalStore(project).open() as store:
+        locator = store.db.execute(
+            "SELECT part.locator_json FROM parts part JOIN sources source "
+            "ON source.source_key=part.source_key WHERE source.source_id=?",
+            (source.source_id,),
+        ).fetchone()[0]
+        assert "span:page" in locator
 
 
 def test_media_cell_dispatches_native_blob_and_derived_ocr(
@@ -1071,7 +1053,7 @@ def test_media_cell_dispatches_native_blob_and_derived_ocr(
 
 def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> None:
     project = make_project("unavailable")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
@@ -1093,7 +1075,7 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> 
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None and state.status == "unavailable"
@@ -1103,7 +1085,7 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> 
 
 def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) -> None:
     project = make_project("startup-miss")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _MissingAtStartEncoder()
     sheet_id = project.add_sheet("Documents")
@@ -1125,7 +1107,7 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) 
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None
@@ -1137,7 +1119,7 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) 
 
 def test_preparation_reuses_project_representation_cache(make_project) -> None:
     project = make_project("cache")
-    recipe = TextChunkRecipe(max_codepoints=32, overlap_codepoints=0)
+    recipe = TextSliceSpec(max_codepoints=32, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
     sheet_id = project.add_sheet("Documents")
@@ -1180,7 +1162,7 @@ def test_repeated_chunks_share_one_representation_with_distinct_locations(
     make_project,
 ) -> None:
     project = make_project("repeated-chunks")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
     sheet_id = project.add_sheet("Documents")
@@ -1219,67 +1201,61 @@ def test_invalid_image_does_not_block_later_blank_pdf_in_worker_quantum(
 ) -> None:
     project = make_project("isolated-media-failure")
     encoder = _RejectInvalidImageEncoder()
-    try:
-        sheet_id = project.add_sheet("Documents")
-        image_column = project.add_column(sheet_id, "image", type="image")
-        pdf_column = project.add_column(sheet_id, "document", type="file")
-        image_hash = project.add_blob(b"<svg>invalid</svg>", mime="image/svg+xml")
-        pdf_hash = project.add_blob(_three_blank_page_pdf(), mime="application/pdf")
-        image_row, pdf_row = project.add_rows(
-            sheet_id,
-            [
-                {"image": {"blob": image_hash, "mime": "image/svg+xml"}},
-                {"document": {"blob": pdf_hash, "mime": "application/pdf"}},
-            ],
-            {"image": image_column, "document": pdf_column},
-        )
+    sheet_id = project.add_sheet("Documents")
+    image_column = project.add_column(sheet_id, "image", type="image")
+    pdf_column = project.add_column(sheet_id, "document", type="file")
+    image_hash = project.add_blob(b"<svg>invalid</svg>", mime="image/svg+xml")
+    pdf_hash = project.add_blob(_three_blank_page_pdf(), mime="application/pdf")
+    image_row, pdf_row = project.add_rows(
+        sheet_id,
+        [
+            {"image": {"blob": image_hash, "mime": "image/svg+xml"}},
+            {"document": {"blob": pdf_hash, "mime": "application/pdf"}},
+        ],
+        {"image": image_column, "document": pdf_column},
+    )
 
-        processed, complete = search_index_job.process_index_batches(
-            project, embedding_encoder=encoder
-        )
+    processed, complete = search_index_job.process_index_batches(
+        project, embedding_encoder=encoder
+    )
 
-        assert complete and processed >= 5
-        assert encoder.batch_sizes == [1, 1]
-        with RetrievalStore(project).open() as store:
-            failures = store.db.execute(
-                "SELECT binding.row_id,work.status,work.error_code "
-                "FROM preparation work JOIN sources source "
-                "ON source.source_id=work.source_id "
-                "AND source.version_kind=work.target_version_kind "
-                "AND source.version_value=work.target_version_value "
-                "AND source.version_type=work.target_version_type "
-                "JOIN bindings binding ON binding.source_key=source.source_key "
-                "WHERE work.channel=?",
-                (IMAGE_CHANNEL,),
-            ).fetchall()
-            assert [tuple(row) for row in failures] == [
-                (image_row, "failed", "invalid_input")
-            ]
-            pdf_state = store.db.execute(
-                "SELECT binding.row_id,work.status,work.error_code "
-                "FROM preparation work JOIN sources source "
-                "ON source.source_id=work.source_id "
-                "AND source.version_kind=work.target_version_kind "
-                "AND source.version_value=work.target_version_value "
-                "AND source.version_type=work.target_version_type "
-                "JOIN bindings binding ON binding.source_key=source.source_key "
-                "WHERE work.channel=?",
-                (PDF_PAGE_CHANNEL,),
-            ).fetchone()
-            assert tuple(pdf_state) == (pdf_row, "ready", None)
-            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 3
-            assert (
-                store.db.execute("SELECT count(*) FROM representations").fetchone()[0]
-                == 1
-            )
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM part_representations"
-                ).fetchone()[0]
-                == 3
-            )
-    finally:
-        project.close()
+    assert complete and processed >= 5
+    assert encoder.batch_sizes == [1, 1]
+    with RetrievalStore(project).open() as store:
+        failures = store.db.execute(
+            "SELECT binding.row_id,work.status,work.error_code "
+            "FROM preparation work JOIN sources source "
+            "ON source.source_id=work.source_id "
+            "AND source.version_kind=work.target_version_kind "
+            "AND source.version_value=work.target_version_value "
+            "AND source.version_type=work.target_version_type "
+            "JOIN bindings binding ON binding.source_key=source.source_key "
+            "WHERE work.channel=?",
+            (IMAGE_CHANNEL,),
+        ).fetchall()
+        assert [tuple(row) for row in failures] == [
+            (image_row, "failed", "invalid_input")
+        ]
+        pdf_state = store.db.execute(
+            "SELECT binding.row_id,work.status,work.error_code "
+            "FROM preparation work JOIN sources source "
+            "ON source.source_id=work.source_id "
+            "AND source.version_kind=work.target_version_kind "
+            "AND source.version_value=work.target_version_value "
+            "AND source.version_type=work.target_version_type "
+            "JOIN bindings binding ON binding.source_key=source.source_key "
+            "WHERE work.channel=?",
+            (PDF_PAGE_CHANNEL,),
+        ).fetchone()
+        assert tuple(pdf_state) == (pdf_row, "ready", None)
+        assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 3
+        assert (
+            store.db.execute("SELECT count(*) FROM representations").fetchone()[0] == 1
+        )
+        assert (
+            store.db.execute("SELECT count(*) FROM part_representations").fetchone()[0]
+            == 3
+        )
 
 
 def test_lexical_drain_leaves_semantic_preparation_pending(make_project) -> None:
@@ -1301,7 +1277,7 @@ def test_lexical_drain_leaves_semantic_preparation_pending(make_project) -> None
 
 def test_edit_during_preparation_rejects_old_cursor_target(make_project) -> None:
     project = make_project("edit")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
@@ -1335,7 +1311,7 @@ def test_edit_during_preparation_rejects_old_cursor_target(make_project) -> None
     with RetrievalStore(project).open() as store:
         old_state = store.preparation_state(
             old.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert old_state is not None
@@ -1367,7 +1343,7 @@ def test_source_file_edit_retires_pending_text(
             text_column_id=text_column,
         )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -1426,7 +1402,7 @@ def test_source_file_edit_retires_pending_text(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             source.source.source_id,
-            recipe_id=DEFAULT_PREPARATION_POLICY.text_recipe.recipe_id,
+            slice_id=DEFAULT_PREPARATION_POLICY.text_recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None

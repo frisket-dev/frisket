@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date
 import json
-from pathlib import Path
 
 import pytest
 
@@ -25,8 +25,8 @@ class _OneProjectWorkspace:
         return self.project
 
 
-def _number_sheet(tmp_path: Path) -> tuple[Project, int, int, list[int]]:
-    project = Project.create(tmp_path / "query-performance.frisket")
+def _number_sheet(make_project) -> tuple[Project, int, int, list[int]]:
+    project = make_project("query-performance")
     sheet_id = project.add_sheet("Scores")
     column_id = project.add_column(sheet_id, "score", type="number")
     row_ids = project.add_rows(
@@ -63,25 +63,22 @@ def _vm_steps(project: Project, call):
     return result, steps
 
 
-def test_numeric_filter_and_sort_preserve_typed_value_semantics(tmp_path: Path) -> None:
-    project, sheet_id, _column_id, row_ids = _number_sheet(tmp_path)
-    try:
-        result = resolve_sheet_filter_rows(
-            project,
-            sheet_id,
-            filter_=json.dumps({"score": {"gte": 2000}}),
-            sort=json.dumps([{"column": "score", "dir": "desc"}]),
-            limit=2,
-            offset=1,
-        )
-        sorted_result = resolve_sheet_filter_rows(
-            project,
-            sheet_id,
-            sort=json.dumps([{"column": "score", "dir": "asc"}]),
-            limit=10,
-        )
-    finally:
-        project.close()
+def test_numeric_filter_and_sort_preserve_typed_value_semantics(make_project) -> None:
+    project, sheet_id, _column_id, row_ids = _number_sheet(make_project)
+    result = resolve_sheet_filter_rows(
+        project,
+        sheet_id,
+        filter_=json.dumps({"score": {"gte": 2000}}),
+        sort=json.dumps([{"column": "score", "dir": "desc"}]),
+        limit=2,
+        offset=1,
+    )
+    sorted_result = resolve_sheet_filter_rows(
+        project,
+        sheet_id,
+        sort=json.dumps([{"column": "score", "dir": "asc"}]),
+        limit=10,
+    )
 
     # Numeric JSON values participate; numeric strings, booleans, explicit
     # nulls, and missing cells retain the existing invalid/missing behavior.
@@ -100,44 +97,41 @@ def test_numeric_filter_and_sort_preserve_typed_value_semantics(tmp_path: Path) 
 
 
 def test_numeric_filtered_pages_keep_exact_totals_at_page_boundaries(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, _column_id, _row_ids = _number_sheet(tmp_path)
+    project, sheet_id, _column_id, _row_ids = _number_sheet(make_project)
     service = SheetGridService(_OneProjectWorkspace(project))
     filter_json = json.dumps({"score": {"gte": 2000}})
     sort_json = json.dumps([{"column": "score", "dir": "desc"}])
-    try:
-        for limit, offset, total in ((0, 0, 3), (2, 99, 3)):
-            resolved = resolve_sheet_filter_rows(
-                project,
-                sheet_id,
-                filter_=filter_json,
-                sort=sort_json,
-                limit=limit,
-                offset=offset,
-            )
-            grid = service.sheet_data(
-                "project",
-                sheet_id,
-                filter_=filter_json,
-                sort=sort_json,
-                limit=limit,
-                offset=offset,
-            )
-            assert (resolved.row_ids, resolved.total) == ([], total)
-            assert (grid["rows"], grid["total"]) == ([], total)
-
-        empty_filter = json.dumps({"score": {"gte": 9999}})
+    for limit, offset, total in ((0, 0, 3), (2, 99, 3)):
         resolved = resolve_sheet_filter_rows(
-            project, sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+            project,
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+            limit=limit,
+            offset=offset,
         )
         grid = service.sheet_data(
-            "project", sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+            "project",
+            sheet_id,
+            filter_=filter_json,
+            sort=sort_json,
+            limit=limit,
+            offset=offset,
         )
-        assert (resolved.row_ids, resolved.total) == ([], 0)
-        assert (grid["rows"], grid["total"]) == ([], 0)
-    finally:
-        project.close()
+        assert (resolved.row_ids, resolved.total) == ([], total)
+        assert (grid["rows"], grid["total"]) == ([], total)
+
+    empty_filter = json.dumps({"score": {"gte": 9999}})
+    resolved = resolve_sheet_filter_rows(
+        project, sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+    )
+    grid = service.sheet_data(
+        "project", sheet_id, filter_=empty_filter, sort=sort_json, limit=2
+    )
+    assert (resolved.row_ids, resolved.total) == ([], 0)
+    assert (grid["rows"], grid["total"]) == ([], 0)
 
 
 def test_full_range_default_order_keeps_bounded_page_query(make_project) -> None:
@@ -303,21 +297,20 @@ def test_correlated_scope_query_binds_date_filter_parameters(make_project) -> No
     assert [int(row["id"]) for row in matched] == [row_ids[1]]
 
 
-def test_filter_total_and_page_share_a_snapshot(tmp_path, monkeypatch):
+def test_filter_total_and_page_share_a_snapshot(make_project, monkeypatch):
     import frisket.querysets as queries
 
-    project, sheet, column, rows = _number_sheet(tmp_path)
-    writer = Project(project.path)
-    original = queries.execute_sheet_row_page_without_total
+    project, sheet, column, rows = _number_sheet(make_project)
+    with closing(Project(project.path)) as writer:
+        original = queries.execute_sheet_row_page_without_total
 
-    def change_after_count(*args, **kwargs):
-        writer.apply_edits([{"row_id": rows[0], "column_id": column, "value": 0}])
-        return original(*args, **kwargs)
+        def change_after_count(*args, **kwargs):
+            writer.apply_edits([{"row_id": rows[0], "column_id": column, "value": 0}])
+            return original(*args, **kwargs)
 
-    monkeypatch.setattr(
-        queries, "execute_sheet_row_page_without_total", change_after_count
-    )
-    try:
+        monkeypatch.setattr(
+            queries, "execute_sheet_row_page_without_total", change_after_count
+        )
         result = resolve_sheet_filter_rows(
             project, sheet, filter_=json.dumps({"score": {"gte": 2000}})
         )
@@ -325,23 +318,17 @@ def test_filter_total_and_page_share_a_snapshot(tmp_path, monkeypatch):
         assert result.row_ids == rows[:3]
         assert not project.db.in_transaction
         assert project.get_values(sheet, column)[rows[0]] == 0
-    finally:
-        writer.close()
-        project.close()
 
 
-def test_filter_borrows_caller_transaction_without_ending_it(tmp_path):
-    project, sheet, column, rows = _number_sheet(tmp_path)
-    try:
-        project.db.execute("BEGIN")
-        result = resolve_sheet_filter_rows(
-            project, sheet, filter_=json.dumps({"score": {"gte": 2000}})
-        )
-        assert result.row_ids == rows[:3]
-        assert project.db.in_transaction
-        project.db.rollback()
-    finally:
-        project.close()
+def test_filter_borrows_caller_transaction_without_ending_it(make_project):
+    project, sheet, column, rows = _number_sheet(make_project)
+    project.db.execute("BEGIN")
+    result = resolve_sheet_filter_rows(
+        project, sheet, filter_=json.dumps({"score": {"gte": 2000}})
+    )
+    assert result.row_ids == rows[:3]
+    assert project.db.in_transaction
+    project.db.rollback()
 
 
 @pytest.mark.parametrize(

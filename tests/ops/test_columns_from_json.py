@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -221,34 +220,28 @@ def test_direct_python_missing_path_yields_none() -> None:
     assert result.output.root == {"city": "Paris", "zip": None}
 
 
-def _sheet_with_json_column(tmp_path: Path) -> tuple[Project, int]:
-    project = Project.create(tmp_path / "cfj.frisket")
+def _sheet_with_json_column(make_project) -> tuple[Project, int]:
+    project = make_project("cfj")
     sheet_id = project.add_sheet("data")
     project.add_column(sheet_id, "api_result", type="json")
     project.add_column(sheet_id, "note", type="text")
     return project, sheet_id
 
 
-def test_plan_rejects_missing_source_column(tmp_path: Path) -> None:
-    project, sheet_id = _sheet_with_json_column(tmp_path)
-    try:
-        with pytest.raises(TypedMapRowsPlanError) as excinfo:
-            _plan(project, _request(sheet_id, source="missing"))
-        assert excinfo.value.code == "invalid_input_ref"
-        assert excinfo.value.details == {"columns": ["missing"]}
-    finally:
-        project.close()
+def test_plan_rejects_missing_source_column(make_project) -> None:
+    project, sheet_id = _sheet_with_json_column(make_project)
+    with pytest.raises(TypedMapRowsPlanError) as excinfo:
+        _plan(project, _request(sheet_id, source="missing"))
+    assert excinfo.value.code == "invalid_input_ref"
+    assert excinfo.value.details == {"columns": ["missing"]}
 
 
-def test_plan_rejects_non_json_source_column(tmp_path: Path) -> None:
-    project, sheet_id = _sheet_with_json_column(tmp_path)
-    try:
-        with pytest.raises(TypedMapRowsPlanError) as excinfo:
-            _plan(project, _request(sheet_id, source="note"))
-        assert excinfo.value.code == "invalid_input_ref"
-        assert excinfo.value.details["columns"][0]["actual_type"] == "text"
-    finally:
-        project.close()
+def test_plan_rejects_non_json_source_column(make_project) -> None:
+    project, sheet_id = _sheet_with_json_column(make_project)
+    with pytest.raises(TypedMapRowsPlanError) as excinfo:
+        _plan(project, _request(sheet_id, source="note"))
+    assert excinfo.value.code == "invalid_input_ref"
+    assert excinfo.value.details["columns"][0]["actual_type"] == "text"
 
 
 def test_plan_accepts_default_hidden_json_source(make_project) -> None:

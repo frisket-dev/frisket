@@ -33,7 +33,7 @@ const VALUES = [
 const preview = (overrides: Partial<ColumnValuesPreview> = {}): ColumnValuesPreview => ({
   sheetId: '7', columnId: '11', inputColumn: 'employer', totalRows: 2542,
   distinct: 6, missing: 0, values: VALUES, offset: 0, limit: 2000,
-  truncated: false, valueHash: 'sha256:combine', search: null, ...overrides,
+  truncated: false, valueHash: 'sha256:combine', search: null, distribution: null, ...overrides,
 });
 
 afterEach(() => {

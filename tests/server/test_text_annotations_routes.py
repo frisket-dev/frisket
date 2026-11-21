@@ -12,6 +12,7 @@ is the WIRING: the field is always present, it is the narrow signal rather than
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,9 @@ BODY_TEXT = "Ada Lovelace met Charles Babbage."
 def _seed(ws: Path) -> dict[str, Any]:
     """One annotated text sheet + one plain sheet, with NO media column
     anywhere: the Paste-import shape the reader has to be reachable from."""
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Annotations")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Annotations")
+    ) as project:
         sheet_id = project.add_sheet("Pasted rows")
         body = project.add_column(sheet_id, "body", type="text")
         ents = project.add_column(sheet_id, "entities", type="json")
@@ -111,8 +113,6 @@ def _seed(ws: Path) -> dict[str, Any]:
             "plain_col": plain_col,
             "plain_row": plain_row,
         }
-    finally:
-        project.close()
 
 
 def _client(ws: Path) -> TestClient:

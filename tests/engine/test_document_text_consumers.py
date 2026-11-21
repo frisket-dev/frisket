@@ -30,7 +30,7 @@ from frisket.server.services.project_qa_sources import (
 
 def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
     with write_transaction(project.db):
-        op = project.append_change("test.document_text", commit=False)
+        op = project.append_change_in_transaction("test.document_text")
         artifact = record_source_artifact(
             project,
             artifact_kind="document",
@@ -695,7 +695,7 @@ def test_page_selection_requires_applied_owner_of_primary_support(make_project):
             page_end=2,
         )
     with project.transaction_scope():
-        op = project.append_change("evidence.attach", commit=False)
+        op = project.append_change_in_transaction("evidence.attach")
         ChangeStore(project).start(op)
         record_citation(
             project,

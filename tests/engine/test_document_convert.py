@@ -429,7 +429,7 @@ def test_datalab_halts_without_credential_consent(project, monkeypatch):
     organization = CredentialOwner.organization("document-org")
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted", org_id="document-org", funding=ByokZero()
+            edition="cloud", org_id="document-org", funding=ByokZero()
         ),
         provider=StaticExecutionTargetProvider(secrets=project, router=router),
         credential_use_context=CredentialUseContext(

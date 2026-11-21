@@ -1745,8 +1745,8 @@ def _perform_table_in_txn(
         receipt.evidence.extend(matches.publication_supporting_records(write, sources))
     if (prior := resolved.get("reserved_receipt")) is not None:
         receipt.evidence[:0] = prior.evidence
-        if not ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        if not ReceiptStore(project).update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise ActionJobTerminalizationError("table receipt completion did not land")
     else:

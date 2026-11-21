@@ -29,7 +29,7 @@ from frisket.retrieval.sources import (
     identity_digest,
     input_hash,
     part_id,
-    producer_recipe_id,
+    producer_slice_id,
     representation_id,
     row_composite_source_revision,
 )
@@ -57,7 +57,7 @@ _F32 = struct.Struct("<f")
 @dataclass(frozen=True, slots=True)
 class NamedIndexRecipe:
     value: Mapping[str, Any]
-    recipe_id: str
+    slice_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +108,7 @@ def named_index_recipe(
         "source_policy": dict(source_policy),
         "source_policy_hash": source_policy_hash,
     }
-    return NamedIndexRecipe(value=value, recipe_id=producer_recipe_id(value))
+    return NamedIndexRecipe(value=value, slice_id=producer_slice_id(value))
 
 
 def descriptor_space(space: Any) -> tuple[dict[str, Any], DescriptorEmbeddingSpace]:
@@ -418,7 +418,7 @@ def publish_named_index(
     for item in items:
         publication = SourcePublication(
             source_revision=item.source,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=ROW_CHANNEL,
             space_id=space_id,
             parts=(
@@ -436,7 +436,7 @@ def publish_named_index(
         )
         store.begin_preparation(
             item.source,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=ROW_CHANNEL,
             space_id=space_id,
         )

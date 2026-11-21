@@ -1,7 +1,7 @@
 """Team worker capability gating: a team deployment's worker runs via ``frisket worker
---database-url ...`` (the SAME ``_run_worker(hosted=False)`` branch a plain
+--database-url ...`` (the SAME ``_run_worker(cloud=False)`` branch a plain
 local checkout uses, distinguished only by whether a run-queue database URL
-was given) -- never ``frisket hosted-worker`` (that CLI branch is an
+was given) -- never ``frisket cloud-worker`` (that CLI branch is an
 external managed composition and must never see ``model.pull`` at all, pinned
 separately by ``test_cli_worker_model_pull_registration.py``).
 
@@ -44,7 +44,7 @@ def test_team_worker_without_local_pull_flag_still_registers_artifact_handler(
     monkeypatch.setattr(model_pull_module, "register_model_pull_handler", spy)
     monkeypatch.delenv("FRISKET_ENABLE_MODEL_PULL", raising=False)
 
-    rc = _run_worker(["--drain", "--database-url", _sqlite_url(tmp_path)], hosted=False)
+    rc = _run_worker(["--drain", "--database-url", _sqlite_url(tmp_path)], cloud=False)
 
     assert rc == 0
     assert len(calls) == 1
@@ -61,7 +61,7 @@ def test_team_worker_with_flag_registers_model_pull(tmp_path, monkeypatch) -> No
     monkeypatch.setattr(model_pull_module, "register_model_pull_handler", spy)
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
 
-    rc = _run_worker(["--drain", "--database-url", _sqlite_url(tmp_path)], hosted=False)
+    rc = _run_worker(["--drain", "--database-url", _sqlite_url(tmp_path)], cloud=False)
 
     assert rc == 0
     assert len(calls) == 1
@@ -110,7 +110,7 @@ def test_team_worker_audits_model_pull_finished_after_handler_succeeds(
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     monkeypatch.setenv("FRISKET_DATABASE_URL", control_url)
 
-    rc = _run_worker(["--drain", "--database-url", queue_url], hosted=False)
+    rc = _run_worker(["--drain", "--database-url", queue_url], cloud=False)
     assert rc == 0
 
     with control_engine.connect() as cx:
@@ -169,7 +169,7 @@ def test_team_worker_audits_model_pull_finished_after_handler_raises(
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     monkeypatch.setenv("FRISKET_DATABASE_URL", control_url)
 
-    rc = _run_worker(["--drain", "--database-url", queue_url], hosted=False)
+    rc = _run_worker(["--drain", "--database-url", queue_url], cloud=False)
     assert rc == 0
 
     with control_engine.connect() as cx:
@@ -235,7 +235,7 @@ def test_team_worker_does_not_audit_model_pull_finished_after_a_non_final_retrya
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     monkeypatch.setenv("FRISKET_DATABASE_URL", control_url)
 
-    rc = _run_worker(["--drain", "--database-url", queue_url], hosted=False)
+    rc = _run_worker(["--drain", "--database-url", queue_url], cloud=False)
     assert rc == 0
 
     row_after = store.get(queue.engine, row.id)

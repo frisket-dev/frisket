@@ -582,7 +582,7 @@ class EffectCheckpointStore:
             )
         return cost
 
-    def consume_and_retire(
+    def consume_and_retire_in_transaction(
         self,
         checkpoint_id: str,
         *,
@@ -596,73 +596,11 @@ class EffectCheckpointStore:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
-        commit: bool = True,
     ) -> None:
-        """Atomically commit a ``returned`` unit's facts and delete its row.
-
-        ``finalize`` is the caller's in-transaction consumption hook (result
-        insertion under the checkpoint's ``authorized_attempt_id``).  The
-        retire is the ``runs.py`` shape; the retained-forever plugin shape is
-        :meth:`consume_group_retained` — which one a migrating family uses is
-        an explicit review decision, not an implementing default.
-
-        With ``commit=False`` the verify+finalize+delete joins the caller's
-        surrounding transaction (a family whose result materialization is one
-        ``BEGIN IMMEDIATE`` retires its checkpoints inside that same
-        transaction, so the result can never commit while the replay
-        authority survives, or vice versa).  The caller must already hold an
-        open transaction."""
-
-        if not commit:
-            if not self.db.in_transaction:
-                raise InvalidCheckpointState(
-                    "consume_and_retire(commit=False) joins the caller's "
-                    "transaction, but no transaction is open"
-                )
-            self._consume_and_retire_in_txn(
-                checkpoint_id,
-                family=family,
-                group_key=group_key,
-                unit_key=unit_key,
-                action_kind=action_kind,
-                identity=identity,
-                finalize=finalize,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-            )
-            return
-        with write_transaction(self.db):
-            self._consume_and_retire_in_txn(
-                checkpoint_id,
-                family=family,
-                group_key=group_key,
-                unit_key=unit_key,
-                action_kind=action_kind,
-                identity=identity,
-                finalize=finalize,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-            )
-
-    def _consume_and_retire_in_txn(
-        self,
-        checkpoint_id: str,
-        *,
-        family: str,
-        group_key: str,
-        unit_key: str,
-        action_kind: str,
-        identity: str,
-        finalize: Callable[[dict[str, Any]], None] | None,
-        run_id: int | None,
-        writer_attempt_id: str | None,
-        claim_token: str | None,
-        claimless_direct_effect: bool,
-    ) -> None:
+        """Consume a ``returned`` unit and delete its row in the caller's transaction."""
+        require_transaction(
+            self.db, "EffectCheckpointStore.consume_and_retire_in_transaction"
+        )
         checkpoint = self._verified_unit(
             checkpoint_id,
             family=family,
@@ -700,6 +638,44 @@ class EffectCheckpointStore:
         ).rowcount
         if deleted != 1:
             raise CheckpointLost("the returned effect checkpoint was not retired")
+
+    def consume_and_retire(
+        self,
+        checkpoint_id: str,
+        *,
+        family: str,
+        group_key: str,
+        unit_key: str,
+        action_kind: str,
+        identity: str,
+        finalize: Callable[[dict[str, Any]], None] | None = None,
+        run_id: int | None = None,
+        writer_attempt_id: str | None = None,
+        claim_token: str | None = None,
+        claimless_direct_effect: bool = False,
+    ) -> None:
+        """Atomically commit a ``returned`` unit's facts and delete its row.
+
+        ``finalize`` is the caller's in-transaction consumption hook (result
+        insertion under the checkpoint's ``authorized_attempt_id``).  The
+        retire is the ``runs.py`` shape; the retained-forever plugin shape is
+        :meth:`consume_group_retained` — which one a migrating family uses is
+        an explicit review decision, not an implementing default.
+        """
+        with write_transaction(self.db):
+            self.consume_and_retire_in_transaction(
+                checkpoint_id,
+                family=family,
+                group_key=group_key,
+                unit_key=unit_key,
+                action_kind=action_kind,
+                identity=identity,
+                finalize=finalize,
+                run_id=run_id,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+            )
 
     def consume_group_retained(
         self,

@@ -40,7 +40,8 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         [{"row_id": row_id, "column_id": output_col, "value": "$1,250,000"}],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(run_store.db):
+        run_store.point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
     current_ref = refs[row_id]
 

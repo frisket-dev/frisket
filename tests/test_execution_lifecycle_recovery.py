@@ -397,9 +397,12 @@ def test_reapply_retains_original_output_type_after_column_retype(work):
     original = start(run)
     output = next(c for c in project.columns(sheet) if c["name"] == "Answer")
     saved = dict(project.get_values(sheet, output["id"]))
-    project.set_column_type(output["id"], "number")
-    project.set_column_format(output["id"], "currency")
-    project.set_column_semantic_type(output["id"], "later_numeric_meaning")
+    with write_transaction(project.db):
+        project.set_column_type(output["id"], "number")
+    with write_transaction(project.db):
+        project.set_column_format(output["id"], "currency")
+    with write_transaction(project.db):
+        project.set_column_semantic_type(output["id"], "later_numeric_meaning")
     refused = run(
         "run.reapply",
         {"source_run_id": original.run_id},

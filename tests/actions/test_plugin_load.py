@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 
@@ -312,9 +313,6 @@ def test_generic_transport_runs_canonical_plugin_load(tmp_path, capsys, transpor
     assert result.get("run_id") is None
     assert result["receipt_id"]
     assert result["outputs"][0]["ref"]["plugin_id"] == "frisket-ndjson"
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()

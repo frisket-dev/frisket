@@ -80,7 +80,7 @@ def _response(
 
 
 def _runtime(
-    tmp_path, *, name: str, max_turns: int | None, responses: list[LLMResponse]
+    make_project, *, name: str, max_turns: int | None, responses: list[LLMResponse]
 ) -> tuple[
     Project,
     ProjectQAStore,
@@ -90,7 +90,7 @@ def _runtime(
     ModelRouter,
     ScriptedAdapter,
 ]:
-    project = Project.create(tmp_path / f"{name}.frisket", name=name)
+    project = make_project(name)
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title=name, scope={"kind": "project"})
     turn = qa.submit_turn(
@@ -127,7 +127,7 @@ def _runtime(
 
 @pytest.mark.anyio
 async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     from frisket.ai.llm.pricing import PRICES
 
@@ -138,7 +138,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
     )
     responses.append(_response(text="Investigation complete."))
     project, qa, ledger, research, session, router, adapter = _runtime(
-        tmp_path,
+        make_project,
         name="unlimited",
         max_turns=None,
         responses=responses,
@@ -158,10 +158,9 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
         assert len(completed_tools) == 33
     finally:
         await router.aclose()
-        project.close()
 
     project, qa, ledger, research, session, router, adapter = _runtime(
-        tmp_path,
+        make_project,
         name="finite",
         max_turns=1,
         responses=[_response(tool_calls=1), _response(text="must not be sent")],
@@ -185,7 +184,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
     try:
         await asyncio.wait_for(published.wait(), 5)
         current = ledger.get(research["id"])
-        assert current["pending_approval"]["kind"] == "turn_limit"
+        assert current["pending_pause"]["kind"] == "turn_limit"
         assert current["turn_count"] == 1
         assert adapter.calls == 1
         assert len(adapter.policy.observations) == adapter.calls
@@ -194,19 +193,18 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
         with pytest.raises(asyncio.CancelledError):
             await task
         await router.aclose()
-        project.close()
 
 
 @pytest.mark.anyio
 async def test_cancellation_during_usage_recording_still_settles_actual_cost(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     from frisket.ai.llm.pricing import PRICES
 
     monkeypatch.setitem(PRICES, "gemini-3.5-flash", (1.0, 1.0))
     response = _response(text="Investigation complete.", cost=0.000_321)
     project, qa, ledger, research, session, router, _adapter = _runtime(
-        tmp_path,
+        make_project,
         name="cancel-settlement",
         max_turns=None,
         responses=[response],
@@ -241,11 +239,12 @@ async def test_cancellation_during_usage_recording_still_settles_actual_cost(
     finally:
         release.set()
         await router.aclose()
-        project.close()
 
 
 @pytest.mark.anyio
-async def test_action_tool_exposes_and_validates_the_canonical_draft(tmp_path) -> None:
+async def test_action_tool_exposes_and_validates_the_canonical_draft(
+    make_project,
+) -> None:
     """A misplaced setting is corrected before an execution service sees it."""
     draft = {
         "action_id": "media.to_markdown",
@@ -267,7 +266,7 @@ async def test_action_tool_exposes_and_validates_the_canonical_draft(tmp_path) -
         replies.append(reply)
     replies.append(_response(text="Action prepared."))
     project, qa, ledger, research, session, router, adapter = _runtime(
-        tmp_path, name="typed-action", max_turns=None, responses=replies
+        make_project, name="typed-action", max_turns=None, responses=replies
     )
     prepared = []
 
@@ -279,14 +278,11 @@ async def test_action_tool_exposes_and_validates_the_canonical_draft(tmp_path) -
                 "event_ref": {"event_seq": 5, "dispatch_id": "prepared-1"},
             }
 
-    try:
-        turn = qa.get_turn(research["turn_id"])
-        result = await run_turn(
-            project, router, turn, qa, research=session, execution=Execution()
-        )
-        assert result["text"] == "Action prepared."
-        assert prepared == [draft]
-        assert adapter.calls == 3
-        assert len(adapter.policy.observations) == adapter.calls
-    finally:
-        project.close()
+    turn = qa.get_turn(research["turn_id"])
+    result = await run_turn(
+        project, router, turn, qa, research=session, execution=Execution()
+    )
+    assert result["text"] == "Action prepared."
+    assert prepared == [draft]
+    assert adapter.calls == 3
+    assert len(adapter.policy.observations) == adapter.calls

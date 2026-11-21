@@ -83,10 +83,10 @@ test('date-range filters use date columns and round-trip through views', async (
     'published between 2026-01-01 and 2026-03-31',
   );
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('views-panel')).toBeVisible();
-  await page.getByTestId('create-saved-view').click();
+  await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Q1 dates');
   const viewResponse = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views`) &&
@@ -112,7 +112,7 @@ test('date-range filters use date columns and round-trip through views', async (
     if (res.request().method() !== 'GET') return false;
     return isDateRangeDataRequest(new URL(res.url()), pid, sheetId, publishedColumn!.id);
   });
-  await page.getByTestId('apply-saved-view').filter({ hasText: 'Q1 dates' }).click();
+  await page.getByTestId('apply-view').filter({ hasText: 'Q1 dates' }).click();
   const restored = await (await viewApplyResponse).json();
   expect(restored.total).toBe(3);
 

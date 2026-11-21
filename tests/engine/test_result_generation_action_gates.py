@@ -1,7 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from pathlib import Path
 
 import pytest
 
@@ -77,7 +76,7 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
         ).fetchone()[0]
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("document_text.seed", commit=False)
+    op_id = project.append_change_in_transaction("document_text.seed")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -288,9 +287,9 @@ def test_runner_rechecks_document_text_role_before_adopting_generation_free_targ
 
 @pytest.mark.parametrize("default_hidden", [False, True])
 def test_managed_resume_only_accepts_exact_open_recovery(
-    tmp_path: Path, default_hidden: bool
+    make_project, default_hidden: bool
 ) -> None:
-    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, column_id, row_ids = _seed_project(make_project)
     claimed_run = _start_claimed_run(
         project,
         sheet_id=sheet_id,
@@ -337,16 +336,17 @@ def test_managed_resume_only_accepts_exact_open_recovery(
             )
     finally:
         _release(project, claimed_run)
-        project.close()
 
 
 def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_changes(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.store.op_log import RestorationUnavailable, step_operation
     from test_result_generation_store import _seal, _write
 
-    project, _parent_id, _source_column_id, child_id, _parent_row_ids = _build(tmp_path)
+    project, _parent_id, _source_column_id, child_id, _parent_row_ids = _build(
+        make_project
+    )
     column_id = int(
         project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? ORDER BY position LIMIT 1",
@@ -369,80 +369,77 @@ def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_change
     )
     generations = ResultGenerationStore(project)
     _declare(generations, claimed_run, column_id, write_mode="create")
-    try:
-        _write(
-            project,
-            claimed_run,
-            [
-                {
-                    "row_id": row,
-                    "column_id": column_id,
-                    "value": f"generated {row}",
-                    "outcome": "ok",
-                    "publication_effect": "publish_value",
-                }
-                for row in old_rows
-            ],
-        )
-        _seal(generations, claimed_run, column_id)
-        RunResultStore(project).finish_run(
-            claimed_run.run_id,
-            status="completed",
-            **claimed_run.authority.terminal_kwargs(),
-        )
-        _release(project, claimed_run)
-        before_refresh = project.get_values(child_id, column_id)
-        result = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="managed-refresh@sha256:test"),
-            project_id="p-ref",
-        )
-        assert result.status == "completed", result.errors
-        refresh_op = int(
-            project.db.execute(
-                "SELECT id FROM ops WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
-            ).fetchone()[0]
-        )
-        # Unkeyed list occurrences are replaced, never matched by their values.
-        refreshed = project.get_values(child_id, column_id)
-        assert set(refreshed).isdisjoint(old_rows)
-        assert list(refreshed.values()) == ["Acme", "Globex", "Initech"]
-        assert project.db.execute(
-            "SELECT count(*) FROM results WHERE run_id=?", (claimed_run.run_id,)
-        ).fetchone()[0] == len(old_rows)
-        first_new_row = next(iter(refreshed))
-        project.apply_edits(
-            [
-                {
-                    "row_id": first_new_row,
-                    "column_id": column_id,
-                    "value": "newer correction",
-                }
-            ]
-        )
-        newest = project.get_values(child_id, column_id)
-        assert newest[first_new_row] == "newer correction"
-        order = project.db.execute(
-            "SELECT change_order FROM ops WHERE id IN (?,?) ORDER BY change_order",
-            (claimed_run.op_id, refresh_op),
-        ).fetchall()
-        assert order[0][0] < order[1][0]
+    _write(
+        project,
+        claimed_run,
+        [
+            {
+                "row_id": row,
+                "column_id": column_id,
+                "value": f"generated {row}",
+                "outcome": "ok",
+                "publication_effect": "publish_value",
+            }
+            for row in old_rows
+        ],
+    )
+    _seal(generations, claimed_run, column_id)
+    RunResultStore(project).finish_run(
+        claimed_run.run_id,
+        status="completed",
+        **claimed_run.authority.terminal_kwargs(),
+    )
+    _release(project, claimed_run)
+    before_refresh = project.get_values(child_id, column_id)
+    result = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="managed-refresh@sha256:test"),
+        project_id="p-ref",
+    )
+    assert result.status == "completed", result.errors
+    refresh_op = int(
+        project.db.execute(
+            "SELECT id FROM ops WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+    )
+    # Unkeyed list occurrences are replaced, never matched by their values.
+    refreshed = project.get_values(child_id, column_id)
+    assert set(refreshed).isdisjoint(old_rows)
+    assert list(refreshed.values()) == ["Acme", "Globex", "Initech"]
+    assert project.db.execute(
+        "SELECT count(*) FROM results WHERE run_id=?", (claimed_run.run_id,)
+    ).fetchone()[0] == len(old_rows)
+    first_new_row = next(iter(refreshed))
+    project.apply_edits(
+        [
+            {
+                "row_id": first_new_row,
+                "column_id": column_id,
+                "value": "newer correction",
+            }
+        ]
+    )
+    newest = project.get_values(child_id, column_id)
+    assert newest[first_new_row] == "newer correction"
+    order = project.db.execute(
+        "SELECT change_order FROM ops WHERE id IN (?,?) ORDER BY change_order",
+        (claimed_run.op_id, refresh_op),
+    ).fetchall()
+    assert order[0][0] < order[1][0]
+    with project.transaction_scope():
+        step_operation(project, "revert", change_id=claimed_run.op_id)
+    assert project.get_values(child_id, column_id) == newest
+    # Restore cannot resurrect removed destinations as a side effect.
+    with pytest.raises(RestorationUnavailable, match="restore it first"):
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=claimed_run.op_id)
-        assert project.get_values(child_id, column_id) == newest
-        # Restore cannot resurrect removed destinations as a side effect.
-        with pytest.raises(RestorationUnavailable, match="restore it first"):
-            with project.transaction_scope():
-                step_operation(project, "restore", change_id=claimed_run.op_id)
-        assert project.get_values(child_id, column_id) == newest
-        # Reverting refresh restores membership; the old generated values can
-        # then be restored. Neither operation discards the newer manual edit.
-        with project.transaction_scope():
-            step_operation(project, "revert", change_id=refresh_op)
             step_operation(project, "restore", change_id=claimed_run.op_id)
-        assert project.get_values(child_id, column_id) == before_refresh
-        with project.transaction_scope():
-            step_operation(project, "restore", change_id=refresh_op)
-        assert project.get_values(child_id, column_id) == newest
-    finally:
-        project.close()
+    assert project.get_values(child_id, column_id) == newest
+    # Reverting refresh restores membership; the old generated values can
+    # then be restored. Neither operation discards the newer manual edit.
+    with project.transaction_scope():
+        step_operation(project, "revert", change_id=refresh_op)
+        step_operation(project, "restore", change_id=claimed_run.op_id)
+    assert project.get_values(child_id, column_id) == before_refresh
+    with project.transaction_scope():
+        step_operation(project, "restore", change_id=refresh_op)
+    assert project.get_values(child_id, column_id) == newest

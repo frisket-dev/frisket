@@ -328,8 +328,11 @@ describe("project-source generated HTTP reads", () => {
     if (!module) return;
 
     const specs: Array<{
-      kind: string;
-      capabilities: string[];
+      action_id?: string;
+      scope?: { kind: string };
+      output_names?: Record<string, string>;
+      kind?: string;
+      capabilities?: string[];
       params: Record<string, unknown>;
     }> = [];
     const postOptions: Array<{ clearIdempotency?: 'finally' } | undefined> = [];

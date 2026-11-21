@@ -20,8 +20,8 @@ from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.engine.store.transactions import write_transaction
 from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
-from frisket.upgrades.project.edit_precedence_migration import (
-    COPY_PRECEDENCE_TO_DIGEST,
+from frisket.upgrades.project.research_pause_migration import (
+    RESEARCH_PAUSE_TO_DIGEST,
 )
 
 _LEGACY_TABLES_DDL = """
@@ -79,7 +79,7 @@ CREATE INDEX idx_evidence_link_spans_annotation
 
 
 def _downgrade_to_pre_citations_schema(db: sqlite3.Connection) -> None:
-    """Convert a fresh bundle's citation tables back to COPY_PRECEDENCE_TO_DIGEST."""
+    """Convert a fresh bundle's citation tables back to RESEARCH_PAUSE_TO_DIGEST."""
     db.execute("PRAGMA foreign_keys=OFF")
     try:
         db.execute("BEGIN")
@@ -118,7 +118,7 @@ def _downgrade_to_pre_citations_schema(db: sqlite3.Connection) -> None:
         db.execute(legacy_view_sql)
         db.execute(
             "UPDATE meta SET value=? WHERE key='schema_digest'",
-            (COPY_PRECEDENCE_TO_DIGEST,),
+            (RESEARCH_PAUSE_TO_DIGEST,),
         )
         db.commit()
     except BaseException:

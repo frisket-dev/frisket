@@ -10,23 +10,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
 from frisket.server.services.action_runs import ActionRunService
+from helpers import make_client
 from http_test_helpers import drain_queue
 
 
 @pytest.fixture
 def scene(tmp_path):
-    client = TestClient(
-        create_app(
-            tmp_path / "ws",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY,
-                keys={},
-                cache=None,
-                cache_mode="off",
-            ),
-        )
+    client = make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            cache=None,
+            cache_mode="off",
+        ),
     )
     workspace = client.app.state.workspace
     workspace.create("History", project_id="history")

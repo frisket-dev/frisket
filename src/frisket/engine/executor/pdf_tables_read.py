@@ -124,10 +124,12 @@ class _BoundPdfTablesReader:
         ):
             raise RowError("stale_input", "PDF source differs from its admitted cell.")
         try:
-            options = PdfTableOptions(
-                mode=mode,
-                table_mode=table_mode,
-                extract_table={} if extract_table is None else extract_table,
+            options = PdfTableOptions.model_validate(
+                {
+                    "mode": mode,
+                    "table_mode": table_mode,
+                    "extract_table": {} if extract_table is None else extract_table,
+                }
             )
         except ValueError:
             raise RowError(

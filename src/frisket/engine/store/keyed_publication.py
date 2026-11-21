@@ -143,6 +143,8 @@ def publish_keyed_records(
         resolved.append((admitted, record, target, hidden))
     new_targets = {}
     if new_ordinals:
+        if create_rows is None:
+            raise RuntimeError("create_rows is required for new row ordinals")
         _, producer = writer()
         for offset in range(0, len(new_ordinals), 500):
             batch = new_ordinals[offset : offset + 500]

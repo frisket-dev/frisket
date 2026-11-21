@@ -351,8 +351,8 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     # Simulate a legacy partial FK-cascade state where last_verified_op_cursor
     # advanced and only one join side disappeared from materialized_row_sources.
     with write_transaction(project.db):
-        refresh_op = project.append_change(
-            "sheet.refresh", {"sheet_id": left[0]}, commit=False
+        refresh_op = project.append_change_in_transaction(
+            "sheet.refresh", {"sheet_id": left[0]}
         )
         project.db.execute(
             "UPDATE sheets SET last_verified_op_cursor=? WHERE id=?",

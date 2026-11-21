@@ -189,11 +189,12 @@ describe('group-header provenance entry', () => {
       />,
     );
     const group = editor.props!.columns[0].group!;
+    const bounds = { x: 100, y: 0, width: 280, height: 28 };
     const hover = {
       kind: 'group-header',
       group,
       location: [0, -2],
-      bounds: { x: 100, y: 0, width: 280, height: 28 },
+      bounds,
       shiftKey: false,
       ctrlKey: false,
       metaKey: false,
@@ -209,7 +210,7 @@ describe('group-header provenance entry', () => {
     await act(async () => editor.props!.onItemHovered?.(hover));
     expect(load).not.toHaveBeenCalled();
     const activate = {
-      bounds: hover.bounds,
+      bounds,
       preventDefault: vi.fn(),
     } as unknown as GroupHeaderClickedEventArgs;
     await act(async () => editor.props!.onGroupHeaderClicked?.(0, activate));

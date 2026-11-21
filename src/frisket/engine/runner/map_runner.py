@@ -86,7 +86,10 @@ from frisket.engine.runner.validation import (
 )
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
-from frisket.engine.store.transactions import roll_back_failed_work
+from frisket.engine.store.transactions import (
+    roll_back_failed_work,
+    write_transaction,
+)
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import (
     ClaimLeaseRenewalFailed,
@@ -589,7 +592,6 @@ class MapRunner:
                     spec,
                     validated=validated,
                     resume_run_id=resume_run_id,
-                    defer_commits=True,
                 )
                 # Persist inside
                 # the savepoint, so route artifacts commit with run creation.
@@ -607,14 +609,14 @@ class MapRunner:
                 self.project.db.execute(f"RELEASE SAVEPOINT {savepoint}")
                 raise
         if resume_run_id is not None:
-            prepared = preparation.prepare_validated(
-                self.project,
-                self.run_store,
-                spec,
-                validated=validated,
-                resume_run_id=resume_run_id,
-                defer_commits=False,
-            )
+            with write_transaction(self.project.db, what="resume run preparation"):
+                prepared = preparation.prepare_validated(
+                    self.project,
+                    self.run_store,
+                    spec,
+                    validated=validated,
+                    resume_run_id=resume_run_id,
+                )
             validation.persist_resolved_execution(
                 self.project,
                 spec,
@@ -635,7 +637,6 @@ class MapRunner:
                 spec,
                 validated=validated,
                 resume_run_id=resume_run_id,
-                defer_commits=True,
             )
             validation.persist_resolved_execution(
                 self.project,

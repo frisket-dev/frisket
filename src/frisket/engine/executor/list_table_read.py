@@ -134,6 +134,7 @@ class AdmittedListTableReader:
                     )
                 receipt_id, source_ref = None, None
                 if isinstance(source, NamedListSource):
+                    assert item_schema is not None
                     row_ids, receipt_id, source_ref = self._named_source(
                         project, source, item_schema
                     )
@@ -273,7 +274,7 @@ class AdmittedListTableReader:
                         parent_source_row_ids=row_ids,
                         parent_values_hash="sha256:" + parent_digest.hexdigest(),
                     )
-                if receipt_id is not None:
+                if receipt_id is not None and source_ref is not None:
                     fact.update(
                         source_receipt_id=receipt_id, named_result=dict(source_ref)
                     )

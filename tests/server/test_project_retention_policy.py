@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 
 def test_project_retention_policy_is_explicit_and_blocks_default_compaction(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     created = client.post("/api/projects", json={"name": "Retention"}).json()
     pid = created["id"]
-    project_path = tmp_path / "ws" / f"{pid}.frisket"
+    project_path = client.app.state.workspace.root / f"{pid}.frisket"
 
     manifest = json.loads((project_path / "manifest.json").read_text())
     assert manifest["schema_version"] == "frisket.project.v1"
@@ -84,8 +81,7 @@ def test_unreadable_retention_policy_fails_closed_and_is_never_rewritten(
     otherwise. Retention gates a destructive operation; it fails closed.
     """
     project_path = tmp_path / "corrupt.frisket"
-    project = Project.create(project_path, name="Corrupt")
-    try:
+    with closing(Project.create(project_path, name="Corrupt")) as project:
         project.set_retention_policy(default_evidence="pinned", no_compact=True)
         project.db.execute(
             "INSERT INTO meta (key, value) VALUES ('retention_policy', '{oops') "
@@ -106,12 +102,9 @@ def test_unreadable_retention_policy_fails_closed_and_is_never_rewritten(
             "SELECT value FROM meta WHERE key='retention_policy'"
         ).fetchone()[0]
         assert stored == "{oops"
-    finally:
-        project.close()
 
     # a reopen does not heal-and-persist it either
-    reopened = Project(project_path)
-    try:
+    with closing(Project(project_path)) as reopened:
         assert reopened.retention_policy()["no_compact"] is True
         assert (
             reopened.db.execute(
@@ -130,5 +123,3 @@ def test_unreadable_retention_policy_fails_closed_and_is_never_rewritten(
             )["no_compact"]
             is False
         )
-    finally:
-        reopened.close()

@@ -65,7 +65,7 @@ it.each(examples)('submits %s through the generated form using served Params and
     onExecute={onExecute} onClose={vi.fn()} /></WorkspaceStoresContext.Provider>);
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   if (kind === 'map.find') {
-    expect(screen.getByLabelText('Describe what to look for')).toHaveValue(params.instruction);
+    expect(screen.getByLabelText('Describe what to look for')).toHaveValue(String(params.instruction));
   }
   const guidanceFields: Record<string, string[]> = {
     'map.classify': ['context'], 'map.extract': ['instruction', 'context'],

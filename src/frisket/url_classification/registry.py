@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from frisket.features.url_classification.contract import (
+from frisket.url_classification.contract import (
     ClassificationHandler,
     ExpansionHint,
     UrlClassification,
 )
-from frisket.features.url_classification.matchers import (
+from frisket.url_classification.matchers import (
     PLUGIN_PRIORITY_CEILING,
     MatcherRegistrationError,
     UrlMatcher,

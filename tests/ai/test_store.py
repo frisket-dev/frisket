@@ -2,6 +2,7 @@
 
 import json
 import tarfile
+from contextlib import closing
 
 import pytest
 from hypothesis import given, settings
@@ -103,7 +104,8 @@ class TestRunsAndPointers:
             ],
         )
         RunResultStore(project).finish_run(run)
-        RunResultStore(project).point_column_at_run(op, out_col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, out_col, run)
         vals = project.get_values(sheet, out_col)
         assert sorted(vals.values()) == [0, 1, 2]
         r = project.db.execute("SELECT * FROM runs WHERE id=?", (run,)).fetchone()
@@ -239,7 +241,8 @@ class TestRunsAndPointers:
             run1,
             [{"row_id": r, "column_id": out_col, "value": "v1"} for r in rows],
         )
-        RunResultStore(project).point_column_at_run(op1, out_col, run1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op1, out_col, run1)
 
         op2 = project.append_change("map")
         run2 = RunResultStore(project).start_run(op2, sheet, "map.classify")
@@ -248,7 +251,8 @@ class TestRunsAndPointers:
             run2,
             [{"row_id": r, "column_id": out_col, "value": "v2"} for r in rows],
         )
-        RunResultStore(project).point_column_at_run(op2, out_col, run2)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op2, out_col, run2)
 
         assert set(project.get_values(sheet, out_col).values()) == {"v2"}
         # history intact: run1 values still stored
@@ -273,7 +277,8 @@ class TestEditsOverlay:
             run,
             [{"row_id": r, "column_id": out_col, "value": "model"} for r in rows],
         )
-        RunResultStore(project).point_column_at_run(op, out_col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, out_col, run)
         project.apply_edits(
             [{"row_id": rows[0], "column_id": out_col, "value": "human"}]
         )
@@ -290,7 +295,8 @@ class TestEditsOverlay:
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": out_col, "value": "model"}]
         )
-        RunResultStore(project).point_column_at_run(op, out_col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, out_col, run)
         project.apply_edits([{"row_id": rid, "column_id": out_col, "value": "human"}])
         assert project.get_values(sheet, out_col)[rid] == "human"
         project.undo()
@@ -309,13 +315,15 @@ class TestUndoRedo:
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": out_col, "value": "first"}]
         )
-        RunResultStore(project).point_column_at_run(op1, out_col, r1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op1, out_col, r1)
         op2 = project.append_change("map")
         r2 = RunResultStore(project).start_run(op2, sheet, "test.c")
         write_claimed_test_results(
             project, r2, [{"row_id": rid, "column_id": out_col, "value": "second"}]
         )
-        RunResultStore(project).point_column_at_run(op2, out_col, r2)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op2, out_col, r2)
 
         assert project.get_values(sheet, out_col)[rid] == "second"
         project.undo()
@@ -361,7 +369,8 @@ class TestUndoRedo:
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": out_col, "value": "a"}]
         )
-        RunResultStore(project).point_column_at_run(op1, out_col, r1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op1, out_col, r1)
         project.undo()
         # a new op while undone — the undone op stays undone; redo finds nothing new
         project.apply_edits([{"row_id": rid, "column_id": out_col, "value": "fresh"}])
@@ -380,8 +389,7 @@ def op_sequences(draw):
 @given(seq=op_sequences(), undos=st.integers(min_value=1, max_value=8))
 def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos):
     tmp = tmp_path_factory.mktemp("prop")
-    p = Project.create(tmp / "p.frisket")
-    try:
+    with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
         col = p.add_column(sheet, "out", ai_generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
@@ -394,7 +402,8 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
                     run,
                     [{"row_id": r, "column_id": col, "value": f"run{i}"} for r in rows],
                 )
-                RunResultStore(p).point_column_at_run(op, col, run)
+                with write_transaction(p.db):
+                    RunResultStore(p).point_column_at_run(op, col, run)
             else:
                 p.apply_edits(
                     [{"row_id": rows[0], "column_id": col, "value": f"edit{i}"}]
@@ -408,16 +417,13 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
         for _ in range(n_undone):
             assert p.redo() is not None
         assert p.get_values(sheet, col) == snapshot
-    finally:
-        p.close()
 
 
 @settings(max_examples=25, deadline=None)
 @given(seq=op_sequences())
 def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
     tmp = tmp_path_factory.mktemp("prop2")
-    p = Project.create(tmp / "p.frisket")
-    try:
+    with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
         col = p.add_column(sheet, "out", ai_generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
@@ -432,7 +438,8 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
                     run,
                     [{"row_id": r, "column_id": col, "value": f"run{i}"} for r in rows],
                 )
-                RunResultStore(p).point_column_at_run(op, col, run)
+                with write_transaction(p.db):
+                    RunResultStore(p).point_column_at_run(op, col, run)
             else:
                 p.apply_edits(
                     [{"row_id": rows[0], "column_id": col, "value": f"edit{i}"}]
@@ -440,8 +447,6 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
         while p.op_cursor > seeded_op_cursor:
             assert p.undo() is not None
         assert p.get_values(sheet, col) == baseline
-    finally:
-        p.close()
 
 
 class TestBundle:
@@ -552,7 +557,8 @@ class TestStoreRegressions:
             write_claimed_test_results(
                 project, run, [{"row_id": rid, "column_id": col, "value": value}]
             )
-            RunResultStore(project).point_column_at_run(op, col, run)
+            with write_transaction(project.db):
+                RunResultStore(project).point_column_at_run(op, col, run)
 
         run_with("a")
         project.undo()  # branch A undone
@@ -572,14 +578,16 @@ class TestStoreRegressions:
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": col, "value": "v1"}]
         )
-        RunResultStore(project).point_column_at_run(op, col, r1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, r1)
         r2 = RunResultStore(project).start_run(
             op, sheet, "test.c"
         )  # e.g. resume repoints
         write_claimed_test_results(
             project, r2, [{"row_id": rid, "column_id": col, "value": "v2"}]
         )
-        RunResultStore(project).point_column_at_run(op, col, r2)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, r2)
         project.undo()
         # must be pre-op (None), not intermediate r1
         assert project.get_values(sheet, col)[rid] is None
@@ -595,7 +603,8 @@ class TestStoreRegressions:
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": 5}]
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         project.undo()
         assert "score" not in [c["name"] for c in project.columns(sheet)]
         # Reuse the name, not the historical identity or values.
@@ -660,7 +669,8 @@ class TestCompactionGC:
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": {"blob": blob}}]
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         # the live column points at this run → blob is reachable
         assert project.gc_blobs(dry_run=True)["blobs_removed"] == 0
 
@@ -675,7 +685,8 @@ class TestCompactionGC:
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": 5}]
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         project.undo()
         # Merely reserving work does not clear Redo. A new actual mutation
         # clears ordinary Redo while retaining selective Restore and results.
@@ -721,7 +732,8 @@ class TestCompactionGC:
         rids = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         authority = run_writer_authority_fixture(
             project,
             run,
@@ -835,7 +847,8 @@ class TestCompactionRedoSafety:
                 }
             ],
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         # undo: the run is now 'undone' (redoable), not the column's current run
         project.undo()
         if hasattr(project, "gc_blobs"):
@@ -877,7 +890,8 @@ class TestCompactionRedoSafety:
                 ],
             )
             store.finish_run(run)
-            store.point_column_at_run(op, col, run)
+            with write_transaction(store.db):
+                store.point_column_at_run(op, col, run)
             return blob, op, run
 
         first_bytes = b"generation A image bytes"
@@ -969,8 +983,7 @@ class TestConcurrentOpen:
                 for future in [pool.submit(open_and_close, work) for _ in range(8)]:
                     future.result()
 
-            project = Project(work)
-            try:
+            with closing(Project(work)) as project:
                 standing = project.db.execute(
                     "SELECT COUNT(*) AS n FROM consents WHERE standing_policy=?",
                     (STANDING_COST_POLICY,),
@@ -980,8 +993,6 @@ class TestConcurrentOpen:
                     "concurrent opens across one knob change; expected the "
                     "original plus exactly one successor"
                 )
-            finally:
-                project.close()
 
         assert not errors, (
             f"concurrent open raised {len(errors)} error(s); first: {errors[0]!r}"

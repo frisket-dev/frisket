@@ -369,7 +369,7 @@ def test_csv_field_policy_falls_back_when_c_long_is_32_bit(monkeypatch: Any) -> 
 
 
 def test_csv_field_policy_is_stable_across_concurrent_imports(
-    tmp_path: Path, monkeypatch: Any
+    tmp_path: Path, make_project, monkeypatch: Any
 ) -> None:
     """Concurrent requests retain the active CSV parser policy."""
     import csv
@@ -388,17 +388,12 @@ def test_csv_field_policy_is_stable_across_concurrent_imports(
     monkeypatch.setattr(csv, "field_size_limit", reject_request_time_mutation)
 
     def import_one(index: int) -> int:
-        project = Project.create(
-            tmp_path / f"parallel-{index}.frisket", name="Parallel"
-        )
-        try:
-            action = _import_csv_action(path)
-            action["params"]["columns"] = [{"name": "name", "type": "text"}]
-            result = run_action_spec(project, action, project_id="parallel")
-            assert result.status == "completed", result.errors
-            return project.row_count(result.outputs[0].sheet_id)
-        finally:
-            project.close()
+        project = make_project(f"parallel-{index}")
+        action = _import_csv_action(path)
+        action["params"]["columns"] = [{"name": "name", "type": "text"}]
+        result = run_action_spec(project, action, project_id="parallel")
+        assert result.status == "completed", result.errors
+        return project.row_count(result.outputs[0].sheet_id)
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         counts = list(pool.map(import_one, range(8)))

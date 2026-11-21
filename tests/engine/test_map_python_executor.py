@@ -545,7 +545,7 @@ def test_direct_maprunner_stale_writer_refusal_is_non_destructive(
 
     monkeypatch.setattr(
         RunResultStore,
-        "write_results",
+        "write_results_in_transaction",
         lose_effect_authority,
     )
     with case_env(CASES[0], tmp_path, monkeypatch) as env:

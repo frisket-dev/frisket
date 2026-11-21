@@ -388,6 +388,7 @@ def main() -> None:
                     ),
                     host="127.0.0.1",
                     port=args.port,
+                    loop="asyncio",
                 )
     finally:
         asyncio.run(inference.aclose())

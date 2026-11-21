@@ -57,7 +57,7 @@ function fixture(): ActionComparisonContext {
   };
   return {
     schema_version: 'frisket.action_compare_context.v1', available: true, reason: null,
-    limits: { max_sample_rows: 20, max_challengers: 3 }, baseline_mode: 'current_values',
+    limits: { max_sample_rows: 500, max_challengers: 19 }, baseline_mode: 'current_values',
     comparison_basis: { kind: 'run', run_id: 5, column_id: 30 }, draft,
     sheet: { id: 3, name: 'Cases' }, sample_row_ids: [10, 11], sample_fingerprint: 'fp',
     locked_params: ['source'],
@@ -176,7 +176,6 @@ describe('ActionCompareTab', () => {
 
   it('keeps boxed variant badges with compact score labels in the expected lens', () => {
     const context = fixture();
-    context.limits = { max_sample_rows: 20, max_challengers: 5 } as unknown as ActionComparisonContext['limits'];
     const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     for (let index = 0; index < 4; index += 1) session.addVariant();
     const state = session.getSnapshot();
@@ -245,8 +244,8 @@ describe('ActionCompareTab', () => {
     expect(grid.rowSelectionMode).toBe('multi');
     expect(grid.rowMarkers).toEqual({ kind: 'both', width: 40 });
     expect(grid.freezeColumns).toBe(1);
-    expect(grid.columns[0].width).toBe(140);
-    expect(grid.columns[1].width).toBe(170);
+    expect(grid.columns[0]).toMatchObject({ width: 140 });
+    expect(grid.columns[1]).toMatchObject({ width: 170 });
     expect(screen.getByTestId('action-compare-grid')).toHaveClass('grid-host');
     expect(grid.columns.map((column) => column.title)).toEqual([
       'body', 'party', 'party', 'party',
@@ -300,8 +299,8 @@ describe('ActionCompareTab', () => {
       'body', 'party', 'note', 'party', 'note', 'party', 'note',
     ]);
 
-    act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287));
-    expect(editor.props!.columns[0].width).toBe(287);
+    act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287, 0, 287));
+    expect(editor.props!.columns[0]).toMatchObject({ width: 287 });
 
     const bChip = screen.getByTestId('action-compare-variant-B');
     fireEvent.click(within(bChip).getByRole('button', { name: 'Use settings from variant B' }));

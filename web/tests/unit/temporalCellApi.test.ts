@@ -55,7 +55,6 @@ describe('temporal sheet-data values', () => {
       'project-id',
       1,
       { offset: 0, limit: 1 },
-      (status) => new Error(`HTTP ${status}`),
     );
 
     expect(page.rows[0]?.cells['7']).toEqual(temporalValue);

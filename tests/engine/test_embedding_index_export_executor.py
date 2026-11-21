@@ -404,7 +404,7 @@ def test_ready_freshness_uses_bindings_without_rebuilding_payloads(
 @pytest.mark.parametrize(
     "statement",
     [
-        "UPDATE parts SET recipe_id='unexpected-recipe'",
+        "UPDATE parts SET slice_id='unexpected-slice'",
         "UPDATE representations SET space_id='unexpected-space'",
     ],
 )
@@ -426,38 +426,35 @@ def test_freshness_requires_exact_recipe_and_space(
 
 @pytest.mark.parametrize("removed", ["blank", "hidden", "column_hidden"])
 def test_freshness_records_removed_member_without_staling_current_target(
-    tmp_path: Path, removed: str
+    tmp_path: Path, make_project, removed: str
 ) -> None:
-    project = Project.create(tmp_path / f"{removed}.frisket", name=removed)
-    try:
-        seeded = _seed(project, tmp_path)
-        row_id = min(project.get_values(seeded["sheet_id"], seeded["column_id"]))
-        if removed == "blank":
-            replace_test_source_cell(
-                project,
-                row_id=row_id,
-                column_id=seeded["column_id"],
-                value=None,
-            )
-        elif removed == "hidden":
-            project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
-            project.db.commit()
-        else:
-            project.db.execute(
-                "UPDATE columns SET hidden=1 WHERE id=?", (seeded["column_id"],)
-            )
-            project.db.commit()
-        index = EmbeddingStore(project).get_index(seeded["index_id"])
-        fresh = index_freshness(project, index)
-        expected_current = 0 if removed == "column_hidden" else 2
-        expected_surplus = 3 if removed == "column_hidden" else 1
-        assert fresh.target_count == expected_current
-        assert fresh.ready_count == expected_current
-        assert fresh.stale_count == 0
-        assert fresh.surplus_count == expected_surplus
-        assert freshness_reason(index, fresh) == "fresh"
-    finally:
-        project.close()
+    project = make_project(removed)
+    seeded = _seed(project, tmp_path)
+    row_id = min(project.get_values(seeded["sheet_id"], seeded["column_id"]))
+    if removed == "blank":
+        replace_test_source_cell(
+            project,
+            row_id=row_id,
+            column_id=seeded["column_id"],
+            value=None,
+        )
+    elif removed == "hidden":
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_id,))
+        project.db.commit()
+    else:
+        project.db.execute(
+            "UPDATE columns SET hidden=1 WHERE id=?", (seeded["column_id"],)
+        )
+        project.db.commit()
+    index = EmbeddingStore(project).get_index(seeded["index_id"])
+    fresh = index_freshness(project, index)
+    expected_current = 0 if removed == "column_hidden" else 2
+    expected_surplus = 3 if removed == "column_hidden" else 1
+    assert fresh.target_count == expected_current
+    assert fresh.ready_count == expected_current
+    assert fresh.stale_count == 0
+    assert fresh.surplus_count == expected_surplus
+    assert freshness_reason(index, fresh) == "fresh"
 
 
 def test_freshness_records_member_that_exits_stored_filter(make_project) -> None:

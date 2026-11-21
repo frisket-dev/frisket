@@ -63,12 +63,12 @@ export function PersonalProfileSettings({
   const displayNameValue = displayName ?? me?.display_name ?? '';
   const allowanceValue = allowance
     ?? (identityMode
-      ? me?.cost_preapproval_usd ?? '2'
-      : runtime.data?.cost_preapproval_usd ?? '2');
+      ? me?.allowance_usd ?? '2'
+      : runtime.data?.allowance_usd ?? '2');
   const displayNameChanged = displayName !== null && displayName !== (me?.display_name ?? '');
   const persistedAllowance = identityMode
-    ? me?.cost_preapproval_usd
-    : runtime.data?.cost_preapproval_usd;
+    ? me?.allowance_usd
+    : runtime.data?.allowance_usd;
   const allowanceChanged = allowance !== null
     && allowance !== (persistedAllowance ?? '');
   const localRuntimeLoading = !identityMode && runtime.loading;
@@ -85,7 +85,7 @@ export function PersonalProfileSettings({
       if (identityMode) {
         const patch = {
           ...(displayNameChanged ? { display_name: displayNameValue } : {}),
-          ...(allowanceChanged ? { cost_preapproval_usd: allowanceValue } : {}),
+          ...(allowanceChanged ? { allowance_usd: allowanceValue } : {}),
         };
         if (Object.keys(patch).length) updated = await updateProfile(patch);
       } else {

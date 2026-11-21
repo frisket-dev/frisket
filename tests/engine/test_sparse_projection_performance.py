@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 from helpers import write_claimed_test_results
@@ -14,10 +13,9 @@ from frisket.engine.store.runs import RunResultStore
 
 
 def _production_shaped_project(
-    path: Path, row_count: int
+    project: Project, row_count: int
 ) -> tuple[Project, int, list[int]]:
     """A generated column whose every row has a source cell under a run result."""
-    project = Project.create(path)
     sheet = project.add_sheet("Rows")
     column = project.add_column(sheet, "generated", type="integer", ai_generated=True)
     row_ids = project.add_rows(
@@ -59,11 +57,11 @@ def _sparse_key_table(db, key_table: str, column: int, target_rows: list[int]) -
     db.commit()
 
 
-def test_exact_key_refresh_work_is_bounded_by_sparse_target(tmp_path: Path) -> None:
+def test_exact_key_refresh_work_is_bounded_by_sparse_target(
+    project: Project,
+) -> None:
     row_count = 25_000
-    project, column, row_ids = _production_shaped_project(
-        tmp_path / "refresh.frisket", row_count
-    )
+    project, column, row_ids = _production_shaped_project(project, row_count)
     db = project.db
     key_table = "temp_result_keys_1234abcd"
     target_rows = row_ids[-301:]
@@ -92,11 +90,10 @@ def test_exact_key_refresh_work_is_bounded_by_sparse_target(tmp_path: Path) -> N
     assert tuple(refreshed) == (len(target_rows), "run_result", "run_result")
     assert db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0] == row_count
     db.rollback()
-    project.close()
 
 
-def _sparse_head_rebuild_vm_work(path: Path, row_count: int) -> int:
-    project, column, row_ids = _production_shaped_project(path, row_count)
+def _sparse_head_rebuild_vm_work(project: Project, row_count: int) -> int:
+    project, column, row_ids = _production_shaped_project(project, row_count)
     db = project.db
     key_table = "temp_result_keys_5678abcd"
     target_rows = row_ids[-301:]
@@ -113,9 +110,7 @@ def _sparse_head_rebuild_vm_work(path: Path, row_count: int) -> int:
     db.set_progress_handler(count_vm_work, 1_000)
     try:
         store = ResultGenerationStore(project)
-        assert store.rebuild_heads_from_key_table(key_table, commit=False) == len(
-            target_rows
-        )
+        assert store.rebuild_heads_from_key_table(key_table) == len(target_rows)
     finally:
         db.set_progress_handler(None, 0)
 
@@ -128,15 +123,14 @@ def _sparse_head_rebuild_vm_work(path: Path, row_count: int) -> int:
         )
     } == set(target_rows)
     db.rollback()
-    project.close()
     return progress_calls
 
 
 def test_sparse_head_rebuild_work_does_not_scale_with_unrelated_history(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    small_work = _sparse_head_rebuild_vm_work(tmp_path / "small.frisket", 2_500)
-    large_work = _sparse_head_rebuild_vm_work(tmp_path / "large.frisket", 25_000)
+    small_work = _sparse_head_rebuild_vm_work(make_project("small"), 2_500)
+    large_work = _sparse_head_rebuild_vm_work(make_project("large"), 25_000)
 
     assert large_work <= small_work * 2 + 50
 

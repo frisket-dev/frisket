@@ -9,17 +9,15 @@ from action_test_helpers import typed_map_request
 from frisket.authoring.actions import ACTION_SCHEMA_VERSION, stable_json
 from frisket.contracts.action import ActionResult
 from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
+from helpers import make_client
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
 

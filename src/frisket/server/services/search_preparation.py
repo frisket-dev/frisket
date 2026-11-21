@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
+from frisket.contracts.http.models import ActionJobProgress
 from frisket.contracts.http.search_preparation import (
     MAX_INDEXING_SHEET_NAMES,
     MAX_PDF_INDEXING_FILES,
@@ -256,12 +257,11 @@ def _document_text_target(
             while name.strip().casefold() in used:
                 name = f"text_{suffix}"
                 suffix += 1
-            text_column_id = project.add_column(
+            text_column_id = project.add_column_in_transaction(
                 sheet_id,
                 name,
                 type="text",
                 ai_generated=True,
-                commit=False,
             )
         elif not role.source_active or role.source_hidden:
             raise ValueError("designated document text source column is unavailable")
@@ -936,7 +936,7 @@ class SearchPreparationService:
                 pdf_files, pdf_files_truncated = read_pdf_indexing_progress(
                     project,
                     space_id=DEFAULT_TEXT_SPACE.identity,
-                    recipe_id=PDF_PAGE_RECIPE_ID,
+                    slice_id=PDF_PAGE_RECIPE_ID,
                     limit=MAX_PDF_INDEXING_FILES,
                 )
             except sqlite3.Error:
@@ -2074,7 +2074,11 @@ class SearchPreparationService:
                         job_id=child.job_id,
                         status=state,
                         action_kind=child.kind,
-                        progress=progress,
+                        progress=(
+                            ActionJobProgress.model_validate(progress)
+                            if progress is not None
+                            else None
+                        ),
                     )
                 )
         current = setup.requirements_by_ref

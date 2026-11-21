@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { AskEvent, AskThread, AskTurn } from '../../src/api/projectQA';
+import type { AskCitation, AskEvent, AskThread, AskTurn } from '../../src/api/projectQA';
 import {
   createProject,
   importCsv,
@@ -48,8 +48,8 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   let exists = false;
   let active = false;
   let polls = 0;
-  const events: { thread_id: string; turn_id: string; seq: number; kind: string; payload: object; created_at: string }[] = [];
-  const sourceCitation = {
+  const events: AskEvent[] = [];
+  const sourceCitation: AskCitation = {
     id: 'source-1',
     label: 'Documents · council-filing.pdf · page 2',
     source_kind: 'cell',
@@ -71,7 +71,7 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
       },
       text_range: null,
     },
-  } as const;
+  };
   const turnWire = (): AskTurn => ({
     id: 'turn', thread_id: thread.id, request_id: 'request', question: 'What changed?',
     status: 'running', submitted_by: null, started_at: '', finished_at: null,

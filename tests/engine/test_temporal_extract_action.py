@@ -885,14 +885,14 @@ def test_extract_failure_preserves_error_facts_by_value(make_project) -> None:
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])
 def test_extract_failure_preserves_prior_terminal_receipt(
-    tmp_path: Path,
+    make_project,
     prior_status: str,
 ) -> None:
     from frisket.engine.executor.temporal_extract_publication import (
         _terminalize_extract_failure,
     )
 
-    project = Project.create(tmp_path / f"extract-prior-{prior_status}.frisket")
+    project = make_project(f"extract-prior-{prior_status}")
     receipt_id = f"receipt_extract_prior_{prior_status}"
     prior_error = ActionError(
         code="prior_failure",
@@ -900,31 +900,28 @@ def test_extract_failure_preserves_prior_terminal_receipt(
         action_kind="temporal.extract_range",
         details={"attempt": 1},
     )
-    try:
-        prior = _insert_extract_failure_receipt(
-            project,
-            receipt_id=receipt_id,
-            status=prior_status,
-            errors=[prior_error] if prior_status == "failed" else None,
-        )
-        result = _terminalize_extract_failure(
-            project,
-            project_id="project-extract-terminalization",
-            receipt_id=receipt_id,
-            error=ActionError(
-                code="late_failure",
-                message="late failure must not rewrite the receipt",
-                action_kind="temporal.extract_range",
-            ),
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    prior = _insert_extract_failure_receipt(
+        project,
+        receipt_id=receipt_id,
+        status=prior_status,
+        errors=[prior_error] if prior_status == "failed" else None,
+    )
+    result = _terminalize_extract_failure(
+        project,
+        project_id="project-extract-terminalization",
+        receipt_id=receipt_id,
+        error=ActionError(
+            code="late_failure",
+            message="late failure must not rewrite the receipt",
+            action_kind="temporal.extract_range",
+        ),
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.status == prior_status
-        assert result.receipt_id == prior.receipt_id
-        assert result.errors == prior.errors
-        assert stored == prior
-    finally:
-        project.close()
+    assert result.status == prior_status
+    assert result.receipt_id == prior.receipt_id
+    assert result.errors == prior.errors
+    assert stored == prior
 
 
 def test_queued_extract_failure_leaves_worker_owned_receipt_untouched(
@@ -1214,86 +1211,80 @@ def test_extract_range_mid_stage_failure_publishes_no_partial_outputs(
     [("source", "stale_input"), ("collision", "invalid_input_ref")],
 )
 def test_extract_range_revalidates_source_and_collision_after_staging(
-    tmp_path: Path,
+    make_project,
     mutation: str,
     expected_code: str,
 ) -> None:
-    project = Project.create(tmp_path / f"extract-post-stage-{mutation}.frisket")
-    try:
-        sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        row_id = row_ids[0]
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=[row_id],
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clips",
-            idempotency_key=f"extract-post-stage-{mutation}@sha256:v1",
-        )
+    project = make_project(f"extract-post-stage-{mutation}")
+    sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    row_id = row_ids[0]
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clips",
+        idempotency_key=f"extract-post-stage-{mutation}@sha256:v1",
+    )
 
-        def mutate_after_stage(project_arg, source, temporal_range, output_path):
-            assert not project.db.in_transaction
-            output_path.write_bytes(b"staged-before-race")
-            rendered = _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
+    def mutate_after_stage(project_arg, source, temporal_range, output_path):
+        assert not project.db.in_transaction
+        output_path.write_bytes(b"staged-before-race")
+        rendered = _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
+        )
+        if mutation == "collision":
+            project_arg.add_column(sheet_id, "clips", type="video")
+        else:
+            replacement_hash = project_arg.add_blob(
+                b"source-changed-after-stage",
+                filename="changed.mp4",
+                mime="video/mp4",
+                metadata=owned_media_metadata_document(
+                    probe={"kind": "video", "duration_seconds": 10.0}
+                ),
             )
-            if mutation == "collision":
-                project_arg.add_column(sheet_id, "clips", type="video")
-            else:
-                replacement_hash = project_arg.add_blob(
-                    b"source-changed-after-stage",
-                    filename="changed.mp4",
-                    mime="video/mp4",
-                    metadata=owned_media_metadata_document(
-                        probe={"kind": "video", "duration_seconds": 10.0}
-                    ),
-                )
-                project_arg.apply_edits(
-                    [
-                        {
-                            "row_id": row_id,
-                            "column_id": source_column_id,
-                            "value": {
-                                "blob": replacement_hash,
-                                "filename": "changed.mp4",
-                                "mime": "video/mp4",
-                            },
-                        }
-                    ],
-                    label="race source mutation",
-                )
-            return rendered
+            project_arg.apply_edits(
+                [
+                    {
+                        "row_id": row_id,
+                        "column_id": source_column_id,
+                        "value": {
+                            "blob": replacement_hash,
+                            "filename": "changed.mp4",
+                            "mime": "video/mp4",
+                        },
+                    }
+                ],
+                label="race source mutation",
+            )
+        return rendered
 
-        result = _run_extract(
-            project,
-            bound,
-            project_id=f"project-extract-post-stage-{mutation}",
-            stage_fn=mutate_after_stage,
-        )
+    result = _run_extract(
+        project,
+        bound,
+        project_id=f"project-extract-post-stage-{mutation}",
+        stage_fn=mutate_after_stage,
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == expected_code
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        output_columns = project.db.execute(
-            "SELECT COUNT(*) FROM columns WHERE sheet_id=? AND name='clips'",
-            (sheet_id,),
+    assert result.status == "failed"
+    assert result.errors[0].code == expected_code
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
+            (result.receipt_id,),
         ).fetchone()[0]
-        assert output_columns == (1 if mutation == "collision" else 0)
-    finally:
-        project.close()
+        == 0
+    )
+    output_columns = project.db.execute(
+        "SELECT COUNT(*) FROM columns WHERE sheet_id=? AND name='clips'",
+        (sheet_id,),
+    ).fetchone()[0]
+    assert output_columns == (1 if mutation == "collision" else 0)
 
 
 def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
@@ -1310,7 +1301,7 @@ def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
         output_name="clips",
         idempotency_key="extract-publication-rollback@sha256:v1",
     )
-    original_update = ReceiptStore.update_body_status
+    original_update = ReceiptStore.update_body_status_in_transaction
     completed_update_attempts = 0
 
     def fail_completed_publication(self, receipt, **kwargs):
@@ -1322,7 +1313,7 @@ def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
 
     monkeypatch.setattr(
         ReceiptStore,
-        "update_body_status",
+        "update_body_status_in_transaction",
         fail_completed_publication,
     )
 
@@ -1461,11 +1452,12 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         ],
     )
     runs.finish_run(transcript_run_id)
-    runs.point_column_at_run(
-        transcript_op_id,
-        transcript_column_id,
-        transcript_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            transcript_op_id,
+            transcript_column_id,
+            transcript_run_id,
+        )
     alternate_op_id = project.append_change(
         "media.transcribe",
         {
@@ -1494,11 +1486,12 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         ],
     )
     runs.finish_run(alternate_run_id)
-    runs.point_column_at_run(
-        alternate_op_id,
-        alternate_column_id,
-        alternate_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            alternate_op_id,
+            alternate_column_id,
+            alternate_run_id,
+        )
     for row_id, column_id, quote, run_id, op_id in [
         (
             row_ids[0],

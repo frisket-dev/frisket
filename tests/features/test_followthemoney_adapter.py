@@ -14,7 +14,7 @@ from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
 )
-from frisket.features.followthemoney import (
+from frisket.followthemoney import (
     FOLLOWTHEMONEY_MAPPING_SCHEMA_VERSION,
     FollowTheMoneyAdapterError,
     deterministic_row_ref_id,
@@ -25,7 +25,7 @@ from frisket.features.followthemoney import (
     supported_schema_presets,
     validate_entity,
 )
-from frisket.features.investigations.rowsets import resolve_investigative_rowset
+from frisket.exports.investigative_rowsets import resolve_investigative_rowset
 from frisket.engine.store.transactions import write_transaction
 
 

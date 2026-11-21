@@ -18,7 +18,6 @@ from pydantic import ValidationError
 from frisket.authoring.workbench import plugin_runtime_shared
 from frisket.contracts.http import models as contracts
 from frisket.contracts.http.models import WorkbenchPluginSettings
-from frisket.server.app import create_app
 
 
 PLUGIN_ID = "demo.env_settings"
@@ -111,8 +110,7 @@ SETTING_OPTION_KEYS = [
 ]
 
 
-def _client(tmp_path) -> tuple[TestClient, str]:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def _client(client: TestClient) -> tuple[TestClient, str]:
     pid = client.post("/api/projects", json={"name": "Plugin lifecycle"}).json()["id"]
     return client, pid
 
@@ -147,8 +145,8 @@ def test_contract_schema_literals_match_producers() -> None:
     )
 
 
-def test_lifecycle_chain_preserves_transport_shape_and_trust_facts(tmp_path) -> None:
-    client, pid = _client(tmp_path)
+def test_lifecycle_chain_preserves_transport_shape_and_trust_facts(client) -> None:
+    client, pid = _client(client)
     source = {"kind": "localPath", "value": str(PLUGIN_ROOT)}
 
     installed = client.post(
@@ -265,12 +263,12 @@ def test_lifecycle_chain_preserves_transport_shape_and_trust_facts(tmp_path) -> 
     assert gone.json()["detail"]["code"] == "plugin_lifecycle_not_installed"
 
 
-def test_descriptor_install_keeps_ordered_descriptor_tail(tmp_path) -> None:
+def test_descriptor_install_keeps_ordered_descriptor_tail(client) -> None:
     """A descriptor-shipping plugin must render the two descriptor keys in
     producer-appended tail position — pinning the optional-field order the
     lifecycle fixture (which ships no descriptors) cannot."""
 
-    client, pid = _client(tmp_path)
+    client, pid = _client(client)
     root = (
         Path(__file__).parent.parent
         / "fixtures"
@@ -290,8 +288,8 @@ def test_descriptor_install_keeps_ordered_descriptor_tail(tmp_path) -> None:
     assert keys == INSTALL_EXECUTION_KEYS + DESCRIPTOR_TAIL_KEYS
 
 
-def test_blocked_install_keeps_failure_envelope_and_status(tmp_path) -> None:
-    client, pid = _client(tmp_path)
+def test_blocked_install_keeps_failure_envelope_and_status(client) -> None:
+    client, pid = _client(client)
 
     blocked = client.post(
         _plugin_url(pid, "install-local"),
@@ -325,8 +323,8 @@ def test_unknown_producer_field_errors_loudly_instead_of_pruning() -> None:
         WorkbenchPluginSettings.model_validate(payload)
 
 
-def test_openapi_declares_typed_operations_and_keeps_raw_routes_raw(tmp_path) -> None:
-    client, _pid = _client(tmp_path)
+def test_openapi_declares_typed_operations_and_keeps_raw_routes_raw(client) -> None:
+    client, _pid = _client(client)
     document = client.app.openapi()
     paths = document["paths"]
     base = "/api/projects/{pid}/workbench/plugins/{plugin_id}"

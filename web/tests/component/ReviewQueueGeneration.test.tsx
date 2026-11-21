@@ -66,7 +66,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const options = { order: 'shuffle' as const };
+const options: { order: 'shuffle' | 'row' } = { order: 'shuffle' };
 
 it.each([true, false])('reapplies saved results into new columns with retry capability %s', async (retrySupported) => {
   const counts = { eligibleCount: 1, reviewedCount: 0, acceptedCount: 0,

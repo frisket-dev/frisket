@@ -12,7 +12,7 @@ the ``page`` fallback is universal (no domains) and deliberately last-resort.
 
 from __future__ import annotations
 
-from frisket.features.url_classification.matchers import (
+from frisket.url_classification.matchers import (
     PLUGIN_PRIORITY_CEILING,
     UrlMatcher,
 )
@@ -224,7 +224,7 @@ FIRST_PARTY_MATCHERS: tuple[UrlMatcher, ...] = (
 
 def register_first_party_matchers(*, replace: bool = False) -> None:
     """Register the whole first-party table (idempotent with replace=True)."""
-    from frisket.features.url_classification.registry import register_matcher
+    from frisket.url_classification.registry import register_matcher
 
     for matcher in FIRST_PARTY_MATCHERS:
         register_matcher(matcher, replace=replace)

@@ -55,11 +55,11 @@ def publish_bindings(project, store, revision, locations):
             dependencies=(BindingDependency(row, column, cell_revision),),
         )
 
-    store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+    store.begin_preparation(revision, slice_id="passages:v1", channel="text")
     assert store.publish_source(
         SourcePublication(
             source_revision=revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             parts=(),
             bindings=tuple(
@@ -126,7 +126,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_change("test.edit", commit=False)
+            op_id = project.append_change_in_transaction("test.edit")
             insert_edits(
                 project.db,
                 op_id=op_id,
@@ -137,7 +137,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     retained_sheet, retained_column, retained_row = add(project, "retained", "keep")
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        retained_edit = project.append_change("test.edit", commit=False)
+        retained_edit = project.append_change_in_transaction("test.edit")
         insert_edits(
             project.db,
             op_id=retained_edit,
@@ -156,22 +156,21 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
         {"doomed": doomed, "safe": safe},
     )[0]
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_change
+    from frisket.engine.store.op_log import append_change_in_transaction
 
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        column_op = append_change(
+        column_op = append_change_in_transaction(
             project,
             "test.created_column",
             undo_info={"created_columns": [doomed]},
-            commit=False,
         )
         start_change(project.db, column_op)
     finish_purge(project, begin_purge(project, column_ids=[doomed]))
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_change("test.edit", commit=False)
+            op_id = project.append_change_in_transaction("test.edit")
             insert_edits(
                 project.db,
                 op_id=op_id,
@@ -202,8 +201,8 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
         sheet, [{"value": "old one"}, {"value": "old two"}], {"value": column}
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_change(
-        "source.refresh", {}, label="source refresh", commit=False
+    op = project.append_change_in_transaction(
+        "source.refresh", {}, label="source refresh"
     )
     producer = create_base_cell_producer(project.db, stage_id=f"op:{op}", op_id=op)
     replace_base_cells(
@@ -281,14 +280,15 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         project, source_run, output_column_ids={source_column}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        source_run,
-        source_column,
-        output_role="saved",
-        compatibility_key="sha256:independent-saved-output",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            source_run,
+            source_column,
+            output_role="saved",
+            compatibility_key="sha256:independent-saved-output",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     runs.write_results(
         source_run,
         [
@@ -301,12 +301,13 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        source_run,
-        {source_column},
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            source_run,
+            {source_column},
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     runs.finish_run(
         source_run,
         writer_attempt_id=authority.writer_attempt_id,
@@ -378,14 +379,15 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         project, run_id, output_column_ids={output}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output,
-        output_role="answer",
-        compatibility_key="sha256:source-cohort-answer-v1",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output,
+            output_role="answer",
+            compatibility_key="sha256:source-cohort-answer-v1",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     runs.write_results(
         run_id,
         [
@@ -399,12 +401,13 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [output],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [output],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     runs.finish_run(
         run_id,
         writer_attempt_id=authority.writer_attempt_id,
@@ -497,14 +500,15 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         project, run_id, output_column_ids={output}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output,
-        output_role="answer",
-        compatibility_key="sha256:purge-owned-result-v1",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output,
+            output_role="answer",
+            compatibility_key="sha256:purge-owned-result-v1",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     runs.write_results(
         run_id,
         [
@@ -518,12 +522,13 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [output],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [output],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     runs.finish_run(
         run_id,
         writer_attempt_id=authority.writer_attempt_id,
@@ -872,15 +877,16 @@ def test_late_result_refusal_keeps_paid_usage(project):
     )
     token = authority.claim_token
     assert token is not None
-    ResultGenerationStore(project).declare(
-        run_id,
-        output,
-        output_role="match",
-        compatibility_key="sha256:purge-late-response",
-        write_mode="create",
-        claim_token=token,
-        defer_publication=True,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run_id,
+            output,
+            output_role="match",
+            compatibility_key="sha256:purge-late-response",
+            write_mode="create",
+            claim_token=token,
+            defer_publication=True,
+        )
     # begin_purge refuses while this run is active; a purge recorded under the
     # open generation stands in for the provider response that outlives it.
     with project.db:
@@ -935,15 +941,16 @@ def test_late_result_refusal_keeps_paid_usage(project):
         == 0
     )
     generations = ResultGenerationStore(project)
-    assert (
-        generations.seal(
-            run_id,
-            [output],
-            claim_token=token,
-            terminal_disposition="cancelled",
+    with write_transaction(project.db):
+        assert (
+            generations.seal(
+                run_id,
+                [output],
+                claim_token=token,
+                terminal_disposition="cancelled",
+            )
+            == 0
         )
-        == 0
-    )
     assert generations.get_binding(run_id, output).state == "sealed"
 
 
@@ -1233,7 +1240,7 @@ def test_purge_preserves_shared_descriptor_authority_for_other_columns(project):
     }
     with project.db:
         project.db.execute("BEGIN")
-        operation = project.append_change("column.format", commit=False)
+        operation = project.append_change_in_transaction("column.format")
         start_change(project.db, operation)
         project.set_undo_info(operation, info)
         record_descriptor_changes(project.db, operation, info)

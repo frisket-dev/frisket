@@ -489,7 +489,11 @@ class PdfPacketCommitter:
                 elif int(canonical[0]) != source.size:
                     raise ValueError("admitted source size changed")
                 context = {}
-                if pdf_source is not None and pdf_source.source_row_id is not None:
+                if (
+                    pdf_source is not None
+                    and pdf_source.source_sheet_id is not None
+                    and pdf_source.source_row_id is not None
+                ):
                     for column_id, output_name in carried.items():
                         values = project.get_values(
                             pdf_source.source_sheet_id,

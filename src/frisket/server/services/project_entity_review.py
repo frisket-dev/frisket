@@ -152,6 +152,8 @@ class ProjectEntityReviewService:
                 **page,
                 "bundles": _project_review_download_links(project_id, page["bundles"]),
             }
+        if request.run_id is None:
+            raise ValueError("review batch requires run_id or copied_op_id")
         if request.kind == "sample":
             page = sample_review_bundle_page(
                 project,

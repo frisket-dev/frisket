@@ -288,9 +288,16 @@ def _collect_items(
                 )
             )
             continue
-        source_items = _items_from_mapping_result(source, source_index=source_index)
+        source_mapping = {
+            key: value for key, value in source.items() if isinstance(key, str)
+        }
+        source_items = _items_from_mapping_result(
+            source_mapping, source_index=source_index
+        )
         if not source_items:
-            source_items = _items_from_ftm_rowset(source, source_index=source_index)
+            source_items = _items_from_ftm_rowset(
+                source_mapping, source_index=source_index
+            )
         if not source_items:
             diagnostics.append(
                 _diagnostic(

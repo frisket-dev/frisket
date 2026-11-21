@@ -38,7 +38,6 @@ def project(make_project):
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        project.close()
 
 
 def _sheet_id(project) -> int:
@@ -133,17 +132,16 @@ def test_owning_write_inside_caller_transaction_refuses_and_keeps_it(project, wr
 # -- joining writes require a caller transaction -----------------------------
 
 JOINING_WRITES = {
-    "add_rows": lambda project: project.add_rows(
+    "add_rows": lambda project: project.add_rows_in_transaction(
         _sheet_id(project),
         [{"value": "joined"}],
         {"value": int(project.db.execute("SELECT id FROM columns").fetchone()[0])},
-        commit=False,
     ),
-    "append_change": lambda project: project.append_change("edit", {}, commit=False),
-    "add_column": lambda project: project.add_column(
-        _sheet_id(project), "joined", commit=False
+    "append_change": lambda project: project.append_change_in_transaction("edit", {}),
+    "add_column": lambda project: project.add_column_in_transaction(
+        _sheet_id(project), "joined"
     ),
-    "set_meta": lambda project: project.set_meta("probe", "value", commit=False),
+    "set_meta": lambda project: project.set_meta_in_transaction("probe", "value"),
     "replace_secret_consumers": lambda project: replace_secret_consumers(
         project, kind="mcp_connector", consumer_id="probe", names={"API_TOKEN"}
     ),
@@ -174,7 +172,7 @@ def test_joined_change_append_rolls_back_with_its_caller(project):
     before = _committed_count(project, "ops")
     _open_caller_transaction(project)
 
-    project.append_change("edit", {}, commit=False)
+    project.append_change_in_transaction("edit", {})
     project.db.rollback()
 
     assert _committed_count(project, "ops") == before

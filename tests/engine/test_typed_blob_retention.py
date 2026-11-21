@@ -118,7 +118,7 @@ def prepared(project, text):
         )
     with project.db:
         project.db.execute("BEGIN")
-        op = project.append_change("prepare.test", commit=False)
+        op = project.append_change_in_transaction("prepare.test")
         return PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact["id"],
             producing_op_id=op,

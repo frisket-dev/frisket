@@ -3,9 +3,10 @@ from __future__ import annotations
 from model_doubles import CannedReplyAdapter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-import io
 import hashlib
+import io
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -134,8 +135,7 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
     source = tmp_path / "two-pages.pdf"
     raw = _text_pdf()
     source.write_bytes(raw)
-    project = Project.create(bundle, name="PDF flow")
-    try:
+    with closing(Project.create(bundle, name="PDF flow")) as project:
         imported = _import_pdf(project, source, key="flow-import")
         assert imported.status == "completed", imported.errors
         sheet_id = imported.outputs[0].sheet_id
@@ -288,8 +288,7 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
         assert len(queued) == 1 and queued[0]["value"] == "OMEGATWO"
 
         source.unlink()
-        project.close()
-        project = Project(bundle)
+    with closing(Project(bundle)) as project:
         assert project.get_values(sheet_id, columns["text"], rows)[rows[1]] == (
             "boundary-right OMEGATWO"
         )
@@ -301,8 +300,6 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
         assert project.get_values(sheet_id, finding_id)[rows[1]] == "OMEGATWO"
         with project.materialize_blob(digest) as stored:
             assert stored.read_bytes() == raw
-    finally:
-        project.close()
 
 
 def test_existing_parent_page_selector_still_reads_only_selected_page(
@@ -348,127 +345,122 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
     source.write_bytes(_scan_pdf("CHECKPOINT OCR"))
     project = make_project("OCR replay")
     calls = 0
-    try:
-        imported = _import_pdf(project, source, key="ocr-import")
-        assert imported.status == "completed", imported.errors
-        sheet_id = imported.outputs[0].sheet_id
-        columns = imported.outputs[0].ref["columns"]
-        [row_id] = project.visible_row_ids(sheet_id)
+    imported = _import_pdf(project, source, key="ocr-import")
+    assert imported.status == "completed", imported.errors
+    sheet_id = imported.outputs[0].sheet_id
+    columns = imported.outputs[0].ref["columns"]
+    [row_id] = project.visible_row_ids(sheet_id)
 
-        async def deterministic_engine(self, engine, page_paths, ctx, **kwargs):
-            nonlocal calls
-            calls += 1
-            assert len(page_paths) == 1
-            with Image.open(page_paths[0]) as page:
-                assert page.width > 100 and page.height > 100
-            return [
-                {
-                    "text": "CHECKPOINT OCR",
-                    "blocks": [
-                        {
-                            "text": "CHECKPOINT OCR",
-                            "bbox": [[10, 10], [300, 10], [300, 80], [10, 80]],
-                            "score": 0.99,
-                        }
-                    ],
-                }
-            ]
+    async def deterministic_engine(self, engine, page_paths, ctx, **kwargs):
+        nonlocal calls
+        calls += 1
+        assert len(page_paths) == 1
+        with Image.open(page_paths[0]) as page:
+            assert page.width > 100 and page.height > 100
+        return [
+            {
+                "text": "CHECKPOINT OCR",
+                "blocks": [
+                    {
+                        "text": "CHECKPOINT OCR",
+                        "bbox": [[10, 10], [300, 10], [300, 80], [10, 80]],
+                        "score": 0.99,
+                    }
+                ],
+            }
+        ]
 
-        monkeypatch.setattr(
-            ocr_engines.OcrEngines,
-            "run_engine_on_pages",
-            deterministic_engine,
-        )
-        stub_rapidocr_run_scope(monkeypatch)
-        monkeypatch.setattr(
-            "frisket.engine.runner.map_runner.row_effect_spends_or_meters",
-            lambda program, spec, router: True,
-        )
-        original_consume = RunResultStore.consume_returned_row_effect_checkpoint
+    monkeypatch.setattr(
+        ocr_engines.OcrEngines,
+        "run_engine_on_pages",
+        deterministic_engine,
+    )
+    stub_rapidocr_run_scope(monkeypatch)
+    monkeypatch.setattr(
+        "frisket.engine.runner.map_runner.row_effect_spends_or_meters",
+        lambda program, spec, router: True,
+    )
+    original_consume = RunResultStore.consume_returned_row_effect_checkpoint
 
-        def interrupt(*args: Any, **kwargs: Any) -> None:
-            raise InterruptedAfterOcrReturn()
+    def interrupt(*args: Any, **kwargs: Any) -> None:
+        raise InterruptedAfterOcrReturn()
 
-        monkeypatch.setattr(
-            RunResultStore,
-            "consume_returned_row_effect_checkpoint",
-            interrupt,
-        )
-        action = {
-            "action_id": "media.ocr",
-            "scope": {
-                "kind": "sheet_rows",
-                "sheet_id": sheet_id,
-                "row_ids": [row_id],
-            },
-            "params": {"source": "source", "engine": "rapidocr", "dpi": 150},
-            "output_names": {"text": "ocr_text", "blocks": "ocr_blocks"},
-            "idempotency_key": "ocr-checkpoint-replay",
-        }
-        with pytest.raises(InterruptedAfterOcrReturn):
-            run_action_spec(project, action, project_id=PROJECT_ID)
-        checkpoint = project.db.execute(
-            "SELECT * FROM effect_checkpoints WHERE family='row_effect'"
-        ).fetchone()
-        assert checkpoint is not None and checkpoint["state"] == "returned"
-        payload = json.loads(checkpoint["payload"])
-        assert set(payload) == {"ocr_text", "ocr_blocks"}
-        text_payload = payload["ocr_text"]
-        assert text_payload["value"] is None
-        assert type(text_payload["prepared_ref_id"]) is int
-        (fact,) = text_payload["row_file_calls"]
-        assert not {"text", "pages", "blocks"} & fact.keys()
-        prepared = PreparedContentStore(project).resolve(
-            text_payload["prepared_ref_id"]
-        )
-        assert prepared.text == "CHECKPOINT OCR"
-        assert prepared.page_number is None
-        assert [pin.page_number for pin in prepared.pins] == [1]
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
+    monkeypatch.setattr(
+        RunResultStore,
+        "consume_returned_row_effect_checkpoint",
+        interrupt,
+    )
+    action = {
+        "action_id": "media.ocr",
+        "scope": {
+            "kind": "sheet_rows",
+            "sheet_id": sheet_id,
+            "row_ids": [row_id],
+        },
+        "params": {"source": "source", "engine": "rapidocr", "dpi": 150},
+        "output_names": {"text": "ocr_text", "blocks": "ocr_blocks"},
+        "idempotency_key": "ocr-checkpoint-replay",
+    }
+    with pytest.raises(InterruptedAfterOcrReturn):
+        run_action_spec(project, action, project_id=PROJECT_ID)
+    checkpoint = project.db.execute(
+        "SELECT * FROM effect_checkpoints WHERE family='row_effect'"
+    ).fetchone()
+    assert checkpoint is not None and checkpoint["state"] == "returned"
+    payload = json.loads(checkpoint["payload"])
+    assert set(payload) == {"ocr_text", "ocr_blocks"}
+    text_payload = payload["ocr_text"]
+    assert text_payload["value"] is None
+    assert type(text_payload["prepared_ref_id"]) is int
+    (fact,) = text_payload["row_file_calls"]
+    assert not {"text", "pages", "blocks"} & fact.keys()
+    prepared = PreparedContentStore(project).resolve(text_payload["prepared_ref_id"])
+    assert prepared.text == "CHECKPOINT OCR"
+    assert prepared.page_number is None
+    assert [pin.page_number for pin in prepared.pins] == [1]
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
 
-        monkeypatch.setattr(
-            RunResultStore,
-            "consume_returned_row_effect_checkpoint",
-            original_consume,
+    monkeypatch.setattr(
+        RunResultStore,
+        "consume_returned_row_effect_checkpoint",
+        original_consume,
+    )
+    run_id = int(checkpoint["group_key"])
+    _age_silent_attempt(project, checkpoint["authorized_attempt_id"])
+    claim = project.db.execute(
+        "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
+    ).fetchone()[0]
+    plan = build_typed_map_rows_plan(
+        project,
+        typed_action_for_request(action),
+        _allow_existing_outputs=True,
+    )
+    runner = actions._default_map_runner_factory(
+        project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    )
+    progress = __import__("asyncio").run(
+        runner.run(
+            plan.spec_dict(),
+            program=plan.program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim,
         )
-        run_id = int(checkpoint["group_key"])
-        _age_silent_attempt(project, checkpoint["authorized_attempt_id"])
-        claim = project.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
-        ).fetchone()[0]
-        plan = build_typed_map_rows_plan(
-            project,
-            typed_action_for_request(action),
-            _allow_existing_outputs=True,
-        )
-        runner = actions._default_map_runner_factory(
-            project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        )
-        progress = __import__("asyncio").run(
-            runner.run(
-                plan.spec_dict(),
-                program=plan.program,
-                confirmed=True,
-                resume_run_id=run_id,
-                claim_token=claim,
-            )
-        )
-        assert progress.halted_code is None and progress.completed == 1
-        assert calls == 1
-        assert RunResultStore(project).row_effect_checkpoint(run_id, row_id) is None
-        ocr_text_id = _column_id(project, sheet_id, "ocr_text")
-        assert project.get_values(sheet_id, ocr_text_id)[row_id] == "CHECKPOINT OCR"
-        raw_result = project.db.execute(
-            "SELECT value_kind,value FROM results WHERE run_id=? AND row_id=? "
-            "AND column_id=?",
-            (run_id, row_id, ocr_text_id),
-        ).fetchone()
-        assert raw_result["value_kind"] == "prepared_content_ref"
-        assert type(raw_result["value"]) is int
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 2
-        assert "page" not in project.get_values(sheet_id, columns["source"])[row_id]
-    finally:
-        project.close()
+    )
+    assert progress.halted_code is None and progress.completed == 1
+    assert calls == 1
+    assert RunResultStore(project).row_effect_checkpoint(run_id, row_id) is None
+    ocr_text_id = _column_id(project, sheet_id, "ocr_text")
+    assert project.get_values(sheet_id, ocr_text_id)[row_id] == "CHECKPOINT OCR"
+    raw_result = project.db.execute(
+        "SELECT value_kind,value FROM results WHERE run_id=? AND row_id=? "
+        "AND column_id=?",
+        (run_id, row_id, ocr_text_id),
+    ).fetchone()
+    assert raw_result["value_kind"] == "prepared_content_ref"
+    assert type(raw_result["value"]) is int
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 2
+    assert "page" not in project.get_values(sheet_id, columns["source"])[row_id]
 
 
 def test_real_local_ocr_when_installed(tmp_path: Path, make_project) -> None:

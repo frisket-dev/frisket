@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import hashlib
 import hmac
@@ -263,8 +264,7 @@ def test_webhook_provider_signs_payload_and_redacts_persisted_secrets(
     ).hexdigest()
     assert call["headers"]["X-Frisket-Signature"] == f"v1={expected_signature}"
 
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "sent"
         assert request["provider_ref"] == "webhook:wh_123"
@@ -276,8 +276,6 @@ def test_webhook_provider_signs_payload_and_redacts_persisted_secrets(
         assert "webhook-signing-secret" not in serialized
         assert attempt["response_meta"]["response"]["token"] == "[redacted]"
         assert attempt["response_meta"]["response"]["signing_secret"] == "[redacted]"
-    finally:
-        project.close()
 
 
 def test_webhook_provider_blocks_private_url_before_http_call() -> None:
@@ -411,16 +409,13 @@ def test_webhook_missing_signing_secret_fails_closed_without_provider_call(
 
     assert worker_result == {"request_id": request_id, "status": "skipped"}
     assert post.calls == []
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "skipped"
         assert (
             request["last_error"] == "webhook channel missing signing secret reference"
         )
         assert _attempt(project)["status"] == "skipped"
-    finally:
-        project.close()
 
 
 def _message(*, summary: str) -> Any:

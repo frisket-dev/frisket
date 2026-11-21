@@ -186,7 +186,7 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
         query={"kind": "fts", "q": "budget", "limit": 20},
     )
     # The initial observation is silent; later source changes produce alerts.
-    from frisket.features.alerts.service import check_alert
+    from frisket.alerts.service import check_alert
 
     drain_index(p)
     check_alert(p, p.get_alert(alert_id))
@@ -756,7 +756,7 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
         )
     p.close()
 
-    q = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    q = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     key = ProjectStorageKey(storage_org_id=23, project_slug="news")
     opened: list[tuple[ProjectStorageKey, Path]] = []
 

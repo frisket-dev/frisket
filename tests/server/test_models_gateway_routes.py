@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 
 from frisket import local_provider_config
 from frisket.server import provider_config
-from frisket.server.app import create_app
 from frisket.server.routes.models_gateway import register_models_gateway_routes
+from helpers import make_client
 from frisket.server.services.models_gateway import (
     ModelsGatewayProbeCache,
     ModelsGatewayService,
@@ -194,7 +194,7 @@ def test_solo_app_wires_gateway_save_to_project_route_pinning(
         "pin_all_projects",
         lambda _self: pinned.append("pinned"),
     )
-    client = TestClient(create_app(tmp_path))
+    client = make_client(tmp_path)
     receipt = client.post(
         "/api/models-gateway/validate",
         json={"origin": ORIGIN, "token": TOKEN},

@@ -7,6 +7,7 @@ import math
 import re
 import statistics
 from collections import Counter
+from collections.abc import Generator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator
@@ -143,7 +144,7 @@ class SheetGridService:
                 ordered_ids = _visible_ranked_row_ids(
                     project, sheet_id, explicit_row_ids
                 )
-                # Lens views provide their own ranked row order. The grid keeps that
+                # Ranked views provide their own row order. The grid keeps that
                 # exact order and intentionally ignores filter/sort scope here.
                 window_ids = ordered_ids[offset : offset + limit]
                 return _sheet_data_payload(
@@ -278,20 +279,23 @@ class SheetGridService:
             snapshot.close()
             raise
 
-        def body() -> Iterator[bytes]:
+        def body() -> Generator[bytes, None, None]:
             try:
-                with closing(
-                    iter_current_value(
-                        snapshot.db,
-                        sheet_id=sheet_id,
-                        row_id=row_id,
-                        column_id=column_id,
-                        expected_revision=revision,
-                        metadata=metadata,
-                    )
-                ) as chunks:
+                chunks = iter_current_value(
+                    snapshot.db,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    expected_revision=revision,
+                    metadata=metadata,
+                )
+                try:
                     for text in chunks:
                         yield text.encode("utf-8")
+                finally:
+                    close_chunks = getattr(chunks, "close", None)
+                    if callable(close_chunks):
+                        close_chunks()
             finally:
                 snapshot.close()
 
@@ -605,7 +609,7 @@ def _visible_ranked_row_ids(
     sheet_id: int,
     row_ids: list[int],
 ) -> list[int]:
-    """Keep a saved ranked lens order while dropping invisible or removed rows."""
+    """Keep a ranked view order while dropping invisible or removed rows."""
     if not row_ids:
         return []
     placeholders = ",".join("?" * len(row_ids))

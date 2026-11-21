@@ -112,7 +112,7 @@ def _resolve_query_preview_in_snapshot(
 
     try:
         # Row and row_cell anchors reuse stored vectors; manual and hybrid queries
-        # compute a query embedding. A saved lens may carry either form.
+        # compute a query embedding. A view may carry either form.
         normalized = normalize_query_spec(query, allow_row_cell=True)
     except ValueError as exc:
         raise QueryPreviewError("invalid_query_spec", str(exc), field="query") from exc

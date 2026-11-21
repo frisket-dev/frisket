@@ -13,7 +13,7 @@ from frisket.actions.cluster_types import ClusterOptions
 from frisket.ai.embeddings import backends as embedding_backends
 from frisket.ai.embeddings.analytics import encode_project_legacy_texts_async
 from frisket.engine.executor.embedding_batches import (
-    record_embedding_batch,
+    record_embedding_batch_in_transaction,
 )
 from frisket.engine.executor.map_rows_action import _TypedMapBatchProgram
 from frisket.engine.executor.value_cluster import (
@@ -84,7 +84,7 @@ class _ClusterEmbeddingBatch:
             claim_token=ctx.extras["claim_token"],
         )
 
-    async def __call__(self, texts):
+    async def __call__(self, texts: list[str]) -> embedding_backends.EmbeddingResult:
         from frisket.engine.store.effect_checkpoints import is_operator_attestation
 
         checkpoint = self.store.get(self.id)
@@ -133,9 +133,15 @@ class _ClusterEmbeddingBatch:
                     "Returned embeddings do not cover the missing vectors",
                 ) from exc
         async_embed = getattr(self.embed, "embed_batch_async", None)
-        result = async_embed(texts) if callable(async_embed) else self.embed(texts)
-        if inspect.isawaitable(result):
-            result = await result
+        raw = async_embed(texts) if callable(async_embed) else self.embed(texts)
+        if inspect.isawaitable(raw):
+            raw = await raw
+        if not isinstance(raw, (list, dict)):
+            raise ActionProgramInvocationHalt(
+                "invalid_embedding_response",
+                "Embedding backend returned an unexpected result",
+            )
+        result: embedding_backends.EmbeddingResult = raw
         vectors = result.get("vectors") if isinstance(result, dict) else result
         payload = {"returned_inputs": texts, "vectors": vectors}
         try:
@@ -147,12 +153,11 @@ class _ClusterEmbeddingBatch:
             **self.unit,
             **self.fence,
             payload=payload,
-            accrue=lambda _checkpoint: record_embedding_batch(
+            accrue=lambda _checkpoint: record_embedding_batch_in_transaction(
                 self.ctx,
                 self.model,
                 result,
                 texts,
-                commit=False,
                 identity_texts=self.texts,
             ),
         )

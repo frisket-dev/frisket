@@ -132,7 +132,7 @@ def _hit(
         part=IndexedPart(
             part_id=f"part:{name}",
             source=_source(name),
-            producer_recipe_id="recipe:v1",
+            producer_slice_id="slice:v1",
             part_kind=name,
             locator=locator,
         ),

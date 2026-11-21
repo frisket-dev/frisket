@@ -119,7 +119,7 @@ class TeamConfig:
     base_url: str
     organization_name: str
     # The compose worker (docker-compose.yml's `worker` service, and
-    # `frisket worker`/`frisket hosted-worker` via cli.py's `_run_worker`)
+    # `frisket worker`/`frisket cloud-worker` via cli.py's `_run_worker`)
     # resolves its run-queue Postgres locator from
     # `FRISKET_RUN_QUEUE_DATABASE_URL`, never from `database_url` above (that
     # field is the CONTROL-PLANE schema locator, `FRISKET_TEAM_DATABASE_URL`).
@@ -281,6 +281,8 @@ class TeamConfig:
                 ch not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for ch in provider
             ):
                 raise ValueError(f"invalid OIDC provider id: {provider!r}")
+            if not isinstance(definition, OIDCProviderConfig):
+                definition = OIDCProviderConfig.from_value(definition)
             definition.validate(provider)
 
 

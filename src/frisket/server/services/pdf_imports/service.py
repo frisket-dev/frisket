@@ -2057,6 +2057,7 @@ class PdfImportService:
     @staticmethod
     def _clear_batch_ocr(header: dict[str, Any]) -> None:
         header["batch_ocr"] = PdfImportService._empty_batch_ocr()
+        header.pop("page_ocr_estimate", None)
         header.pop("page_ocr_quote", None)
 
     @staticmethod

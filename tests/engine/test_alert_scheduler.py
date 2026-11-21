@@ -12,6 +12,7 @@ from frisket.engine.jobs.alerts import (
 )
 from frisket.engine.store import Project
 from tests.alert_helpers import add_alert
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -112,14 +113,15 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
         op, sheet, "map.ask", row_ids=[row], total_rows=1
     )
     authority = run_writer_authority_fixture(p, run_id, output_column_ids={col})
-    ResultGenerationStore(p).declare(
-        run_id,
-        col,
-        output_role="answer",
-        compatibility_key="sha256:test",
-        write_mode="replace_scope",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(p.db):
+        ResultGenerationStore(p).declare(
+            run_id,
+            col,
+            output_role="answer",
+            compatibility_key="sha256:test",
+            write_mode="replace_scope",
+            claim_token=authority.claim_token,
+        )
     failed = run(scene, datetime.now(UTC) + timedelta(hours=2))
     assert failed["status"] == "error"
     assert failed["error_code"] == "watch_inputs_unavailable"

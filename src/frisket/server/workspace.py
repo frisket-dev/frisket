@@ -111,7 +111,7 @@ class ImportChildAdmissionPort(Protocol):
         project_id: str,
         parent_receipt_id: str,
         child_key: str,
-        quote: Mapping[str, Any],
+        estimate: Mapping[str, Any],
         receipt_id: str | None = None,
     ) -> Any: ...
 
@@ -918,8 +918,8 @@ class Workspace:
         return self._router is None
 
     @property
-    def cost_preapproval_usd(self) -> str:
-        """The local installation's cost-gate amount, defaulting to $2."""
+    def allowance_usd(self) -> str:
+        """The local installation's allowance amount, defaulting to $2."""
 
         return self._local_allowance_usd
 

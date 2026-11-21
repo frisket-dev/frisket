@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -11,12 +10,13 @@ from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
 from helpers import run_writer_authority_fixture, write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_project(
-    tmp_path: Path,
+    make_project,
 ) -> tuple[Project, int, dict[str, int], list[int], int]:
-    project = Project.create(tmp_path / "runs.frisket", name="Runs")
+    project = make_project("Runs")
     sheet_id = project.add_sheet("Rows")
     columns = {
         "text": project.add_column(sheet_id, "text", type="text"),
@@ -40,9 +40,9 @@ def _seed_project(
 
 
 def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, columns, row_ids, op_id = _seed_project(tmp_path)
+    project, sheet_id, columns, row_ids, op_id = _seed_project(make_project)
     store = RunResultStore(project)
 
     run_id = store.start_run(
@@ -150,37 +150,35 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
         writer_attempt_id=authority.writer_attempt_id,
         claim_token=authority.claim_token,
     )
-    store.point_column_at_run(op_id, columns["score"], run_id)
+    with write_transaction(store.db):
+        store.point_column_at_run(op_id, columns["score"], run_id)
     assert project.get_column(columns["score"])["current_run_id"] == run_id
     project.undo()
     assert project.get_column(columns["score"])["current_run_id"] is None
 
 
-def test_pre_dispatch_undo_cannot_be_finished_as_completed(tmp_path: Path) -> None:
-    project, sheet_id, _columns, row_ids, op_id = _seed_project(tmp_path)
+def test_pre_dispatch_undo_cannot_be_finished_as_completed(make_project) -> None:
+    project, sheet_id, _columns, row_ids, op_id = _seed_project(make_project)
     store = RunResultStore(project)
-    try:
-        run_id = store.start_run(
-            op_id,
-            sheet_id,
-            "test.score",
-            params={},
-            total_rows=len(row_ids),
-            row_ids=row_ids,
-        )
-        project.db.execute("BEGIN IMMEDIATE")
-        ChangeStore(project).start(op_id, writing=True)
-        project.db.commit()
-        assert project.undo() == op_id
-        # Cancellation targets this ordered execution, leaving the earlier
-        # source-row import visible rather than falling through to undo it.
-        assert project.visible_row_ids(sheet_id) == row_ids
-        run = store.get_run(run_id)
-        assert run["cancel_requested_at"] is not None
-        with pytest.raises(StaleAttemptWriter, match="cancellation intent"):
-            store.finish_run(run_id, "completed")
-        assert store.get_run(run_id)["status"] == "running"
-        store.finish_run(run_id, "cancelled")
-        assert store.get_run(run_id)["status"] == "cancelled"
-    finally:
-        project.close()
+    run_id = store.start_run(
+        op_id,
+        sheet_id,
+        "test.score",
+        params={},
+        total_rows=len(row_ids),
+        row_ids=row_ids,
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    ChangeStore(project).start(op_id, writing=True)
+    project.db.commit()
+    assert project.undo() == op_id
+    # Cancellation targets this ordered execution, leaving the earlier
+    # source-row import visible rather than falling through to undo it.
+    assert project.visible_row_ids(sheet_id) == row_ids
+    run = store.get_run(run_id)
+    assert run["cancel_requested_at"] is not None
+    with pytest.raises(StaleAttemptWriter, match="cancellation intent"):
+        store.finish_run(run_id, "completed")
+    assert store.get_run(run_id)["status"] == "running"
+    store.finish_run(run_id, "cancelled")
+    assert store.get_run(run_id)["status"] == "cancelled"

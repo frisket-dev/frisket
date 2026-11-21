@@ -4149,7 +4149,7 @@ class RegisteredAction:
         controls, source_requirements = _semantic_metadata(terminal.params_model)
         local_topic_hints = {}
         if TopicSectionsReader in getattr(terminal, "capabilities", ()):
-            from frisket.features.topic_segmentation.engines import (
+            from frisket.topic_segmentation.engines import (
                 static_engine_catalog,
             )
 

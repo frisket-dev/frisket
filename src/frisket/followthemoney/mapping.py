@@ -8,13 +8,13 @@ from datetime import date, datetime
 from typing import Any
 from urllib.parse import quote
 
-from frisket.features.followthemoney._sdk_import import require_followthemoney_sdk
+from frisket.followthemoney._sdk_import import require_followthemoney_sdk
 
 with require_followthemoney_sdk():
     from followthemoney import model
     from followthemoney.exc import InvalidData
 
-from frisket.features.followthemoney.adapter import validate_entity
+from frisket.followthemoney.adapter import validate_entity
 
 FOLLOWTHEMONEY_MAPPING_SCHEMA_VERSION = "frisket.followthemoney.mapping.v1"
 

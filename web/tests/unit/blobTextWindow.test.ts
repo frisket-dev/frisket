@@ -96,10 +96,10 @@ describe('original blob text sections', () => {
     }));
 
     await expect(readDocumentTextWindow('/missing', { signal: signal() })).rejects.toEqual(
-      expect.objectContaining<ApiError>({ status: 404, message: 'Could not load this file (404).' }),
+      expect.objectContaining<Partial<ApiError>>({ status: 404, message: 'Could not load this file (404).' }),
     );
     await expect(readDocumentTextResource('/missing', { signal: signal() })).rejects.toEqual(
-      expect.objectContaining<ApiError>({ status: 404, message: 'Could not load this file (404).' }),
+      expect.objectContaining<Partial<ApiError>>({ status: 404, message: 'Could not load this file (404).' }),
     );
     expect(cancel).toHaveBeenCalledOnce();
   });

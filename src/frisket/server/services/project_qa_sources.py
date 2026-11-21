@@ -365,8 +365,10 @@ def resolve_prepared_source(
                 candidate["column_id"],
             ):
                 continue
-            prepared_cell = tuple(
-                int(candidate[key]) for key in ("sheet_id", "row_id", "column_id")
+            prepared_cell = (
+                int(candidate["sheet_id"]),
+                int(candidate["row_id"]),
+                int(candidate["column_id"]),
             )
             try:
                 prepared_meta, _ = _metadata(db, prepared_cell)

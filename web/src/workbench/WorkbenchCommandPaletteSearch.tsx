@@ -347,7 +347,7 @@ export function PaletteSearchSection({
           <Button
             type="button"
             className="search-save-btn"
-            data-testid="save-search-lens-button"
+            data-testid="save-search-view-button"
             aria-label={saveBusy ? 'Saving…' : 'Save view'}
             aria-busy={saveBusy}
             disabled={!canSaveView}
@@ -362,7 +362,7 @@ export function PaletteSearchSection({
             </span>
           )}
           {saveStatus && (
-            <span className="search-alert-status" data-testid="save-search-lens-status">
+            <span className="search-alert-status" data-testid="save-search-view-status">
               {saveStatus}
             </span>
           )}

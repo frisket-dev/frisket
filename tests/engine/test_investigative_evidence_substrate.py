@@ -120,7 +120,8 @@ def _seed_generated_cell(project: Project) -> tuple[int, int, int, int, int, dic
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, output_column_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_column_id, run_id)
     _values, refs = project.get_values_with_refs(
         sheet_id, output_column_id, row_ids=[row_id]
     )

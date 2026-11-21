@@ -129,7 +129,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         nonlocal changed
         assert not store.db.in_transaction
         store.db.execute("BEGIN IMMEDIATE")
-        op_id = store.project.append_change("edit", commit=False)
+        op_id = store.project.append_change_in_transaction("edit")
         insert_edits(
             store.db,
             op_id=op_id,
@@ -244,7 +244,8 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         assert text_id not in json.loads(op[0]).get(
             "unpublished_generation_columns", []
         )
-        ResultGenerationStore(project).rebuild_heads([text_id])
+        with write_transaction(project.db):
+            ResultGenerationStore(project).rebuild_heads([text_id])
         rebuilt = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
             (retained_row, text_id),
@@ -255,29 +256,31 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         project.close()
 
 
-def test_refused_checkpoint_publication_preserves_returned_accounting(tmp_path):
-    project, sheet_id, row_id, source_id, text_id = _project_with_selection(tmp_path)
-    try:
-        with write_transaction(project.db):
-            project.set_provider_key(
-                provider="anthropic",
-                encrypted=encrypt_secret("checkpoint-call-fixture"),
-                hint="fixture",
-                spend_cap_micro=1_000_000,
-            )
-        store = RunResultStore(project)
-        op_id = project.append_change("media.ocr", {"action_kind": "media.ocr"})
-        run_id = store.start_run(
-            op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+def test_refused_checkpoint_publication_preserves_returned_accounting(make_project):
+    project, sheet_id, row_id, source_id, text_id = _project_with_selection(
+        make_project
+    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("checkpoint-call-fixture"),
+            hint="fixture",
+            spend_cap_micro=1_000_000,
         )
-        authority = run_writer_authority_fixture(
-            project, run_id, output_column_ids={text_id}
-        )
-        writer_kwargs = {
-            key: value
-            for key, value in authority.kwargs().items()
-            if key != "authorized_attempt_id"
-        }
+    store = RunResultStore(project)
+    op_id = project.append_change("media.ocr", {"action_kind": "media.ocr"})
+    run_id = store.start_run(
+        op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+    )
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={text_id}
+    )
+    writer_kwargs = {
+        key: value
+        for key, value in authority.kwargs().items()
+        if key != "authorized_attempt_id"
+    }
+    with write_transaction(project.db):
         ResultGenerationStore(project).declare(
             run_id,
             text_id,
@@ -286,87 +289,86 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(tmp_path):
             write_mode="create",
             claim_token=authority.claim_token,
         )
-        ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[
-            0
-        ]
-        call = {
-            "id": "returned-checkpoint-call",
-            "fact_version": "frisket.model-call-fact.v1",
-            "capability": "ocr",
-            "engine": "fixture",
-            "provider": "anthropic",
-            "provider_kind": "test",
-            "credential_source": "project_key",
-            "provider_cost_usd": 0.125,
+    ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[0]
+    call = {
+        "id": "returned-checkpoint-call",
+        "fact_version": "frisket.model-call-fact.v1",
+        "capability": "ocr",
+        "engine": "fixture",
+        "provider": "anthropic",
+        "provider_kind": "test",
+        "credential_source": "project_key",
+        "provider_cost_usd": 0.125,
+    }
+    batch = [
+        {
+            "row_id": row_id,
+            "column_id": text_id,
+            "prepared_ref_id": ref_id,
+            "publication_effect": "publish_value",
+            "model_calls": [call],
         }
-        batch = [
-            {
-                "row_id": row_id,
-                "column_id": text_id,
-                "prepared_ref_id": ref_id,
-                "publication_effect": "publish_value",
-                "model_calls": [call],
-            }
-        ]
-        assert store.reserve_row_effect_checkpoint(
-            "returned-document",
-            run_id=run_id,
-            row_id=row_id,
-            action_kind="media.ocr",
-            identity="document-source",
-            authorized_attempt_id=authority.writer_attempt_id,
-            **writer_kwargs,
-        )
-        assert store.complete_row_effect_checkpoint(
-            "returned-document",
-            run_id=run_id,
-            row_id=row_id,
-            action_kind="media.ocr",
-            identity="document-source",
-            batch=batch,
-            replay_response={"text": {"prepared_ref_id": ref_id, "cost": 0.0}},
-            **writer_kwargs,
-        ) == pytest.approx(0.125)
-        project.db.execute("BEGIN IMMEDIATE")
-        edit_op = project.append_change("edit", commit=False)
-        insert_edits(
-            project.db,
-            op_id=edit_op,
-            edits=[
-                EditCellWrite(
-                    row_id, source_id, {"blob": _OTHER_BLOB, "mime": "application/pdf"}
-                )
-            ],
-        )
-        project.db.commit()
+    ]
+    assert store.reserve_row_effect_checkpoint(
+        "returned-document",
+        run_id=run_id,
+        row_id=row_id,
+        action_kind="media.ocr",
+        identity="document-source",
+        authorized_attempt_id=authority.writer_attempt_id,
+        **writer_kwargs,
+    )
+    assert store.complete_row_effect_checkpoint(
+        "returned-document",
+        run_id=run_id,
+        row_id=row_id,
+        action_kind="media.ocr",
+        identity="document-source",
+        batch=batch,
+        replay_response={"text": {"prepared_ref_id": ref_id, "cost": 0.0}},
+        **writer_kwargs,
+    ) == pytest.approx(0.125)
+    project.db.execute("BEGIN IMMEDIATE")
+    edit_op = project.append_change_in_transaction("edit")
+    insert_edits(
+        project.db,
+        op_id=edit_op,
+        edits=[
+            EditCellWrite(
+                row_id, source_id, {"blob": _OTHER_BLOB, "mime": "application/pdf"}
+            )
+        ],
+    )
+    project.db.commit()
 
-        for caller_owns_transaction in (False, True):
-            if caller_owns_transaction:
-                project.db.execute("BEGIN IMMEDIATE")
-            with pytest.raises(DocumentTextPublicationRefused):
-                store.publish_result_batch(
-                    run_id,
-                    batch,
-                    checkpoint=("returned-document", row_id, "document-source"),
-                    checkpoint_action_kind="media.ocr",
-                    **writer_kwargs,
-                )
-            assert project.db.in_transaction is caller_owns_transaction
-            if caller_owns_transaction:
-                project.db.rollback()
-            assert len(store.model_calls(run_id)) == 1
-            assert store.get_run(run_id)["cost_actual"] == pytest.approx(0.125)
-            assert project.provider_spend_state("anthropic").spent_micro == 125_000
-            checkpoint = store.row_effect_checkpoint(run_id, row_id)
-            assert (
-                checkpoint["state"] == "returned" and checkpoint["accounting_persisted"]
+    for caller_owns_transaction in (False, True):
+        if caller_owns_transaction:
+            project.db.execute("BEGIN IMMEDIATE")
+        publish = (
+            store.publish_result_batch_in_transaction
+            if caller_owns_transaction
+            else store.publish_result_batch
+        )
+        with pytest.raises(DocumentTextPublicationRefused):
+            publish(
+                run_id,
+                batch,
+                checkpoint=("returned-document", row_id, "document-source"),
+                checkpoint_action_kind="media.ocr",
+                **writer_kwargs,
             )
-            assert checkpoint["authorized_attempt_id"] == authority.writer_attempt_id
-            assert (
-                project.db.execute(
-                    "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
-                ).fetchone()[0]
-                == 0
-            )
-    finally:
-        project.close()
+        assert project.db.in_transaction is caller_owns_transaction
+        if caller_owns_transaction:
+            project.db.rollback()
+        assert len(store.model_calls(run_id)) == 1
+        assert store.get_run(run_id)["cost_actual"] == pytest.approx(0.125)
+        assert project.provider_spend_state("anthropic").spent_micro == 125_000
+        checkpoint = store.row_effect_checkpoint(run_id, row_id)
+        assert checkpoint["state"] == "returned" and checkpoint["accounting_persisted"]
+        assert checkpoint["authorized_attempt_id"] == authority.writer_attempt_id
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 0
+        )

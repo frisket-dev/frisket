@@ -330,7 +330,8 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
         ],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(
         [

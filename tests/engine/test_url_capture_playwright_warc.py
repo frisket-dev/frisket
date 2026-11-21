@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -65,11 +64,8 @@ def _capture_action(
     }
 
 
-def _seed_project(tmp_path: Path) -> tuple[Project, int, list[int], int]:
-    project = Project.create(
-        tmp_path / "url-capture-browser.frisket",
-        name="URL Browser Capture",
-    )
+def _seed_project(make_project) -> tuple[Project, int, list[int], int]:
+    project = make_project("URL Browser Capture")
     sheet_id = project.add_sheet("Links")
     url_column_id = project.add_column(sheet_id, "url", type="link")
     label_column_id = project.add_column(sheet_id, "label", type="text")
@@ -167,11 +163,11 @@ def test_render_playwright_url_sets_viewport_before_navigation(
 
 
 def test_media_capture_url_playwright_warc_records_artifacts_and_replays(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids, url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, url_column_id = _seed_project(make_project)
     action = _capture_action(sheet_id=sheet_id, row_ids=row_ids)
     calls: list[tuple[str, int, int, bool, bool]] = []
     static_calls: list[str] = []
@@ -223,152 +219,147 @@ def test_media_capture_url_playwright_warc_records_artifacts_and_replays(
             ],
         )
 
-    try:
-        assert validate_root_action(action).ok is True
-        prepared = prepare_page_capture_action(
-            project, typed_action_for_request(action)
-        )
-        assert prepared.required_capabilities == (
-            "project:write",
-            "external:url_capture",
-            "external:browser_render",
-        )
-        before = _counts(
-            project,
-            (
-                "columns",
-                "ops",
-                "receipts",
-                "blobs",
-                "edits",
-                "source_artifacts",
-                "source_spans",
-                "citations",
-            ),
-        )
-        result = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                url_capture_fetcher=unexpected_static_fetch,
-                url_capture_browser=fake_browser,
-            ),
-        )
-        assert result.status == "completed", result.errors
-        assert calls == [(STORY_URL, 25_000, 2345, True, False)]
-        assert static_calls == []
+    assert validate_root_action(action).ok is True
+    prepared = prepare_page_capture_action(project, typed_action_for_request(action))
+    assert prepared.required_capabilities == (
+        "project:write",
+        "external:url_capture",
+        "external:browser_render",
+    )
+    before = _counts(
+        project,
+        (
+            "columns",
+            "ops",
+            "receipts",
+            "blobs",
+            "edits",
+            "source_artifacts",
+            "source_spans",
+            "citations",
+        ),
+    )
+    result = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            url_capture_fetcher=unexpected_static_fetch,
+            url_capture_browser=fake_browser,
+        ),
+    )
+    assert result.status == "completed", result.errors
+    assert calls == [(STORY_URL, 25_000, 2345, True, False)]
+    assert static_calls == []
 
-        columns = _columns(project, sheet_id)
-        assert columns["page"]["type"] == "file"
-        for old_name in {
-            "capture_status",
-            "capture_error",
-            "capture_final_url",
-            "capture_canonical_url",
-            "capture_title",
-            "capture_author",
-            "capture_published_at",
-            "capture_captured_at",
-            "capture_html_blob",
-            "capture_markdown_blob",
-            "capture_network_metadata",
-            "capture_screenshot_blob",
-            "capture_warc_blob",
-        }:
-            assert old_name not in columns
-        values = project.get_values(sheet_id, int(columns["page"]["id"]))
-        row_id = row_ids[0]
+    columns = _columns(project, sheet_id)
+    assert columns["page"]["type"] == "file"
+    for old_name in {
+        "capture_status",
+        "capture_error",
+        "capture_final_url",
+        "capture_canonical_url",
+        "capture_title",
+        "capture_author",
+        "capture_published_at",
+        "capture_captured_at",
+        "capture_html_blob",
+        "capture_markdown_blob",
+        "capture_network_metadata",
+        "capture_screenshot_blob",
+        "capture_warc_blob",
+    }:
+        assert old_name not in columns
+    values = project.get_values(sheet_id, int(columns["page"]["id"]))
+    row_id = row_ids[0]
 
-        html_ref = values[row_id]
-        html = project.read_blob(html_ref["blob"]).decode("utf-8")
-        assert "after-js" in html
-        assert html_ref["kind"] == "web_page_capture"
-        assert html_ref["final_url"] == FINAL_URL
-        assert html_ref["canonical_url"] == CANONICAL_URL
-        assert html_ref["title"] == "Rendered Contract Story"
-        assert html_ref["author"] == "Browser Reporter"
-        assert html_ref["published_at"] == "2026-06-22"
-        assert "markdown_preview" not in html_ref
+    html_ref = values[row_id]
+    html = project.read_blob(html_ref["blob"]).decode("utf-8")
+    assert "after-js" in html
+    assert html_ref["kind"] == "web_page_capture"
+    assert html_ref["final_url"] == FINAL_URL
+    assert html_ref["canonical_url"] == CANONICAL_URL
+    assert html_ref["title"] == "Rendered Contract Story"
+    assert html_ref["author"] == "Browser Reporter"
+    assert html_ref["published_at"] == "2026-06-22"
+    assert "markdown_preview" not in html_ref
 
-        network = html_ref["network"]
-        assert network["render_mode"] == "playwright"
-        assert network["include_warc"] is True
-        assert network["request_count"] == 2
-        assert network["resource_count"] == 2
-        assert network["warc_record_count"] == 3
-        assert "headers" not in network
-        assert "SECRET" not in json.dumps(network)
+    network = html_ref["network"]
+    assert network["render_mode"] == "playwright"
+    assert network["include_warc"] is True
+    assert network["request_count"] == 2
+    assert network["resource_count"] == 2
+    assert network["warc_record_count"] == 3
+    assert "headers" not in network
+    assert "SECRET" not in json.dumps(network)
 
-        receipt = _receipt(project, result.receipt_id or "")
-        request_ref = next(
-            ref.ref
-            for ref in receipt.evidence
-            if ref.ref.get("kind") == "web_capture_page_request_counts"
-        )
-        assert request_ref["render_mode"] == "playwright"
-        assert request_ref["include_warc"] is True
-        assert request_ref["http_downloader"] == (
-            "frisket.capture.url.render_playwright_url"
-        )
-        provider = receipt.provider_use[0]
-        assert provider["service"] == "playwright"
-        assert provider["render_mode"] == "playwright"
-        provider_row = provider["rows"][0]
-        assert provider_row["html_blob_hash"] == html_ref["blob"]
-        assert "markdown_blob_hash" not in provider_row
-        assert "screenshot_blob_hash" not in provider_row
-        assert provider_row["warc_blob_hash"]
+    receipt = _receipt(project, result.receipt_id or "")
+    request_ref = next(
+        ref.ref
+        for ref in receipt.evidence
+        if ref.ref.get("kind") == "web_capture_page_request_counts"
+    )
+    assert request_ref["render_mode"] == "playwright"
+    assert request_ref["include_warc"] is True
+    assert request_ref["http_downloader"] == (
+        "frisket.capture.url.render_playwright_url"
+    )
+    provider = receipt.provider_use[0]
+    assert provider["service"] == "playwright"
+    assert provider["render_mode"] == "playwright"
+    provider_row = provider["rows"][0]
+    assert provider_row["html_blob_hash"] == html_ref["blob"]
+    assert "markdown_blob_hash" not in provider_row
+    assert "screenshot_blob_hash" not in provider_row
+    assert provider_row["warc_blob_hash"]
 
-        warc_ref = _blob_ref(receipt, "warc")
-        warc = project.read_blob(warc_ref["blob_hash"])
-        assert warc.count(b"WARC/1.0\r\n") == 3
-        assert b"WARC-Target-URI: https://example.test/rendered" in warc
-        assert b"Rendered Contract Story" in warc
-        assert b"PNGDATA" in warc
-        assert b"set-cookie" not in warc.lower()
-        assert b"authorization" not in warc.lower()
-        assert b"x-secret-token" not in warc.lower()
-        assert b"Bearer SECRET" not in warc
+    warc_ref = _blob_ref(receipt, "warc")
+    warc = project.read_blob(warc_ref["blob_hash"])
+    assert warc.count(b"WARC/1.0\r\n") == 3
+    assert b"WARC-Target-URI: https://example.test/rendered" in warc
+    assert b"Rendered Contract Story" in warc
+    assert b"PNGDATA" in warc
+    assert b"set-cookie" not in warc.lower()
+    assert b"authorization" not in warc.lower()
+    assert b"x-secret-token" not in warc.lower()
+    assert b"Bearer SECRET" not in warc
 
-        cell_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=url_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert cell_evidence["links"][0]["artifact_count"] == 2
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=url_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert cell_evidence["links"][0]["artifact_count"] == 2
 
-        after_first = _counts(
-            project,
-            (
-                "columns",
-                "ops",
-                "receipts",
-                "blobs",
-                "edits",
-                "source_artifacts",
-                "source_spans",
-                "citations",
-            ),
-        )
-        assert after_first["columns"] == before["columns"] + 1
-        assert after_first["blobs"] == before["blobs"] + 2
-        assert after_first["source_artifacts"] == before["source_artifacts"] + 2
-        assert after_first["source_spans"] == before["source_spans"] + 2
+    after_first = _counts(
+        project,
+        (
+            "columns",
+            "ops",
+            "receipts",
+            "blobs",
+            "edits",
+            "source_artifacts",
+            "source_spans",
+            "citations",
+        ),
+    )
+    assert after_first["columns"] == before["columns"] + 1
+    assert after_first["blobs"] == before["blobs"] + 2
+    assert after_first["source_artifacts"] == before["source_artifacts"] + 2
+    assert after_first["source_spans"] == before["source_spans"] + 2
 
-        replay = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                url_capture_browser=lambda *args, **kwargs: (_ for _ in ()).throw(
-                    AssertionError("browser must not run during replay")
-                )
-            ),
-        )
-        assert replay.status == "completed"
-        assert calls == [(STORY_URL, 25_000, 2345, True, False)]
-    finally:
-        project.close()
+    replay = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            url_capture_browser=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("browser must not run during replay")
+            )
+        ),
+    )
+    assert replay.status == "completed"
+    assert calls == [(STORY_URL, 25_000, 2345, True, False)]

@@ -383,18 +383,18 @@ describe('project evidence generated HTTP reads', () => {
 
     const errorPayload = {
       schema_version: 'frisket.action_error.v1',
-      code: 'evidence_not_found',
-      message: 'Evidence link is missing',
+      code: 'citation_not_found',
+      message: 'Citation is missing',
       field: null,
-      details: { evidence_link_id: 'missing' },
+      details: { citation_id: 'missing' },
     };
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(errorPayload, 404)));
     await expect(projectApi.getCitationViewer('missing')).rejects.toMatchObject({
       name: 'ApiError',
       status: 404,
-      message: 'Evidence link is missing',
-      code: 'evidence_not_found',
-      details: { evidence_link_id: 'missing' },
+      message: 'Citation is missing',
+      code: 'citation_not_found',
+      details: { citation_id: 'missing' },
     });
 
     const projectError = {

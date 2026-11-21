@@ -17,7 +17,6 @@ import zipfile
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from frisket.engine.executor import run_action_spec
 
 HTML = (
@@ -28,8 +27,8 @@ HTML = (
 )
 
 
-def _project(tmp_path, rows, coltype="text"):
-    p = Project.create(tmp_path / "t.frisket", name="t")
+def _project(make_project, rows, coltype="text"):
+    p = make_project("t")
     sheet = p.add_sheet("data")
     cols = {k: p.add_column(sheet, k, type=coltype) for k in rows[0]}
     p.add_rows(sheet, rows, cols)
@@ -135,10 +134,10 @@ def _make_pdf(path, text="Audit Findings 2026"):
     return path
 
 
-def test_convert_inline_html_light_engine(tmp_path):
+def test_convert_inline_html_light_engine(make_project):
     """Raw HTML held in a text cell converts to markdown with structure
     preserved, and the generated column is format='markdown'."""
-    p, sheet = _project(tmp_path, [{"doc": HTML}])
+    p, sheet = _project(make_project, [{"doc": HTML}])
     prog = _run(p, _spec(sheet, engine="markitdown"))
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "markdown")
@@ -150,47 +149,43 @@ def test_convert_inline_html_light_engine(tmp_path):
     # ocr_used is a sidecar-contract field; markitdown never OCRs,
     # so no provenance column appears
     assert not any(c["name"] == "ocr_used" for c in p.columns(sheet))
-    p.close()
 
 
-def test_convert_docx_file_path(tmp_path):
+def test_convert_docx_file_path(tmp_path, make_project):
     """A docx on disk converts offline — heading becomes an h1. Pins the
     path-probe's ALLOWED case: a bare path string in a media-typed ('file')
     column resolves to the file on trusted deploys."""
     docx = _make_docx(tmp_path / "memo.docx")
-    p, sheet = _project(tmp_path, [{"doc": str(docx)}], coltype="file")
+    p, sheet = _project(make_project, [{"doc": str(docx)}], coltype="file")
     prog = _run(p, _spec(sheet))  # markitdown is the default engine
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "markdown")
     assert "# Budget Memo" in text
     assert "Spending rose sharply." in text
-    p.close()
 
 
-def test_convert_text_pdf(tmp_path):
+def test_convert_text_pdf(tmp_path, make_project):
     """A text-layer PDF converts via markitdown (no OCR/ML)."""
     pdf = _make_pdf(tmp_path / "audit.pdf")
-    p, sheet = _project(tmp_path, [{"doc": str(pdf)}], coltype="file")
+    p, sheet = _project(make_project, [{"doc": str(pdf)}], coltype="file")
     prog = _run(p, _spec(sheet, engine="markitdown"))
     assert prog.status == "completed", prog.errors
     assert "Audit Findings 2026" in _col_value(p, sheet, "markdown")
-    p.close()
 
 
-def test_convert_text_column_path_is_content_not_file(tmp_path):
+def test_convert_text_column_path_is_content_not_file(tmp_path, make_project):
     """The path probe is gated on media-typed columns: a
     TEXT cell whose value happens to name a real file on disk is inline
     content to convert, not a file reference — otherwise any single-line
     text cell could read arbitrary server files on trusted deploys."""
     secret = tmp_path / "secret.html"
     secret.write_text("<html><body><p>TOPSECRET payroll</p></body></html>")
-    p, sheet = _project(tmp_path, [{"doc": str(secret)}], coltype="text")
+    p, sheet = _project(make_project, [{"doc": str(secret)}], coltype="text")
     prog = _run(p, _spec(sheet))
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "markdown")
     assert "TOPSECRET" not in text  # file never read
     assert str(secret) in text  # the cell's literal value converted as text
-    p.close()
 
 
 def test_convert_blob_input_gets_mime_extension(tmp_path, make_project):
@@ -206,39 +201,32 @@ def test_convert_blob_input_gets_mime_extension(tmp_path, make_project):
     prog = _run(p, _spec(sheet, output_name="doc_md"))
     assert prog.status == "completed", prog.errors
     assert "# Budget Memo" in _col_value(p, sheet, "doc_md")
-    p.close()
 
 
-def test_convert_unknown_engine_refuses_the_run(tmp_path):
-    p, sheet = _project(tmp_path, [{"doc": HTML}])
-    try:
-        spec = _spec(sheet, engine="nonsense")
-        result = _run(p, spec)
-        if result.status == "needs_confirmation":
-            result = _run(
-                p,
-                {**spec, "confirmation": result.errors[0].details["promise_set_hash"]},
-            )
-        assert result.status == "failed", result.errors
-        assert "nonsense" in str(result.errors)
-        assert not any(c["name"] == "markdown" for c in p.columns(sheet))
-    finally:
-        p.close()
+def test_convert_unknown_engine_refuses_the_run(make_project):
+    p, sheet = _project(make_project, [{"doc": HTML}])
+    spec = _spec(sheet, engine="nonsense")
+    result = _run(p, spec)
+    if result.status == "needs_confirmation":
+        result = _run(
+            p,
+            {**spec, "confirmation": result.errors[0].details["promise_set_hash"]},
+        )
+    assert result.status == "failed", result.errors
+    assert "nonsense" in str(result.errors)
+    assert not any(c["name"] == "markdown" for c in p.columns(sheet))
 
 
-def test_convert_docling_needs_sidecar_url(tmp_path, monkeypatch):
+def test_convert_docling_needs_sidecar_url(make_project, monkeypatch):
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
-    p, sheet = _project(tmp_path, [{"doc": HTML}])
-    try:
-        result = _run(p, _spec(sheet, engine="docling"))
-        assert result.status == "failed", result.errors
-        assert "FRISKET_MODELS_URL" in str(result.errors)
-        assert not any(c["name"] == "markdown" for c in p.columns(sheet))
-    finally:
-        p.close()
+    p, sheet = _project(make_project, [{"doc": HTML}])
+    result = _run(p, _spec(sheet, engine="docling"))
+    assert result.status == "failed", result.errors
+    assert "FRISKET_MODELS_URL" in str(result.errors)
+    assert not any(c["name"] == "markdown" for c in p.columns(sheet))
 
 
-def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, monkeypatch):
+def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, make_project, monkeypatch):
     """engine='docling' speaks the settled sidecar contract:
     POST /to-markdown with multipart blob bytes + bearer token. The sidecar
     egresses to the operator's own LAN service, but the known-free route
@@ -254,7 +242,7 @@ def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
 
     pdf = _make_pdf(tmp_path / "scan.pdf")
-    p, sheet = _project(tmp_path, [{"doc": str(pdf)}], coltype="file")
+    p, sheet = _project(make_project, [{"doc": str(pdf)}], coltype="file")
     prog = _run(p, _spec(sheet, engine="docling"), HttpClientRouter(http))
     assert prog.status == "completed", prog.errors
     assert captured["url"] == "http://models:9000/to-markdown"
@@ -269,7 +257,6 @@ def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, monkeypatch):
     assert _col_value(p, sheet, "markdown") == "# From Sidecar"
     assert _col_value(p, sheet, "ocr_used") == [True, False]
     assert _col(p, sheet, "ocr_used")["type"] == "json"
-    p.close()
 
 
 def test_convert_listed_in_action_catalog(tmp_path):
@@ -302,7 +289,7 @@ def test_convert_listed_in_action_catalog(tmp_path):
     assert "convert_markdown" not in entries
 
 
-def test_convert_markdown_kind_is_retired_vocabulary(tmp_path):
+def test_convert_markdown_kind_is_retired_vocabulary(make_project):
     """Specs saved before the rename said recipe='convert_markdown'; the
     open-time bundle migration rewrites them, and the registry refuses the
     retired spelling outright."""
@@ -311,10 +298,9 @@ def test_convert_markdown_kind_is_retired_vocabulary(tmp_path):
     with pytest.raises(ValueError, match="not canonical"):
         get_action_program("convert_markdown")
 
-    p, sheet = _project(tmp_path, [{"doc": HTML}])
+    p, sheet = _project(make_project, [{"doc": HTML}])
     spec = _spec(sheet, engine="markitdown")
     assert spec["action_id"] == "media.to_markdown"
     prog = _run(p, spec)
     assert prog.status == "completed", prog.errors
     assert "# Quarterly Report" in _col_value(p, sheet, "markdown")
-    p.close()

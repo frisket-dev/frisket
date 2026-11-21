@@ -1,6 +1,7 @@
 """Typed refresh authoring, admission, and atomicity beyond the builtin handler."""
 
 from __future__ import annotations
+from contextlib import closing
 
 import asyncio
 import json
@@ -93,33 +94,30 @@ def test_refresh_contract_is_semantic_and_conditionally_confirmable():
         RefreshParams(sheet_id=1, confirmed=True)
 
 
-def test_derived_argument_and_mutated_return_cannot_forge_refresh_receipt(tmp_path):
-    project, _, _, child_id, _ = _build(tmp_path)
-    try:
-        bound = _bound(
-            _derived_refresh,
-            {
-                "reference": f"sheet:{child_id - 1}",
-                "offset": 1,
-            },
-        )
-        result = run_typed_sheet_refresh_action(project, "p-ref", bound)
-        assert result.status == "completed", result.errors
-        assert result.action.kind == "custom.refresh"
-        assert result.outputs[0].sheet_id == child_id
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()[0]
-        )
-        assert receipt["inputs"][0]["ref"]["sheet_id"] == child_id
-        assert receipt["evidence"][0]["ref"]["refreshed_row_count"] == 3
-        snapshot = _snapshot(project)
-        replay = run_typed_sheet_refresh_action(project, "p-ref", bound)
-        assert replay.receipt_id == result.receipt_id
-        assert _snapshot(project) == snapshot
-    finally:
-        project.close()
+def test_derived_argument_and_mutated_return_cannot_forge_refresh_receipt(make_project):
+    project, _, _, child_id, _ = _build(make_project)
+    bound = _bound(
+        _derived_refresh,
+        {
+            "reference": f"sheet:{child_id - 1}",
+            "offset": 1,
+        },
+    )
+    result = run_typed_sheet_refresh_action(project, "p-ref", bound)
+    assert result.status == "completed", result.errors
+    assert result.action.kind == "custom.refresh"
+    assert result.outputs[0].sheet_id == child_id
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()[0]
+    )
+    assert receipt["inputs"][0]["ref"]["sheet_id"] == child_id
+    assert receipt["evidence"][0]["ref"]["refreshed_row_count"] == 3
+    snapshot = _snapshot(project)
+    replay = run_typed_sheet_refresh_action(project, "p-ref", bound)
+    assert replay.receipt_id == result.receipt_id
+    assert _snapshot(project) == snapshot
 
 
 @pytest.mark.parametrize("failure", ["runtime_error", "wrong_return", "second_call"])
@@ -133,7 +131,7 @@ def test_post_call_failure_rolls_back_the_complete_refresh(
     else:
         seeded = _seed_join(tmp_path / "join.frisket")
         project, child_id = seeded["project"], seeded["child_id"]
-    try:
+    with closing(project):
 
         def handler(params: _DerivedParams, sheets: SheetRefresher) -> RefreshedSheet:
             refreshed = sheets.refresh(int(params.reference))
@@ -153,53 +151,48 @@ def test_post_call_failure_rolls_back_the_complete_refresh(
             assert "private" not in failed.errors[0].message
             assert "private post-handler detail" not in caplog.text
             assert _snapshot(project) == before
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize(
     "interruption", [KeyboardInterrupt, SystemExit, asyncio.CancelledError]
 )
 def test_post_refresh_cancellation_rolls_back_and_closes_transaction(
-    tmp_path, interruption
+    make_project, interruption
 ):
-    project, _, _, child_id, _ = _build(tmp_path)
-    try:
+    project, _, _, child_id, _ = _build(make_project)
 
-        def handler(params: _DerivedParams, sheets: SheetRefresher) -> RefreshedSheet:
-            sheets.refresh(int(params.reference))
-            raise interruption("interrupted after refresh")
+    def handler(params: _DerivedParams, sheets: SheetRefresher) -> RefreshedSheet:
+        sheets.refresh(int(params.reference))
+        raise interruption("interrupted after refresh")
 
-        bound = _bound(handler, {"reference": str(child_id)})
-        before = _snapshot(project)
-        cursor_before = project.op_cursor
-        with pytest.raises(interruption, match="interrupted after refresh"):
-            run_typed_sheet_refresh_action(project, "p-ref", bound)
-        observed = {
-            "transaction_open": project.db.in_transaction,
-            "database_unchanged": _snapshot(project) == before,
-            "cursor_before": cursor_before,
-            "cursor_after": project.op_cursor,
-        }
-        assert not project.db.in_transaction, observed
-        assert _snapshot(project) == before
-        # A caller's later commit must not publish the interrupted refresh.
-        project.db.commit()
-        assert _snapshot(project) == before
-    finally:
-        project.close()
+    bound = _bound(handler, {"reference": str(child_id)})
+    before = _snapshot(project)
+    cursor_before = project.op_cursor
+    with pytest.raises(interruption, match="interrupted after refresh"):
+        run_typed_sheet_refresh_action(project, "p-ref", bound)
+    observed = {
+        "transaction_open": project.db.in_transaction,
+        "database_unchanged": _snapshot(project) == before,
+        "cursor_before": cursor_before,
+        "cursor_after": project.op_cursor,
+    }
+    assert not project.db.in_transaction, observed
+    assert _snapshot(project) == before
+    # A caller's later commit must not publish the interrupted refresh.
+    project.db.commit()
+    assert _snapshot(project) == before
 
 
 def test_join_receipt_reservation_failure_prevents_publication(tmp_path, monkeypatch):
     seeded = _seed_join(tmp_path / "join.frisket")
     project, child_id = seeded["project"], seeded["child_id"]
-    try:
+    with closing(project):
         before = _snapshot(project)
 
         def fail_receipt(*args, **kwargs):
             raise RuntimeError("receipt unavailable")
 
-        monkeypatch.setattr(ReceiptStore, "insert_running", fail_receipt)
+        monkeypatch.setattr(ReceiptStore, "insert_running_in_transaction", fail_receipt)
         failed = run_typed_sheet_refresh_action(
             project,
             "p-ref",
@@ -207,8 +200,6 @@ def test_join_receipt_reservation_failure_prevents_publication(tmp_path, monkeyp
         )
         assert failed.status == "failed"
         assert _snapshot(project) == before
-    finally:
-        project.close()
 
 
 def test_join_confirmation_is_current_refresh_target_and_input_bound(
@@ -216,7 +207,7 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
 ):
     seeded = _seed_join(tmp_path / "join.frisket")
     project, child_id = seeded["project"], seeded["child_id"]
-    try:
+    with closing(project):
         parent_op_id = project.db.execute(
             "SELECT parent_op_id FROM sheets WHERE id=?", (child_id,)
         ).fetchone()[0]
@@ -318,8 +309,6 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
         confirmed = refresh(stale.errors[0].details["promise_set_hash"])
         assert confirmed.status == "completed", confirmed.errors
         assert confirmed.outputs[0].sheet_id == child_id
-    finally:
-        project.close()
 
 
 def test_pending_join_source_cannot_retire_previous_matches(tmp_path):
@@ -329,7 +318,7 @@ def test_pending_join_source_cannot_retire_previous_matches(tmp_path):
 
     seeded = _seed_join(tmp_path / "pending-join")
     project, child = seeded["project"], seeded["child_id"]
-    try:
+    with closing(project):
         original = project.visible_row_ids(child)
         column = seeded["left_cols"]["state_fips"]
         run = _start_claimed_run(
@@ -358,5 +347,3 @@ def test_pending_join_source_cannot_retire_previous_matches(tmp_path):
             result.errors
         )
         assert project.visible_row_ids(child) == original
-    finally:
-        project.close()

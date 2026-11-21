@@ -118,8 +118,9 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
   });
 
   it('preserves Census geography, MOE, source and all saved output names', async () => {
-    const raw = catalog.actions.find((entry) => entry.kind === 'enrich.census_demographics')!;
-    const outputNames = Object.fromEntries(raw.ui_hints.logical_outputs!.map(({ key }) => [key, `saved_${key}`]));
+    const raw = catalog.actions.find((entry) => entry.kind === 'enrich.census_demographics');
+    if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing enrich.census_demographics');
+    const outputNames = Object.fromEntries(raw.ui_hints.logical_outputs.map(({ key }) => [key, `saved_${key}`]));
     const params = { source: 'point', geography: 'block_group', include_moe: true };
     const { execute } = renderForm('enrich.census_demographics', { initialDraft: {
       action_id: 'enrich.census_demographics', scope: { kind: 'sheet_rows', sheet_id: 7 },
@@ -173,9 +174,9 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
       params: { source: 'address', engine: 'opencage', include_lat_lon: false },
       output_names: { geo_point: 'location', formatted_address: 'normalized' },
     } }, [], { engines: [
-      ...(availability === 'unavailable' ? [{ id: 'opencage', label: 'OpenCage', tier: 'hosted' as const,
+      ...(availability === 'unavailable' ? [{ id: 'opencage', label: 'OpenCage', tier: 'remote' as const,
         available: false, error: 'Configure OPENCAGE_API_KEY.' }] : []),
-      { id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: true },
+      { id: 'nominatim', label: 'Nominatim', tier: 'remote', available: true },
     ] }, availability === 'missing-default' ? 'opencage' : undefined);
     // Wait for validation: an initially disabled button does not prove the
     // catalog availability gate survives successful parameter resolution.
@@ -196,7 +197,7 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
 
   it('keeps the admitted automatic default available without inventing a provider roster entry', async () => {
     const { execute } = renderForm('enrich.geocode', {}, [], {
-      engines: [{ id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: true }],
+      engines: [{ id: 'nominatim', label: 'Nominatim', tier: 'remote', available: true }],
     });
     await screen.findByTestId('field-output-geo_point');
     expect(selectorTrigger()).toHaveTextContent('Auto');
@@ -210,8 +211,8 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
       action_id: 'enrich.geocode', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { source: 'address' }, output_names: { geo_point: 'Saved point', formatted_address: 'Saved address' },
     } }, [], { engines: [
-      { id: 'nominatim', label: 'Nominatim', tier: 'hosted', available: false },
-      { id: 'opencage', label: 'OpenCage', tier: 'hosted', available: true },
+      { id: 'nominatim', label: 'Nominatim', tier: 'remote', available: false },
+      { id: 'opencage', label: 'OpenCage', tier: 'remote', available: true },
     ] });
     await screen.findByTestId('field-output-geo_point');
     expect(selectorTrigger()).toHaveTextContent('Auto');
@@ -223,7 +224,7 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
   it.each([
     { label: 'empty', engines: [] },
     { label: 'unavailable', engines: [
-      { id: 'nominatim', label: 'Nominatim', tier: 'hosted' as const, available: false },
+      { id: 'nominatim', label: 'Nominatim', tier: 'remote' as const, available: false },
     ] },
   ])('refuses auto when its execution engine roster is $label', async ({ engines }) => {
     const { execute } = renderForm('enrich.geocode', {}, [], { engines });

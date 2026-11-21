@@ -116,7 +116,6 @@ def test_accounting_failure_halts_without_automatic_repurchase_and_retains_usage
         assert len(calls) == 2
     finally:
         asyncio.run(router.aclose())
-        project.close()
 
 
 @pytest.mark.parametrize("engine", ["datalab", "docling"])
@@ -179,4 +178,3 @@ def test_native_document_accounting_failure_retains_one_returned_fact(
             assert facts[0]["provider_cost_usd"] == 0.03
     finally:
         asyncio.run(router.aclose())
-        project.close()

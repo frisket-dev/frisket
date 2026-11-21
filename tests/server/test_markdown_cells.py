@@ -11,8 +11,8 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
 from frisket.server.services.import_inference import _looks_markdown, sniff_markdown
+from helpers import make_client
 from http_test_helpers import (
     post_column_patch_as_v1_action,
     post_operation_redo_as_v1_action,
@@ -30,7 +30,7 @@ def _client(tmp_path) -> TestClient:
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
     )
-    return TestClient(create_app(tmp_path / "ws", router=router))
+    return make_client(tmp_path, router=router)
 
 
 def _import(client, pid: str, csv: str) -> int:

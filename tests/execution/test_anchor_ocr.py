@@ -119,8 +119,7 @@ class _NullRouter:
         return None
 
 
-def _ocr_project(tmp_path: Path) -> tuple[Project, int, int]:
-    project = Project.create(tmp_path / "ocr-anchor.frisket", name="ocr")
+def _ocr_project(project: Project) -> tuple[Project, int, int]:
     sheet_id = project.add_sheet("Scans")
     col = project.add_column(sheet_id, "page", type="image")
     blob = project.add_blob(
@@ -388,7 +387,7 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
 # ---------------------------------------------------------------------------
 
 
-def test_anchor_ocr_local_run_pays_no_rent(tmp_path, monkeypatch, rapidocr_stub):
+def test_anchor_ocr_local_run_pays_no_rent(make_project, monkeypatch, rapidocr_stub):
     """O1's rent bound, for OCR: the trivial local run pays one config read
     and one recorded route — no consent, no claims, no gate, and no probe of
     any venue but the one it resolved to.
@@ -400,87 +399,84 @@ def test_anchor_ocr_local_run_pays_no_rent(tmp_path, monkeypatch, rapidocr_stub)
     """
     for name in ("FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN", "DATALAB_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    project, sheet_id, row_id = _ocr_project(tmp_path)
-    try:
-        router = _NullRouter()
-        composition = open_execution_composition(
-            project, router, ExecutionCompositionContext.direct()
-        )
-        progress = run_action_spec(
-            project,
-            _request(sheet_id),
-            project_id="ocr-anchor",
-            router=router,
-            deps=ExecutorDeps(execution_composition=composition),
-        )
-        assert progress.status == "completed", progress.errors
-        assert rapidocr_stub == [("rapidocr", 1)]
+    project, sheet_id, row_id = _ocr_project(make_project("ocr"))
+    router = _NullRouter()
+    composition = open_execution_composition(
+        project, router, ExecutionCompositionContext.direct()
+    )
+    progress = run_action_spec(
+        project,
+        _request(sheet_id),
+        project_id="ocr-anchor",
+        router=router,
+        deps=ExecutorDeps(execution_composition=composition),
+    )
+    assert progress.status == "completed", progress.errors
+    assert rapidocr_stub == [("rapidocr", 1)]
 
-        # RENT BOUND: exactly the mapped target was ever probed, at every
-        # stage (resolution AND the claim-time binding deref).
-        probed = {
-            target
-            for provider in [composition.provider]
-            for target in provider.probe_counts
-        }
-        assert probed == {"local"}, probed
-        # At most one probe per phase; typed admission can reuse resolution.
-        # The static choice needs no probes, so nothing enumerates venues.
-        assert 1 <= composition.provider.probe_counts["local"] <= 2
+    # RENT BOUND: exactly the mapped target was ever probed, at every
+    # stage (resolution AND the claim-time binding deref).
+    probed = {
+        target
+        for provider in [composition.provider]
+        for target in provider.probe_counts
+    }
+    assert probed == {"local"}, probed
+    # At most one probe per phase; typed admission can reuse resolution.
+    # The static choice needs no probes, so nothing enumerates venues.
+    assert 1 <= composition.provider.probe_counts["local"] <= 2
 
-        run_id = progress.run_id
-        store = RouteStore.for_run(project, run_id)
-        assert len(_route_rows(project, run_id)) == 1
-        route, _head = store.head()
-        assert store.consents() == []  # no consent event ever happened
-        assert route.engine == "rapidocr"
-        assert route.operator == "self"
-        assert route.egress_class == "none"
-        assert route.credential_source == "local"
-        assert route.cost_posture == "operator_borne"
-        assert route.target_snapshot["target_id"] == "local"
-        assert route.target_snapshot["transport"] == "local"
-        # The capability rides the snapshot, which is what lets the run-start
-        # fence price this route without asking a recipe what it was.
-        assert route.target_snapshot["capability"] == "ocr"
+    run_id = progress.run_id
+    store = RouteStore.for_run(project, run_id)
+    assert len(_route_rows(project, run_id)) == 1
+    route, _head = store.head()
+    assert store.consents() == []  # no consent event ever happened
+    assert route.engine == "rapidocr"
+    assert route.operator == "self"
+    assert route.egress_class == "none"
+    assert route.credential_source == "local"
+    assert route.cost_posture == "operator_borne"
+    assert route.target_snapshot["target_id"] == "local"
+    assert route.target_snapshot["transport"] == "local"
+    # The capability rides the snapshot, which is what lets the run-start
+    # fence price this route without asking a recipe what it was.
+    assert route.target_snapshot["capability"] == "ocr"
 
-        # Zero user claims — no cost row at all (absence, not a claim of zero).
-        [promise_set] = store.promise_sets()
-        promises = [Promise.from_row(row) for row in promise_set.promises]
-        assert all(p.audience == "system_promise" for p in promises)
-        assert not any(p.field == "cost" for p in promises)
+    # Zero user claims — no cost row at all (absence, not a claim of zero).
+    [promise_set] = store.promise_sets()
+    promises = [Promise.from_row(row) for row in promise_set.promises]
+    assert all(p.audience == "system_promise" for p in promises)
+    assert not any(p.field == "cost" for p in promises)
 
-        # The text committed, and the fact carries route-derived fields with
-        # its epoch linked under the one-ledger invariant enforced for OCR by
-        # ``_ROUTED_FACT_CAPABILITIES``.
-        columns = {c["name"]: c for c in project.columns(sheet_id)}
-        assert (
-            project.get_values(
-                sheet_id, int(columns["ocr_text"]["id"]), row_ids=[row_id]
-            )[row_id]
-            == "hello from the scanner"
-        )
-        [fact] = RunResultStore(project).model_calls(run_id)
-        assert fact["capability"] == "ocr"
-        assert fact["engine"] == "rapidocr"
-        assert fact["provider"] == "local"
-        assert fact["provider_kind"] == "local_process"
-        assert fact["credential_source"] == "local"
-        assert fact["cost_source"] == "free_local"
-        assert fact["epoch_id"] is not None
-        epoch = project.db.execute(
-            "SELECT * FROM binding_epochs WHERE id=?", (fact["epoch_id"],)
-        ).fetchone()
-        assert epoch is not None and epoch["route_id"] == route.id
-        assert store.violations() == []
-    finally:
-        project.close()
+    # The text committed, and the fact carries route-derived fields with
+    # its epoch linked under the one-ledger invariant enforced for OCR by
+    # ``_ROUTED_FACT_CAPABILITIES``.
+    columns = {c["name"]: c for c in project.columns(sheet_id)}
+    assert (
+        project.get_values(sheet_id, int(columns["ocr_text"]["id"]), row_ids=[row_id])[
+            row_id
+        ]
+        == "hello from the scanner"
+    )
+    [fact] = RunResultStore(project).model_calls(run_id)
+    assert fact["capability"] == "ocr"
+    assert fact["engine"] == "rapidocr"
+    assert fact["provider"] == "local"
+    assert fact["provider_kind"] == "local_process"
+    assert fact["credential_source"] == "local"
+    assert fact["cost_source"] == "free_local"
+    assert fact["epoch_id"] is not None
+    epoch = project.db.execute(
+        "SELECT * FROM binding_epochs WHERE id=?", (fact["epoch_id"],)
+    ).fetchone()
+    assert epoch is not None and epoch["route_id"] == route.id
+    assert store.violations() == []
 
 
-def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
+def test_cloud_ocr_reserves_durable_request_before_transport(make_project):
     """The project-scoped Cloud key is bound after durable row reservation."""
 
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _NullRouter()
     engine = "datalab"
 
@@ -579,34 +575,31 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
         execution_composition=composition,
         consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
     )
-    try:
-        request = _confirmed_request(
-            project,
-            _request(sheet_id, engine=engine),
-            router=router,
-            deps=deps,
-        )
-        result = run_action_spec(
-            project,
-            request,
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-        assert result.status == "completed", result.errors
-        assert len(transport.calls) == 1
-        [call] = project.db.execute(
-            "SELECT id, provider, credential_source FROM model_calls"
-        ).fetchall()
-        assert call["id"] == "cloud-ocr-1"
-        assert call["provider"] == "anthropic"
-        assert call["credential_source"] == "platform_key"
-    finally:
-        project.close()
+    request = _confirmed_request(
+        project,
+        _request(sheet_id, engine=engine),
+        router=router,
+        deps=deps,
+    )
+    result = run_action_spec(
+        project,
+        request,
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+    assert result.status == "completed", result.errors
+    assert len(transport.calls) == 1
+    [call] = project.db.execute(
+        "SELECT id, provider, credential_source FROM model_calls"
+    ).fetchall()
+    assert call["id"] == "cloud-ocr-1"
+    assert call["provider"] == "anthropic"
+    assert call["credential_source"] == "platform_key"
 
 
 def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """Recovery replays once; a later intentional run makes a new purchase."""
 
@@ -614,7 +607,7 @@ def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
         "frisket.ops.ocr_engines_local._rapidocr_model_root_dir",
         lambda language=None: None,
     )
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _NullRouter()
     engine = "datalab"
 
@@ -710,124 +703,122 @@ def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
         execution_composition=composition,
         consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
     )
-    try:
-        first_action = {
-            **_request(sheet_id, engine=engine),
-            "idempotency_key": "ocr-lost-response-1",
-        }
-        first = run_action_spec(
-            project,
-            _confirmed_request(project, first_action, router=router, deps=deps),
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-        assert first.status == "failed", first.errors
-        unresolved = project.db.execute(
-            "SELECT id, group_key, authorized_attempt_id "
-            "FROM effect_checkpoints WHERE family='row_effect' AND state='reserved'"
-        ).fetchone()
-        assert unresolved is not None
-        source_attempt_id = str(unresolved["authorized_attempt_id"])
-        project.db.execute(
-            "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-            (source_attempt_id,),
-        )
-        project.db.execute(
-            "UPDATE runs SET current_attempt_id=? WHERE id=?",
-            (source_attempt_id, int(unresolved["group_key"])),
-        )
-        project.db.commit()
+    first_action = {
+        **_request(sheet_id, engine=engine),
+        "idempotency_key": "ocr-lost-response-1",
+    }
+    first = run_action_spec(
+        project,
+        _confirmed_request(project, first_action, router=router, deps=deps),
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+    assert first.status == "failed", first.errors
+    unresolved = project.db.execute(
+        "SELECT id, group_key, authorized_attempt_id "
+        "FROM effect_checkpoints WHERE family='row_effect' AND state='reserved'"
+    ).fetchone()
+    assert unresolved is not None
+    source_attempt_id = str(unresolved["authorized_attempt_id"])
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (source_attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (source_attempt_id, int(unresolved["group_key"])),
+    )
+    project.db.commit()
 
-        competing = run_action_spec(
-            project,
-            {
-                **_request(sheet_id, engine=engine),
-                "idempotency_key": "ocr-competing-live-owner",
-                "output_names": {
-                    "text": "ocr_text_competing",
-                    "blocks": "ocr_text_blocks_competing",
-                },
+    competing = run_action_spec(
+        project,
+        {
+            **_request(sheet_id, engine=engine),
+            "idempotency_key": "ocr-competing-live-owner",
+            "output_names": {
+                "text": "ocr_text_competing",
+                "blocks": "ocr_text_blocks_competing",
             },
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-        assert competing.status == "failed", competing.errors
-        assert len(transport.calls) == 1
-        remaining = project.db.execute(
-            "SELECT id, group_key FROM effect_checkpoints "
+        },
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+    assert competing.status == "failed", competing.errors
+    assert len(transport.calls) == 1
+    remaining = project.db.execute(
+        "SELECT id, group_key FROM effect_checkpoints "
+        "WHERE family='row_effect' AND state='reserved'"
+    ).fetchall()
+    assert [tuple(row) for row in remaining] == [
+        (unresolved["id"], unresolved["group_key"])
+    ]
+
+    project.db.execute(
+        "UPDATE execution_attempts SET state='halted' WHERE id=?",
+        (source_attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
+        (int(unresolved["group_key"]),),
+    )
+    project.db.commit()
+    second_action = {
+        **_request(sheet_id, engine=engine),
+        "idempotency_key": "ocr-lost-response-2",
+        "output_names": {
+            "text": "ocr_text_recovered",
+            "blocks": "ocr_text_blocks_recovered",
+        },
+    }
+    second = run_action_spec(
+        project,
+        second_action,
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+
+    assert second.status == "completed", second.errors
+    assert transport.calls[0] == transport.calls[1]
+    assert len(transport.purchases) == 1
+
+    third_action = {
+        **_request(sheet_id, engine=engine),
+        "idempotency_key": "ocr-intentional-third-run",
+        "output_names": {
+            "text": "ocr_text_third",
+            "blocks": "ocr_text_blocks_third",
+        },
+    }
+    third = run_action_spec(
+        project,
+        third_action,
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+
+    assert third.status == "completed", third.errors
+    assert transport.calls[2] != transport.calls[1]
+    assert len(transport.purchases) == 2
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
             "WHERE family='row_effect' AND state='reserved'"
-        ).fetchall()
-        assert [tuple(row) for row in remaining] == [
-            (unresolved["id"], unresolved["group_key"])
-        ]
-
-        project.db.execute(
-            "UPDATE execution_attempts SET state='halted' WHERE id=?",
-            (source_attempt_id,),
-        )
-        project.db.execute(
-            "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
-            (int(unresolved["group_key"]),),
-        )
-        project.db.commit()
-        second_action = {
-            **_request(sheet_id, engine=engine),
-            "idempotency_key": "ocr-lost-response-2",
-            "output_names": {
-                "text": "ocr_text_recovered",
-                "blocks": "ocr_text_blocks_recovered",
-            },
-        }
-        second = run_action_spec(
-            project,
-            second_action,
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-
-        assert second.status == "completed", second.errors
-        assert transport.calls[0] == transport.calls[1]
-        assert len(transport.purchases) == 1
-
-        third_action = {
-            **_request(sheet_id, engine=engine),
-            "idempotency_key": "ocr-intentional-third-run",
-            "output_names": {
-                "text": "ocr_text_third",
-                "blocks": "ocr_text_blocks_third",
-            },
-        }
-        third = run_action_spec(
-            project,
-            third_action,
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-
-        assert third.status == "completed", third.errors
-        assert transport.calls[2] != transport.calls[1]
-        assert len(transport.purchases) == 2
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND state='reserved'"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_cloud_ocr_terminal_failure_records_charge_and_allows_fresh_purchase(
+    make_project,
     tmp_path,
 ):
     """A known charged failure is accounted and does not trap a later intent."""
 
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _NullRouter()
     request_ids: list[str] = []
 
@@ -866,62 +857,59 @@ def test_cloud_ocr_terminal_failure_records_charge_and_allows_fresh_purchase(
         execution_composition=composition,
         consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
     )
-    try:
-        first_action = {
-            **_request(sheet_id, engine="datalab"),
-            "idempotency_key": "ocr-terminal-failure-1",
-        }
-        first = run_action_spec(
-            project,
-            _confirmed_request(project, first_action, router=router, deps=deps),
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-        assert first.status == "failed", first.errors
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect'"
-            ).fetchone()[0]
-            == 0
-        )
+    first_action = {
+        **_request(sheet_id, engine="datalab"),
+        "idempotency_key": "ocr-terminal-failure-1",
+    }
+    first = run_action_spec(
+        project,
+        _confirmed_request(project, first_action, router=router, deps=deps),
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+    assert first.status == "failed", first.errors
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect'"
+        ).fetchone()[0]
+        == 0
+    )
 
-        second_action = {
-            **_request(sheet_id, engine="datalab"),
-            "idempotency_key": "ocr-terminal-failure-2",
-            "output_names": {
-                "text": "ocr_text_retry",
-                "blocks": "ocr_text_blocks_retry",
-            },
-        }
-        second = run_action_spec(
-            project,
-            second_action,
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
+    second_action = {
+        **_request(sheet_id, engine="datalab"),
+        "idempotency_key": "ocr-terminal-failure-2",
+        "output_names": {
+            "text": "ocr_text_retry",
+            "blocks": "ocr_text_blocks_retry",
+        },
+    }
+    second = run_action_spec(
+        project,
+        second_action,
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
 
-        assert second.status == "failed", second.errors
-        assert len(request_ids) == 2
-        assert request_ids[0] != request_ids[1]
-        calls = project.db.execute(
-            "SELECT id, provider_cost_usd, units FROM model_calls ORDER BY id"
-        ).fetchall()
-        assert [call["id"] for call in calls] == ["cloud-failed-1", "cloud-failed-2"]
-        assert [call["provider_cost_usd"] for call in calls] == [0.002, 0.002]
-        assert [json.loads(call["units"])["cloud_charge_micro"] for call in calls] == [
-            2_500,
-            2_500,
-        ]
-    finally:
-        project.close()
+    assert second.status == "failed", second.errors
+    assert len(request_ids) == 2
+    assert request_ids[0] != request_ids[1]
+    calls = project.db.execute(
+        "SELECT id, provider_cost_usd, units FROM model_calls ORDER BY id"
+    ).fetchall()
+    assert [call["id"] for call in calls] == ["cloud-failed-1", "cloud-failed-2"]
+    assert [call["provider_cost_usd"] for call in calls] == [0.002, 0.002]
+    assert [json.loads(call["units"])["cloud_charge_micro"] for call in calls] == [
+        2_500,
+        2_500,
+    ]
 
 
-def test_cloud_ocr_reconciliation_reuses_durable_purchase_key(tmp_path):
+def test_cloud_ocr_reconciliation_reuses_durable_purchase_key(make_project, tmp_path):
     """An unresolved Cloud terminal state keeps the same key on a fresh run."""
 
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _NullRouter()
     request_ids: list[str] = []
 
@@ -950,46 +938,43 @@ def test_cloud_ocr_reconciliation_reuses_durable_purchase_key(tmp_path):
         execution_composition=composition,
         consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
     )
-    try:
-        first_action = {
-            **_request(sheet_id, engine="datalab"),
-            "idempotency_key": "ocr-reconciliation-1",
-        }
-        first = run_action_spec(
-            project,
-            _confirmed_request(project, first_action, router=router, deps=deps),
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
-        assert first.status == "failed", first.errors
+    first_action = {
+        **_request(sheet_id, engine="datalab"),
+        "idempotency_key": "ocr-reconciliation-1",
+    }
+    first = run_action_spec(
+        project,
+        _confirmed_request(project, first_action, router=router, deps=deps),
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
+    assert first.status == "failed", first.errors
 
-        second_action = {
-            **_request(sheet_id, engine="datalab"),
-            "idempotency_key": "ocr-reconciliation-2",
-            "output_names": {
-                "text": "ocr_text_reconciled",
-                "blocks": "ocr_text_blocks_reconciled",
-            },
-        }
-        second = run_action_spec(
-            project,
-            second_action,
-            project_id="cloud-ocr-anchor",
-            router=router,
-            deps=deps,
-        )
+    second_action = {
+        **_request(sheet_id, engine="datalab"),
+        "idempotency_key": "ocr-reconciliation-2",
+        "output_names": {
+            "text": "ocr_text_reconciled",
+            "blocks": "ocr_text_blocks_reconciled",
+        },
+    }
+    second = run_action_spec(
+        project,
+        second_action,
+        project_id="cloud-ocr-anchor",
+        router=router,
+        deps=deps,
+    )
 
-        assert second.status == "failed", second.errors
-        assert len(request_ids) == 2
-        assert request_ids[0] == request_ids[1]
-        states = project.db.execute(
-            "SELECT state FROM effect_checkpoints WHERE family='row_effect'"
-        ).fetchall()
-        assert states and {row["state"] for row in states} == {"reserved"}
-        assert project.db.execute("SELECT 1 FROM model_calls").fetchone() is None
-    finally:
-        project.close()
+    assert second.status == "failed", second.errors
+    assert len(request_ids) == 2
+    assert request_ids[0] == request_ids[1]
+    states = project.db.execute(
+        "SELECT state FROM effect_checkpoints WHERE family='row_effect'"
+    ).fetchall()
+    assert states and {row["state"] for row in states} == {"reserved"}
+    assert project.db.execute("SELECT 1 FROM model_calls").fetchone() is None
 
 
 # ---------------------------------------------------------------------------
@@ -1015,7 +1000,7 @@ def _datalab_stub(monkeypatch):
 
 
 def test_anchor_ocr_hosted_run_compiles_both_claims_gates_and_binds(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """A hosted (Datalab) OCR run behaves like a hosted transcription run end
     to end: it compiles BOTH a per-page cost claim and an egress claim, the
@@ -1031,86 +1016,83 @@ def test_anchor_ocr_hosted_run_compiles_both_claims_gates_and_binds(
     because the book has a page rate for it.
     """
     monkeypatch.setenv("DATALAB_API_KEY", "env-key")
-    project, sheet_id, row_id = _ocr_project(tmp_path)
+    project, sheet_id, row_id = _ocr_project(make_project("ocr"))
     router = _datalab_stub(monkeypatch)
-    try:
-        spec = _request(sheet_id, engine="datalab")
+    spec = _request(sheet_id, engine="datalab")
 
-        # (1) Pin this consent-mechanics anchor to an explicit zero threshold:
-        # both cost and egress gate before anything runs. Default under-limit
-        # allowance is covered separately; this test needs the exact-confirm
-        # path in order to inspect its durable worker proof below.
-        deps = ExecutorDeps(
-            consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
-        )
-        gate = run_action_spec(
-            project, spec, router=router, deps=deps, project_id="ocr-anchor"
-        )
-        assert gate.status == "needs_confirmation", gate.errors
-        details = gate.errors[0].details
-        fields = {claim["field"] for claim in details["claims"]}
-        assert fields == {"cost", "egress_class"}, details
-        egress = next(c for c in details["claims"] if c["field"] == "egress_class")
-        assert "third-party API" in egress["display"]
-        assert details["promise_set_hash"]
+    # (1) Pin this consent-mechanics anchor to an explicit zero threshold:
+    # both cost and egress gate before anything runs. Default under-limit
+    # allowance is covered separately; this test needs the exact-confirm
+    # path in order to inspect its durable worker proof below.
+    deps = ExecutorDeps(
+        consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
+    )
+    gate = run_action_spec(
+        project, spec, router=router, deps=deps, project_id="ocr-anchor"
+    )
+    assert gate.status == "needs_confirmation", gate.errors
+    details = gate.errors[0].details
+    fields = {claim["field"] for claim in details["claims"]}
+    assert fields == {"cost", "egress_class"}, details
+    egress = next(c for c in details["claims"] if c["field"] == "egress_class")
+    assert "third-party API" in egress["display"]
+    assert details["promise_set_hash"]
 
-        # (2) the confirmed launch runs, and its consent is recorded.
-        progress = run_action_spec(
-            project,
-            {**spec, "confirmation": details["promise_set_hash"]},
-            router=router,
-            deps=deps,
-            project_id="ocr-anchor",
-        )
-        assert progress.status == "completed", progress.errors
-        run_id = progress.run_id
-        store = RouteStore.for_run(project, run_id)
-        route, head_set = store.head()
-        [consent] = store.consents()
-        assert consent.promise_set_hash == head_set.promise_set_hash
-        assert route.target_snapshot["target_id"] == "datalab"
-        assert route.egress_class == "third_party_api"
-        assert route.operator == "datalab"
+    # (2) the confirmed launch runs, and its consent is recorded.
+    progress = run_action_spec(
+        project,
+        {**spec, "confirmation": details["promise_set_hash"]},
+        router=router,
+        deps=deps,
+        project_id="ocr-anchor",
+    )
+    assert progress.status == "completed", progress.errors
+    run_id = progress.run_id
+    store = RouteStore.for_run(project, run_id)
+    route, head_set = store.head()
+    [consent] = store.consents()
+    assert consent.promise_set_hash == head_set.promise_set_hash
+    assert route.target_snapshot["target_id"] == "datalab"
+    assert route.egress_class == "third_party_api"
+    assert route.operator == "datalab"
 
-        # Ordinary work retains its per-page pricing basis without making
-        # the pre-run estimate an enforceable quantity or spending ceiling.
-        promises = [Promise.from_row(row) for row in head_set.promises]
-        [cost] = [p for p in promises if p.field == "cost"]
-        assert cost.op == "unbounded"
-        assert cost.basis["ceiling_mode"] == "none"
-        assert cost.basis["unit_rate"] == "0.01"
-        assert cost.basis["quantity_unit"] == "page"
-        assert cost.basis["pricing_key"] == "datalab.ocr.page"
-        assert cost.basis["estimated_quantity"] == "1"
-        assert cost.audience == "user_claim"
+    # Ordinary work retains its per-page pricing basis without making
+    # the pre-run estimate an enforceable quantity or spending ceiling.
+    promises = [Promise.from_row(row) for row in head_set.promises]
+    [cost] = [p for p in promises if p.field == "cost"]
+    assert cost.op == "unbounded"
+    assert cost.basis["ceiling_mode"] == "none"
+    assert cost.basis["unit_rate"] == "0.01"
+    assert cost.basis["quantity_unit"] == "page"
+    assert cost.basis["pricing_key"] == "datalab.ocr.page"
+    assert cost.basis["estimated_quantity"] == "1"
+    assert cost.audience == "user_claim"
 
-        # (3) the fact is bound to the route, priced, and epoch-linked.
-        [fact] = RunResultStore(project).model_calls(run_id)
-        assert fact["capability"] == "ocr"
-        assert fact["provider"] == "datalab"
-        assert fact["provider_kind"] == "platform_api"
-        assert fact["epoch_id"] is not None
-        assert json.loads(fact["units"])["pages"] == 1
-        assert store.violations() == []
+    # (3) the fact is bound to the route, priced, and epoch-linked.
+    [fact] = RunResultStore(project).model_calls(run_id)
+    assert fact["capability"] == "ocr"
+    assert fact["provider"] == "datalab"
+    assert fact["provider_kind"] == "platform_api"
+    assert fact["epoch_id"] is not None
+    assert json.loads(fact["units"])["pages"] == 1
+    assert store.violations() == []
 
-        # (4) "what did it cost" answers for OCR through the SAME settlement
-        # join: the attempt's pinned basis rated against the pages its own
-        # model calls metered. One page at the card-pinned per-page rate.
-        from frisket.execution.attempt import run_attempt_receipts
+    # (4) "what did it cost" answers for OCR through the SAME settlement
+    # join: the attempt's pinned basis rated against the pages its own
+    # model calls metered. One page at the card-pinned per-page rate.
+    from frisket.execution.attempt import run_attempt_receipts
 
-        [receipt] = run_attempt_receipts(project, run_id)
-        settlement = receipt["settlement"]
-        assert settlement["pricing_key"] == "datalab.ocr.page"
-        assert settlement["metered_unit"] == "pages"
-        assert settlement["metered_quantity"] == "1"
-        assert settlement["rated_calls"] == 1
-        assert settlement["charge_usd"] == "0.01"
-    finally:
-        project.close()
+    [receipt] = run_attempt_receipts(project, run_id)
+    settlement = receipt["settlement"]
+    assert settlement["pricing_key"] == "datalab.ocr.page"
+    assert settlement["metered_unit"] == "pages"
+    assert settlement["metered_quantity"] == "1"
+    assert settlement["rated_calls"] == 1
+    assert settlement["charge_usd"] == "0.01"
 
 
 def test_anchor_ocr_accepted_job_finishes_accounting_after_cancellation(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """Provider acceptance outranks the later cancellation fence.
 
@@ -1119,7 +1101,7 @@ def test_anchor_ocr_accepted_job_finishes_accounting_after_cancellation(
     purchase. Returned usage remains attempt-owned even when publication stops.
     """
     monkeypatch.setenv("DATALAB_API_KEY", "env-key")
-    project, sheet_id, row_id = _ocr_project(tmp_path)
+    project, sheet_id, row_id = _ocr_project(make_project("ocr"))
     submit = json.loads((DATALAB_FIXTURES / "ocr_submit.json").read_text())
     complete = json.loads((DATALAB_FIXTURES / "ocr_complete.json").read_text())
     cancelled = False
@@ -1138,52 +1120,49 @@ def test_anchor_ocr_accepted_job_finishes_accounting_after_cancellation(
         httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
 
-    try:
-        router = stub_router
-        deps = ExecutorDeps(
-            map_runner_factory=lambda p, r: MapRunner(
-                p,
-                r,
-                authority=open_attempt_authority(p),
-                should_cancel=lambda _run_id: cancelled,
-            )
+    router = stub_router
+    deps = ExecutorDeps(
+        map_runner_factory=lambda p, r: MapRunner(
+            p,
+            r,
+            authority=open_attempt_authority(p),
+            should_cancel=lambda _run_id: cancelled,
         )
-        request = _confirmed_request(
-            project, _request(sheet_id, engine="datalab"), router=router, deps=deps
-        )
-        progress = run_action_spec(
-            project, request, router=router, deps=deps, project_id="ocr-anchor"
-        )
-        assert progress.status == "cancelled", progress.errors
-        run = project.db.execute(
-            "SELECT status FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        assert run is not None and run["status"] == "cancelled"
-        assert requests == ["POST", "GET"]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
-            ).fetchone()[0]
-            == 0
-        )
+    )
+    request = _confirmed_request(
+        project, _request(sheet_id, engine="datalab"), router=router, deps=deps
+    )
+    progress = run_action_spec(
+        project, request, router=router, deps=deps, project_id="ocr-anchor"
+    )
+    assert progress.status == "cancelled", progress.errors
+    run = project.db.execute(
+        "SELECT status FROM runs WHERE id=?", (progress.run_id,)
+    ).fetchone()
+    assert run is not None and run["status"] == "cancelled"
+    assert requests == ["POST", "GET"]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
+        ).fetchone()[0]
+        == 0
+    )
 
-        [fact] = RunResultStore(project).model_calls(progress.run_id)
-        assert fact["row_id"] == row_id
-        assert fact["provider"] == "datalab"
-        assert fact["capability"] == "ocr"
-        assert fact["request_id"] == submit["request_id"]
-        assert fact["provider_cost_usd"] == pytest.approx(0.01)
-        assert fact["cost_source"] == "pricing_data"
-        assert json.loads(fact["units"])["pages"] == 1
-        assert fact["epoch_id"] is not None
-        assert fact["attempt_id"] is not None
-        assert RouteStore.for_run(project, progress.run_id).violations() == []
-    finally:
-        project.close()
+    [fact] = RunResultStore(project).model_calls(progress.run_id)
+    assert fact["row_id"] == row_id
+    assert fact["provider"] == "datalab"
+    assert fact["capability"] == "ocr"
+    assert fact["request_id"] == submit["request_id"]
+    assert fact["provider_cost_usd"] == pytest.approx(0.01)
+    assert fact["cost_source"] == "pricing_data"
+    assert json.loads(fact["units"])["pages"] == 1
+    assert fact["epoch_id"] is not None
+    assert fact["attempt_id"] is not None
+    assert RouteStore.for_run(project, progress.run_id).violations() == []
 
 
 def test_anchor_ocr_expensive_hosted_run_gates_on_the_cost_claim_too(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """The cost half of the hosted gate, shown at a price the standing sub-$1
     threshold cannot cover: the operator's own per-page rate is raised, and the
@@ -1196,29 +1175,27 @@ def test_anchor_ocr_expensive_hosted_run_gates_on_the_cost_claim_too(
     """
     monkeypatch.setenv("DATALAB_API_KEY", "env-key")
     monkeypatch.setenv("FRISKET_DATALAB_OCR_USD_PER_PAGE", "2.50")
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _datalab_stub(monkeypatch)
-    try:
-        gate = run_action_spec(
-            project,
-            _request(sheet_id, engine="datalab"),
-            router=router,
-            project_id="ocr-anchor",
-        )
-        assert gate.status == "needs_confirmation", gate.errors
-        claims = {
-            claim["field"]: claim["display"]
-            for claim in gate.errors[0].details["claims"]
-        }
-        assert set(claims) == {"cost", "egress_class"}
-        assert "$2.50" in claims["cost"]
-        assert "not a spending cap" in claims["cost"]
-        assert "billed to your own account" in claims["cost"]
-    finally:
-        project.close()
+    gate = run_action_spec(
+        project,
+        _request(sheet_id, engine="datalab"),
+        router=router,
+        project_id="ocr-anchor",
+    )
+    assert gate.status == "needs_confirmation", gate.errors
+    claims = {
+        claim["field"]: claim["display"] for claim in gate.errors[0].details["claims"]
+    }
+    assert set(claims) == {"cost", "egress_class"}
+    assert "$2.50" in claims["cost"]
+    assert "not a spending cap" in claims["cost"]
+    assert "billed to your own account" in claims["cost"]
 
 
-def test_anchor_ocr_credential_use_fence_refuses_before_the_call(tmp_path, monkeypatch):
+def test_anchor_ocr_credential_use_fence_refuses_before_the_call(
+    make_project, monkeypatch
+):
     """the credential-use fence's "runs under my key", for OCR: the adapter compares the credential
     CLASS it selected against the class the consent named, BEFORE the first
     page leaves the machine. Force a mismatch (the dispatch selects Frisket's
@@ -1230,7 +1207,7 @@ def test_anchor_ocr_credential_use_fence_refuses_before_the_call(tmp_path, monke
     transcription has.
     """
     monkeypatch.setenv("DATALAB_API_KEY", "env-key")
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _datalab_stub(monkeypatch)
     # Stubbed at the SELECTOR, which is the one seam that decides both the key
     # and its provenance: patching the provenance reader alone would leave the
@@ -1240,27 +1217,22 @@ def test_anchor_ocr_credential_use_fence_refuses_before_the_call(tmp_path, monke
         "frisket.ops.ocr_engines_remote._datalab_credential",
         lambda ctx: ResolvedCredential("a-platform-key", "platform_key"),
     )
-    try:
-        request = _confirmed_request(
-            project, _request(sheet_id, engine="datalab"), router=router
-        )
-        progress = run_action_spec(
-            project, request, router=router, project_id="ocr-anchor"
-        )
-        # The invocation halted: nothing was written for the row, and the run
-        # is terminalized as resumably cancelled with the halt marker.
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        assert "promise_violation" in run["params"]
-        assert "platform_key" in run["params"]
-    finally:
-        project.close()
+    request = _confirmed_request(
+        project, _request(sheet_id, engine="datalab"), router=router
+    )
+    progress = run_action_spec(project, request, router=router, project_id="ocr-anchor")
+    # The invocation halted: nothing was written for the row, and the run
+    # is terminalized as resumably cancelled with the halt marker.
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (progress.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert "promise_violation" in run["params"]
+    assert "platform_key" in run["params"]
 
 
 def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """The BYOK consent, made checkable (the credential-use fence critical 3).
 
@@ -1277,7 +1249,7 @@ def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
     what makes "refuses PRE-EFFECT" a fact rather than a claim.
     """
     monkeypatch.setenv("DATALAB_API_KEY", "operator-shared-env-key")
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     requests: list[str] = []
     submit = json.loads((DATALAB_FIXTURES / "ocr_submit.json").read_text())
     complete = json.loads((DATALAB_FIXTURES / "ocr_complete.json").read_text())
@@ -1300,51 +1272,48 @@ def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
     from frisket.execution.price_book import ByokZero
     from frisket.execution.provider import CompositionFacts, ExecutionComposition
 
-    try:
-        spec = _request(sheet_id, engine="datalab")
-        router = stub_router
-        deployment = CredentialOwner.deployment("hosted-deployment")
-        organization = CredentialOwner.organization("org-a")
-        composition = ExecutionComposition(
-            facts=CompositionFacts(
-                edition="hosted",
-                org_id="org-a",
-                funding=ByokZero(),
-            ),
-            provider=StaticExecutionTargetProvider(secrets=project, router=router),
-            credential_use_context=CredentialUseContext(
-                cost_posture="org_key",
-                consented_owner=organization,
-                selected_owner=organization,
-                deployment_owner=deployment,
-            ),
-        )
-        deps = ExecutorDeps(execution_composition=composition)
-        request = _confirmed_request(project, spec, router=router, deps=deps)
-        progress = run_action_spec(
-            project, request, router=router, deps=deps, project_id="ocr-anchor"
-        )
-        # The CONSENTED head (seq 1). A dispatch that got past the fence would
-        # append a successor recording the credential it observed instead.
-        routes = _route_rows(project, progress.run_id)
-        assert len(routes) == 1, [dict(row) for row in routes]
-        assert routes[0]["cost_posture"] == "org_key"
-        assert routes[0]["credential_source"] == "org_byok"
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        assert "promise_violation" in run["params"]
-        # The refusal names what was selected and what was consented.
-        assert "'platform_key'" in run["params"]
-        assert "org_key" in run["params"]
-        # PRE-EFFECT: not one page left the machine, so nothing was billed.
-        assert requests == []
-    finally:
-        project.close()
+    spec = _request(sheet_id, engine="datalab")
+    router = stub_router
+    deployment = CredentialOwner.deployment("hosted-deployment")
+    organization = CredentialOwner.organization("org-a")
+    composition = ExecutionComposition(
+        facts=CompositionFacts(
+            edition="cloud",
+            org_id="org-a",
+            funding=ByokZero(),
+        ),
+        provider=StaticExecutionTargetProvider(secrets=project, router=router),
+        credential_use_context=CredentialUseContext(
+            cost_posture="org_key",
+            consented_owner=organization,
+            selected_owner=organization,
+            deployment_owner=deployment,
+        ),
+    )
+    deps = ExecutorDeps(execution_composition=composition)
+    request = _confirmed_request(project, spec, router=router, deps=deps)
+    progress = run_action_spec(
+        project, request, router=router, deps=deps, project_id="ocr-anchor"
+    )
+    # The CONSENTED head (seq 1). A dispatch that got past the fence would
+    # append a successor recording the credential it observed instead.
+    routes = _route_rows(project, progress.run_id)
+    assert len(routes) == 1, [dict(row) for row in routes]
+    assert routes[0]["cost_posture"] == "org_key"
+    assert routes[0]["credential_source"] == "org_byok"
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (progress.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert "promise_violation" in run["params"]
+    # The refusal names what was selected and what was consented.
+    assert "'platform_key'" in run["params"]
+    assert "org_key" in run["params"]
+    # PRE-EFFECT: not one page left the machine, so nothing was billed.
+    assert requests == []
 
 
-def test_anchor_ocr_consent_binds_at_the_worker(tmp_path, monkeypatch):
+def test_anchor_ocr_consent_binds_at_the_worker(make_project, monkeypatch):
     """Consent binding, the O1/O2 way: delete the run's persisted route
     artifacts and the effect-site fence refuses ``consent_missing`` — the
     admission is not a formality the recipe could skip.
@@ -1355,43 +1324,40 @@ def test_anchor_ocr_consent_binds_at_the_worker(tmp_path, monkeypatch):
     from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 
     monkeypatch.setenv("DATALAB_API_KEY", "env-key")
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
     router = _datalab_stub(monkeypatch)
-    try:
-        from frisket.actions.system import typed_action_for_request
-        from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 
-        request = _confirmed_request(
-            project, _request(sheet_id, engine="datalab"), router=router
+    request = _confirmed_request(
+        project, _request(sheet_id, engine="datalab"), router=router
+    )
+    plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
+    runner = MapRunner(
+        project,
+        router,
+        authority=open_attempt_authority(project),
+        allow_action_lifecycle_only_programs=True,
+    )
+    prepared = runner.prepare_run(
+        plan.spec_dict(), confirmed=True, program=plan.program
+    )
+    run_id = prepared.run_id
+    assert RouteStore.for_run(project, run_id).head() is not None
+    for table in ("routes", "promise_sets", "consents"):
+        project.db.execute(
+            f"DELETE FROM {table} WHERE subject_kind='run' AND subject_id=?",
+            (str(run_id),),
         )
-        plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
-        runner = MapRunner(
-            project,
-            router,
-            authority=open_attempt_authority(project),
-            allow_action_lifecycle_only_programs=True,
+    project.db.commit()
+    with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
+        open_attempt_authority(project).mint(
+            program=plan.program,
+            spec=plan.spec_dict(),
+            run_id=run_id,
+            scope=(1,),
         )
-        prepared = runner.prepare_run(
-            plan.spec_dict(), confirmed=True, program=plan.program
-        )
-        run_id = prepared.run_id
-        assert RouteStore.for_run(project, run_id).head() is not None
-        for table in ("routes", "promise_sets", "consents"):
-            project.db.execute(
-                f"DELETE FROM {table} WHERE subject_kind='run' AND subject_id=?",
-                (str(run_id),),
-            )
-        project.db.commit()
-        with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
-            open_attempt_authority(project).mint(
-                program=plan.program,
-                spec=plan.spec_dict(),
-                run_id=run_id,
-                scope=(1,),
-            )
-        assert refusal.value.code == "consent_missing"
-    finally:
-        project.close()
+    assert refusal.value.code == "consent_missing"
 
 
 # ---------------------------------------------------------------------------
@@ -1399,7 +1365,7 @@ def test_anchor_ocr_consent_binds_at_the_worker(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_anchor_ocr_unsupported_option_refuses_honestly(tmp_path, monkeypatch):
+def test_anchor_ocr_unsupported_option_refuses_honestly(make_project, monkeypatch):
     """An authored ``language`` against the gateway's /ocr wire — which
     carries no language field — REFUSES, naming the inability, instead of
     being silently dropped.
@@ -1411,46 +1377,40 @@ def test_anchor_ocr_unsupported_option_refuses_honestly(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://gateway.test")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "tok")
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
-    try:
-        refusal = run_action_spec(
-            project,
-            _request(sheet_id, engine="dots.mocr", language="japan"),
-            router=_NullRouter(),
-            project_id="ocr-anchor",
-        )
-        assert refusal.status == "failed"
-        remedy = refusal.errors[0].message
-        assert "recognition-language hint" in remedy
-        assert "dots.mocr" in remedy
-        # And nothing ran: an option no declaring target can honor never
-        # reaches a page.
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
-    finally:
-        project.close()
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
+    refusal = run_action_spec(
+        project,
+        _request(sheet_id, engine="dots.mocr", language="japan"),
+        router=_NullRouter(),
+        project_id="ocr-anchor",
+    )
+    assert refusal.status == "failed"
+    remedy = refusal.errors[0].message
+    assert "recognition-language hint" in remedy
+    assert "dots.mocr" in remedy
+    # And nothing ran: an option no declaring target can honor never
+    # reaches a page.
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
 
 
 def test_anchor_ocr_language_is_served_where_a_target_declares_it(
-    tmp_path, monkeypatch, rapidocr_stub
+    make_project, monkeypatch, rapidocr_stub
 ):
     """The other half of refusal honesty: the SAME authored option on a target
     that declares it resolves normally. Without this, "refuses honestly" could
     be satisfied by refusing everything."""
-    project, sheet_id, _row_id = _ocr_project(tmp_path)
-    try:
-        progress = run_action_spec(
-            project,
-            _request(sheet_id, engine="rapidocr", language="japan"),
-            router=_NullRouter(),
-            project_id="ocr-anchor",
-        )
-        assert progress.status == "completed", progress.errors
-        route, _head = RouteStore.for_run(project, progress.run_id).head()
-        assert route.target_snapshot["target_id"] == "local"
-        # The authored option is recorded on the route as authored.
-        assert route.options == {"language": "japan", "searchable_pdf": False}
-    finally:
-        project.close()
+    project, sheet_id, _row_id = _ocr_project(make_project("ocr"))
+    progress = run_action_spec(
+        project,
+        _request(sheet_id, engine="rapidocr", language="japan"),
+        router=_NullRouter(),
+        project_id="ocr-anchor",
+    )
+    assert progress.status == "completed", progress.errors
+    route, _head = RouteStore.for_run(project, progress.run_id).head()
+    assert route.target_snapshot["target_id"] == "local"
+    # The authored option is recorded on the route as authored.
+    assert route.options == {"language": "japan", "searchable_pdf": False}
 
 
 # ---------------------------------------------------------------------------

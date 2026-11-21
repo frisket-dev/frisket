@@ -59,10 +59,12 @@ describe('visual extraction geometry', () => {
     expect(removeAnnotation(repeated, { kind: 'rest', id: 'r' }).fields).toEqual([]);
   });
   it('reads only tokens whose center falls inside a value region; blank remains blank', () => {
+    const keyRegion = template.fields[0].key;
+    if (!keyRegion) throw new Error('Expected key region');
     const document = { source_fingerprint: 'f', pages: [{ page: 1, width: 100, height: 100, tokens: [
-      { text: 'NAME', box: template.fields[0].key.box, granularity: 'word' as const },
+      { text: 'NAME', box: keyRegion.box, granularity: 'word' as const },
     ] }] };
-    expect(textInRegion(document, template.fields[0].key)).toBe('NAME');
+    expect(textInRegion(document, keyRegion)).toBe('NAME');
     expect(textInRegion(document, template.fields[0].value)).toBe('');
   });
 });

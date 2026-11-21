@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, overload
 
 from frisket.contracts.action import (
     ActionError,
     ActionOutput,
     ActionResult,
     ImportRowsColumn,
+    Receipt,
+    ReceiptIO,
 )
 from frisket.engine.executor.action_support import _failed_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
@@ -74,8 +76,12 @@ def run_tabular_action(
     *,
     project_id: str,
     params: (
-        "ImportRowsParams | UpdateRowsParams | ImportCsvParams | UpdateCsvParams | "
-        "ImportXlsxParams | UpdateXlsxParams"
+        ImportRowsParams
+        | UpdateRowsParams
+        | ImportCsvParams
+        | UpdateCsvParams
+        | ImportXlsxParams
+        | UpdateXlsxParams
     ),
     idempotency_key: str,
     deps: ExecutorDeps,
@@ -206,7 +212,17 @@ def resolve_destination_mapping(
     return ResolvedImportMapping(tuple(columns), keys)
 
 
-def materialized_sheet_output(result: ActionResult) -> ActionOutput | None:
+@overload
+def materialized_sheet_output(result: ActionResult) -> ActionOutput | None: ...
+
+
+@overload
+def materialized_sheet_output(result: Receipt) -> ReceiptIO | None: ...
+
+
+def materialized_sheet_output(
+    result: ActionResult | Receipt,
+) -> ActionOutput | ReceiptIO | None:
     return next(
         (
             output

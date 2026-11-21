@@ -556,6 +556,11 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
         f"({run_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
+    db.execute(
+        "ALTER TABLE project_qa_research_runs "
+        "RENAME COLUMN pending_pause_json TO pending_approval_json"
+    )
     db.commit()
     _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
     assert sheet.values()[:3] == ["B0", "B1", "B2"]
@@ -588,6 +593,11 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "
         f"({copy_heads}) WHERE column_id=?",
         (sheet.out,),
+    )
+    db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
+    db.execute(
+        "ALTER TABLE project_qa_research_runs "
+        "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
     db.commit()
     _stamp_pre_citations_digest(db, EDIT_PRECEDENCE_TO_DIGEST)

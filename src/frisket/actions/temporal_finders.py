@@ -60,7 +60,7 @@ class TopicSectionsParams(ActionParams):
     def _engine(
         cls, value: EngineRef[TopicSectionsReader]
     ) -> EngineRef[TopicSectionsReader]:
-        from frisket.features.topic_segmentation.engines import get_segmenter
+        from frisket.topic_segmentation.engines import get_segmenter
 
         get_segmenter(value.root)
         return value
@@ -69,7 +69,7 @@ class TopicSectionsParams(ActionParams):
     def _settings(self) -> TopicSectionsParams:
         if not self.settings:
             return self
-        from frisket.features.topic_segmentation.engines import get_segmenter
+        from frisket.topic_segmentation.engines import get_segmenter
 
         get_segmenter(self.engine.root).validate_settings(self.settings)
         return self

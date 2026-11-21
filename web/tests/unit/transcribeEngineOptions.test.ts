@@ -194,7 +194,7 @@ describe('fallback engine rows', () => {
       (engine) => engine.id === 'openai/whisper-1',
     );
     expect(whisper1).toBeDefined();
-    expect(whisper1?.tier).toBe('hosted');
+    expect(whisper1?.tier).toBe('remote');
     expect(whisper1?.billable).toBe(true);
     expect(whisper1?.available).toBe(false);
   });

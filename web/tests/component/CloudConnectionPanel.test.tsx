@@ -116,7 +116,10 @@ describe('CloudConnectionPanel', () => {
   it('does not report success after the user cancels a late authorization response', async () => {
     vi.useFakeTimers();
     let resolve!: (result: { status: 'connected'; connection: CloudConnectionView }) => void;
-    const api = client({ pollAuthorization: vi.fn(() => new Promise((done) => { resolve = done; })) });
+    const pollAuthorization = vi.fn<CloudConnectionClient['pollAuthorization']>(
+      () => new Promise((done) => { resolve = done; }),
+    );
+    const api = client({ pollAuthorization });
     render(<CloudConnectionPanel client={api} variant="compact" />);
     await act(async () => {});
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /sign in with browser/i })); });

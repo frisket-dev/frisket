@@ -11,19 +11,17 @@ import { SubstituteForm } from '../../src/components/resolve/SubstituteForm';
 import type { SubstituteParams } from '../../src/generated/actionTypes';
 import { ParamsBodyHarness } from '../support/generatedParamsBodyHarness';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({
   projectId: 'test-project', api: { projectApi: api },
 });
-const sheet: SheetMeta = {
-  id: '7', name: 'People', rowCount: 1726,
-  columns: [
-    { id: '11', name: 'gender_code', type: 'text' },
-    { id: '12', name: 'notes', type: 'text' },
-    { id: '13', name: 'score', type: 'number' },
-  ],
-};
+const sheet: SheetMeta = sheetMeta([
+  { id: '11', name: 'gender_code', type: 'text' },
+  { id: '12', name: 'notes', type: 'text' },
+  { id: '13', name: 'score', type: 'number' },
+], { id: '7', name: 'People', rowCount: 1726 });
 const preview = (overrides: Partial<ColumnValuesPreview> = {}): ColumnValuesPreview => ({
   sheetId: '7', columnId: '11', inputColumn: 'gender_code', totalRows: 1726,
   distinct: 5, missing: 9,
@@ -31,7 +29,7 @@ const preview = (overrides: Partial<ColumnValuesPreview> = {}): ColumnValuesPrev
     { value: '1', count: 842 }, { value: '2', count: 791 },
     { value: '0', count: 63 }, { value: 'M', count: 12 }, { value: 'F', count: 9 },
   ],
-  offset: 0, limit: 500, truncated: false, valueHash: 'sha256:vh', search: null,
+  offset: 0, limit: 500, truncated: false, valueHash: 'sha256:vh', search: null, distribution: null,
   ...overrides,
 });
 

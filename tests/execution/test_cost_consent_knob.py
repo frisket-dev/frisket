@@ -130,7 +130,7 @@ def _gate_claim_fields(project, spec, *, unit_rate: str = "0.000164") -> list[st
     )
     composition = replace(
         composition,
-        facts=CompositionFacts(edition="hosted", funding=funding),
+        facts=CompositionFacts(edition="cloud", funding=funding),
         credential_use_context=CredentialUseContext(
             cost_posture=cost_posture_for(funding)
         ),

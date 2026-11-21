@@ -68,8 +68,8 @@ SPECIFIC_POLICY_OMITTING_GEO = PluginCompositionPolicy(
 )
 
 
-def _seed_geo_under_default_policy(tmp_path: Path) -> tuple[Project, str]:
-    project = Project.create(tmp_path / "proj.frisket", name="proj")
+def _seed_geo_under_default_policy(tmp_path: Path, make_project) -> tuple[Project, str]:
+    project = make_project("proj")
     ensure_workspace_plugin_packages(tmp_path)
     bootstrap_project_bundled_plugins(project, project_id="proj")
     index = workbench_plugin_runtime_index(project, project_id="proj")
@@ -174,16 +174,18 @@ def _assert_geo_fully_excluded(project: Project, receipt_id: str) -> None:
     "policy", [ZERO_POLICY, SPECIFIC_POLICY_OMITTING_GEO], ids=["zero", "selected"]
 )
 def test_persisted_bundle_is_inaccessible_when_policy_omits_it(
-    tmp_path, policy: PluginCompositionPolicy
+    tmp_path, make_project, policy: PluginCompositionPolicy
 ) -> None:
-    project, receipt_id = _seed_geo_under_default_policy(tmp_path)
+    project, receipt_id = _seed_geo_under_default_policy(tmp_path, make_project)
     install_plugin_composition_policy(policy)
     _assert_geo_fully_excluded(project, receipt_id)
 
 
 @pytest.mark.real_bundled_plugins
-def test_settings_mutation_checks_reviewed_package_once(tmp_path, monkeypatch) -> None:
-    project, _ = _seed_geo_under_default_policy(tmp_path)
+def test_settings_mutation_checks_reviewed_package_once(
+    tmp_path, make_project, monkeypatch
+) -> None:
+    project, _ = _seed_geo_under_default_policy(tmp_path, make_project)
     install_plugin_composition_policy(
         PluginCompositionPolicy(
             allowed_bundled_ids=frozenset({GEO}), nonbundled_enabled=False
@@ -230,8 +232,10 @@ def test_reviewed_bundled_identity_needs_trusted_source_and_matching_sha(
 
 
 @pytest.mark.real_bundled_plugins
-def test_workspace_uninstall_suppresses_bundled_reseed_after_restart(tmp_path) -> None:
-    project, _ = _seed_geo_under_default_policy(tmp_path)
+def test_workspace_uninstall_suppresses_bundled_reseed_after_restart(
+    tmp_path, make_project
+) -> None:
+    project, _ = _seed_geo_under_default_policy(tmp_path, make_project)
     uninstall_workbench_plugin(
         project,
         project_id="proj",

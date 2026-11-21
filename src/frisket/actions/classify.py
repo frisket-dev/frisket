@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Optional, Self
 
 from pydantic import Field, StrictStr, TypeAdapter, field_validator, model_validator
 
@@ -146,7 +146,7 @@ def _companion_outputs(params: ClassifyParams) -> dict[str, Any]:
         for field in params.fields:
             outputs[f"{field.name}_justification"] = str | None
     if params.include_confidence:
-        outputs[f"{params.fields[0].name}_confidence"] = Confidence | None
+        outputs[f"{params.fields[0].name}_confidence"] = Optional[Confidence]
     return outputs
 
 

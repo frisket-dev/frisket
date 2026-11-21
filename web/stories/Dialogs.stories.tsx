@@ -16,6 +16,6 @@ export const ExtractSheet: Story = {
 };
 export const CostGate: Story = {
   render: () => <CostGateModal estimate={{ cost: 2.5, billed_cost: 2_500_000, rows: 120, policy_id: 'frisket.identity.v1' }}
-    message="This run exceeds your pre-approval limit. Review the estimated cost before continuing."
+    message="This run exceeds your allowance. Review the estimated cost before continuing."
     onConfirm={noop} onCancel={noop} />,
 };

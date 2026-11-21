@@ -486,7 +486,7 @@ def test_apply_failure_is_not_classified_as_invalid_input(
 def test_import_plan_chunks_existing_append_bound_without_losing_order(make_project):
     from frisket.contracts.plugin_write_plan import MAX_ROWS_PER_APPEND
     from frisket.engine.executor.plugin_write_apply import apply_additive_tables
-    from frisket.features.followthemoney.write_plan import import_plan_to_write_plan
+    from frisket.followthemoney.write_plan import import_plan_to_write_plan
 
     count = MAX_ROWS_PER_APPEND + 1
     plan = import_plan_to_write_plan(

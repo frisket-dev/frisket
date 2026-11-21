@@ -1,6 +1,6 @@
 import './EngineTierBadge.css';
 // Engine-tier badge: ONE small text badge per engine naming where it runs —
-// local / sidecar / hosted — rendered from the catalog's three-tier vocabulary
+// local / sidecar / remote — rendered from the catalog's three-tier vocabulary
 // (api/types.ts EngineTier; backend tier tables in
 // src/frisket/contracts/actions/schemas/_engines.py). Reuses the StatusChip
 // primitive rather than inventing a new pill; all three tiers share the SAME
@@ -19,7 +19,7 @@ const TIER_TITLES: Record<EngineTier, string> = {
   local: 'Runs inside frisket itself — nothing leaves the frisket host.',
   sidecar:
     "Runs on the operator's configured sidecar service, which may be a different machine.",
-  hosted: 'Sent to an external service outside your infrastructure.',
+  remote: 'Sent to an external service outside your infrastructure.',
 };
 
 export function EngineTierBadge({ tier, testId }: { tier: EngineTier; testId?: string }) {

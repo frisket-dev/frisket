@@ -46,20 +46,24 @@ def reset_drain(argv: list[str]) -> int:
         )
         return 2
 
-    queue_locator = args.queue or os.environ.get("FRISKET_RUN_QUEUE_DATABASE_URL")
-    projects_root = args.projects_root or os.environ.get("FRISKET_PROJECTS_ROOT")
+    queue_locator: str | None = args.queue or os.environ.get(
+        "FRISKET_RUN_QUEUE_DATABASE_URL"
+    )
+    projects_root: str | None = args.projects_root or os.environ.get(
+        "FRISKET_PROJECTS_ROOT"
+    )
 
     from frisket.operability.reset_drain import (
         configuration_error_report,
         inspect_base_reset_drain,
     )
 
-    missing: list[str] = []
-    if not queue_locator:
-        missing.append("run_queue_locator_required")
-    if not projects_root:
-        missing.append("projects_root_required")
-    if missing:
+    if not queue_locator or not projects_root:
+        missing: list[str] = []
+        if not queue_locator:
+            missing.append("run_queue_locator_required")
+        if not projects_root:
+            missing.append("projects_root_required")
         report = configuration_error_report(*missing)
     else:
         report = inspect_base_reset_drain(

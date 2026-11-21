@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-from contextlib import closing
 from typing import Any
 
 import pytest
@@ -21,7 +20,6 @@ from frisket.actions.types import (
 from frisket.engine.executor import table_action
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk import action, create_sheet
 
@@ -174,7 +172,7 @@ def test_static_file_lists_preserve_order_occurrences_and_renamed_aliases(
 @pytest.mark.parametrize("streamed", [False, True])
 @pytest.mark.parametrize("invalid", ["foreign", "untyped_nested"])
 def test_file_lists_do_not_admit_foreign_or_untyped_nested_tokens(
-    tmp_path, monkeypatch, streamed, invalid
+    project, monkeypatch, streamed, invalid
 ):
     monkeypatch.setattr(table_action, "_TABLE_BATCH_SIZE", 1)
     with AdmittedImportBlobStager() as foreign:
@@ -203,11 +201,10 @@ def test_file_lists_do_not_admit_foreign_or_untyped_nested_tokens(
                 ]
                 return TableResult(rows=iter(rows) if streamed else rows)
 
-        with closing(Project.create(tmp_path / "project")) as project:
-            result = run_typed_create_sheet_action(project, "p", _bound(produce))
-            assert result.status == "failed"
-            assert result.errors[0].code == "invalid_params"
-            _assert_no_publication(project)
+        result = run_typed_create_sheet_action(project, "p", _bound(produce))
+        assert result.status == "failed"
+        assert result.errors[0].code == "invalid_params"
+        _assert_no_publication(project)
 
 
 def _closable_rows(rows, streamed, closed):

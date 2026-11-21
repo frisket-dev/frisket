@@ -99,7 +99,7 @@ def _resolve_backfill_target(
 ) -> dict[str, Any] | ActionError:
     action_kind = "run.backfill"
     column_name = column.strip()
-    column = next(
+    column_row = next(
         (
             row
             for row in project.columns(sheet_id, include_hidden=True)
@@ -107,21 +107,21 @@ def _resolve_backfill_target(
         ),
         None,
     )
-    if column is None:
+    if column_row is None:
         return ActionError(
             code="column_not_found",
             message=f"no column '{column_name}'",
             action_kind=action_kind,
             field="params.column",
         )
-    if not bool(column["ai_generated"]):
+    if not bool(column_row["ai_generated"]):
         return ActionError(
             code="column_not_ai_generated",
             message=f"column '{column_name}' is not a generated column",
             action_kind=action_kind,
             field="params.column",
         )
-    column_id = int(column["id"])
+    column_id = int(column_row["id"])
     all_row_ids = [
         int(row["id"])
         for row in project.db.execute(

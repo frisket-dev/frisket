@@ -29,7 +29,7 @@ const SHEET: SheetMeta = sheetMeta([
   rowCount: 240,
 });
 
-const ENTRY = {
+const ENTRY: GeneratedActionCatalogEntry = {
   kind: 'map.extract',
   authoring_contract_version: 1,
   title: 'Extract structured fields',
@@ -40,11 +40,11 @@ const ENTRY = {
     properties: {
       source: { type: 'array', title: 'Source', items: { type: 'string' } },
       engine: { type: 'string', title: 'Model', default: 'llm' },
-      model: { type: ['string', 'null'], title: 'Model', default: null },
+      model: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Model', default: null },
       fields: { type: 'array', title: 'Fields', items: { type: 'object' } },
       instruction: { type: 'string', title: 'Instructions', default: '' },
-      grounding: { type: ['object', 'null'], title: 'Grounding', default: null },
-      evidence_policy: { type: ['object', 'null'], title: 'Evidence policy', default: null },
+      grounding: { anyOf: [{ type: 'object' }, { type: 'null' }], title: 'Grounding', default: null },
+      evidence_policy: { anyOf: [{ type: 'object' }, { type: 'null' }], title: 'Evidence policy', default: null },
       source_document_columns: { type: 'array', title: 'Citation sources', items: { type: 'string' }, default: [] },
       context: { type: 'string', title: 'Context', default: '' },
       include_confidence: { type: 'boolean', title: 'Include confidence', default: false },
@@ -77,13 +77,13 @@ const ENTRY = {
       id: 'source', mode: 'columns', param: 'source', label: 'Source', min: 1,
       accepted_column_types: ['text'], template_accepted_column_types: ['text'],
     }],
-    engines: [{ id: 'llm', label: 'Language model', available: true }],
+    engines: [{ id: 'llm', label: 'Language model', tier: 'local', available: true }],
     logical_outputs: [],
     dynamic_outputs: true,
     comparison: { kind: 'row_overlay' },
   },
   receipt_policy: 'writes_receipt',
-} as GeneratedActionCatalogEntry;
+};
 
 const DRAFT: GeneratedActionDraft = {
   action_id: 'map.extract',
@@ -294,14 +294,14 @@ describe('GeneratedActionParamsEditor', () => {
     entry.input_schema.properties = {
       source: { type: 'array', title: 'Source', items: { type: 'string' } },
       engine: { type: 'string', title: 'Model', default: 'llm' },
-      model: { type: ['string', 'null'], title: 'Model', default: null },
+      model: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Model', default: null },
       fields: { type: 'array', title: 'Fields', items: { type: 'object' } },
       context: { type: 'string', title: 'Context', default: '' },
       include_confidence: { type: 'boolean', title: 'Include confidence', default: false },
       include_justification: { type: 'boolean', title: 'Include justification', default: false },
     };
     entry.ui_hints.engines = [{
-      id: 'llm', label: 'Language model', available: true,
+      id: 'llm', label: 'Language model', tier: 'local', available: true,
       classification_options: {
         field_types: ['category'], max_fields: 1,
         include_confidence: true, include_justification: true,

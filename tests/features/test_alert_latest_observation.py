@@ -4,6 +4,7 @@ import json
 import pytest
 
 from frisket.notifications.projections import alert_check_notification_candidate
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -170,14 +171,15 @@ def test_pending_monitored_value_preserves_successful_baseline(scene):
         op, sheet, "map.ask", row_ids=rows, total_rows=len(rows)
     )
     authority = run_writer_authority_fixture(project, run, output_column_ids={column})
-    ResultGenerationStore(project).declare(
-        run,
-        column,
-        output_role="answer",
-        compatibility_key="sha256:test",
-        write_mode="replace_scope",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run,
+            column,
+            output_role="answer",
+            compatibility_key="sha256:test",
+            write_mode="replace_scope",
+            claim_token=authority.claim_token,
+        )
     incomplete = record(scene, rows)
     assert project.get_alert_check(incomplete)["status"] == "error"
     assert (
@@ -201,7 +203,7 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
     # Crash after baseline publication, before projecting any notification.
     queue = open_queue(workspace=project.path.parent / "queue")
     monkeypatch.setattr(
-        "frisket.features.alerts.service.evaluate_alert",
+        "frisket.alerts.service.evaluate_alert",
         lambda *args: pytest.fail("recovery must not query live data"),
     )
     reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
@@ -353,17 +355,22 @@ def test_terminal_monitored_cell_is_an_observation_not_permanent_block(scene):
     )
     authority = run_writer_authority_fixture(project, run, output_column_ids={column})
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run,
-        column,
-        output_role="answer",
-        compatibility_key="sha256:test",
-        write_mode="replace_scope",
-        claim_token=authority.claim_token,
-    )
-    generations.seal(
-        run, [column], claim_token=authority.claim_token, terminal_disposition="failed"
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run,
+            column,
+            output_role="answer",
+            compatibility_key="sha256:test",
+            write_mode="replace_scope",
+            claim_token=authority.claim_token,
+        )
+    with write_transaction(generations.db):
+        generations.seal(
+            run,
+            [column],
+            claim_token=authority.claim_token,
+            terminal_disposition="failed",
+        )
     RunResultStore(project).finish_run(
         run,
         "failed",

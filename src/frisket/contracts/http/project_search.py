@@ -43,7 +43,7 @@ class ProjectSearchSource(WireModel):
 class ProjectSearchPart(WireModel):
     part_id: str
     part_kind: str
-    producer_recipe_id: str
+    producer_slice_id: str
 
 
 class ProjectSearchTextRange(WireModel):
@@ -189,7 +189,7 @@ class ProjectSearchSetup(WireModel):
 class ProjectSearchChannelCoverage(WireModel):
     channel: str
     state: Literal["ready", "pending", "failed", "unavailable"]
-    recipe_id: str | None
+    slice_id: str | None
     eligible_count: int | None = Field(default=None, ge=0)
     prepared_count: int | None = Field(default=None, ge=0)
     failed_count: int | None = Field(default=None, ge=0)

@@ -29,7 +29,7 @@ from frisket.engine.store.citations import (
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     BetweenUnits,
     BoundaryCandidate,
     EngineDefinition,
@@ -145,7 +145,7 @@ def test_topic_engine_runtime_availability_is_only_a_served_hint(
     available: bool,
     error_fragment: str | None,
 ) -> None:
-    import frisket.features.topic_segmentation.deep_tiling as deep_tiling
+    import frisket.topic_segmentation.deep_tiling as deep_tiling
     from frisket.actions.system import root_action_catalog_payload
     from frisket.server.action_catalog_hints import (
         action_catalog_payload_with_launcher_hints,
@@ -556,7 +556,7 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
         return engine
 
     monkeypatch.setattr(
-        "frisket.features.topic_segmentation.engines.get_segmenter",
+        "frisket.topic_segmentation.engines.get_segmenter",
         exact_getter,
     )
     finder_result = _queue_action(
@@ -707,7 +707,8 @@ def _seed_timestamped_transcripts(
         ],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, transcript_column_id, run_id)
 
     span_refs = []
     for rank, (start_ms, end_ms, quote) in enumerate(
@@ -770,7 +771,7 @@ def test_topic_finder_uses_exact_engine_and_persists_ranges_and_provenance(
         return engine
 
     monkeypatch.setattr(
-        "frisket.features.topic_segmentation.engines.get_segmenter",
+        "frisket.topic_segmentation.engines.get_segmenter",
         exact_getter,
     )
     result = _queue_action(

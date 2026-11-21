@@ -616,7 +616,7 @@ _TENANT_ACTION_RUN: tuple[RouteSpec, ...] = (("v1_action_run", "POST"),)
 _TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (
     ("v1_action_preview_start", "POST"),
     ("v1_action_compare_preview_start", "POST"),
-    ("v1_action_compare_preview_quote", "POST"),
+    ("v1_action_compare_preview_estimate", "POST"),
 )
 
 _TENANT_SKILLS: tuple[RouteSpec, ...] = (
@@ -917,7 +917,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.evaluation_shelf_rename.patch",
             "tenant.evaluation_shelf_delete.delete",
             "tenant.v1_action_compare_preview_start.post",
-            "tenant.v1_action_compare_preview_quote.post",
+            "tenant.v1_action_compare_preview_estimate.post",
             "tenant.v1_action_preview_start.post",
             "tenant.v1_action_preview_status.get",
             "tenant.action_run_status.get",
@@ -1277,8 +1277,9 @@ def _plain(value: Any) -> Mapping[str, Any]:
         return asdict(value)
     if isinstance(value, Mapping):
         return value
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump(mode="python")
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(mode="python")
         if isinstance(dumped, Mapping):
             return dumped
     raise ValueError(

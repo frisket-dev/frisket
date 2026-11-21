@@ -1,3 +1,4 @@
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -22,11 +23,8 @@ def project(tmp_path):
         project.db.execute("BEGIN")
         migrate_blob_derivation_ownership(project.db)
     project.close()
-    project = Project(path, maintenance=True)
-    try:
+    with closing(Project(path, maintenance=True)) as project:
         yield project
-    finally:
-        project.close()
 
 
 def path_for(project, digest):

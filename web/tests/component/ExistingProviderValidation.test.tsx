@@ -36,9 +36,9 @@ beforeEach(() => {
     id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: '…1234', models: [],
   }], schemaVersion: 'frisket.providers.v1', tier: 'local' });
   vi.mocked(api.listModelPulls).mockResolvedValue({ pulls: [] });
-  vi.mocked(api.providerCatalog).mockResolvedValue({ providers: [] } as Awaited<ReturnType<typeof api.providerCatalog>>);
+  vi.mocked(api.providerCatalog).mockResolvedValue({ schemaVersion: 'frisket.provider_catalog.v1', providers: [] });
   vi.mocked(api.listOrganizationKeys).mockResolvedValue([{ provider: 'openai', hint: '…1234' }] as Awaited<ReturnType<typeof api.listOrganizationKeys>>);
-  vi.mocked(api.listOrganizationLocalEndpoints).mockResolvedValue({ endpoints: [] } as Awaited<ReturnType<typeof api.listOrganizationLocalEndpoints>>);
+  vi.mocked(api.listOrganizationLocalEndpoints).mockResolvedValue({ schemaVersion: 'frisket.local_endpoints.v1', endpoints: [] });
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 

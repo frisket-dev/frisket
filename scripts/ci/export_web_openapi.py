@@ -80,9 +80,9 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
     {
         (
             "tenant",
-            "v1_action_compare_preview_quote",
+            "v1_action_compare_preview_estimate",
             "POST",
-        ): "tenant.v1_action_compare_preview_quote.post",
+        ): "tenant.v1_action_compare_preview_estimate.post",
         ("tenant", "evaluation_rows", "POST"): "tenant.evaluation_rows.post",
         ("tenant", "evaluation_cell", "POST"): "tenant.evaluation_cell.post",
         ("tenant", "evaluation_capture", "POST"): "tenant.evaluation_capture.post",

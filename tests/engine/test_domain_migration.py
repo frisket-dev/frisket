@@ -351,12 +351,14 @@ def test_full_cutover_preserves_values_and_starts_new_history(old_db):
     migrate_domain(db)
     assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
-    # The cutover must install the same authority relation as a fresh project,
-    # including presentation visibility facts rather than hiding source columns.
-    from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
+    # The cutover must install the ordered authority relation with presentation
+    # visibility facts while still joining the pre-citations tables.
+    from frisket.engine.store.document_text import (
+        PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+    )
 
     with sqlite3.connect(":memory:") as fresh:
-        fresh.execute(DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+        fresh.execute(PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
         expected = fresh.execute(
             "SELECT sql FROM sqlite_schema WHERE name='current_document_text_selections'"
         ).fetchone()[0]
@@ -653,7 +655,7 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path)
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    upgrade_project_schema(old_db, bundle_path=tmp_path / "project.db")
+    upgrade_project_schema(old_db, bundle_path=tmp_path)
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
@@ -815,7 +817,8 @@ def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_p
         project.apply_edits(
             [{"row_id": row, "column_id": title_column, "value": "Corrected"}]
         )
-        project.set_column_default_hidden(file_column, True)
+        with write_transaction(project.db):
+            project.set_column_default_hidden(file_column, True)
         restore_pre_domain_schema(project.db)
         floor = project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0]
 

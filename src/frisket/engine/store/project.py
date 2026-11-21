@@ -36,10 +36,10 @@ from . import (
     op_log,
     project_blobs,
     project_meta,
-    saved_views,
     sheet_lifecycle,
     alerts,
 )
+from . import views as _views_store
 from .schema import (
     FORMAT_VERSION,
     SCHEMA,
@@ -65,6 +65,7 @@ from .blob_backend import (
 )
 from .transactions import (
     StatementScopedConnection,
+    require_transaction,
     track_for_unit_of_work,
     write_transaction,
 )
@@ -397,13 +398,17 @@ class Project:
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
 
-    def set_meta(self, key: str, value: str, *, commit: bool = True) -> None:
-        with write_transaction(self.db, commit=commit, what="project meta"):
-            self.db.execute(
-                "INSERT INTO meta (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, value),
-            )
+    def set_meta_in_transaction(self, key: str, value: str) -> None:
+        require_transaction(self.db, "project meta")
+        self.db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+    def set_meta(self, key: str, value: str) -> None:
+        with write_transaction(self.db, what="project meta"):
+            self.set_meta_in_transaction(key, value)
 
     @contextmanager
     def transaction_scope(self) -> Iterator[None]:
@@ -466,9 +471,11 @@ class Project:
 
     # ---------- cells: sheets / columns / rows / values ----------
     add_sheet = cells.add_sheet
+    add_sheet_in_transaction = cells.add_sheet_in_transaction
     sheets = cells.sheets
     set_sheet_title_column = cells.set_sheet_title_column
     add_column = cells.add_column
+    add_column_in_transaction = cells.add_column_in_transaction
     columns = cells.columns
     get_column = cells.get_column
     set_column_default_hidden = cells.set_column_default_hidden
@@ -476,6 +483,7 @@ class Project:
     set_column_format = cells.set_column_format
     set_column_semantic_type = cells.set_column_semantic_type
     add_rows = cells.add_rows
+    add_rows_in_transaction = cells.add_rows_in_transaction
     add_row_with_undo = cells.add_row_with_undo
     row_count = cells.row_count
     visible_row_ids = cells.visible_row_ids
@@ -497,10 +505,22 @@ class Project:
         spec: dict[str, Any] | None = None,
         label: str | None = None,
         barrier: bool = False,
-        *,
-        commit: bool = True,
     ) -> int:
-        return op_log.append_change(self, kind, spec, label, barrier, commit=commit)
+        if barrier:
+            with write_transaction(self.db, what="change append"):
+                return op_log.append_change_in_transaction(
+                    self, kind, spec, label, barrier=True
+                )
+        return op_log.append_change(self, kind, spec, label)
+
+    def append_change_in_transaction(
+        self,
+        kind: str,
+        spec: dict[str, Any] | None = None,
+        label: str | None = None,
+        barrier: bool = False,
+    ) -> int:
+        return op_log.append_change_in_transaction(self, kind, spec, label, barrier)
 
     set_undo_info = op_log.set_undo_info
     history = op_log.history
@@ -570,12 +590,12 @@ class Project:
         with self.materialize_blob(digest) as path:
             return Path(path).read_bytes()
 
-    # ---------- saved_views: filter/flag views ----------
-    views = saved_views.views
-    get_view = saved_views.get_view
-    add_view = saved_views.add_view
-    update_view = saved_views.update_view
-    delete_view = saved_views.delete_view
+    # ---------- views: filter/flag views ----------
+    views = _views_store.views
+    get_view = _views_store.get_view
+    add_view = _views_store.add_view
+    update_view = _views_store.update_view
+    delete_view = _views_store.delete_view
 
     # ---------- alerts: alerts ----------
     get_alert = alerts.get_alert

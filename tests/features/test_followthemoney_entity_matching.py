@@ -14,14 +14,14 @@ from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
 )
-from frisket.features.followthemoney import (
+from frisket.followthemoney import (
     FOLLOWTHEMONEY_MATCH_REVIEW_PLAN_SCHEMA_VERSION,
     FOLLOWTHEMONEY_MATCHING_SCHEMA_VERSION,
     map_rowset_to_entities,
     match_followthemoney_entities,
     plan_followthemoney_match_review_sheet,
 )
-from frisket.features.investigations.rowsets import resolve_investigative_rowset
+from frisket.exports.investigative_rowsets import resolve_investigative_rowset
 from frisket.engine.store import Project
 from frisket.engine.store.transactions import write_transaction
 

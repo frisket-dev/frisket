@@ -737,7 +737,7 @@ def _project_execution_composition_engines(
                 if preferred_offer is not None:
                     engine_update.update(
                         {
-                            "tier": "hosted",
+                            "tier": "remote",
                             "billable": True,
                             "pricing": _commercial_pricing_hint(
                                 target=preferred_target,
@@ -839,14 +839,14 @@ NETWORK_OFF_ENGINE_ERROR = (
 def _apply_network_off_engine_hints(
     engines: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Hosted-tier engines read as
+    """Remote-tier engines read as
     unavailable with a policy reason instead of a credential one. The ``llm``
     pseudo-engine is skipped — its availability already flows from
     ``_configured_llm_providers``, which drops remote providers under
     ``off``. The authoritative gate stays at validate/dispatch."""
     out: list[dict[str, Any]] = []
     for engine in engines:
-        if engine.get("tier") == "hosted" and engine.get("id") != "llm":
+        if engine.get("tier") == "remote" and engine.get("id") != "llm":
             engine = {**engine, "available": False, "error": NETWORK_OFF_ENGINE_ERROR}
         out.append(engine)
     return out
@@ -904,7 +904,7 @@ def ocr_vision_engines() -> tuple[dict[str, Any], ...]:
             "label": entry["label"],
             "provider": provider,
             "model": entry["id"],
-            "tier": "hosted" if is_remote_provider(provider) else "local",
+            "tier": "remote" if is_remote_provider(provider) else "local",
             "billable": is_remote_provider(provider),
         }
         for provider, entries in MODEL_ENTRIES.items()
@@ -968,7 +968,7 @@ def _action_engines(
         llm = _engine(
             "llm",
             "Model",
-            tier="hosted",
+            tier="remote",
             billable=True,
             available=bool(llm_providers),
             error=(
@@ -1213,7 +1213,7 @@ def _action_engines(
             _engine(
                 "llm",
                 "LLM translation (uses your model)",
-                tier="hosted",
+                tier="remote",
                 billable=True,
                 available=bool(llm_providers),
                 error=(
@@ -1228,7 +1228,7 @@ def _action_engines(
             _engine(
                 "deepl",
                 "DeepL API",
-                tier="hosted",
+                tier="remote",
                 billable=True,
                 available=bool(deepl_key),
                 error=(
@@ -1241,7 +1241,7 @@ def _action_engines(
             _engine(
                 "google_translate",
                 "Google Cloud Translation",
-                tier="hosted",
+                tier="remote",
                 billable=True,
                 available=bool(google_key),
                 error=(
@@ -1404,7 +1404,7 @@ def _action_engines(
         openai_engine = _engine(
             "openai/whisper-1",
             "OpenAI Whisper",
-            tier="hosted",
+            tier="remote",
             billable=True,
             available=openai_available,
             error=None
@@ -1705,7 +1705,7 @@ def _action_engines(
             _engine(
                 "llm",
                 "LLM named-entity extraction (extract-shaped)",
-                tier="hosted",
+                tier="remote",
                 billable=True,
                 available=bool(llm_providers),
                 error=(
@@ -1829,7 +1829,7 @@ def _url_classification_launcher_hints() -> dict[str, dict[str, Any]]:
     so frontend hints and backend routing cannot drift. Hints only — matcher
     METADATA, never executable predicates.
     """
-    from frisket.features.url_classification.contract import (
+    from frisket.url_classification.contract import (
         SNAPSHOT_SCHEMA_VERSION,
         build_snapshot,
     )
@@ -2002,7 +2002,7 @@ def project_action_catalog_launcher_hints(
         target = launcher_hints.setdefault(action_kind, {})
         target.update(_sanitize_action_hint(extra))
     if action_kinds is None or "map.find_topic_sections" in action_kinds:
-        from frisket.features.topic_segmentation.engines import engine_catalog
+        from frisket.topic_segmentation.engines import engine_catalog
 
         launcher_hints.setdefault("map.find_topic_sections", {})["engines"] = list(
             engine_catalog()

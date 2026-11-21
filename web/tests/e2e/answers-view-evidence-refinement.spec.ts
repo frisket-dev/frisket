@@ -87,7 +87,8 @@ try:
         ],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, finding_col, run_id)
+    with write_transaction(project.db):
+        run_store.point_column_at_run(op_id, finding_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, finding_col, row_ids=[row_a, row_b])
 
     media_bytes = base64.b64decode(media_b64)

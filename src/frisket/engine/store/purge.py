@@ -587,7 +587,7 @@ def _scrub_history(db, p, batch_size):
                         "review_states_after",
                         "review_metadata",
                         "review_metadata_after",
-                    ):
+                    ) and isinstance(value, dict):
                         removed = {
                             item[0]
                             for item in db.execute(

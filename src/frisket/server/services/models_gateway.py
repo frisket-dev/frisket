@@ -372,7 +372,7 @@ class ModelsGatewayService:
         self, *, origin: str | None, token: str | None
     ) -> dict[str, Any]:
         candidate = origin is not None and token is not None
-        if candidate:
+        if origin is not None and token is not None:
             try:
                 connection = ModelsGatewayConnection(
                     origin=origin,

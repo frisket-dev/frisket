@@ -19,7 +19,7 @@ can edit server code or the bundle's sqlite directly already holds the keys;
 no defense here targets them.
 
 Tier mapping (contract's ``is_remote`` notion onto the three-tier vocabulary,
-commit a0b6d24): ``hosted`` is remote and gated. ``local`` and ``sidecar``
+commit a0b6d24): ``remote`` is remote and gated. ``local`` and ``sidecar``
 are NOT gated — the disposition explicitly trusts the operator's sidecar and
 Ollama by configuration ("not tagged, trusted by configuration"): their URLs
 are operator-set and default to the operator's own infrastructure, so their
@@ -83,7 +83,7 @@ def _remote_table_engine(program: Any, action_kind: str, engine: str) -> str | N
         return None
     declaration = find_engine(table, engine)
     if declaration is not None:
-        return f"engine:{declaration.id}" if declaration.tier == "hosted" else None
+        return f"engine:{declaration.id}" if declaration.tier == "remote" else None
     if "/" in engine:
         # A provider/model id (remote VLM OCR, remote transcribe): the
         # provider table decides, defaulting remote for unknown providers.

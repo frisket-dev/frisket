@@ -79,7 +79,7 @@ function hit(partId: string, snippet: string) {
       version_value: 1,
       content_hash: 'hash',
     },
-    part: { part_id: partId, part_kind: 'text_chunk', producer_recipe_id: 'text-v1' },
+    part: { part_id: partId, part_kind: 'text_chunk', producer_slice_id: 'text-v1' },
     binding: {
       binding_id: 'binding:2:3',
       sheet_id: 1,
@@ -360,7 +360,7 @@ describe('located palette search', () => {
           channel: 'semantic',
           state: 'unavailable',
           reason: 'model unavailable',
-          recipe_id: null,
+          slice_id: null,
           setup: {
             setup_ref: 'engine-setup:embeddinggemma-2.local@1',
             scope: 'workspace',
@@ -433,7 +433,7 @@ describe('located palette search', () => {
         requested_mode: 'semantic', effective_modes: ['lexical'], state: 'unavailable',
         searched_channels: ['text'], is_top_k: true, truncated: false,
         channels: [{
-          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', slice_id: null,
           setup: {
             setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
             display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
@@ -460,7 +460,7 @@ describe('located palette search', () => {
         requested_mode: 'semantic', effective_modes: ['lexical'], state: 'unavailable',
         searched_channels: ['text'], is_top_k: true, truncated: false,
         channels: [{
-          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', slice_id: null,
           setup: {
             setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
             display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
@@ -503,7 +503,7 @@ describe('located palette search', () => {
         requested_mode: 'semantic', effective_modes: ['lexical'], state: 'unavailable',
         searched_channels: ['text'], is_top_k: true, truncated: false,
         channels: [{
-          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', slice_id: null,
           setup: {
             setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
             display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
@@ -554,7 +554,7 @@ describe('located palette search', () => {
         state: 'unavailable',
         searched_channels: ['text'],
         channels: [{
-          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', recipe_id: null,
+          channel: 'semantic', state: 'unavailable', reason: 'model unavailable', slice_id: null,
           setup: {
             setup_ref: 'engine-setup:embeddinggemma-2.local@1', scope: 'workspace',
             display_name: 'EmbeddingGemma 2', download_bytes: 1_525_784_180,
@@ -584,10 +584,10 @@ describe('located palette search', () => {
         state: 'partial',
         searched_channels: ['lexical'],
         channels: [{
-          channel: 'lexical', state: 'ready', recipe_id: null, reason: null,
+          channel: 'lexical', state: 'ready', slice_id: null, reason: null,
           eligible_count: null, prepared_count: null, failed_count: null, setup: null,
         }, {
-          channel: 'search_preparation', state: 'unavailable', recipe_id: null,
+          channel: 'search_preparation', state: 'unavailable', slice_id: null,
           reason: 'Current media needs search preparation.',
           eligible_count: 1, prepared_count: 0, failed_count: null, setup: null,
           gap_sheet_ids: [1],
@@ -673,7 +673,7 @@ describe('located palette search', () => {
         requested_mode: 'lexical', effective_modes: ['lexical'], state: 'partial',
         searched_channels: ['lexical'], is_top_k: true, truncated: false,
         channels: [{
-          channel: 'search_preparation', state: 'unavailable', recipe_id: null,
+          channel: 'search_preparation', state: 'unavailable', slice_id: null,
           reason: 'Current media needs search preparation.', eligible_count: 1,
           prepared_count: 0, failed_count: null, setup: null, gap_sheet_ids: [2],
         }],
@@ -886,7 +886,7 @@ describe('located palette search', () => {
       group_by: 'row',
       query: { kind: 'text', text: 'budget' },
     }));
-    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    fireEvent.click(screen.getByTestId('save-search-view-button'));
 
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget',
@@ -900,7 +900,7 @@ describe('located palette search', () => {
         },
       } }, presentation: {},
     }));
-    expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('View saved');
+    expect(await screen.findByTestId('save-search-view-status')).toHaveTextContent('View saved');
   });
 
   it('saves hybrid search with bounded membership and fused relevance order', async () => {
@@ -910,7 +910,7 @@ describe('located palette search', () => {
     await waitFor(() => expect(index).toHaveTextContent('Research passages'));
     fireEvent.change(index, { target: { value: 'index-1' } });
     fireEvent.change(screen.getByTestId('search-mode-select'), { target: { value: 'hybrid' } });
-    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    fireEvent.click(screen.getByTestId('save-search-view-button'));
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget', presentation: {}, selection: {
         scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [], limit: 500,
@@ -943,7 +943,7 @@ describe('located palette search', () => {
       },
     });
 
-    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    fireEvent.click(screen.getByTestId('save-search-view-button'));
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Similar to page 2',
       selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: 500, similarity: {

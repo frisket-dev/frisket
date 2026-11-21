@@ -141,11 +141,10 @@ def publish_pdf_ocr_sample(
         except DocumentTextUnavailable:
             selection = None
         manual = selection is not None and selection.prepared_ref_id is None
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "media.ocr",
             {"source_column_id": column, "page": int(capture["page_number"])},
             label="OCR sample",
-            commit=False,
         )
         created = []
         if role is None or manual:
@@ -159,8 +158,8 @@ def publish_pdf_ocr_sample(
             while name in names:
                 name = f"{base} {index}"
                 index += 1
-            output_column = project.add_column(
-                sheet, name, type="text", ai_generated=True, hidden=manual, commit=False
+            output_column = project.add_column_in_transaction(
+                sheet, name, type="text", ai_generated=True, hidden=manual
             )
             created.append(output_column)
             if not manual:
@@ -224,19 +223,17 @@ def publish_pdf_ocr_sample(
                 allow_partial=True,
             )
         runs = RunResultStore(project)
-        run_id = runs.start_run(
+        run_id = runs.start_run_in_transaction(
             op_id,
             sheet,
             "media.ocr",
             params=dict(capture["ocr_action_params"]),
             row_ids=[row],
             total_rows=1,
-            commit=False,
         )
-        if not receipt_store.update_body_status(
+        if not receipt_store.update_body_status_in_transaction(
             receipt.model_copy(update={"run_id": run_id}),
             require_status="running",
-            commit=False,
         ):
             raise RuntimeError("OCR receipt changed before publication")
         runs.attach_unscoped_model_calls(
@@ -273,7 +270,6 @@ def publish_pdf_ocr_sample(
             ),
             write_mode="create" if created else "replace_scope",
             claim_token=token,
-            commit=False,
         )
         runs.write_precomputed_results(
             run_id,
@@ -372,12 +368,10 @@ def publish_pdf_ocr_sample(
             [output_column],
             claim_token=token,
             terminal_disposition="completed",
-            commit=False,
         )
-        runs.finish_run(
+        runs.finish_run_in_transaction(
             run_id,
             "completed",
-            commit=False,
             rebuild_review_stats=False,
             claim_token=token,
         )
@@ -429,7 +423,7 @@ def publish_cached_pdf_ocr_sample(
             ).hexdigest()
         )
         receipts = ReceiptStore(project)
-        receipts.insert_running(
+        receipts.insert_running_in_transaction(
             Receipt(
                 receipt_id=receipt_id,
                 project_id=project_id,
@@ -438,7 +432,6 @@ def publish_cached_pdf_ocr_sample(
                 params_hash=params_hash,
                 status="running",
             ),
-            commit=False,
         )
         result = publish_pdf_ocr_sample(
             project,
@@ -453,10 +446,9 @@ def publish_cached_pdf_ocr_sample(
             receipt_id=receipt_id,
         )
         receipt = receipts.parsed_by_id(receipt_id)
-        if receipt is None or not receipts.update_body_status(
+        if receipt is None or not receipts.update_body_status_in_transaction(
             receipt.model_copy(update={"status": "completed"}),
             require_status="running",
-            commit=False,
         ):
             raise RuntimeError("cached OCR receipt was lost")
         return {**result, "receipt_id": receipt_id}

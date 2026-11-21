@@ -14,7 +14,7 @@ from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
 from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.upgrades.project._step import execute_ddl
 
-CITATIONS_TO_DIGEST = "frisket.schema.v1:e7469fa63ffaa248c955832ee21a9308"
+CITATIONS_TO_DIGEST = "frisket.schema.v1:394bbd0504816e4447a809136ccc789e"
 
 _CITATIONS_DDL = """
 CREATE TABLE IF NOT EXISTS citations (
