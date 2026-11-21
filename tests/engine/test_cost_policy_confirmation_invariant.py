@@ -484,6 +484,79 @@ def _assert_prepared_model_request_confirmation_reaches_its_host_gate(
         project.close()
 
 
+def _assert_embedding_create_request_confirmation_reaches_its_host_gate(
+    tmp_path, registered
+):
+    calls: list[list[str]] = []
+
+    class _Gateway:
+        def embed(self, texts, *, provider, model, modality="text"):
+            calls.append(list(texts))
+            return build_batch_result(
+                vectors=[[0.1] * 1024 for _ in texts],
+                provider_id=provider,
+                provider_kind="platform_api",
+                requested_model=model,
+                actual_model_id=model,
+                modality=modality,
+            )
+
+    project = Project.create(tmp_path / "embedding-create-confirm.frisket")
+    try:
+        sheet_id = project.add_sheet("Stories")
+        col_id = project.add_column(sheet_id, "headline")
+        project.add_rows(sheet_id, [{"headline": "story one"}], {"headline": col_id})
+        request = {
+            "action_id": registered.action_id,
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": sheet_id,
+                "source_columns": ["headline"],
+                "modality": "text",
+                "provider": "openrouter",
+                "model": "openai/text-embedding-3-large",
+                "provider_policy": {"allow_remote": True},
+            },
+            "idempotency_key": "embedding-create-confirm-run",
+        }
+        before = tuple(project.db.iterdump())
+        challenge = run_action_spec(
+            project,
+            request,
+            project_id="p-emb-create",
+            deps=ExecutorDeps(embedding_gateway=_Gateway()),
+        )
+        assert challenge.status == "needs_confirmation", challenge.errors
+        assert challenge.errors[0].code == "model_cost_requires_confirmation"
+        assert challenge.errors[0].field == "confirmation"
+        assert calls == []
+        assert tuple(project.db.iterdump()) == before
+        token = challenge.errors[0].details["promise_set_hash"]
+        assert isinstance(token, str) and token
+
+        wrong = run_action_spec(
+            project,
+            {**request, "confirmation": "wrong-token"},
+            project_id="p-emb-create",
+            deps=ExecutorDeps(embedding_gateway=_Gateway()),
+        )
+        assert wrong.status == "needs_confirmation"
+        assert wrong.errors[0].details["promise_set_hash"] == token
+        assert calls == []
+        assert tuple(project.db.iterdump()) == before
+
+        confirmed = run_action_spec(
+            project,
+            {**request, "confirmation": token},
+            project_id="p-emb-create",
+            deps=ExecutorDeps(embedding_gateway=_Gateway()),
+        )
+        assert confirmed.status == "completed", confirmed.errors
+        assert len(calls) == 1
+    finally:
+        project.close()
+
+
 def _assert_embedding_refresh_request_confirmation_reaches_its_host_gate(
     tmp_path, registered
 ):
@@ -593,6 +666,7 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
     from frisket.actions.group_summary_types import GroupSummarizer
     from frisket.actions.types import (
         ActionRequest,
+        IndexCreator,
         IndexRefresher,
         RunBackfiller,
         SheetRefresher,
@@ -620,6 +694,7 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
                 ValueClusterer,
                 FindScanner,
                 GroupSummarizer,
+                IndexCreator,
                 IndexRefresher,
             ), registered.action_id
             errors = {error["code"] for error in catalog["errors"]}
@@ -643,6 +718,10 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
                 )
             elif terminal.capabilities == (RunBackfiller,):
                 _assert_backfill_request_confirmation_reaches_its_host_gate(
+                    tmp_path, registered
+                )
+            elif terminal.capabilities == (IndexCreator,):
+                _assert_embedding_create_request_confirmation_reaches_its_host_gate(
                     tmp_path, registered
                 )
             elif terminal.capabilities == (IndexRefresher,):

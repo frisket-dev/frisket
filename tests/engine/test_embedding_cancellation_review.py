@@ -41,17 +41,36 @@ def state(project):
     }
 
 
+def _confirm_probe_request(project, request, *, gateway):
+    challenge = run_action_spec(
+        project,
+        request,
+        project_id="p",
+        deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
+    )
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert gateway.calls == []
+    return {
+        **request,
+        "confirmation": challenge.errors[0].details["promise_set_hash"],
+    }
+
+
 @pytest.mark.parametrize("interruption", INTERRUPTIONS)
 def test_create_cancel_after_paid_probe_before_receipt(
     project, monkeypatch, interruption
 ):
     gateway = FakeProbeGateway(dim=1024)
-    request = _create_action(
-        project._sheet_id,
-        key="cancel-create",
-        provider="openrouter",
-        model="openai/text-embedding-3-large",
-        provider_policy={"allow_remote": True},
+    request = _confirm_probe_request(
+        project,
+        _create_action(
+            project._sheet_id,
+            key="cancel-create",
+            provider="openrouter",
+            model="openai/text-embedding-3-large",
+            provider_policy={"allow_remote": True},
+        ),
+        gateway=gateway,
     )
     real_create = EmbeddingStore.create_index
 
@@ -215,12 +234,16 @@ def test_probe_cancel_after_return_keeps_fact_and_closes_without_index(project):
             return result
 
     gateway = CancelAfterProbe(dim=1024)
-    request = _create_action(
-        project._sheet_id,
-        key="cancel-probe-return",
-        provider="openrouter",
-        model="openai/text-embedding-3-large",
-        provider_policy={"allow_remote": True},
+    request = _confirm_probe_request(
+        project,
+        _create_action(
+            project._sheet_id,
+            key="cancel-probe-return",
+            provider="openrouter",
+            model="openai/text-embedding-3-large",
+            provider_policy={"allow_remote": True},
+        ),
+        gateway=gateway,
     )
     with pytest.raises(asyncio.CancelledError):
         run_action_spec(
@@ -250,12 +273,16 @@ def test_probe_cancel_before_dispatch_closes_current_attempt(project, monkeypatc
 
     monkeypatch.setattr(embeddings, "mint_direct_effect_attempt", cancel_after_mint)
     gateway = FakeProbeGateway(dim=1024)
-    request = _create_action(
-        project._sheet_id,
-        key="cancel-probe-dispatch",
-        provider="openrouter",
-        model="openai/text-embedding-3-large",
-        provider_policy={"allow_remote": True},
+    request = _confirm_probe_request(
+        project,
+        _create_action(
+            project._sheet_id,
+            key="cancel-probe-dispatch",
+            provider="openrouter",
+            model="openai/text-embedding-3-large",
+            provider_policy={"allow_remote": True},
+        ),
+        gateway=gateway,
     )
     with pytest.raises(asyncio.CancelledError):
         run_action_spec(

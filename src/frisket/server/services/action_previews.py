@@ -24,9 +24,15 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
     bound_typed_program_request_from_runner_spec,
 )
-from frisket.actions.types import IndexRefresher, RowError, require_sheet_rows
+from frisket.actions.types import (
+    IndexCreator,
+    IndexRefresher,
+    RowError,
+    require_sheet_rows,
+)
 from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.engine.executor.action_families.embeddings import (
+    prepare_embedding_create,
     prepare_embedding_refresh,
 )
 from frisket.engine.executor.action_support import _row_input_action_error
@@ -242,6 +248,30 @@ class ActionPreviewService:
                         "action": {"kind": typed.action.action_id},
                         "project_id": project_id,
                         "estimate": estimate,
+                    }
+
+                if capabilities == (IndexCreator,):
+                    prepared_create = prepare_embedding_create(
+                        get_project(),
+                        typed,
+                        project_id=project_id,
+                        router=self._workspace.router_for(get_project()),
+                        consent_coverage=coverage,
+                        edition=self._workspace.edition,
+                    )
+                    if isinstance(prepared_create, ActionError):
+                        raise ActionPreviewRouteError(
+                            400,
+                            prepared_create.model_dump(mode="json"),
+                            bare_json=True,
+                        )
+                    return {
+                        "schema_version": ACTION_ESTIMATE_RESULT_SCHEMA_VERSION,
+                        "action": {"kind": typed.action.action_id},
+                        "project_id": project_id,
+                        "estimate": ActionEstimate.model_validate(
+                            prepared_create.wire_estimate()
+                        ).model_dump(mode="json"),
                     }
 
                 if capabilities == (IndexRefresher,):

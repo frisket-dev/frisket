@@ -454,8 +454,17 @@ def test_custom_remote_create_replay_does_not_reprobe(project):
         provider_policy={"allow_remote": True},
     )
     first_gateway = FakeProbeGateway(dim=1024)
-    first = _run_with_deps(
+    challenge = _run_with_deps(
         project, action, gateway=first_gateway, router=_OpenRouterRouter()
+    )
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert first_gateway.calls == []
+    confirmed_action = {
+        **action,
+        "confirmation": challenge.errors[0].details["promise_set_hash"],
+    }
+    first = _run_with_deps(
+        project, confirmed_action, gateway=first_gateway, router=_OpenRouterRouter()
     )
     assert first.status == "completed", first.errors
     assert len(first_gateway.calls) == 1
@@ -464,7 +473,7 @@ def test_custom_remote_create_replay_does_not_reprobe(project):
 
     replay_gateway = FakeProbeGateway(dim=2048)
     replay = _run_with_deps(
-        project, action, gateway=replay_gateway, router=_OpenRouterRouter()
+        project, confirmed_action, gateway=replay_gateway, router=_OpenRouterRouter()
     )
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == first.receipt_id

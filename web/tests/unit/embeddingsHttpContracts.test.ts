@@ -200,6 +200,116 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
+  it('retains idempotency across a 402 create probe cost gate and echoes confirmation', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    let attempt = 0;
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      attempt += 1;
+      const body = requestBody(init);
+      bodies.push(body);
+      if (attempt === 1) {
+        return jsonResponse({
+          ...actionResult('embedding.index_create'),
+          status: 'needs_confirmation',
+          receipt_id: null,
+          errors: [{
+            schema_version: 'frisket.action_error.v1',
+            code: 'model_cost_requires_confirmation',
+            message: 'Estimated cost is unknown for openrouter/custom — confirm to run the remote embedding dimension probe.',
+            action_kind: 'embedding.index_create',
+            field: 'confirmation',
+            needs_confirmation: true,
+            details: {
+              reason: 'unknown_estimate',
+              promise_set_hash: 'c'.repeat(64),
+              estimate: {
+                rows: 1,
+                cost: null,
+                cost_source: 'unknown',
+                billed_cost: null,
+                policy_id: 'frisket.pricing.identity.v1',
+              },
+            },
+          }],
+        }, 402);
+      }
+      return jsonResponse({
+        ...actionResult('embedding.index_create'),
+        outputs: [{ kind: 'embedding_index', ref: { index_id: 'idx_probed' } }],
+      });
+    }));
+    const { createProjectApi } = await import('../../src/api/real');
+    const { ConfirmationRequiredError } = await import('../../src/api/contractErrors');
+    const api = createProjectApi('embedding-create-402');
+    const input = {
+      sheetId: 3,
+      sourceColumns: ['body'],
+      modality: 'text',
+      provider: 'openrouter',
+      model: 'custom/model',
+      allowRemote: true,
+      allowRemoteAutomaticRefresh: false,
+      maxCostUsdPerRefresh: null,
+    };
+
+    let caught: unknown;
+    try {
+      await api.createEmbeddingIndex(input);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ConfirmationRequiredError);
+    const gate = caught as InstanceType<typeof ConfirmationRequiredError>;
+    expect(gate.estimate.promise_set_hash).toBe('c'.repeat(64));
+    expect(gate.estimate.billed_cost).toBeNull();
+    expect(gate.estimate.rows).toBe(1);
+
+    await expect(
+      api.createEmbeddingIndex(input, { confirmation: gate.estimate.promise_set_hash }),
+    ).resolves.toBe('idx_probed');
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].confirmation).toBeUndefined();
+    expect(bodies[1].confirmation).toBe('c'.repeat(64));
+    expect(bodies[1].idempotency_key).toBe(bodies[0].idempotency_key);
+  });
+
+  it('surfaces a Cloud unpriceable_model create refusal as ApiError without confirmation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...actionResult('embedding.index_create'),
+      status: 'failed',
+      receipt_id: null,
+      errors: [{
+        schema_version: 'frisket.action_error.v1',
+        code: 'unpriceable_model',
+        message: 'Remote embedding dimension probe with an unknown price is not allowed on Cloud.',
+        action_kind: 'embedding.index_create',
+        field: 'params.model',
+      }],
+    }, 400)));
+    const { createProjectApi } = await import('../../src/api/real');
+    const { ApiError, ConfirmationRequiredError } = await import('../../src/api/contractErrors');
+    const api = createProjectApi('embedding-create-cloud-refusal');
+
+    let caught: unknown;
+    try {
+      await api.createEmbeddingIndex({
+        sheetId: 3,
+        sourceColumns: ['body'],
+        modality: 'text',
+        provider: 'openrouter',
+        model: 'custom/model',
+        allowRemote: true,
+        allowRemoteAutomaticRefresh: false,
+        maxCostUsdPerRefresh: null,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught).not.toBeInstanceOf(ConfirmationRequiredError);
+    expect((caught as InstanceType<typeof ApiError>).code).toBe('unpriceable_model');
+  });
+
   it('retains idempotency across a 402 refresh cost gate and echoes confirmation', async () => {
     const bodies: Array<Record<string, unknown>> = [];
     let attempt = 0;

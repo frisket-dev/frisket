@@ -250,9 +250,6 @@ def _counts(project: Project) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 _NO_PAIR_EXCLUSIONS = {
-    # Typed embedding index creation uses durable provider policy (remote opt-in
-    # for optional dimension probes), not an invocation echo protocol.
-    "embedding.index_create",
     "media.enclosure_materialize",
     "source.poll",
     # Typed transcript repetition is semantic Params intent, not paid consent.
@@ -982,6 +979,54 @@ def _geospatial_driver(kind: str) -> Driver:
 
 
 @contextmanager
+def _drive_embedding_index_create(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    del monkeypatch
+
+    class _NeverCalledGateway:
+        def embed(self, texts, *, provider, model, modality="text"):
+            pytest.fail("wrong-echo closure reached the embedding probe provider")
+            return build_batch_result(
+                vectors=[[0.0] * 1024 for _ in texts],
+                provider_id=provider,
+                provider_kind="platform_api",
+                requested_model=model,
+                actual_model_id=model,
+                modality=modality,
+            )
+
+    project = Project.create(tmp_path / "embedding-create.frisket")
+    try:
+        sheet_id = project.add_sheet("Stories")
+        col_id = project.add_column(sheet_id, "headline")
+        project.add_rows(sheet_id, [{"headline": "story one"}], {"headline": col_id})
+        action = {
+            "action_id": "embedding.index_create",
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": sheet_id,
+                "source_columns": ["headline"],
+                "modality": "text",
+                "provider": "openrouter",
+                "model": "openai/text-embedding-3-large",
+                "provider_policy": {"allow_remote": True},
+            },
+            "idempotency_key": "embedding.index_create@echo-closure",
+        }
+
+        def run(spec):
+            return run_action_spec(
+                project,
+                spec,
+                project_id="p-echo-closure",
+                deps=ExecutorDeps(embedding_gateway=_NeverCalledGateway()),
+            )
+
+        yield project, action, run
+    finally:
+        project.close()
+
+
+@contextmanager
 def _drive_embedding_index_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     del monkeypatch
 
@@ -1046,6 +1091,7 @@ def _drive_embedding_index_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 _BESPOKE_DRIVERS: dict[str, Driver] = {
+    "embedding.index_create": _drive_embedding_index_create,
     "embedding.index_refresh": _drive_embedding_index_refresh,
     "research.extract": _drive_research_extract,
     "enrich.geocode": _geospatial_driver("enrich.geocode"),
