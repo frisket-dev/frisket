@@ -12,6 +12,7 @@ Asserts the NEW contract that the redesign establishes:
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -153,7 +154,7 @@ def _receipt(project: Project, receipt_id: str) -> Receipt:
 
 def test_column_and_named_result_routes_and_table_from_list(tmp_path: Path) -> None:
     project, sheet_id, row_ids = _seed(tmp_path / "a.frisket")
-    try:
+    with closing(project):
         result = run_action_spec(
             project,
             _map_python_action(sheet_id, key="map_python@sha256:a"),
@@ -206,15 +207,13 @@ def test_column_and_named_result_routes_and_table_from_list(tmp_path: Path) -> N
             (int(entities_sheet["id"]),),
         ).fetchone()[0]
         assert n_rows == 2
-    finally:
-        project.close()
 
 
 def test_receipt_evidence_route_is_hidden_column_plus_lightweight_ref(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, _ = _seed(tmp_path / "b.frisket")
-    try:
+    with closing(project):
         result = run_action_spec(
             project,
             _map_python_action(sheet_id, key="map_python@sha256:b"),
@@ -248,13 +247,11 @@ def test_receipt_evidence_route_is_hidden_column_plus_lightweight_ref(
         assert ref["column_id"] == int(evidence_col["id"])
         assert ref["retention"] == "compactable"
         assert "values" not in ref
-    finally:
-        project.close()
 
 
 def test_reservation_based_idempotency_in_progress(tmp_path: Path) -> None:
     project, sheet_id, _ = _seed(tmp_path / "c.frisket")
-    try:
+    with closing(project):
         # Simulate a still-running first action by leaving a 'running' reservation in
         # place (the reserved skeleton writes one before the sandbox runs), then issue a
         # duplicate with the same key.
@@ -282,8 +279,6 @@ def test_reservation_based_idempotency_in_progress(tmp_path: Path) -> None:
         )
         assert dup.status == "failed"
         assert dup.errors[0].code == "idempotency_in_progress"
-    finally:
-        project.close()
 
 
 def test_reserved_spec_has_no_resolve_or_write_override() -> None:

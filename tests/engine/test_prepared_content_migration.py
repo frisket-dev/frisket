@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import importlib
 import sqlite3
@@ -277,14 +278,11 @@ def test_prepared_rebuild_preserves_already_present_result_warnings(tmp_path):
         assert db.execute("SELECT warnings FROM results").fetchone()[0] == (
             '["Page 2 failed"]'
         )
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert tuple(
             reopened.db.execute("SELECT value,warnings FROM results").fetchone()
         ) == ("recognized", '["Page 2 failed"]')
-    finally:
-        reopened.close()
 
 
 def test_exact_prior_schema_rolls_back_and_retries_after_interrupted_stamp(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
@@ -322,15 +323,14 @@ def _runless_handler_case(
             trusted_organization_id=trusted_organization_id
         ),
     )
-    observed_project = Project(tmp_path / f"{trusted_project_id}.frisket")
-    try:
+    with closing(
+        Project(tmp_path / f"{trusted_project_id}.frisket")
+    ) as observed_project:
         settlement.read(
             project=observed_project,
             project_id=trusted_project_id,
             receipt_id=result["receipt_id"],
         )
-    finally:
-        observed_project.close()
     return settlement, result
 
 

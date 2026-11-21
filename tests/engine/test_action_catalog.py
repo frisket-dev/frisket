@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import os
 from collections import Counter
 from contextlib import chdir, nullcontext
@@ -414,8 +415,7 @@ def test_cli_schema_validate_and_run_use_the_typed_root_registry(
     assert result.status == "completed"
     assert result.action.kind == "map.template"
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         output = next(
             column
             for column in project.columns(sheet_id)
@@ -424,8 +424,6 @@ def test_cli_schema_validate_and_run_use_the_typed_root_registry(
         assert list(project.get_values(sheet_id, output["id"]).values()) == [
             "Hello Ada"
         ]
-    finally:
-        project.close()
 
 
 def test_generic_typed_row_catalogs_declare_temporal_ingress_errors() -> None:

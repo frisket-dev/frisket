@@ -267,7 +267,6 @@ def test_result_from_receipt_reconstructs_map_columns(
         assert calls == ["/items/1", "/items/2"]
     finally:
         asyncio.run(client.aclose())
-        project.close()
 
 
 def test_result_from_receipt_fails_closed_on_unknown_first_party_output_ref() -> None:

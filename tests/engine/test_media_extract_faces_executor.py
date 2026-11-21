@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import json
 from pathlib import Path
@@ -122,10 +123,8 @@ def media_case(request, monkeypatch, tmp_path):
         seeded = _seed(project, tmp_path)
         make = _extract_faces_action
         image_key = "face"
-    try:
+    with closing(project):
         yield project, seeded, make, request.param, image_key
-    finally:
-        project.close()
 
 
 def test_typed_media_results_named_routes_durable_occurrences_and_replay(

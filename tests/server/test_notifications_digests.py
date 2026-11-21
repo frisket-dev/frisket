@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -350,8 +351,7 @@ def test_digest_job_composes_and_enqueues_delivery_request(
     worker = Worker(queue, registry, worker_id="digest-worker", retry_base_seconds=0)
     assert worker.run_once() is True
 
-    project = _open_project(tmp_path, project_id)
-    try:
+    with closing(_open_project(tmp_path, project_id)) as project:
         rows = project.db.execute("SELECT * FROM notification_digest_runs").fetchall()
         assert len(rows) == 1
         run = project.public_notification_digest_run(int(rows[0]["id"]))
@@ -362,8 +362,6 @@ def test_digest_job_composes_and_enqueues_delivery_request(
         )
         assert request["status"] == "queued"
         assert request["job_id"] is not None
-    finally:
-        project.close()
 
     assert worker.run_once() is True
     assert provider.messages[0].delivery_kind == "digest"
@@ -478,8 +476,7 @@ def test_notification_digest_handler_uses_payload_workspace_root(
     worker = Worker(queue, registry, worker_id="hosted-digest-root")
     assert worker.run_once() is True
 
-    project = _open_project(organization_root, project_id)
-    try:
+    with closing(_open_project(organization_root, project_id)) as project:
         rows = project.db.execute("SELECT * FROM notification_digest_runs").fetchall()
         assert len(rows) == 1
         run = project.public_notification_digest_run(int(rows[0]["id"]))
@@ -490,8 +487,6 @@ def test_notification_digest_handler_uses_payload_workspace_root(
             run["delivery_request_id"]
         )
         assert request["job_id"] is not None
-    finally:
-        project.close()
 
 
 def test_info_run_outcomes_reach_only_digest_routes_for_runs(tmp_path: Path) -> None:

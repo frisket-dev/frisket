@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import closing
 import json
 import subprocess
 import sys
@@ -388,17 +389,14 @@ def test_csv_field_policy_is_stable_across_concurrent_imports(
     monkeypatch.setattr(csv, "field_size_limit", reject_request_time_mutation)
 
     def import_one(index: int) -> int:
-        project = Project.create(
-            tmp_path / f"parallel-{index}.frisket", name="Parallel"
-        )
-        try:
+        with closing(
+            Project.create(tmp_path / f"parallel-{index}.frisket", name="Parallel")
+        ) as project:
             action = _import_csv_action(path)
             action["params"]["columns"] = [{"name": "name", "type": "text"}]
             result = run_action_spec(project, action, project_id="parallel")
             assert result.status == "completed", result.errors
             return project.row_count(result.outputs[0].sheet_id)
-        finally:
-            project.close()
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         counts = list(pool.map(import_one, range(8)))

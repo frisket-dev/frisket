@@ -44,9 +44,9 @@ def _transcribe_action(
 
 
 def _seed_media_project(
-    tmp_path: Path, *, label: str = "signal"
+    make_project, *, label: str = "signal"
 ) -> tuple[Project, int, list[int], list[str]]:
-    project = Project.create(tmp_path / f"{label}.frisket", name="Transcript status")
+    project = make_project(label)
     sheet_id = project.add_sheet("Episodes")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -172,194 +172,167 @@ def _first_ok_second_fails(blobs: list[str]):
     return fake_faster_whisper
 
 
-def test_missing_when_no_transcribe_ever_ran(tmp_path: Path) -> None:
-    project, sheet_id, _row_ids, _blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "missing"
-        assert _payload_status(project, sheet_id, media_id) == "missing"
-    finally:
-        project.close()
+def test_missing_when_no_transcribe_ever_ran(make_project) -> None:
+    project, sheet_id, _row_ids, _blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "missing"
+    assert _payload_status(project, sheet_id, media_id) == "missing"
 
 
 def test_partial_when_some_rows_lack_a_successful_transcript(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project, sheet_id, row_ids, blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            _first_ok_second_fails(blobs),
-        )
-        result = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:partial",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "partial"
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "partial"
-        assert _payload_status(project, sheet_id, media_id) == "partial"
-    finally:
-        project.close()
+    project, sheet_id, row_ids, blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        _first_ok_second_fails(blobs),
+    )
+    result = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:partial",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "partial"
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "partial"
+    assert _payload_status(project, sheet_id, media_id) == "partial"
 
 
 def test_zero_success_run_reads_as_missing_not_partial_or_complete(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A run that fails on every target row hides the column it created
     (map_runner.py's all-rows-failed-no-columns-v1 zero-success rollback) —
     the status must read identically to "no transcribe ever ran", not
     surface as complete/partial from a column that was never populated."""
-    project, sheet_id, row_ids, _blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter, "transcribe", _all_fail()
-        )
-        result = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:zero-success",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "failed"
-        transcript_column = project.db.execute(
-            "SELECT hidden FROM columns WHERE sheet_id=? AND name='transcript'",
-            (sheet_id,),
-        ).fetchone()
-        assert transcript_column is not None
-        assert transcript_column["hidden"] == 1  # the auto-hide precedent
+    project, sheet_id, row_ids, _blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter, "transcribe", _all_fail()
+    )
+    result = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:zero-success",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "failed"
+    transcript_column = project.db.execute(
+        "SELECT hidden FROM columns WHERE sheet_id=? AND name='transcript'",
+        (sheet_id,),
+    ).fetchone()
+    assert transcript_column is not None
+    assert transcript_column["hidden"] == 1  # the auto-hide precedent
 
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "missing"
-        assert _payload_status(project, sheet_id, media_id) == "missing"
-    finally:
-        project.close()
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "missing"
+    assert _payload_status(project, sheet_id, media_id) == "missing"
 
 
 def test_complete_hidden_after_a_full_success_the_user_later_hides(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project, sheet_id, row_ids, blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            _all_ok(blobs, row_ids),
-        )
-        result = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:visible-complete",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed"
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "complete_visible"
-        assert _payload_status(project, sheet_id, media_id) == "complete_visible"
+    project, sheet_id, row_ids, blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        _all_ok(blobs, row_ids),
+    )
+    result = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:visible-complete",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed"
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "complete_visible"
+    assert _payload_status(project, sheet_id, media_id) == "complete_visible"
 
-        transcript_column_id = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='transcript'",
-            (sheet_id,),
-        ).fetchone()["id"]
-        project.db.execute(
-            "UPDATE columns SET hidden=1 WHERE id=?", (transcript_column_id,)
-        )
-        project.db.commit()
+    transcript_column_id = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='transcript'",
+        (sheet_id,),
+    ).fetchone()["id"]
+    project.db.execute(
+        "UPDATE columns SET hidden=1 WHERE id=?", (transcript_column_id,)
+    )
+    project.db.commit()
 
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "complete_hidden"
-        assert _payload_status(project, sheet_id, media_id) == "complete_hidden"
-    finally:
-        project.close()
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "complete_hidden"
+    assert _payload_status(project, sheet_id, media_id) == "complete_hidden"
 
 
 def test_multi_transcribe_newest_run_wins_over_an_older_full_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """First run: both rows succeed (complete_visible). Second (newest) run
     re-targets the SAME column but only row 1 succeeds. The signal must
     reflect the newest run's own outcome (partial), never merge in the
     earlier run's full success."""
-    project, sheet_id, row_ids, blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            _all_ok(blobs, row_ids),
-        )
-        first = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:multi-first",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed"
-        assert (
-            compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))[
-                media_id
-            ]
-            == "complete_visible"
-        )
+    project, sheet_id, row_ids, blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        _all_ok(blobs, row_ids),
+    )
+    first = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:multi-first",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed"
+    assert (
+        compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))[
+            media_id
+        ]
+        == "complete_visible"
+    )
 
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            _first_ok_second_fails(blobs),
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        _first_ok_second_fails(blobs),
+    )
+    second = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:multi-second",
         )
-        second = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:multi-second",
-            )
-            | {"replace_existing": True},
-            project_id=PROJECT_ID,
-        )
-        assert second.status == "partial"
-        assert second.run_id != first.run_id
+        | {"replace_existing": True},
+        project_id=PROJECT_ID,
+    )
+    assert second.status == "partial"
+    assert second.run_id != first.run_id
 
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "partial"
-        assert _payload_status(project, sheet_id, media_id) == "partial"
-    finally:
-        project.close()
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "partial"
+    assert _payload_status(project, sheet_id, media_id) == "partial"
 
 
 def test_rename_proofing_generated_column_identified_by_run_not_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The transcript OUTPUT column is identified via
     its exact run-output generation binding and transcript type (never by name —
@@ -368,53 +341,48 @@ def test_rename_proofing_generated_column_identified_by_run_not_name(
     Separately, the response dict itself is genuinely id-keyed (integer
     column ids, not names), and an unrelated column rename must not disturb
     the media column's entry."""
-    project, sheet_id, row_ids, blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            _all_ok(blobs, row_ids),
-        )
-        result = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:rename-proof",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed"
+    project, sheet_id, row_ids, blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        _all_ok(blobs, row_ids),
+    )
+    result = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:rename-proof",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed"
 
-        # Rename an unrelated column and the transcript OUTPUT column. Both
-        # are id-irrelevant to the media column's own status key.
-        project.db.execute(
-            "UPDATE columns SET name='episode_title' WHERE sheet_id=? AND name='title'",
-            (sheet_id,),
-        )
-        transcript_column_id = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='transcript'",
-            (sheet_id,),
-        ).fetchone()["id"]
-        project.db.execute(
-            "UPDATE columns SET name='transcript_text' WHERE id=?",
-            (transcript_column_id,),
-        )
-        project.db.commit()
+    # Rename an unrelated column and the transcript OUTPUT column. Both
+    # are id-irrelevant to the media column's own status key.
+    project.db.execute(
+        "UPDATE columns SET name='episode_title' WHERE sheet_id=? AND name='title'",
+        (sheet_id,),
+    )
+    transcript_column_id = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='transcript'",
+        (sheet_id,),
+    ).fetchone()["id"]
+    project.db.execute(
+        "UPDATE columns SET name='transcript_text' WHERE id=?",
+        (transcript_column_id,),
+    )
+    project.db.commit()
 
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert all(isinstance(cid, int) for cid in statuses)
-        assert statuses[media_id] == "complete_visible"
-        assert _payload_status(project, sheet_id, media_id) == "complete_visible"
-    finally:
-        project.close()
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert all(isinstance(cid, int) for cid in statuses)
+    assert statuses[media_id] == "complete_visible"
+    assert _payload_status(project, sheet_id, media_id) == "complete_visible"
 
 
 def test_rename_proofing_renamed_media_source_resolves_safely_to_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Resolving ``ops.spec.input_columns[0]`` (a column NAME) against the
     CURRENT column list is the same live lookup the executor itself performs
@@ -423,49 +391,37 @@ def test_rename_proofing_renamed_media_source_resolves_safely_to_missing(
     resolution gap the executor already has. This must degrade SAFELY (the
     id-keyed status reads "missing", never a stale/wrong association or a
     crash), not silently attribute a different column's run to it."""
-    project, sheet_id, row_ids, blobs = _seed_media_project(tmp_path)
-    try:
-        media_id = _media_column_id(project, sheet_id)
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            _all_ok(blobs, row_ids),
-        )
-        result = run_action_spec(
-            project,
-            _transcribe_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="transcript_status@sha256:rename-source",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed"
+    project, sheet_id, row_ids, blobs = _seed_media_project(make_project)
+    media_id = _media_column_id(project, sheet_id)
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        _all_ok(blobs, row_ids),
+    )
+    result = run_action_spec(
+        project,
+        _transcribe_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="transcript_status@sha256:rename-source",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed"
 
-        project.db.execute(
-            "UPDATE columns SET name='audio_source' WHERE id=?", (media_id,)
-        )
-        project.db.commit()
+    project.db.execute("UPDATE columns SET name='audio_source' WHERE id=?", (media_id,))
+    project.db.commit()
 
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert statuses[media_id] == "missing"
-        assert _payload_status(project, sheet_id, media_id) == "missing"
-    finally:
-        project.close()
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert statuses[media_id] == "missing"
+    assert _payload_status(project, sheet_id, media_id) == "missing"
 
 
-def test_transcript_status_absent_for_non_media_columns(tmp_path: Path) -> None:
-    project, sheet_id, _row_ids, _blobs = _seed_media_project(tmp_path)
-    try:
-        title_id = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='title'", (sheet_id,)
-        ).fetchone()["id"]
-        statuses = compute_transcript_statuses(
-            project, sheet_id, project.columns(sheet_id)
-        )
-        assert title_id not in statuses
-        assert _payload_status(project, sheet_id, title_id) is None
-    finally:
-        project.close()
+def test_transcript_status_absent_for_non_media_columns(make_project) -> None:
+    project, sheet_id, _row_ids, _blobs = _seed_media_project(make_project)
+    title_id = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='title'", (sheet_id,)
+    ).fetchone()["id"]
+    statuses = compute_transcript_statuses(project, sheet_id, project.columns(sheet_id))
+    assert title_id not in statuses
+    assert _payload_status(project, sheet_id, title_id) is None

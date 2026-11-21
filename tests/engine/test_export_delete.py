@@ -10,6 +10,7 @@ mirroring how undo refuses barrier ops.
 """
 
 import io
+from contextlib import closing
 import json
 import sqlite3
 import threading
@@ -62,17 +63,16 @@ def make_project(client) -> tuple[str, int]:
 class TestExport:
     def test_falsey_injected_blob_store_never_falls_back(self, tmp_path):
         store = _FalseyFilesystemStore(root=tmp_path / "canonical-blobs")
-        project = Project.create(
-            tmp_path / "falsey-store.frisket",
-            name="Falsey store",
-            blob_store=store,
-        )
-        try:
+        with closing(
+            Project.create(
+                tmp_path / "falsey-store.frisket",
+                name="Falsey store",
+                blob_store=store,
+            )
+        ) as project:
             assert project.blob_store is store
             digest = project.add_blob(b"falsey stores are still valid")
             assert project.read_blob(digest) == b"falsey stores are still valid"
-        finally:
-            project.close()
 
     def test_export_db_manifest_and_blob_members_are_one_concurrent_snapshot(
         self,
@@ -100,11 +100,8 @@ class TestExport:
         monkeypatch.setattr(tarfile.TarFile, "addfile", paused_addfile)
 
         def add_concurrent_blob() -> str:
-            reopened = Project(bundle, blob_store=store)
-            try:
+            with closing(Project(bundle, blob_store=store)) as reopened:
                 return reopened.add_blob(b"concurrent member B", filename="b.bin")
-            finally:
-                reopened.close()
 
         try:
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -160,13 +157,12 @@ class TestExport:
         assert r.status_code == 200
         zip_path = tmp_path / "out.frisket.zip"
         zip_path.write_bytes(r.content)
-        p = Project.import_bundle(zip_path, tmp_path / "restored.frisket")
-        try:
+        with closing(
+            Project.import_bundle(zip_path, tmp_path / "restored.frisket")
+        ) as p:
             sheets = p.sheets()
             assert [s["name"] for s in sheets] == ["rows"]
             assert p.row_count(sheets[0]["id"]) == 2
-        finally:
-            p.close()
 
     def test_export_include_media_param(self, client):
         pid, _ = make_project(client)

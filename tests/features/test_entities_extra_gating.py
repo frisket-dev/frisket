@@ -54,6 +54,7 @@ def test_entities_available_reflects_the_real_availability_flag(
 
 def test_graph_neighborhood_gates_gracefully_when_entities_extra_missing(
     monkeypatch: pytest.MonkeyPatch,
+    project: Project,
 ) -> None:
     monkeypatch.setattr(
         neighborhood,
@@ -63,13 +64,8 @@ def test_graph_neighborhood_gates_gracefully_when_entities_extra_missing(
             f"FollowTheMoney entity support is not installed. Install with {REMEDIATION}.",
         ),
     )
-    with tempfile.TemporaryDirectory() as td:
-        project = Project.create(Path(td) / "gate.frisket", name="gate")
-        try:
-            with pytest.raises(neighborhood.GraphNeighborhoodError) as excinfo:
-                neighborhood.build_graph_neighborhood(project, anchor_id="anything")
-        finally:
-            project.close()
+    with pytest.raises(neighborhood.GraphNeighborhoodError) as excinfo:
+        neighborhood.build_graph_neighborhood(project, anchor_id="anything")
     assert excinfo.value.code == "entities_extra_missing"
     assert excinfo.value.status_code == 503
     assert REMEDIATION in excinfo.value.message

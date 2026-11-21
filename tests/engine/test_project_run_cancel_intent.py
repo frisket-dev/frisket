@@ -86,411 +86,399 @@ class _CancelWorkspace:
 
 
 def test_reconciliation_response_names_operator_resolver_and_cancel_retry(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_id = "cancel-reconciliation-response"
-    project = Project.create(tmp_path / f"{project_id}.frisket")
-    try:
-        sheet_id = project.add_sheet("Source")
-        source_column = project.add_column(sheet_id, "source")
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{"source": "alpha"}],
-            {"source": source_column},
-        )
-        op_id = project.append_change(
-            "map.regex_extract", {"action_kind": "map.regex_extract"}
-        )
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.regex_extract",
-            row_ids=[row_id],
-        )
-        job = _LiveJob(
-            receipt_id="receipt_reconciliation_response",
-            action_kind="map.regex_extract",
-        )
-        workspace = _CancelWorkspace(project_id, project, job)
-        terminalization = ProjectRunTerminalizationResult(
+    project = make_project(project_id)
+    sheet_id = project.add_sheet("Source")
+    source_column = project.add_column(sheet_id, "source")
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{"source": "alpha"}],
+        {"source": source_column},
+    )
+    op_id = project.append_change(
+        "map.regex_extract", {"action_kind": "map.regex_extract"}
+    )
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+        row_ids=[row_id],
+    )
+    job = _LiveJob(
+        receipt_id="receipt_reconciliation_response",
+        action_kind="map.regex_extract",
+    )
+    workspace = _CancelWorkspace(project_id, project, job)
+    terminalization = ProjectRunTerminalizationResult(
+        disposition="reconciliation_required",
+        receipt_disposition="write_refused",
+        run_status="running",
+        receipt_status="queued",
+        reserved_checkpoint_ids=("checkpoint_operator_decision",),
+        reason="reserved_effect_checkpoint",
+    )
+    run_row = RunResultStore(project).get_run(run_id)
+    assert run_row is not None
+    monkeypatch.setattr(
+        cancel_service_module,
+        "cancel_project_run",
+        lambda **_kwargs: run_status_module.ProjectRunCancelResult(
+            row=run_row,
+            job=job,
+            queue_cancelled=False,
             disposition="reconciliation_required",
-            receipt_disposition="write_refused",
-            run_status="running",
-            receipt_status="queued",
-            reserved_checkpoint_ids=("checkpoint_operator_decision",),
-            reason="reserved_effect_checkpoint",
-        )
-        run_row = RunResultStore(project).get_run(run_id)
-        assert run_row is not None
-        monkeypatch.setattr(
-            cancel_service_module,
-            "cancel_project_run",
-            lambda **_kwargs: run_status_module.ProjectRunCancelResult(
-                row=run_row,
-                job=job,
-                queue_cancelled=False,
-                disposition="reconciliation_required",
-                cancel_requested=True,
-                terminalization=terminalization,
-            ),
+            cancel_requested=True,
+            terminalization=terminalization,
+        ),
+    )
+
+    with pytest.raises(ActionRunCancelRouteError) as excinfo:
+        ActionRunCancelService(workspace).cancel_run(  # type: ignore[arg-type]
+            project_id,
+            run_id,
         )
 
-        with pytest.raises(ActionRunCancelRouteError) as excinfo:
-            ActionRunCancelService(workspace).cancel_run(  # type: ignore[arg-type]
-                project_id,
-                run_id,
-            )
-
-        assert excinfo.value.status_code == 409
-        assert excinfo.value.content["status"] == "reconciliation_required"
-        assert excinfo.value.content["reserved_checkpoint_ids"] == [
-            "checkpoint_operator_decision"
-        ]
-        resolver = excinfo.value.content["resolver"]
-        assert "frisket reconcile discard" in resolver
-        assert "frisket reconcile accept-charged" in resolver
-        assert "retry this cancel request" in resolver
-    finally:
-        project.close()
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.content["status"] == "reconciliation_required"
+    assert excinfo.value.content["reserved_checkpoint_ids"] == [
+        "checkpoint_operator_decision"
+    ]
+    resolver = excinfo.value.content["resolver"]
+    assert "frisket reconcile discard" in resolver
+    assert "frisket reconcile accept-charged" in resolver
+    assert "retry this cancel request" in resolver
 
 
 def test_live_cancel_service_returns_pending_then_owner_converges(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """The route service accepts intent while the active writer still owns closure."""
 
     project_id = "live-cancel-service"
-    project = Project.create(tmp_path / f"{project_id}.frisket")
-    try:
-        sheet_id = project.add_sheet("Source")
-        source_column = project.add_column(sheet_id, "note")
-        project.add_column(sheet_id, "number", ai_generated=True)
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{"note": "first 101"}],
-            {"note": source_column},
-        )
-        op_id = project.append_change(
-            "map.regex_extract", {"action_kind": "map.regex_extract"}
-        )
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.regex_extract",
-            row_ids=[row_id],
-        )
-        receipt_id = "receipt_live_cancel_service"
-        attempt_id = "attempt_live_cancel_service"
-        with write_transaction(project.db):
-            ReceiptStore(project).insert_queued(
-                Receipt(
-                    receipt_id=receipt_id,
-                    project_id=project_id,
-                    action_id="action_live_cancel_service",
-                    action_kind="map.regex_extract",
-                    run_id=run_id,
-                    status="queued",
-                    evidence=[
-                        ReceiptEvidence(
-                            ref={
-                                "kind": "queued_action_run_prepared",
-                                "queue_kind": "project.run",
-                                "run_id": run_id,
-                                "attempt_id": attempt_id,
-                            }
-                        )
-                    ],
-                )
-            )
-        claim_token = "claim:custom-live-cancel"
-        with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
-                sheet_id=sheet_id,
-                output_names=["number"],
-                action_kind="map.regex_extract",
+    project = make_project(project_id)
+    sheet_id = project.add_sheet("Source")
+    source_column = project.add_column(sheet_id, "note")
+    project.add_column(sheet_id, "number", ai_generated=True)
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{"note": "first 101"}],
+        {"note": source_column},
+    )
+    op_id = project.append_change(
+        "map.regex_extract", {"action_kind": "map.regex_extract"}
+    )
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+        row_ids=[row_id],
+    )
+    receipt_id = "receipt_live_cancel_service"
+    attempt_id = "attempt_live_cancel_service"
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
                 receipt_id=receipt_id,
+                project_id=project_id,
+                action_id="action_live_cancel_service",
+                action_kind="map.regex_extract",
                 run_id=run_id,
-                op_id=op_id,
-                claim_token=claim_token,
-                lease_seconds=6 * 60 * 60,
+                status="queued",
+                evidence=[
+                    ReceiptEvidence(
+                        ref={
+                            "kind": "queued_action_run_prepared",
+                            "queue_kind": "project.run",
+                            "run_id": run_id,
+                            "attempt_id": attempt_id,
+                        }
+                    )
+                ],
             )
-        assert conflict is None and len(claims) == 1
-        project.db.execute(
-            "INSERT INTO execution_attempts "
-            "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
-            "VALUES (?, ?, 0, 'dispatching', 'live-cancel-service', ?, "
-            "datetime('now'))",
-            (attempt_id, run_id, f"[{row_id}]"),
         )
-        project.db.execute(
-            "UPDATE runs SET current_attempt_id=? WHERE id=?",
-            (attempt_id, run_id),
-        )
-        project.db.commit()
-
-        job = _LiveJob(receipt_id=receipt_id, action_kind="map.regex_extract")
-        workspace = _CancelWorkspace(project_id, project, job)
-        workspace.run_jobs[(project_id, run_id)] = job.id
-        service = ActionRunCancelService(workspace)  # type: ignore[arg-type]
-
-        pending = service.cancel_run(project_id, run_id)
-        assert pending["status"] == "cancel_pending"
-        assert pending["cancel_requested"] is True
-        assert "live_writer_requires_owner_terminalization" in pending["reason"]
-        live = project.db.execute(
-            "SELECT status, finished_at, current_attempt_id, cancel_requested_at "
-            "FROM runs WHERE id=?",
-            (run_id,),
-        ).fetchone()
-        assert live is not None
-        assert live["status"] == "running"
-        assert live["finished_at"] is None
-        assert live["current_attempt_id"] == attempt_id
-        assert live["cancel_requested_at"] is not None
-
-        queued_v1_terminal_receipt_result(
-            project,
-            {},
-            project_id=project_id,
-            run_id=run_id,
-            status="cancelled",
+    claim_token = "claim:custom-live-cancel"
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["number"],
+            action_kind="map.regex_extract",
             receipt_id=receipt_id,
-            writer_attempt_id=attempt_id,
+            run_id=run_id,
+            op_id=op_id,
             claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
         )
-        terminal_run = project.db.execute(
-            "SELECT status, finished_at, current_attempt_id, cancel_requested_at "
-            "FROM runs WHERE id=?",
-            (run_id,),
-        ).fetchone()
-        terminal_receipt = project.db.execute(
-            "SELECT status, body FROM receipts WHERE id=?",
-            (receipt_id,),
-        ).fetchone()
-        terminal_attempt = project.db.execute(
-            "SELECT state FROM execution_attempts WHERE id=?",
-            (attempt_id,),
-        ).fetchone()
-        terminal_claim = project.db.execute(
-            "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
-            (run_id,),
-        ).fetchone()
-        assert terminal_run is not None
-        assert terminal_receipt is not None
-        assert terminal_attempt is not None
-        assert terminal_claim is not None
-        assert terminal_run["status"] == "cancelled"
-        assert terminal_run["finished_at"] is not None
-        assert terminal_run["current_attempt_id"] is None
-        assert terminal_run["cancel_requested_at"] is not None
-        assert terminal_receipt["status"] == "cancelled"
-        assert json.loads(terminal_receipt["body"])["status"] == "cancelled"
-        assert terminal_attempt["state"] == "effected"
-        assert terminal_claim["status"] == "cancelled"
-        assert terminal_claim["released_at"] is not None
-        before_repeat = (
-            tuple(terminal_run),
-            tuple(terminal_receipt),
-            tuple(terminal_attempt),
-            tuple(terminal_claim),
-        )
+    assert conflict is None and len(claims) == 1
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES (?, ?, 0, 'dispatching', 'live-cancel-service', ?, "
+        "datetime('now'))",
+        (attempt_id, run_id, f"[{row_id}]"),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (attempt_id, run_id),
+    )
+    project.db.commit()
 
-        repeated = service.cancel_run(project_id, run_id)
-        assert repeated["status"] == "cancelled"
-        after_repeat = (
-            tuple(
-                project.db.execute(
-                    "SELECT status, finished_at, current_attempt_id, "
-                    "cancel_requested_at FROM runs WHERE id=?",
-                    (run_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT status, body FROM receipts WHERE id=?",
-                    (receipt_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT state FROM execution_attempts WHERE id=?",
-                    (attempt_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT status, released_at FROM output_column_claims "
-                    "WHERE run_id=?",
-                    (run_id,),
-                ).fetchone()
-            ),
-        )
-        assert after_repeat == before_repeat
-    finally:
-        project.close()
+    job = _LiveJob(receipt_id=receipt_id, action_kind="map.regex_extract")
+    workspace = _CancelWorkspace(project_id, project, job)
+    workspace.run_jobs[(project_id, run_id)] = job.id
+    service = ActionRunCancelService(workspace)  # type: ignore[arg-type]
+
+    pending = service.cancel_run(project_id, run_id)
+    assert pending["status"] == "cancel_pending"
+    assert pending["cancel_requested"] is True
+    assert "live_writer_requires_owner_terminalization" in pending["reason"]
+    live = project.db.execute(
+        "SELECT status, finished_at, current_attempt_id, cancel_requested_at "
+        "FROM runs WHERE id=?",
+        (run_id,),
+    ).fetchone()
+    assert live is not None
+    assert live["status"] == "running"
+    assert live["finished_at"] is None
+    assert live["current_attempt_id"] == attempt_id
+    assert live["cancel_requested_at"] is not None
+
+    queued_v1_terminal_receipt_result(
+        project,
+        {},
+        project_id=project_id,
+        run_id=run_id,
+        status="cancelled",
+        receipt_id=receipt_id,
+        writer_attempt_id=attempt_id,
+        claim_token=claim_token,
+    )
+    terminal_run = project.db.execute(
+        "SELECT status, finished_at, current_attempt_id, cancel_requested_at "
+        "FROM runs WHERE id=?",
+        (run_id,),
+    ).fetchone()
+    terminal_receipt = project.db.execute(
+        "SELECT status, body FROM receipts WHERE id=?",
+        (receipt_id,),
+    ).fetchone()
+    terminal_attempt = project.db.execute(
+        "SELECT state FROM execution_attempts WHERE id=?",
+        (attempt_id,),
+    ).fetchone()
+    terminal_claim = project.db.execute(
+        "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+        (run_id,),
+    ).fetchone()
+    assert terminal_run is not None
+    assert terminal_receipt is not None
+    assert terminal_attempt is not None
+    assert terminal_claim is not None
+    assert terminal_run["status"] == "cancelled"
+    assert terminal_run["finished_at"] is not None
+    assert terminal_run["current_attempt_id"] is None
+    assert terminal_run["cancel_requested_at"] is not None
+    assert terminal_receipt["status"] == "cancelled"
+    assert json.loads(terminal_receipt["body"])["status"] == "cancelled"
+    assert terminal_attempt["state"] == "effected"
+    assert terminal_claim["status"] == "cancelled"
+    assert terminal_claim["released_at"] is not None
+    before_repeat = (
+        tuple(terminal_run),
+        tuple(terminal_receipt),
+        tuple(terminal_attempt),
+        tuple(terminal_claim),
+    )
+
+    repeated = service.cancel_run(project_id, run_id)
+    assert repeated["status"] == "cancelled"
+    after_repeat = (
+        tuple(
+            project.db.execute(
+                "SELECT status, finished_at, current_attempt_id, "
+                "cancel_requested_at FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT status, body FROM receipts WHERE id=?",
+                (receipt_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT state FROM execution_attempts WHERE id=?",
+                (attempt_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        ),
+    )
+    assert after_repeat == before_repeat
 
 
-def test_legacy_cancelled_split_never_returns_false_success(tmp_path: Path) -> None:
+def test_legacy_cancelled_split_never_returns_false_success(make_project) -> None:
     project_id = "legacy-cancelled-split"
-    project = Project.create(tmp_path / f"{project_id}.frisket")
-    try:
-        sheet_id = project.add_sheet("Source")
-        source_column = project.add_column(sheet_id, "note")
-        project.add_column(sheet_id, "number", ai_generated=True)
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{"note": "first 101"}],
-            {"note": source_column},
-        )
-        op_id = project.append_change(
-            "map.regex_extract", {"action_kind": "map.regex_extract"}
-        )
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.regex_extract",
-            row_ids=[row_id],
-        )
-        receipt_id = "receipt_legacy_cancelled_split"
-        attempt_id = "attempt_legacy_cancelled_split"
-        with write_transaction(project.db):
-            ReceiptStore(project).insert_queued(
-                Receipt(
-                    receipt_id=receipt_id,
-                    project_id=project_id,
-                    action_id="action_legacy_cancelled_split",
-                    action_kind="map.regex_extract",
-                    run_id=run_id,
-                    status="queued",
-                    evidence=[
-                        ReceiptEvidence(
-                            ref={
-                                "kind": "queued_action_run_prepared",
-                                "queue_kind": "project.run",
-                                "run_id": run_id,
-                                "attempt_id": attempt_id,
-                            }
-                        )
-                    ],
-                )
-            )
-        claim_token = "claim:legacy-cancelled-split"
-        with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
-                sheet_id=sheet_id,
-                output_names=["number"],
-                action_kind="map.regex_extract",
+    project = make_project(project_id)
+    sheet_id = project.add_sheet("Source")
+    source_column = project.add_column(sheet_id, "note")
+    project.add_column(sheet_id, "number", ai_generated=True)
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{"note": "first 101"}],
+        {"note": source_column},
+    )
+    op_id = project.append_change(
+        "map.regex_extract", {"action_kind": "map.regex_extract"}
+    )
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+        row_ids=[row_id],
+    )
+    receipt_id = "receipt_legacy_cancelled_split"
+    attempt_id = "attempt_legacy_cancelled_split"
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
                 receipt_id=receipt_id,
+                project_id=project_id,
+                action_id="action_legacy_cancelled_split",
+                action_kind="map.regex_extract",
                 run_id=run_id,
-                op_id=op_id,
-                claim_token=claim_token,
-                lease_seconds=6 * 60 * 60,
+                status="queued",
+                evidence=[
+                    ReceiptEvidence(
+                        ref={
+                            "kind": "queued_action_run_prepared",
+                            "queue_kind": "project.run",
+                            "run_id": run_id,
+                            "attempt_id": attempt_id,
+                        }
+                    )
+                ],
             )
-        assert conflict is None and len(claims) == 1
-        project.db.execute(
-            "INSERT INTO execution_attempts "
-            "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
-            "VALUES (?, ?, 0, 'dispatching', 'legacy-split', ?, datetime('now'))",
-            (attempt_id, run_id, f"[{row_id}]"),
         )
-        project.db.execute(
-            "UPDATE runs SET status='cancelled', finished_at=datetime('now'), "
-            "current_attempt_id=? WHERE id=?",
-            (attempt_id, run_id),
-        )
-        project.db.commit()
-
-        job = _LiveJob(receipt_id=receipt_id, action_kind="map.regex_extract")
-        workspace = _CancelWorkspace(project_id, project, job)
-        workspace.run_jobs[(project_id, run_id)] = job.id
-        service = ActionRunCancelService(workspace)  # type: ignore[arg-type]
-
-        pending = service.cancel_run(project_id, run_id)
-        assert pending["status"] == "cancel_pending"
-        # This is a repair of a legacy split that already says cancelled;
-        # there was no new running-state cancel intent to stamp.
-        assert pending["cancel_requested"] is False
-        split = project.db.execute(
-            "SELECT r.status, r.current_attempt_id, rc.status AS receipt_status, "
-            "c.status AS claim_status FROM runs r "
-            "JOIN receipts rc ON rc.id=? "
-            "JOIN output_column_claims c ON c.run_id=r.id "
-            "WHERE r.id=?",
-            (receipt_id, run_id),
-        ).fetchone()
-        assert split is not None
-        assert tuple(split) == ("cancelled", attempt_id, "queued", "active")
-
-        queued_v1_terminal_receipt_result(
-            project,
-            {},
-            project_id=project_id,
-            run_id=run_id,
-            status="cancelled",
+    claim_token = "claim:legacy-cancelled-split"
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["number"],
+            action_kind="map.regex_extract",
             receipt_id=receipt_id,
-            writer_attempt_id=attempt_id,
+            run_id=run_id,
+            op_id=op_id,
             claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
         )
-        before_repeat = (
-            tuple(
-                project.db.execute(
-                    "SELECT status, finished_at, current_attempt_id FROM runs WHERE id=?",
-                    (run_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT status, body FROM receipts WHERE id=?",
-                    (receipt_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT state FROM execution_attempts WHERE id=?",
-                    (attempt_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT status, released_at FROM output_column_claims "
-                    "WHERE run_id=?",
-                    (run_id,),
-                ).fetchone()
-            ),
-        )
-        repeated = service.cancel_run(project_id, run_id)
-        assert repeated["status"] == "cancelled"
-        after_repeat = (
-            tuple(
-                project.db.execute(
-                    "SELECT status, finished_at, current_attempt_id FROM runs WHERE id=?",
-                    (run_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT status, body FROM receipts WHERE id=?",
-                    (receipt_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT state FROM execution_attempts WHERE id=?",
-                    (attempt_id,),
-                ).fetchone()
-            ),
-            tuple(
-                project.db.execute(
-                    "SELECT status, released_at FROM output_column_claims "
-                    "WHERE run_id=?",
-                    (run_id,),
-                ).fetchone()
-            ),
-        )
-        assert after_repeat == before_repeat
-    finally:
-        project.close()
+    assert conflict is None and len(claims) == 1
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+        "VALUES (?, ?, 0, 'dispatching', 'legacy-split', ?, datetime('now'))",
+        (attempt_id, run_id, f"[{row_id}]"),
+    )
+    project.db.execute(
+        "UPDATE runs SET status='cancelled', finished_at=datetime('now'), "
+        "current_attempt_id=? WHERE id=?",
+        (attempt_id, run_id),
+    )
+    project.db.commit()
+
+    job = _LiveJob(receipt_id=receipt_id, action_kind="map.regex_extract")
+    workspace = _CancelWorkspace(project_id, project, job)
+    workspace.run_jobs[(project_id, run_id)] = job.id
+    service = ActionRunCancelService(workspace)  # type: ignore[arg-type]
+
+    pending = service.cancel_run(project_id, run_id)
+    assert pending["status"] == "cancel_pending"
+    # This is a repair of a legacy split that already says cancelled;
+    # there was no new running-state cancel intent to stamp.
+    assert pending["cancel_requested"] is False
+    split = project.db.execute(
+        "SELECT r.status, r.current_attempt_id, rc.status AS receipt_status, "
+        "c.status AS claim_status FROM runs r "
+        "JOIN receipts rc ON rc.id=? "
+        "JOIN output_column_claims c ON c.run_id=r.id "
+        "WHERE r.id=?",
+        (receipt_id, run_id),
+    ).fetchone()
+    assert split is not None
+    assert tuple(split) == ("cancelled", attempt_id, "queued", "active")
+
+    queued_v1_terminal_receipt_result(
+        project,
+        {},
+        project_id=project_id,
+        run_id=run_id,
+        status="cancelled",
+        receipt_id=receipt_id,
+        writer_attempt_id=attempt_id,
+        claim_token=claim_token,
+    )
+    before_repeat = (
+        tuple(
+            project.db.execute(
+                "SELECT status, finished_at, current_attempt_id FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT status, body FROM receipts WHERE id=?",
+                (receipt_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT state FROM execution_attempts WHERE id=?",
+                (attempt_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        ),
+    )
+    repeated = service.cancel_run(project_id, run_id)
+    assert repeated["status"] == "cancelled"
+    after_repeat = (
+        tuple(
+            project.db.execute(
+                "SELECT status, finished_at, current_attempt_id FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT status, body FROM receipts WHERE id=?",
+                (receipt_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT state FROM execution_attempts WHERE id=?",
+                (attempt_id,),
+            ).fetchone()
+        ),
+        tuple(
+            project.db.execute(
+                "SELECT status, released_at FROM output_column_claims WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        ),
+    )
+    assert after_repeat == before_repeat
 
 
 @pytest.mark.parametrize(

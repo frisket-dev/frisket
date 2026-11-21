@@ -325,7 +325,6 @@ def test_action_confirms_executes_records_usage_and_replays(
         )
         assert len(calls) == 1
     finally:
-        project.close()
         asyncio.run(client.aclose())
 
 

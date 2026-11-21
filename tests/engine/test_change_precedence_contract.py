@@ -1,5 +1,7 @@
 """Accepted Change semantics, independently modeled; initially red on old core."""
 
+from contextlib import closing
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -50,61 +52,52 @@ def _publish(project, run, row, column, value):
     )
 
 
-def test_started_scope_masks_old_values_without_touching_other_rows(tmp_path):
-    project, sheet, column, rows = _seed_project(tmp_path)
-    try:
-        _publish_initial_generation(project, sheet, column, rows)
-        _replacement(project, sheet, column, rows[:2])
-        current = project.get_values(sheet, column)
-        assert current[rows[0]] is None, "pending replacement must hide old success"
-        assert current[rows[1]] is None
-        assert current[rows[2]] == "first:2"
-    finally:
-        project.close()
+def test_started_scope_masks_old_values_without_touching_other_rows(make_project):
+    project, sheet, column, rows = _seed_project(make_project)
+    _publish_initial_generation(project, sheet, column, rows)
+    _replacement(project, sheet, column, rows[:2])
+    current = project.get_values(sheet, column)
+    assert current[rows[0]] is None, "pending replacement must hide old success"
+    assert current[rows[1]] is None
+    assert current[rows[2]] == "first:2"
 
 
-def test_active_undo_closes_writer_and_redo_cannot_reopen_it(tmp_path):
-    project, sheet, column, rows = _seed_project(tmp_path)
-    try:
-        _publish_initial_generation(project, sheet, column, rows)
-        run = _replacement(project, sheet, column, rows[:2])
-        _publish(project, run, rows[0], column, "saved")
-        assert project.undo() == run.op_id
-        assert project.get_values(sheet, column)[rows[0]] == "first:0"
-        # A late worker may seal the closed generation after Undo. Its earlier
-        # published result is still saved work, not an aborted staged output.
-        _seal(ResultGenerationStore(project), run, column, disposition="cancelled")
-        assert project.redo() == run.op_id
-        ResultGenerationStore(project).rebuild_heads([column])
-        assert project.get_values(sheet, column)[rows[0]] == "saved"
-        assert project.get_values(sheet, column)[rows[1]] is None
-        with pytest.raises((ResultGenerationError, StaleAttemptWriter, ValueError)):
-            _publish(project, run, rows[1], column, "late forbidden")
-        assert project.get_values(sheet, column)[rows[1]] is None
-    finally:
-        project.close()
+def test_active_undo_closes_writer_and_redo_cannot_reopen_it(make_project):
+    project, sheet, column, rows = _seed_project(make_project)
+    _publish_initial_generation(project, sheet, column, rows)
+    run = _replacement(project, sheet, column, rows[:2])
+    _publish(project, run, rows[0], column, "saved")
+    assert project.undo() == run.op_id
+    assert project.get_values(sheet, column)[rows[0]] == "first:0"
+    # A late worker may seal the closed generation after Undo. Its earlier
+    # published result is still saved work, not an aborted staged output.
+    _seal(ResultGenerationStore(project), run, column, disposition="cancelled")
+    assert project.redo() == run.op_id
+    ResultGenerationStore(project).rebuild_heads([column])
+    assert project.get_values(sheet, column)[rows[0]] == "saved"
+    assert project.get_values(sheet, column)[rows[1]] is None
+    with pytest.raises((ResultGenerationError, StaleAttemptWriter, ValueError)):
+        _publish(project, run, rows[1], column, "late forbidden")
+    assert project.get_values(sheet, column)[rows[1]] is None
 
 
-def test_manual_edit_after_start_beats_older_late_publication(tmp_path):
-    project, sheet, column, rows = _seed_project(tmp_path)
-    try:
-        _publish_initial_generation(project, sheet, column, rows)
-        run = _replacement(project, sheet, column, rows[:2])
-        edit = project.apply_edits(
-            [
-                {
-                    "row_id": rows[1],
-                    "column_id": column,
-                    "value": "human",
-                }
-            ]
-        )
-        _publish(project, run, rows[1], column, "late model")
-        assert project.get_values(sheet, column)[rows[1]] == "human"
-        assert project.undo() == edit
-        assert project.get_values(sheet, column)[rows[1]] == "late model"
-    finally:
-        project.close()
+def test_manual_edit_after_start_beats_older_late_publication(make_project):
+    project, sheet, column, rows = _seed_project(make_project)
+    _publish_initial_generation(project, sheet, column, rows)
+    run = _replacement(project, sheet, column, rows[:2])
+    edit = project.apply_edits(
+        [
+            {
+                "row_id": rows[1],
+                "column_id": column,
+                "value": "human",
+            }
+        ]
+    )
+    _publish(project, run, rows[1], column, "late model")
+    assert project.get_values(sheet, column)[rows[1]] == "human"
+    assert project.undo() == edit
+    assert project.get_values(sheet, column)[rows[1]] == "late model"
 
 
 @settings(max_examples=20, deadline=None)
@@ -125,7 +118,7 @@ def test_partial_runs_keep_untouched_cells_without_carry_forward(
     directory = tmp_path_factory.mktemp("change-sequence")
     project, sheet, column, rows = _seed_project(directory)
     model = Changes()
-    try:
+    with closing(project):
         _publish_initial_generation(project, sheet, column, rows)
         initial = model.start(rows, [column])
         for index, row in enumerate(rows):
@@ -150,8 +143,6 @@ def test_partial_runs_keep_untouched_cells_without_carry_forward(
             assert project.redo() == run.op_id
             model.restore(owner)
             assert project.get_values(sheet, column) == expected
-    finally:
-        project.close()
 
 
 def test_oracle_restore_retains_terminal_remainder_and_start_precedence():

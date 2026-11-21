@@ -4,6 +4,7 @@ quote evidence but claims no renderable coordinate surface.
 """
 
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
@@ -120,7 +121,7 @@ def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
         input_columns=["body"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 0, "end": 12}],
     )
-    try:
+    with closing(project):
         surfaces = _surfaces(project)
         assert len(surfaces) == 1
         s = surfaces[0]
@@ -176,8 +177,6 @@ def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
             ]
             is None
         )
-    finally:
-        project.close()
 
 
 def test_capture_sidecar_never_lingers_in_justification(tmp_path, monkeypatch):
@@ -190,14 +189,12 @@ def test_capture_sidecar_never_lingers_in_justification(tmp_path, monkeypatch):
         input_columns=["body"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 0, "end": 12}],
     )
-    try:
+    with closing(project):
         lingering = project.db.execute(
             "SELECT COUNT(*) AS c FROM results WHERE substr(justification, 1, ?) = ?",
             (len(_NER_CAPTURE_PREFIX), _NER_CAPTURE_PREFIX),
         ).fetchone()["c"]
         assert lingering == 0
-    finally:
-        project.close()
 
 
 def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
@@ -224,109 +221,104 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         return [{"text": "Ada", "type": "person", "start": 0, "end": 3, "score": 0.9}]
 
     monkeypatch.setattr(LocalNerExtractor, "extract", execute)
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _action(sheet_id, ["body"]),
-            project_id=PROJECT_ID,
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
-        assert result.status == "partial", result.errors
-        run_id = int(result.run_id)
-        run = project.db.execute(
-            "SELECT op_id FROM runs WHERE id=?", (run_id,)
-        ).fetchone()
-        op_id = int(run["op_id"])
-        output = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-        output_column_id = int(output["id"])
-        assert int(output["current_run_id"]) == run_id
-        generation = project.db.execute(
-            "SELECT state,terminal_disposition FROM run_output_generations "
-            "WHERE run_id=? AND column_id=?",
-            (run_id, output_column_id),
-        ).fetchone()
-        assert tuple(generation) == ("sealed", "completed")
+    result = executor_actions.run_action_spec(
+        project,
+        _action(sheet_id, ["body"]),
+        project_id=PROJECT_ID,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
+    assert result.status == "partial", result.errors
+    run_id = int(result.run_id)
+    run = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
+    op_id = int(run["op_id"])
+    output = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    output_column_id = int(output["id"])
+    assert int(output["current_run_id"]) == run_id
+    generation = project.db.execute(
+        "SELECT state,terminal_disposition FROM run_output_generations "
+        "WHERE run_id=? AND column_id=?",
+        (run_id, output_column_id),
+    ).fetchone()
+    assert tuple(generation) == ("sealed", "completed")
 
-        heads = project.db.execute(
-            "SELECT head.row_id,result.publication_effect "
-            "FROM generated_result_candidates head JOIN results result "
-            "ON result.run_id=head.run_id AND result.row_id=head.row_id "
-            "AND result.column_id=head.column_id WHERE head.column_id=? "
-            "ORDER BY head.row_id",
+    heads = project.db.execute(
+        "SELECT head.row_id,result.publication_effect "
+        "FROM generated_result_candidates head JOIN results result "
+        "ON result.run_id=head.run_id AND result.row_id=head.row_id "
+        "AND result.column_id=head.column_id WHERE head.column_id=? "
+        "ORDER BY head.row_id",
+        (output_column_id,),
+    ).fetchall()
+    assert [(int(row[0]), row[1]) for row in heads] == [
+        (row_ids[0], "publish_value"),
+        (row_ids[1], "publish_value"),
+        (row_ids[2], "publish_error"),
+    ]
+    result_rows = project.db.execute(
+        "SELECT row_id,justification FROM results WHERE run_id=? "
+        "AND column_id=? ORDER BY row_id",
+        (run_id, output_column_id),
+    ).fetchall()
+    assert [(int(row[0]), row[1]) for row in result_rows] == [
+        (row_ids[0], None),
+        (row_ids[1], None),
+        (row_ids[2], None),
+    ]
+    link = project.db.execute(
+        "SELECT subject_ref_json FROM evidence_links WHERE row_id=? "
+        "AND column_id=? AND status='active'",
+        (row_ids[0], output_column_id),
+    ).fetchone()
+    assert json.loads(link["subject_ref_json"]) == {
+        "kind": "run_result",
+        "op_id": op_id,
+        "row_id": row_ids[0],
+        "column_id": output_column_id,
+        "run_id": run_id,
+    }
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        project.db.execute(
+            "UPDATE results SET justification='changed' WHERE run_id=? "
+            "AND row_id=? AND column_id=?",
+            (run_id, row_ids[0], output_column_id),
+        )
+    project.db.rollback()
+
+    assert project.undo() == op_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
             (output_column_id,),
-        ).fetchall()
-        assert [(int(row[0]), row[1]) for row in heads] == [
-            (row_ids[0], "publish_value"),
-            (row_ids[1], "publish_value"),
-            (row_ids[2], "publish_error"),
-        ]
-        result_rows = project.db.execute(
-            "SELECT row_id,justification FROM results WHERE run_id=? "
-            "AND column_id=? ORDER BY row_id",
-            (run_id, output_column_id),
-        ).fetchall()
-        assert [(int(row[0]), row[1]) for row in result_rows] == [
-            (row_ids[0], None),
-            (row_ids[1], None),
-            (row_ids[2], None),
-        ]
-        link = project.db.execute(
-            "SELECT subject_ref_json FROM evidence_links WHERE row_id=? "
-            "AND column_id=? AND status='active'",
-            (row_ids[0], output_column_id),
-        ).fetchone()
-        assert json.loads(link["subject_ref_json"]) == {
-            "kind": "run_result",
-            "op_id": op_id,
-            "row_id": row_ids[0],
-            "column_id": output_column_id,
-            "run_id": run_id,
-        }
-
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            project.db.execute(
-                "UPDATE results SET justification='changed' WHERE run_id=? "
-                "AND row_id=? AND column_id=?",
-                (run_id, row_ids[0], output_column_id),
-            )
-        project.db.rollback()
-
-        assert project.undo() == op_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
-                (output_column_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            list_cell_citations(
-                project,
-                sheet_id=sheet_id,
-                row_id=row_ids[0],
-                column_id=output_column_id,
-            )["links"]
-            == []
-        )
-
-        assert project.redo() == op_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
-                (output_column_id,),
-            ).fetchone()[0]
-            == 3
-        )
-        assert list_cell_citations(
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_ids[0],
             column_id=output_column_id,
         )["links"]
-    finally:
-        project.close()
+        == []
+    )
+
+    assert project.redo() == op_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
+            (output_column_id,),
+        ).fetchone()[0]
+        == 3
+    )
+    assert list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_ids[0],
+        column_id=output_column_id,
+    )["links"]
 
 
 def test_evidence_failure_rolls_back_result_head_and_evidence(
@@ -402,15 +394,13 @@ def test_multi_column_degrades_to_quote_only(tmp_path, monkeypatch):
         input_columns=["first", "second"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 0, "end": 12}],
     )
-    try:
+    with closing(project):
         assert _surfaces(project) == []
         spans = _spans(project)
         assert len(spans) == 1
         assert spans[0]["quote"] == "Ada Lovelace"
         assert spans[0]["char_start"] is None
         assert spans[0]["text_surface_id"] is None
-    finally:
-        project.close()
 
 
 def test_template_input_is_rendered_once_and_degrades_to_quote_only(
@@ -425,13 +415,11 @@ def test_template_input_is_rendered_once_and_degrades_to_quote_only(
         template="Name: {{body}}",
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 6, "end": 18}],
     )
-    try:
+    with closing(project):
         assert _surfaces(project) == []
         span = _spans(project)[0]
         assert span["quote"] == "Ada Lovelace"
         assert span["char_start"] is None
-    finally:
-        project.close()
 
 
 def test_ner_template_is_not_rendered_twice():
@@ -513,7 +501,7 @@ def test_offset_mismatch_entity_is_not_positioned_but_kept(tmp_path, monkeypatch
             {"text": "Babbage", "label": "person", "start": 0, "end": 7},
         ],
     )
-    try:
+    with closing(project):
         spans = _spans(project)
         assert (
             len(spans) == 2
@@ -529,8 +517,6 @@ def test_offset_mismatch_entity_is_not_positioned_but_kept(tmp_path, monkeypatch
             )
         }
         assert roles == {"Ada Lovelace": "annotation", "Babbage": "support"}
-    finally:
-        project.close()
 
 
 def test_duplicate_text_entities_each_keep_a_span_when_unpositioned(
@@ -552,7 +538,7 @@ def test_duplicate_text_entities_each_keep_a_span_when_unpositioned(
             {"text": "Ada", "label": "person", "start": 16, "end": 19},
         ],
     )
-    try:
+    with closing(project):
         stored = json.loads(
             project.db.execute("SELECT value FROM results").fetchone()["value"]
         )
@@ -561,8 +547,6 @@ def test_duplicate_text_entities_each_keep_a_span_when_unpositioned(
         assert len(spans) == len(stored)
         assert all(sp["quote"] == "Ada" for sp in spans)
         assert all(sp["char_start"] is None for sp in spans)
-    finally:
-        project.close()
 
 
 def test_no_positionable_entities_writes_spans_without_a_layer(tmp_path, monkeypatch):
@@ -575,10 +559,8 @@ def test_no_positionable_entities_writes_spans_without_a_layer(tmp_path, monkeyp
         input_columns=["body"],
         entities=[{"text": "Ada Lovelace", "label": "person", "start": 5, "end": 40}],
     )
-    try:
+    with closing(project):
         assert len(_spans(project)) == 1
         assert _surfaces(project) == []
         link = project.db.execute("SELECT layer_family FROM evidence_links").fetchone()
         assert link["layer_family"] is None
-    finally:
-        project.close()

@@ -17,6 +17,7 @@ non-confirmation ActionErrors still fail 400.
 from __future__ import annotations
 
 import itertools
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -31,8 +32,7 @@ _KEYGEN = itertools.count(1)
 
 
 def _seed_fanout(project_path: Path) -> dict[str, Any]:
-    project = Project.create(project_path, name="Fanout")
-    try:
+    with closing(Project.create(project_path, name="Fanout")) as project:
         left_id = project.add_sheet("Left")
         left_cols = {"k": project.add_column(left_id, "k", type="integer")}
         # key 6 appears twice, key 1 once
@@ -44,8 +44,6 @@ def _seed_fanout(project_path: Path) -> dict[str, Any]:
             right_id, [{"k": 6}, {"k": 6}, {"k": 6}, {"k": 1}, {"k": 1}], right_cols
         )
         return {"left_sheet_id": left_id, "right_sheet_id": right_id}
-    finally:
-        project.close()
 
 
 def _join_action(
@@ -137,8 +135,7 @@ def test_failed_result_marker_maps_deterministic_write_onto_needs_confirmation()
 
 def test_derive_join_fanout_emits_unified_402_envelope(tmp_path: Path) -> None:
     seed = _seed_fanout(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         gated = _run(
             project,
             _join_action(
@@ -199,16 +196,13 @@ def test_derive_join_fanout_emits_unified_402_envelope(tmp_path: Path) -> None:
             ).fetchone()[0]
             == 1
         )
-    finally:
-        project.close()
 
 
 def test_plain_validation_error_still_400(tmp_path: Path) -> None:
     """A non-confirmation ActionError must NOT start returning 402: unify does
     not mean every validation failure becomes a confirmation gate."""
     seed = _seed_fanout(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         # Self-join on the same sheet id is an invalid input ref (validation).
         result = _run(
             project,
@@ -221,5 +215,3 @@ def test_plain_validation_error_still_400(tmp_path: Path) -> None:
         assert result.status == "failed", result.status
         assert v1_action_result_http_status(result) == 400
         assert result.errors[0].needs_confirmation is False
-    finally:
-        project.close()

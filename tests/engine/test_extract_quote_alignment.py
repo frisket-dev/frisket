@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -227,7 +228,7 @@ def test_hyphenated_two_line_quote_aligns_to_region_spans(
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         artifact = _extract_artifact(seeded)
 
@@ -262,8 +263,6 @@ def test_hyphenated_two_line_quote_aligns_to_region_spans(
             box = region["bbox"][0]
             assert box["space"] == "page_normalized"
             assert box["y1"] <= 0.3  # both answer lines sit in the top band
-    finally:
-        project.close()
 
 
 def test_no_word_stream_degrades_to_text_span_with_reason(
@@ -275,7 +274,7 @@ def test_no_word_stream_degrades_to_text_span_with_reason(
 
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         artifact = _extract_artifact(seeded)  # no OCR run -> no sibling stream
         with write_transaction(project.db):
             spans = _source_spans(
@@ -288,8 +287,6 @@ def test_no_word_stream_degrades_to_text_span_with_reason(
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["metadata"]["alignment"] == "no_word_stream"
         assert not spans[0]["bbox"]
-    finally:
-        project.close()
 
 
 def _block(text: str, box_px: tuple[int, int, int, int], score: float = 0.98):
@@ -311,7 +308,7 @@ def test_repeated_quote_without_scope_degrades_ambiguous(
 
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         # Two identical phrases in two columns of one page; no page/context hint.
         _run_ocr_pages(
             seeded,
@@ -338,8 +335,6 @@ def test_repeated_quote_without_scope_degrades_ambiguous(
         assert spans[0]["metadata"]["alignment"] == "repeated_quote_ambiguous"
         assert "repeated_quote_ambiguous" in spans[0]["metadata"]["warnings"]
         assert not spans[0]["bbox"]
-    finally:
-        project.close()
 
 
 def test_page_scoped_repeated_quote_picks_the_right_occurrence(
@@ -352,7 +347,7 @@ def test_page_scoped_repeated_quote_picks_the_right_occurrence(
 
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr_pages(
             seeded,
             monkeypatch,
@@ -376,8 +371,6 @@ def test_page_scoped_repeated_quote_picks_the_right_occurrence(
         assert spans, spans
         assert all(s["span_kind"] == "region" for s in spans), spans
         assert all(s["page_start"] == 2 for s in spans), spans
-    finally:
-        project.close()
 
 
 def test_below_threshold_quote_degrades_not_fabricates(
@@ -385,7 +378,7 @@ def test_below_threshold_quote_degrades_not_fabricates(
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         artifact = _extract_artifact(seeded)
         with write_transaction(project.db):
@@ -401,8 +394,6 @@ def test_below_threshold_quote_degrades_not_fabricates(
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["metadata"]["alignment"] == "below_threshold"
-    finally:
-        project.close()
 
 
 def _prepared_positions(*blocks: dict[str, Any]) -> dict[str, Any]:
@@ -469,7 +460,7 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         with write_transaction(project.db):
             artifact = record_source_artifact(
                 project,
@@ -577,8 +568,6 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
             span["selector"]["data"]["prepared_ref_id"] == selected_ref_id
             for span in viewer_artifact["spans"]
         )
-    finally:
-        project.close()
 
 
 def test_prepared_cross_page_quote_pins_each_page_version(
@@ -586,7 +575,7 @@ def test_prepared_cross_page_quote_pins_each_page_version(
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         with write_transaction(project.db):
             artifact = record_source_artifact(
                 project,
@@ -639,8 +628,6 @@ def test_prepared_cross_page_quote_pins_each_page_version(
         assert (
             selectors[1]["prepared_version_id"] != selectors[2]["prepared_version_id"]
         )
-    finally:
-        project.close()
 
 
 def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
@@ -650,7 +637,7 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
 
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         with write_transaction(project.db):
             artifact = record_source_artifact(
                 project,
@@ -706,14 +693,12 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
         assert spans[0]["selector"]["prepared_ref_id"] == ref_id
         viewer = _link_and_resolve(seeded, spans)
         assert viewer["artifacts"][0]["text_context"]["text"] == text
-    finally:
-        project.close()
 
 
 def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
     seeded = _seed_pdf_project(tmp_path)
     project = seeded["project"]
-    try:
+    with closing(project):
         with write_transaction(project.db):
             original = record_source_artifact(
                 project,
@@ -769,8 +754,6 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
         assert (
             project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 0
         )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize(
@@ -785,7 +768,7 @@ def test_prepared_page_and_region_claims_do_not_require_a_quote(tmp_path, claim,
 
     seeded = _seed_pdf_project(tmp_path)
     project = seeded["project"]
-    try:
+    with closing(project):
         with write_transaction(project.db):
             original = record_source_artifact(
                 project,
@@ -825,5 +808,3 @@ def test_prepared_page_and_region_claims_do_not_require_a_quote(tmp_path, claim,
         assert spans[0]["artifact_id"] == original["id"]
         assert spans[0]["span_kind"] == kind
         assert spans[0]["page_start"] == 1
-    finally:
-        project.close()

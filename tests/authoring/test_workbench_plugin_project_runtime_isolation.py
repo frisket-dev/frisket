@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+
 import json
 import multiprocessing
 import threading
@@ -1136,8 +1138,7 @@ def test_workbench_plugin_runtime_dispatch_is_project_scoped_after_disable(
         b_index = client.get("/api/projects/project-b/workbench/plugins")
         assert b_index.status_code == 200, b_index.text
         assert PLUGIN_ID not in {item["pluginId"] for item in b_index.json()["plugins"]}
-        project_b = Project(workspace / "project-b.frisket")
-        try:
+        with closing(Project(workspace / "project-b.frisket")) as project_b:
             b_row = project_b.db.execute(
                 "SELECT install_state, permissions_accepted, "
                 "executable_handlers_allowed FROM workbench_plugin_installs "
@@ -1148,8 +1149,6 @@ def test_workbench_plugin_runtime_dispatch_is_project_scoped_after_disable(
             assert b_row["install_state"] == "uninstalled"
             assert b_row["permissions_accepted"] == "[]"
             assert b_row["executable_handlers_allowed"] == 0
-        finally:
-            project_b.close()
     finally:
         _reset_default_registry_for_tests()
 

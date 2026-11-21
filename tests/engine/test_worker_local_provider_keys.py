@@ -23,6 +23,7 @@ DONE means (white-box jobs/runs.py):
 """
 
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
@@ -240,8 +241,7 @@ def test_run_router_carries_the_locally_keyed_adapter(tmp_path, monkeypatch) -> 
 
 def test_run_router_uses_the_cache_mode_frozen_by_enqueue(tmp_path) -> None:
     root = tmp_path / "ws"
-    project = _make_project(root)
-    try:
+    with closing(_make_project(root)) as project:
         router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
             project,
             None,
@@ -249,8 +249,6 @@ def test_run_router_uses_the_cache_mode_frozen_by_enqueue(tmp_path) -> None:
             cache_mode="replay_strict",
         )
         assert router.cache_mode == "replay_strict"
-    finally:
-        project.close()
 
 
 def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
@@ -274,7 +272,7 @@ def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
     )
     adapter = object()
     injected._adapters["anthropic"] = adapter  # noqa: SLF001 - injected seam
-    try:
+    with closing(project):
         composed = run_jobs._router_for(  # noqa: SLF001 - white-box seam
             project,
             injected,
@@ -288,8 +286,6 @@ def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
         assert composed.cache is None
         assert composed.cache_mode == "off"
         assert composed.max_retries == 1
-    finally:
-        project.close()
 
 
 def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -> None:
@@ -308,7 +304,7 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
         use_env_keys=False,
         local_endpoints=(endpoint,),
     )
-    try:
+    with closing(project):
         composed = run_jobs._router_for(  # noqa: SLF001 - white-box seam
             project,
             injected,
@@ -319,8 +315,6 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
         assert composed is not injected
         assert composed.local_endpoints == ()
         assert not composed.has_provider("ollama")
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------

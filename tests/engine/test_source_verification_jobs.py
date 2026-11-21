@@ -1,5 +1,7 @@
 """Viewed changed aggregates use the ordinary queue; edits never scan."""
 
+from contextlib import closing
+
 from frisket.engine.jobs import Worker
 from frisket.engine.jobs.queue import SOURCE_VERIFY_KIND
 from frisket.engine.store.changes import start_change
@@ -17,8 +19,7 @@ def test_view_requests_coalesced_job_and_undo_restores_freshness(tmp_path, monke
     monkeypatch.setattr(captures, "INLINE_CHECK_ROWS", 2)
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     project_id = workspace.create("Sources")["id"]
-    project = workspace.get(project_id)
-    try:
+    with closing(workspace.get(project_id)) as project:
         sheet = project.add_sheet("source")
         column = project.add_column(sheet, "text")
         rows = project.add_rows(
@@ -104,5 +105,3 @@ def test_view_requests_coalesced_job_and_undo_restores_freshness(tmp_path, monke
             )
             == 3
         )
-    finally:
-        project.close()

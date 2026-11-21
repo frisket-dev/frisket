@@ -13,6 +13,7 @@ refusal of retired snapshot/promise row shapes.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 import threading
 from functools import partial
 
@@ -129,8 +130,7 @@ class TestMigrations:
         for _ in range(2):
             p = Project(tmp_path / "t.frisket")
             p.close()
-        p = Project(tmp_path / "t.frisket")
-        try:
+        with closing(Project(tmp_path / "t.frisket")) as p:
             # Tables exist exactly once (sqlite_master would reject dupes,
             # but assert the migration never tries a non-IF-NOT-EXISTS path).
             for table in sorted(ROUTE_TABLES):
@@ -140,8 +140,6 @@ class TestMigrations:
                 ).fetchone()[0]
                 assert count == 1, table
             assert ROUTE_INDEXES <= _indexes(p.db)
-        finally:
-            p.close()
 
     def test_consents_standing_per_action_xor_check(self, project):
         # Both NULL and both set violate the CHECK.
@@ -459,8 +457,7 @@ class TestEpochsAndViolations:
 
 class TestStandingConsent:
     def test_minted_once_with_deployment_actor(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
-        try:
+        with closing(Project.create(tmp_path / "t.frisket", name="t")) as p:
             standing = ConsentRegistry(p).standing_consents()
             assert len(standing) == 1
             consent = standing[0]
@@ -469,17 +466,12 @@ class TestStandingConsent:
             assert consent.subject_kind is None
             assert consent.action_identity_hash is None
             actor = consent.actor
-        finally:
-            p.close()
         # Stable across reopens: same single row, same principal.
-        p = Project(tmp_path / "t.frisket")
-        try:
+        with closing(Project(tmp_path / "t.frisket")) as p:
             standing = ConsentRegistry(p).standing_consents()
             assert len(standing) == 1
             assert standing[0].actor == actor
             assert p.get_meta("instance_principal") == actor
-        finally:
-            p.close()
 
 
 class TestConsentAdvanceHeadCoherence:
@@ -649,8 +641,7 @@ class TestCurrentSchemaRefusal:
         p.db.commit()
         p.close()
 
-        p = Project(path)  # runs open-time migrations against the wider table
-        try:
+        with closing(Project(path)) as p:
             store = RouteStore.for_run(p, 7)
             promise_set = store.append_promise_set(
                 promises=PROMISES, predecessor_id=None
@@ -666,8 +657,6 @@ class TestCurrentSchemaRefusal:
             ).fetchone()
             # written by nothing, read by nothing
             assert tuple(leftover) == (None, None)
-        finally:
-            p.close()
 
 
 class TestCanonicalHash:
@@ -813,16 +802,13 @@ class TestStandingConsentPolicyParams:
         p = Project.create(tmp_path / "t.frisket", name="t")
         p.close()
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "5")
-        p = Project(tmp_path / "t.frisket")  # open reconciles (mint input)
-        try:
+        with closing(Project(tmp_path / "t.frisket")) as p:
             standing = ConsentRegistry(p).standing_consents()
             assert len(standing) == 2  # successor + auditable history
             principal = instance_principal(p)
             assert standing_cost_threshold(standing, principal=principal) == 5
             thresholds = sorted(c.policy_params["threshold_usd"] for c in standing)
             assert thresholds == ["2", "5"]
-        finally:
-            p.close()
 
     def test_reopen_without_change_mints_nothing(self, tmp_path, monkeypatch):
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "2")
@@ -831,11 +817,8 @@ class TestStandingConsentPolicyParams:
         for _ in range(3):
             p = Project(tmp_path / "t.frisket")
             p.close()
-        p = Project(tmp_path / "t.frisket")
-        try:
+        with closing(Project(tmp_path / "t.frisket")) as p:
             assert len(ConsentRegistry(p).standing_consents()) == 1
-        finally:
-            p.close()
 
     def test_reconcile_entry_point_is_callable_directly(self, project, monkeypatch):
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -891,14 +874,12 @@ class TestInstallationPrincipal:
     def test_minted_once_at_the_workspace_root(self, tmp_path):
         ws = tmp_path / "ws"
         ws.mkdir()
-        p = Project.create(ws / "a.frisket", name="a")
-        q = Project.create(ws / "b.frisket", name="b")
-        try:
+        with (
+            closing(Project.create(ws / "a.frisket", name="a")) as p,
+            closing(Project.create(ws / "b.frisket", name="b")) as q,
+        ):
             assert instance_principal(p) == instance_principal(q)
             assert (ws / "installation_id").is_file()
-        finally:
-            p.close()
-            q.close()
 
     def test_restored_bundle_gets_the_new_installs_principal(self, tmp_path):
         import shutil
@@ -911,8 +892,7 @@ class TestInstallationPrincipal:
         original = instance_principal(p)
         p.close()
         shutil.copytree(ws_one / "a.frisket", ws_two / "a.frisket")
-        restored = Project(ws_two / "a.frisket")
-        try:
+        with closing(Project(ws_two / "a.frisket")) as restored:
             migrated = instance_principal(restored)
             assert migrated != original  # the NEW install's principal
             # The cache follows the installation file, not the bundle.
@@ -922,8 +902,6 @@ class TestInstallationPrincipal:
             actors = {c.actor for c in standing}
             assert migrated in actors
             assert standing_cost_threshold(standing, principal=migrated) is not None
-        finally:
-            restored.close()
 
     def test_foreign_standing_consent_never_covers(self, make_project):
         p = make_project("t")

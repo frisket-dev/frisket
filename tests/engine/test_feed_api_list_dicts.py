@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -654,8 +655,7 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     )
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    project = Project.create(workspace / "news.frisket", name="news")
-    try:
+    with closing(Project.create(workspace / "news.frisket", name="news")) as project:
         with write_transaction(project.db):
             api_source_id = FeedStore(project).add_feed(
                 name="Scheduled API",
@@ -674,8 +674,6 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
                 url="https://example.com/api",
                 schedule="@hourly",
             )
-    finally:
-        project.close()
 
     queue = SqliteJobQueue(workspace / ".queue.db")
     try:
@@ -702,8 +700,7 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
         assert job.result["new_rows"] == 1
         assert scheduled_http.calls == [{"url": API_URL, "max_bytes": 5_000_000}]
 
-        reopened = Project(workspace / "news.frisket")
-        try:
+        with closing(Project(workspace / "news.frisket")) as reopened:
             runs = [
                 dict(row) for row in FeedStore(reopened).feed_checks_page(api_source_id)
             ]
@@ -712,7 +709,5 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
             receipt = _receipt(reopened, job.result["receipt_id"])
             assert receipt["action_kind"] == "source.poll"
             assert receipt["provider_use"][0]["provider"] == "http"
-        finally:
-            reopened.close()
     finally:
         queue.close()

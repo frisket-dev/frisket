@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -203,8 +204,7 @@ def test_enumerate_youtube_collection_identity_title_absent_is_none():
 
 
 def _seed_source_cell(project_path: Path, url: str = PLAYLIST_URL) -> dict[str, int]:
-    project = Project.create(project_path, name="Playlists")
-    try:
+    with closing(Project.create(project_path, name="Playlists")) as project:
         sheet_id = project.add_sheet("Playlists")
         col_id = project.add_column(sheet_id, "playlist_url", type="link")
         row_ids = project.add_rows(
@@ -215,8 +215,6 @@ def _seed_source_cell(project_path: Path, url: str = PLAYLIST_URL) -> dict[str, 
             "column_id": col_id,
             "row_id": int(row_ids[0]) if isinstance(row_ids, list) else int(row_ids),
         }
-    finally:
-        project.close()
 
 
 def _expand_action(
@@ -260,8 +258,7 @@ def test_derive_collection_expand_receipt_carries_suggested_target_name(
 ) -> None:
     inject_playlist_provider(title="Weekly Accountability Roundup", entry_count=2)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = executor_actions.run_action_spec(
             project,
             _expand_action(
@@ -296,8 +293,6 @@ def test_derive_collection_expand_receipt_carries_suggested_target_name(
             classification_refs[0]["identity"]["playlist_title"]
             == "Weekly Accountability Roundup"
         )
-    finally:
-        project.close()
 
 
 def test_derive_collection_expand_confirmation_gate_carries_suggested_target_name(
@@ -308,8 +303,7 @@ def test_derive_collection_expand_confirmation_gate_carries_suggested_target_nam
     can prefill the confirm-resubmit form correctly."""
     inject_playlist_provider(title=None, entry_count=250)
     seed = _seed_source_cell(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = executor_actions.run_action_spec(
             project,
             _expand_action(
@@ -329,8 +323,6 @@ def test_derive_collection_expand_confirmation_gate_carries_suggested_target_nam
             result.errors[0].details["suggested_target_name"]
             == f"YouTube playlist: {PLAYLIST_URL}"
         )
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------

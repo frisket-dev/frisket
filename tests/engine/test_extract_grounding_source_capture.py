@@ -370,51 +370,48 @@ def test_grounding_only_transcript_never_augments_model_prompt(
 
     seeded = _seed_transcript_project(tmp_path)
     project = seeded["project"]
-    try:
-        _run_transcribe(seeded, monkeypatch)
-        router, adapter = _stub_router(
-            {
-                "amount": {
-                    "value": "claim",
-                    "evidence": [{}],
-                }
+    _run_transcribe(seeded, monkeypatch)
+    router, adapter = _stub_router(
+        {
+            "amount": {
+                "value": "claim",
+                "evidence": [{}],
             }
-        )
-        request = _request(seeded["sheet_id"])
-        request["params"]["source"] = (
-            {"text": "Episode title: {{title}}"} if template else ["title"]
-        )
-        request["params"]["source_document_columns"] = ["transcript"]
-        result = run_action_with_confirmation(
-            project, request, project_id="p", router=router
-        )
-        assert result.status == "completed", result.errors
-        assert len(adapter.requests) == 1
-        prompt = json.dumps(adapter.requests[0].messages)
-        assert "Episode 1" in prompt
-        for segment in TRANSCRIPT_SEGMENTS:
-            assert segment["text"] not in prompt
-        assert "transcript_segments" not in prompt
-        # Invisible transcript anchors aren't even requested in the schema.
-        assert "segment_indices" not in json.dumps(adapter.requests[0].schema)
-        # A hidden transcript remains an admitted provenance input, but its
-        # segment IDs were never shown to the model. An empty claim cannot
-        # turn it into supporting evidence for the selected title.
-        artifact = project.db.execute(
-            "SELECT a.blob_hash,s.start_ms,s.end_ms FROM evidence_links l "
-            "JOIN evidence_link_spans ls ON ls.link_id=l.id "
-            "JOIN source_spans s ON s.id=ls.span_id "
-            "JOIN source_artifacts a ON a.id=s.artifact_id WHERE l.run_id=?",
-            (result.run_id,),
-        ).fetchone()
-        assert artifact is None
-        assert [error.code for error in result.errors] == ["evidence_required"]
-        withheld = project.db.execute(
-            "SELECT value, outcome FROM results WHERE run_id=?", (result.run_id,)
-        ).fetchone()
-        assert withheld["value"] is None
-        assert withheld["outcome"] == "withheld_unverified"
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert {item.ref["name"] for item in receipt.inputs} == {"title", "transcript"}
-    finally:
-        project.close()
+        }
+    )
+    request = _request(seeded["sheet_id"])
+    request["params"]["source"] = (
+        {"text": "Episode title: {{title}}"} if template else ["title"]
+    )
+    request["params"]["source_document_columns"] = ["transcript"]
+    result = run_action_with_confirmation(
+        project, request, project_id="p", router=router
+    )
+    assert result.status == "completed", result.errors
+    assert len(adapter.requests) == 1
+    prompt = json.dumps(adapter.requests[0].messages)
+    assert "Episode 1" in prompt
+    for segment in TRANSCRIPT_SEGMENTS:
+        assert segment["text"] not in prompt
+    assert "transcript_segments" not in prompt
+    # Invisible transcript anchors aren't even requested in the schema.
+    assert "segment_indices" not in json.dumps(adapter.requests[0].schema)
+    # A hidden transcript remains an admitted provenance input, but its
+    # segment IDs were never shown to the model. An empty claim cannot
+    # turn it into supporting evidence for the selected title.
+    artifact = project.db.execute(
+        "SELECT a.blob_hash,s.start_ms,s.end_ms FROM evidence_links l "
+        "JOIN evidence_link_spans ls ON ls.link_id=l.id "
+        "JOIN source_spans s ON s.id=ls.span_id "
+        "JOIN source_artifacts a ON a.id=s.artifact_id WHERE l.run_id=?",
+        (result.run_id,),
+    ).fetchone()
+    assert artifact is None
+    assert [error.code for error in result.errors] == ["evidence_required"]
+    withheld = project.db.execute(
+        "SELECT value, outcome FROM results WHERE run_id=?", (result.run_id,)
+    ).fetchone()
+    assert withheld["value"] is None
+    assert withheld["outcome"] == "withheld_unverified"
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert {item.ref["name"] for item in receipt.inputs} == {"title", "transcript"}

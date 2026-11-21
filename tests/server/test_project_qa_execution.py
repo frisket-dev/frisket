@@ -12,7 +12,6 @@ import pytest
 from helpers import stored_output_descriptor
 
 from frisket.actions.system import root_action_catalog_payload
-from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.services.action_runs import ActionRunResponse
@@ -160,8 +159,8 @@ class _Session:
         return dict(self.store.run)
 
 
-def _project_state(tmp_path, *, write_mode: str = "ask_overwrite"):
-    project = Project.create(tmp_path / "project.frisket")
+def _project_state(make_project, *, write_mode: str = "ask_overwrite"):
+    project = make_project("project")
     sheet_id = project.add_sheet("People")
     project.add_column(sheet_id, "Name")
     base = ProjectQAStore(project)
@@ -229,8 +228,10 @@ def _outcome(dispatch_id: str, record_dispatch) -> ChildRunOutcome:
 
 
 @pytest.mark.asyncio
-async def test_safe_additive_action_runs_once_and_checkpoints_receipt_grant(tmp_path):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+async def test_safe_additive_action_runs_once_and_checkpoints_receipt_grant(
+    make_project,
+):
+    project, sheet_id, turn, store, session = _project_state(make_project)
     launched: list[dict[str, Any]] = []
     grant_reads: list[None] = []
 
@@ -258,60 +259,57 @@ async def test_safe_additive_action_runs_once_and_checkpoints_receipt_grant(tmp_
         ),
         output_grant_allows=lambda *_args, **_kwargs: False,
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        event_ref = prepared["event_ref"]
-        outcome = await service.execute_action(event_ref)
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    event_ref = prepared["event_ref"]
+    outcome = await service.execute_action(event_ref)
 
-        assert outcome == {
-            "status": "completed",
-            "receipt_id": "receipt-1",
-            "outputs": [{"kind": "column", "ref": {"column_id": 4}}],
-            "errors": [],
-            "warnings": [],
-        }
-        assert len(launched) == 1
-        assert launched[0]["idempotency_key"] == event_ref["dispatch_id"]
-        assert launched[0]["confirmation"] == (f"promise:{event_ref['dispatch_id']}")
-        assert session.pauses == []
-        assert grant_reads == [None, None]
-        assert session.store.admissions[0]["operation_id"] == event_ref["dispatch_id"]
-        assert session.store.settlements == [
-            {
-                "research_id": "research-1",
-                "operation_id": event_ref["dispatch_id"],
-                "payload_identity": session.store.admissions[0]["payload_identity"],
-                "actual_micros": 23,
-            }
-        ]
-        assert len(store.research_children) == 2
-        assert store.research_children[0]["payload"]["job_id"] == 9
-        assert (
-            store.research_children[-1]["payload"]["dispatch_id"]
-            == (event_ref["dispatch_id"])
-        )
-        assert session.store.run["output_grants"] == ["receipt-1"]
-        usage = [
-            event
-            for event in store.events(str(turn["thread_id"]))["events"]
-            if event["kind"] == "usage"
-        ]
-        assert usage[-1]["payload"] == {
-            "operation": "action",
+    assert outcome == {
+        "status": "completed",
+        "receipt_id": "receipt-1",
+        "outputs": [{"kind": "column", "ref": {"column_id": 4}}],
+        "errors": [],
+        "warnings": [],
+    }
+    assert len(launched) == 1
+    assert launched[0]["idempotency_key"] == event_ref["dispatch_id"]
+    assert launched[0]["confirmation"] == (f"promise:{event_ref['dispatch_id']}")
+    assert session.pauses == []
+    assert grant_reads == [None, None]
+    assert session.store.admissions[0]["operation_id"] == event_ref["dispatch_id"]
+    assert session.store.settlements == [
+        {
+            "research_id": "research-1",
             "operation_id": event_ref["dispatch_id"],
-            "cost": 0.25,
-            "receipt_id": "receipt-1",
+            "payload_identity": session.store.admissions[0]["payload_identity"],
+            "actual_micros": 23,
         }
-    finally:
-        project.close()
+    ]
+    assert len(store.research_children) == 2
+    assert store.research_children[0]["payload"]["job_id"] == 9
+    assert (
+        store.research_children[-1]["payload"]["dispatch_id"]
+        == (event_ref["dispatch_id"])
+    )
+    assert session.store.run["output_grants"] == ["receipt-1"]
+    usage = [
+        event
+        for event in store.events(str(turn["thread_id"]))["events"]
+        if event["kind"] == "usage"
+    ]
+    assert usage[-1]["payload"] == {
+        "operation": "action",
+        "operation_id": event_ref["dispatch_id"],
+        "cost": 0.25,
+        "receipt_id": "receipt-1",
+    }
 
 
 @pytest.mark.asyncio
 async def test_action_consent_survives_budget_pause_without_budget_granting_it(
-    tmp_path,
+    make_project,
 ):
     project, sheet_id, turn, store, session = _project_state(
-        tmp_path, write_mode="ask_each"
+        make_project, write_mode="ask_each"
     )
     session.decisions[:] = ["approve", "continue"]
     session.store.block_next_admission = True
@@ -336,24 +334,21 @@ async def test_action_consent_survives_budget_pause_without_budget_granting_it(
         ),
         wait_child=wait_child,
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        await service.execute_action(prepared["event_ref"])
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    await service.execute_action(prepared["event_ref"])
 
-        assert [pause["kind"] for pause in session.pauses] == ["action", "budget"]
-        assert (
-            session.pauses[0]["payload_identity"]
-            == (session.store.admissions[0]["payload_identity"])
-        )
-        assert len(launched) == 1
-        assert launched[0] == prepared["event_ref"]["dispatch_id"]
-    finally:
-        project.close()
+    assert [pause["kind"] for pause in session.pauses] == ["action", "budget"]
+    assert (
+        session.pauses[0]["payload_identity"]
+        == (session.store.admissions[0]["payload_identity"])
+    )
+    assert len(launched) == 1
+    assert launched[0] == prepared["event_ref"]["dispatch_id"]
 
 
 @pytest.mark.asyncio
-async def test_replay_keeps_one_budget_operation_and_one_usage_event(tmp_path):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+async def test_replay_keeps_one_budget_operation_and_one_usage_event(make_project):
+    project, sheet_id, turn, store, session = _project_state(make_project)
     launched: list[str] = []
 
     async def wait_child(**kwargs: Any) -> ChildRunOutcome:
@@ -375,32 +370,28 @@ async def test_replay_keeps_one_budget_operation_and_one_usage_event(tmp_path):
         ),
         wait_child=wait_child,
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        await service.execute_action(prepared["event_ref"])
-        await service.execute_action(prepared["event_ref"])
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    await service.execute_action(prepared["event_ref"])
+    await service.execute_action(prepared["event_ref"])
 
-        assert launched == [
-            prepared["event_ref"]["dispatch_id"],
-            prepared["event_ref"]["dispatch_id"],
-        ]
-        assert len(session.store.admissions) == 1
-        assert len(session.store.settlements) == 1
-        assert len(store.research_children) == 2
-        usage = [
-            event
-            for event in store.events(str(turn["thread_id"]))["events"]
-            if event["kind"] == "usage"
-            and event["payload"].get("operation") == "action"
-        ]
-        assert len(usage) == 1
-    finally:
-        project.close()
+    assert launched == [
+        prepared["event_ref"]["dispatch_id"],
+        prepared["event_ref"]["dispatch_id"],
+    ]
+    assert len(session.store.admissions) == 1
+    assert len(session.store.settlements) == 1
+    assert len(store.research_children) == 2
+    usage = [
+        event
+        for event in store.events(str(turn["thread_id"]))["events"]
+        if event["kind"] == "usage" and event["payload"].get("operation") == "action"
+    ]
+    assert len(usage) == 1
 
 
 @pytest.mark.asyncio
-async def test_cancellation_during_launch_links_stops_and_settles_child(tmp_path):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+async def test_cancellation_during_launch_links_stops_and_settles_child(make_project):
+    project, sheet_id, turn, store, session = _project_state(make_project)
     launch_started = threading.Event()
     release_launch = threading.Event()
     stop_checks: list[bool] = []
@@ -462,12 +453,11 @@ async def test_cancellation_during_launch_links_stops_and_settles_child(tmp_path
         assert len(usage) == 1
     finally:
         release_launch.set()
-        project.close()
 
 
 @pytest.mark.asyncio
-async def test_cancellation_while_waiting_settles_terminal_callback(tmp_path):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+async def test_cancellation_while_waiting_settles_terminal_callback(make_project):
+    project, sheet_id, turn, store, session = _project_state(make_project)
     wait_started = asyncio.Event()
 
     async def wait_child(**kwargs: Any) -> ChildRunOutcome:
@@ -494,31 +484,27 @@ async def test_cancellation_while_waiting_settles_terminal_callback(tmp_path):
         run_action=lambda _project_id, body: _response(body["idempotency_key"]),
         wait_child=wait_child,
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        task = asyncio.create_task(service.execute_action(prepared["event_ref"]))
-        await wait_started.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    task = asyncio.create_task(service.execute_action(prepared["event_ref"]))
+    await wait_started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
-        assert len(store.research_children) == 2
-        assert session.store.settlements[0]["actual_micros"] == 23
-        usage = [
-            event
-            for event in store.events(str(turn["thread_id"]))["events"]
-            if event["kind"] == "usage"
-            and event["payload"].get("operation") == "action"
-        ]
-        assert len(usage) == 1
-    finally:
-        project.close()
+    assert len(store.research_children) == 2
+    assert session.store.settlements[0]["actual_micros"] == 23
+    usage = [
+        event
+        for event in store.events(str(turn["thread_id"]))["events"]
+        if event["kind"] == "usage" and event["payload"].get("operation") == "action"
+    ]
+    assert len(usage) == 1
 
 
 @pytest.mark.asyncio
-async def test_skip_does_not_admit_or_dispatch(tmp_path):
+async def test_skip_does_not_admit_or_dispatch(make_project):
     project, sheet_id, turn, store, session = _project_state(
-        tmp_path, write_mode="ask_each"
+        make_project, write_mode="ask_each"
     )
     session.decisions[:] = ["skip"]
     service = ProjectQAExecutionService(
@@ -532,19 +518,16 @@ async def test_skip_does_not_admit_or_dispatch(tmp_path):
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        with pytest.raises(ResearchActionSkipped):
-            await service.execute_action(prepared["event_ref"])
-        assert session.store.admissions == []
-    finally:
-        project.close()
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    with pytest.raises(ResearchActionSkipped):
+        await service.execute_action(prepared["event_ref"])
+    assert session.store.admissions == []
 
 
 @pytest.mark.asyncio
-async def test_external_action_needs_consent_even_in_full_access(tmp_path):
+async def test_external_action_needs_consent_even_in_full_access(make_project):
     project, sheet_id, turn, store, session = _project_state(
-        tmp_path, write_mode="full_access"
+        make_project, write_mode="full_access"
     )
     session.decisions[:] = ["skip"]
     service = ProjectQAExecutionService(
@@ -558,30 +541,27 @@ async def test_external_action_needs_consent_even_in_full_access(tmp_path):
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
-    try:
-        draft = {
-            "action_id": "map.api_call",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-            "params": {
-                "request": {
-                    "url": "https://example.test/{{Name}}",
-                    "method": "GET",
-                }
-            },
-            "output_names": {},
-        }
-        prepared = await service.prepare_action("Look up", draft)
-        with pytest.raises(ResearchActionSkipped):
-            await service.execute_action(prepared["event_ref"])
-        assert session.pauses[0]["reason"] == "external_effect"
-    finally:
-        project.close()
+    draft = {
+        "action_id": "map.api_call",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "params": {
+            "request": {
+                "url": "https://example.test/{{Name}}",
+                "method": "GET",
+            }
+        },
+        "output_names": {},
+    }
+    prepared = await service.prepare_action("Look up", draft)
+    with pytest.raises(ResearchActionSkipped):
+        await service.execute_action(prepared["event_ref"])
+    assert session.pauses[0]["reason"] == "external_effect"
 
 
 @pytest.mark.asyncio
-async def test_unknown_catalog_effect_needs_consent_even_in_full_access(tmp_path):
+async def test_unknown_catalog_effect_needs_consent_even_in_full_access(make_project):
     project, sheet_id, turn, store, session = _project_state(
-        tmp_path, write_mode="full_access"
+        make_project, write_mode="full_access"
     )
     session.decisions[:] = ["skip"]
 
@@ -604,19 +584,18 @@ async def test_unknown_catalog_effect_needs_consent_even_in_full_access(tmp_path
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        with pytest.raises(ResearchActionSkipped):
-            await service.execute_action(prepared["event_ref"])
-        assert session.pauses[0]["reason"] == "unknown_effect"
-        assert session.store.admissions == []
-    finally:
-        project.close()
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    with pytest.raises(ResearchActionSkipped):
+        await service.execute_action(prepared["event_ref"])
+    assert session.pauses[0]["reason"] == "unknown_effect"
+    assert session.store.admissions == []
 
 
 @pytest.mark.asyncio
-async def test_estimate_becoming_unknown_pauses_before_admission_or_dispatch(tmp_path):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+async def test_estimate_becoming_unknown_pauses_before_admission_or_dispatch(
+    make_project,
+):
+    project, sheet_id, turn, store, session = _project_state(make_project)
     session.decisions[:] = ["skip"]
     estimate_calls = 0
 
@@ -636,29 +615,26 @@ async def test_estimate_becoming_unknown_pauses_before_admission_or_dispatch(tmp
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        with pytest.raises(ResearchActionSkipped, match="unknown cost"):
-            await service.execute_action(prepared["event_ref"])
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    with pytest.raises(ResearchActionSkipped, match="unknown cost"):
+        await service.execute_action(prepared["event_ref"])
 
-        assert session.pauses == [
-            {
-                "kind": "unknown_cost",
-                "operation": "action",
-                "operation_id": prepared["event_ref"]["dispatch_id"],
-                "action_id": "map.template",
-                "payload_identity": session.pauses[0]["payload_identity"],
-                "reason": "normal action quote is unavailable",
-            }
-        ]
-        assert session.store.admissions == []
-    finally:
-        project.close()
+    assert session.pauses == [
+        {
+            "kind": "unknown_cost",
+            "operation": "action",
+            "operation_id": prepared["event_ref"]["dispatch_id"],
+            "action_id": "map.template",
+            "payload_identity": session.pauses[0]["payload_identity"],
+            "reason": "normal action quote is unavailable",
+        }
+    ]
+    assert session.store.admissions == []
 
 
 @pytest.mark.asyncio
-async def test_action_that_stays_unpriced_pauses_before_dispatch(tmp_path):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+async def test_action_that_stays_unpriced_pauses_before_dispatch(make_project):
+    project, sheet_id, turn, store, session = _project_state(make_project)
     session.decisions[:] = ["skip"]
     service = ProjectQAExecutionService(
         project,
@@ -671,15 +647,12 @@ async def test_action_that_stays_unpriced_pauses_before_dispatch(tmp_path):
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        assert prepared["preparation_reason"] == "normal action quote is unavailable"
-        with pytest.raises(ResearchActionSkipped, match="unknown cost"):
-            await service.execute_action(prepared["event_ref"])
-        assert session.pauses[0]["kind"] == "unknown_cost"
-        assert session.store.admissions == []
-    finally:
-        project.close()
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    assert prepared["preparation_reason"] == "normal action quote is unavailable"
+    with pytest.raises(ResearchActionSkipped, match="unknown cost"):
+        await service.execute_action(prepared["event_ref"])
+    assert session.pauses[0]["kind"] == "unknown_cost"
+    assert session.store.admissions == []
 
 
 @pytest.mark.asyncio
@@ -688,10 +661,10 @@ async def test_action_that_stays_unpriced_pauses_before_dispatch(tmp_path):
     [("ask_overwrite", "skip", False), ("full_access", None, True)],
 )
 async def test_replacement_respects_write_mode_at_frozen_target(
-    tmp_path, write_mode, decision, should_launch
+    make_project, write_mode, decision, should_launch
 ):
     project, sheet_id, turn, store, session = _project_state(
-        tmp_path, write_mode=write_mode
+        make_project, write_mode=write_mode
     )
     greeting_column = project.add_column(
         sheet_id, "Greeting", type="text", ai_generated=True
@@ -743,26 +716,23 @@ async def test_replacement_respects_write_mode_at_frozen_target(
         "output_names": {"rendered": "Greeting"},
         "replace_existing": True,
     }
-    try:
-        prepared = await service.prepare_action("Replace names", draft)
-        if should_launch:
+    prepared = await service.prepare_action("Replace names", draft)
+    if should_launch:
+        await service.execute_action(prepared["event_ref"])
+        assert launched == [prepared["event_ref"]["dispatch_id"]]
+        assert session.pauses == []
+    else:
+        with pytest.raises(ResearchActionSkipped):
             await service.execute_action(prepared["event_ref"])
-            assert launched == [prepared["event_ref"]["dispatch_id"]]
-            assert session.pauses == []
-        else:
-            with pytest.raises(ResearchActionSkipped):
-                await service.execute_action(prepared["event_ref"])
-            assert launched == []
-            assert session.pauses[0]["reason"] == "overwrite_or_delete"
-    finally:
-        project.close()
+        assert launched == []
+        assert session.pauses[0]["reason"] == "overwrite_or_delete"
 
 
 @pytest.mark.asyncio
 async def test_malformed_reference_and_forbidden_authority_are_refused(
-    tmp_path,
+    make_project,
 ):
-    project, sheet_id, turn, store, session = _project_state(tmp_path)
+    project, sheet_id, turn, store, session = _project_state(make_project)
     service = ProjectQAExecutionService(
         project,
         "project-1",
@@ -774,24 +744,21 @@ async def test_malformed_reference_and_forbidden_authority_are_refused(
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
-    try:
-        prepared = await service.prepare_action("Greet", _draft(sheet_id))
-        wrong = {**prepared["event_ref"], "dispatch_id": "another-dispatch"}
-        with pytest.raises(ValueError, match="does not match dispatch"):
-            await service.execute_action(wrong)
-        with pytest.raises(ValueError, match="malformed"):
-            await service.execute_action({**prepared["event_ref"], "turn_id": "other"})
+    prepared = await service.prepare_action("Greet", _draft(sheet_id))
+    wrong = {**prepared["event_ref"], "dispatch_id": "another-dispatch"}
+    with pytest.raises(ValueError, match="does not match dispatch"):
+        await service.execute_action(wrong)
+    with pytest.raises(ValueError, match="malformed"):
+        await service.execute_action({**prepared["event_ref"], "turn_id": "other"})
 
-        with pytest.raises(ProjectQAExecutionRefused, match="unsafe"):
-            service._authorize_for_policy(  # noqa: SLF001 - security boundary proof
-                {
-                    "payload_identity": "identity",
-                    "request": {"action_id": "plugin.admin"},
-                    "required_capabilities": ["unsafe:local_code"],
-                    "catalog_effects": ["execute_trusted_local_python"],
-                    "effects": {"replace_existing": False},
-                    "quote": {"estimate": {"promise_set_hash": "promise"}},
-                }
-            )
-    finally:
-        project.close()
+    with pytest.raises(ProjectQAExecutionRefused, match="unsafe"):
+        service._authorize_for_policy(  # noqa: SLF001 - security boundary proof
+            {
+                "payload_identity": "identity",
+                "request": {"action_id": "plugin.admin"},
+                "required_capabilities": ["unsafe:local_code"],
+                "catalog_effects": ["execute_trusted_local_python"],
+                "effects": {"replace_existing": False},
+                "quote": {"estimate": {"promise_set_hash": "promise"}},
+            }
+        )

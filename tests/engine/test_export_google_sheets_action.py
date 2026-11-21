@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import logging
 from pathlib import Path
 from typing import Any
@@ -27,8 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _seed_project(path: Path) -> int:
-    project = Project.create(path, name="Google Sheets Export")
-    try:
+    with closing(Project.create(path, name="Google Sheets Export")) as project:
         sheet_id = project.add_sheet("Stories")
         column_ids = {
             "name": project.add_column(sheet_id, "name", "text"),
@@ -43,8 +43,6 @@ def _seed_project(path: Path) -> int:
             column_ids,
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 def _google_export_action(
@@ -195,8 +193,7 @@ def test_export_google_sheets_uses_fake_client_receipts_and_idempotency(
         google_sheets_client=fake_client,
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         ada_row_id = project.visible_row_ids(sheet_id)[0]
         action = _google_export_action(
             sheet_id=sheet_id,
@@ -275,8 +272,6 @@ def test_export_google_sheets_uses_fake_client_receipts_and_idempotency(
         assert conflict.status == "failed"
         assert conflict.errors[0].code == "idempotency_conflict"
         assert len(fake_client.calls) == 1
-    finally:
-        project.close()
 
 
 def test_export_google_sheets_fails_without_connection_or_client(
@@ -285,8 +280,7 @@ def test_export_google_sheets_fails_without_connection_or_client(
     project_path = tmp_path / "google-sheets-missing.frisket"
     sheet_id = _seed_project(project_path)
     action = _google_export_action(sheet_id=sheet_id)
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         no_client = run_action_spec(
             project,
             action,
@@ -355,8 +349,6 @@ def test_export_google_sheets_fails_without_connection_or_client(
         assert replay_failure.status == "failed"
         assert replay_failure.receipt_id == provider_failure.receipt_id
         assert failing_client.calls == 1
-    finally:
-        project.close()
 
 
 def test_export_google_sheets_stale_clear_retry_replays_instead_of_rewriting(
@@ -388,8 +380,7 @@ def test_export_google_sheets_stale_clear_retry_replays_instead_of_rewriting(
     idempotency_key = "google_sheets_export@sha256:stale-clear-replay"
     action = _google_export_action(sheet_id=sheet_id, key=idempotency_key)
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         first = run_action_spec(
             project, action, project_id="project-google-sheets", deps=deps
         )
@@ -443,8 +434,6 @@ def test_export_google_sheets_stale_clear_retry_replays_instead_of_rewriting(
         assert resumed.status == "completed", resumed.errors
         assert len(fake_client.calls) == 1  # never called again
         assert resumed.outputs[0].ref["spreadsheet_id"] == first_spreadsheet_id
-    finally:
-        project.close()
 
 
 def test_ambiguous_export_refuses_equivalent_fresh_key_without_second_call(
@@ -458,8 +447,7 @@ def test_ambiguous_export_refuses_equivalent_fresh_key_without_second_call(
         google_sheets_client=fake_client,
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         omitted_default = _google_export_action(
             sheet_id=sheet_id,
             key="ambiguous@sha256:first",
@@ -500,8 +488,6 @@ def test_ambiguous_export_refuses_equivalent_fresh_key_without_second_call(
         assert [(row["id"], row["state"]) for row in rows] == [
             (checkpoint_id, "reserved")
         ]
-    finally:
-        project.close()
 
 
 def test_export_refuses_legacy_envelope_extras_without_provider_calls(
@@ -510,8 +496,7 @@ def test_export_refuses_legacy_envelope_extras_without_provider_calls(
     project_path = tmp_path / "strict-export.frisket"
     sheet_id = _seed_project(project_path)
     fake = FakeGoogleSheetsClient()
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         for field, value in (
             ("capabilities", ["project:read", "external:google_sheets"]),
             ("input_refs", [{"kind": "unrelated"}]),
@@ -531,8 +516,6 @@ def test_export_refuses_legacy_envelope_extras_without_provider_calls(
             assert result.errors[0].code == "invalid_action_request"
         assert fake.calls == []
         assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    finally:
-        project.close()
 
 
 def test_ambiguous_export_identity_ignores_planned_confirmation_plumbing(
@@ -555,8 +538,7 @@ def test_ambiguous_export_identity_ignores_planned_confirmation_plumbing(
         key="confirmation@sha256:confirmed",
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         first = run_action_spec(
             project, first_body, project_id="project-google-sheets", deps=deps
         )
@@ -569,8 +551,6 @@ def test_ambiguous_export_identity_ignores_planned_confirmation_plumbing(
         assert refused.status == "failed"
         assert refused.errors[0].details["checkpoint_id"] == checkpoint_id
         assert len(fake_client.calls) == 1
-    finally:
-        project.close()
 
 
 def test_operator_accept_refuses_equivalent_effect_until_proven_discard(
@@ -584,8 +564,7 @@ def test_operator_accept_refuses_equivalent_effect_until_proven_discard(
         google_sheets_client=fake_client,
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         first = run_action_spec(
             project,
             _google_export_action(sheet_id=sheet_id, key="operator@sha256:first"),
@@ -620,8 +599,6 @@ def test_operator_accept_refuses_equivalent_effect_until_proven_discard(
         )
         assert released.status == "completed", released.errors
         assert len(fake_client.calls) == 2
-    finally:
-        project.close()
 
 
 def test_returned_effect_replays_cross_key_but_changed_query_or_value_is_new(
@@ -646,8 +623,7 @@ def test_returned_effect_replays_cross_key_but_changed_query_or_value_is_new(
         "filter": {"status": {"eq": "blocked"}},
     }
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         first = run_action_spec(
             project,
             _google_export_action(
@@ -751,8 +727,6 @@ def test_returned_effect_replays_cross_key_but_changed_query_or_value_is_new(
         assert all(row["group_key"] == row["identity"] for row in checkpoints)
         assert all(row["identity"].startswith("sha256:") for row in checkpoints)
         assert "Ada Lovelace" not in "".join(row["payload"] for row in checkpoints)
-    finally:
-        project.close()
 
 
 def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
@@ -794,8 +768,7 @@ def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
     )
     caplog.set_level(logging.DEBUG, logger="frisket.executor")
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         failed = run_action_spec(
             project,
             action,
@@ -837,8 +810,6 @@ def test_provider_failure_is_bounded_redacted_and_exact_replay_is_stable(
             assert secret not in persisted
         assert oversized not in persisted
         assert "Traceback (most recent call last)" not in caplog.text
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize(
@@ -874,8 +845,7 @@ def test_malformed_provider_result_stays_ambiguous_and_never_completes(
         key="malformed-result@sha256:stable-replay",
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         failed = run_action_spec(
             project,
             action,
@@ -905,5 +875,3 @@ def test_malformed_provider_result_stays_ambiguous_and_never_completes(
         assert replay.status == "failed"
         assert replay.receipt_id == failed.receipt_id
         assert fake_client.calls == 1
-    finally:
-        project.close()

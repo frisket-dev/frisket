@@ -8,7 +8,6 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import json
-from pathlib import Path
 from typing import Any
 
 from frisket.engine.store.receipts import ReceiptStore
@@ -33,10 +32,8 @@ PROJECT_ID = "project-table-from-list-evidence"
 _stub_router = partial(canned_reply_router, tokens_in=97, tokens_out=43, cost=0.008)
 
 
-def _seed_transcript_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(
-        tmp_path / "table-from-list-evidence.frisket", name="Moments Table"
-    )
+def _seed_transcript_project(make_project) -> dict[str, Any]:
+    project = make_project("Moments Table")
     sheet_id = project.add_sheet("Episodes")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -140,9 +137,9 @@ def _derive_action(*, sheet_id: int, column_id: int, run_id: int) -> dict[str, A
 
 
 def _run_to_extracted_moments(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> dict[str, Any]:
-    seeded = _seed_transcript_project(tmp_path)
+    seeded = _seed_transcript_project(make_project)
     project: Project = seeded["project"]
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter,
@@ -176,273 +173,256 @@ def _run_to_extracted_moments(
 
 
 def test_moments_table_row_citation_opens_at_its_item_span(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
+    seeded = _run_to_extracted_moments(make_project, monkeypatch)
     project: Project = seeded["project"]
-    try:
-        source_evidence = list_cell_citations(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            column_id=seeded["moments_column_id"],
-        )
-        assert {
-            resolve_citation_viewer(project, link["stable_id"])["link"]["item_index"]
-            for link in source_evidence["links"]
-        } == {0, 1, 2}
-        derived = run_action_with_exact_confirmation(
-            project,
-            _derive_action(
-                sheet_id=seeded["sheet_id"],
-                column_id=seeded["moments_column_id"],
-                run_id=seeded["extracted"].run_id,
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert derived.status == "completed", derived.errors
-        child_sheet_id = next(
-            output.sheet_id for output in derived.outputs if output.kind == "sheet"
-        )
-        moment_column_id = next(
-            output.column_id
-            for output in derived.outputs
-            if output.kind == "column" and output.name == "moment"
-        )
-        rows = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
-            (child_sheet_id,),
-        ).fetchall()
-        assert len(rows) == 3
-        moments = project.get_values(child_sheet_id, moment_column_id)
-
-        expected_by_moment = {
-            "some say the vote was rigged": (4000, 6000),
-            "others question the integrity of the count": (6000, 8000),
-            "officials deny any wrongdoing": (8000, 10000),
-        }
-
-        seen = set()
-        for row in rows:
-            row_id = int(row["id"])
-            moment_text = moments[row_id]
-            assert moment_text in expected_by_moment
-
-            # RED CHECK: each derived row's OWN citation opens the viewer at
-            # ITS source item's span, not an orphan and not another row's.
-            evidence = list_row_citations(
-                project, sheet_id=child_sheet_id, row_id=row_id, project_id=PROJECT_ID
-            )
-            assert len(evidence["links"]) == 1
-            viewer = resolve_citation_viewer(
-                project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-            )
-            spans = viewer["artifacts"][0]["spans"]
-            assert len(spans) == 1
-            span = spans[0]
-            assert span["span_kind"] == "temporal"
-            assert span["quote"] == moment_text
-            expected_start, expected_end = expected_by_moment[moment_text]
-            assert span["selector"]["start_ms"] == expected_start
-            assert span["selector"]["end_ms"] == expected_end
-            seen.add(moment_text)
-
-        assert seen == set(expected_by_moment)
-    finally:
-        project.close()
-
-
-def test_derive_table_from_list_replay_does_not_duplicate_row_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
-    project: Project = seeded["project"]
-    try:
-        action = _derive_action(
+    source_evidence = list_cell_citations(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_ids"][0],
+        column_id=seeded["moments_column_id"],
+    )
+    assert {
+        resolve_citation_viewer(project, link["stable_id"])["link"]["item_index"]
+        for link in source_evidence["links"]
+    } == {0, 1, 2}
+    derived = run_action_with_exact_confirmation(
+        project,
+        _derive_action(
             sheet_id=seeded["sheet_id"],
             column_id=seeded["moments_column_id"],
             run_id=seeded["extracted"].run_id,
-        )
-        first = run_action_with_exact_confirmation(
-            project, action, project_id=PROJECT_ID
-        )
-        assert first.status == "completed", first.errors
-        before = int(
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
-        )
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert derived.status == "completed", derived.errors
+    child_sheet_id = next(
+        output.sheet_id for output in derived.outputs if output.kind == "sheet"
+    )
+    moment_column_id = next(
+        output.column_id
+        for output in derived.outputs
+        if output.kind == "column" and output.name == "moment"
+    )
+    rows = project.db.execute(
+        "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert len(rows) == 3
+    moments = project.get_values(child_sheet_id, moment_column_id)
 
-        replay = run_action_with_exact_confirmation(
-            project, action, project_id=PROJECT_ID
+    expected_by_moment = {
+        "some say the vote was rigged": (4000, 6000),
+        "others question the integrity of the count": (6000, 8000),
+        "officials deny any wrongdoing": (8000, 10000),
+    }
+
+    seen = set()
+    for row in rows:
+        row_id = int(row["id"])
+        moment_text = moments[row_id]
+        assert moment_text in expected_by_moment
+
+        # RED CHECK: each derived row's OWN citation opens the viewer at
+        # ITS source item's span, not an orphan and not another row's.
+        evidence = list_row_citations(
+            project, sheet_id=child_sheet_id, row_id=row_id, project_id=PROJECT_ID
         )
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        after = int(
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
+        assert len(evidence["links"]) == 1
+        viewer = resolve_citation_viewer(
+            project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
-        assert after == before
-    finally:
-        project.close()
+        spans = viewer["artifacts"][0]["spans"]
+        assert len(spans) == 1
+        span = spans[0]
+        assert span["span_kind"] == "temporal"
+        assert span["quote"] == moment_text
+        expected_start, expected_end = expected_by_moment[moment_text]
+        assert span["selector"]["start_ms"] == expected_start
+        assert span["selector"]["end_ms"] == expected_end
+        seen.add(moment_text)
+
+    assert seen == set(expected_by_moment)
+
+
+def test_derive_table_from_list_replay_does_not_duplicate_row_evidence(
+    make_project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeded = _run_to_extracted_moments(make_project, monkeypatch)
+    project: Project = seeded["project"]
+    action = _derive_action(
+        sheet_id=seeded["sheet_id"],
+        column_id=seeded["moments_column_id"],
+        run_id=seeded["extracted"].run_id,
+    )
+    first = run_action_with_exact_confirmation(project, action, project_id=PROJECT_ID)
+    assert first.status == "completed", first.errors
+    before = int(
+        project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
+    )
+
+    replay = run_action_with_exact_confirmation(project, action, project_id=PROJECT_ID)
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    after = int(project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0])
+    assert after == before
 
 
 @pytest.mark.parametrize("source_kind", ["named_result", "column"])
 def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_kind: str
+    make_project, monkeypatch: pytest.MonkeyPatch, source_kind: str
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor import sheet_refresh_action as sheet_refresh
 
-    seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
+    seeded = _run_to_extracted_moments(make_project, monkeypatch)
     project: Project = seeded["project"]
-    try:
-        action = _derive_action(
-            sheet_id=seeded["sheet_id"],
-            column_id=seeded["moments_column_id"],
-            run_id=seeded["extracted"].run_id,
-        )
-        logical_name = "moment"
-        if source_kind == "column":
-            action["params"] = {
-                "source": {
-                    "kind": "column",
-                    "sheet_id": seeded["sheet_id"],
-                    "column_id": seeded["moments_column_id"],
-                }
+    action = _derive_action(
+        sheet_id=seeded["sheet_id"],
+        column_id=seeded["moments_column_id"],
+        run_id=seeded["extracted"].run_id,
+    )
+    logical_name = "moment"
+    if source_kind == "column":
+        action["params"] = {
+            "source": {
+                "kind": "column",
+                "sheet_id": seeded["sheet_id"],
+                "column_id": seeded["moments_column_id"],
             }
-            logical_name = "value"
-        action["output_names"] = {logical_name: "Quotation"}
-        created = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert created.status == "completed", created.errors
-        child_id = next(
-            output.sheet_id for output in created.outputs if output.kind == "sheet"
+        }
+        logical_name = "value"
+    action["output_names"] = {logical_name: "Quotation"}
+    created = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert created.status == "completed", created.errors
+    child_id = next(
+        output.sheet_id for output in created.outputs if output.kind == "sheet"
+    )
+    columns_before = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            (child_id,),
         )
-        columns_before = [
+    ]
+    assert [column[1] for column in columns_before] == ["Quotation"]
+    column_id = columns_before[0][0]
+    quotes = _extract_reply()["moments"]["value"]
+
+    def active_links():
+        values = project.get_values(child_id, column_id)
+        assert list(values.values()) == quotes
+        links = []
+        for index, (row_id, quote) in enumerate(values.items()):
+            evidence = list_row_citations(project, sheet_id=child_id, row_id=row_id)
+            assert len(evidence["links"]) == 1
+            link = evidence["links"][0]
+            viewer = resolve_citation_viewer(
+                project, link["stable_id"], project_id=PROJECT_ID
+            )
+            span = viewer["artifacts"][0]["spans"][0]
+            assert span["quote"] == quote
+            assert span["selector"]["start_ms"] == 4000 + index * 2000
+            assert span["selector"]["end_ms"] == 6000 + index * 2000
+            links.append(link["stable_id"])
+        return links
+
+    original_links = active_links()
+    # The original derive's applicable undo/redo keeps its row grounding.
+    assert project.undo() == created.op_ids[0]
+    assert (
+        project.db.execute(
+            "SELECT hidden FROM sheets WHERE id=?", (child_id,)
+        ).fetchone()[0]
+        == 1
+    )
+    assert project.redo() == created.op_ids[0]
+    assert active_links() == original_links
+
+    def refresh(key):
+        return run_action_spec(
+            project,
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": child_id},
+                "idempotency_key": key,
+            },
+            project_id=PROJECT_ID,
+        )
+
+    for index in range(2):
+        previous_links = active_links()
+        refreshed = refresh(f"grounded-refresh-{index}")
+        assert refreshed.status == "completed", refreshed.errors
+        fresh_links = active_links()
+        assert set(fresh_links).isdisjoint(previous_links)
+        for link_id in previous_links:
+            retained = project.db.execute(
+                "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
+                (link_id,),
+            ).fetchone()
+            # Refresh hides superseded rows; it does not invalidate their
+            # retained evidence, which becomes current again on Undo.
+            assert tuple(retained) == ("active", None)
+        assert [
             tuple(row)
             for row in project.db.execute(
                 "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
                 (child_id,),
             )
-        ]
-        assert [column[1] for column in columns_before] == ["Quotation"]
-        column_id = columns_before[0][0]
-        quotes = _extract_reply()["moments"]["value"]
-
-        def active_links():
-            values = project.get_values(child_id, column_id)
-            assert list(values.values()) == quotes
-            links = []
-            for index, (row_id, quote) in enumerate(values.items()):
-                evidence = list_row_citations(project, sheet_id=child_id, row_id=row_id)
-                assert len(evidence["links"]) == 1
-                link = evidence["links"][0]
-                viewer = resolve_citation_viewer(
-                    project, link["stable_id"], project_id=PROJECT_ID
-                )
-                span = viewer["artifacts"][0]["spans"][0]
-                assert span["quote"] == quote
-                assert span["selector"]["start_ms"] == 4000 + index * 2000
-                assert span["selector"]["end_ms"] == 6000 + index * 2000
-                links.append(link["stable_id"])
-            return links
-
-        original_links = active_links()
-        # The original derive's applicable undo/redo keeps its row grounding.
-        assert project.undo() == created.op_ids[0]
-        assert (
-            project.db.execute(
-                "SELECT hidden FROM sheets WHERE id=?", (child_id,)
-            ).fetchone()[0]
-            == 1
-        )
-        assert project.redo() == created.op_ids[0]
-        assert active_links() == original_links
-
-        def refresh(key):
-            return run_action_spec(
-                project,
-                {
-                    "action_id": "sheet.refresh",
-                    "scope": {"kind": "project"},
-                    "params": {"sheet_id": child_id},
-                    "idempotency_key": key,
-                },
-                project_id=PROJECT_ID,
-            )
-
-        for index in range(2):
-            previous_links = active_links()
-            refreshed = refresh(f"grounded-refresh-{index}")
-            assert refreshed.status == "completed", refreshed.errors
-            fresh_links = active_links()
-            assert set(fresh_links).isdisjoint(previous_links)
-            for link_id in previous_links:
-                retained = project.db.execute(
-                    "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
-                    (link_id,),
-                ).fetchone()
-                # Refresh hides superseded rows; it does not invalidate their
-                # retained evidence, which becomes current again on Undo.
-                assert tuple(retained) == ("active", None)
-            assert [
-                tuple(row)
-                for row in project.db.execute(
-                    "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
-                    (child_id,),
-                )
-            ] == columns_before
-            replay = refresh(f"grounded-refresh-{index}")
-            assert replay.status == "completed", replay.errors
-            assert replay.receipt_id == refreshed.receipt_id
-            assert active_links() == fresh_links
-            assert project.undo() == refreshed.op_ids[0]
-            assert active_links() == previous_links
-            assert project.redo() == refreshed.op_ids[0]
-            assert active_links() == fresh_links
-
-        # Evidence-copy failure rolls back membership and copied evidence together.
-        table_keys = {
-            "sheets": "id",
-            "rows": "id",
-            "cells": "row_id, column_id",
-            "ops": "id",
-            "receipts": "id",
-            "evidence_links": "id",
-            "evidence_link_spans": "link_id, span_id",
-        }
-
-        def snapshot(table):
-            return [
-                tuple(row)
-                for row in project.db.execute(
-                    f"SELECT * FROM {table} ORDER BY {table_keys[table]}"
-                )
-            ]
-
-        before = {table: snapshot(table) for table in table_keys}
-        real_copy = sheet_refresh.propagate_list_item_citations
-
-        def fail_after_copy(*args, **kwargs):
-            real_copy(*args, **kwargs)
-            raise RuntimeError("late evidence failure")
-
-        monkeypatch.setattr(
-            sheet_refresh, "propagate_list_item_citations", fail_after_copy
-        )
-        refused = refresh("grounded-refresh-failed")
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "project_write_failed"
-        for table, old_rows in before.items():
-            if table not in {"ops", "receipts"}:
-                assert snapshot(table) == old_rows
-        failed_receipt = ReceiptStore(project).parsed_by_id(refused.receipt_id)
-        assert failed_receipt.status == "failed"
-        failed_op = project.db.execute(
-            "SELECT publication_closed,change_order FROM ops WHERE id=?",
-            (failed_receipt.op_ids[0],),
-        ).fetchone()
-        assert tuple(failed_op) == (1, None)  # no batch committed a Change
+        ] == columns_before
+        replay = refresh(f"grounded-refresh-{index}")
+        assert replay.status == "completed", replay.errors
+        assert replay.receipt_id == refreshed.receipt_id
         assert active_links() == fresh_links
-    finally:
-        project.close()
+        assert project.undo() == refreshed.op_ids[0]
+        assert active_links() == previous_links
+        assert project.redo() == refreshed.op_ids[0]
+        assert active_links() == fresh_links
+
+    # Evidence-copy failure rolls back membership and copied evidence together.
+    table_keys = {
+        "sheets": "id",
+        "rows": "id",
+        "cells": "row_id, column_id",
+        "ops": "id",
+        "receipts": "id",
+        "evidence_links": "id",
+        "evidence_link_spans": "link_id, span_id",
+    }
+
+    def snapshot(table):
+        return [
+            tuple(row)
+            for row in project.db.execute(
+                f"SELECT * FROM {table} ORDER BY {table_keys[table]}"
+            )
+        ]
+
+    before = {table: snapshot(table) for table in table_keys}
+    real_copy = sheet_refresh.propagate_list_item_citations
+
+    def fail_after_copy(*args, **kwargs):
+        real_copy(*args, **kwargs)
+        raise RuntimeError("late evidence failure")
+
+    monkeypatch.setattr(sheet_refresh, "propagate_list_item_citations", fail_after_copy)
+    refused = refresh("grounded-refresh-failed")
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "project_write_failed"
+    for table, old_rows in before.items():
+        if table not in {"ops", "receipts"}:
+            assert snapshot(table) == old_rows
+    failed_receipt = ReceiptStore(project).parsed_by_id(refused.receipt_id)
+    assert failed_receipt.status == "failed"
+    failed_op = project.db.execute(
+        "SELECT publication_closed,change_order FROM ops WHERE id=?",
+        (failed_receipt.op_ids[0],),
+    ).fetchone()
+    assert tuple(failed_op) == (1, None)  # no batch committed a Change
+    assert active_links() == fresh_links
 
 
 def test_ungrounded_list_source_propagates_no_row_evidence(
@@ -490,216 +470,203 @@ def test_ungrounded_list_source_propagates_no_row_evidence(
 @pytest.mark.parametrize("source_kind", ["column", "named_result"])
 @pytest.mark.parametrize("refresh_existing", [False, True])
 def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     source_kind: str,
     refresh_existing: bool,
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
-    seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
+    seeded = _run_to_extracted_moments(make_project, monkeypatch)
     project = seeded["project"]
-    try:
-        original = _extract_reply()["moments"]["value"]
-        replacement = "A completely different unsupported claim"
+    original = _extract_reply()["moments"]["value"]
+    replacement = "A completely different unsupported claim"
 
-        def replace_first_item():
-            project.apply_edits(
-                [
-                    {
-                        "row_id": seeded["row_ids"][0],
-                        "column_id": seeded["moments_column_id"],
-                        "value": [replacement, *original[1:]],
-                    }
-                ]
-            )
-            current = list_cell_citations(
-                project,
-                sheet_id=seeded["sheet_id"],
-                row_id=seeded["row_ids"][0],
-                column_id=seeded["moments_column_id"],
-            )
-            assert current["links"] == []
-            preserved = project.db.execute(
-                "SELECT status FROM evidence_links WHERE row_id=? AND column_id=? "
-                "AND json_extract(metadata,'$.schema_version')="
-                "'frisket.map_extract_item_evidence_link.v1'",
-                (seeded["row_ids"][0], seeded["moments_column_id"]),
-            ).fetchall()
-            assert len(preserved) == len(original)
-            assert {row["status"] for row in preserved} == {"active"}
-            edit_op_id = project.op_cursor
-            assert project.undo() == edit_op_id
-            restored = list_cell_citations(
-                project,
-                sheet_id=seeded["sheet_id"],
-                row_id=seeded["row_ids"][0],
-                column_id=seeded["moments_column_id"],
-            )
-            assert len(restored["links"]) == len(original)
-            assert project.redo() == edit_op_id
-            hidden_again = list_cell_citations(
-                project,
-                sheet_id=seeded["sheet_id"],
-                row_id=seeded["row_ids"][0],
-                column_id=seeded["moments_column_id"],
-            )
-            assert hidden_again["links"] == []
-
-        if not refresh_existing:
-            replace_first_item()
-        request = _derive_action(
-            sheet_id=seeded["sheet_id"],
-            column_id=seeded["moments_column_id"],
-            run_id=seeded["extracted"].run_id,
-        )
-        if source_kind == "column":
-            request["params"] = {
-                "source": {
-                    "kind": "column",
-                    "sheet_id": seeded["sheet_id"],
-                    "column_id": seeded["moments_column_id"],
-                }
-            }
-        created = run_action_spec(project, request, project_id=PROJECT_ID)
-        assert created.status == "completed", created.errors
-        sheet_id = next(
-            output.sheet_id for output in created.outputs if output.kind == "sheet"
-        )
-        column_id = next(
-            output.column_id for output in created.outputs if output.kind == "column"
-        )
-        if refresh_existing:
-            replace_first_item()
-            refreshed = run_action_spec(
-                project,
+    def replace_first_item():
+        project.apply_edits(
+            [
                 {
-                    "action_id": "sheet.refresh",
-                    "scope": {"kind": "project"},
-                    "params": {"sheet_id": sheet_id},
-                    "idempotency_key": "edited-item-refresh",
-                },
-                project_id=PROJECT_ID,
-            )
-            assert refreshed.status == "completed", refreshed.errors
-        values = project.get_values(sheet_id, column_id)
-        assert list(values.values()) == (
-            [replacement, *original[1:]] if source_kind == "column" else original
+                    "row_id": seeded["row_ids"][0],
+                    "column_id": seeded["moments_column_id"],
+                    "value": [replacement, *original[1:]],
+                }
+            ]
         )
-        for index, (row_id, quote) in enumerate(values.items()):
-            evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
-            if source_kind == "column" and index == 0:
-                assert evidence["links"] == []
-                continue
-            assert len(evidence["links"]) == 1
-            viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
-            assert viewer["artifacts"][0]["spans"][0]["quote"] == quote
-    finally:
-        project.close()
+        current = list_cell_citations(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            column_id=seeded["moments_column_id"],
+        )
+        assert current["links"] == []
+        preserved = project.db.execute(
+            "SELECT status FROM evidence_links WHERE row_id=? AND column_id=? "
+            "AND json_extract(metadata,'$.schema_version')="
+            "'frisket.map_extract_item_evidence_link.v1'",
+            (seeded["row_ids"][0], seeded["moments_column_id"]),
+        ).fetchall()
+        assert len(preserved) == len(original)
+        assert {row["status"] for row in preserved} == {"active"}
+        edit_op_id = project.op_cursor
+        assert project.undo() == edit_op_id
+        restored = list_cell_citations(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            column_id=seeded["moments_column_id"],
+        )
+        assert len(restored["links"]) == len(original)
+        assert project.redo() == edit_op_id
+        hidden_again = list_cell_citations(
+            project,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            column_id=seeded["moments_column_id"],
+        )
+        assert hidden_again["links"] == []
+
+    if not refresh_existing:
+        replace_first_item()
+    request = _derive_action(
+        sheet_id=seeded["sheet_id"],
+        column_id=seeded["moments_column_id"],
+        run_id=seeded["extracted"].run_id,
+    )
+    if source_kind == "column":
+        request["params"] = {
+            "source": {
+                "kind": "column",
+                "sheet_id": seeded["sheet_id"],
+                "column_id": seeded["moments_column_id"],
+            }
+        }
+    created = run_action_spec(project, request, project_id=PROJECT_ID)
+    assert created.status == "completed", created.errors
+    sheet_id = next(
+        output.sheet_id for output in created.outputs if output.kind == "sheet"
+    )
+    column_id = next(
+        output.column_id for output in created.outputs if output.kind == "column"
+    )
+    if refresh_existing:
+        replace_first_item()
+        refreshed = run_action_spec(
+            project,
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet_id},
+                "idempotency_key": "edited-item-refresh",
+            },
+            project_id=PROJECT_ID,
+        )
+        assert refreshed.status == "completed", refreshed.errors
+    values = project.get_values(sheet_id, column_id)
+    assert list(values.values()) == (
+        [replacement, *original[1:]] if source_kind == "column" else original
+    )
+    for index, (row_id, quote) in enumerate(values.items()):
+        evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
+        if source_kind == "column" and index == 0:
+            assert evidence["links"] == []
+            continue
+        assert len(evidence["links"]) == 1
+        viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
+        assert viewer["artifacts"][0]["spans"][0]["quote"] == quote
 
 
 @pytest.mark.parametrize("source_kind", ["column", "named_result"])
 def test_item_grounding_matches_the_admitted_source_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_kind: str
+    make_project, monkeypatch: pytest.MonkeyPatch, source_kind: str
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
-    seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
+    seeded = _run_to_extracted_moments(make_project, monkeypatch)
     project = seeded["project"]
-    try:
-        source_run = seeded["extracted"].run_id
-        links = project.db.execute(
-            "SELECT id, metadata FROM evidence_links WHERE row_id=? AND column_id=? AND status='active'",
-            (seeded["row_ids"][0], seeded["moments_column_id"]),
-        ).fetchall()
-        first_link = next(
-            link
-            for link in links
-            if json.loads(link["metadata"]).get("item_index") == 0
-        )
-        # Same value and item index from another run cannot support this source.
-        project.db.execute(
-            "UPDATE evidence_links SET run_id=? WHERE id=?",
-            (source_run + 1000, first_link["id"]),
-        )
-        project.db.commit()
-        request = _derive_action(
-            sheet_id=seeded["sheet_id"],
-            column_id=seeded["moments_column_id"],
-            run_id=source_run,
-        )
-        if source_kind == "column":
-            request["params"] = {
-                "source": {
-                    "kind": "column",
-                    "sheet_id": seeded["sheet_id"],
-                    "column_id": seeded["moments_column_id"],
-                }
+    source_run = seeded["extracted"].run_id
+    links = project.db.execute(
+        "SELECT id, metadata FROM evidence_links WHERE row_id=? AND column_id=? AND status='active'",
+        (seeded["row_ids"][0], seeded["moments_column_id"]),
+    ).fetchall()
+    first_link = next(
+        link for link in links if json.loads(link["metadata"]).get("item_index") == 0
+    )
+    # Same value and item index from another run cannot support this source.
+    project.db.execute(
+        "UPDATE evidence_links SET run_id=? WHERE id=?",
+        (source_run + 1000, first_link["id"]),
+    )
+    project.db.commit()
+    request = _derive_action(
+        sheet_id=seeded["sheet_id"],
+        column_id=seeded["moments_column_id"],
+        run_id=source_run,
+    )
+    if source_kind == "column":
+        request["params"] = {
+            "source": {
+                "kind": "column",
+                "sheet_id": seeded["sheet_id"],
+                "column_id": seeded["moments_column_id"],
             }
-        created = run_action_spec(project, request, project_id=PROJECT_ID)
-        assert created.status == "completed", created.errors
-        sheet_id = next(
-            output.sheet_id for output in created.outputs if output.kind == "sheet"
-        )
-        for index, row_id in enumerate(project.visible_row_ids(sheet_id)):
-            evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
-            assert len(evidence["links"]) == (0 if index == 0 else 1)
-    finally:
-        project.close()
+        }
+    created = run_action_spec(project, request, project_id=PROJECT_ID)
+    assert created.status == "completed", created.errors
+    sheet_id = next(
+        output.sheet_id for output in created.outputs if output.kind == "sheet"
+    )
+    for index, row_id in enumerate(project.visible_row_ids(sheet_id)):
+        evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
+        assert len(evidence["links"]) == (0 if index == 0 else 1)
 
 
 def test_item_grounding_publishes_the_link_spans_captured_during_admission(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor.list_table_read import AdmittedListTableReader
 
-    seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
+    seeded = _run_to_extracted_moments(make_project, monkeypatch)
     project = seeded["project"]
-    try:
-        read = AdmittedListTableReader.read
+    read = AdmittedListTableReader.read
 
-        def read_then_change_link(
-            reader, source, *, item_schema=None, parent_columns=()
-        ):
-            items = read(
-                reader,
-                source,
-                item_schema=item_schema,
-                parent_columns=parent_columns,
-            )
-            captured = [
-                reader.item_associations[item.source]["evidence_link"] for item in items
-            ]
-            project.db.execute(
-                "UPDATE evidence_link_spans SET span_id=? WHERE link_id=?",
-                (captured[1]["spans"][0]["span_id"], captured[0]["id"]),
-            )
-            project.db.commit()
-            return items
+    def read_then_change_link(reader, source, *, item_schema=None, parent_columns=()):
+        items = read(
+            reader,
+            source,
+            item_schema=item_schema,
+            parent_columns=parent_columns,
+        )
+        captured = [
+            reader.item_associations[item.source]["evidence_link"] for item in items
+        ]
+        project.db.execute(
+            "UPDATE evidence_link_spans SET span_id=? WHERE link_id=?",
+            (captured[1]["spans"][0]["span_id"], captured[0]["id"]),
+        )
+        project.db.commit()
+        return items
 
-        monkeypatch.setattr(AdmittedListTableReader, "read", read_then_change_link)
-        created = run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=seeded["sheet_id"],
-                column_id=seeded["moments_column_id"],
-                run_id=seeded["extracted"].run_id,
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert created.status == "completed", created.errors
-        sheet_id = next(
-            output.sheet_id for output in created.outputs if output.kind == "sheet"
-        )
-        for row_id, quote in zip(
-            project.visible_row_ids(sheet_id),
-            _extract_reply()["moments"]["value"],
-            strict=True,
-        ):
-            evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
-            assert len(evidence["links"]) == 1
-            viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
-            assert viewer["artifacts"][0]["spans"][0]["quote"] == quote
-    finally:
-        project.close()
+    monkeypatch.setattr(AdmittedListTableReader, "read", read_then_change_link)
+    created = run_action_spec(
+        project,
+        _derive_action(
+            sheet_id=seeded["sheet_id"],
+            column_id=seeded["moments_column_id"],
+            run_id=seeded["extracted"].run_id,
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert created.status == "completed", created.errors
+    sheet_id = next(
+        output.sheet_id for output in created.outputs if output.kind == "sheet"
+    )
+    for row_id, quote in zip(
+        project.visible_row_ids(sheet_id),
+        _extract_reply()["moments"]["value"],
+        strict=True,
+    ):
+        evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
+        assert len(evidence["links"]) == 1
+        viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
+        assert viewer["artifacts"][0]["spans"][0]["quote"] == quote

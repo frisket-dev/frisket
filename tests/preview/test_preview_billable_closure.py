@@ -51,7 +51,6 @@ from frisket.contracts.actions.schemas._engines import (
     is_billable_engine,
 )
 from frisket.preview.common import BillablePreviewDispatch
-from frisket.engine.store import Project
 
 # Every compare/bake-off entry point in the preview family. Adding a fifth
 # compare surface without adding it here is caught by
@@ -273,7 +272,7 @@ def test_translate_dispatch_helper_refuses_billable() -> None:
             asyncio.run(probe(engine))
 
 
-def test_semantic_cluster_preview_cannot_reach_a_remote_embedder(tmp_path) -> None:
+def test_semantic_cluster_preview_cannot_reach_a_remote_embedder(project) -> None:
     """The store readers bill too — this one did (blind review 2026-07-26, F1).
 
     ``POST /clusters/v1/preview`` with ``method=semantic`` used to resolve the
@@ -297,31 +296,27 @@ def test_semantic_cluster_preview_cannot_reach_a_remote_embedder(tmp_path) -> No
     original_local = semantic.local_embedder
     semantic.local_embedder = lambda *a, **k: None
     try:
-        project = Project.create(tmp_path / "c.frisket", name="cluster closure")
-        try:
-            sheet = project.add_sheet("data")
-            cols = {"org": project.add_column(sheet, "org")}
-            project.add_rows(
-                sheet,
-                [{"org": v} for v in ("Brooklyn", "Brookline", "Queens")],
-                cols,
-            )
-            from frisket.preview.cluster import (
-                ClusterPreviewError,
-                resolve_cluster_preview,
-            )
+        sheet = project.add_sheet("data")
+        cols = {"org": project.add_column(sheet, "org")}
+        project.add_rows(
+            sheet,
+            [{"org": v} for v in ("Brooklyn", "Brookline", "Queens")],
+            cols,
+        )
+        from frisket.preview.cluster import (
+            ClusterPreviewError,
+            resolve_cluster_preview,
+        )
 
-            with pytest.raises(ClusterPreviewError) as refused:
-                resolve_cluster_preview(
-                    project, sheet_id=sheet, input_column="org", method="semantic"
-                )
-            assert refused.value.code == "embedding_backend_unavailable"
-            assert embed_calls == [], (
-                "semantic cluster preview embedded through a remote provider; "
-                "a preview has no cost gate to surface that spend with"
+        with pytest.raises(ClusterPreviewError) as refused:
+            resolve_cluster_preview(
+                project, sheet_id=sheet, input_column="org", method="semantic"
             )
-        finally:
-            project.close()
+        assert refused.value.code == "embedding_backend_unavailable"
+        assert embed_calls == [], (
+            "semantic cluster preview embedded through a remote provider; "
+            "a preview has no cost gate to surface that spend with"
+        )
     finally:
         semantic.local_embedder = original_local
 

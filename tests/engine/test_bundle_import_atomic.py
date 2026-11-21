@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import os
 import sqlite3
 import subprocess
@@ -23,8 +24,7 @@ pytestmark = pytest.mark.realtime
 def _export_bundle(
     tmp_path: Path, *, with_blob: bool = False
 ) -> tuple[Path, str | None]:
-    project = Project.create(tmp_path / "source.frisket", name="Source")
-    try:
+    with closing(Project.create(tmp_path / "source.frisket", name="Source")) as project:
         digest = project.add_blob(b"original blob") if with_blob else None
         # Keep legacy ZIP fixtures independent of the current export format.
         archive = tmp_path / "source.frisket.zip"
@@ -34,8 +34,6 @@ def _export_bundle(
             output.write(snapshot, "project.db")
             if digest:
                 output.writestr(f"blobs/{digest[:2]}/{digest}", b"original blob")
-    finally:
-        project.close()
     return archive, digest
 
 
@@ -266,14 +264,11 @@ def test_successful_import_atomically_publishes_final_path(tmp_path: Path) -> No
     workspace_root = tmp_path / "workspace"
     target = workspace_root / "restored.frisket"
 
-    restored = Project.import_bundle(archive, target)
-    try:
+    with closing(Project.import_bundle(archive, target)) as restored:
         assert restored.path == target
         assert target.is_dir()
         assert (target / "manifest.json").is_file()
         manifest = json.loads((target / "manifest.json").read_text())
         assert manifest["project_id"] == target.stem
-    finally:
-        restored.close()
 
     assert list(workspace_root.glob(".restored.frisket.import-*.tmp")) == []

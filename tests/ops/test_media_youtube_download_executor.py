@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -69,10 +68,10 @@ def _youtube_action(
     }
 
 
-def _seed_youtube_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(
-        tmp_path / "media-youtube-download.frisket", name="YouTube v1"
-    )
+def _seed_youtube_project(
+    make_project, name: str = "media-youtube-download"
+) -> tuple[Project, int, list[int]]:
+    project = make_project(name)
     sheet_id, row_ids = _seed_sheet(project)
     return project, sheet_id, row_ids
 
@@ -125,10 +124,10 @@ def _png():
     return stream.getvalue()
 
 
-def test_typed_free_download_identity_and_stale_replay(tmp_path, monkeypatch):
+def test_typed_free_download_identity_and_stale_replay(make_project, monkeypatch):
     from frisket.ops import ytdlp
 
-    project, sheet_id, _ = _seed_youtube_project(tmp_path)
+    project, sheet_id, _ = _seed_youtube_project(make_project)
     calls = []
     monkeypatch.setattr(
         ytdlp,
@@ -137,39 +136,36 @@ def test_typed_free_download_identity_and_stale_replay(tmp_path, monkeypatch):
             calls.append(url) or DownloadedMedia(b"audio", "audio/wav", "a.wav")
         ),
     )
-    try:
-        action = _youtube_action(sheet_id=sheet_id)
-        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        # Free downloads do not require approval, even at zero allowance.
-        monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-        result = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
-        assert result.status == "completed", result.errors
-        assert len(calls) == 2
-        replay = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
-        assert replay.receipt_id == result.receipt_id
-        assert len(calls) == 2
-        conflict = run_action_with_confirmation(
-            project,
-            _youtube_action(sheet_id=sheet_id, media_type="video"),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-        project.db.execute(
-            "UPDATE columns SET hidden=1 WHERE sheet_id=? AND name='media'", (sheet_id,)
-        )
-        project.db.commit()
-        stale = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "stale_replay"
-        assert len(calls) == 2
-    finally:
-        project.close()
+    action = _youtube_action(sheet_id=sheet_id)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    # Free downloads do not require approval, even at zero allowance.
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    result = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
+    assert result.status == "completed", result.errors
+    assert len(calls) == 2
+    replay = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert replay.receipt_id == result.receipt_id
+    assert len(calls) == 2
+    conflict = run_action_with_confirmation(
+        project,
+        _youtube_action(sheet_id=sheet_id, media_type="video"),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
+    project.db.execute(
+        "UPDATE columns SET hidden=1 WHERE sheet_id=? AND name='media'", (sheet_id,)
+    )
+    project.db.commit()
+    stale = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert stale.status == "failed"
+    assert stale.errors[0].code == "stale_replay"
+    assert len(calls) == 2
 
 
 def test_typed_download_catalog_and_inactive_output_names():
@@ -195,44 +191,41 @@ def test_typed_download_catalog_and_inactive_output_names():
 
 
 def test_failed_download_leaves_no_running_reservation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import frisket.ops.ytdlp as youtube_ops
 
-    project, sheet_id, _row_ids = _seed_youtube_project(tmp_path)
+    project, sheet_id, _row_ids = _seed_youtube_project(make_project)
 
     def failing_download(url: str, **kwargs: Any) -> DownloadedMedia:  # noqa: ARG001
         raise RuntimeError("yt-dlp unavailable")
 
     monkeypatch.setattr(youtube_ops, "download_media", failing_download)
-    try:
-        failing = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                idempotency_key="media_ytdlp_download@sha256:failed",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert failing.status == "failed"
-        assert failing.errors[0].code == "external_rows_failed"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE status='running'"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    failing = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            idempotency_key="media_ytdlp_download@sha256:failed",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert failing.status == "failed"
+    assert failing.errors[0].code == "external_rows_failed"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE status='running'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_media_youtube_cloud_block_surfaces_stable_non_secret_row_diagnosis(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as youtube_ops
 
-    project, sheet_id, _ = _seed_youtube_project(tmp_path)
+    project, sheet_id, _ = _seed_youtube_project(make_project)
 
     def provider_blocked(url: str, **kwargs: Any) -> DownloadedMedia:  # noqa: ARG001
         raise HostedEngineError(
@@ -242,33 +235,26 @@ def test_media_youtube_cloud_block_surfaces_stable_non_secret_row_diagnosis(
         )
 
     monkeypatch.setattr(youtube_ops, "download_media", provider_blocked)
-    try:
-        result = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                idempotency_key="media_ytdlp_download@sha256:provider-blocked",
-            ),
-            project_id=PROJECT_ID,
-        )
+    result = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            idempotency_key="media_ytdlp_download@sha256:provider-blocked",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "external_rows_failed"
-        row_errors = project.db.execute(
-            "SELECT error, error_code FROM results WHERE run_id=? ORDER BY row_id",
-            (result.run_id,),
-        ).fetchall()
-        assert len(row_errors) == 2
-        assert {row["error_code"] for row in row_errors} == {
-            YOUTUBE_PROVIDER_BLOCKED_CODE
-        }
-        assert {row["error"] for row in row_errors} == {
-            YOUTUBE_PROVIDER_BLOCKED_MESSAGE
-        }
-        assert all("upload it instead" in row["error"] for row in row_errors)
-        assert all("PAT alone cannot" in row["error"] for row in row_errors)
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "external_rows_failed"
+    row_errors = project.db.execute(
+        "SELECT error, error_code FROM results WHERE run_id=? ORDER BY row_id",
+        (result.run_id,),
+    ).fetchall()
+    assert len(row_errors) == 2
+    assert {row["error_code"] for row in row_errors} == {YOUTUBE_PROVIDER_BLOCKED_CODE}
+    assert {row["error"] for row in row_errors} == {YOUTUBE_PROVIDER_BLOCKED_MESSAGE}
+    assert all("upload it instead" in row["error"] for row in row_errors)
+    assert all("PAT alone cannot" in row["error"] for row in row_errors)
 
 
 def test_media_download_action_supports_tiktok_without_youtube_backfill(
@@ -381,7 +367,7 @@ def test_media_download_action_passes_arbitrary_http_domain_to_ytdlp(
 
 
 def test_media_download_overwrite_existing_intent_reuses_generated_column_but_protects_source(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     """An ``overwrite_existing`` output intent (the frontend's confirm button)
@@ -389,7 +375,7 @@ def test_media_download_overwrite_existing_intent_reuses_generated_column_but_pr
     even under the intent — same rule as map.template's."""
     import frisket.ops.ytdlp as youtube_ops
 
-    project, sheet_id, _row_ids = _seed_youtube_project(tmp_path)
+    project, sheet_id, _row_ids = _seed_youtube_project(make_project)
     calls: list[dict[str, Any]] = []
 
     def fake_download(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -404,59 +390,56 @@ def test_media_download_overwrite_existing_intent_reuses_generated_column_but_pr
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download)
 
-    try:
-        first = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                idempotency_key="media_ytdlp_download@sha256:ov-1",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed", first.errors
-        media_column = project.db.execute(
-            "SELECT ai_generated FROM columns WHERE sheet_id=? AND name='media'",
-            (sheet_id,),
-        ).fetchone()
-        assert media_column is not None and media_column["ai_generated"] == 1
+    first = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            idempotency_key="media_ytdlp_download@sha256:ov-1",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed", first.errors
+    media_column = project.db.execute(
+        "SELECT ai_generated FROM columns WHERE sheet_id=? AND name='media'",
+        (sheet_id,),
+    ).fetchone()
+    assert media_column is not None and media_column["ai_generated"] == 1
 
-        blocked = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                idempotency_key="media_ytdlp_download@sha256:ov-2",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert blocked.status == "failed"
-        assert blocked.errors[0].code == "output_column_exists"
+    blocked = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            idempotency_key="media_ytdlp_download@sha256:ov-2",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert blocked.status == "failed"
+    assert blocked.errors[0].code == "output_column_exists"
 
-        overwritten = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                idempotency_key="media_ytdlp_download@sha256:ov-3",
-                output_intent=[{"kind": "overwrite_existing"}],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert overwritten.status == "completed", overwritten.errors
-        assert [output.name for output in overwritten.outputs] == ["media"]
+    overwritten = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            idempotency_key="media_ytdlp_download@sha256:ov-3",
+            output_intent=[{"kind": "overwrite_existing"}],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert overwritten.status == "completed", overwritten.errors
+    assert [output.name for output in overwritten.outputs] == ["media"]
 
-        protected = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                output_name="url",
-                idempotency_key="media_ytdlp_download@sha256:ov-4",
-                output_intent=[{"kind": "overwrite_existing"}],
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert protected.status == "failed"
-        assert protected.errors[0].code == "input_output_overlap"
-    finally:
-        project.close()
+    protected = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            output_name="url",
+            idempotency_key="media_ytdlp_download@sha256:ov-4",
+            output_intent=[{"kind": "overwrite_existing"}],
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert protected.status == "failed"
+    assert protected.errors[0].code == "input_output_overlap"
 
 
 def test_media_download_action_keeps_row_level_failures_for_bad_urls(
@@ -545,13 +528,13 @@ def test_media_download_extra_opts_validation_probe():
 
 
 def test_media_download_extra_opts_reaches_downloader_through_executor(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as youtube_ops
     from frisket.ops.ytdlp import SidecarFile
 
-    project, sheet_id, _row_ids = _seed_youtube_project(tmp_path)
+    project, sheet_id, _row_ids = _seed_youtube_project(make_project)
     calls: list[dict[str, Any]] = []
 
     def fake_download(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -573,45 +556,42 @@ def test_media_download_extra_opts_reaches_downloader_through_executor(
         )
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download)
-    try:
-        action = _youtube_action(
-            sheet_id=sheet_id,
-            extra_opts={"writesubtitles": True, "retries": 5},
-            idempotency_key="media_ytdlp_download@sha256:extra-opts-executor",
-        )
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        assert len(calls) == 2
-        # The recipe backend-expands a writesubtitles-only request to also ask
-        # for automatic captions (writeautomaticsub), so both flags reach the
-        # downloader even though only writesubtitles was in the action's
-        # extra_opts.
-        assert calls[0]["extra_opts"] == {
-            "writesubtitles": True,
-            "retries": 5,
-            "writeautomaticsub": True,
-        }
-        assert calls[1]["extra_opts"] == {
-            "writesubtitles": True,
-            "retries": 5,
-            "writeautomaticsub": True,
-        }
-    finally:
-        project.close()
+    action = _youtube_action(
+        sheet_id=sheet_id,
+        extra_opts={"writesubtitles": True, "retries": 5},
+        idempotency_key="media_ytdlp_download@sha256:extra-opts-executor",
+    )
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    assert len(calls) == 2
+    # The recipe backend-expands a writesubtitles-only request to also ask
+    # for automatic captions (writeautomaticsub), so both flags reach the
+    # downloader even though only writesubtitles was in the action's
+    # extra_opts.
+    assert calls[0]["extra_opts"] == {
+        "writesubtitles": True,
+        "retries": 5,
+        "writeautomaticsub": True,
+    }
+    assert calls[1]["extra_opts"] == {
+        "writesubtitles": True,
+        "retries": 5,
+        "writeautomaticsub": True,
+    }
 
 
 def test_media_download_receipt_evidence_records_extra_opts(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as youtube_ops
     from frisket.ops.ytdlp import SidecarFile
 
-    project, sheet_id, _row_ids = _seed_youtube_project(tmp_path)
+    project, sheet_id, _row_ids = _seed_youtube_project(make_project)
     calls: list[dict[str, Any]] = []
 
     def fake_download(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -647,72 +627,66 @@ def test_media_download_receipt_evidence_records_extra_opts(
         assert len(calls) == 2
         return calls[0]
 
-    try:
-        action = _youtube_action(
-            sheet_id=sheet_id,
-            extra_opts={"writesubtitles": True},
-            idempotency_key="media_ytdlp_download@sha256:extra-opts-evidence",
-        )
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
+    action = _youtube_action(
+        sheet_id=sheet_id,
+        extra_opts={"writesubtitles": True},
+        idempotency_key="media_ytdlp_download@sha256:extra-opts-evidence",
+    )
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        receipt = _receipt(project, result.receipt_id)
-        assert _engine_ref(receipt)["extra_opts"] == {
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-        }
+    receipt = _receipt(project, result.receipt_id)
+    assert _engine_ref(receipt)["extra_opts"] == {
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+    }
 
-        replay = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-        replay_receipt = _receipt(project, replay.receipt_id)
-        assert _engine_ref(replay_receipt)["extra_opts"] == {
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-        }
-    finally:
-        project.close()
+    replay = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
+    replay_receipt = _receipt(project, replay.receipt_id)
+    assert _engine_ref(replay_receipt)["extra_opts"] == {
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+    }
 
     no_opts_project, no_opts_sheet_id, _ = _seed_youtube_project(
-        tmp_path / "no-extra-opts"
+        make_project, "no-extra-opts"
     )
-    try:
-        no_opts_action = _youtube_action(
-            sheet_id=no_opts_sheet_id,
-            idempotency_key="media_ytdlp_download@sha256:no-extra-opts",
-        )
-        no_opts_result = run_action_with_confirmation(
-            no_opts_project,
-            no_opts_action,
-            project_id=PROJECT_ID,
-        )
-        assert no_opts_result.status == "completed", no_opts_result.errors
-        no_opts_receipt = _receipt(no_opts_project, no_opts_result.receipt_id)
-        no_opts_engine_ref = _engine_ref(no_opts_receipt)
-        # Runs without extra_opts keep the same evidence shape as unset
-        # format_selector: the key is present, valued None.
-        assert no_opts_engine_ref["extra_opts"] is None
-        assert no_opts_engine_ref["format_selector"] is None
-    finally:
-        no_opts_project.close()
+    no_opts_action = _youtube_action(
+        sheet_id=no_opts_sheet_id,
+        idempotency_key="media_ytdlp_download@sha256:no-extra-opts",
+    )
+    no_opts_result = run_action_with_confirmation(
+        no_opts_project,
+        no_opts_action,
+        project_id=PROJECT_ID,
+    )
+    assert no_opts_result.status == "completed", no_opts_result.errors
+    no_opts_receipt = _receipt(no_opts_project, no_opts_result.receipt_id)
+    no_opts_engine_ref = _engine_ref(no_opts_receipt)
+    # Runs without extra_opts keep the same evidence shape as unset
+    # format_selector: the key is present, valued None.
+    assert no_opts_engine_ref["extra_opts"] is None
+    assert no_opts_engine_ref["format_selector"] is None
 
 
 def test_media_download_sidecar_columns_and_receipts(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as youtube_ops
     from frisket.ops.ytdlp import SidecarFile
 
-    project, sheet_id, row_ids = _seed_youtube_project(tmp_path)
+    project, sheet_id, row_ids = _seed_youtube_project(make_project)
     calls: list[dict[str, Any]] = []
 
     def fake_download(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -751,101 +725,96 @@ def test_media_download_sidecar_columns_and_receipts(
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download)
 
-    try:
-        action = _youtube_action(
-            sheet_id=sheet_id,
-            extra_opts={"writethumbnail": True, "writesubtitles": True},
-            idempotency_key="media_ytdlp_download@sha256:sidecars-on",
-        )
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-        )
-        # Row 2's subtitles toggle was on but yt-dlp produced no track for it,
-        # so that cell carries a per-row note (not silence) and the run goes
-        # partial rather than completed — see the results-table assertion.
-        assert result.status == "partial", result.errors
-        assert len(calls) == 2
+    action = _youtube_action(
+        sheet_id=sheet_id,
+        extra_opts={"writethumbnail": True, "writesubtitles": True},
+        idempotency_key="media_ytdlp_download@sha256:sidecars-on",
+    )
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+    )
+    # Row 2's subtitles toggle was on but yt-dlp produced no track for it,
+    # so that cell carries a per-row note (not silence) and the run goes
+    # partial rather than completed — see the results-table assertion.
+    assert result.status == "partial", result.errors
+    assert len(calls) == 2
 
-        output_names = [output.name for output in result.outputs]
-        assert output_names == [
-            "media",
-            "media_thumbnail",
-            "media_subtitles",
-            "media_subtitles_text",
-        ]
+    output_names = [output.name for output in result.outputs]
+    assert output_names == [
+        "media",
+        "media_thumbnail",
+        "media_subtitles",
+        "media_subtitles_text",
+    ]
 
-        columns = _columns(project, sheet_id)
-        assert columns["media_thumbnail"]["type"] == "image"
-        assert columns["media_subtitles"]["type"] == "file"
-        assert columns["media_subtitles_text"]["type"] == "text"
-        assert "media_info" not in columns
+    columns = _columns(project, sheet_id)
+    assert columns["media_thumbnail"]["type"] == "image"
+    assert columns["media_subtitles"]["type"] == "file"
+    assert columns["media_subtitles_text"]["type"] == "text"
+    assert "media_info" not in columns
 
-        thumbnail_values = project.get_values(
-            sheet_id, int(columns["media_thumbnail"]["id"])
-        )
-        subtitle_values = project.get_values(
-            sheet_id, int(columns["media_subtitles"]["id"])
-        )
-        subtitle_text_values = project.get_values(
-            sheet_id, int(columns["media_subtitles_text"]["id"])
-        )
-        # Row 1 got a thumbnail/subtitles blob; row 2's toggle was on but
-        # yt-dlp produced nothing for it. The thumbnail toggle has no
-        # requested-but-absent note; the subtitles toggle does — its cells
-        # stay empty AND carry a per-row note instead of silence.
-        assert thumbnail_values[row_ids[0]]["blob"]
-        assert thumbnail_values[row_ids[0]]["mime"] == "image/png"
-        assert subtitle_values[row_ids[0]]["blob"]
-        assert subtitle_values[row_ids[0]]["mime"] == "text/vtt"
-        assert subtitle_text_values[row_ids[0]] == "subs 1"
-        assert thumbnail_values[row_ids[1]] is None
-        assert subtitle_values[row_ids[1]] is None
-        assert subtitle_text_values[row_ids[1]] is None
+    thumbnail_values = project.get_values(
+        sheet_id, int(columns["media_thumbnail"]["id"])
+    )
+    subtitle_values = project.get_values(
+        sheet_id, int(columns["media_subtitles"]["id"])
+    )
+    subtitle_text_values = project.get_values(
+        sheet_id, int(columns["media_subtitles_text"]["id"])
+    )
+    # Row 1 got a thumbnail/subtitles blob; row 2's toggle was on but
+    # yt-dlp produced nothing for it. The thumbnail toggle has no
+    # requested-but-absent note; the subtitles toggle does — its cells
+    # stay empty AND carry a per-row note instead of silence.
+    assert thumbnail_values[row_ids[0]]["blob"]
+    assert thumbnail_values[row_ids[0]]["mime"] == "image/png"
+    assert subtitle_values[row_ids[0]]["blob"]
+    assert subtitle_values[row_ids[0]]["mime"] == "text/vtt"
+    assert subtitle_text_values[row_ids[0]] == "subs 1"
+    assert thumbnail_values[row_ids[1]] is None
+    assert subtitle_values[row_ids[1]] is None
+    assert subtitle_text_values[row_ids[1]] is None
 
-        subtitle_error_row = project.db.execute(
-            "SELECT error, outcome FROM results WHERE row_id=? AND column_id=?",
-            (row_ids[1], int(columns["media_subtitles"]["id"])),
-        ).fetchone()
-        assert subtitle_error_row is not None
-        assert subtitle_error_row["outcome"] == "model_error"
-        assert "no manual or automatic captions" in (subtitle_error_row["error"] or "")
+    subtitle_error_row = project.db.execute(
+        "SELECT error, outcome FROM results WHERE row_id=? AND column_id=?",
+        (row_ids[1], int(columns["media_subtitles"]["id"])),
+    ).fetchone()
+    assert subtitle_error_row is not None
+    assert subtitle_error_row["outcome"] == "model_error"
+    assert "no manual or automatic captions" in (subtitle_error_row["error"] or "")
 
-        receipt = _receipt(project, result.receipt_id)
-        refs = [
-            item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence
-        ]
-        output_col_refs = {
-            ref["name"]: ref for ref in refs if ref["kind"] == "map_result_column"
-        }
-        assert set(output_col_refs) == {
-            "media",
-            "media_thumbnail",
-            "media_subtitles",
-            "media_subtitles_text",
-        }
+    receipt = _receipt(project, result.receipt_id)
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    output_col_refs = {
+        ref["name"]: ref for ref in refs if ref["kind"] == "map_result_column"
+    }
+    assert set(output_col_refs) == {
+        "media",
+        "media_thumbnail",
+        "media_subtitles",
+        "media_subtitles_text",
+    }
 
-        blob_refs = [ref for ref in refs if ref["kind"] == "row_file_output"]
-        # Row 1: media + thumbnail + subtitles = 3 blob refs. Row 2: media
-        # only (its sidecars were never produced) = 1 blob ref.
-        assert len(blob_refs) == 4
+    blob_refs = [ref for ref in refs if ref["kind"] == "row_file_output"]
+    # Row 1: media + thumbnail + subtitles = 3 blob refs. Row 2: media
+    # only (its sidecars were never produced) = 1 blob ref.
+    assert len(blob_refs) == 4
 
-        before_replay_calls = len(calls)
-        replay = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-        )
-        assert replay.status == "partial"
-        assert replay.receipt_id == result.receipt_id
-        assert len(calls) == before_replay_calls
-    finally:
-        project.close()
+    before_replay_calls = len(calls)
+    replay = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+    )
+    assert replay.status == "partial"
+    assert replay.receipt_id == result.receipt_id
+    assert len(calls) == before_replay_calls
 
     # Toggles off -> no sidecar columns are created at all.
     off_project, off_sheet_id, _off_row_ids = _seed_youtube_project(
-        tmp_path / "sidecars-off"
+        make_project, "sidecars-off"
     )
 
     def fake_download_no_toggles(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -858,29 +827,26 @@ def test_media_download_sidecar_columns_and_receipts(
         )
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download_no_toggles)
-    try:
-        off_action = _youtube_action(
-            sheet_id=off_sheet_id,
-            idempotency_key="media_ytdlp_download@sha256:sidecars-off",
-        )
-        off_result = run_action_with_confirmation(
-            off_project,
-            off_action,
-            project_id=PROJECT_ID,
-        )
-        assert off_result.status == "completed", off_result.errors
-        assert [output.name for output in off_result.outputs] == ["media"]
-        off_columns = _columns(off_project, off_sheet_id)
-        assert "media_thumbnail" not in off_columns
-        assert "media_subtitles" not in off_columns
-        assert "media_subtitles_text" not in off_columns
-        assert "media_info" not in off_columns
-    finally:
-        off_project.close()
+    off_action = _youtube_action(
+        sheet_id=off_sheet_id,
+        idempotency_key="media_ytdlp_download@sha256:sidecars-off",
+    )
+    off_result = run_action_with_confirmation(
+        off_project,
+        off_action,
+        project_id=PROJECT_ID,
+    )
+    assert off_result.status == "completed", off_result.errors
+    assert [output.name for output in off_result.outputs] == ["media"]
+    off_columns = _columns(off_project, off_sheet_id)
+    assert "media_thumbnail" not in off_columns
+    assert "media_subtitles" not in off_columns
+    assert "media_subtitles_text" not in off_columns
+    assert "media_info" not in off_columns
 
 
 def test_media_download_subtitles_text_column(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     """The subtitles sidecar also produces a plain-text column, gated by the
@@ -902,7 +868,7 @@ def test_media_download_subtitles_text_column(
         "this is a caption\n"
     ).encode("utf-8")
 
-    project, sheet_id, row_ids = _seed_youtube_project(tmp_path)
+    project, sheet_id, row_ids = _seed_youtube_project(make_project)
     calls: list[dict[str, Any]] = []
 
     def fake_download(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -925,58 +891,53 @@ def test_media_download_subtitles_text_column(
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download)
 
-    try:
-        action = _youtube_action(
-            sheet_id=sheet_id,
-            extra_opts={"writesubtitles": True},
-            idempotency_key="media_ytdlp_download@sha256:subtitles-text-on",
-        )
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
+    action = _youtube_action(
+        sheet_id=sheet_id,
+        extra_opts={"writesubtitles": True},
+        idempotency_key="media_ytdlp_download@sha256:subtitles-text-on",
+    )
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
 
-        output_names = [output.name for output in result.outputs]
-        assert output_names == ["media", "media_subtitles", "media_subtitles_text"]
+    output_names = [output.name for output in result.outputs]
+    assert output_names == ["media", "media_subtitles", "media_subtitles_text"]
 
-        columns = _columns(project, sheet_id)
-        assert columns["media_subtitles_text"]["type"] == "text"
+    columns = _columns(project, sheet_id)
+    assert columns["media_subtitles_text"]["type"] == "text"
 
-        text_values = project.get_values(
-            sheet_id, int(columns["media_subtitles_text"]["id"])
-        )
-        # The rolling auto-caption duplicate ("Hello there") collapses via
-        # consecutive-only dedupe; the raw file column is untouched.
-        assert text_values[row_ids[0]] == "Hello there\nthis is a caption"
-        assert text_values[row_ids[1]] == "Hello there\nthis is a caption"
+    text_values = project.get_values(
+        sheet_id, int(columns["media_subtitles_text"]["id"])
+    )
+    # The rolling auto-caption duplicate ("Hello there") collapses via
+    # consecutive-only dedupe; the raw file column is untouched.
+    assert text_values[row_ids[0]] == "Hello there\nthis is a caption"
+    assert text_values[row_ids[1]] == "Hello there\nthis is a caption"
 
-        subtitle_values = project.get_values(
-            sheet_id, int(columns["media_subtitles"]["id"])
-        )
-        assert subtitle_values[row_ids[0]]["blob"]
-        assert subtitle_values[row_ids[0]]["mime"] == "text/vtt"
+    subtitle_values = project.get_values(
+        sheet_id, int(columns["media_subtitles"]["id"])
+    )
+    assert subtitle_values[row_ids[0]]["blob"]
+    assert subtitle_values[row_ids[0]]["mime"] == "text/vtt"
 
-        receipt = _receipt(project, result.receipt_id)
-        refs = [
-            item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence
-        ]
-        output_col_refs = {
-            ref["name"]: ref for ref in refs if ref["kind"] == "map_result_column"
-        }
-        assert set(output_col_refs) == {
-            "media",
-            "media_subtitles",
-            "media_subtitles_text",
-        }
-    finally:
-        project.close()
+    receipt = _receipt(project, result.receipt_id)
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    output_col_refs = {
+        ref["name"]: ref for ref in refs if ref["kind"] == "map_result_column"
+    }
+    assert set(output_col_refs) == {
+        "media",
+        "media_subtitles",
+        "media_subtitles_text",
+    }
 
     # Toggles off -> the text column does not appear at all, same as the raw
     # subtitles file column.
     off_project, off_sheet_id, _off_row_ids = _seed_youtube_project(
-        tmp_path / "subtitles-text-off"
+        make_project, "subtitles-text-off"
     )
 
     def fake_download_no_toggles(url: str, **kwargs: Any) -> DownloadedMedia:
@@ -989,23 +950,20 @@ def test_media_download_subtitles_text_column(
         )
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download_no_toggles)
-    try:
-        off_action = _youtube_action(
-            sheet_id=off_sheet_id,
-            idempotency_key="media_ytdlp_download@sha256:subtitles-text-off",
-        )
-        off_result = run_action_with_confirmation(
-            off_project,
-            off_action,
-            project_id=PROJECT_ID,
-        )
-        assert off_result.status == "completed", off_result.errors
-        assert [output.name for output in off_result.outputs] == ["media"]
-        off_columns = _columns(off_project, off_sheet_id)
-        assert "media_subtitles" not in off_columns
-        assert "media_subtitles_text" not in off_columns
-    finally:
-        off_project.close()
+    off_action = _youtube_action(
+        sheet_id=off_sheet_id,
+        idempotency_key="media_ytdlp_download@sha256:subtitles-text-off",
+    )
+    off_result = run_action_with_confirmation(
+        off_project,
+        off_action,
+        project_id=PROJECT_ID,
+    )
+    assert off_result.status == "completed", off_result.errors
+    assert [output.name for output in off_result.outputs] == ["media"]
+    off_columns = _columns(off_project, off_sheet_id)
+    assert "media_subtitles" not in off_columns
+    assert "media_subtitles_text" not in off_columns
 
 
 def test_extra_opts_rejects_unbounded_and_nested_values():

@@ -9,7 +9,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -179,7 +178,7 @@ def test_opencage_action_persists_one_fact_per_paid_request_and_receipt_agrees(
     ],
 )
 def test_hosted_translate_action_persists_character_fact_and_receipt_agrees(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     engine: str,
     env_name: str,
@@ -194,50 +193,45 @@ def test_hosted_translate_action_persists_character_fact_and_receipt_agrees(
         calls += 1
         return httpx.Response(200, json=response)
 
-    project = Project.create(
-        tmp_path / f"translate-{engine}.frisket", name=f"{engine} facts"
+    project = make_project(f"{engine} facts")
+    sheet_id = project.add_sheet("Text")
+    column_id = project.add_column(sheet_id, "statement", type="text")
+    project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
+    result = run_action_with_confirmation(
+        project,
+        _translate_action(
+            sheet_id, engine, key=f"translate-{engine}-facts@sha256:stable"
+        ),
+        project_id=f"project-translate-{engine}-facts",
+        router=_router(handler),
     )
-    try:
-        sheet_id = project.add_sheet("Text")
-        column_id = project.add_column(sheet_id, "statement", type="text")
-        project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
-        result = run_action_with_confirmation(
-            project,
-            _translate_action(
-                sheet_id, engine, key=f"translate-{engine}-facts@sha256:stable"
-            ),
-            project_id=f"project-translate-{engine}-facts",
-            router=_router(handler),
-        )
-        assert result.status == "completed", result.errors
-        assert calls == 1
+    assert result.status == "completed", result.errors
+    assert calls == 1
 
-        facts = RunResultStore(project).model_calls(result.run_id)
-        assert len(facts) == calls
-        fact = facts[0]
-        assert fact["provider"] == expected_provider
-        assert fact["engine"] == engine
-        assert fact["credential_source"] == "local"
-        assert _units(fact) == {"characters": 5, "requests": 1}
-        assert fact["provider_cost_usd"] is not None
+    facts = RunResultStore(project).model_calls(result.run_id)
+    assert len(facts) == calls
+    fact = facts[0]
+    assert fact["provider"] == expected_provider
+    assert fact["engine"] == engine
+    assert fact["credential_source"] == "local"
+    assert _units(fact) == {"characters": 5, "requests": 1}
+    assert fact["provider_cost_usd"] is not None
 
-        receipt = _receipt(project, result.receipt_id)
-        # Hosted translate is an external metered API: the receipt names the
-        # engine/service explicitly and agrees with the durable fact's cost.
-        assert receipt.provider_use == [
-            {
-                "provider": expected_provider,
-                "engine": engine,
-                "service": "translate",
-                "external_api": True,
-                "credential_source": "local",
-                "request_count": 1,
-                "model_call_count": 1,
-                "cost_actual": pytest.approx(float(fact["provider_cost_usd"])),
-            }
-        ]
-    finally:
-        project.close()
+    receipt = _receipt(project, result.receipt_id)
+    # Hosted translate is an external metered API: the receipt names the
+    # engine/service explicitly and agrees with the durable fact's cost.
+    assert receipt.provider_use == [
+        {
+            "provider": expected_provider,
+            "engine": engine,
+            "service": "translate",
+            "external_api": True,
+            "credential_source": "local",
+            "request_count": 1,
+            "model_call_count": 1,
+            "cost_actual": pytest.approx(float(fact["provider_cost_usd"])),
+        }
+    ]
 
 
 def test_hosted_translate_unknown_price_stays_unknown_in_fact_and_receipt(
@@ -328,7 +322,7 @@ def test_hosted_translate_empty_paid_response_still_persists_fact(
     ],
 )
 def test_hosted_translate_http_response_failure_persists_unknown_request_fact(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     engine: str,
     env_name: str,
@@ -343,43 +337,38 @@ def test_hosted_translate_http_response_failure_persists_unknown_request_fact(
         responses += 1
         return httpx.Response(503, json={"message": "temporarily unavailable"})
 
-    project = Project.create(
-        tmp_path / f"translate-{engine}-503.frisket", name=f"{engine} 503"
+    project = make_project(f"{engine} 503")
+    sheet_id = project.add_sheet("Text")
+    column_id = project.add_column(sheet_id, "statement", type="text")
+    project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
+    result = run_action_with_confirmation(
+        project,
+        _translate_action(
+            sheet_id, engine, key=f"translate-{engine}-503@sha256:stable"
+        ),
+        project_id=f"project-translate-{engine}-503",
+        router=_router(handler),
     )
-    try:
-        sheet_id = project.add_sheet("Text")
-        column_id = project.add_column(sheet_id, "statement", type="text")
-        project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
-        result = run_action_with_confirmation(
-            project,
-            _translate_action(
-                sheet_id, engine, key=f"translate-{engine}-503@sha256:stable"
-            ),
-            project_id=f"project-translate-{engine}-503",
-            router=_router(handler),
-        )
-        assert result.status == "failed"
-        assert responses == 1
+    assert result.status == "failed"
+    assert responses == 1
 
-        facts = RunResultStore(project).model_calls(result.run_id)
-        assert len(facts) == responses
-        fact = facts[0]
-        assert fact["provider"] == expected_provider
-        assert fact["engine"] == engine
-        assert fact["credential_source"] == "local"
-        assert fact["provider_cost_usd"] is None
-        assert fact["cost_source"] == "unknown"
-        assert _units(fact) == {"requests": 1}
+    facts = RunResultStore(project).model_calls(result.run_id)
+    assert len(facts) == responses
+    fact = facts[0]
+    assert fact["provider"] == expected_provider
+    assert fact["engine"] == engine
+    assert fact["credential_source"] == "local"
+    assert fact["provider_cost_usd"] is None
+    assert fact["cost_source"] == "unknown"
+    assert _units(fact) == {"requests": 1}
 
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.status == "failed"
-        assert receipt.provider_use[0]["provider"] == expected_provider
-        assert receipt.provider_use[0]["engine"] == engine
-        assert receipt.provider_use[0]["model_call_count"] == responses
-        assert receipt.provider_use[0]["request_count"] == responses
-        assert receipt.provider_use[0]["cost_actual"] is None
-    finally:
-        project.close()
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.status == "failed"
+    assert receipt.provider_use[0]["provider"] == expected_provider
+    assert receipt.provider_use[0]["engine"] == engine
+    assert receipt.provider_use[0]["model_call_count"] == responses
+    assert receipt.provider_use[0]["request_count"] == responses
+    assert receipt.provider_use[0]["cost_actual"] is None
 
 
 @pytest.mark.parametrize(

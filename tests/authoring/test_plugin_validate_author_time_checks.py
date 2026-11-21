@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -55,8 +56,7 @@ def _run_plugin_load(tmp_path: Path, package_dir: Path, *, key: str):
     from frisket.engine.executor import actions as executor_actions
 
     project_path = tmp_path / f"{key}.frisket"
-    project = Project.create(project_path, name=f"Author checks {key}")
-    try:
+    with closing(Project.create(project_path, name=f"Author checks {key}")) as project:
         result = executor_actions.run_action_spec(
             project,
             _plugin_load_action(
@@ -77,8 +77,6 @@ def _run_plugin_load(tmp_path: Path, package_dir: Path, *, key: str):
                 "SELECT COUNT(*) FROM receipts WHERE json_extract(body, '$.status') = 'completed'"
             ).fetchone()[0]
         )
-    finally:
-        project.close()
     return result, receipt_body, completed_receipts
 
 

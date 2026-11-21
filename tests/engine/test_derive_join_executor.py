@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +15,8 @@ _KEYGEN = itertools.count(1)
 
 def _seed_states_and_population(project_path: Path) -> dict[str, Any]:
     """1:1 key columns with a left-only and a right-only key (no fan-out)."""
-    project = Project.create(project_path, name="Derive Join")
-    try:
+    with closing(Project.create(project_path, name="Derive Join")) as project:
         return _populate_states_and_population(project)
-    finally:
-        project.close()
 
 
 def _populate_states_and_population(project: Project) -> dict[str, Any]:
@@ -303,8 +301,7 @@ def test_exact_join_rejects_other_predicates() -> None:
 
 def test_left_join_keeps_unmatched_left(tmp_path: Path) -> None:
     seed = _seed_states_and_population(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -320,14 +317,11 @@ def test_left_join_keeps_unmatched_left(tmp_path: Path) -> None:
         by_fips = {row["state_fips"]: row for row in table["rows"]}
         assert set(by_fips) == {1, 2, 6, 99}
         assert by_fips[99]["population"] is None  # unmatched-left → right cols null
-    finally:
-        project.close()
 
 
 def test_right_join_keeps_unmatched_right(tmp_path: Path) -> None:
     seed = _seed_states_and_population(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -342,14 +336,11 @@ def test_right_join_keeps_unmatched_right(tmp_path: Path) -> None:
         by_fips = {row["state_fips"]: row for row in table["rows"]}
         assert set(by_fips) == {1, 2, 6, 72}
         assert by_fips[72]["state_name"] is None  # unmatched-right → left cols null
-    finally:
-        project.close()
 
 
 def test_outer_join_is_union(tmp_path: Path) -> None:
     seed = _seed_states_and_population(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -375,8 +366,6 @@ def test_outer_join_is_union(tmp_path: Path) -> None:
             "left_only",
             "right_only",
         }
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------
@@ -385,8 +374,7 @@ def test_outer_join_is_union(tmp_path: Path) -> None:
 
 
 def _seed_fanout(project_path: Path) -> dict[str, Any]:
-    project = Project.create(project_path, name="Fanout")
-    try:
+    with closing(Project.create(project_path, name="Fanout")) as project:
         left_id = project.add_sheet("Left")
         left_cols = {"k": project.add_column(left_id, "k", type="integer")}
         # key 6 appears twice, key 1 once
@@ -398,14 +386,11 @@ def _seed_fanout(project_path: Path) -> dict[str, Any]:
             right_id, [{"k": 6}, {"k": 6}, {"k": 6}, {"k": 1}, {"k": 1}], right_cols
         )
         return {"left_sheet_id": left_id, "right_sheet_id": right_id}
-    finally:
-        project.close()
 
 
 def test_duplicate_key_fanout_row_counts(tmp_path: Path) -> None:
     seed = _seed_fanout(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -429,14 +414,11 @@ def test_duplicate_key_fanout_row_counts(tmp_path: Path) -> None:
         stats = source["stats"]
         assert stats["both"] == 8
         assert stats["max_fanout"] == 6
-    finally:
-        project.close()
 
 
 def test_fanout_guard_requires_confirmation(tmp_path: Path) -> None:
     seed = _seed_fanout(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         blocked = _run(
             project,
             _join_action(
@@ -501,8 +483,6 @@ def test_fanout_guard_requires_confirmation(tmp_path: Path) -> None:
         assert confirmed.status == "completed", confirmed.errors
         table = _materialized_table(project, _sheet_id_by_name(project, "Guarded"))
         assert len(table["rows"]) == 8
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------
@@ -511,8 +491,7 @@ def test_fanout_guard_requires_confirmation(tmp_path: Path) -> None:
 
 
 def test_nulls_never_match_including_null_null(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "p.frisket", name="Nulls")
-    try:
+    with closing(Project.create(tmp_path / "p.frisket", name="Nulls")) as project:
         left_id = project.add_sheet("L")
         left_cols = {
             "k": project.add_column(left_id, "k", type="integer"),
@@ -533,11 +512,8 @@ def test_nulls_never_match_including_null_null(tmp_path: Path) -> None:
             [{"k": 6, "rn": "SIX"}, {"rn": "blank-right"}],  # 2nd row: null key
             right_cols,
         )
-    finally:
-        project.close()
 
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         # inner: the two null-keyed rows must NOT match each other (null != null)
         inner = _run(
             project,
@@ -578,24 +554,18 @@ def test_nulls_never_match_including_null_null(tmp_path: Path) -> None:
         assert stats["both"] == 1
         assert stats["left_only"] == 1
         assert stats["right_only"] == 1
-    finally:
-        project.close()
 
 
 def test_numeric_keys_coerce_one_equals_one_point_zero(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "p.frisket", name="Numeric")
-    try:
+    with closing(Project.create(tmp_path / "p.frisket", name="Numeric")) as project:
         left_id = project.add_sheet("L")
         left_cols = {"k": project.add_column(left_id, "k", type="integer")}
         project.add_rows(left_id, [{"k": 6}], left_cols)  # integer 6
         right_id = project.add_sheet("R")
         right_cols = {"k": project.add_column(right_id, "k", type="number")}
         project.add_rows(right_id, [{"k": 6.0}], right_cols)  # number 6.0
-    finally:
-        project.close()
 
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -611,24 +581,18 @@ def test_numeric_keys_coerce_one_equals_one_point_zero(tmp_path: Path) -> None:
         assert len(table["rows"]) == 1  # 1 == 1.0
         # integer + number widen to number for the coalesced key
         assert table["column_types"]["k"] == "number"
-    finally:
-        project.close()
 
 
 def test_text_keys_are_case_sensitive_exact(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "p.frisket", name="Text")
-    try:
+    with closing(Project.create(tmp_path / "p.frisket", name="Text")) as project:
         left_id = project.add_sheet("L")
         left_cols = {"name": project.add_column(left_id, "name", type="text")}
         project.add_rows(left_id, [{"name": "Washington"}], left_cols)
         right_id = project.add_sheet("R")
         right_cols = {"name": project.add_column(right_id, "name", type="text")}
         project.add_rows(right_id, [{"name": "washington"}], right_cols)
-    finally:
-        project.close()
 
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -642,8 +606,6 @@ def test_text_keys_are_case_sensitive_exact(tmp_path: Path) -> None:
         assert result.status == "completed", result.errors
         table = _materialized_table(project, _sheet_id_by_name(project, "TextJoin"))
         assert len(table["rows"]) == 0  # exact, case-sensitive → no match
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------
@@ -652,8 +614,7 @@ def test_text_keys_are_case_sensitive_exact(tmp_path: Path) -> None:
 
 
 def test_multi_key_and_semantics(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "p.frisket", name="MultiKey")
-    try:
+    with closing(Project.create(tmp_path / "p.frisket", name="MultiKey")) as project:
         left_id = project.add_sheet("Counties")
         left_cols = {
             "state": project.add_column(left_id, "state", type="integer"),
@@ -684,11 +645,8 @@ def test_multi_key_and_semantics(tmp_path: Path) -> None:
             ],
             right_cols,
         )
-    finally:
-        project.close()
 
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -708,13 +666,10 @@ def test_multi_key_and_semantics(tmp_path: Path) -> None:
         assert len(table["rows"]) == 2
         pairs = sorted((row["state"], row["county"]) for row in table["rows"])
         assert pairs == [(6, 1), (6, 37)]
-    finally:
-        project.close()
 
 
 def test_non_key_collision_gets_suffixed(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "p.frisket", name="Collide")
-    try:
+    with closing(Project.create(tmp_path / "p.frisket", name="Collide")) as project:
         left_id = project.add_sheet("L")
         left_cols = {
             "k": project.add_column(left_id, "k", type="integer"),
@@ -727,11 +682,8 @@ def test_non_key_collision_gets_suffixed(tmp_path: Path) -> None:
             "name": project.add_column(right_id, "name", type="text"),
         }
         project.add_rows(right_id, [{"k": 6, "name": "right-cal"}], right_cols)
-    finally:
-        project.close()
 
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -748,8 +700,6 @@ def test_non_key_collision_gets_suffixed(tmp_path: Path) -> None:
         row = table["rows"][0]
         assert row["name_left"] == "left-cal"
         assert row["name_right"] == "right-cal"
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------
@@ -759,8 +709,7 @@ def test_non_key_collision_gets_suffixed(tmp_path: Path) -> None:
 
 def test_two_sided_membership_and_receipt_evidence(tmp_path: Path) -> None:
     seed = _seed_states_and_population(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         result = _run(
             project,
             _join_action(
@@ -804,14 +753,11 @@ def test_two_sided_membership_and_receipt_evidence(tmp_path: Path) -> None:
         keys_ref = _receipt_ref(receipt, "joined_tables_source")
         assert keys_ref is not None
         assert keys_ref["how"] == "outer"
-    finally:
-        project.close()
 
 
 def test_stale_replay_after_parent_cell_edit(tmp_path: Path) -> None:
     seed = _seed_states_and_population(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         action = _join_action(
             left_sheet_id=seed["left_sheet_id"],
             right_sheet_id=seed["right_sheet_id"],
@@ -836,14 +782,11 @@ def test_stale_replay_after_parent_cell_edit(tmp_path: Path) -> None:
         assert replay.status == "failed"
         assert replay.errors
         assert replay.errors[0].code == "stale_replay"
-    finally:
-        project.close()
 
 
 def test_join_replay_rejects_stale_materialized_membership(tmp_path: Path) -> None:
     seed = _seed_states_and_population(tmp_path / "p.frisket")
-    project = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as project:
         action = _join_action(
             left_sheet_id=seed["left_sheet_id"],
             right_sheet_id=seed["right_sheet_id"],
@@ -865,5 +808,3 @@ def test_join_replay_rejects_stale_materialized_membership(tmp_path: Path) -> No
         assert replay.status == "failed"
         assert replay.errors
         assert replay.errors[0].code == "stale_replay"
-    finally:
-        project.close()

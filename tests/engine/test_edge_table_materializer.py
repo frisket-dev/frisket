@@ -3,6 +3,7 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -92,71 +93,67 @@ def test_materialized_row_sources_schema_is_created_on_a_fresh_bundle(
         "idx_materialized_row_sources_materialized",
         "idx_materialized_row_sources_op",
     }
-    try:
-        assert "edge_source" in _membership_schema_sql(project)
-        assert "edge_target" in _membership_schema_sql(project)
-        assert "aggregate_source" in _membership_schema_sql(project)
-        assert "ON DELETE CASCADE" in _membership_schema_sql(project)
-        assert required_indexes.issubset(_index_names(project))
+    assert "edge_source" in _membership_schema_sql(project)
+    assert "edge_target" in _membership_schema_sql(project)
+    assert "aggregate_source" in _membership_schema_sql(project)
+    assert "ON DELETE CASCADE" in _membership_schema_sql(project)
+    assert required_indexes.issubset(_index_names(project))
 
-        source_sheet = project.add_sheet("Source")
-        source_col = project.add_column(source_sheet, "name")
-        source_row = project.add_rows(
-            source_sheet, [{"name": "source"}], {"name": source_col}
-        )[0]
-        child_sheet = project.add_sheet("Child", parent_sheet_id=source_sheet)
-        child_col = project.add_column(child_sheet, "name")
-        child_row = project.add_rows(
-            child_sheet, [{"name": "child"}], {"name": child_col}
-        )[0]
-        op_id = project.append_change("test.materialized_row_sources")
+    source_sheet = project.add_sheet("Source")
+    source_col = project.add_column(source_sheet, "name")
+    source_row = project.add_rows(
+        source_sheet, [{"name": "source"}], {"name": source_col}
+    )[0]
+    child_sheet = project.add_sheet("Child", parent_sheet_id=source_sheet)
+    child_col = project.add_column(child_sheet, "name")
+    child_row = project.add_rows(child_sheet, [{"name": "child"}], {"name": child_col})[
+        0
+    ]
+    op_id = project.append_change("test.materialized_row_sources")
+    project.db.execute(
+        "INSERT INTO materialized_row_sources "
+        "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (child_row, source_row, source_sheet, op_id, "edge_source"),
+    )
+    project.db.commit()
+    try:
+        project.db.execute(
+            "INSERT INTO materialized_row_sources "
+            "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (child_row, source_row, source_sheet, op_id, "parent"),
+        )
+    except sqlite3.IntegrityError:
+        project.db.rollback()
+        pass
+    else:  # pragma: no cover - assertion branch
+        raise AssertionError("invalid membership role was accepted")
+    try:
         project.db.execute(
             "INSERT INTO materialized_row_sources "
             "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
             "VALUES (?, ?, ?, ?, ?)",
             (child_row, source_row, source_sheet, op_id, "edge_source"),
         )
-        project.db.commit()
-        try:
-            project.db.execute(
-                "INSERT INTO materialized_row_sources "
-                "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (child_row, source_row, source_sheet, op_id, "parent"),
-            )
-        except sqlite3.IntegrityError:
-            project.db.rollback()
-            pass
-        else:  # pragma: no cover - assertion branch
-            raise AssertionError("invalid membership role was accepted")
-        try:
-            project.db.execute(
-                "INSERT INTO materialized_row_sources "
-                "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (child_row, source_row, source_sheet, op_id, "edge_source"),
-            )
-        except sqlite3.IntegrityError:
-            project.db.rollback()
-            pass
-        else:  # pragma: no cover - assertion branch
-            raise AssertionError("duplicate membership row was accepted")
+    except sqlite3.IntegrityError:
+        project.db.rollback()
+        pass
+    else:  # pragma: no cover - assertion branch
+        raise AssertionError("duplicate membership row was accepted")
 
-        project.db.execute("DELETE FROM rows WHERE id=?", (child_row,))
-        project.db.commit()
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM materialized_row_sources"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    project.db.execute("DELETE FROM rows WHERE id=?", (child_row,))
+    project.db.commit()
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM materialized_row_sources").fetchone()[
+            0
+        ]
+        == 0
+    )
 
 
 def _seed_project(project_path: Path) -> tuple[int, int, list[int], list[int]]:
-    project = Project.create(project_path, name="Edge Materializer")
-    try:
+    with closing(Project.create(project_path, name="Edge Materializer")) as project:
         source_sheet_id = project.add_sheet("Donors")
         source_columns = {
             "donor": project.add_column(source_sheet_id, "donor", type="text")
@@ -184,8 +181,6 @@ def _seed_project(project_path: Path) -> tuple[int, int, list[int], list[int]]:
             target_columns,
         )
         return source_sheet_id, target_sheet_id, source_row_ids, target_row_ids
-    finally:
-        project.close()
 
 
 def _join_action(
@@ -246,8 +241,7 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
         lambda router=None, **_kw: (_fake_embed(embed_calls), "stub/edge-materializer"),
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         )
@@ -399,5 +393,3 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
         )
         assert stale.status == "failed"
         assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()

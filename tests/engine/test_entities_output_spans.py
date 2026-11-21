@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -245,8 +246,7 @@ def _router() -> ModelRouter:
 
 
 def _seed_project(project_path: Path) -> tuple[int, int]:
-    project = Project.create(project_path, name="NER Spans")
-    try:
+    with closing(Project.create(project_path, name="NER Spans")) as project:
         sheet_id = project.add_sheet("Transcripts")
         body_col = project.add_column(sheet_id, "body", type="text")
         project.add_rows(
@@ -255,8 +255,6 @@ def _seed_project(project_path: Path) -> tuple[int, int]:
             {"body": body_col},
         )
         return sheet_id, body_col
-    finally:
-        project.close()
 
 
 def _map_ner_action(sheet_id: int, *, idempotency_key: str) -> dict[str, Any]:
@@ -283,8 +281,7 @@ def test_map_ner_writes_unified_type_key_and_evidence_spans(
     project_path = tmp_path / "ner-spans.frisket"
     sheet_id, body_col = _seed_project(project_path)
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = executor_actions.run_action_spec(
             project,
             _map_ner_action(sheet_id, idempotency_key="map_ner_spans@sha256:stable"),
@@ -345,8 +342,6 @@ def test_map_ner_writes_unified_type_key_and_evidence_spans(
         for span in spans:
             assert span["selector"]["char_start"] is not None
             assert span["selector"]["char_end"] is not None
-    finally:
-        project.close()
 
 
 def test_map_ner_writes_no_spans_when_no_entities_found(
@@ -360,18 +355,14 @@ def test_map_ner_writes_no_spans_when_no_entities_found(
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
 
     project_path = tmp_path / "ner-spans-empty.frisket"
-    project = Project.create(project_path, name="NER Spans Empty")
-    try:
+    with closing(Project.create(project_path, name="NER Spans Empty")) as project:
         sheet_id = project.add_sheet("Transcripts")
         body_col = project.add_column(sheet_id, "body", type="text")
         project.add_rows(
             sheet_id, [{"body": "Nothing notable happened."}], {"body": body_col}
         )
-    finally:
-        project.close()
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = executor_actions.run_action_spec(
             project,
             _map_ner_action(
@@ -389,5 +380,3 @@ def test_map_ner_writes_no_spans_when_no_entities_found(
             project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
         )
         assert evidence["links"] == []
-    finally:
-        project.close()

@@ -1,5 +1,7 @@
 """Run projections can read receipt-owned facts without moving or re-rating them."""
 
+from contextlib import closing
+
 from frisket.contracts.action import Receipt
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.transactions import write_transaction
@@ -8,7 +10,7 @@ from tests.engine.test_run_cost_projection import _seed, _fact, _writer
 
 def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp_path):
     project, store, run_id, row_id, column_id = _seed(tmp_path)
-    try:
+    with closing(project):
         authority = _writer(project, run_id, column_id)
         with write_transaction(project.db):
             store.write_model_calls(
@@ -101,5 +103,3 @@ def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp
                 "SELECT provider,spent_micro,unmetered_calls FROM project_provider_keys ORDER BY provider"
             )
         ] == before_spend
-    finally:
-        project.close()

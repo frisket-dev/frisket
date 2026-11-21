@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -156,7 +157,7 @@ def test_pdf_output_ref_carries_searchable_pdf_role(
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
-    try:
+    with closing(project):
         result = run_action_spec(
             project,
             _ocr_action(sheet_id, row_ids),
@@ -176,8 +177,6 @@ def test_pdf_output_ref_carries_searchable_pdf_role(
         file_ref = next(ref for ref in refs if ref["kind"] == "row_file_output")
         assert file_ref["primary"]["role"] == "searchable_pdf"
         assert file_ref["primary"]["mime"] == "application/pdf"
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------
@@ -190,7 +189,7 @@ def test_receipt_evidence_records_blob_hash_and_page_counts(
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
-    try:
+    with closing(project):
         result = run_action_spec(
             project,
             _ocr_action(sheet_id, row_ids),
@@ -217,8 +216,6 @@ def test_receipt_evidence_records_blob_hash_and_page_counts(
         assert metadata["compositor_version"] == COMPOSITOR_VERSION
         assert ref["facts"]["dpi"] == DPI
         assert ref["facts"]["engine"] == "rapidocr"
-    finally:
-        project.close()
 
 
 def test_receipt_evidence_records_degraded_pages(
@@ -230,7 +227,7 @@ def test_receipt_evidence_records_degraded_pages(
     bookkeeping honestly (spec SS9), not just a happy-path page count."""
     _patch_engine(monkeypatch, [_stub_page("日本語")])  # CJK: unencodable
     project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
-    try:
+    with closing(project):
         result = run_action_spec(
             project,
             _ocr_action(
@@ -249,8 +246,6 @@ def test_receipt_evidence_records_degraded_pages(
         assert metadata["_media_probe_v1"]["pages"] == 1
         assert metadata["pages_degraded"] == 1
         assert metadata["degraded_pages"] == [0]
-    finally:
-        project.close()
 
 
 def test_receipt_evidence_skips_rows_whose_pdf_cell_failed_to_compose(
@@ -305,7 +300,7 @@ def test_replay_detects_deleted_searchable_pdf_blob(
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
-    try:
+    with closing(project):
         action = _ocr_action(
             sheet_id, row_ids, idempotency_key="media_ocr_searchable@sha256:replay"
         )
@@ -341,8 +336,6 @@ def test_replay_detects_deleted_searchable_pdf_blob(
         )
         assert stale.status == "failed"
         assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
 
 
 def test_replay_detects_missing_searchable_pdf_blob_row(
@@ -350,7 +343,7 @@ def test_replay_detects_missing_searchable_pdf_blob_row(
 ) -> None:
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
-    try:
+    with closing(project):
         action = _ocr_action(
             sheet_id,
             row_ids,
@@ -378,8 +371,6 @@ def test_replay_detects_missing_searchable_pdf_blob_row(
         )
         assert stale.status == "failed"
         assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------
@@ -396,7 +387,7 @@ def test_action_result_outputs_carry_the_pdf_column_id(
     the same output_refs loop."""
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
     project, sheet_id, row_ids = _seed_pdf_project(tmp_path)
-    try:
+    with closing(project):
         result = run_action_spec(
             project,
             _ocr_action(
@@ -412,5 +403,3 @@ def test_action_result_outputs_carry_the_pdf_column_id(
             "ocr_text_blocks": int(columns["ocr_text_blocks"]["id"]),
             "ocr_text_pdf": int(columns["ocr_text_pdf"]["id"]),
         }
-    finally:
-        project.close()
