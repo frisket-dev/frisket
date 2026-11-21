@@ -558,7 +558,11 @@ class PdfPacketOcrCoordinator:
         adapter.approve(prepared, confirmation=confirmation)
         target = prepared["target"]
         capture = None
-        if source.source_row_id is not None:
+        if (
+            source.source_row_id is not None
+            and source.source_sheet_id is not None
+            and source.source_column_id is not None
+        ):
             from frisket.engine.store.pdf_ocr_sample import capture_pdf_ocr_sample
 
             capture = capture_pdf_ocr_sample(
