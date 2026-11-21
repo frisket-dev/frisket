@@ -354,7 +354,7 @@ class _QueuedActionSpec:
     kind: str
     params_model: type[BaseModel]
     runner_spec_fn: Callable[[Any], dict[str, Any]]
-    resolve_fn: Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError]
+    resolve_fn: Callable[..., dict[str, Any] | ActionError]
     precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None]
     reservation_kind: str
     queue_job_kind: str

@@ -5,7 +5,7 @@ from frisket.engine.store.cell_reference import citation_subject_ref
 import json
 import hashlib
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.grounding_contract import WordStream, WordToken
@@ -21,7 +21,7 @@ class ResolvedWordStream:
     artifact_id: int
     span_identity: str
     engine: str = ""
-    token_granularity: str = "word"
+    token_granularity: Literal["word", "line", "block"] = "word"
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,25 @@ def resolve_ocr_word_stream(
     return next(iter_ocr_word_streams(project, blob_hash), None)
 
 
+def _ocr_token_granularity(
+    metadata: dict[str, Any], engine: str
+) -> Literal["word", "line", "block"] | None:
+    if "ocr_token_granularity" in metadata:
+        raw = metadata["ocr_token_granularity"]
+        if raw == "word":
+            return "word"
+        if raw == "line":
+            return "line"
+        if raw == "block":
+            return "block"
+        return None
+    # Compatibility for artifacts written before producers recorded the
+    # geometry contract. Do not extend this inference to new artifacts.
+    if engine in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
+        return "line"
+    return "word" if engine == "tesseract" else "block"
+
+
 def iter_ocr_word_streams(project: Any, blob_hash: str | None):
     """Newest-first streams; consumers may require additional page geometry."""
     if not blob_hash:
@@ -82,16 +101,9 @@ def iter_ocr_word_streams(project: Any, blob_hash: str | None):
         if not isinstance(page_images, dict) or not metadata.get("engine"):
             continue
         engine = str(metadata["engine"])
-        if "ocr_token_granularity" in metadata:
-            token_granularity = metadata["ocr_token_granularity"]
-            if token_granularity not in {"word", "line", "block"}:
-                continue
-        else:
-            # Compatibility for artifacts written before producers recorded the
-            # geometry contract. Do not extend this inference to new artifacts.
-            token_granularity = "word" if engine == "tesseract" else "block"
-            if engine in {"rapidocr", "pp-ocrv6", "paddleocr", "datalab"}:
-                token_granularity = "line"
+        token_granularity = _ocr_token_granularity(metadata, engine)
+        if token_granularity is None:
+            continue
         artifact_id = int(row["id"])
         tokens, span_identity = _tokens_from_region_spans(project, artifact_id)
         if not tokens:

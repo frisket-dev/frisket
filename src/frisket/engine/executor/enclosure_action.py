@@ -200,7 +200,7 @@ def run_typed_enclosure_action(
                 receipt_id=reservation["receipt_id"],
                 params_hash=params_hash,
                 sheet_id=scope.sheet_id,
-                row_ids=scope.row_ids,
+                row_ids=list(scope.row_ids),
                 row_results=row_results,
                 network=capability.network,
                 status="partial"
@@ -234,7 +234,7 @@ def run_typed_enclosure_action(
             receipt_id=reservation["receipt_id"],
             params_hash=params_hash,
             sheet_id=scope.sheet_id,
-            row_ids=scope.row_ids,
+            row_ids=list(scope.row_ids),
             row_results=row_results,
             network=capability.network,
             status=status,
@@ -261,7 +261,15 @@ def _resolve_media_enclosure_inputs(
             action_kind=action.kind,
             field="scope.sheet_id",
         )
-    if len(set(scope.row_ids)) != len(scope.row_ids):
+    if scope.row_ids is None:
+        return ActionError(
+            code="invalid_input_ref",
+            message="media.enclosure_materialize requires explicit row_ids",
+            action_kind=action.kind,
+            field="scope.row_ids",
+        )
+    row_ids = list(scope.row_ids)
+    if len(set(row_ids)) != len(row_ids):
         return ActionError(
             code="invalid_input_ref",
             message="media.enclosure_materialize row_ids must not contain duplicates",
@@ -294,13 +302,13 @@ def _resolve_media_enclosure_inputs(
             },
         )
     enclosure_col = int(enclosure_column["id"])
-    placeholders = ",".join("?" for _ in scope.row_ids)
+    placeholders = ",".join("?" for _ in row_ids)
     rows = project.db.execute(
         f"SELECT id FROM rows WHERE sheet_id=? AND hidden=0 AND id IN ({placeholders})",
-        [scope.sheet_id, *scope.row_ids],
+        [scope.sheet_id, *row_ids],
     ).fetchall()
     found = {int(row["id"]) for row in rows}
-    missing = sorted(set(scope.row_ids) - found)
+    missing = sorted(set(row_ids) - found)
     if missing:
         return ActionError(
             code="invalid_input_ref",
@@ -312,9 +320,9 @@ def _resolve_media_enclosure_inputs(
     values = project.get_values(
         scope.sheet_id,
         enclosure_col,
-        row_ids=scope.row_ids,
+        row_ids=row_ids,
     )
-    missing_urls = [row_id for row_id in scope.row_ids if not values.get(row_id)]
+    missing_urls = [row_id for row_id in row_ids if not values.get(row_id)]
     if missing_urls:
         return ActionError(
             code="invalid_input_ref",
@@ -327,7 +335,7 @@ def _resolve_media_enclosure_inputs(
         "columns": {
             name: int(column["id"]) for name, column in columns_by_name.items()
         },
-        "urls": {row_id: str(values[row_id]) for row_id in scope.row_ids},
+        "urls": {row_id: str(values[row_id]) for row_id in row_ids},
     }
 
 
