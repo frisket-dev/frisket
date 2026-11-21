@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
@@ -24,10 +25,10 @@ import type { GeneratedActionParams } from '../../src/generated/actionTypes';
 import { testPython } from '../support/testPython';
 import { requireSeededProject } from './seedProjects';
 
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
+export const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../..',
+);
 
 // ---------------------------------------------------------------------------
 // Basemap tiles for the deck.gl map specs.

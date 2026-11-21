@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createProject, uniqueName } from './helpers';
+import { REPO_ROOT, createProject, uniqueName } from './helpers';
 import { testPython } from '../support/testPython';
 
 // Media acquisition can take long enough that it must use the normal queued
@@ -26,8 +26,6 @@ import { testPython } from '../support/testPython';
 // tests/engine/test_media_acquisition_queued_placement.py's
 // test_media_download_queued_launch_returns_before_yt_dlp_runs.)
 
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const VIDEO_FIXTURE_B64 = readFileSync(path.join(MEDIA_DIR, 'tiny-video.mp4')).toString('base64');
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 
 import {
+  REPO_ROOT,
   createProject,
   gridReadSelection,
   importCsv,
@@ -18,11 +19,6 @@ import {
   uniqueName,
 } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 function largeCsv(rowCount: number): string {
   const lines = ['title,status,rank'];
