@@ -1,16 +1,25 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from frisket.engine.store import staleness
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
+from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.evidence import (
     record_citation,
     record_source_artifact,
     record_source_span,
+)
+from frisket.engine.store.materialization import (
+    AggregateColumnSpec,
+    AggregateMaterializedRow,
+    AggregateSheetPlan,
+    ContributorMaterializedRow,
+    ContributorTablePlan,
+    MaterializedColumnSpec,
+    write_aggregate_sheet,
+    write_contributor_table,
 )
 from frisket.engine.store.media_blobs import media_cell
 from frisket.server.services.project_evidence import (
@@ -83,29 +92,35 @@ def _join_row(
     left: tuple[int, int],
     right: tuple[int, int],
 ) -> tuple[int, int]:
-    op_id = project.append_change("derive.join", {"action_id": "derive.join"})
-    sheet_id = project.add_sheet("Joined", parent_sheet_id=left[0], parent_op_id=op_id)
-    column_id = project.add_column(sheet_id, "joined")
-    [row_id] = project.add_rows(
-        sheet_id,
-        [{"joined": "result"}],
-        {"joined": column_id},
-        parent_row_ids=[left[1]],
-    )
-    project.db.executemany(
-        "INSERT INTO materialized_row_sources "
-        "(materialized_row_id,source_row_id,source_sheet_id,op_id,role) "
-        "VALUES (?,?,?,?,?)",
-        [
-            (row_id, left[1], left[0], op_id, "join_left"),
-            (row_id, right[1], right[0], op_id, "join_right"),
-        ],
-    )
-    project.db.commit()
-    return sheet_id, row_id
+    with write_transaction(project.db):
+        write = write_contributor_table(
+            project.db.cursor(),
+            ContributorTablePlan(
+                action_kind="derive.join",
+                label="Joined",
+                target_sheet_name="Joined",
+                parent_sheet_id=left[0],
+                op_spec={"action_id": "derive.join"},
+                columns=[MaterializedColumnSpec(name="joined", type="text")],
+                rows=[
+                    ContributorMaterializedRow(
+                        values={"joined": "result"},
+                        parent_row_id=left[1],
+                        sources=((left[1], "join_left"), (right[1], "join_right")),
+                    )
+                ],
+            ),
+        )
+    return write.sheet_id, write.row_ids[0]
 
 
-def _row_evidence(project: Project, sheet_id: int, row_id: int) -> str:
+def _row_evidence(
+    project: Project,
+    sheet_id: int,
+    row_id: int,
+    *,
+    subject_row_id: int | None = None,
+) -> str:
     with write_transaction(project.db):
         artifact = record_source_artifact(
             project,
@@ -127,7 +142,7 @@ def _row_evidence(project: Project, sheet_id: int, row_id: int) -> str:
         subject_ref={
             "kind": "materialized_row",
             "sheet_id": sheet_id,
-            "row_id": row_id,
+            "row_id": row_id if subject_row_id is None else subject_row_id,
         },
         spans=[{"span_id": span["id"], "span_role": "support", "required": True}],
         sheet_id=sheet_id,
@@ -175,8 +190,17 @@ def test_parent_fallback_reports_unavailable_ancestor_separately_from_no_ancestr
     project = make_project("project")
     source = _document_row(project, "Documents", "source.pdf")
     _child_sheet, child_row = _child_row(project, "Rows", source[0], source[1])
-    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (source[1],))
-    project.db.commit()
+    deleted = run_action_spec(
+        project,
+        {
+            "action_id": "row.delete",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": source[0], "row_ids": [source[1]]},
+            "idempotency_key": "delete-source-row",
+        },
+        project_id="project",
+    )
+    assert deleted.status == "completed", deleted.errors
     service = ProjectCitationsService(_Workspace(project))  # type: ignore[arg-type]
 
     unavailable = service.row_source_documents("project", row_id=child_row)
@@ -205,9 +229,14 @@ def test_source_resolution_is_cycle_safe_and_rejects_a_hidden_requested_row(
         [{"value": "first"}, {"value": "second"}],
         {"value": column_id},
     )
-    project.db.execute("UPDATE rows SET parent_row_id=? WHERE id=?", (second, first))
-    project.db.execute("UPDATE rows SET parent_row_id=? WHERE id=?", (first, second))
-    project.db.commit()
+    # Production writers enforce an acyclic parent_row_id graph, so raw SQL is required to inject a cycle.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE rows SET parent_row_id=? WHERE id=?", (second, first)
+        )
+        project.db.execute(
+            "UPDATE rows SET parent_row_id=? WHERE id=?", (first, second)
+        )
     service = ProjectCitationsService(_Workspace(project))  # type: ignore[arg-type]
 
     cycle = service.row_source_documents("project", row_id=first)
@@ -215,8 +244,17 @@ def test_source_resolution_is_cycle_safe_and_rejects_a_hidden_requested_row(
     assert cycle["documents"] == []
     assert cycle["truncated"] is False
 
-    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (first,))
-    project.db.commit()
+    deleted = run_action_spec(
+        project,
+        {
+            "action_id": "row.delete",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": sheet_id, "row_ids": [first]},
+            "idempotency_key": "delete-cycle-row",
+        },
+        project_id="project",
+    )
+    assert deleted.status == "completed", deleted.errors
     with pytest.raises(ProjectCitationsRouteError) as exc_info:
         service.row_source_documents("project", row_id=first)
     assert exc_info.value.status_code == 404
@@ -270,28 +308,26 @@ def test_convergent_fan_in_reaches_the_shared_original_document(make_project) ->
         {"value": children_column},
         parent_row_ids=[parent[1]] * 200,
     )
-    aggregate_sheet = project.add_sheet("Aggregate", parent_sheet_id=children_sheet)
-    aggregate_column = project.add_column(aggregate_sheet, "value")
-    [aggregate_row] = project.add_rows(
-        aggregate_sheet, [{"value": "summary"}], {"value": aggregate_column}
-    )
-    op_id = project.append_change("derive.reduce", {"action_id": "derive.reduce"})
-    project.db.executemany(
-        "INSERT INTO materialized_row_sources "
-        "(materialized_row_id,source_row_id,source_sheet_id,op_id,role) "
-        "VALUES (?,?,?,?,?)",
-        [
-            (
-                aggregate_row,
-                child_row,
-                children_sheet,
-                op_id,
-                "aggregate_source",
-            )
-            for child_row in children
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        write = write_aggregate_sheet(
+            project.db.cursor(),
+            AggregateSheetPlan(
+                action_kind="derive.reduce",
+                label="Aggregate",
+                target_sheet_name="Aggregate",
+                parent_sheet_id=children_sheet,
+                op_spec={"action_id": "derive.reduce"},
+                columns=[AggregateColumnSpec(name="value", type="text")],
+                rows=[
+                    AggregateMaterializedRow(
+                        values={"value": "summary"},
+                        source_row_ids=children,
+                    )
+                ],
+            ),
+        )
+        ChangeStore(project).close(write.op_id)
+    aggregate_row = write.row_ids[0]
 
     payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=aggregate_row
@@ -312,20 +348,21 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     right = _child_row(project, "Right rows", right_document[0], right_document[1])
     join_sheet, join_row = _join_row(project, left, right)
 
-    refresh_op = project.append_change("sheet.refresh", {"sheet_id": left[0]})
-    project.db.execute(
-        "UPDATE sheets SET last_verified_op_cursor=? WHERE id=?",
-        (refresh_op, left[0]),
-    )
-    # This is the real FK-cascade outcome when a non-fast-pointer join side
-    # is refreshed: that side's membership disappears while the other side
-    # survives. The endpoint must not present the survivor as exhaustive.
-    project.db.execute(
-        "DELETE FROM materialized_row_sources "
-        "WHERE materialized_row_id=? AND source_row_id=?",
-        (join_row, left[1]),
-    )
-    project.db.commit()
+    # Simulate a legacy partial FK-cascade state where last_verified_op_cursor
+    # advanced and only one join side disappeared from materialized_row_sources.
+    with write_transaction(project.db):
+        refresh_op = project.append_change(
+            "sheet.refresh", {"sheet_id": left[0]}, commit=False
+        )
+        project.db.execute(
+            "UPDATE sheets SET last_verified_op_cursor=? WHERE id=?",
+            (refresh_op, left[0]),
+        )
+        project.db.execute(
+            "DELETE FROM materialized_row_sources "
+            "WHERE materialized_row_id=? AND source_row_id=?",
+            (join_row, left[1]),
+        )
 
     payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=join_row
@@ -351,7 +388,6 @@ def test_real_right_side_refresh_marks_join_lineage_incomplete(make_project) -> 
     left_sheet = project.add_sheet("Left")
     left_column = project.add_column(left_sheet, "key")
     project.add_rows(left_sheet, [{"key": "match"}], {"key": left_column})
-    project.db.commit()
 
     derived = run_action_spec(
         project,
@@ -430,17 +466,7 @@ def test_mismatched_row_subject_is_not_exposed_as_current_evidence(
     project = make_project("project")
     source = _document_row(project, "Documents", "source.pdf")
     child = _child_row(project, "Rows", source[0], source[1])
-    stable_id = _row_evidence(project, *child)
-    project.db.execute(
-        "UPDATE evidence_links SET subject_ref_json=? WHERE stable_id=?",
-        (
-            json.dumps(
-                {"kind": "materialized_row", "sheet_id": child[0], "row_id": 999}
-            ),
-            stable_id,
-        ),
-    )
-    project.db.commit()
+    _row_evidence(project, *child, subject_row_id=999)
 
     payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=child[1]
@@ -478,22 +504,26 @@ def test_source_membership_read_stops_at_the_row_budget_sentinel(
         [{"value": f"source-{index}"} for index in range(300)],
         {"value": source_column},
     )
-    derived_sheet = project.add_sheet("Derived")
-    derived_column = project.add_column(derived_sheet, "value")
-    [derived_row] = project.add_rows(
-        derived_sheet, [{"value": "result"}], {"value": derived_column}
-    )
-    op_id = project.append_change("derive.reduce", {"action_id": "derive.reduce"})
-    project.db.executemany(
-        "INSERT INTO materialized_row_sources "
-        "(materialized_row_id,source_row_id,source_sheet_id,op_id,role) "
-        "VALUES (?,?,?,?,?)",
-        [
-            (derived_row, source_row, source_sheet, op_id, "aggregate_source")
-            for source_row in source_rows
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        write = write_aggregate_sheet(
+            project.db.cursor(),
+            AggregateSheetPlan(
+                action_kind="derive.reduce",
+                label="Derived",
+                target_sheet_name="Derived",
+                parent_sheet_id=source_sheet,
+                op_spec={"action_id": "derive.reduce"},
+                columns=[AggregateColumnSpec(name="value", type="text")],
+                rows=[
+                    AggregateMaterializedRow(
+                        values={"value": "result"},
+                        source_row_ids=source_rows,
+                    )
+                ],
+            ),
+        )
+        ChangeStore(project).close(write.op_id)
+    derived_row = write.row_ids[0]
     statements: list[str] = []
     project.db.set_trace_callback(statements.append)
     try:

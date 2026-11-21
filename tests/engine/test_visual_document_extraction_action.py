@@ -26,31 +26,84 @@ from http_test_helpers import run_worker_until_job_terminal
 from frisket.engine.store.transactions import write_transaction
 
 
+def _record_ocr_blob(
+    project,
+    *,
+    data: bytes,
+    filename: str,
+    engine: str = "tesseract",
+    granularity: str | None = None,
+    words: list[tuple[str, float, float, float]] = (),
+) -> str:
+    blob = project.add_blob(data, filename=filename, mime="image/png")
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="image/png",
+            metadata={
+                "engine": engine,
+                **(
+                    {"ocr_token_granularity": granularity}
+                    if granularity is not None
+                    else {}
+                ),
+                "page_images": {"1": {"source_width": 100, "source_height": 100}},
+            },
+        )
+        for text, y, x0, x1 in words:
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="region",
+                page_start=1,
+                page_end=1,
+                bbox=[
+                    {
+                        "x0": x0,
+                        "y0": y,
+                        "x1": x1,
+                        "y1": y + 0.03,
+                        "space": "page_normalized",
+                    }
+                ],
+                quote=text,
+            )
+    return blob
+
+
+def _add_ocr_row(
+    project,
+    sheet: int,
+    column: int,
+    *,
+    filename: str,
+    engine: str = "tesseract",
+    granularity: str | None = None,
+    words: list[tuple[str, float, float, float]] = (),
+) -> tuple[int, str]:
+    blob = _record_ocr_blob(
+        project,
+        data=f"image {filename}".encode(),
+        filename=filename,
+        engine=engine,
+        granularity=granularity,
+        words=words,
+    )
+    [row_id] = project.add_rows(
+        sheet,
+        [{"document": {"blob": blob, "filename": filename, "mime": "image/png"}}],
+        {"document": column},
+    )
+    return row_id, blob
+
+
 def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=None):
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "document", "file")
     blobs = []
     for index in range(count):
-        blob = project.add_blob(
-            f"image {index}".encode(), filename=f"form-{index}.png", mime="image/png"
-        )
-        blobs.append(blob)
-        with write_transaction(project.db):
-            artifact = record_source_artifact(
-                project,
-                artifact_kind="file",
-                blob_hash=blob,
-                media_type="image/png",
-                metadata={
-                    "engine": engine,
-                    **(
-                        {"ocr_token_granularity": granularity}
-                        if granularity is not None
-                        else {}
-                    ),
-                    "page_images": {"1": {"source_width": 100, "source_height": 100}},
-                },
-            )
         words = [
             ("NAME", 0.1, 0.1, 0.2),
             (f"Person{index}", 0.1, 0.35, 0.55),
@@ -66,25 +119,16 @@ def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=Non
                     ("ARRESTED", 0.5, 0.1, 0.3),
                 ]
             )
-        for text, y, x0, x1 in words:
-            with write_transaction(project.db):
-                record_source_span(
-                    project,
-                    artifact_id=artifact["id"],
-                    span_kind="region",
-                    page_start=1,
-                    page_end=1,
-                    bbox=[
-                        {
-                            "x0": x0,
-                            "y0": y,
-                            "x1": x1,
-                            "y1": y + 0.03,
-                            "space": "page_normalized",
-                        }
-                    ],
-                    quote=text,
-                )
+        blobs.append(
+            _record_ocr_blob(
+                project,
+                data=f"image {index}".encode(),
+                filename=f"form-{index}.png",
+                engine=engine,
+                granularity=granularity,
+                words=words,
+            )
+        )
     rows = project.add_rows(
         sheet,
         [
@@ -431,7 +475,7 @@ def test_native_pdf_page_is_selected_before_positioned_text_extraction(
 def test_ocr_geometry_uses_producer_contract_with_legacy_fallback(make_project):
     project = make_project("project")
     sheet, column, rows, _template = seed(
-        project, count=2, engine="rapidocr", granularity="block"
+        project, count=1, engine="rapidocr", granularity="block"
     )
     values = project.get_values(sheet, column)
     explicit = load_positioned_document(project, values[rows[0]]["blob"])
@@ -439,13 +483,15 @@ def test_ocr_geometry_uses_producer_contract_with_legacy_fallback(make_project):
         "block"
     }
 
-    legacy_blob = values[rows[1]]["blob"]
-    project.db.execute(
-        "UPDATE source_artifacts SET metadata=json_remove(metadata, "
-        "'$.ocr_token_granularity') WHERE blob_hash=?",
-        (legacy_blob,),
+    _legacy_row, legacy_blob = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-legacy.png",
+        engine="rapidocr",
+        granularity=None,
+        words=[("NAME", 0.1, 0.1, 0.2), ("Person1", 0.1, 0.35, 0.55)],
     )
-    project.db.commit()
     legacy = load_positioned_document(project, legacy_blob)
     assert {token.granularity for token in legacy.document.pages[0].tokens} == {"line"}
 
@@ -635,21 +681,22 @@ def test_successful_input_membership_includes_zero_records_and_excludes_errors(
     )
 
     project = make_project("project")
-    sheet, column, rows, template = seed(project, count=3, repeats=True)
-    values = project.get_values(sheet, column)
-    zero_blob = values[rows[1]]["blob"]
-    failed_blob = values[rows[2]]["blob"]
-    project.db.execute(
-        "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN "
-        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (zero_blob,),
+    sheet, column, rows, template = seed(project, count=1, repeats=True)
+    zero_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-1.png",
+        words=[("Person1", 0.1, 0.35, 0.55), ("Other1", 0.4, 0.35, 0.55)],
     )
-    project.db.execute(
-        "DELETE FROM source_spans WHERE artifact_id IN "
-        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (failed_blob,),
+    failed_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-2.png",
+        words=[],
     )
-    project.db.commit()
+    rows = [*rows, zero_row, failed_row]
     params = DocumentExtractParams(
         source="document", template=template, repeat_group_id="people"
     )
@@ -710,19 +757,22 @@ def test_layout_run_remembers_zero_output_and_moves_only_applied_documents(
     from frisket.engine.store.extraction_layouts import get_layout
 
     project = make_project("project")
-    sheet, column, rows, template = seed(project, count=3, repeats=True)
-    values = project.get_values(sheet, column)
-    project.db.execute(
-        "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN "
-        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (values[rows[1]]["blob"],),
+    sheet, column, rows, template = seed(project, count=1, repeats=True)
+    zero_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-1.png",
+        words=[("Person1", 0.1, 0.35, 0.55), ("Other1", 0.4, 0.35, 0.55)],
     )
-    project.db.execute(
-        "DELETE FROM source_spans WHERE artifact_id IN "
-        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (values[rows[2]]["blob"],),
+    failed_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-2.png",
+        words=[],
     )
-    project.db.commit()
+    rows = [*rows, zero_row, failed_row]
     first_layout = save_layout(project, sheet, rows, template)
     second_layout = save_layout(project, sheet, rows, template)
     first = run_typed_create_sheet_action(
@@ -848,10 +898,13 @@ def test_layout_autosave_change_before_publication_is_stale(make_project, monkey
     )
 
     def autosave_then_revalidate(reader):
-        project.db.execute(
-            "UPDATE extraction_layouts SET draft=? WHERE id=?",
-            (json.dumps(changed, allow_nan=False), layout_id),
-        )
+        # _perform_table_in_txn already holds the write transaction, so
+        # save_layout's BEGIN IMMEDIATE cannot nest on this single connection.
+        with write_transaction(project.db, commit=False):
+            project.db.execute(
+                "UPDATE extraction_layouts SET draft=? WHERE id=?",
+                (json.dumps(changed, allow_nan=False), layout_id),
+            )
         return original(reader)
 
     monkeypatch.setattr(
@@ -985,12 +1038,20 @@ def test_preview_and_all_document_errors_never_assign_layout(tmp_path):
     assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
     assert layout_rows(project, sheet, layout_id) == []
     assert not get_layout(project, layout_id)["has_applied"]
-    failed_blob = project.get_values(sheet, column)[rows[1]]["blob"]
-    project.db.execute(
-        "DELETE FROM source_spans WHERE artifact_id IN (SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (failed_blob,),
+    broken_blob = project.add_blob(b"broken", filename="broken.png", mime="image/png")
+    project.apply_edits(
+        [
+            {
+                "row_id": rows[1],
+                "column_id": column,
+                "value": {
+                    "blob": broken_blob,
+                    "filename": "broken.png",
+                    "mime": "image/png",
+                },
+            }
+        ]
     )
-    project.db.commit()
     failed = run_typed_create_sheet_action(
         project,
         "p",
@@ -1015,13 +1076,15 @@ def test_unmatched_document_publishes_zero_rows_and_remains_in_layout_cohort(
     make_project,
 ):
     project = make_project("project")
-    sheet, column, rows, template = seed(project)
-    blob = project.get_values(sheet, column)[rows[1]]["blob"]
-    project.db.execute(
-        "DELETE FROM source_spans WHERE quote IN ('NAME','ARRESTED') AND artifact_id IN (SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (blob,),
+    sheet, column, rows, template = seed(project, count=1)
+    unmatched_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-1.png",
+        words=[("Person1", 0.1, 0.35, 0.55)],
     )
-    project.db.commit()
+    rows = [*rows, unmatched_row]
     layout_id = save_layout(project, sheet, rows, template)
     result = run_typed_create_sheet_action(
         project,
@@ -1059,14 +1122,20 @@ def test_repeated_layout_mismatch_is_zero_output_with_diagnostic_and_cohort(tmp_
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Test", project_id="p")
     project = workspace.get("p")
-    sheet, column, rows, template = seed(project, repeats=True)
-    blob = project.get_values(sheet, column)[rows[1]]["blob"]
-    project.db.execute(
-        "DELETE FROM source_spans WHERE quote='NAME' AND artifact_id IN "
-        "(SELECT id FROM source_artifacts WHERE blob_hash=?)",
-        (blob,),
+    sheet, column, rows, template = seed(project, count=1, repeats=True)
+    mismatch_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-1.png",
+        words=[
+            ("Person1", 0.1, 0.35, 0.55),
+            ("ARRESTED", 0.2, 0.1, 0.3),
+            ("Other1", 0.4, 0.35, 0.55),
+            ("ARRESTED", 0.5, 0.1, 0.3),
+        ],
     )
-    project.db.commit()
+    rows = [*rows, mismatch_row]
     layout_id = save_layout(project, sheet, rows, template)
     preview = DocumentExtractionService(workspace).preview(
         "p",
@@ -1258,10 +1327,11 @@ def test_newer_unusable_ocr_artifact_does_not_permanently_invalidate_template(
             quote=None if defect == "empty_text" else "NAME",
         )
     if defect == "malformed_json":
-        project.db.execute(
-            "UPDATE source_artifacts SET metadata='{' WHERE id=?", (artifact["id"],)
-        )
-        project.db.commit()
+        # record_source_artifact serializes dicts, so raw SQL is required to inject corrupt JSON.
+        with write_transaction(project.db):
+            project.db.execute(
+                "UPDATE source_artifacts SET metadata='{' WHERE id=?", (artifact["id"],)
+            )
     loaded = load_positioned_document(project, template.reference_blob_id)
     assert loaded.document.source_fingerprint == template.reference_fingerprint
     result = run_typed_create_sheet_action(
@@ -1274,11 +1344,12 @@ def test_newer_unusable_ocr_artifact_does_not_permanently_invalidate_template(
 def test_one_corrupt_document_does_not_discard_other_documents(make_project):
     project = make_project("project")
     sheet, column, rows, template = seed(project)
-    project.db.execute(
-        "UPDATE source_artifacts SET metadata='{' WHERE blob_hash != ?",
-        (template.reference_blob_id,),
-    )
-    project.db.commit()
+    # record_source_artifact serializes dicts, so raw SQL is required to inject corrupt JSON.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE source_artifacts SET metadata='{' WHERE blob_hash != ?",
+            (template.reference_blob_id,),
+        )
     result = run_typed_create_sheet_action(
         project, "p", typed_action_for_request(request(sheet, template))
     )
@@ -1349,12 +1420,8 @@ def test_missing_pdf_bytes_is_a_document_failure_not_a_batch_failure(
 
 def test_missing_geometry_is_not_an_empty_success(make_project):
     project = make_project("project")
-    sheet, column, rows, template = seed(project)
-    project.db.execute(
-        "DELETE FROM source_spans WHERE artifact_id IN (SELECT id FROM source_artifacts WHERE blob_hash != ?)",
-        (template.reference_blob_id,),
-    )
-    project.db.commit()
+    sheet, column, rows, template = seed(project, count=1)
+    _add_ocr_row(project, sheet, column, filename="form-1.png", words=[])
     from frisket.engine.executor.document_extraction_read import (
         AdmittedPositionedDocumentReader,
     )
@@ -1421,13 +1488,15 @@ def test_public_queued_run_rejects_layout_changed_after_submission(tmp_path):
 
 def test_partial_field_failure_warns_without_discarding_valid_fields(make_project):
     project = make_project("project")
-    sheet, column, rows, template = seed(project)
-    project.db.execute(
-        "DELETE FROM source_spans WHERE quote='NAME' AND artifact_id IN "
-        "(SELECT id FROM source_artifacts WHERE blob_hash != ?)",
-        (template.reference_blob_id,),
+    sheet, column, rows, template = seed(project, count=1)
+    partial_row, _ = _add_ocr_row(
+        project,
+        sheet,
+        column,
+        filename="form-1.png",
+        words=[("Person1", 0.1, 0.35, 0.55), ("ARRESTED", 0.2, 0.1, 0.3)],
     )
-    project.db.commit()
+    rows = [*rows, partial_row]
     result = run_typed_create_sheet_action(
         project,
         "p",
