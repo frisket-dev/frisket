@@ -37,7 +37,7 @@ import hashlib
 import math
 import os
 from collections import Counter
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from frisket.ai.embeddings.analytics import encode_project_legacy_texts
 from frisket.ai.embeddings.backends import Embedder
@@ -118,15 +118,25 @@ def _semantic_surface_order(
     return surfaces, ordered
 
 
+@runtime_checkable
+class _SemanticBatchEmbedder(Protocol):
+    def semantic_batch(
+        self, batch_index: int, texts: list[str]
+    ) -> list[list[float]]: ...
+
+
 def _embed_planned_batch(
     embed: Embedder, batch_index: int, texts: list[str]
 ) -> list[list[float]]:
-    stable_batch_embed = getattr(embed, "semantic_batch", None)
     batch_vectors = (
-        stable_batch_embed(batch_index, texts)
-        if callable(stable_batch_embed)
+        embed.semantic_batch(batch_index, texts)
+        if isinstance(embed, _SemanticBatchEmbedder)
         else embed(texts)
     )
+    if not isinstance(batch_vectors, list):
+        raise TypeError(
+            "embedding provider must return a list of vectors for semantic clustering"
+        )
     if len(batch_vectors) != len(texts):
         raise RuntimeError(
             "embedding provider returned "

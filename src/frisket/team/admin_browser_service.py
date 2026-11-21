@@ -99,7 +99,7 @@ class AdminMembershipService:
                 )
                 .order_by(pending_invites.c.email)
             ).all()
-        return organization, rows, invited
+        return organization, list(rows), list(invited)
 
     def browser_users_payload(self) -> dict[str, Any]:
         organization, rows, invited = self._inventory()
@@ -247,7 +247,7 @@ class AdminMembershipService:
                     )
                 ).scalar_one_or_none()
             )
-            if role is None:
+            if role is None or user_id is None:
                 if invite_revoked:
                     return {
                         "user_id": None,
