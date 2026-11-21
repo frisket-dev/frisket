@@ -7,7 +7,7 @@ import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, overload
 
 from frisket.contracts import plugin_rpc
 from frisket.engine.store import Project
@@ -586,6 +586,34 @@ def _required_positive_int(
             field=field,
         )
     return parsed
+
+
+@overload
+def _projection_column_id(
+    columns: list[Any],
+    value: Any,
+    *,
+    role: str,
+    required_type: str | None,
+    projection_kind: str,
+    field: str,
+    fallback: Callable[[], int | None],
+    optional: Literal[False] = False,
+) -> int: ...
+
+
+@overload
+def _projection_column_id(
+    columns: list[Any],
+    value: Any,
+    *,
+    role: str,
+    required_type: str | None,
+    projection_kind: str,
+    field: str,
+    fallback: Callable[[], int | None],
+    optional: Literal[True],
+) -> int | None: ...
 
 
 def _projection_column_id(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Any, ClassVar, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -62,6 +62,9 @@ class UpdateMappingParams(ActionParams):
     List it before the import params it extends so its fields follow theirs:
     ``class UpdateCsvParams(UpdateMappingParams, ImportCsvParams)``.
     """
+
+    if TYPE_CHECKING:
+        columns: ValidatedImportColumns
 
     duplicate_key_message: ClassVar[str] = (
         "key_columns must uniquely name imported columns"
@@ -412,7 +415,7 @@ def import_csv(
                     # declarations without scanned headers retain exact matching.
                     if header is not None and source.headers is not None:
                         header = [name.strip() for name in header]
-                    if header != expected:
+                    if header is None or header != expected:
                         raise TableError(
                             "csv_header_mismatch",
                             "CSV header must match declared data columns",
