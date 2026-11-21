@@ -67,7 +67,9 @@ def test_multi_file_composite_digest_is_order_independent():
 
 
 def test_shipped_manifest_entries_are_well_formed():
-    for entry in am.all_pinned():
+    entries = list(am.all_pinned())
+    assert entries
+    for entry in entries:
         assert entry.ref
         assert entry.kind in (
             "ct2_pair",

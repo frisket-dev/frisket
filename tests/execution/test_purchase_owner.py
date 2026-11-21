@@ -111,6 +111,7 @@ def test_cancellation_after_admission_is_definitely_not_dispatched(sync):
     assert failed[0].purchase_dispatched is False
 
 
+# invariant: public router classes must not expose raw provider adapter getters
 def test_public_router_does_not_hand_out_unaccounted_provider_adapters():
     from frisket.ai.llm.router import ModelRouter
     from frisket.ai.llm.types import ModelRouterTransport

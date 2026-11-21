@@ -117,6 +117,7 @@ def test_required_media_missing_is_rejected_unless_omitted(
         assert not list(tmp_path.glob(".restored.frisket.import-*"))
     else:
         Project.import_bundle(missing, target).close()
+        assert target.exists()
 
 
 @pytest.mark.parametrize(

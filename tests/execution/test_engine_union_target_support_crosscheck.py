@@ -51,7 +51,9 @@ def _canonical_engines() -> list[tuple[str, TranscriptionEngineCapabilities]]:
 def test_every_canonical_engine_has_at_least_one_serving_target():
     """A roster engine with no serving target is unreachable dead weight —
     and would make every union check below vacuously pass, hiding drift."""
-    for engine_id, _capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, _capabilities in engines:
         rows = _target_rows_for(engine_id)
         assert rows, (
             f"engine {engine_id!r} has no TargetEngineSupport row on any "
@@ -60,7 +62,9 @@ def test_every_canonical_engine_has_at_least_one_serving_target():
 
 
 def test_vad_union_matches_authoring_declaration():
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         union_vad = any(row.options.vad for row in rows)
         assert union_vad == capabilities.vad, (
@@ -70,7 +74,9 @@ def test_vad_union_matches_authoring_declaration():
 
 
 def test_language_union_matches_authoring_declaration():
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         union_language = any(row.options.language for row in rows)
         assert union_language == capabilities.accepts_language, (
@@ -81,7 +87,9 @@ def test_language_union_matches_authoring_declaration():
 
 
 def test_context_union_matches_authoring_declaration():
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         union_context = any(row.options.context for row in rows)
         assert union_context == capabilities.context, (
@@ -96,7 +104,9 @@ def test_diarization_mode_matches_some_serving_target():
     ``execution/definitions.py``'s parakeet-tdt commentary), never a mode
     invented above what any target can do, and never silently downgraded to
     'none' while a target still diarizes."""
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         modes = {row.options.diarization_mode for row in rows}
         assert capabilities.diarization_mode in modes, (
@@ -107,7 +117,9 @@ def test_diarization_mode_matches_some_serving_target():
 
 
 def test_speaker_hint_matches_some_serving_target():
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         hints = {row.options.speaker_hint for row in rows}
         assert capabilities.speaker_hint in hints, (
@@ -128,7 +140,9 @@ def test_max_speakers_requires_an_optional_diarizing_target():
     pins the safe direction: a cap is never advertised without an optional
     diarizing target. Some optional engines do not expose a speaker-count
     input and therefore have no cap."""
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         has_optional_target = any(
             row.options.diarization_mode == "optional" for row in rows
@@ -145,7 +159,9 @@ def test_model_size_union_matches_authoring_declaration():
     half of HALT 7's per-target ``sizes`` vocabulary: a target's non-empty
     ``sizes`` tuple is what makes the size knob authorable at all, so the
     union of "some target declares sizes" must match the authored flag."""
-    for engine_id, capabilities in _canonical_engines():
+    engines = _canonical_engines()
+    assert engines
+    for engine_id, capabilities in engines:
         rows = _target_rows_for(engine_id)
         union_has_sizes = any(row.sizes for row in rows)
         assert union_has_sizes == capabilities.model_size, (

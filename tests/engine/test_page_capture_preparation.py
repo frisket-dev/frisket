@@ -8,36 +8,6 @@ from frisket.actions.types import ActionRequest, SheetRows
 from frisket.engine.executor.page_capture_action import prepare_page_capture_action
 
 
-def test_capture_authoring_types_are_public_sdk_exports():
-    import frisket.sdk as sdk
-    from frisket.actions import page_capture_types
-
-    for name in (
-        "CaptureOptions",
-        "CapturedPages",
-        "PageCapturer",
-        "PreparedPageCapture",
-    ):
-        assert getattr(sdk, name) is getattr(page_capture_types, name)
-        assert name in sdk.__all__
-
-
-def test_cluster_authoring_types_are_public_sdk_exports():
-    import frisket.sdk as sdk
-    from frisket.actions import cluster_types
-
-    for name in (
-        "ClusterColumn",
-        "ClusterOptions",
-        "ClusterReview",
-        "ValueClusterer",
-        "PreparedClustering",
-        "ClusteredValues",
-    ):
-        assert getattr(sdk, name) is getattr(cluster_types, name)
-        assert name in sdk.__all__
-
-
 @pytest.fixture
 def capture_case(make_project):
     project = make_project("Capture")

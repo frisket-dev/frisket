@@ -8,6 +8,7 @@ from frisket.sample_content.lawsuits import SAMPLE_LAWSUITS, lawsuit_pdf_bytes
 
 
 def test_sample_lawsuit_pdfs_are_searchable_and_contain_ground_truth() -> None:
+    assert SAMPLE_LAWSUITS
     for lawsuit in SAMPLE_LAWSUITS:
         reader = PdfReader(BytesIO(lawsuit_pdf_bytes(lawsuit)))
         extracted = "\n".join(page.extract_text() or "" for page in reader.pages)

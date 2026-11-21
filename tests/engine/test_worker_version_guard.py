@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import frisket.engine.jobs.runs as runs_module
 import frisket.engine.worker_version as worker_version
 from frisket.engine.jobs.queue import SqliteJobQueue, jobs_table
@@ -29,139 +31,66 @@ class TestCodeVersion:
     def _package_not_found(_distribution: str) -> str:
         raise worker_version.importlib_metadata.PackageNotFoundError
 
-    def test_git_describe_precedes_version_file_and_installed_metadata(
-        self, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        ("version_file", "git_identity", "installed_version", "expected"),
+        [
+            pytest.param(
+                "a" * 40, "git-identity", "1.2.3", "git-identity", id="git_precedes_all"
+            ),
+            pytest.param(
+                f"{'a' * 40}\n", None, "1.2.3", "a" * 40, id="sha_version_file"
+            ),
+            pytest.param(
+                None, None, "1.2.3", "1.2.3", id="installed_metadata_fallback"
+            ),
+            pytest.param(
+                f"{'a' * 40}+public.{'b' * 40}",
+                None,
+                "1.2.3",
+                f"{'a' * 40}+public.{'b' * 40}",
+                id="composite_image_identity",
+            ),
+            pytest.param(
+                "v9.9.9\n", None, "1.2.3", "1.2.3", id="malformed_version_falls_through"
+            ),
+            pytest.param(
+                b"\xff", None, "1.2.3", "1.2.3", id="invalid_utf8_falls_through"
+            ),
+            pytest.param(
+                "A" * 40, None, None, "unknown", id="malformed_and_no_metadata"
+            ),
+            pytest.param(None, None, None, "unknown", id="nothing_available"),
+        ],
+    )
+    def test_code_version_resolution_precedence(
+        self,
+        tmp_path,
+        monkeypatch,
+        version_file: str | bytes | None,
+        git_identity: str | None,
+        installed_version: str | None,
+        expected: str,
     ):
-        (tmp_path / "VERSION").write_text("a" * 40, encoding="utf-8")
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(
-            worker_version, "_git_describe", lambda _root: "git-identity"
-        )
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            lambda _distribution: "1.2.3",
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == "git-identity"
-        finally:
-            worker_version.code_version.cache_clear()
+        if isinstance(version_file, bytes):
+            (tmp_path / "VERSION").write_bytes(version_file)
+        elif isinstance(version_file, str):
+            (tmp_path / "VERSION").write_text(version_file, encoding="utf-8")
 
-    def test_version_file_sha_precedes_installed_metadata_when_git_absent(
-        self, tmp_path, monkeypatch
-    ):
-        source_sha = "a" * 40
-        (tmp_path / "VERSION").write_text(f"{source_sha}\n", encoding="utf-8")
         monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            lambda _distribution: "1.2.3",
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == source_sha
-        finally:
-            worker_version.code_version.cache_clear()
+        monkeypatch.setattr(worker_version, "_git_describe", lambda _root: git_identity)
+        if installed_version is None:
+            version_lookup = self._package_not_found
+        else:
 
-    def test_installed_package_fallback_when_git_and_version_file_absent(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            lambda distribution: "1.2.3" if distribution == "frisket-data" else None,
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == "1.2.3"
-        finally:
-            worker_version.code_version.cache_clear()
+            def version_lookup(distribution: str) -> str | None:
+                return installed_version if distribution == "frisket-data" else None
 
-    def test_composite_image_version_identity_precedes_installed_metadata(
-        self, tmp_path, monkeypatch
-    ):
-        identity = f"{'a' * 40}+public.{'b' * 40}"
-        (tmp_path / "VERSION").write_text(identity, encoding="utf-8")
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
         monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            lambda _distribution: "1.2.3",
+            worker_version.importlib_metadata, "version", version_lookup
         )
         worker_version.code_version.cache_clear()
         try:
-            assert worker_version.code_version() == identity
-        finally:
-            worker_version.code_version.cache_clear()
-
-    def test_malformed_version_file_falls_through_to_installed_metadata(
-        self, tmp_path, monkeypatch
-    ):
-        (tmp_path / "VERSION").write_text("v9.9.9\n", encoding="utf-8")
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            lambda _distribution: "1.2.3",
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == "1.2.3"
-        finally:
-            worker_version.code_version.cache_clear()
-
-    def test_invalid_utf8_version_file_falls_through_to_installed_metadata(
-        self, tmp_path, monkeypatch
-    ):
-        (tmp_path / "VERSION").write_bytes(b"\xff")
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            lambda _distribution: "1.2.3",
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == "1.2.3"
-        finally:
-            worker_version.code_version.cache_clear()
-
-    def test_malformed_version_file_and_missing_metadata_are_unknown(
-        self, tmp_path, monkeypatch
-    ):
-        (tmp_path / "VERSION").write_text("A" * 40, encoding="utf-8")
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            self._package_not_found,
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == "unknown"
-        finally:
-            worker_version.code_version.cache_clear()
-
-    def test_unknown_when_nothing_available(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(worker_version, "_repo_root", lambda: tmp_path)
-        monkeypatch.setattr(worker_version, "_git_describe", lambda root: None)
-        monkeypatch.setattr(
-            worker_version.importlib_metadata,
-            "version",
-            self._package_not_found,
-        )
-        worker_version.code_version.cache_clear()
-        try:
-            assert worker_version.code_version() == "unknown"
+            assert worker_version.code_version() == expected
         finally:
             worker_version.code_version.cache_clear()
 

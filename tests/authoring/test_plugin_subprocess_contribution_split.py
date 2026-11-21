@@ -13,6 +13,7 @@ from frisket.authoring.workbench import (
 from frisket.plugins.process_client import PluginProcessError, PluginProcessFailure
 
 
+# invariant: each contribution module defines its own public lifecycle entrypoint
 @pytest.mark.parametrize(
     ("module", "entrypoint"),
     [

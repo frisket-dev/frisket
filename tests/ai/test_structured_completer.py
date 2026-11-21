@@ -516,6 +516,7 @@ def test_health_snapshot_schema_rejects_defaults_zero():
     )
     snap = router.health_snapshot()
     # every provider row carries the counter, starting at 0.
+    assert snap["providers"]
     for prov in snap["providers"].values():
         assert prov["schema_rejects"] == 0
 

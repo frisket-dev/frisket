@@ -420,11 +420,6 @@ def test_queued_cache_factory_none_explicitly_disables_template_cache(
     queue.close()
 
 
-def test_missing_handler_registry_import_smoke() -> None:
-    # Guards the import surface the red test relies on stays public.
-    assert HandlerRegistry is not None
-
-
 # ---------------------------------------------------------------------------
 # A regression (low finding): the malformed/missing identity matrix.
 # _normalize_queue_organization_id is the fail-closed coercion the reconciliation runs
