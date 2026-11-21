@@ -823,7 +823,7 @@ def test_acquire_rolls_back_partial_claims_on_second_output_integrity_error(proj
 
     # Seed an active claim on col_b under its old name, then rename the column
     # to "beta" so acquire(["alpha", "beta"]) passes the initial active-name
-    # check, inserts "alpha", and hits idx_output_claims_active_column on "beta".
+    # check, inserts "alpha", and hits idx_generated_column_claims_active_column on "beta".
     with write_transaction(project.db):
         existing_claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,

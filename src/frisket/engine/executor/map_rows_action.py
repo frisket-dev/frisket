@@ -2001,6 +2001,14 @@ def resolve_row_output_targets(
     return names, preconditions
 
 
+def _runner_spec_expected_generated_columns(
+    runner_spec: Mapping[str, Any],
+) -> Any:
+    if "expected_generated_columns" in runner_spec:
+        return runner_spec.get("expected_generated_columns")
+    return runner_spec.get("expected_output_columns")
+
+
 def bound_typed_program_request_from_runner_spec(
     runner_spec: Mapping[str, Any],
     *,
@@ -2051,7 +2059,9 @@ def bound_typed_program_request_from_runner_spec(
                 if not field.hidden
             },
             "replace_existing": runner_spec.get("replace_existing", False),
-            "expected_generated_columns": runner_spec.get("expected_generated_columns"),
+            "expected_generated_columns": _runner_spec_expected_generated_columns(
+                runner_spec
+            ),
             "idempotency_key": "internal-run-backfill-program",
             **(
                 {
@@ -2135,7 +2145,12 @@ def typed_program_from_runner_spec(
         "evaluation_context",
         "implementation_identity",
     ):
-        if runner_spec.get(key) != expected.get(key):
+        actual = (
+            _runner_spec_expected_generated_columns(runner_spec)
+            if key == "expected_generated_columns"
+            else runner_spec.get(key)
+        )
+        if actual != expected.get(key):
             raise ValueError(f"stored typed runner spec has inconsistent {key}")
     return plan.program
 
@@ -2814,6 +2829,10 @@ def typed_request_hash(bound: BoundTypedActionRequest) -> str:
     options = resolved_engine_options(bound.action.definition.run, bound.params)
     if options is not None:
         identity["engine_options"] = options
+    if "expected_generated_columns" in identity:
+        # Receipts at rest hash the persisted precondition key; preserving it
+        # keeps producer-receipt verification and replay intact.
+        identity["expected_output_columns"] = identity.pop("expected_generated_columns")
     encoded = json.dumps(
         identity,
         sort_keys=True,

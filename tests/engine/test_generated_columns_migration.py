@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from frisket.engine.executor.action_families.runs import (
+    typed_run_has_matching_producer_receipt,
+)
+from frisket.engine.executor.map_rows_action import typed_program_from_runner_spec
 from frisket.engine.store import Project
 from frisket.engine.store import evaluation as evaluation_store
 from frisket.engine.store.current_cells import register_current_cell_functions
@@ -17,6 +22,7 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST_META_KEY,
     schema_digest,
 )
+from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.edit_precedence_migration import (
     COPY_PRECEDENCE_TO_DIGEST,
@@ -349,3 +355,119 @@ def test_generated_columns_migration_preserves_columns_claims_and_evaluation(
             apply_generated_columns_migration,
         )
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_pre_upgrade_replacement_run_keeps_receipt_hash_and_draft_reconstruction(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "legacy-replacement-bundle"
+    ids = _build_pre_upgrade_bundle(bundle)
+    sheet_id = ids["target_sheet"]
+    gen_col = ids["gen_col"]
+
+    # Seed a pre-upgrade map.python replacement run and producer receipt whose
+    # durable runner spec and params_hash use the pre-upgrade precondition key.
+    action_params = {
+        "input_columns": ["body"],
+        "code": "result = row['body']",
+        "return_schema": {"type": "string"},
+        "output_routes": [
+            {
+                "name": "summary",
+                "path": "$",
+                "target": {"kind": "column", "type": "text"},
+            }
+        ],
+    }
+    pre_upgrade_runner_spec = {
+        "action_kind": "map.python",
+        "action_version": "1",
+        "sheet_id": sheet_id,
+        "input_columns": ["body"],
+        "params": action_params,
+        "output_names": {"summary": "summary"},
+        "expected_output_columns": {"summary": gen_col},
+        "replace_existing": True,
+        "output_target_preconditions": {"summary": gen_col},
+        "overwrite": True,
+    }
+    pre_upgrade_hash_identity = {
+        "action_id": "map.python",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": None},
+        "params": action_params,
+        "output_names": {"summary": "summary"},
+        "replace_existing": True,
+        "expected_output_columns": {"summary": gen_col},
+    }
+    pre_upgrade_params_hash = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                pre_upgrade_hash_identity,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+    )
+
+    db = sqlite3.connect(bundle / "project.db")
+    try:
+        op_id = db.execute(
+            "INSERT INTO ops(kind,label,status) VALUES ('map.python','summary','applied')"
+        ).lastrowid
+        assert op_id is not None
+        run_id = db.execute(
+            "INSERT INTO runs(op_id,sheet_id,action_kind,status,params,total_rows,completed_rows) "
+            "VALUES (?,?,'map.python','completed',?,1,1)",
+            (op_id, sheet_id, json.dumps(pre_upgrade_runner_spec)),
+        ).lastrowid
+        assert run_id is not None
+        receipt_body = json.dumps(
+            {
+                "schema_version": "frisket.receipt.v1",
+                "receipt_id": "rcpt-legacy-replace",
+                "project_id": "legacy-proj",
+                "action_id": "act-legacy-replace",
+                "action_kind": "map.python",
+                "status": "completed",
+                "params_hash": pre_upgrade_params_hash,
+                "inputs": [],
+                "outputs": [],
+                "evidence": [],
+                "op_ids": [int(op_id)],
+                "run_ids": [int(run_id)],
+                "errors": [],
+                "created_at": "2026-01-01T00:00:00Z",
+                "finished_at": "2026-01-01T00:00:01Z",
+            }
+        )
+        db.execute(
+            "INSERT INTO run_output_generations("
+            "run_id,column_id,output_role,output_descriptor_json,compatibility_key,"
+            "write_mode,state,claim_token,terminal_disposition,sealed_at"
+            ") VALUES (?,?,'summary','{\"column_type\":\"text\"}','text-v1',"
+            "'replace_scope','sealed','tok-done','completed',datetime('now'))",
+            (run_id, gen_col),
+        )
+        db.execute(
+            "INSERT INTO receipts(id,run_id,action_kind,idempotency_key,params_hash,status,body) "
+            "VALUES ('rcpt-legacy-replace',?,'map.python','idem-legacy',?,'completed',?)",
+            (run_id, pre_upgrade_params_hash, receipt_body),
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    with closing(Project(bundle)) as project:
+        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        assert run is not None
+        reconstructed = reconstruct_run_action_draft(project, run)
+        assert reconstructed.bound.request.expected_generated_columns == {
+            "summary": gen_col
+        }
+        assert typed_run_has_matching_producer_receipt(
+            project, run_id=int(run_id), bound=reconstructed.bound
+        )
+        program = typed_program_from_runner_spec(project, reconstructed.runner_spec)
+        assert program is not None
