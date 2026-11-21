@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from executor_harness import run_action_with_confirmation
 from frisket.actions.grounding_types import EvidenceClaim
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import (
     media_cell,
@@ -355,7 +355,7 @@ def test_grounded_map_extract_estimate_accepts_params_without_writes(
     assert _table_count(project, "results") == 0
     assert _table_count(project, "source_artifacts") == 0
     assert _table_count(project, "source_spans") == 0
-    assert _table_count(project, "evidence_links") == 0
+    assert _table_count(project, "citations") == 0
 
 
 def test_grounded_map_extract_writes_canonical_evidence_and_replays(
@@ -417,9 +417,9 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
     # extract-model-bbox-verification-v1: an UNVERIFIED model_bbox with no
     # resolvable OCR word stream fails closed -> page_range, never an
     # authoritative region (PT 10.2 SILENTLY-WRONG #1).
-    assert link_summary["evidence_kind"] == "page_range"
+    assert link_summary["citation_kind"] == "page_range"
     assert link_summary["viewer_href"].endswith(
-        f"/evidence/links/{link_summary['stable_id']}/viewer"
+        f"/citations/{link_summary['stable_id']}/viewer"
     )
 
     viewer = resolve_citation_viewer(
@@ -475,8 +475,8 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         for table in (
             "source_artifacts",
             "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
+            "citations",
+            "citation_spans",
             "receipts",
             "results",
         )
@@ -501,8 +501,8 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
             for table in (
                 "source_artifacts",
                 "source_spans",
-                "evidence_links",
-                "evidence_link_spans",
+                "citations",
+                "citation_spans",
                 "receipts",
                 "results",
             )
@@ -700,9 +700,7 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
 
     def fail_after_grounding(self, ref, **kwargs):  # noqa: ANN001, ANN003, ANN202
         if ref.get("kind") == "map_extract_grounding_links":
-            assert (
-                self.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] > 0
-            )
+            assert self.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] > 0
             raise RuntimeError("forced receipt failure after grounding")
         return original_record(self, ref, **kwargs)
 
@@ -740,8 +738,8 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
         "cell_result_heads",
         "source_artifacts",
         "source_spans",
-        "evidence_links",
-        "evidence_link_spans",
+        "citations",
+        "citation_spans",
     ):
         assert _table_count(project, table) == 0, table
 

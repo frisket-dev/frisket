@@ -24,7 +24,7 @@ export function CellCitationsBlock({
   useEffect(() => {
     let alive = true;
     api
-      .getCellEvidence(rowId, columnId)
+      .getCellCitations(rowId, columnId)
       .then((payload) => {
         if (!alive) return;
         if (payload.links.length === 0 && payload.stale_count === 0) {
@@ -58,7 +58,7 @@ export function CellCitationsBlock({
       return;
     }
     api
-      .getCellEvidence(rowId, columnId, { includeStale: true })
+      .getCellCitations(rowId, columnId, { includeStale: true })
       .then((payload) => setState({ phase: 'ready', payload, auditOpen: true }))
       .catch(() => setState((current) => (
         current.phase === 'ready' ? { ...current, auditOpen: true } : current

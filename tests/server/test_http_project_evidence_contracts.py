@@ -13,12 +13,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from frisket.contracts.http.project_evidence import (
-    CellEvidenceResponse,
-    EvidenceViewerResponse,
+from frisket.contracts.http.project_citations import (
+    CellCitationsResponse,
+    CitationViewerResponse,
     RowSourceDocumentsResponse,
 )
-from frisket.server.routes.project_evidence import register_project_citation_routes
+from frisket.server.routes.project_citations import register_project_citation_routes
 
 
 class _EvidenceService:
@@ -31,7 +31,7 @@ class _EvidenceService:
             "lineage_stale": False,
             "unavailable_source_count": 0,
             "truncated": False,
-            "evidence_links": [],
+            "citations": [],
             "documents": [
                 {
                     "sheet_id": 2,
@@ -47,11 +47,11 @@ class _EvidenceService:
             ],
         }
 
-    def cell_evidence(
+    def cell_citations(
         self, _pid: str, *, row_id: int, column_id: int, include_stale: bool
     ) -> dict:
         return {
-            "schema_version": "frisket.cell_evidence.v1",
+            "schema_version": "frisket.cell_citations.v1",
             "sheet_id": 7,
             "row_id": row_id,
             "column_id": column_id,
@@ -63,7 +63,7 @@ class _EvidenceService:
                     "export_ref": "evidence_link:3",
                     "status": "stale" if include_stale else "active",
                     "role": "primary_support",
-                    "evidence_kind": "region",
+                    "citation_kind": "region",
                     "span_count": 1,
                     "artifact_count": 1,
                     "snippet": "contract value",
@@ -107,11 +107,11 @@ class _EvidenceService:
             ],
         }
 
-    def evidence_viewer(
+    def citation_viewer(
         self, _pid: str, _link_id: str, *, locate_current: bool = False, **_window
     ) -> dict:
         return {
-            "schema_version": "frisket.evidence_viewer.v1",
+            "schema_version": "frisket.citation_viewer.v1",
             "link": {
                 "id": 3,
                 "stable_id": "evidence_link:3",
@@ -220,11 +220,11 @@ class _EvidenceService:
             "warnings": [],
         }
 
-    def column_evidence(
+    def column_citations(
         self, _pid: str, *, sheet_id: int, column_id: int, row_ids: str | None
     ) -> dict:
         return {
-            "schema_version": "frisket.column_evidence_batch.v1",
+            "schema_version": "frisket.column_citations_batch.v1",
             "sheet_id": sheet_id,
             "column_id": column_id,
             "rows": [],
@@ -244,10 +244,10 @@ def _client() -> TestClient:
 def test_project_evidence_contracts_preserve_explicit_dynamic_json_leaves() -> None:
     client = _client()
 
-    cell = client.get("/api/projects/project-1/cells/8/9/evidence")
+    cell = client.get("/api/projects/project-1/cells/8/9/citations")
     annotations = client.get("/api/projects/project-1/cells/8/9/annotations")
-    viewer = client.get("/api/projects/project-1/evidence/links/evidence_link:3/viewer")
-    column = client.get("/api/projects/project-1/sheets/7/columns/9/evidence")
+    viewer = client.get("/api/projects/project-1/citations/evidence_link:3/viewer")
+    column = client.get("/api/projects/project-1/sheets/7/columns/9/citations")
     sources = client.get("/api/projects/project-1/rows/8/source-documents")
 
     assert cell.status_code == annotations.status_code == viewer.status_code == 200
@@ -281,20 +281,20 @@ def test_project_evidence_contracts_preserve_explicit_dynamic_json_leaves() -> N
     ],
 )
 def test_evidence_viewer_preserves_current_writer_metadata(producer: dict) -> None:
-    payload = _EvidenceService().evidence_viewer("project-1", "evidence_link:3")
+    payload = _EvidenceService().citation_viewer("project-1", "evidence_link:3")
     payload["link"]["producer"] = producer
-    response = EvidenceViewerResponse.model_validate(payload)
+    response = CitationViewerResponse.model_validate(payload)
     assert response.model_dump(exclude_unset=True)["link"]["producer"] == producer
 
 
 def test_project_evidence_contracts_reject_unknown_envelope_fields() -> None:
-    payload = _EvidenceService().cell_evidence(
+    payload = _EvidenceService().cell_citations(
         "project-1", row_id=8, column_id=9, include_stale=False
     )
     payload["unexpected"] = True
 
     try:
-        CellEvidenceResponse.model_validate(payload)
+        CellCitationsResponse.model_validate(payload)
     except ValidationError as exc:
         assert exc.errors()[0]["loc"] == ("unexpected",)
         assert exc.errors()[0]["type"] == "extra_forbidden"
@@ -315,25 +315,25 @@ def test_project_evidence_openapi_names_the_json_read_models() -> None:
     document = _app().openapi()
 
     paths = document["paths"]
-    assert paths["/api/projects/{pid}/cells/{row_id}/{column_id}/evidence"]["get"][
+    assert paths["/api/projects/{pid}/cells/{row_id}/{column_id}/citations"]["get"][
         "responses"
     ]["200"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/CellEvidenceResponse"
+        "$ref": "#/components/schemas/CellCitationsResponse"
     }
     assert paths["/api/projects/{pid}/cells/{row_id}/{column_id}/annotations"]["get"][
         "responses"
     ]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/CellTextAnnotationsResponse"
     }
-    assert paths["/api/projects/{pid}/evidence/links/{evidence_link_id}/viewer"]["get"][
+    assert paths["/api/projects/{pid}/citations/{citation_id}/viewer"]["get"][
         "responses"
     ]["200"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/EvidenceViewerResponse"
+        "$ref": "#/components/schemas/CitationViewerResponse"
     }
-    assert paths["/api/projects/{pid}/sheets/{sheet_id}/columns/{column_id}/evidence"][
+    assert paths["/api/projects/{pid}/sheets/{sheet_id}/columns/{column_id}/citations"][
         "get"
     ]["responses"]["200"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ColumnEvidenceResponse"
+        "$ref": "#/components/schemas/ColumnCitationsResponse"
     }
     assert paths["/api/projects/{pid}/rows/{row_id}/source-documents"]["get"][
         "responses"
@@ -342,10 +342,10 @@ def test_project_evidence_openapi_names_the_json_read_models() -> None:
     }
     components = document["components"]["schemas"]
     for name in (
-        "CellEvidenceResponse",
-        "EvidenceProducer",
-        "EvidenceSourceCell",
-        "EvidenceViewerArtifact",
+        "CellCitationsResponse",
+        "CitationProducer",
+        "CitationSourceCell",
+        "CitationViewerArtifact",
         "TextAnnotationCounts",
         "TextAnnotationSpanMetadata",
         "TextAnnotationUnpositioned",

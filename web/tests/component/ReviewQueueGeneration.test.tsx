@@ -46,7 +46,7 @@ function page(name: string): ReviewBundlePage {
         note: null, reviewState: name === 'reviewed' ? 'verified' : 'unreviewed',
         role: 'field', chore: name !== 'reviewed',
       }],
-      evidence: [],
+      supportingColumns: [],
     }],
   };
 }

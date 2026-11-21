@@ -59,6 +59,10 @@ from frisket.upgrades.project.edit_precedence_migration import (
     EDIT_PRECEDENCE_TO_DIGEST,
     apply_edit_precedence,
 )
+from frisket.upgrades.project.citations_migration import (
+    CITATIONS_TO_DIGEST,
+    migrate_citations,
+)
 from frisket.upgrades.project.research_pause_migration import (
     RESEARCH_PAUSE_TO_DIGEST,
     apply_research_pause,
@@ -177,6 +181,13 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     # the final step's destination digest whenever appending a new step.
     run_step(
         db, CONSENT_ESTIMATE_TO_DIGEST, RESEARCH_PAUSE_TO_DIGEST, apply_research_pause
+    )
+    run_rebuild_step(
+        db,
+        RESEARCH_PAUSE_TO_DIGEST,
+        CITATIONS_TO_DIGEST,
+        migrate_citations,
+        bundle_path=bundle_path,
     )
 
 

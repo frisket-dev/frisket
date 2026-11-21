@@ -10,7 +10,7 @@ import { AnswersView } from '../../src/workbench/AnswersView';
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({
-    projectApi: { getColumnEvidence: () => Promise.resolve({ rows: [] }) },
+    projectApi: { getColumnCitations: () => Promise.resolve({ rows: [] }) },
   }),
 }));
 

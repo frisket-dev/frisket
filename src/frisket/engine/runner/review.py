@@ -542,7 +542,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 if result is not None and result.bounded_justification is not None
                 else None
             )
-            role = "field" if bool(cell["is_primary"]) else "evidence"
+            role = "field" if bool(cell["is_primary"]) else "supporting"
             item = {
                 "run_id": cell["run_id"],
                 "row_id": cell["row_id"],
@@ -606,7 +606,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                     None,
                 ),
                 "fields": fields,
-                "evidence": evidence,
+                "supporting_columns": evidence,
                 "items": items,
             }
         )

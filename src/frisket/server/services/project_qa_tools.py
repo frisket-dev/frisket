@@ -387,7 +387,7 @@ class ProjectQATools:
             ):
                 continue
             if (
-                citation["source_kind"] != "evidence"
+                citation["source_kind"] != "citation"
                 and (locator.get("navigation") or {}).get("kind") != "document"
             ):
                 continue
@@ -621,9 +621,9 @@ class ProjectQATools:
                     read_source_with_prepared(
                         self.project,
                         source_cell,
-                        evidence_link_id=(
-                            str(prepared_target["evidence_link_id"])
-                            if prepared_target["evidence_link_id"] is not None
+                        citation_id=(
+                            str(prepared_target["citation_id"])
+                            if prepared_target["citation_id"] is not None
                             else None
                         ),
                         cancel=self.cancel_event,
@@ -651,7 +651,9 @@ class ProjectQATools:
                 if source_dependency not in dependency_payload:
                     dependency_payload.append(source_dependency)
             payload = _search_hit_payload(self.project, hit, column=dict(column))
-            evidence = self._retrieval_evidence(payload["navigation"], source_cell)
+            citation_target = self._retrieval_citation(
+                payload["navigation"], source_cell
+            )
             location = payload["location"]
             text_range = location.get("text")
             locator = {
@@ -685,14 +687,12 @@ class ProjectQATools:
                             "column_id": binding_cell[2],
                         },
                         "prepared_value_ref": current["value_ref"],
-                        "prepared_evidence_link_id": prepared_target[
-                            "evidence_link_id"
-                        ],
+                        "prepared_citation_id": prepared_target["citation_id"],
                     }
                     if prepared_target is not None
                     else {}
                 ),
-                **(evidence or {}),
+                **(citation_target or {}),
             }
             fts_anchor = self._retrieval_fts_anchor(query, hit)
             citation = self._source_handle_in_transaction(
@@ -702,7 +702,7 @@ class ProjectQATools:
                         f"· row {source_cell[1]} "
                         f"· {column['name']}"
                     ),
-                    source_kind="evidence" if evidence else "cell",
+                    source_kind="citation" if citation_target else "cell",
                     locator=locator,
                     excerpt=hit.snippet or "",
                     metadata={
@@ -743,24 +743,24 @@ class ProjectQATools:
         anchor = unescape(snippet[start + 3 : end]).strip()
         return anchor or None
 
-    def _retrieval_evidence(
+    def _retrieval_citation(
         self, navigation: Mapping[str, Any], cell: tuple[int, int, int]
     ) -> dict[str, Any] | None:
         """Use the passage chosen by shared search navigation, never the first span."""
-        if navigation["kind"] != "evidence":
+        if navigation["kind"] != "citation":
             return None
         row = self.project.db.execute(
-            "SELECT l.stable_id AS evidence_link_id,"
+            "SELECT l.stable_id AS citation_id,"
             "a.stable_id AS artifact_id,sp.stable_id AS span_id "
             "FROM source_spans sp "
             "JOIN source_artifacts a ON a.id=sp.artifact_id "
-            "JOIN evidence_link_spans els ON els.span_id=sp.id "
-            "JOIN evidence_links l ON l.id=els.link_id "
+            "JOIN citation_spans cs ON cs.span_id=sp.id "
+            "JOIN citations l ON l.id=cs.citation_id "
             "WHERE sp.stable_id=? AND l.stable_id=? AND l.status='active' "
             "AND ((a.source_sheet_id=? AND a.source_row_id=? "
             "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
             "AND l.column_id=?)) LIMIT 1",
-            (navigation["span_id"], navigation["evidence_link_id"], *cell, *cell),
+            (navigation["span_id"], navigation["citation_id"], *cell, *cell),
         ).fetchone()
         if row is None:
             return None
@@ -980,7 +980,7 @@ class ProjectQATools:
         locator = citation["locator"]
         if citation["source_kind"] == "query":
             self._query_scope(locator["query"], output_grants=output_grants)
-        elif citation["source_kind"] in {"cell", "evidence"}:
+        elif citation["source_kind"] in {"cell", "citation"}:
             sheet_id, row_id, column_id = (
                 int(locator[key]) for key in ("sheet_id", "row_id", "column_id")
             )
@@ -1072,11 +1072,11 @@ class ProjectQATools:
         return read_source_with_prepared(
             self.project,
             source_cell,
-            evidence_link_id=(
-                locator.get("prepared_evidence_link_id")
+            citation_id=(
+                locator.get("prepared_citation_id")
                 or (
-                    locator.get("evidence_link_id")
-                    if citation["source_kind"] == "evidence"
+                    locator.get("citation_id")
+                    if citation["source_kind"] == "citation"
                     else None
                 )
             ),
@@ -1209,7 +1209,7 @@ class ProjectQATools:
                         "column_id": cell[2],
                     },
                     "prepared_value_ref": observed["value_ref"],
-                    "prepared_evidence_link_id": prepared_source["evidence_link_id"],
+                    "prepared_citation_id": prepared_source["citation_id"],
                 }
                 if prepared_source
                 else {}
@@ -1231,10 +1231,10 @@ class ProjectQATools:
                 start=observed["range"]["start"],
                 end=observed["range"]["end"],
                 limit=room,
-                evidence_link_id=(
-                    prepared_source["evidence_link_id"]
+                citation_id=(
+                    prepared_source["citation_id"]
                     if prepared_source
-                    else locator.get("evidence_link_id")
+                    else locator.get("citation_id")
                 ),
                 span_id=locator.get("span_id"),
                 cancel=self.cancel_event,
@@ -1243,25 +1243,22 @@ class ProjectQATools:
             else []
         )
         for span in prepared_passages:
-            evidence_locator = {
+            citation_locator = {
                 **current_locator,
-                **{
-                    key: span[key]
-                    for key in ("evidence_link_id", "artifact_id", "span_id")
-                },
+                **{key: span[key] for key in ("citation_id", "artifact_id", "span_id")},
             }
             prepared = self._source_handle(
                 label=f"Prepared citation · {span['title'] or citation['label']}",
-                source_kind="evidence",
-                locator=evidence_locator,
+                source_kind="citation",
+                locator=citation_locator,
                 excerpt=span["text"],
             )
             passages.append(
                 {
+                    **citation_locator,
                     "kind": "prepared_evidence",
                     "citation_id": prepared["id"],
                     "text": span["text"],
-                    **evidence_locator,
                     **{
                         key: span[key]
                         for key in (
@@ -1297,7 +1294,7 @@ class ProjectQATools:
         self, citation_id: str, literal: str, cursor: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         citation = self._source_citation(citation_id, self._current_output_grants())
-        if citation["source_kind"] not in {"cell", "evidence"}:
+        if citation["source_kind"] not in {"cell", "citation"}:
             raise ValueError("literal find requires a project text source")
         if not self._research and self._source_chars >= 64_000:
             return {
@@ -1339,9 +1336,7 @@ class ProjectQATools:
                                 "column_id": cell[2],
                             },
                             "prepared_value_ref": result["value_ref"],
-                            "prepared_evidence_link_id": prepared_source[
-                                "evidence_link_id"
-                            ],
+                            "prepared_citation_id": prepared_source["citation_id"],
                         }
                         if prepared_source
                         else {}

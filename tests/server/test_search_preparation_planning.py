@@ -6,7 +6,7 @@ import pytest
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -481,7 +481,7 @@ def test_transcript_result_requires_exact_current_output_value_ref(
     )
     # Preserve the historical marker to prove status alone is insufficient.
     project.db.execute(
-        "UPDATE evidence_links SET status='active',stale_reason=NULL,stale_at=NULL "
+        "UPDATE citations SET status='active',stale_reason=NULL,stale_at=NULL "
         "WHERE stable_id=?",
         (seeded["evidence_stable_id"],),
     )

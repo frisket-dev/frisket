@@ -511,9 +511,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "tenant.cell_evidence.get",
+      "id": "tenant.cell_citations.get",
       "method": "GET",
-      "path": "/api/projects/{pid}/cells/{row_id}/{column_id}/evidence",
+      "path": "/api/projects/{pid}/cells/{row_id}/{column_id}/citations",
       "request": null
     },
     {
@@ -529,6 +529,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.citation_viewer.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/citations/{citation_id}/viewer",
+      "request": null
+    },
+    {
       "id": "tenant.cluster_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/clusters/v1/preview",
@@ -538,9 +544,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.column_evidence.get",
+      "id": "tenant.column_citations.get",
       "method": "GET",
-      "path": "/api/projects/{pid}/sheets/{sheet_id}/columns/{column_id}/evidence",
+      "path": "/api/projects/{pid}/sheets/{sheet_id}/columns/{column_id}/citations",
       "request": null
     },
     {
@@ -1130,12 +1136,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "application/json",
         "required": true
       }
-    },
-    {
-      "id": "tenant.evidence_viewer.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/evidence/links/{evidence_link_id}/viewer",
-      "request": null
     },
     {
       "id": "tenant.extraction_document_get.get",
@@ -4090,6 +4090,17 @@ export type HttpArtifactUninstallRequest = ({
   [key: string]: JsonValue | (string);
 });
 
+type HttpAskCitation_AskCellCitationTarget = ({
+  "artifact_id": (string);
+  "citation_id": (string);
+  "column_id": (number);
+  "kind": ("cell_citation") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "span_id": (string);
+  "span_ids"?: (Array<(string)>);
+});
+
 type HttpAskCitation_AskCellTarget = ({
   "column_id": (number);
   "kind": ("cell") & (string);
@@ -4097,17 +4108,6 @@ type HttpAskCitation_AskCellTarget = ({
   "row_id": (number);
   "sheet_id": (number);
   "text_range"?: (((HttpAskCitation_ProjectSearchTextRange)) | ((null)));
-});
-
-type HttpAskCitation_AskEvidenceTarget = ({
-  "artifact_id": (string);
-  "column_id": (number);
-  "evidence_link_id": (string);
-  "kind": ("evidence") & (string);
-  "row_id": (number);
-  "sheet_id": (number);
-  "span_id": (string);
-  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskCitation_AskQueryTarget = ({
@@ -4155,7 +4155,18 @@ export type HttpAskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((((HttpAskCitation_AskCellTarget)) | ((HttpAskCitation_AskQueryTarget)) | ((HttpAskCitation_AskEvidenceTarget)) | ((HttpAskCitation_AskWebTarget)))) | ((null)));
+  "target": (((((HttpAskCitation_AskCellTarget)) | ((HttpAskCitation_AskQueryTarget)) | ((HttpAskCitation_AskCellCitationTarget)) | ((HttpAskCitation_AskWebTarget)))) | ((null)));
+});
+
+type HttpAskEventsPage_AskCellCitationTarget = ({
+  "artifact_id": (string);
+  "citation_id": (string);
+  "column_id": (number);
+  "kind": ("cell_citation") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "span_id": (string);
+  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskEventsPage_AskCellTarget = ({
@@ -4174,7 +4185,7 @@ type HttpAskEventsPage_AskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((((HttpAskEventsPage_AskCellTarget)) | ((HttpAskEventsPage_AskQueryTarget)) | ((HttpAskEventsPage_AskEvidenceTarget)) | ((HttpAskEventsPage_AskWebTarget)))) | ((null)));
+  "target": (((((HttpAskEventsPage_AskCellTarget)) | ((HttpAskEventsPage_AskQueryTarget)) | ((HttpAskEventsPage_AskCellCitationTarget)) | ((HttpAskEventsPage_AskWebTarget)))) | ((null)));
 });
 
 type HttpAskEventsPage_AskEvent = ({
@@ -4187,17 +4198,6 @@ type HttpAskEventsPage_AskEvent = ({
   "seq": (number);
   "thread_id": (string);
   "turn_id": (string);
-});
-
-type HttpAskEventsPage_AskEvidenceTarget = ({
-  "artifact_id": (string);
-  "column_id": (number);
-  "evidence_link_id": (string);
-  "kind": ("evidence") & (string);
-  "row_id": (number);
-  "sheet_id": (number);
-  "span_id": (string);
-  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskEventsPage_AskFileSource = ({
@@ -4447,6 +4447,17 @@ export type HttpAskThreadCreate = ({
   "web"?: (boolean);
 });
 
+type HttpAskThreadDetail_AskCellCitationTarget = ({
+  "artifact_id": (string);
+  "citation_id": (string);
+  "column_id": (number);
+  "kind": ("cell_citation") & (string);
+  "row_id": (number);
+  "sheet_id": (number);
+  "span_id": (string);
+  "span_ids"?: (Array<(string)>);
+});
+
 type HttpAskThreadDetail_AskCellTarget = ({
   "column_id": (number);
   "kind": ("cell") & (string);
@@ -4463,7 +4474,7 @@ type HttpAskThreadDetail_AskCitation = ({
   "message": (((string)) | ((null)));
   "source_kind": (string);
   "status": ("current" | "changed" | "unverified" | "unavailable") & (string);
-  "target": (((((HttpAskThreadDetail_AskCellTarget)) | ((HttpAskThreadDetail_AskQueryTarget)) | ((HttpAskThreadDetail_AskEvidenceTarget)) | ((HttpAskThreadDetail_AskWebTarget)))) | ((null)));
+  "target": (((((HttpAskThreadDetail_AskCellTarget)) | ((HttpAskThreadDetail_AskQueryTarget)) | ((HttpAskThreadDetail_AskCellCitationTarget)) | ((HttpAskThreadDetail_AskWebTarget)))) | ((null)));
 });
 
 type HttpAskThreadDetail_AskEvent = ({
@@ -4483,17 +4494,6 @@ type HttpAskThreadDetail_AskEventsPage = ({
   "cursor": (number);
   "events": (Array<(HttpAskThreadDetail_AskEvent)>);
   "has_more": (boolean);
-});
-
-type HttpAskThreadDetail_AskEvidenceTarget = ({
-  "artifact_id": (string);
-  "column_id": (number);
-  "evidence_link_id": (string);
-  "kind": ("evidence") & (string);
-  "row_id": (number);
-  "sheet_id": (number);
-  "span_id": (string);
-  "span_ids"?: (Array<(string)>);
 });
 
 type HttpAskThreadDetail_AskFileSource = ({
@@ -4859,9 +4859,9 @@ export type HttpBulkImportPlanResponse = ({
   "questions": (Array<(HttpBulkImportPlanResponse_BulkImportQuestion)>);
 });
 
-type HttpCellEvidenceResponse_EvidenceLinkSummary = ({
+type HttpCellCitationsResponse_CitationSummary = ({
   "artifact_count": (number);
-  "evidence_kind": (string);
+  "citation_kind": (string);
   "export_ref": (string);
   "id": (number);
   "role": (string);
@@ -4872,19 +4872,19 @@ type HttpCellEvidenceResponse_EvidenceLinkSummary = ({
   "viewer_href": (string);
 });
 
-type HttpCellEvidenceResponse_JsonValue = JsonValue;
+type HttpCellCitationsResponse_JsonValue = JsonValue;
 
-export type HttpCellEvidenceResponse = ({
+export type HttpCellCitationsResponse = ({
   "column_id": (number);
-  "current_value_ref": (((HttpCellEvidenceResponse_JsonValue)) | ((null)));
-  "links": (Array<(HttpCellEvidenceResponse_EvidenceLinkSummary)>);
+  "current_value_ref": (((HttpCellCitationsResponse_JsonValue)) | ((null)));
+  "links": (Array<(HttpCellCitationsResponse_CitationSummary)>);
   "row_id": (number);
-  "schema_version": ("frisket.cell_evidence.v1") & (string);
+  "schema_version": ("frisket.cell_citations.v1") & (string);
   "sheet_id": (number);
   "stale_count": (number);
 });
 
-type HttpCellTextAnnotationsResponse_EvidenceTextWindow = ({
+type HttpCellTextAnnotationsResponse_CitationTextWindow = ({
   "end": (number);
   "next_start": (((number)) | ((null)));
   "previous_start": (((number)) | ((null)));
@@ -4952,7 +4952,7 @@ export type HttpCellTextAnnotationsResponse = ({
   "row_id": (number);
   "sheet_id": (number);
   "text": (((string)) | ((null)));
-  "window"?: (((HttpCellTextAnnotationsResponse_EvidenceTextWindow)) | ((null)));
+  "window"?: (((HttpCellTextAnnotationsResponse_CitationTextWindow)) | ((null)));
 });
 
 type HttpCellTextWindow_CellTextWindowRange = ({
@@ -4974,6 +4974,217 @@ export type HttpCellTextWindow = ({
   "total_bytes": (number);
   "total_characters": (number);
   "value_kind": ("text" | "json" | "bigint" | "legacy_invalid") & (string);
+});
+
+type HttpCitationViewerResponse_CitationArtifactReference = ({
+  "artifact_kind": (string);
+  "blob": (((HttpCitationViewerResponse_CitationBlobReference)) | ((null)));
+  "external_ref": (HttpCitationViewerResponse_JsonValue);
+  "kind": ("source_artifact") & (string);
+  "media_type": (string);
+  "source_url": (((string)) | ((null)));
+  "stable_id": (string);
+});
+
+type HttpCitationViewerResponse_CitationBlobReference = ({
+  "filename": (((string)) | ((null)));
+  "hash": (string);
+  "url": (string);
+});
+
+type HttpCitationViewerResponse_CitationPageImage = ({
+  "blob_hash": (string);
+  "height": (((number)) | ((null)));
+  "url": (string);
+  "width": (((number)) | ((null)));
+});
+
+type HttpCitationViewerResponse_CitationPageRegion = ({
+  "bbox": (HttpCitationViewerResponse_JsonValue);
+  "id": (number);
+  "raw": (HttpCitationViewerResponse_JsonValue);
+  "snippet": (((string)) | ((null)));
+  "stable_id": (string);
+});
+
+type HttpCitationViewerResponse_CitationProducer = ({
+  "action_kind"?: (((string)) | ((null)));
+  "capability"?: (((string)) | ((null)));
+  "engine"?: (((string)) | ((null)));
+  "field"?: (((string)) | ((null)));
+  "grounding_method"?: (((string)) | ((null)));
+  "item_index"?: (((number)) | ((null)));
+  "kind"?: (((string)) | ((null)));
+  "model"?: (((string)) | ((null)));
+  "model_call_id"?: (((number)) | ((null)));
+  "output_role"?: (((string)) | ((null)));
+  "project_id"?: (((string)) | ((null)));
+  "projection_version"?: (((string)) | ((null)));
+  "render_mode"?: (((string)) | ((null)));
+  "repointed_from_link_id"?: (((number)) | ((null)));
+  "repointed_from_row_id"?: (((number)) | ((null)));
+  "schema_version"?: (((string)) | ((null)));
+  "source"?: (((string)) | ((null)));
+  "source_action_kind"?: (((string)) | ((null)));
+  "source_row_id"?: (((number)) | ((null)));
+  "value_hash"?: (((string)) | ((null)));
+  "warnings"?: (((Array<(string)>)) | ((null)));
+});
+
+type HttpCitationViewerResponse_CitationSourceCell = ({
+  "column_id": (((number)) | ((null)));
+  "row_id": (((number)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+});
+
+type HttpCitationViewerResponse_CitationTemporalRun = ({
+  "clip_url": (((string)) | ((null)));
+  "end_ms": (number);
+  "index": (number);
+  "span_ids": (Array<(string)>);
+  "start_ms": (number);
+});
+
+type HttpCitationViewerResponse_CitationTextContext = ({
+  "artifact_stable_id"?: (((string)) | ((null)));
+  "citation_id"?: (((string)) | ((null)));
+  "content_hash"?: (((string)) | ((null)));
+  "offset_unit": ("utf16_code_unit") & (string);
+  "ranges": (Array<(HttpCitationViewerResponse_CitationTextRange)>);
+  "recovered"?: (boolean);
+  "text": (string);
+  "transcript"?: (((HttpCitationViewerResponse_CitationTranscriptContext)) | ((null)));
+  "window"?: (((HttpCitationViewerResponse_CitationTextWindow)) | ((null)));
+});
+
+type HttpCitationViewerResponse_CitationTextRange = ({
+  "end": (number);
+  "source_end"?: (((number)) | ((null)));
+  "source_start"?: (((number)) | ((null)));
+  "span_id": (string);
+  "start": (number);
+});
+
+type HttpCitationViewerResponse_CitationTextWindow = ({
+  "end": (number);
+  "next_start": (((number)) | ((null)));
+  "previous_start": (((number)) | ((null)));
+  "reached_end": (boolean);
+  "reached_start": (boolean);
+  "retrieval_revision": (((number)) | ((null)));
+  "start": (number);
+  "total_bytes": (number);
+  "total_characters": (number);
+});
+
+type HttpCitationViewerResponse_CitationTranscriptContext = ({
+  "artifact_stable_id": (string);
+  "evidence_link_stable_id": (string);
+  "offset_unit": ("utf16_code_unit") & (string);
+  "schema_version": ("frisket.timestamped_text_context.v1") & (string);
+  "segments": (Array<(HttpCitationViewerResponse_CitationTranscriptSegment)>);
+});
+
+type HttpCitationViewerResponse_CitationTranscriptSegment = ({
+  "end": (number);
+  "end_ms": (number);
+  "source_end"?: (((number)) | ((null)));
+  "source_start"?: (((number)) | ((null)));
+  "span_id": (string);
+  "speaker"?: (((string)) | ((null)));
+  "start": (number);
+  "start_ms": (number);
+});
+
+type HttpCitationViewerResponse_CitationViewerArtifact = ({
+  "artifact_kind": (string);
+  "artifact_ref": (HttpCitationViewerResponse_CitationArtifactReference);
+  "canonical_url": (((string)) | ((null)));
+  "duration_ms": (((number)) | ((null)));
+  "export_ref": (string);
+  "external_ref": (HttpCitationViewerResponse_JsonValue);
+  "filename": (((string)) | ((null)));
+  "id": (number);
+  "media_type": (string);
+  "metadata": (HttpCitationViewerResponse_JsonValue);
+  "page_count": (((number)) | ((null)));
+  "pages": (Array<(HttpCitationViewerResponse_CitationViewerPage)>);
+  "recovery_notice"?: (((string)) | ((null)));
+  "recovery_scanned_characters"?: (((number)) | ((null)));
+  "recovery_status"?: ((("located" | "not_found" | "unsupported" | "incomplete") & (string)) | ((null)));
+  "runs": (Array<(HttpCitationViewerResponse_CitationTemporalRun)>);
+  "source_cell": (((HttpCitationViewerResponse_CitationSourceCell)) | ((null)));
+  "source_url": (((string)) | ((null)));
+  "spans": (Array<(HttpCitationViewerResponse_CitationViewerSpan)>);
+  "stable_id": (string);
+  "text_context"?: (((HttpCitationViewerResponse_CitationTextContext)) | ((null)));
+  "text_context_status"?: ((("available" | "stale") & (string)) | ((null)));
+  "title": (((string)) | ((null)));
+});
+
+type HttpCitationViewerResponse_CitationViewerLink = ({
+  "column_id": (((number)) | ((null)));
+  "confidence": (((number)) | ((null)));
+  "created_at": (string);
+  "export_ref": (string);
+  "id": (number);
+  "item_index"?: (((number)) | ((null)));
+  "op_id": (((number)) | ((null)));
+  "pinned": (boolean);
+  "producer": (HttpCitationViewerResponse_CitationProducer);
+  "receipt_id": (((string)) | ((null)));
+  "role": (string);
+  "row_id": (((number)) | ((null)));
+  "run_id": (((number)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "stable_id": (string);
+  "stale_at": (((string)) | ((null)));
+  "stale_reason": (((string)) | ((null)));
+  "status": (string);
+  "subject_kind": (string);
+  "subject_ref": (HttpCitationViewerResponse_JsonValue);
+  "text_layer_hash_mismatch": (boolean);
+});
+
+type HttpCitationViewerResponse_CitationViewerPage = ({
+  "image": (((HttpCitationViewerResponse_CitationPageImage)) | ((null)));
+  "page": (number);
+  "regions": (Array<(HttpCitationViewerResponse_CitationPageRegion)>);
+  "render_url"?: (((string)) | ((null)));
+  "text": (((string)) | ((null)));
+});
+
+type HttpCitationViewerResponse_CitationViewerSpan = ({
+  "clip_url": (((string)) | ((null)));
+  "deep_link_url": (((string)) | ((null)));
+  "export_ref": (string);
+  "id": (number);
+  "note": (((string)) | ((null)));
+  "preview": (HttpCitationViewerResponse_JsonValue);
+  "quote": (((string)) | ((null)));
+  "quote_truncated"?: (boolean);
+  "rank": (number);
+  "raw": (HttpCitationViewerResponse_JsonValue);
+  "required": (boolean);
+  "run_index": (((number)) | ((null)));
+  "selector": (HttpCitationViewerResponse_JsonValue);
+  "snippet": (((string)) | ((null)));
+  "snippet_truncated"?: (boolean);
+  "span_kind": (string);
+  "span_role": (string);
+  "stable_id": (string);
+  "status": (string);
+  "text_layer_hash": (((string)) | ((null)));
+  "warnings": (Array<(string)>);
+});
+
+type HttpCitationViewerResponse_JsonValue = JsonValue;
+
+export type HttpCitationViewerResponse = ({
+  "artifacts": (Array<(HttpCitationViewerResponse_CitationViewerArtifact)>);
+  "link": (HttpCitationViewerResponse_CitationViewerLink);
+  "schema_version": ("frisket.citation_viewer.v1") & (string);
+  "warnings": (Array<(string)>);
 });
 
 export type HttpClientErrorAccepted = ({
@@ -5167,14 +5378,9 @@ export type HttpClusterPreviewResponse = ({
   [key: string]: (HttpClusterPreviewResponse_JsonValue) | (Array<(HttpClusterPreviewResponse_ClusterPreviewGroup)>) | (string) | (number) | ("fingerprint" | "ngram_fingerprint" | "semantic") & (string) | ("frisket.cluster_preview.v1") & (string) | (boolean);
 });
 
-type HttpColumnEvidenceResponse_ColumnEvidenceRow = ({
-  "links": (Array<(HttpColumnEvidenceResponse_EvidenceLinkSummary)>);
-  "row_id": (number);
-});
-
-type HttpColumnEvidenceResponse_EvidenceLinkSummary = ({
+type HttpColumnCitationsResponse_CitationSummary = ({
   "artifact_count": (number);
-  "evidence_kind": (string);
+  "citation_kind": (string);
   "export_ref": (string);
   "id": (number);
   "role": (string);
@@ -5185,10 +5391,15 @@ type HttpColumnEvidenceResponse_EvidenceLinkSummary = ({
   "viewer_href": (string);
 });
 
-export type HttpColumnEvidenceResponse = ({
+type HttpColumnCitationsResponse_ColumnCitationsRow = ({
+  "links": (Array<(HttpColumnCitationsResponse_CitationSummary)>);
+  "row_id": (number);
+});
+
+export type HttpColumnCitationsResponse = ({
   "column_id": (number);
-  "rows": (Array<(HttpColumnEvidenceResponse_ColumnEvidenceRow)>);
-  "schema_version": ("frisket.column_evidence_batch.v1") & (string);
+  "rows": (Array<(HttpColumnCitationsResponse_ColumnCitationsRow)>);
+  "schema_version": ("frisket.column_citations_batch.v1") & (string);
   "sheet_id": (number);
 });
 
@@ -6344,217 +6555,6 @@ export type HttpEvaluationResponse = ({
 });
   "sheet_id": (number);
   "variants": (Array<(HttpEvaluationResponse_EvaluationVariant)>);
-});
-
-type HttpEvidenceViewerResponse_EvidenceArtifactReference = ({
-  "artifact_kind": (string);
-  "blob": (((HttpEvidenceViewerResponse_EvidenceBlobReference)) | ((null)));
-  "external_ref": (HttpEvidenceViewerResponse_JsonValue);
-  "kind": ("source_artifact") & (string);
-  "media_type": (string);
-  "source_url": (((string)) | ((null)));
-  "stable_id": (string);
-});
-
-type HttpEvidenceViewerResponse_EvidenceBlobReference = ({
-  "filename": (((string)) | ((null)));
-  "hash": (string);
-  "url": (string);
-});
-
-type HttpEvidenceViewerResponse_EvidencePageImage = ({
-  "blob_hash": (string);
-  "height": (((number)) | ((null)));
-  "url": (string);
-  "width": (((number)) | ((null)));
-});
-
-type HttpEvidenceViewerResponse_EvidencePageRegion = ({
-  "bbox": (HttpEvidenceViewerResponse_JsonValue);
-  "id": (number);
-  "raw": (HttpEvidenceViewerResponse_JsonValue);
-  "snippet": (((string)) | ((null)));
-  "stable_id": (string);
-});
-
-type HttpEvidenceViewerResponse_EvidenceProducer = ({
-  "action_kind"?: (((string)) | ((null)));
-  "capability"?: (((string)) | ((null)));
-  "engine"?: (((string)) | ((null)));
-  "field"?: (((string)) | ((null)));
-  "grounding_method"?: (((string)) | ((null)));
-  "item_index"?: (((number)) | ((null)));
-  "kind"?: (((string)) | ((null)));
-  "model"?: (((string)) | ((null)));
-  "model_call_id"?: (((number)) | ((null)));
-  "output_role"?: (((string)) | ((null)));
-  "project_id"?: (((string)) | ((null)));
-  "projection_version"?: (((string)) | ((null)));
-  "render_mode"?: (((string)) | ((null)));
-  "repointed_from_link_id"?: (((number)) | ((null)));
-  "repointed_from_row_id"?: (((number)) | ((null)));
-  "schema_version"?: (((string)) | ((null)));
-  "source"?: (((string)) | ((null)));
-  "source_action_kind"?: (((string)) | ((null)));
-  "source_row_id"?: (((number)) | ((null)));
-  "value_hash"?: (((string)) | ((null)));
-  "warnings"?: (((Array<(string)>)) | ((null)));
-});
-
-type HttpEvidenceViewerResponse_EvidenceSourceCell = ({
-  "column_id": (((number)) | ((null)));
-  "row_id": (((number)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-});
-
-type HttpEvidenceViewerResponse_EvidenceTemporalRun = ({
-  "clip_url": (((string)) | ((null)));
-  "end_ms": (number);
-  "index": (number);
-  "span_ids": (Array<(string)>);
-  "start_ms": (number);
-});
-
-type HttpEvidenceViewerResponse_EvidenceTextContext = ({
-  "artifact_stable_id"?: (((string)) | ((null)));
-  "content_hash"?: (((string)) | ((null)));
-  "evidence_link_id"?: (((string)) | ((null)));
-  "offset_unit": ("utf16_code_unit") & (string);
-  "ranges": (Array<(HttpEvidenceViewerResponse_EvidenceTextRange)>);
-  "recovered"?: (boolean);
-  "text": (string);
-  "transcript"?: (((HttpEvidenceViewerResponse_EvidenceTranscriptContext)) | ((null)));
-  "window"?: (((HttpEvidenceViewerResponse_EvidenceTextWindow)) | ((null)));
-});
-
-type HttpEvidenceViewerResponse_EvidenceTextRange = ({
-  "end": (number);
-  "source_end"?: (((number)) | ((null)));
-  "source_start"?: (((number)) | ((null)));
-  "span_id": (string);
-  "start": (number);
-});
-
-type HttpEvidenceViewerResponse_EvidenceTextWindow = ({
-  "end": (number);
-  "next_start": (((number)) | ((null)));
-  "previous_start": (((number)) | ((null)));
-  "reached_end": (boolean);
-  "reached_start": (boolean);
-  "retrieval_revision": (((number)) | ((null)));
-  "start": (number);
-  "total_bytes": (number);
-  "total_characters": (number);
-});
-
-type HttpEvidenceViewerResponse_EvidenceTranscriptContext = ({
-  "artifact_stable_id": (string);
-  "evidence_link_stable_id": (string);
-  "offset_unit": ("utf16_code_unit") & (string);
-  "schema_version": ("frisket.timestamped_text_context.v1") & (string);
-  "segments": (Array<(HttpEvidenceViewerResponse_EvidenceTranscriptSegment)>);
-});
-
-type HttpEvidenceViewerResponse_EvidenceTranscriptSegment = ({
-  "end": (number);
-  "end_ms": (number);
-  "source_end"?: (((number)) | ((null)));
-  "source_start"?: (((number)) | ((null)));
-  "span_id": (string);
-  "speaker"?: (((string)) | ((null)));
-  "start": (number);
-  "start_ms": (number);
-});
-
-type HttpEvidenceViewerResponse_EvidenceViewerArtifact = ({
-  "artifact_kind": (string);
-  "artifact_ref": (HttpEvidenceViewerResponse_EvidenceArtifactReference);
-  "canonical_url": (((string)) | ((null)));
-  "duration_ms": (((number)) | ((null)));
-  "export_ref": (string);
-  "external_ref": (HttpEvidenceViewerResponse_JsonValue);
-  "filename": (((string)) | ((null)));
-  "id": (number);
-  "media_type": (string);
-  "metadata": (HttpEvidenceViewerResponse_JsonValue);
-  "page_count": (((number)) | ((null)));
-  "pages": (Array<(HttpEvidenceViewerResponse_EvidenceViewerPage)>);
-  "recovery_notice"?: (((string)) | ((null)));
-  "recovery_scanned_characters"?: (((number)) | ((null)));
-  "recovery_status"?: ((("located" | "not_found" | "unsupported" | "incomplete") & (string)) | ((null)));
-  "runs": (Array<(HttpEvidenceViewerResponse_EvidenceTemporalRun)>);
-  "source_cell": (((HttpEvidenceViewerResponse_EvidenceSourceCell)) | ((null)));
-  "source_url": (((string)) | ((null)));
-  "spans": (Array<(HttpEvidenceViewerResponse_EvidenceViewerSpan)>);
-  "stable_id": (string);
-  "text_context"?: (((HttpEvidenceViewerResponse_EvidenceTextContext)) | ((null)));
-  "text_context_status"?: ((("available" | "stale") & (string)) | ((null)));
-  "title": (((string)) | ((null)));
-});
-
-type HttpEvidenceViewerResponse_EvidenceViewerLink = ({
-  "column_id": (((number)) | ((null)));
-  "confidence": (((number)) | ((null)));
-  "created_at": (string);
-  "export_ref": (string);
-  "id": (number);
-  "item_index"?: (((number)) | ((null)));
-  "op_id": (((number)) | ((null)));
-  "pinned": (boolean);
-  "producer": (HttpEvidenceViewerResponse_EvidenceProducer);
-  "receipt_id": (((string)) | ((null)));
-  "role": (string);
-  "row_id": (((number)) | ((null)));
-  "run_id": (((number)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "stable_id": (string);
-  "stale_at": (((string)) | ((null)));
-  "stale_reason": (((string)) | ((null)));
-  "status": (string);
-  "subject_kind": (string);
-  "subject_ref": (HttpEvidenceViewerResponse_JsonValue);
-  "text_layer_hash_mismatch": (boolean);
-});
-
-type HttpEvidenceViewerResponse_EvidenceViewerPage = ({
-  "image": (((HttpEvidenceViewerResponse_EvidencePageImage)) | ((null)));
-  "page": (number);
-  "regions": (Array<(HttpEvidenceViewerResponse_EvidencePageRegion)>);
-  "render_url"?: (((string)) | ((null)));
-  "text": (((string)) | ((null)));
-});
-
-type HttpEvidenceViewerResponse_EvidenceViewerSpan = ({
-  "clip_url": (((string)) | ((null)));
-  "deep_link_url": (((string)) | ((null)));
-  "export_ref": (string);
-  "id": (number);
-  "note": (((string)) | ((null)));
-  "preview": (HttpEvidenceViewerResponse_JsonValue);
-  "quote": (((string)) | ((null)));
-  "quote_truncated"?: (boolean);
-  "rank": (number);
-  "raw": (HttpEvidenceViewerResponse_JsonValue);
-  "required": (boolean);
-  "run_index": (((number)) | ((null)));
-  "selector": (HttpEvidenceViewerResponse_JsonValue);
-  "snippet": (((string)) | ((null)));
-  "snippet_truncated"?: (boolean);
-  "span_kind": (string);
-  "span_role": (string);
-  "stable_id": (string);
-  "status": (string);
-  "text_layer_hash": (((string)) | ((null)));
-  "warnings": (Array<(string)>);
-});
-
-type HttpEvidenceViewerResponse_JsonValue = JsonValue;
-
-export type HttpEvidenceViewerResponse = ({
-  "artifacts": (Array<(HttpEvidenceViewerResponse_EvidenceViewerArtifact)>);
-  "link": (HttpEvidenceViewerResponse_EvidenceViewerLink);
-  "schema_version": ("frisket.evidence_viewer.v1") & (string);
-  "warnings": (Array<(string)>);
 });
 
 type HttpExpectedAnswerRequest_ActionCompareDraftSource = ({
@@ -7749,7 +7749,12 @@ type HttpInline_08600a3f31630079_JsonValue = JsonValue;
 
 export type HttpInline_08600a3f31630079 = (((HttpInline_08600a3f31630079_HttpError)) | ((HttpInline_08600a3f31630079_ActionResult)));
 
-type HttpInline_08f832331573f245_ActionError = ({
+export type HttpInline_0c9cd7bcf35ce8b1 = ({
+  "limit"?: (number);
+  "status"?: (string);
+});
+
+type HttpInline_0d7d1a2f0525cea5_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
   "details"?: ({
@@ -7761,18 +7766,33 @@ type HttpInline_08f832331573f245_ActionError = ({
   "schema_version"?: ("frisket.action_error.v1") & (string);
 });
 
-type HttpInline_08f832331573f245_HttpError = ({
-  "detail": (HttpInline_08f832331573f245_JsonValue);
+type HttpInline_0d7d1a2f0525cea5_HttpError = ({
+  "detail": (HttpInline_0d7d1a2f0525cea5_JsonValue);
 });
 
-type HttpInline_08f832331573f245_JsonValue = JsonValue;
+type HttpInline_0d7d1a2f0525cea5_JsonValue = JsonValue;
 
-export type HttpInline_08f832331573f245 = (((HttpInline_08f832331573f245_ActionError)) | ((HttpInline_08f832331573f245_HttpError)));
+export type HttpInline_0d7d1a2f0525cea5 = (((HttpInline_0d7d1a2f0525cea5_ActionError)) | ((HttpInline_0d7d1a2f0525cea5_HttpError)));
 
-export type HttpInline_0c9cd7bcf35ce8b1 = ({
-  "limit"?: (number);
-  "status"?: (string);
+type HttpInline_0e3744cee952d309_ActionError = ({
+  "action_kind"?: (((string)) | ((null)));
+  "code": (string);
+  "details"?: ({
+  [key: string]: JsonValue;
 });
+  "field"?: (((string)) | ((null)));
+  "message": (string);
+  "needs_confirmation"?: (boolean);
+  "schema_version"?: ("frisket.action_error.v1") & (string);
+});
+
+type HttpInline_0e3744cee952d309_HttpError = ({
+  "detail": (HttpInline_0e3744cee952d309_JsonValue);
+});
+
+type HttpInline_0e3744cee952d309_JsonValue = JsonValue;
+
+export type HttpInline_0e3744cee952d309 = (((HttpInline_0e3744cee952d309_ActionError)) | ((HttpInline_0e3744cee952d309_HttpError)));
 
 type HttpInline_1137e1194abf7002_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
@@ -8221,6 +8241,26 @@ export type HttpInline_756f1f7585dc30e8 = ({
   "pid": (string);
 });
 
+type HttpInline_75ce9b5615acbf3a_ActionError = ({
+  "action_kind"?: (((string)) | ((null)));
+  "code": (string);
+  "details"?: ({
+  [key: string]: JsonValue;
+});
+  "field"?: (((string)) | ((null)));
+  "message": (string);
+  "needs_confirmation"?: (boolean);
+  "schema_version"?: ("frisket.action_error.v1") & (string);
+});
+
+type HttpInline_75ce9b5615acbf3a_HttpError = ({
+  "detail": (HttpInline_75ce9b5615acbf3a_JsonValue);
+});
+
+type HttpInline_75ce9b5615acbf3a_JsonValue = JsonValue;
+
+export type HttpInline_75ce9b5615acbf3a = (((HttpInline_75ce9b5615acbf3a_ActionError)) | ((HttpInline_75ce9b5615acbf3a_HttpError)));
+
 type HttpInline_7e61aaa5675023bc_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -8284,11 +8324,6 @@ export type HttpInline_841202cb833d751b = ({
   "page": (number);
   "pid": (string);
   "split_id": (string);
-});
-
-export type HttpInline_841c7d86b3cf748c = ({
-  "evidence_link_id": (string);
-  "pid": (string);
 });
 
 export type HttpInline_847173c14adf5b62 = ({
@@ -8875,6 +8910,11 @@ export type HttpInline_b1e07c7c7e5c3960 = ({
   "pid": (string);
 });
 
+export type HttpInline_b2f43a821eb1c5ea = ({
+  "citation_id": (string);
+  "pid": (string);
+});
+
 type HttpInline_b365e6e4a7d24b06_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -8984,26 +9024,6 @@ type HttpInline_bc81d1ea13715d09_TranslateComparisonRequest = ({
 });
 
 export type HttpInline_bc81d1ea13715d09 = (((HttpInline_bc81d1ea13715d09_TranslateComparisonRequest)) | ((HttpInline_bc81d1ea13715d09_TranslateComparisonCompatibilityRequest)));
-
-type HttpInline_bd7c8e28768068e1_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_bd7c8e28768068e1_HttpError = ({
-  "detail": (HttpInline_bd7c8e28768068e1_JsonValue);
-});
-
-type HttpInline_bd7c8e28768068e1_JsonValue = JsonValue;
-
-export type HttpInline_bd7c8e28768068e1 = (((HttpInline_bd7c8e28768068e1_ActionError)) | ((HttpInline_bd7c8e28768068e1_HttpError)));
 
 type HttpInline_c06f6b8e87d9d428_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
@@ -9254,26 +9274,6 @@ export type HttpInline_fd851445541c4744 = ({
   "encoding"?: (((string)) | ((null)));
   "sheet_name"?: (((string)) | ((null)));
 });
-
-type HttpInline_fedabfd6f2269abd_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_fedabfd6f2269abd_HttpError = ({
-  "detail": (HttpInline_fedabfd6f2269abd_JsonValue);
-});
-
-type HttpInline_fedabfd6f2269abd_JsonValue = JsonValue;
-
-export type HttpInline_fedabfd6f2269abd = (((HttpInline_fedabfd6f2269abd_ActionError)) | ((HttpInline_fedabfd6f2269abd_HttpError)));
 
 export type HttpInstanceInfoResponse = ({
   "display_name": (string);
@@ -12091,6 +12091,13 @@ type HttpProjectSearchResponse_ProjectSearchChannelCoverage = ({
   "state": ("ready" | "pending" | "failed" | "unavailable") & (string);
 });
 
+type HttpProjectSearchResponse_ProjectSearchCitationNavigation = ({
+  "citation_id": (string);
+  "kind": ("citation") & (string);
+  "span_id": (string);
+  "span_ids"?: (Array<(string)>);
+});
+
 type HttpProjectSearchResponse_ProjectSearchContribution = ({
   "channel": (string);
   "method": (string);
@@ -12120,13 +12127,6 @@ type HttpProjectSearchResponse_ProjectSearchDocumentNavigation = ({
   "time_seconds"?: (((number)) | ((null)));
 });
 
-type HttpProjectSearchResponse_ProjectSearchEvidenceNavigation = ({
-  "evidence_link_id": (string);
-  "kind": ("evidence") & (string);
-  "span_id": (string);
-  "span_ids"?: (Array<(string)>);
-});
-
 type HttpProjectSearchResponse_ProjectSearchGroup = ({
   "additional_count": (number);
   "group_key": (string);
@@ -12141,7 +12141,7 @@ type HttpProjectSearchResponse_ProjectSearchHit = ({
   "column_name": (((string)) | ((null)));
   "contributions": (Array<(HttpProjectSearchResponse_ProjectSearchContribution)>);
   "location": (HttpProjectSearchResponse_ProjectSearchLocation);
-  "navigation": (((HttpProjectSearchResponse_ProjectSearchEvidenceNavigation)) | ((HttpProjectSearchResponse_ProjectSearchDocumentNavigation)) | ((HttpProjectSearchResponse_ProjectSearchCellNavigation)));
+  "navigation": (((HttpProjectSearchResponse_ProjectSearchCitationNavigation)) | ((HttpProjectSearchResponse_ProjectSearchDocumentNavigation)) | ((HttpProjectSearchResponse_ProjectSearchCellNavigation)));
   "part": (HttpProjectSearchResponse_ProjectSearchPart);
   "rerank_score"?: (((number)) | ((null)));
   "score": (number);
@@ -12686,7 +12686,6 @@ type HttpReviewBundlesPage_ReviewBundle = ({
   "action_name": (string);
   "confidence": (((number)) | ((null)));
   "copied_op_id"?: (((number)) | ((null)));
-  "evidence": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "execution_run_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "id": (string);
@@ -12701,6 +12700,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
   [key: string]: (HttpReviewBundlesPage_JsonValue);
 });
   "sources"?: (Array<(HttpReviewBundlesPage_ReviewBundleSource)>);
+  "supporting_columns": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
@@ -12722,7 +12722,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "review_decision": ((("accept" | "reject" | "reject_clear" | "edit") & (string)) | ((null)));
   "review_note": (((string)) | ((null)));
   "review_state": (((string)) | ((null)));
-  "role": ("field" | "evidence") & (string);
+  "role": ("field" | "supporting") & (string);
   "row_id": (number);
   "run_id": (((number)) | ((null)));
   "semantic_type"?: (((string)) | ((null)));
@@ -12849,9 +12849,9 @@ export type HttpReviewedRunRevision = ({
   "source_run_id": (number);
 });
 
-type HttpRowSourceDocumentsResponse_EvidenceLinkSummary = ({
+type HttpRowSourceDocumentsResponse_CitationSummary = ({
   "artifact_count": (number);
-  "evidence_kind": (string);
+  "citation_kind": (string);
   "export_ref": (string);
   "id": (number);
   "role": (string);
@@ -12876,8 +12876,8 @@ type HttpRowSourceDocumentsResponse_RowSourceDocument = ({
 
 export type HttpRowSourceDocumentsResponse = ({
   "ancestry_found": (boolean);
+  "citations": (Array<(HttpRowSourceDocumentsResponse_CitationSummary)>);
   "documents": (Array<(HttpRowSourceDocumentsResponse_RowSourceDocument)>);
-  "evidence_links": (Array<(HttpRowSourceDocumentsResponse_EvidenceLinkSummary)>);
   "lineage_freshness"?: ((("synced" | "stale" | "unknown" | "checking") & (string)) | ((null)));
   "lineage_stale": (boolean);
   "row_id": (number);
@@ -16527,16 +16527,16 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.cell_evidence.get": {
+  readonly "tenant.cell_citations.get": {
     readonly pathParams: HttpInline_f8fd7cf5145f948b;
     readonly query: HttpInline_a84ebabaf698eacd;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpCellEvidenceResponse;
+      readonly "200": HttpCellCitationsResponse;
       readonly "400": HttpActionError;
       readonly "401": HttpError;
       readonly "403": HttpError;
-      readonly "404": HttpInline_bd7c8e28768068e1;
+      readonly "404": HttpInline_0d7d1a2f0525cea5;
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
@@ -16572,6 +16572,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.citation_viewer.get": {
+    readonly pathParams: HttpInline_b2f43a821eb1c5ea;
+    readonly query: HttpInline_85aeb6f0ad4a1736;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpCitationViewerResponse;
+      readonly "400": HttpActionError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpInline_0e3744cee952d309;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.cluster_preview.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -16587,16 +16602,16 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.column_evidence.get": {
+  readonly "tenant.column_citations.get": {
     readonly pathParams: HttpInline_9b0ab189ab042a9c;
     readonly query: HttpInline_263a59409cf94cc0;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpColumnEvidenceResponse;
+      readonly "200": HttpColumnCitationsResponse;
       readonly "400": HttpActionError;
       readonly "401": HttpError;
       readonly "403": HttpError;
-      readonly "404": HttpInline_fedabfd6f2269abd;
+      readonly "404": HttpInline_75ce9b5615acbf3a;
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
@@ -17705,21 +17720,6 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.evidence_viewer.get": {
-    readonly pathParams: HttpInline_841c7d86b3cf748c;
-    readonly query: HttpInline_85aeb6f0ad4a1736;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpEvidenceViewerResponse;
-      readonly "400": HttpActionError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpInline_08f832331573f245;
       readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;

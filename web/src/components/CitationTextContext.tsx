@@ -92,17 +92,17 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
   const { context, artifact, textPassageTargets, scopeSpanId, scopeSpanIds, emphasizedSpanIds } = props;
   const focusSpanId = scopeSpanId ?? emphasizedSpanIds[0] ?? scopeSpanIds?.[0];
   const targets = textPassageTargets ?? artifact?.spans.map((span) => ({
-    spanId: span.stable_id, evidenceLinkId: context.evidence_link_id ?? '', artifactId: artifact.id,
+    spanId: span.stable_id, evidenceLinkId: context.citation_id ?? '', artifactId: artifact.id,
   })) ?? [];
   const focusTarget = targets.find((target) => target.spanId === focusSpanId);
-  const contextKey = [context.evidence_link_id, context.artifact_stable_id, context.content_hash,
+  const contextKey = [context.citation_id, context.artifact_stable_id, context.content_hash,
     context.window?.start, context.window?.end, context.window?.retrieval_revision, focusSpanId,
     focusTarget?.evidenceLinkId, context.recovered].join(':');
   const [navigation, setNavigation] = useState<PassageRequest | null>(null);
   const needsFocus = focusTarget && !context.ranges.some((range) => range.span_id === focusSpanId);
   const request: PassageRequest | null = navigation?.key === contextKey ? navigation : needsFocus ? {
     key: contextKey, target: focusTarget, spanId: focusSpanId, locateCurrent: context.recovered === true,
-    revision: focusTarget.evidenceLinkId === context.evidence_link_id ? context.window?.retrieval_revision ?? undefined : undefined,
+    revision: focusTarget.evidenceLinkId === context.citation_id ? context.window?.retrieval_revision ?? undefined : undefined,
     attempt: 0,
   } : null;
   const requestKey = [contextKey, request?.start, request?.spanId, request?.revision,
@@ -113,7 +113,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
   const passage = useLoader(async (signal) => {
     let payload;
     try {
-      payload = await projectApi.getEvidenceViewer(requestedOwner!, {
+      payload = await projectApi.getCitationViewer(requestedOwner!, {
         textArtifactId: requestedArtifactId,
         textStart, textLimit: 16_384, locateCurrent,
         textRevision, textSpanId: textStart === undefined ? textSpanId : undefined,
@@ -141,7 +141,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
     passageMessage: error ? 'Passage unavailable.' : 'Loading passage…',
     scopeSpanId: selectedSpan ?? scopeSpanId, emphasizedSpanIds: selectedSpan ? [selectedSpan] : emphasizedSpanIds };
   const currentTarget = targets.find((target) => target.spanId === selectedSpan)
-    ?? { spanId: focusSpanId ?? '', evidenceLinkId: displayed.evidence_link_id ?? '', artifactId: artifact?.id ?? 0 };
+    ?? { spanId: focusSpanId ?? '', evidenceLinkId: displayed.citation_id ?? '', artifactId: artifact?.id ?? 0 };
   return <div data-testid="windowed-evidence-text" aria-busy={loading}>
     {window && <TextPassageNavigation window={window} disabled={loading || Boolean(error) || !currentTarget.evidenceLinkId}
       onNavigate={(start) => setNavigation({ key: contextKey, target: currentTarget, spanId: currentTarget.spanId, start,
@@ -152,7 +152,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
         const target = targets.find((item) => item.spanId === event.target.value);
         if (!target) return;
         setNavigation({ key: contextKey, target, spanId: target.spanId, locateCurrent: displayed.recovered === true,
-          revision: target.evidenceLinkId === displayed.evidence_link_id ? window?.retrieval_revision ?? undefined : undefined,
+          revision: target.evidenceLinkId === displayed.citation_id ? window?.retrieval_revision ?? undefined : undefined,
           attempt: (request?.attempt ?? 0) + 1 });
       }}>
       <option value="" disabled>Choose citation</option>
@@ -175,7 +175,7 @@ function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight,
   const playerRef = useRef<HTMLMediaElement | null>(null);
   const key = `${transcript.evidence_link_stable_id}:${transcript.artifact_stable_id}`;
   const source = useLoader(async () => {
-    const payload = await projectApi.getEvidenceViewer(transcript.evidence_link_stable_id);
+    const payload = await projectApi.getCitationViewer(transcript.evidence_link_stable_id);
     return payload.artifacts.find((item) => item.stable_id === transcript.artifact_stable_id) ?? null;
   }, [key, transcript.evidence_link_stable_id, transcript.artifact_stable_id]);
   const artifact = source.data;

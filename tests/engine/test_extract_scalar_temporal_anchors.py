@@ -14,7 +14,7 @@ import pytest
 
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.transcript_doubles import TRANSCRIPT_SEGMENTS, fake_faster_whisper
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
@@ -168,7 +168,10 @@ def _transcript_scalar_extract_action(sheet_id: int) -> dict[str, Any]:
 def test_grounded_extract_ignores_unselected_later_row_artifact(
     project: Project, monkeypatch, sources
 ):
-    from frisket.engine.store.evidence import record_source_artifact, record_source_span
+    from frisket.engine.store.citations import (
+        record_source_artifact,
+        record_source_span,
+    )
 
     seeded = _seed_transcript_project(project)
     monkeypatch.setitem(TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
@@ -535,10 +538,8 @@ def test_scalar_multi_segment_citation_marks_all_spans_required_and_groups_runs(
     # locally-resolvable blob).
     assert runs[0]["clip_url"] and runs[0]["clip_url"] != runs[1]["clip_url"]
     assert (
-        f"/evidence/links/{viewer['link']['stable_id']}/runs/0/clip"
-        in runs[0]["clip_url"]
+        f"/citations/{viewer['link']['stable_id']}/runs/0/clip" in runs[0]["clip_url"]
     )
     assert (
-        f"/evidence/links/{viewer['link']['stable_id']}/runs/1/clip"
-        in runs[1]["clip_url"]
+        f"/citations/{viewer['link']['stable_id']}/runs/1/clip" in runs[1]["clip_url"]
     )

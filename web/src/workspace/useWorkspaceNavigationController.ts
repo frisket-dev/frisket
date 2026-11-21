@@ -488,8 +488,8 @@ export function useWorkspaceNavigationController({
   const navigateToSearchHit = useCallback(
     (hit: ProjectSearchHitWire) => {
       const navigation = hit.navigation;
-      if (navigation.kind === 'evidence') {
-        openCitationViewerForWorkspace(navigation.evidence_link_id, 'modalOrPeek', {
+      if (navigation.kind === 'citation') {
+        openCitationViewerForWorkspace(navigation.citation_id, 'modalOrPeek', {
           scopeSpanId: navigation.span_id,
           scopeSpanIds: navigation.span_ids,
         });

@@ -544,7 +544,7 @@ export function useWorkspaceModel({
       },
       chrome: {
         store: unusedCommandHandleStore,
-        openEvidence: (linkId, host) => openCitationViewerForWorkspace(linkId, host),
+        openCitation: (linkId, host) => openCitationViewerForWorkspace(linkId, host),
         openMap: (columnId) => {
           const column = columnId
             ? sheet?.columns.find((item) => item.id === columnId)
@@ -642,7 +642,7 @@ export function useWorkspaceModel({
       openColumn: (columnId) => dispatchCommand({ type: 'openColumn', columnId }),
       openSource: (sourceId) => dispatchCommand({ type: 'openSource', sourceId: String(sourceId) }),
       openEvidence: (evidenceLinkId) =>
-        dispatchCommand({ type: 'openEvidence', linkId: evidenceLinkId }),
+        dispatchCommand({ type: 'openCitation', linkId: evidenceLinkId }),
       openMap: (columnId) => dispatchCommand({ type: 'openMap', columnId }),
       openGraph: () => dispatchCommand({ type: 'openGraph' }),
       openActionRoute: (actionKind) => dispatchCommand({ type: 'openActionRoute', actionKind }),

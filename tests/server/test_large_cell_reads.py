@@ -6,7 +6,7 @@ import tracemalloc
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.current_value_windows import read_current_value_window
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,

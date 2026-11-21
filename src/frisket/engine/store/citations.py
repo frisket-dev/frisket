@@ -35,19 +35,19 @@ from frisket.engine.store.transactions import (
 )
 
 
-CELL_EVIDENCE_SCHEMA_VERSION = "frisket.cell_evidence.v1"
-EVIDENCE_VIEWER_SCHEMA_VERSION = "frisket.evidence_viewer.v1"
+CELL_CITATIONS_SCHEMA_VERSION = "frisket.cell_citations.v1"
+CITATION_VIEWER_SCHEMA_VERSION = "frisket.citation_viewer.v1"
 TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION = (
     "frisket.timestamped_transcript_evidence.v1"
 )
-# A distinct schema version from CELL_EVIDENCE_SCHEMA_VERSION even though it
+# A distinct schema version from CELL_CITATIONS_SCHEMA_VERSION even though it
 # reuses _link_summary's per-link shape — the ENVELOPE differs (a `rows`
 # array keyed by row_id, not one row's `links`).
-COLUMN_EVIDENCE_BATCH_SCHEMA_VERSION = "frisket.column_evidence_batch.v1"
+COLUMN_CITATIONS_BATCH_SCHEMA_VERSION = "frisket.column_citations_batch.v1"
 _MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION = "frisket.map_extract_item_evidence_link.v1"
 
 # A layer_family is a lowercase slug (e.g. 'entities').
-# Mirrors the fresh-schema CHECK on evidence_links.layer_family; the writer is the
+# Mirrors the fresh-schema CHECK on citations.layer_family; the writer is the
 # authority on bundles that predate that CHECK.
 _LAYER_FAMILY_RE = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
 # Mirrors the text_surfaces.content_hash CHECK ('sha256:' + 64 lowercase hex).
@@ -416,7 +416,7 @@ def record_citation(
     link_stable_id = stable_id or _stable_id("evidence_link")
     cur = project.db.cursor()
     cur.execute(
-        "INSERT INTO evidence_links ("
+        "INSERT INTO citations ("
         "stable_id, subject_kind, subject_ref_json, sheet_id, row_id, "
         "column_id, run_id, op_id, receipt_id, link_role, status, "
         "confidence, pinned, producer_json, layer_family, stale_reason, metadata"
@@ -445,8 +445,8 @@ def record_citation(
     for index, span in enumerate(spans):
         span_id = _span_id_for_ref(project, span)
         cur.execute(
-            "INSERT INTO evidence_link_spans ("
-            "link_id, span_id, rank, span_role, required, note"
+            "INSERT INTO citation_spans ("
+            "citation_id, span_id, rank, span_role, required, note"
             ") VALUES (?, ?, ?, ?, ?, ?)",
             (
                 link_id,
@@ -496,7 +496,7 @@ def copy_citations(
         ]
     )
     inserted = project.db.execute(
-        "INSERT INTO evidence_links ("
+        "INSERT INTO citations ("
         "stable_id,subject_kind,subject_ref_json,sheet_id,row_id,column_id,"
         "run_id,op_id,link_role,status,confidence,pinned,producer_json,"
         "layer_family,stale_reason,stale_at,metadata) "
@@ -506,18 +506,18 @@ def copy_citations(
         "source.status,source.confidence,source.pinned,source.producer_json,"
         "source.layer_family,source.stale_reason,source.stale_at,"
         "json_set(source.metadata,'$.reapplied_from',source.stable_id) "
-        "FROM json_each(?) item JOIN evidence_links source "
+        "FROM json_each(?) item JOIN citations source "
         "ON source.id=item.value->>'$.source_link_id' "
         "RETURNING row_id,column_id,status,link_role",
         (sheet_id, op_id, payload),
     ).fetchall()
     project.db.execute(
-        "INSERT INTO evidence_link_spans (link_id,span_id,rank,span_role,required,note) "
+        "INSERT INTO citation_spans (citation_id,span_id,rank,span_role,required,note) "
         "SELECT target.id,span.span_id,span.rank,span.span_role,span.required,span.note "
-        "FROM json_each(?) item JOIN evidence_links target "
+        "FROM json_each(?) item JOIN citations target "
         "ON target.stable_id=item.value->>'$.stable_id' "
-        "JOIN evidence_link_spans span "
-        "ON span.link_id=item.value->>'$.source_link_id'",
+        "JOIN citation_spans span "
+        "ON span.citation_id=item.value->>'$.source_link_id'",
         (payload,),
     )
     touch_binding_revisions(
@@ -543,10 +543,10 @@ def sheet_cited_column_ids(project: Project, sheet_id: int) -> list[int]:
     callers can attach it to SheetMeta unconditionally."""
 
     rows = project.db.execute(
-        "SELECT DISTINCT column_id FROM evidence_links "
+        "SELECT DISTINCT column_id FROM citations "
         "WHERE sheet_id=? AND status='active' AND column_id IS NOT NULL "
         "AND (op_id IS NULL OR EXISTS (SELECT 1 FROM ops "
-        "WHERE ops.id=evidence_links.op_id AND ops.status='applied')) "
+        "WHERE ops.id=citations.op_id AND ops.status='applied')) "
         "ORDER BY column_id",
         (int(sheet_id),),
     ).fetchall()
@@ -562,11 +562,11 @@ def list_cell_citations(
     include_stale: bool = False,
     project_id: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve evidence links for the cell's current value ref.
+    """Resolve citations for the cell's current value ref.
 
-    Active evidence is current-value scoped. Stale audit evidence is counted by
-    row/column because it intentionally belongs to an older value for the same
-    cell.
+    Active citations are current-value scoped. Stale audit citations are counted
+    by row/column because they intentionally belong to an older value for the
+    same cell.
     """
 
     _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
@@ -575,7 +575,7 @@ def list_cell_citations(
     if current_ref is not None:
         rows.extend(
             project.db.execute(
-                "SELECT * FROM evidence_links "
+                "SELECT * FROM citations "
                 "WHERE row_id=? AND column_id=? AND status='active' "
                 "AND subject_ref_json=? "
                 "ORDER BY created_at, id",
@@ -584,7 +584,7 @@ def list_cell_citations(
         )
     stale_count = int(
         project.db.execute(
-            "SELECT COUNT(*) FROM evidence_links "
+            "SELECT COUNT(*) FROM citations "
             "WHERE row_id=? AND column_id=? AND status='stale'",
             (row_id, column_id),
         ).fetchone()[0]
@@ -592,14 +592,14 @@ def list_cell_citations(
     if include_stale:
         rows.extend(
             project.db.execute(
-                "SELECT * FROM evidence_links "
+                "SELECT * FROM citations "
                 "WHERE row_id=? AND column_id=? AND status='stale' "
                 "ORDER BY stale_at, id",
                 (row_id, column_id),
             ).fetchall()
         )
     return {
-        "schema_version": CELL_EVIDENCE_SCHEMA_VERSION,
+        "schema_version": CELL_CITATIONS_SCHEMA_VERSION,
         "sheet_id": sheet_id,
         "row_id": row_id,
         "column_id": column_id,
@@ -617,26 +617,24 @@ def list_column_citations(
     row_ids: list[int] | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
-    """Batch column-evidence projection for the Grounded Answers reading
+    """Batch column-citation projection for the Grounded Answers reading
     view's middle pane.
 
-    Per row THAT HAS ACTIVE evidence on this column, returns its row_id plus
+    Per row THAT HAS ACTIVE citations on this column, returns its row_id plus
     the same ``_link_summary`` chip projection ``list_cell_citations`` produces
     for one cell — so a chip here is byte-identical to a chip in the row
     Detail drawer. Current-value-ref scoped exactly like ``list_cell_citations``
-    (a link only counts if its ``subject_ref_json`` matches the row's CURRENT
+    (a citation only counts if its ``subject_ref_json`` matches the row's CURRENT
     value ref), just batched: one ``get_values_with_refs`` call for every row
     in `row_ids` (or the whole column when `row_ids` is None) instead of N
-    per-cell round trips, then ONE grouped query for active links across those
-    rows instead of N single-row queries — the spec's "N per-cell calls
-    forbidden" constraint (risk 3), satisfied at the SQL layer too, not just
-    the HTTP layer. `row_ids` pairs with the list's virtualization window; a
-    row with no active evidence is simply absent from `rows` (not a
-    zero-links entry) — smaller payload for the common case.
+    per-cell round trips, then ONE grouped query for active citations across those
+    rows instead of N single-row queries. `row_ids` pairs with the list's
+    virtualization window; a row with no active citations is simply absent from
+    `rows` (not a zero-links entry) — smaller payload for the common case.
     """
 
     empty: dict[str, Any] = {
-        "schema_version": COLUMN_EVIDENCE_BATCH_SCHEMA_VERSION,
+        "schema_version": COLUMN_CITATIONS_BATCH_SCHEMA_VERSION,
         "sheet_id": sheet_id,
         "column_id": column_id,
         "rows": [],
@@ -649,7 +647,7 @@ def list_column_citations(
     target_row_ids = list(refs.keys())
     placeholders = ",".join("?" * len(target_row_ids))
     link_rows = project.db.execute(
-        "SELECT * FROM evidence_links "
+        "SELECT * FROM citations "
         f"WHERE column_id=? AND status='active' AND row_id IN ({placeholders}) "
         "ORDER BY row_id, created_at, id",
         (column_id, *target_row_ids),
@@ -667,7 +665,7 @@ def list_column_citations(
             continue
         by_row.setdefault(link_row["row_id"], []).append(link_row)
     return {
-        "schema_version": COLUMN_EVIDENCE_BATCH_SCHEMA_VERSION,
+        "schema_version": COLUMN_CITATIONS_BATCH_SCHEMA_VERSION,
         "sheet_id": sheet_id,
         "column_id": column_id,
         "rows": [
@@ -705,7 +703,7 @@ def find_item_citation(
     per-item links and is a silent no-op at the caller)."""
 
     rows = project.db.execute(
-        "SELECT * FROM evidence_links "
+        "SELECT * FROM citations "
         "WHERE row_id=? AND column_id=? AND status='active' "
         "ORDER BY created_at, id",
         (int(row_id), int(column_id)),
@@ -721,8 +719,8 @@ def find_item_citation(
         ):
             continue
         span_rows = project.db.execute(
-            "SELECT span_id, rank, span_role, required FROM evidence_link_spans "
-            "WHERE link_id=? ORDER BY rank, span_id",
+            "SELECT span_id, rank, span_role, required FROM citation_spans "
+            "WHERE citation_id=? ORDER BY rank, span_id",
             (int(row["id"]),),
         ).fetchall()
         return {
@@ -761,7 +759,7 @@ def list_row_citations(
     if subject_ref is not None:
         where += " AND subject_ref_json=?"
         params.append(citation_subject_ref_json(subject_ref))
-    sql = f"SELECT * FROM evidence_links {where} ORDER BY created_at, id"
+    sql = f"SELECT * FROM citations {where} ORDER BY created_at, id"
     if limit is not None:
         sql += " LIMIT ?"
         params.append(max(0, int(limit)) + 1)
@@ -770,7 +768,7 @@ def list_row_citations(
     if truncated:
         rows = rows[:limit]
     payload = {
-        "schema_version": CELL_EVIDENCE_SCHEMA_VERSION,
+        "schema_version": CELL_CITATIONS_SCHEMA_VERSION,
         "sheet_id": sheet_id,
         "row_id": row_id,
         "links": [_link_summary(project, row, project_id=project_id) for row in rows],
@@ -833,16 +831,16 @@ def citation_temporal_runs(
     text/page citation, or one with nothing marked required)."""
     link = _lookup_link(project, citation_ref)
     if link is None:
-        raise KeyError(f"evidence link not found: {citation_ref!r}")
+        raise KeyError(f"citation not found: {citation_ref!r}")
     rows = project.db.execute(
         """
         SELECT sp.stable_id AS span_stable_id, sp.start_ms, sp.end_ms,
                art.stable_id AS artifact_stable_id, art.blob_hash,
                art.media_type, art.filename, art.duration_ms, art.title
-        FROM evidence_link_spans els
-        JOIN source_spans sp ON sp.id = els.span_id
+        FROM citation_spans cs
+        JOIN source_spans sp ON sp.id = cs.span_id
         JOIN source_artifacts art ON art.id = sp.artifact_id
-        WHERE els.link_id=? AND els.required=1 AND sp.span_kind='temporal'
+        WHERE cs.citation_id=? AND cs.required=1 AND sp.span_kind='temporal'
               AND art.artifact_kind='av'
               AND sp.start_ms IS NOT NULL AND sp.end_ms IS NOT NULL
         ORDER BY art.id, sp.start_ms, sp.id
@@ -898,10 +896,10 @@ def resolve_citation_viewer(
 
     link = _lookup_link(project, citation_ref)
     if link is None:
-        raise KeyError(f"evidence link not found: {citation_ref!r}")
+        raise KeyError(f"citation not found: {citation_ref!r}")
     joined = project.db.execute(
         """
-        SELECT els.rank, els.span_role, els.required, els.note,
+        SELECT cs.rank, cs.span_role, cs.required, cs.note,
                sp.id,sp.stable_id,sp.artifact_id,sp.span_kind,sp.page_start,sp.page_end,
                sp.start_ms,sp.end_ms,sp.char_start,sp.char_end,sp.bbox_json,sp.selector_json,
                CASE WHEN length(CAST(sp.quote AS BLOB))>8192 THEN substr(CAST(sp.quote AS BLOB),1,8192) ELSE sp.quote END AS quote,
@@ -915,11 +913,11 @@ def resolve_citation_viewer(
                art.page_count, art.duration_ms, art.source_sheet_id,
                art.source_row_id, art.source_column_id, art.external_ref_json,
                art.metadata AS artifact_metadata
-        FROM evidence_link_spans els
-        JOIN source_spans sp ON sp.id = els.span_id
+        FROM citation_spans cs
+        JOIN source_spans sp ON sp.id = cs.span_id
         JOIN source_artifacts art ON art.id = sp.artifact_id
-        WHERE els.link_id=?
-        ORDER BY els.rank, sp.id
+        WHERE cs.citation_id=?
+        ORDER BY cs.rank, sp.id
         """,
         (int(link["id"]),),
     ).fetchall()
@@ -953,13 +951,13 @@ def resolve_citation_viewer(
     if text_artifact_id is not None and not any(
         int(artifact["id"]) == text_artifact_id for artifact in artifacts.values()
     ):
-        raise ValueError("text artifact does not belong to this evidence link")
+        raise ValueError("text artifact does not belong to this citation")
     if text_span_id is not None and not any(
         span["stable_id"] == text_span_id
         for artifact in artifacts.values()
         for span in artifact["spans"]
     ):
-        raise ValueError("text span does not belong to this evidence link")
+        raise ValueError("text span does not belong to this citation")
     if (
         text_start is not None or text_revision is not None
     ) and text_artifact_id is None:
@@ -987,7 +985,7 @@ def resolve_citation_viewer(
             if passage["window"] is not None:
                 text_context.update(
                     {
-                        "evidence_link_id": str(link["stable_id"]),
+                        "citation_id": str(link["stable_id"]),
                         "artifact_stable_id": str(artifact["stable_id"]),
                     }
                 )
@@ -1010,7 +1008,7 @@ def resolve_citation_viewer(
             run_index_by_span[span_stable_id] = run["index"]
         clip_url = (
             f"/api/projects/{project_id or 'local'}"
-            f"/evidence/links/{link['stable_id']}/runs/{run['index']}/clip"
+            f"/citations/{link['stable_id']}/runs/{run['index']}/clip"
             if run["blob_hash"]
             else None
         )
@@ -1049,7 +1047,7 @@ def resolve_citation_viewer(
     )
     source_changed = bool(stale_artifacts)
     return {
-        "schema_version": EVIDENCE_VIEWER_SCHEMA_VERSION,
+        "schema_version": CITATION_VIEWER_SCHEMA_VERSION,
         "link": {
             "id": int(link["id"]),
             "stable_id": link["stable_id"],
@@ -1135,12 +1133,12 @@ def mark_citations_stale_for_cell_refs(
         column_id = int(target["column_id"])
         if subject_ref_json is None:
             select_sql = (
-                "SELECT stable_id FROM evidence_links "
+                "SELECT stable_id FROM citations "
                 "WHERE status='active' AND row_id=? AND column_id=?"
             )
             select_params: tuple[Any, ...] = (row_id, column_id)
             update_sql = (
-                "UPDATE evidence_links SET status='stale', stale_reason=?, "
+                "UPDATE citations SET status='stale', stale_reason=?, "
                 "stale_at=datetime('now') "
                 "WHERE status='active' AND row_id=? AND column_id=?"
             )
@@ -1158,7 +1156,7 @@ def mark_citations_stale_for_cell_refs(
                 else ""
             )
             select_sql = (
-                "SELECT stable_id FROM evidence_links "
+                "SELECT stable_id FROM citations "
                 "WHERE status='active' AND row_id=? AND column_id=? "
                 "AND subject_ref_json=?" + preserve_sql
             )
@@ -1173,7 +1171,7 @@ def mark_citations_stale_for_cell_refs(
                 ),
             )
             update_sql = (
-                "UPDATE evidence_links SET status='stale', stale_reason=?, "
+                "UPDATE citations SET status='stale', stale_reason=?, "
                 "stale_at=datetime('now') "
                 "WHERE status='active' AND row_id=? AND column_id=? "
                 "AND subject_ref_json=?" + preserve_sql
@@ -1491,10 +1489,10 @@ def _surface_row(project: Project, surface_id: int) -> dict[str, Any]:
 
 def _link_row(project: Project, link_id: int) -> dict[str, Any]:
     row = project.db.execute(
-        "SELECT * FROM evidence_links WHERE id=?", (link_id,)
+        "SELECT * FROM citations WHERE id=?", (link_id,)
     ).fetchone()
     if row is None:
-        raise KeyError(f"evidence link not found: {link_id}")
+        raise KeyError(f"citation not found: {link_id}")
     return {
         "id": int(row["id"]),
         "stable_id": row["stable_id"],
@@ -1523,7 +1521,7 @@ def _span_id_for_ref(project: Project, span: dict[str, Any]) -> int:
         return int(span["span_id"])
     stable_id = span.get("stable_id") or span.get("source_span_ref")
     if stable_id is None:
-        raise ValueError("evidence link span requires span_id or stable_id")
+        raise ValueError("citation span requires span_id or stable_id")
     row = project.db.execute(
         "SELECT id FROM source_spans WHERE stable_id=?", (str(stable_id),)
     ).fetchone()
@@ -1535,23 +1533,23 @@ def _span_id_for_ref(project: Project, span: dict[str, Any]) -> int:
 def _lookup_link(project: Project, citation_ref: int | str) -> sqlite3.Row | None:
     if isinstance(citation_ref, int):
         return project.db.execute(
-            "SELECT * FROM evidence_links WHERE id=?", (citation_ref,)
+            "SELECT * FROM citations WHERE id=?", (citation_ref,)
         ).fetchone()
     text = str(citation_ref)
     if text.isdecimal():
         row = project.db.execute(
-            "SELECT * FROM evidence_links WHERE id=?", (int(text),)
+            "SELECT * FROM citations WHERE id=?", (int(text),)
         ).fetchone()
         if row is not None:
             return row
     return project.db.execute(
-        "SELECT * FROM evidence_links WHERE stable_id=?", (text,)
+        "SELECT * FROM citations WHERE stable_id=?", (text,)
     ).fetchone()
 
 
 def citation_by_stable_id(project: Project, stable_id: str) -> sqlite3.Row | None:
     return project.db.execute(
-        "SELECT * FROM evidence_links WHERE stable_id=?", (stable_id,)
+        "SELECT * FROM citations WHERE stable_id=?", (stable_id,)
     ).fetchone()
 
 
@@ -1562,10 +1560,10 @@ def _link_summary(
         """
         SELECT COUNT(*) AS span_count,
                COUNT(DISTINCT sp.artifact_id) AS artifact_count,
-               MIN(els.rank) AS first_rank
-        FROM evidence_link_spans els
-        JOIN source_spans sp ON sp.id=els.span_id
-        WHERE els.link_id=?
+               MIN(cs.rank) AS first_rank
+        FROM citation_spans cs
+        JOIN source_spans sp ON sp.id=cs.span_id
+        WHERE cs.citation_id=?
         """,
         (int(row["id"]),),
     ).fetchone()
@@ -1573,15 +1571,15 @@ def _link_summary(
         """
         SELECT sp.span_kind, substr(sp.snippet,1,2048) AS snippet,
                substr(sp.quote,1,2048) AS quote, sp.page_start, sp.page_end
-        FROM evidence_link_spans els
-        JOIN source_spans sp ON sp.id=els.span_id
-        WHERE els.link_id=?
-        ORDER BY els.rank, sp.id
+        FROM citation_spans cs
+        JOIN source_spans sp ON sp.id=cs.span_id
+        WHERE cs.citation_id=?
+        ORDER BY cs.rank, sp.id
         LIMIT 1
         """,
         (int(row["id"]),),
     ).fetchone()
-    evidence_kind = first["span_kind"] if first is not None else "unknown"
+    citation_kind = first["span_kind"] if first is not None else "unknown"
     snippet = None
     if first is not None:
         snippet = first["snippet"] or first["quote"] or _page_snippet(first)
@@ -1592,11 +1590,11 @@ def _link_summary(
         "export_ref": row["stable_id"],
         "status": row["status"],
         "role": row["link_role"],
-        "evidence_kind": evidence_kind,
+        "citation_kind": citation_kind,
         "span_count": int(summary["span_count"] or 0),
         "artifact_count": int(summary["artifact_count"] or 0),
         "snippet": snippet,
-        "viewer_href": f"/api/projects/{pid}/evidence/links/{row['stable_id']}/viewer",
+        "viewer_href": f"/api/projects/{pid}/citations/{row['stable_id']}/viewer",
     }
 
 
@@ -1708,7 +1706,7 @@ def _span_payload(
         if row["artifact_kind"] == "av" and row["blob_hash"]:
             clip_url = (
                 f"/api/projects/{project_id or 'local'}"
-                f"/evidence/spans/{row['stable_id']}/clip"
+                f"/citations/spans/{row['stable_id']}/clip"
             )
 
     return {

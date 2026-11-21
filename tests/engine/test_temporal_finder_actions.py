@@ -22,7 +22,7 @@ from frisket.engine.executor.action_specs import PlacementPolicy, execution_spec
 from frisket.engine.jobs import RUN_PROJECT_KIND
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
@@ -498,7 +498,7 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
         sheet_id, int(transcript_column["id"]), row_ids=[row_id]
     )
     evidence_link = project.db.execute(
-        "SELECT * FROM evidence_links WHERE row_id=? AND column_id=? "
+        "SELECT * FROM citations WHERE row_id=? AND column_id=? "
         "AND link_role='media_transcribe_temporal'",
         (row_id, int(transcript_column["id"])),
     ).fetchone()
@@ -519,8 +519,8 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
     assert resolved.transcript_run_id == transcribe_result.run_id
     evidence_spans = project.db.execute(
         "SELECT els.rank, sp.start_ms, sp.end_ms, sp.selector_json "
-        "FROM evidence_link_spans els JOIN source_spans sp ON sp.id=els.span_id "
-        "WHERE els.link_id=? ORDER BY els.rank",
+        "FROM citation_spans els JOIN source_spans sp ON sp.id=els.span_id "
+        "WHERE els.citation_id=? ORDER BY els.rank",
         (evidence_link["id"],),
     ).fetchall()
     assert [

@@ -12,7 +12,7 @@ from pathlib import Path
 from frisket.actions.types import RowError
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine.executor.visual_cuts_read import _settle
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -375,7 +375,7 @@ def verify_row_file_evidence(project, descriptor, publication):
             raise ValueError("screenshot evidence link is incomplete")
         seen.add(ref["id"])
         link = project.db.execute(
-            "SELECT l.id FROM evidence_links l JOIN evidence_link_spans s ON s.link_id=l.id "
+            "SELECT l.id FROM citations l JOIN citation_spans s ON s.citation_id=l.id "
             "WHERE l.id=? AND l.stable_id=? AND s.span_id=? AND l.row_id=?",
             (ref["id"], ref["stable_id"], publication["span_id"], descriptor["row_id"]),
         ).fetchone()

@@ -48,14 +48,14 @@ function sourceLinkArtifact(payload: CitationViewerPayload, page?: number) {
 
 export async function openSourceLink(
   source: SourceLink,
-  api: Pick<ProjectApi, 'getEvidenceViewer' | 'getSheetRows'>,
+  api: Pick<ProjectApi, 'getCitationViewer' | 'getSheetRows'>,
   navigation: {
     isCurrent(): boolean;
     openOriginal(sheetId: string, rowId: string, columnId: string, page?: number): void;
     openEvidence(payload: CitationViewerPayload, page?: number): void;
   },
 ): Promise<void> {
-  const payload = await api.getEvidenceViewer(source.evidenceLinkId);
+  const payload = await api.getCitationViewer(source.evidenceLinkId);
   if (!navigation.isCurrent()) return;
   const artifact = sourceLinkArtifact(payload, source.page);
   const historical = jsonRecord(jsonRecord(artifact?.external_ref)?.original_source_cell);

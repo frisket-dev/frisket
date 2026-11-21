@@ -18,7 +18,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_timeline,
     write_rate1_timeline_segment,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.transactions import write_transaction
 
 

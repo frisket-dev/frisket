@@ -9,7 +9,7 @@ from frisket.engine.runner import review as review_runner
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.runner.review import queue_count, review_bundle_page
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -137,10 +137,12 @@ def test_review_bundles_return_bounded_pages_with_action_metadata(
     assert first["source"] == {"story": "Story 00"}
     assert {field["column_name"] for field in first["fields"]} == {"risk", "tone"}
     assert {field["column_type"] for field in first["fields"]} == {"text"}
-    assert {item["column_name"] for item in first["evidence"]} == {"risk_justification"}
-    assert {item["column_type"] for item in first["evidence"]} == {"text"}
+    assert {item["column_name"] for item in first["supporting_columns"]} == {
+        "risk_justification"
+    }
+    assert {item["column_type"] for item in first["supporting_columns"]} == {"text"}
     assert all(field["chore"] is True for field in first["fields"])
-    assert all(item["chore"] is False for item in first["evidence"])
+    assert all(item["chore"] is False for item in first["supporting_columns"])
 
     tail = client.get(
         f"/api/projects/{project_id}/review/bundles",
@@ -311,7 +313,9 @@ def test_selected_run_keeps_frozen_hidden_and_renamed_outputs(
     assert stable["total"] == len(row_ids)
     first = next(item for item in stable["bundles"] if item["row_id"] == row_ids[0])
     assert {item["column_name"] for item in first["fields"]} == {"risk", "tone"}
-    assert {item["column_name"] for item in first["evidence"]} == {"risk_justification"}
+    assert {item["column_name"] for item in first["supporting_columns"]} == {
+        "risk_justification"
+    }
 
 
 def test_review_bundle_page_params_are_validated(client: TestClient) -> None:

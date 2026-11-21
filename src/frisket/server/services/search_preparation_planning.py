@@ -287,8 +287,8 @@ def _imported_pdf_child_page_source(
     """Recognize a physical one-page child beside its original's page image."""
     row = project.db.execute(
         "SELECT original.blob_hash, span.page_start "
-        "FROM evidence_links link "
-        "JOIN evidence_link_spans linked ON linked.link_id=link.id "
+        "FROM citations link "
+        "JOIN citation_spans linked ON linked.citation_id=link.id "
         "JOIN source_spans span ON span.id=linked.span_id "
         "JOIN source_artifacts original ON original.id=span.artifact_id "
         "WHERE link.status='active' AND link.link_role='source_provenance' "
@@ -316,8 +316,8 @@ def _imported_pdf_child_page_source(
 def _imported_pdf_page_source(project: Any, source: Any) -> tuple[str, int] | None:
     row = project.db.execute(
         "SELECT artifact.blob_hash, span.page_start "
-        "FROM evidence_links link "
-        "JOIN evidence_link_spans linked ON linked.link_id=link.id "
+        "FROM citations link "
+        "JOIN citation_spans linked ON linked.citation_id=link.id "
         "JOIN source_spans span ON span.id=linked.span_id "
         "JOIN source_artifacts artifact ON artifact.id=span.artifact_id "
         "WHERE link.status='active' AND link.link_role='primary_support' "
@@ -360,8 +360,8 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
     candidates = project.db.execute(
         "SELECT DISTINCT l.column_id,a.id AS artifact_id "
         "FROM source_artifacts a JOIN source_spans s ON s.artifact_id=a.id "
-        "JOIN evidence_link_spans ls ON ls.span_id=s.id "
-        "JOIN evidence_links l ON l.id=ls.link_id "
+        "JOIN citation_spans ls ON ls.span_id=s.id "
+        "JOIN citations l ON l.id=ls.citation_id "
         "WHERE a.blob_hash=? AND a.source_sheet_id=? AND a.source_row_id=? "
         "AND a.source_column_id=? AND l.status='active' "
         "AND l.link_role='media_transcribe_temporal'",

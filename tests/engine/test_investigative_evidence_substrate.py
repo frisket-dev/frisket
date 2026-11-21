@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,
@@ -352,18 +352,15 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
     assert {
         "source_artifacts",
         "source_spans",
-        "evidence_links",
-        "evidence_link_spans",
+        "citations",
+        "citation_spans",
     }.issubset(_table_names(project))
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
     assert (
         project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 5
     )
     assert project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 7
-    assert (
-        project.db.execute("SELECT COUNT(*) FROM evidence_link_spans").fetchone()[0]
-        == 8
-    )
+    assert project.db.execute("SELECT COUNT(*) FROM citation_spans").fetchone()[0] == 8
     _assert_prefixed_uuid(pdf_artifact["stable_id"], "source_artifact:")
     _assert_prefixed_uuid(spans[1]["stable_id"], "source_span:")
     _assert_prefixed_uuid(link["stable_id"], "evidence_link:")
@@ -375,18 +372,18 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
         column_id=column_id,
         project_id="project-evidence",
     )
-    assert cell_payload["schema_version"] == "frisket.cell_evidence.v1"
+    assert cell_payload["schema_version"] == "frisket.cell_citations.v1"
     assert cell_payload["current_value_ref"] == current_ref
     assert cell_payload["stale_count"] == 0
     assert [item["stable_id"] for item in cell_payload["links"]] == [link["stable_id"]]
     assert cell_payload["links"][0]["viewer_href"].endswith(
-        f"/evidence/links/{link['stable_id']}/viewer"
+        f"/citations/{link['stable_id']}/viewer"
     )
 
     viewer = resolve_citation_viewer(
         project, link["stable_id"], project_id="project-evidence"
     )
-    assert viewer["schema_version"] == "frisket.evidence_viewer.v1"
+    assert viewer["schema_version"] == "frisket.citation_viewer.v1"
     assert viewer["link"]["stable_id"] == link["stable_id"]
     assert viewer["link"]["status"] == "active"
     assert viewer["link"]["producer"]["grounding_method"] == "model_bbox"
@@ -499,19 +496,15 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
     assert edit_result.status == "completed"
 
     link_rows = project.db.execute(
-        "SELECT stable_id, status, stale_reason, stale_at "
-        "FROM evidence_links ORDER BY id"
+        "SELECT stable_id, status, stale_reason, stale_at FROM citations ORDER BY id"
     ).fetchall()
     statuses = {row["stable_id"]: dict(row) for row in link_rows}
     assert statuses[link["stable_id"]]["status"] == "stale"
     assert statuses[link["stable_id"]]["stale_reason"] == "manual_cell_edit"
     assert statuses[link["stable_id"]]["stale_at"]
     assert statuses[unrelated_same_cell["stable_id"]]["status"] == "active"
-    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 2
-    assert (
-        project.db.execute("SELECT COUNT(*) FROM evidence_link_spans").fetchone()[0]
-        == 8
-    )
+    assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 2
+    assert project.db.execute("SELECT COUNT(*) FROM citation_spans").fetchone()[0] == 8
 
     active_after_edit = list_cell_citations(
         project,
@@ -595,7 +588,7 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
         run_id=run_id,
     )
     project.db.execute(
-        "UPDATE evidence_links SET status='stale',stale_reason='older_change',"
+        "UPDATE citations SET status='stale',stale_reason='older_change',"
         "stale_at='2026-01-02 03:04:05' WHERE stable_id=?",
         (already_stale["stable_id"],),
     )

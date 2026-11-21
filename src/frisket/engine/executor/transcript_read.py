@@ -75,7 +75,7 @@ from frisket.engine.store.cell_writes import (
     create_base_cell_producer,
     initialize_base_cells,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.transcript_projection import (
     TranscriptProjection,
     project_transcript_segments,

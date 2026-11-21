@@ -193,7 +193,7 @@ def test_text_only_renamed_output_has_exact_current_temporal_evidence(setup):
     project, sheet, row_id, read, calls, run = setup
     result = run()
     assert result.status == "completed", result.errors
-    [link] = project.db.execute("SELECT * FROM evidence_links").fetchall()
+    [link] = project.db.execute("SELECT * FROM citations").fetchall()
     [span] = project.db.execute("SELECT * FROM source_spans").fetchall()
     assert (span["start_ms"], span["end_ms"]) == (100, 2000)
     assert json.loads(span["metadata"])["raw"]["raw_end_ms"] == 3000
@@ -216,7 +216,7 @@ def test_text_only_renamed_output_has_exact_current_temporal_evidence(setup):
     assert resolved.language == "en"
     assert run().receipt_id == result.receipt_id
     assert len(calls) == 1
-    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 1
 
 
 def test_custom_rewrite_and_equal_incidental_string_do_not_acquire_grounding(setup):
@@ -224,7 +224,7 @@ def test_custom_rewrite_and_equal_incidental_string_do_not_acquire_grounding(set
     result = run("custom")
     assert result.status == "completed", result.errors
     links = project.db.execute(
-        "SELECT c.name FROM evidence_links el JOIN columns c ON c.id=el.column_id"
+        "SELECT c.name FROM citations el JOIN columns c ON c.id=el.column_id"
     ).fetchall()
     assert [link["name"] for link in links] == ["renamed"]
     [span] = project.db.execute("SELECT * FROM source_spans").fetchall()
@@ -246,7 +246,7 @@ def test_silence_and_invalid_segments_create_no_orphan_artifacts(setup, segments
     project, sheet, row_id, read, calls, run = setup
     read["segments"] = segments
     assert run().status == "completed"
-    for table in ("source_artifacts", "source_spans", "evidence_links"):
+    for table in ("source_artifacts", "source_spans", "citations"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -254,7 +254,7 @@ def test_stale_writer_cannot_publish_temporal_evidence(setup):
     project, sheet, row_id, read, calls, run = setup
     read["writer_override"] = "nonexistent-attempt"
     assert run().status == "failed"
-    for table in ("source_artifacts", "source_spans", "evidence_links"):
+    for table in ("source_artifacts", "source_spans", "citations"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -268,7 +268,7 @@ def test_unknown_recorded_duration_is_not_inferred_from_fresh_metadata(setup):
     assert span["end_ms"] == 3000
     assert "words" not in json.loads(span["selector_json"])
     assert artifact["duration_ms"] is None
-    column_id = project.db.execute("SELECT column_id FROM evidence_links").fetchone()[0]
+    column_id = project.db.execute("SELECT column_id FROM citations").fetchone()[0]
     assert (
         resolve_timestamped_transcript(
             project, sheet_id=sheet, row_id=row_id, column_id=column_id

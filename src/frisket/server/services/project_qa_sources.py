@@ -272,14 +272,14 @@ def resolve_prepared_source(
     cell: tuple[int, int, int],
     *,
     expected_version: dict[str, Any],
-    evidence_link_id: str | None = None,
+    citation_id: str | None = None,
     cancel: threading.Event | None = None,
 ) -> dict[str, Any] | None:
     """Resolve a current file cell to its active, current prepared text cell.
 
-    The caller continues to authorize ``cell``.  This only follows an evidence
-    link when its artifact names that exact source cell and its current blob,
-    and when the link still names the current derived cell value.
+    The caller continues to authorize ``cell``.  This only follows a citation
+    when its artifact names that exact source cell and its current blob,
+    and when the citation still names the current derived cell value.
     """
     with _read(project, cancel) as (db, _deadline):
         source_meta, _ = _metadata(db, cell)
@@ -298,14 +298,14 @@ def resolve_prepared_source(
             }
             link_conditions = ""
             link_params: list[Any] = []
-            if evidence_link_id is not None:
+            if citation_id is not None:
                 link_conditions = " AND link.stable_id=?"
-                link_params.append(evidence_link_id)
+                link_params.append(citation_id)
             # Grounding can accompany the selected value, but cannot select it.
             # A flat manual correction has no matching old grounding link.
             link = db.execute(
-                "SELECT link.stable_id FROM evidence_links link "
-                "JOIN evidence_link_spans linked ON linked.link_id=link.id "
+                "SELECT link.stable_id FROM citations link "
+                "JOIN citation_spans linked ON linked.citation_id=link.id "
                 "JOIN source_spans span ON span.id=linked.span_id "
                 "WHERE link.status='active' AND link.sheet_id=? "
                 "AND link.row_id=? AND link.column_id=? "
@@ -319,11 +319,11 @@ def resolve_prepared_source(
                     *link_params,
                 ],
             ).fetchone()
-            if evidence_link_id is not None and link is None:
+            if citation_id is not None and link is None:
                 return None
             return {
                 "cell": selected.text_cell,
-                "evidence_link_id": str(link[0]) if link is not None else None,
+                "citation_id": str(link[0]) if link is not None else None,
                 "source_meta": source_meta,
                 "prepared_value_ref": prepared_meta["value_ref"],
                 "prepared_version": prepared_meta["version"],
@@ -346,12 +346,12 @@ def resolve_prepared_source(
             "a.blob_hash=?",
         ]
         params: list[Any] = [cell[0], cell[1], *cell, blob_hash]
-        if evidence_link_id:
+        if citation_id:
             conditions.append("l.stable_id=?")
-            params.append(evidence_link_id)
+            params.append(citation_id)
         candidates = db.execute(
             "SELECT l.stable_id,l.sheet_id,l.row_id,l.column_id,l.subject_ref_json "
-            "FROM evidence_links l JOIN evidence_link_spans ls ON ls.link_id=l.id "
+            "FROM citations l JOIN citation_spans ls ON ls.citation_id=l.id "
             "JOIN source_spans sp ON sp.id=ls.span_id "
             "JOIN source_artifacts a ON a.id=sp.artifact_id WHERE "
             + " AND ".join(conditions)
@@ -388,7 +388,7 @@ def resolve_prepared_source(
                 continue
             return {
                 "cell": prepared_cell,
-                "evidence_link_id": str(candidate["stable_id"]),
+                "citation_id": str(candidate["stable_id"]),
                 "source_meta": source_meta,
                 "prepared_value_ref": prepared_meta["value_ref"],
                 "prepared_version": prepared_meta["version"],
@@ -400,7 +400,7 @@ def read_source_with_prepared(
     project: Project,
     cell: tuple[int, int, int],
     *,
-    evidence_link_id: str | None = None,
+    citation_id: str | None = None,
     cancel: threading.Event | None = None,
 ) -> tuple[tuple[int, int, int], dict[str, Any], dict[str, Any] | None]:
     """Read a current source reference and follow its current prepared text."""
@@ -410,7 +410,7 @@ def read_source_with_prepared(
         project,
         cell,
         expected_version=source["version"],
-        evidence_link_id=evidence_link_id,
+        citation_id=citation_id,
         cancel=cancel,
     )
     return (prepared["cell"] if prepared else cell), source, prepared
@@ -424,20 +424,20 @@ def read_prepared_passages(
     start: int,
     end: int,
     limit: int,
-    evidence_link_id: str | None = None,
+    citation_id: str | None = None,
     span_id: str | None = None,
     cancel: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
-    """Project bounded, current evidence quotes without building a media viewer.
+    """Project bounded, current citation passages without building a media viewer.
 
-    Reuse the canonical evidence links/spans and their hash check. Even hash
+    Reuse the canonical citations/spans and their hash check. Even hash
     verification reads bounded SQL slices, rather than a whole Python cell.
     """
     with _read(project, cancel) as (db, deadline):
         meta, text_meta = _metadata(db, cell)
         if meta["version"] != expected_version:
             raise ValueError(
-                "source_changed: reopen this source before reading its evidence"
+                "source_changed: reopen this source before reading its citations"
             )
         ref = {
             key: value for key, value in meta["value_ref"].items() if key != "validity"
@@ -451,9 +451,9 @@ def read_prepared_passages(
             "l.subject_ref_json=?",
         ]
         params: list[Any] = [*cell, ref_json]
-        if evidence_link_id:
+        if citation_id:
             conditions.append("l.stable_id=?")
-            params.append(evidence_link_id)
+            params.append(citation_id)
         if span_id:
             conditions.append("sp.stable_id=?")
             params.append(span_id)
@@ -468,11 +468,11 @@ def read_prepared_passages(
                 [ref_json, end, start, _text(db, cell, text_meta, start, end - start)]
             )
         rows = db.execute(
-            "SELECT l.stable_id AS evidence_link_id, a.stable_id AS artifact_id, "
+            "SELECT l.stable_id AS citation_id, a.stable_id AS artifact_id, "
             "sp.stable_id AS span_id, substr(coalesce(sp.quote,sp.snippet),1,?) AS text, "
             "sp.text_layer_hash, sp.page_start,sp.page_end,sp.start_ms,sp.end_ms, "
             "sp.bbox_json, substr(coalesce(a.title,a.filename,''),1,240) AS title "
-            "FROM evidence_links l JOIN evidence_link_spans ls ON ls.link_id=l.id "
+            "FROM citations l JOIN citation_spans ls ON ls.citation_id=l.id "
             "JOIN source_spans sp ON sp.id=ls.span_id JOIN source_artifacts a ON a.id=sp.artifact_id "
             "LEFT JOIN text_surfaces ts ON ts.id=sp.text_surface_id WHERE "
             + " AND ".join(conditions)

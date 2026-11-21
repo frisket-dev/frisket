@@ -10,12 +10,12 @@ import { evidenceArtifact, evidenceSpan, artifactRef, blobRef } from '../support
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const api = createProjectApi('bounded-evidence');
-const read = vi.spyOn(api, 'getEvidenceViewer');
+const read = vi.spyOn(api, 'getCitationViewer');
 const { render } = createWorkspaceTestHarness({ projectId: 'bounded-evidence', api: { projectApi: api } });
 function context(start = 0, spanId = 'span:first', text = '😀 quoted head', revision: number | null = 9) {
   const end = start + Array.from(text).length;
   return { text, offset_unit: 'utf16_code_unit' as const, content_hash: 'sha256:source',
-    evidence_link_id: 'owner:a', artifact_stable_id: 'artifact:22',
+    citation_id: 'owner:a', artifact_stable_id: 'artifact:22',
     ranges: [{ span_id: spanId, start: 3, end: 9, source_start: start + 2, source_end: start + 8 }],
     window: { start, end, total_characters: 100000, total_bytes: 100003, retrieval_revision: revision,
       previous_start: start ? Math.max(0, start - 16384) : null, next_start: end < 100000 ? end : null,
@@ -32,8 +32,8 @@ afterEach(() => { cleanup(); read.mockReset(); });
 
 describe('bounded saved evidence passages', () => {
   it('keeps a dropdown-selected citation and its owner after navigating to the next passage', async () => {
-    const selected = { ...context(90000, 'span:tail', '😀 quoted tail'), evidence_link_id: 'owner:b' };
-    const following = { ...context(90013, 'span:tail', '😀 quoted next'), evidence_link_id: 'owner:b',
+    const selected = { ...context(90000, 'span:tail', '😀 quoted tail'), citation_id: 'owner:b' };
+    const following = { ...context(90013, 'span:tail', '😀 quoted next'), citation_id: 'owner:b',
       ranges: [
         { span_id: 'span:tail', start: 3, end: 9 },
         { span_id: 'span:first', start: 10, end: 14 },
@@ -111,7 +111,7 @@ describe('bounded saved evidence passages', () => {
     read.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const mounted = render(<TextArtifactSource artifact={source()} scopeSpanId="span:tail" />);
     const signal = read.mock.calls[0][1]?.signal;
-    const next = source({ text_context: { ...context(10, 'span:tail', '😀 quoted other'), evidence_link_id: 'owner:b' } });
+    const next = source({ text_context: { ...context(10, 'span:tail', '😀 quoted other'), citation_id: 'owner:b' } });
     mounted.rerender(<TextArtifactSource artifact={next} scopeSpanId="span:tail" />);
     expect(signal?.aborted).toBe(true);
     await act(async () => finish(response(source({ text_context: context(90000, 'span:tail', '😀 quoted obsolete') }))));

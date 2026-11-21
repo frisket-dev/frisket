@@ -76,7 +76,7 @@ test('review uses cited-source tabs and the canonical text highlighter without n
   const seeded = extractRecordedContent(pid);
   const citationRequests: string[] = [];
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname.includes('/evidence')) citationRequests.push(request.url());
+    if (new URL(request.url()).pathname.includes('/citations')) citationRequests.push(request.url());
   });
   await openProject(page, pid, seeded.sheetId);
   await page.getByTestId('review-queue-button').click();

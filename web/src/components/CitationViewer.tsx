@@ -68,7 +68,7 @@ export function CitationViewer({
     if (initialPayload) return;
     let alive = true;
     projectApi
-      .getEvidenceViewer(evidenceLinkId)
+      .getCitationViewer(evidenceLinkId)
       .then((payload) => {
         if (alive && requestEpoch.current === epoch) {
           setState({ phase: 'done', payload });
@@ -91,7 +91,7 @@ export function CitationViewer({
     const epoch = ++requestEpoch.current;
     setRecovery({ phase: 'loading' });
     projectApi
-      .getEvidenceViewer(evidenceLinkId, { locateCurrent: true })
+      .getCitationViewer(evidenceLinkId, { locateCurrent: true })
       .then((payload) => {
         if (!mounted.current || requestEpoch.current !== epoch) return;
         setState({ phase: 'done', payload });

@@ -258,8 +258,8 @@ def test_native_pdf_text_publishes_prepared_pages_evidence_and_search(
         row["page_start"]
         for row in project.db.execute(
             "SELECT span.page_start FROM source_spans AS span "
-            "JOIN evidence_link_spans AS member ON member.span_id=span.id "
-            "JOIN evidence_links AS link ON link.id=member.link_id "
+            "JOIN citation_spans AS member ON member.span_id=span.id "
+            "JOIN citations AS link ON link.id=member.citation_id "
             "WHERE link.run_id=? AND link.column_id=?",
             (result.run_id, output.column_id),
         )
@@ -398,8 +398,8 @@ def test_page_scoped_cell_keeps_original_page_identity(
     assert (
         project.db.execute(
             "SELECT span.page_start FROM source_spans AS span "
-            "JOIN evidence_link_spans AS member ON member.span_id=span.id "
-            "JOIN evidence_links AS link ON link.id=member.link_id "
+            "JOIN citation_spans AS member ON member.span_id=span.id "
+            "JOIN citations AS link ON link.id=member.citation_id "
             "WHERE link.run_id=? AND link.column_id=? "
             "ORDER BY span.id LIMIT 1",
             (result.run_id, output.column_id),

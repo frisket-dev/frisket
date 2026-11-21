@@ -205,7 +205,7 @@ def _write_entity_spans(
     """
     if not row_ids:
         return
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
@@ -233,7 +233,7 @@ def _write_entity_spans(
         row_id = int(result_row["row_id"])
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links "
+                "SELECT 1 FROM citations "
                 "WHERE receipt_id=? AND row_id=? AND column_id=? LIMIT 1",
                 (receipt_id, row_id, output_column_id),
             ).fetchone()

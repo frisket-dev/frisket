@@ -14,7 +14,7 @@ def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> 
     The typed executor marks eligible output fields. Arbitrary strings (including
     rewritten OCR text) remain ordinary values. The caller owns commit/rollback.
     """
-    from .evidence import record_source_artifact
+    from .citations import record_source_artifact
 
     calls = [
         call

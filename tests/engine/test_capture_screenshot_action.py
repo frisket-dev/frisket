@@ -442,7 +442,7 @@ def test_late_evidence_failure_rolls_back_only_its_row(screenshot_client, monkey
 
 @pytest.mark.parametrize(
     "table",
-    ["source_artifacts", "source_spans", "evidence_links", "evidence_link_spans"],
+    ["source_artifacts", "source_spans", "citations", "citation_spans"],
 )
 def test_screenshot_replay_refuses_missing_published_evidence(screenshot_client, table):
     client, pid, project, sheet, rows, calls = screenshot_client
