@@ -420,6 +420,7 @@ def _running_receipt_stale_result(
 
     receipt_id = str(_row_value(existing, "id"))
     terminalized_run_id: int | None = None
+    terminalized_receipt: Receipt | None = None
     try:
         with write_transaction(project.db):
             receipts = ReceiptStore(project)
@@ -438,34 +439,36 @@ def _running_receipt_stale_result(
                 )
             )
             if current["status"] != "running":
-                project.db.commit()
-                if terminalized_run_id is not None:
-                    emit_run_outcome_notification(project, terminalized_run_id)
-                return _result_from_receipt(current.parsed())
-            stopped = project.db.execute(
-                "SELECT 1 FROM runs WHERE id=? AND cancel_requested_at IS NOT NULL",
-                (current["run_id"],),
-            ).fetchone()
-            if stopped is not None:
-                # Live or ambiguous stopped ownership belongs to terminal repair,
-                # never deletion of its receipt and accounting lineage.
-                return None
-            if _running_receipt_has_live_owner(project, current):
-                return None
-            # No live attempt or lease remains. Release the expired reservation's
-            # claims with its receipt so a new admission can actually acquire them.
-            project.db.execute(
-                "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
-                "WHERE status='active' AND (receipt_id=? OR run_id=?)",
-                (receipt_id, current["run_id"]),
-            )
-            receipts.delete_if_status(receipt_id, "running")
+                terminalized_receipt = current.parsed()
+            else:
+                stopped = project.db.execute(
+                    "SELECT 1 FROM runs WHERE id=? AND cancel_requested_at IS NOT NULL",
+                    (current["run_id"],),
+                ).fetchone()
+                if stopped is not None:
+                    # Live or ambiguous stopped ownership belongs to terminal repair,
+                    # never deletion of its receipt and accounting lineage.
+                    return None
+                if _running_receipt_has_live_owner(project, current):
+                    return None
+                # No live attempt or lease remains. Release the expired reservation's
+                # claims with its receipt so a new admission can actually acquire them.
+                project.db.execute(
+                    "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+                    "WHERE status='active' AND (receipt_id=? OR run_id=?)",
+                    (receipt_id, current["run_id"]),
+                )
+                receipts.delete_if_status(receipt_id, "running")
     except Exception as exc:
         return ctx.fail(
             "project_write_failed",
             f"failed to clear stale running receipt: {exc}",
             field="idempotency_key",
         )
+    if terminalized_receipt is not None:
+        if terminalized_run_id is not None:
+            emit_run_outcome_notification(project, terminalized_run_id)
+        return _result_from_receipt(terminalized_receipt)
 
     return ctx.fail(
         "idempotency_stale_running",

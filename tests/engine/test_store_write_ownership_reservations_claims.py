@@ -805,3 +805,58 @@ def test_abandon_stale_dispatching_attempts_is_atomic_on_run_pointer_failure(pro
         )[0][0]
         == "dispatching"
     )
+
+
+def test_acquire_rolls_back_partial_claims_on_second_output_integrity_error(project):
+    """A conflict on the 2nd output must roll back the 1st output's insert via
+    its savepoint and report the real conflicting claim, not the rolled-back row.
+    """
+    sheet_id = _sheet_id(project)
+    project.add_column(sheet_id, "alpha")
+    col_b = project.add_column(sheet_id, "beta_old")
+
+    # Seed an active claim on col_b under its old name, then rename the column
+    # to "beta" so acquire(["alpha", "beta"]) passes the initial active-name
+    # check, inserts "alpha", and hits idx_output_claims_active_column on "beta".
+    with write_transaction(project.db):
+        existing_claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["beta_old"],
+            action_kind="map.other",
+            claim_token="claim:existing-holder",
+        )
+    assert conflict is None and len(existing_claims) == 1
+    existing_claim_id = str(existing_claims[0]["id"])
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE columns SET name='beta' WHERE id=?",
+            (col_b,),
+        )
+
+    # Outer caller transaction succeeds cleanly after acquire returns conflict.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE sheets SET name='Caller kept' WHERE id=?",
+            (sheet_id,),
+        )
+        acquired, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["alpha", "beta"],
+            action_kind="map.test",
+            claim_token="claim:new-contender",
+        )
+
+    assert acquired == []
+    assert conflict is not None
+    assert str(conflict["id"]) == existing_claim_id
+    assert str(conflict["claim_token"]) == "claim:existing-holder"
+    # Outer caller work committed, and no orphaned claim for "alpha" leaked.
+    assert (
+        _committed(project, "SELECT name FROM sheets WHERE id=?", (sheet_id,))[0][0]
+        == "Caller kept"
+    )
+    active = _committed(
+        project,
+        "SELECT id, output_name, claim_token FROM output_column_claims WHERE status='active'",
+    )
+    assert active == [(existing_claim_id, "beta_old", "claim:existing-holder")]

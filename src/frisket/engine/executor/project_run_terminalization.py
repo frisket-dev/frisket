@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Collection
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from frisket.contracts.action import ActionError, Receipt
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
@@ -24,6 +24,9 @@ from frisket.engine.store.receipts import (
 from frisket.engine.store.transactions import write_transaction
 from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
 from frisket.notifications.run_outcomes import emit_run_outcome_notification
+
+if TYPE_CHECKING:
+    from frisket.engine.store.project import Project
 
 RunTerminalStatus = Literal["completed", "failed", "cancelled"]
 TerminalizationDisposition = Literal[
@@ -175,7 +178,7 @@ def _terminal_receipt_from(
 
 
 def terminalize_project_run(
-    project: object,
+    project: Project,
     *,
     run_id: int,
     receipt_id: str,
@@ -200,9 +203,17 @@ def terminalize_project_run(
         raise ValueError("project-run terminalization requires a receipt id")
     if status not in FINISHED_RECEIPT_STATUSES:
         raise ValueError(f"unsupported terminal receipt status: {status}")
-    terminal_run_status: RunTerminalStatus = run_status or (
-        "completed" if status in {"completed", "partial"} else status
-    )
+    terminal_run_status: RunTerminalStatus
+    if run_status is not None:
+        terminal_run_status = run_status
+    elif status in {"completed", "partial"}:
+        terminal_run_status = "completed"
+    elif status == "failed":
+        terminal_run_status = "failed"
+    elif status == "cancelled":
+        terminal_run_status = "cancelled"
+    else:
+        raise ValueError(f"unsupported terminal receipt status: {status}")
     if terminal_run_status not in {"completed", "failed", "cancelled"}:
         raise ValueError(f"unsupported terminal run status: {terminal_run_status}")
     if publication_refusal is not None and (
@@ -217,7 +228,7 @@ def terminalize_project_run(
             "never-dispatched terminal authority requires its owned "
             "BEGIN IMMEDIATE transaction"
         )
-    db = project.db  # type: ignore[attr-defined]
+    db = project.db
 
     def complete(
         result: ProjectRunTerminalizationResult,
@@ -352,7 +363,7 @@ def terminalize_project_run(
                         "conflict",
                         receipt_disposition="write_refused",
                         run_status=str(run["status"]),
-                        receipt_status=str(stored_row.status),
+                        receipt_status=str(stored_receipt.status),
                         reason="terminal_receipt_identity_mismatch",
                     )
                 )
@@ -485,7 +496,7 @@ def terminalize_project_run(
                     and not live_attempt_ids
                     and not pending_attempt_ids
                 )
-                if terminal_retry:
+                if terminal_retry and stored_row is not None:
                     return complete(
                         _result(
                             "already_terminal",
@@ -533,7 +544,7 @@ def terminalize_project_run(
                         "conflict",
                         receipt_disposition="write_refused",
                         run_status=current_status,
-                        receipt_status=stored_row.status,
+                        receipt_status=stored_receipt.status,
                         reason="abandoned_recovery_authority_not_proven",
                     )
                 )
@@ -820,7 +831,7 @@ def terminalize_project_run(
                         "conflict",
                         receipt_disposition="write_refused",
                         run_status=current_status,
-                        receipt_status=stored_row.status,
+                        receipt_status=stored_receipt.status,
                         reason="active_claim_action_mismatch",
                     )
                 )
@@ -1054,7 +1065,7 @@ def terminalize_project_run(
             assert terminal_receipt is not None
             receipts.insert_finished(terminal_receipt, commit=False)
             receipt_disposition = "inserted"
-        elif stored_receipt is None:
+        elif stored_receipt is None or stored_row is None:
             receipt_disposition = "missing"
         elif stored_row.status == status:
             receipt_disposition = "already_terminal"

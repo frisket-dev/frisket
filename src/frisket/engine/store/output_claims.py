@@ -74,6 +74,8 @@ class OutputColumnClaimStore:
         token = claim_token or f"claim:{uuid.uuid4()}"
         expiry = self.claim_expiry(lease_seconds, now=now)
         details_json = json.dumps(details or {}, sort_keys=True)
+        savepoint = f"output_claim_acquire_{uuid.uuid4().hex}"
+        self.db.execute(f"SAVEPOINT {savepoint}")
         try:
             for name in names:
                 existing = self.db.execute(
@@ -82,6 +84,7 @@ class OutputColumnClaimStore:
                     (sheet_id, name),
                 ).fetchone()
                 if existing is not None:
+                    self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
                     return [], existing
             created: list[sqlite3.Row] = []
             for name in names:
@@ -127,16 +130,27 @@ class OutputColumnClaimStore:
                         "SELECT * FROM output_column_claims WHERE id=?", (claim_id,)
                     ).fetchone()
                 )
+            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             return created, None
         except sqlite3.IntegrityError:
+            self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             placeholders = ",".join("?" for _ in names)
             conflict = self.db.execute(
-                "SELECT * FROM output_column_claims "
-                f"WHERE sheet_id=? AND output_name IN ({placeholders}) "
-                "AND status='active' ORDER BY created_at, id LIMIT 1",
-                (sheet_id, *names),
+                "SELECT occ.* FROM output_column_claims occ "
+                "LEFT JOIN columns c ON c.id=occ.column_id AND c.active=1 "
+                "WHERE occ.status='active' AND ("
+                f"(occ.sheet_id=? AND occ.output_name IN ({placeholders})) "
+                f"OR (c.sheet_id=? AND c.name IN ({placeholders}))"
+                ") ORDER BY occ.created_at, occ.id LIMIT 1",
+                (sheet_id, *names, sheet_id, *names),
             ).fetchone()
             return [], conflict
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
 
     def bind_to_run(
         self,
