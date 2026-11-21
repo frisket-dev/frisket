@@ -17,9 +17,9 @@ import { test as base } from '@playwright/test';
 import { dynamicPortPair, newIsolatedE2EWorkspace } from '../../playwright/playwright.local-stack';
 import { returningUserStorageState } from '../../playwright/playwright.returning-user';
 import { testPython } from '../support/testPython';
+import { REPO_ROOT } from './helpers';
 
-const WEB_DIR = path.basename(process.cwd()) === 'web' ? process.cwd() : path.join(process.cwd(), 'web');
-const REPO_ROOT = path.resolve(WEB_DIR, '..');
+const WEB_DIR = path.join(REPO_ROOT, 'web');
 const CLOSED_PROXY = 'http://127.0.0.1:9';
 const LOOPBACK = '127.0.0.1,localhost,::1';
 const BOOT_TIMEOUT_MS = 90_000;

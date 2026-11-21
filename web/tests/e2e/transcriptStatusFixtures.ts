@@ -16,10 +16,8 @@
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { REPO_ROOT } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 type TranscriptStatus = 'missing' | 'partial' | 'complete_visible' | 'complete_hidden';
 

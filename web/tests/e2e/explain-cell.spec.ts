@@ -8,9 +8,6 @@
 // row whose text carries a <script>/<img onerror> payload and asserting the
 // payload shows up verbatim in the trace panel with no injected element.
 
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import {
   clickRunButton,
@@ -19,7 +16,9 @@ import {
   openAction,
   selectActionSourceColumns,
   openCellDrawer,
+  primeMapRowsReplies,
   sheetColumns,
+  typedActionRequest,
   uniqueName,
 } from './helpers';
 import {
@@ -31,7 +30,6 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
-import { testPython } from '../support/testPython';
 
 // A 3-row CSV. Row 0 carries an XSS probe so we can assert the raw model
 // output (which echoes/quotes nothing dangerous, but the PROMPT does contain
@@ -44,10 +42,6 @@ const CSV = `snippet
 "The county fair opened with record attendance."
 `;
 const PROMPT = 'Each row is a one-line local news item. Pick the single best label.';
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 async function exposeReplayBackedClassifyEngine(page: Page, projectId: string): Promise<void> {
   // This spec runs in replay_strict with a cache it primes itself, so the
@@ -88,91 +82,34 @@ async function exposeReplayBackedClassifyEngine(page: Page, projectId: string): 
 }
 
 function primeExplainCache(pid: string, sheetId: number): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import json
-import sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_id_raw = sys.argv[1], sys.argv[2], sys.argv[3]
-sheet_id = int(sheet_id_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    action = {
-        "action_id": "map.classify",
-        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {
-            "source": ["snippet"],
-            "engine": "llm",
-            "model": ${JSON.stringify(MODEL)},
-            "context": ${JSON.stringify(PROMPT)},
-            "fields": [
-                {
-                    "name": "topic",
-                    "type": "category",
-                    "labels": ["transit", "money", "other"],
-                }
-            ],
-            # extract-form-polish-v1 item 6: a fresh classify launch now defaults
-            # both toggles OFF (was True) — the cache-priming spec's request_key
-            # must match whatever the live form actually posts below.
-            "include_justification": False,
-            "include_confidence": False,
+  const action = typedActionRequest('map.classify', {
+    sheetId,
+    params: {
+      source: ['snippet'],
+      engine: 'llm',
+      model: MODEL,
+      context: PROMPT,
+      fields: [
+        {
+          name: 'topic',
+          type: 'category',
+          labels: ['transit', 'money', 'other'],
         },
-        "output_names": {"topic": "topic"},
-        "idempotency_key": "e2e-cache-prime",
-    }
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {c["name"]: c["id"] for c in project.columns(sheet_id)}
-    values = {
-        name: project.get_values(sheet_id, columns[name])
-        for name in spec["input_columns"]
-    }
-    cache = ResponseCache(project.path / "project.cache.db")
-    try:
-        for row_id in project.visible_row_ids(sheet_id):
-            row_values = {name: values[name].get(row_id) for name in ["snippet"]}
-            call = plan.program.render(row_values, spec)
-            req = LLMRequest(
-                model=spec["model"],
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-            )
-            cache.put(
-                request_key(req, plan.program.version),
-                LLMResponse(
-                    content=json.dumps({
-                        "topic": "transit",
-                        "topic_confidence": 0.91,
-                        "topic_justification": "mentions local public service",
-                    }),
-                    data={
-                        "topic": "transit",
-                        "topic_confidence": 0.91,
-                        "topic_justification": "mentions local public service",
-                    },
-                    tokens_in=120,
-                    tokens_out=30,
-                    cost=0.0001,
-                    model=spec["model"],
-                ),
-            )
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    timeout: 60_000,
+      ],
+      // extract-form-polish-v1 item 6: a fresh classify launch now defaults
+      // both toggles OFF (was True) — the cache-priming spec's request_key
+      // must match whatever the live form actually posts below.
+      include_justification: false,
+      include_confidence: false,
+    },
+    outputNames: { topic: 'topic' },
   });
+  const reply = {
+    topic: 'transit',
+    topic_confidence: 0.91,
+    topic_justification: 'mentions local public service',
+  };
+  primeMapRowsReplies(pid, action, [reply, reply, reply]);
 }
 
 test('Explain this cell shows the exact prompt + raw output, rendered XSS-safe', async ({

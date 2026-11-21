@@ -254,7 +254,9 @@ class RunIncomplete(RuntimeError):
 
 def wait_run(client: httpx.Client, pid: str, run_id: int, label: str) -> None:
     for _ in range(600):
-        body = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status").json()
+        response = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status")
+        response.raise_for_status()
+        body = response.json()
         s = body.get("run", {}).get("public_status", body)
         if s["status"] not in {"queued", "running"} and not s["live"]:
             cost = "cost unknown" if s["cost"] is None else f"${s['cost']:.4f}"
@@ -574,6 +576,7 @@ SEED_FAILURES = (
     subprocess.CalledProcessError,
     KeyError,
     StopIteration,
+    ValueError,
 )
 
 OUTCOME_STATES = ("complete", "partial", "missing", "present")

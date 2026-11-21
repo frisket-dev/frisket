@@ -1,9 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { REPO_ROOT } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 export function extractRecordedContent(pid: string): { sheetId: number; sources: string[] } {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
