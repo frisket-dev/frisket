@@ -9,7 +9,7 @@ consumer can depend on it without a layering cycle.
 borrower) is threaded with, instead of a bare URL string or scattered
 token/flag kwargs. Resolution into this
 shape (env bundle plus the persisted collection) lives in
-``frisket.server.provider_config.resolve_local_endpoints`` -- a server-layer
+``frisket.local_provider_config.resolve_local_endpoints`` -- a lower-layer
 concern (it reads the workspace file) -- this module only defines the shape,
 strict identity grammar, and tokenless-bearer rule.
 """
@@ -133,7 +133,7 @@ def resolve_env_local_endpoint(
     env: Mapping[str, str] | None = None,
 ) -> tuple[LocalModelEndpointConfig | None, list[str]]:
     """The env bundle candidate ONLY (no file/default fallback) — shared by
-    ``frisket.server.provider_config.resolve_local_endpoints``, the organization-run
+    ``frisket.local_provider_config.resolve_local_endpoints``, the organization-run
     env-bundle carve-out in
     ``jobs/runs.py`` (organization runs read ONLY the operator's env bundle, never the
     workspace file), and the team tier's organization routes.

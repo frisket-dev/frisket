@@ -32,6 +32,7 @@ from typing import Any
 
 import httpx
 
+from frisket.ai.llm.endpoint_config import resolve_env_local_endpoint
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.queue import MODEL_PULL_KIND, JobQueue
 from frisket.engine.jobs.ports import JobHandlerContext
@@ -40,6 +41,7 @@ from frisket.engine.jobs.worker import (
     HandlerRegistry,
     NonRetryableJobError,
 )
+from frisket.local_provider_config import resolve_local_endpoints
 
 LOG = logging.getLogger("frisket.jobs.model_pull")
 
@@ -662,8 +664,6 @@ def register_model_pull_handler(
                 finally:
                     client.close()
 
-            from frisket.server import provider_config
-
             endpoint_id = payload["endpoint_id"]
             if endpoint_id != art.endpoint_id:
                 raise ModelPullTerminalError(
@@ -674,10 +674,10 @@ def register_model_pull_handler(
                     "queued model pull endpoint does not match its durable provenance"
                 )
             if payload.get("org_id") is not None:
-                env_config, _notes = provider_config.resolve_env_local_endpoint()
+                env_config, _notes = resolve_env_local_endpoint()
                 configs = (env_config,) if env_config is not None else ()
             else:
-                configs, _notes = provider_config.resolve_local_endpoints(root)
+                configs, _notes = resolve_local_endpoints(root)
             config = next(
                 (
                     endpoint

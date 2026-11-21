@@ -93,14 +93,10 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (jobs -> server.provider_config). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
-      ],
-      "exclude": [
-        "frisket.engine.jobs.model_pull",
-        "frisket.engine.jobs.runs"
       ],
       "forbidden_imports": [
         "frisket.server",
@@ -109,6 +105,20 @@
         "frisket.team.*"
       ],
       "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-provider-config-does-not-import-server-or-team",
+      "comment": "frisket.local_provider_config holds read-side workspace provider key, local endpoint, models gateway, and search config resolution shared by engine jobs, CLI commands, and server routes. It must not depend on the server or team layers.",
+      "modules": [
+        "frisket.local_provider_config"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": true
     },
     {
       "id": "security-does-not-import-server-or-team",
@@ -396,7 +406,7 @@
       "modules": ["frisket", "frisket.*"],
       "exclude": [
         "frisket.ai.research.search",
-        "frisket.server.provider_config",
+        "frisket.local_provider_config",
         "frisket.engine.executor.web_search_read",
         "frisket.server.services.project_qa_runner",
         "frisket.server.services.project_qa_research"

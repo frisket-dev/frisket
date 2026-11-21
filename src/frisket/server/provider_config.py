@@ -43,31 +43,37 @@ from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     normalize_models_gateway_origin,
-    resolve_models_gateway_env,
 )
 from frisket.contracts.http.local_providers import (
     LocalEndpointDiscoveryCandidate,
     LocalEndpointDiscoveryResponse,
 )
 from frisket.local_model_ids import format_local_model_id, validate_local_endpoint_id
-from frisket.provider_definitions import PROVIDERS, provider_definition, providers_for
+from frisket.local_provider_config import (
+    ENV_VAR,
+    LOCAL_MODEL_ENDPOINTS_KEY,
+    MAX_LOCAL_ENDPOINTS,
+    MODELS_GATEWAY_CONFIG_KEY,
+    SEARCH_PROVIDER_CONFIG_KEY,
+    WORKSPACE_KEY_PROVIDERS,
+    decode_local_endpoints,
+    load_local_provider_keys,
+    local_secrets_path,
+    normalize_local_endpoint_name,
+    read_valid_config,
+    resolve_local_endpoints,
+    validate_config_shape,
+)
+from frisket.provider_definitions import PROVIDERS, provider_definition
 from frisket.redaction import redact_text
 from frisket.security.secrets import key_hint
 
-# Env parsing and origin validation live in the LLM layer so server, worker,
-# and team composition share one canonical endpoint record and model grammar.
+# Env parsing and origin validation live in the LLM layer; workspace config
+# file reading and resolution live in frisket.local_provider_config.
 
-# Projections retain their narrow meanings: LLM routing never receives search
-# or document credentials merely because settings can configure those providers.
-MODEL_KEY_PROVIDERS = tuple(p.id for p in providers_for(category="llm"))
-SEARCH_KEY_PROVIDERS = tuple(p.id for p in providers_for(category="search"))
-KEY_PROVIDERS = MODEL_KEY_PROVIDERS
-WORKSPACE_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="workspace"))
-PROJECT_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="project"))
 VALIDATION_KEY_PROVIDERS = tuple(p.id for p in PROVIDERS)
 PROVIDER_ORDER = (*WORKSPACE_KEY_PROVIDERS, "ollama")
 PROVIDER_LABELS = {p.id: p.label for p in PROVIDERS} | {"ollama": "Local server"}
-ENV_VAR = {p.id: p.env_var for p in PROVIDERS}
 PROVIDER_KIND = {p.id: "platform_api" for p in PROVIDERS} | {"ollama": "local_http"}
 
 VALIDATION_TOKEN_TTL_SECONDS = 10 * 60
@@ -86,10 +92,6 @@ def configure_validation_token_secret(secret: bytes) -> None:
 
 class UnknownProviderError(ValueError):
     """Raised when a provider id is not one the local tier manages."""
-
-
-class InvalidProviderConfigError(ValueError):
-    """Raised when an unsafe mutation of the workspace config is refused."""
 
 
 def normalize_provider(value: str) -> str:
@@ -256,12 +258,8 @@ def require_models_gateway_validation_token(
 
 
 # ---------------------------------------------------------------------------
-# gitignored workspace key file
+# gitignored workspace key file mutations
 # ---------------------------------------------------------------------------
-
-
-def local_secrets_path(root: str | Path) -> Path:
-    return Path(root) / ".frisket" / "provider_keys.json"
 
 
 def _ensure_secret_dir(path: Path) -> None:
@@ -278,69 +276,6 @@ def _ensure_secret_dir(path: Path) -> None:
         gitignore.write_text("*\n")
 
 
-def _read_config_file(root: str | Path) -> dict[str, str]:
-    """Return the raw config to tolerant readers, or ``{}`` when invalid.
-
-    Mutations deliberately use the strict decoder inside
-    :func:`_mutate_config_file`; tolerant reads must never become a lossy
-    preimage for a later write.
-    """
-    path = local_secrets_path(root)
-    try:
-        return _read_valid_config(path)
-    except InvalidProviderConfigError:
-        return {}
-
-
-def _read_valid_config(path: Path) -> dict[str, str]:
-    """Decode the complete, losslessly round-trippable config at ``path``."""
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return {}
-    except UnicodeError as exc:
-        raise InvalidProviderConfigError(
-            f"cannot safely update invalid provider settings at {path}"
-        ) from exc
-    except OSError as exc:
-        raise InvalidProviderConfigError(
-            f"cannot safely update provider settings at {path}"
-        ) from exc
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError) as exc:
-        raise InvalidProviderConfigError(
-            f"cannot safely update invalid provider settings at {path}"
-        ) from exc
-    return _validate_config_shape(data, path=path)
-
-
-def _validate_config_shape(data: Any, *, path: Path) -> dict[str, str]:
-    """Return ``data`` only when JSON serialization cannot filter or coerce it."""
-    if not isinstance(data, dict):
-        raise InvalidProviderConfigError(
-            f"cannot safely update invalid provider settings at {path}: "
-            "expected a JSON object"
-        )
-    if any(
-        not isinstance(name, str) or not isinstance(value, str) or not value
-        for name, value in data.items()
-    ):
-        raise InvalidProviderConfigError(
-            f"cannot safely update invalid provider settings at {path}: "
-            "every name must be a string and every value a non-empty string"
-        )
-    return dict(data)
-
-
-def load_local_provider_keys(root: str | Path) -> dict[str, str]:
-    return {
-        provider: value
-        for provider, value in _read_config_file(root).items()
-        if provider in WORKSPACE_KEY_PROVIDERS
-    }
-
-
 _MutationResult = TypeVar("_MutationResult")
 
 
@@ -353,9 +288,9 @@ def _mutate_config_file(
     _ensure_secret_dir(path)
     lock_path = path.with_name(f".{path.name}.lock")
     with FileLock(str(lock_path), timeout=-1):
-        config = _read_valid_config(path)
+        config = read_valid_config(path)
         result, changed = mutation(config)
-        config = _validate_config_shape(config, path=path)
+        config = validate_config_shape(config, path=path)
         if not changed:
             return result
 
@@ -413,47 +348,6 @@ def delete_local_provider_key(root: str | Path, provider: str) -> bool:
     return _mutate_config_file(root, delete)
 
 
-MODELS_GATEWAY_CONFIG_KEY = "models_gateway_v1"
-
-
-def _decode_models_gateway(value: str | None) -> ModelsGatewayConnection | None:
-    if value is None:
-        return None
-    try:
-        decoded = json.loads(value)
-    except (TypeError, ValueError) as exc:
-        raise InvalidProviderConfigError(
-            "cannot safely read malformed models gateway settings"
-        ) from exc
-    if (
-        not isinstance(decoded, dict)
-        or set(decoded) != {"origin", "token"}
-        or not isinstance(decoded.get("origin"), str)
-        or not isinstance(decoded.get("token"), str)
-    ):
-        raise InvalidProviderConfigError(
-            "cannot safely read malformed models gateway settings"
-        )
-    try:
-        return ModelsGatewayConnection(
-            origin=decoded["origin"],
-            token=decoded["token"],
-            source="stored",
-        )
-    except ValueError as exc:
-        raise InvalidProviderConfigError(
-            "cannot safely read malformed models gateway settings"
-        ) from exc
-
-
-def load_local_models_gateway(root: str | Path) -> ModelsGatewayConnection | None:
-    """Read the workspace gateway pair from the existing private config map."""
-
-    return _decode_models_gateway(
-        _read_config_file(root).get(MODELS_GATEWAY_CONFIG_KEY)
-    )
-
-
 def save_local_models_gateway(
     root: str | Path, *, origin: str, token: str
 ) -> ModelsGatewayConnection:
@@ -476,18 +370,6 @@ def save_local_models_gateway(
     return _mutate_config_file(root, save)
 
 
-def resolve_models_gateway(
-    root: str | Path,
-    env: Mapping[str, str] | None = None,
-) -> ModelsGatewayConnection | None:
-    """Resolve env-over-stored gateway authority without partial fallback."""
-
-    environment = resolve_models_gateway_env(os.environ if env is None else env)
-    return environment or load_local_models_gateway(root)
-
-
-LOCAL_MODEL_ENDPOINTS_KEY = "local_model_endpoints_v1"
-MAX_LOCAL_ENDPOINTS = 16
 LOCAL_ENDPOINT_DISCOVERY_TIMEOUT_SECONDS = 0.5
 LOCAL_ENDPOINT_DISCOVERY_CANDIDATES: tuple[tuple[str, str], ...] = (
     ("Ollama", "http://localhost:11434"),
@@ -495,120 +377,6 @@ LOCAL_ENDPOINT_DISCOVERY_CANDIDATES: tuple[tuple[str, str], ...] = (
     ("llama.cpp", "http://localhost:8080"),
     ("vLLM", "http://localhost:8000"),
 )
-
-
-def _normalize_local_endpoint_name(name: str) -> str:
-    normalized = " ".join((name or "").split())
-    if not normalized:
-        raise ValueError("local model server name is required")
-    if len(normalized) > 80:
-        raise ValueError("local model server name is too long")
-    return normalized
-
-
-def _decode_local_endpoints(
-    value: str | None,
-    *,
-    strict: bool,
-) -> list[dict[str, str]]:
-    if value is None:
-        return []
-    try:
-        decoded = json.loads(value)
-    except (TypeError, ValueError) as exc:
-        if strict:
-            raise InvalidProviderConfigError(
-                "cannot safely update malformed local model endpoint settings"
-            ) from exc
-        return []
-    valid = isinstance(decoded, list) and len(decoded) <= MAX_LOCAL_ENDPOINTS
-    rows: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    if valid:
-        for raw in decoded:
-            if not isinstance(raw, dict) or set(raw) != {
-                "id",
-                "name",
-                "url",
-                "inference_token",
-                "provisioning_token",
-                "edge_auth",
-                "pull_enabled",
-            }:
-                valid = False
-                break
-            endpoint_id = raw.get("id")
-            name = raw.get("name")
-            url = raw.get("url")
-            if (
-                not isinstance(endpoint_id, str)
-                or endpoint_id in seen_ids
-                or not isinstance(name, str)
-                or not isinstance(url, str)
-                or raw.get("inference_token") is not None
-                and not isinstance(raw.get("inference_token"), str)
-                or raw.get("provisioning_token") is not None
-                and not isinstance(raw.get("provisioning_token"), str)
-                or not isinstance(raw.get("edge_auth"), bool)
-                or not isinstance(raw.get("pull_enabled"), bool)
-            ):
-                valid = False
-                break
-            try:
-                endpoint_id = validate_local_endpoint_id(endpoint_id)
-                normalized_name = _normalize_local_endpoint_name(name)
-                normalized_url = normalize_ollama_url(url)
-            except ValueError:
-                valid = False
-                break
-            seen_ids.add(endpoint_id)
-            inference_token = raw.get("inference_token") or None
-            provisioning_token = raw.get("provisioning_token") or None
-            if (
-                inference_token or provisioning_token
-            ) and not origin_is_https_or_loopback(normalized_url):
-                valid = False
-                break
-            rows.append(
-                {
-                    "id": endpoint_id,
-                    "name": normalized_name,
-                    "url": normalized_url,
-                    "inference_token": inference_token,
-                    "provisioning_token": provisioning_token,
-                    "edge_auth": raw["edge_auth"],
-                    "pull_enabled": raw["pull_enabled"],
-                }
-            )
-    if not valid:
-        if strict:
-            raise InvalidProviderConfigError(
-                "cannot safely update malformed local model endpoint settings"
-            )
-        return []
-    return rows
-
-
-def load_local_endpoints(
-    root: str | Path,
-) -> tuple[LocalModelEndpointConfig, ...]:
-    rows = _decode_local_endpoints(
-        _read_config_file(root).get(LOCAL_MODEL_ENDPOINTS_KEY),
-        strict=False,
-    )
-    return tuple(
-        LocalModelEndpointConfig(
-            origin=row["url"],
-            inference_token=row["inference_token"],
-            provisioning_token=row["provisioning_token"],
-            edge_auth=row["edge_auth"],
-            pull_enabled=row["pull_enabled"],
-            source="local_file",
-            endpoint_id=row["id"],
-            display_name=row["name"],
-        )
-        for row in rows
-    )
 
 
 def create_local_endpoint(
@@ -621,7 +389,7 @@ def create_local_endpoint(
     edge_auth: bool = False,
     pull_enabled: bool = False,
 ) -> LocalModelEndpointConfig:
-    normalized_name = _normalize_local_endpoint_name(name)
+    normalized_name = normalize_local_endpoint_name(name)
     normalized_url = normalize_ollama_url(url)
     env_endpoint, _notes = resolve_env_local_endpoint()
     if env_endpoint is not None and env_endpoint.origin == normalized_url:
@@ -632,7 +400,7 @@ def create_local_endpoint(
         raise ValueError("a token-bearing origin must be https (or loopback)")
 
     def save(config: dict[str, str]) -> tuple[LocalModelEndpointConfig, bool]:
-        rows = _decode_local_endpoints(
+        rows = decode_local_endpoints(
             config.get(LOCAL_MODEL_ENDPOINTS_KEY),
             strict=True,
         )
@@ -692,7 +460,7 @@ def patch_local_endpoint(
         raise ValueError("unknown local endpoint patch field")
 
     def patch(config: dict[str, str]) -> tuple[LocalModelEndpointConfig, bool]:
-        rows = _decode_local_endpoints(
+        rows = decode_local_endpoints(
             config.get(LOCAL_MODEL_ENDPOINTS_KEY), strict=True
         )
         index = next(
@@ -702,7 +470,7 @@ def patch_local_endpoint(
             raise KeyError(endpoint_id)
         current = rows[index]
         name = (
-            _normalize_local_endpoint_name(changes["display_name"])
+            normalize_local_endpoint_name(changes["display_name"])
             if "display_name" in changes
             else current["name"]
         )
@@ -752,7 +520,7 @@ def delete_local_endpoint(root: str | Path, endpoint_id: str) -> bool:
     endpoint_id = validate_local_endpoint_id(endpoint_id)
 
     def delete(config: dict[str, str]) -> tuple[bool, bool]:
-        rows = _decode_local_endpoints(
+        rows = decode_local_endpoints(
             config.get(LOCAL_MODEL_ENDPOINTS_KEY),
             strict=True,
         )
@@ -836,92 +604,6 @@ def discover_local_endpoints(root: str | Path) -> LocalEndpointDiscoveryResponse
         )
 
     return LocalEndpointDiscoveryResponse(candidates=candidates)
-
-
-def resolve_local_endpoints(
-    root: str | Path,
-    env: Mapping[str, str] | None = None,
-) -> tuple[tuple[LocalModelEndpointConfig, ...], list[str]]:
-    """Resolve one explicit endpoint collection with no singular aliases."""
-    env = os.environ if env is None else env
-    env_endpoint, notes = resolve_env_local_endpoint(env)
-    persisted = load_local_endpoints(root)
-    endpoints = ((env_endpoint,) if env_endpoint is not None else ()) + persisted
-    ids = [endpoint.endpoint_id for endpoint in endpoints]
-    origins = [endpoint.origin for endpoint in endpoints]
-    if len(ids) != len(set(ids)):
-        raise InvalidProviderConfigError("local model endpoint ids must be unique")
-    if len(origins) != len(set(origins)):
-        raise InvalidProviderConfigError("local model endpoint origins must be unique")
-    return endpoints, notes
-
-
-# ---------------------------------------------------------------------------
-def resolve_effective_keys(
-    root: str | Path, env: Mapping[str, str] | None = None
-) -> dict[str, str]:
-    """File-stored remote-provider keys with environment overrides removed."""
-    env = os.environ if env is None else env
-    out: dict[str, str] = {}
-    for provider, value in load_local_provider_keys(root).items():
-        env_name = ENV_VAR.get(provider)
-        if env_name and env.get(env_name):
-            continue
-        out[provider] = value
-    return out
-
-
-def resolve_search_credentials(
-    root: str | Path, env: Mapping[str, str] | None = None
-) -> dict[str, str]:
-    """Actual effective local search keys; never consult this inside adapters."""
-    env = os.environ if env is None else env
-    stored = load_local_provider_keys(root)
-    return {
-        provider: str(env.get(ENV_VAR[provider]) or stored.get(provider) or "")
-        for provider in SEARCH_KEY_PROVIDERS
-        if env.get(ENV_VAR[provider]) or stored.get(provider)
-    }
-
-
-def configured_search_service(
-    root: str | Path,
-    *,
-    effective_keys: Mapping[str, str],
-    credential_source: str = "local",
-):
-    """Build search from caller-authorized keys and persisted preference."""
-
-    from frisket.ai.research.search import SearchService
-
-    return SearchService(
-        preference=load_search_provider(root),
-        effective_keys=effective_keys,
-        credential_source=credential_source,
-    )
-
-
-def local_search_service(root: str | Path):
-    """Build the effective local-tier search service for one workspace."""
-
-    return configured_search_service(
-        root, effective_keys=resolve_search_credentials(root)
-    )
-
-
-SEARCH_PROVIDER_CONFIG_KEY = "search_provider_v1"
-
-
-def load_search_provider(root: str | Path) -> str:
-    from frisket.ai.research.search import normalize_search_preference
-
-    raw = _read_config_file(root).get(SEARCH_PROVIDER_CONFIG_KEY)
-    try:
-        return normalize_search_preference(raw)
-    except ValueError as exc:
-        raise InvalidProviderConfigError(
-            "cannot safely read invalid search provider settings"
-        ) from exc
 
 
 def save_search_provider(root: str | Path, provider: str) -> str:

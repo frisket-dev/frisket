@@ -471,22 +471,22 @@ class Workspace:
         """UI-entered local-tier keys from the gitignored workspace file, with
         env vars already winning any conflict (resolve_effective_keys drops
         providers whose env var is set so the router falls back to it)."""
-        from frisket.server import provider_config
+        from frisket import local_provider_config
 
-        return provider_config.resolve_effective_keys(self.root)
+        return local_provider_config.resolve_effective_keys(self.root)
 
     def _local_endpoints(self):
         """The complete explicit local-model endpoint authority."""
 
-        from frisket.server import provider_config
+        from frisket import local_provider_config
 
-        configs, _notes = provider_config.resolve_local_endpoints(self.root)
+        configs, _notes = local_provider_config.resolve_local_endpoints(self.root)
         return configs
 
     def search_service(self):
         """Build the effective search provider from this edition's keys."""
 
-        from frisket.server.provider_config import (
+        from frisket.local_provider_config import (
             configured_search_service,
             local_search_service,
         )

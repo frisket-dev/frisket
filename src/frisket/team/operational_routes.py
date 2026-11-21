@@ -21,6 +21,7 @@ from frisket.engine.jobs.model_pull import (
     schedule_model_pull,
 )
 from frisket.engine.jobs.queue import MODEL_PULL_KIND, inserted_id
+from frisket.ai.llm.endpoint_config import resolve_env_local_endpoint
 from frisket.server import provider_config
 from frisket.contracts.http.organization_providers import (
     OrganizationKeyDelete,
@@ -367,7 +368,7 @@ def register_operational_routes(
     def list_org_local_endpoints(request: Request) -> dict[str, Any]:
         require_member(request)
         env = dict(os.environ)
-        config, _notes = provider_config.resolve_env_local_endpoint(env)
+        config, _notes = resolve_env_local_endpoint(env)
         if config is None:
             return {"schemaVersion": "frisket.local_endpoints.v1", "endpoints": []}
         return {
@@ -469,7 +470,7 @@ def register_operational_routes(
         endpoint_origin: str | None = None
         payload_extra: dict = {}
         if art.is_ollama:
-            local_endpoint, _notes = provider_config.resolve_env_local_endpoint(env)
+            local_endpoint, _notes = resolve_env_local_endpoint(env)
             if local_endpoint is None:
                 raise HTTPException(
                     503,

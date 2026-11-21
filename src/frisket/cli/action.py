@@ -80,7 +80,7 @@ def action(argv: list[str]) -> int:
         from frisket.authoring.plugin_registry import default_registry
         from frisket.engine.executor import ExecutorDeps, run_action_spec
         from frisket.engine.store import Project
-        from frisket.server.provider_config import local_search_service
+        from frisket.local_provider_config import local_search_service
 
         default_registry()
         project_path = Path(args.project)
