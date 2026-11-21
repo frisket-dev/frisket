@@ -268,21 +268,20 @@ async def _invoke_program_row(
     router: ModelRouterTransport,
     throttle: AdaptiveThrottle,
     call: _RowCall,
-) -> tuple[Any, dict[str, Any]]:
+) -> tuple[Any, dict[str, Any], bool]:
     run_agent = getattr(call.program, "run_agent", None)
     if callable(run_agent):
         row_ctx = _build_row_context(call.ctx, router, call.row_id, include_router=True)
         agent_result = run_agent(call.values, call.spec, row_ctx, router)
         if inspect.isawaitable(agent_result):
-            return await agent_result
+            data, meta = await agent_result
+            return data, meta, False
         raise TypeError("ActionProgram.run_agent must return an awaitable")
     if call.program.is_llm(call.spec):
         data, meta = await llm_row(
             router, throttle, call.program, call.values, call.spec
         )
-        return call.program.normalize_model_output(
-            data, call.spec, row_values=call.values
-        ), meta
+        return data, meta, True
     # Clone context because parallel rows must not share router state.
     row_ctx = _build_row_context(
         call.ctx,
@@ -295,7 +294,7 @@ async def _invoke_program_row(
     if isinstance(data, tuple) and len(data) == 2:
         data, returned_meta = data
         meta = {**meta, **(returned_meta or {})}
-    return data, meta
+    return data, meta, False
 
 
 def _extract_response_envelope(data: Any) -> _ResponseEnvelope:
@@ -601,7 +600,11 @@ async def _execute_row(
 
     meta: dict[str, Any] | None = None
     try:
-        data, meta = await _invoke_program_row(active_router, throttle, row_call)
+        data, meta, needs_model_normalize = await _invoke_program_row(
+            active_router, throttle, row_call
+        )
+        if needs_model_normalize:
+            data = program.normalize_model_output(data, spec, row_values=values)
         if isinstance(data, PreparedRowPublication):
             persist_trace(data=data.trace_data, meta=meta)
             return finalize_prepared_row_publication(data, field_names, meta)
