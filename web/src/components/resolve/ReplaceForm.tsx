@@ -16,18 +16,16 @@ import { errorMessage } from '../../hooks/errorMessage';
 //
 // The body emits canonical Params. The generated-action host owns request
 // identity, validation, output naming, preview, and execution.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
 import {
   ApiError,
 } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
+import { useMergedParams } from '../action-panel/paramsBodyHooks';
 import { sheetRequired, type SheetBoundParamsBodyProps } from '../action-panel/sheetRequiredParamsBody';
 import './replace-form.css';
-
-type ReplaceFormProps = GeneratedActionParamsBodyProps<'resolve.replace'>;
 
 type MatchKind = 'contains' | 'exact' | 'regex';
 
@@ -164,13 +162,7 @@ function ReplaceFormForSheet({
       }
     : undefined;
   const activeColumn = typeof canonical.source === 'string' ? canonical.source : '';
-  const paramsRef = useRef(canonical);
-  useEffect(() => {
-    paramsRef.current = canonical;
-  }, [canonical]);
-  const mergeParams = useCallback<ReplaceFormProps['setParams']>((owned) => {
-    setParams({ ...paramsRef.current, ...owned });
-  }, [setParams]);
+  const mergeParams = useMergedParams(canonical, setParams);
   // Rule ids: 1 is the starter row baked into the initial state below; the
   // counter is only ever advanced from event handlers (never during render).
   const idRef = useRef(Math.max(saved?.rules.length ?? 0, 1));
