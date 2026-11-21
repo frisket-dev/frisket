@@ -31,8 +31,8 @@ CONFIG_KEYS = [
     "cache_mode",
     "live_calls_possible",
     "cache_mode_editable",
-    "cost_preapproval_usd",
-    "cost_preapproval_editable",
+    "allowance_usd",
+    "allowance_editable",
     "in_container",
     "recipe_fence_posture",
     "email_from_address",
@@ -116,8 +116,8 @@ def test_local_runtime_config_preserves_transport_shape(tmp_path) -> None:
     assert list(body.keys()) == CONFIG_KEYS
     assert isinstance(body["cache_mode"], str)
     assert isinstance(body["live_calls_possible"], bool)
-    assert isinstance(body["cost_preapproval_usd"], str)
-    assert body["cost_preapproval_editable"] is True
+    assert isinstance(body["allowance_usd"], str)
+    assert body["allowance_editable"] is True
     assert isinstance(body["in_container"], bool)
     assert body["recipe_fence_posture"] in {"enforced", "partial", "none", "unknown"}
     assert body["email_from_address"] is None

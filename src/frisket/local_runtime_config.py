@@ -16,6 +16,8 @@ from typing import Any
 
 DEFAULT_ALLOWANCE_USD = "2"
 ALLOWANCE_ENV = "FRISKET_COST_CONSENT_USD"
+ALLOWANCE_SETTINGS_KEY = "allowance_usd"
+LEGACY_ALLOWANCE_SETTINGS_KEY = "cost_preapproval_usd"
 _MAX_ALLOWANCE_USD = Decimal("1000000000000")
 
 
@@ -27,28 +29,45 @@ def normalize_allowance_usd(value: object) -> str:
     """Return a canonical, finite non-negative USD decimal string."""
 
     if not isinstance(value, str):
-        raise InvalidLocalRuntimeConfigError(
-            "cost_preapproval_usd must be a decimal string"
-        )
+        raise InvalidLocalRuntimeConfigError("allowance_usd must be a decimal string")
     try:
         amount = Decimal(value.strip())
     except (InvalidOperation, ValueError, ArithmeticError) as exc:
         raise InvalidLocalRuntimeConfigError(
-            "cost_preapproval_usd must be a decimal string"
+            "allowance_usd must be a decimal string"
         ) from exc
     if not amount.is_finite() or amount < 0:
-        raise InvalidLocalRuntimeConfigError(
-            "cost_preapproval_usd must be non-negative"
-        )
+        raise InvalidLocalRuntimeConfigError("allowance_usd must be non-negative")
     exponent = amount.as_tuple().exponent
     if not isinstance(exponent, int) or exponent < -6 or amount >= _MAX_ALLOWANCE_USD:
         raise InvalidLocalRuntimeConfigError(
-            "cost_preapproval_usd must fit in 12 whole and 6 decimal digits"
+            "allowance_usd must fit in 12 whole and 6 decimal digits"
         )
     normalized = format(amount, "f")
     if "." in normalized:
         normalized = normalized.rstrip("0").rstrip(".")
     return normalized or "0"
+
+
+def extract_stored_allowance_usd(settings: Mapping[str, Any]) -> str | None:
+    """Read the allowance from a settings mapping, accepting either storage key."""
+
+    canonical = settings.get(ALLOWANCE_SETTINGS_KEY)
+    legacy = settings.get(LEGACY_ALLOWANCE_SETTINGS_KEY)
+    if canonical is not None and legacy is not None:
+        normalized_canonical = normalize_allowance_usd(canonical)
+        normalized_legacy = normalize_allowance_usd(legacy)
+        if normalized_canonical != normalized_legacy:
+            raise InvalidLocalRuntimeConfigError(
+                f"conflicting {ALLOWANCE_SETTINGS_KEY} and "
+                f"{LEGACY_ALLOWANCE_SETTINGS_KEY} values"
+            )
+        return normalized_canonical
+    if canonical is not None:
+        return normalize_allowance_usd(canonical)
+    if legacy is not None:
+        return normalize_allowance_usd(legacy)
+    return None
 
 
 def resolve_local_allowance_usd(
@@ -77,9 +96,9 @@ def resolve_local_allowance_usd(
             raise InvalidLocalRuntimeConfigError(
                 f"runtime settings at {path} must be a JSON object"
             )
-    value = settings.get("cost_preapproval_usd")
+    value = extract_stored_allowance_usd(settings)
     if value is not None:
-        return normalize_allowance_usd(value)
+        return value
     raw_env = (os.environ if env is None else env).get(ALLOWANCE_ENV)
     if raw_env is None:
         return DEFAULT_ALLOWANCE_USD
@@ -87,14 +106,17 @@ def resolve_local_allowance_usd(
         return normalize_allowance_usd(raw_env)
     except InvalidLocalRuntimeConfigError:
         # An explicitly malformed startup knob must never silently grant
-        # standing coverage; preserve the old fail-closed posture.
+        # standing coverage; preserve the fail-closed posture.
         return "0"
 
 
 __all__ = [
-    "DEFAULT_ALLOWANCE_USD",
     "ALLOWANCE_ENV",
+    "ALLOWANCE_SETTINGS_KEY",
+    "DEFAULT_ALLOWANCE_USD",
     "InvalidLocalRuntimeConfigError",
+    "LEGACY_ALLOWANCE_SETTINGS_KEY",
+    "extract_stored_allowance_usd",
     "normalize_allowance_usd",
     "resolve_local_allowance_usd",
 ]
