@@ -342,8 +342,8 @@ def _resolve_config(
         default=DEFAULT_MAX_BYTES,
         maximum=None,
     )
-    if bytes_error:
-        return None, bytes_error
+    if bytes_error or max_bytes is None:
+        return None, bytes_error or "invalid max_bytes"
     max_items, items_error = config_positive_int(
         raw_config,
         "max_items",

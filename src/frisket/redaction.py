@@ -270,12 +270,12 @@ def _is_safe_marker(value: str) -> bool:
 
 def _safe_int(value: object, *, default: int) -> int:
     value_type = type(value)
-    if value_type is int:
+    if isinstance(value, int) and value_type is int:
         return value
-    if value_type is not str and value_type is not float:
+    if not isinstance(value, (str, float)) or value_type not in (str, float):
         return default
     try:
-        parsed = int(value)  # type: ignore[arg-type]
+        parsed = int(value)
     except (TypeError, ValueError, OverflowError):
         return default
     return parsed

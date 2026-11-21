@@ -127,7 +127,7 @@ async def transcription_execution_scope(
     if enabled and engine != "parakeet-tdt":
         raise RuntimeError(f"run-scoped transcription engine {engine!r} has no adapter")
     cancel = (ctx.extras or {}).get("cancelled")
-    should_cancel = cancel if callable(cancel) else None
+    should_cancel = (lambda: bool(cancel())) if callable(cancel) else None
     async with execution_scope(
         enabled=enabled,
         spec=spec,

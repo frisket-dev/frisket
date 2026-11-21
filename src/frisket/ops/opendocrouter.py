@@ -23,7 +23,7 @@ from frisket.ai.models.metadata import provider_cost_total
 from frisket.credentials import resolve_credential_for_use
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import ActionContext
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.integrations.opendocrouter import parse_document
 from frisket.ops.markdown_plain import markdown_to_plain_text
@@ -50,6 +50,11 @@ async def parse_with_context(
         )
     admission = routed_admission_in_scope(ctx.extras)
     if admission:
+        if ctx.credential_use_context is None:
+            raise ActionProgramInvocationHalt(
+                "promise_violation",
+                "OpenDocRouter document processing requires an authorized credential context",
+            )
         halt_unless_consented_credential(
             admission.route,
             credential.source,

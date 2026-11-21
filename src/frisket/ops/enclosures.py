@@ -71,6 +71,8 @@ def download_url(
                         seen += 1
                         if seen > 5:
                             return b"", "", "", "too many redirects"
+                        if resp.next_request is None:
+                            return b"", "", "", "redirect missing location"
                         nxt = str(resp.next_request.url)
                         try:
                             check_hop(nxt)
