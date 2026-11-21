@@ -225,7 +225,7 @@ def _load_audio(path: str, np: Any) -> Any:
         if stream.read(4) == b"RIFF":
             return path
     try:
-        import av
+        import av.audio.resampler
     except ImportError as error:
         raise RuntimeError("non-WAV audio needs PyAV") from error
     resampler = av.audio.resampler.AudioResampler(

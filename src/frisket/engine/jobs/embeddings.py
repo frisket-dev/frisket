@@ -439,7 +439,7 @@ def register_embedding_refresh_handler(
         return len(alert_jobs)
 
     def _action_job_executor(
-        project: Project, env: ActionJobEnvelope, *, execution
+        project: Project, env: ActionJobEnvelope, *, execution: Any = None
     ) -> ActionResult:
         from frisket.engine.executor.action_families.embeddings import (
             run_index_refresh_action_job,

@@ -144,7 +144,11 @@ class EmbeddingGateway:
         *,
         local_capability: LocalEmbeddingCapability | None,
     ) -> EmbeddingBatchResult:
-        from .backends import LocalEmbeddingModelUnavailable, local_embedder
+        from .backends import (
+            LocalEmbeddingModelUnavailable,
+            embedding_vectors,
+            local_embedder,
+        )
 
         resolved = (
             local_embedder(model)
@@ -158,7 +162,7 @@ class EmbeddingGateway:
             )
         embed_fn, model_id = resolved
         try:
-            vectors = embed_fn(texts)
+            vectors = embedding_vectors(embed_fn(texts))
         except LocalEmbeddingModelUnavailable as exc:
             raise EmbeddingBackendUnavailable(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — provider failure is data

@@ -320,6 +320,7 @@ class AdmittedClassifier:
             self._session = self._session_factory(
                 self._engine, cancelled=self._cancelled
             )
+        session = self._session
 
         outcomes: dict[str, Outcome[str]] = {}
         for field in fields:
@@ -337,7 +338,7 @@ class AdmittedClassifier:
                     ),
                     policy=policy_for_context(ctx),
                     dispatch=dispatch_for_context(ctx),
-                    invoke=lambda: self._session.classify(
+                    invoke=lambda: session.classify(
                         text,
                         list(field.labels),
                         descriptions=dict(field.label_descriptions),

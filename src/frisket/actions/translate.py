@@ -19,6 +19,7 @@ from frisket.actions.model_rows import (
     RICH_COLUMN_TYPES,
     RichTemplate,
 )
+from frisket.actions.media_types import DetectedLanguage
 from frisket.actions.translate_types import (
     TranslationOptions,
     TranslateOutput,
@@ -149,16 +150,21 @@ def complete_translation(
             "Translation response is missing detected_language.",
         )
     values = TranslateOutput.model_validate(response.root)
+    normalized_language = (
+        normalize_detected_bcp47(
+            values.detected_language.root
+            if values.detected_language is not None
+            else None
+        )
+        if params.save_detected_language
+        else None
+    )
     return RowResult(
         output=TranslateOutput(
             translation=values.translation,
             detected_language=(
-                normalize_detected_bcp47(
-                    values.detected_language.root
-                    if values.detected_language is not None
-                    else None
-                )
-                if params.save_detected_language
+                DetectedLanguage(normalized_language)
+                if normalized_language is not None
                 else None
             ),
         )
