@@ -40,16 +40,17 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
 ) -> None:
     client = _client(tmp_path)
     pid, project = _project(client)
-    source_id = FeedStore(project).add_feed(
-        "Sensitive feed",
-        kind="rss",
-        url="https://feeds.example/policy.xml?token=SECRET_URL_TOKEN",
-        config={
-            "api_key": "SECRET_CONFIG_KEY",
-            "headers": {"authorization": "Bearer SECRET_CONFIG_BEARER"},
-        },
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Sensitive feed",
+            kind="rss",
+            url="https://feeds.example/policy.xml?token=SECRET_URL_TOKEN",
+            config={
+                "api_key": "SECRET_CONFIG_KEY",
+                "headers": {"authorization": "Bearer SECRET_CONFIG_BEARER"},
+            },
+            schedule="@hourly",
+        )
     project.db.execute(
         "UPDATE sources SET cursor=? WHERE id=?",
         (json.dumps({"cursor": "SECRET_SOURCE_CURSOR"}), source_id),
@@ -84,16 +85,17 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
             cost_micro=2300,
             summary={"provider_body": "SECRET_SUMMARY_BODY"},
         )
-    FeedStore(project).record_feed_check(
-        source_id,
-        status="error",
-        error="provider failed with Authorization: Bearer SECRET_ERROR_BEARER",
-    )
-    latest_failure_id = FeedStore(project).record_feed_check(
-        source_id,
-        status="error",
-        error="token=SECRET_ERROR_TOKEN api_key=SECRET_ERROR_KEY",
-    )
+    with write_transaction(project.db):
+        FeedStore(project).record_feed_check(
+            source_id,
+            status="error",
+            error="provider failed with Authorization: Bearer SECRET_ERROR_BEARER",
+        )
+        latest_failure_id = FeedStore(project).record_feed_check(
+            source_id,
+            status="error",
+            error="token=SECRET_ERROR_TOKEN api_key=SECRET_ERROR_KEY",
+        )
 
     ws = client.app.state.workspace
     ws.queue.enqueue(
@@ -167,21 +169,23 @@ def test_feed_health_paginates_recent_checks_defaulting_to_twenty(
 ) -> None:
     client = _client(tmp_path)
     pid, project = _project(client, "Source health paging")
-    source_id = FeedStore(project).add_feed(
-        "Long feed",
-        kind="rss",
-        url="https://feeds.example/long.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Long feed",
+            kind="rss",
+            url="https://feeds.example/long.xml",
+            schedule="@hourly",
+        )
     run_ids: list[int] = []
     for index in range(23):
-        run_ids.append(
-            FeedStore(project).record_feed_check(
-                source_id,
-                status="ok",
-                new_rows=index % 5,
+        with write_transaction(project.db):
+            run_ids.append(
+                FeedStore(project).record_feed_check(
+                    source_id,
+                    status="ok",
+                    new_rows=index % 5,
+                )
             )
-        )
 
     first = client.get(f"/api/projects/{pid}/sources/{source_id}/health")
     assert first.status_code == 200, first.text
@@ -220,26 +224,27 @@ def test_feed_health_statuses_cover_disabled_never_checked_stale_and_missing(
 ) -> None:
     client = _client(tmp_path)
     pid, project = _project(client, "Source health statuses")
-    disabled = FeedStore(project).add_feed(
-        "Paused feed",
-        kind="rss",
-        url="https://feeds.example/paused.xml",
-        schedule="@hourly",
-        enabled=False,
-    )
-    never_run = FeedStore(project).add_feed(
-        "New feed",
-        kind="rss",
-        url="https://feeds.example/new.xml",
-        schedule="@hourly",
-    )
-    stale = FeedStore(project).add_feed(
-        "Old feed",
-        kind="rss",
-        url="https://feeds.example/old.xml",
-        schedule="@hourly",
-    )
-    FeedStore(project).record_feed_check(stale, status="ok", new_rows=1)
+    with write_transaction(project.db):
+        disabled = FeedStore(project).add_feed(
+            "Paused feed",
+            kind="rss",
+            url="https://feeds.example/paused.xml",
+            schedule="@hourly",
+            enabled=False,
+        )
+        never_run = FeedStore(project).add_feed(
+            "New feed",
+            kind="rss",
+            url="https://feeds.example/new.xml",
+            schedule="@hourly",
+        )
+        stale = FeedStore(project).add_feed(
+            "Old feed",
+            kind="rss",
+            url="https://feeds.example/old.xml",
+            schedule="@hourly",
+        )
+        FeedStore(project).record_feed_check(stale, status="ok", new_rows=1)
     old = "2000-01-01T00:00:00+00:00"
     project.db.execute(
         "UPDATE source_runs SET started_at=?, finished_at=? WHERE source_id=?",

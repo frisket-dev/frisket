@@ -20,18 +20,20 @@ from frisket.engine.jobs import SqliteJobQueue
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
 from tests.alert_helpers import add_alert
+from frisket.engine.store.transactions import write_transaction
 
 GOOD = ("a-good", "c-good")
 UNREADABLE = "b-unreadable"
 
 
 def _due_source(project: Project) -> None:
-    FeedStore(project).add_feed(
-        name="News",
-        kind="rss",
-        url="https://example.com/feed.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        FeedStore(project).add_feed(
+            name="News",
+            kind="rss",
+            url="https://example.com/feed.xml",
+            schedule="@hourly",
+        )
 
 
 def _due_embedding_index(project: Project) -> None:

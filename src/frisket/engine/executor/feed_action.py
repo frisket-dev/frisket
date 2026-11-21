@@ -95,7 +95,7 @@ class _CallOnce:
 class _Creator(_CallOnce):
     def create(self, **values: Any) -> SourceRecord:
         store = self._begin()
-        source_id = store.add_feed(commit=False, **values)
+        source_id = store.add_feed(**values)
         row = store.get_feed(source_id)
         if row is None:
             raise RuntimeError("created source is unavailable")
@@ -133,7 +133,7 @@ class _Deleter(_CallOnce):
             raise LookupError(source_id)
         self.before = dict(row)
         result = DeletedSource(_record(row), store.feed_checks_total(source_id))
-        store.delete_feed(source_id, commit=False)
+        store.delete_feed(source_id)
         self.result = result
         return result
 
@@ -168,7 +168,6 @@ class _Checker(_CallOnce):
             status=status,
             error=error,
             cursor=cursor,
-            commit=False,
         )
         after = store.get_feed(source_id)
         if after is None:

@@ -38,6 +38,7 @@ from http_test_helpers import (
     run_worker_until_job_terminal,
     v1_action_from_canonical_run_spec,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -862,12 +863,13 @@ class TestCli:
         queue_root = tmp_path / "queue"
         project_root.mkdir(parents=True)
         p = Project.create(project_root / "source-cli.frisket", name="source-cli")
-        sid = FeedStore(p).add_feed(
-            name="CLI Feed",
-            kind="rss",
-            url="https://example.com/feed.xml",
-            schedule="@hourly",
-        )
+        with write_transaction(p.db):
+            sid = FeedStore(p).add_feed(
+                name="CLI Feed",
+                kind="rss",
+                url="https://example.com/feed.xml",
+                schedule="@hourly",
+            )
         p.close()
         monkeypatch.setattr(ingest, "url_is_safe", lambda url: True)
         feed = (
@@ -978,12 +980,13 @@ class TestCli:
 
         monkeypatch.setattr(httpx, "Client", FakeClient)
         p = Project.create(tmp_path / "scheduled-cli.frisket", name="scheduled-cli")
-        sid = FeedStore(p).add_feed(
-            name="Scheduled Feed",
-            kind="rss",
-            url="https://example.com/feed.xml",
-            schedule="@hourly",
-        )
+        with write_transaction(p.db):
+            sid = FeedStore(p).add_feed(
+                name="Scheduled Feed",
+                kind="rss",
+                url="https://example.com/feed.xml",
+                schedule="@hourly",
+            )
         p.close()
         q = open_queue(workspace=tmp_path)
 

@@ -28,6 +28,7 @@ from frisket.feeds.runtime import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-source-poll-runtime"
@@ -178,7 +179,8 @@ def test_poll_hidden_destination_is_unavailable_until_undo(tmp_path):
     register_feed_checker(feed_checker)
     try:
         with closing(Project.create(tmp_path / "hidden-feed.frisket")) as project:
-            source = FeedStore(project).add_feed("Feed", kind="fake")
+            with write_transaction(project.db):
+                source = FeedStore(project).add_feed("Feed", kind="fake")
             first = run_action_spec(
                 project, _feed_poll_action(source_id=source), project_id=PROJECT_ID
             )
@@ -221,7 +223,8 @@ def test_poll_key_column_rename_preserves_binding_and_manual_changes(tmp_path):
     register_feed_checker(feed_checker)
     try:
         with closing(Project.create(tmp_path / "renamed-feed.frisket")) as project:
-            source = FeedStore(project).add_feed("Feed", kind="fake")
+            with write_transaction(project.db):
+                source = FeedStore(project).add_feed("Feed", kind="fake")
             first = run_action_spec(
                 project, _feed_poll_action(source_id=source), project_id=PROJECT_ID
             )
@@ -300,7 +303,8 @@ def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
     register_feed_checker(feed_checker)
     project = make_project("Custom")
     try:
-        source_id = FeedStore(project).add_feed(name="Actual", kind="fake")
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(name="Actual", kind="fake")
         custom = action(
             name="poll",
             title="Poll",
@@ -366,7 +370,8 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
     register_feed_checker(feed_checker)
     project = make_project("Post poll")
     try:
-        source_id = FeedStore(project).add_feed(name="Actual", kind="fake")
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(name="Actual", kind="fake")
         cursor_before = FeedStore(project).get_feed(source_id)["cursor"]
         registered = ActionRegistry(
             (
@@ -504,7 +509,8 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
     register_feed_checker(feed_checker)
     project = make_project("Rollback")
     try:
-        source_id = FeedStore(project).add_feed(name="Actual", kind="fake")
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(name="Actual", kind="fake")
         before = dict(FeedStore(project).get_feed(source_id))
 
         def fail_insert(*args, **kwargs):
@@ -835,11 +841,12 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
     )
 
     project = make_project("Unsupported")
-    unsupported_source_id = FeedStore(project).add_feed(
-        name="Unsupported",
-        kind="not-registered",
-        url="https://example.com/source",
-    )
+    with write_transaction(project.db):
+        unsupported_source_id = FeedStore(project).add_feed(
+            name="Unsupported",
+            kind="not-registered",
+            url="https://example.com/source",
+        )
     rejected = run_action_spec(
         project,
         _feed_poll_action(
@@ -855,12 +862,13 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
     workspace.mkdir()
     scheduled = Project.create(workspace / "news.frisket", name="news")
     try:
-        source_id = FeedStore(scheduled).add_feed(
-            name="Feed",
-            kind="rss",
-            url="https://example.com/feed.xml",
-            schedule="@hourly",
-        )
+        with write_transaction(scheduled.db):
+            source_id = FeedStore(scheduled).add_feed(
+                name="Feed",
+                kind="rss",
+                url="https://example.com/feed.xml",
+                schedule="@hourly",
+            )
     finally:
         scheduled.close()
     queue = SqliteJobQueue(workspace / ".queue.db")
@@ -912,11 +920,12 @@ def test_source_poll_running_reservation_replays_without_provider_call(
     try:
         project = Project.create(tmp_path / "running-reservation.frisket", name="Run")
         try:
-            source_id = FeedStore(project).add_feed(
-                name="Fake",
-                kind="fake",
-                url="https://example.com/fake",
-            )
+            with write_transaction(project.db):
+                source_id = FeedStore(project).add_feed(
+                    name="Fake",
+                    kind="fake",
+                    url="https://example.com/fake",
+                )
             action = _feed_poll_action(
                 source_id=source_id,
                 idempotency_key="source_poll@sha256:running",
@@ -978,11 +987,12 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
     try:
         project = Project.create(tmp_path / "stale-running.frisket", name="Run")
         try:
-            source_id = FeedStore(project).add_feed(
-                name="Fake",
-                kind="fake",
-                url="https://example.com/fake",
-            )
+            with write_transaction(project.db):
+                source_id = FeedStore(project).add_feed(
+                    name="Fake",
+                    kind="fake",
+                    url="https://example.com/fake",
+                )
             action = _feed_poll_action(
                 source_id=source_id,
                 idempotency_key="source_poll@sha256:stale",

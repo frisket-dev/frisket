@@ -42,6 +42,7 @@ from frisket.server.services.action_runs import ActionRunService
 from frisket.server.mcp.server import ActionToolSpec, RegisteredActionToolSpec
 from frisket.actions.classify import ClassifyParams, classify_prompt
 from frisket.actions.types import Row
+from frisket.engine.store.transactions import write_transaction
 
 MODEL = "anthropic/claude-haiku-4-5"
 
@@ -1225,11 +1226,12 @@ class TestRunAction:
         root = tmp_path / "ws"
         root.mkdir()
         project = Project.create(root / "demo.frisket", name="demo")
-        source_id = FeedStore(project).add_feed(
-            name="Court feed",
-            kind="courtlistener.custom",
-            config={"query": {"court": "ca9"}},
-        )
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(
+                name="Court feed",
+                kind="courtlistener.custom",
+                config={"query": {"court": "ca9"}},
+            )
         project.close()
 
         result = asyncio.run(

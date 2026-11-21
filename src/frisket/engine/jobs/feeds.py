@@ -22,6 +22,7 @@ from frisket.feeds.runtime import get_feed_checker
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import feed_health_notification_candidate
 from frisket.operability.structured_logging import correlation_log_payload
@@ -158,11 +159,12 @@ def register_feed_poll_handler(
                 )
                 # A refused check still advances cadence. Restoring its input
                 # permits the next scheduled poll; immediate job retries cannot.
-                refused_run_id = (
-                    feed_store.record_feed_check(feed_id, status="error", error=message)
-                    if refused
-                    else None
-                )
+                refused_run_id: int | None = None
+                if refused:
+                    with write_transaction(project.db, what="feed check record"):
+                        refused_run_id = feed_store.record_feed_check(
+                            feed_id, status="error", error=message
+                        )
                 _emit_feed_health_notification(
                     project,
                     project_id=project_id,

@@ -10,15 +10,17 @@ from frisket.server.feed_enqueue import queue_feed_poll
 from frisket.feeds.progress import listing_progress_options
 from frisket.feeds.rss import ensure_rss_feed_checker
 from test_feed_scheduler import _feed, _project, _register
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_manual_poll_returns_empty_sheet_then_worker_populates(tmp_path):
     workspace = tmp_path / "ws"
     project = _project(workspace)
     ensure_rss_feed_checker()
-    source_id = FeedStore(project).add_feed(
-        name="My feed", kind="rss", url="https://example.com/feed"
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            name="My feed", kind="rss", url="https://example.com/feed"
+        )
     queue = SqliteJobQueue(workspace / ".queue.db")
     ctx = SimpleNamespace(queue=queue, queue_payload_extra={}, workspace_root=workspace)
     body = {
