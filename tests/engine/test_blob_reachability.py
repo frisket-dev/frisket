@@ -1,14 +1,15 @@
 """Typed ownership roots, excluding ordinary text and historical provenance."""
 
-import hashlib
 import json
 
 import pytest
 
+from frisket.contracts.action import Receipt
 from frisket.engine.store import project_blobs
 from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
+from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
@@ -16,14 +17,14 @@ from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
 )
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
 def project(make_project):
     project = make_project("roots")
-    with project.db:
-        project.db.execute("BEGIN")
+    with write_transaction(project.db):
         migrate_blob_derivation_ownership(project.db)
     yield project
 
@@ -64,20 +65,19 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     sheet = project.add_sheet("prepared")
     column = project.add_column(sheet, "text", type="text")
 
-    project.db.execute("BEGIN IMMEDIATE")
-    producing_op_id = project.append_change("prepare.test", commit=False)
-    prepared = PreparedContentStore(project).stage_reference(
-        source_artifact_id=artifact_id,
-        producing_op_id=producing_op_id,
-        pages=[
-            PreparedPageDraft(
-                1,
-                f"download blob:{text_blob}",
-                positions={"page_image": {"blob": positions_blob}},
-            )
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        producing_op_id = project.append_change("prepare.test", commit=False)
+        prepared = PreparedContentStore(project).stage_reference(
+            source_artifact_id=artifact_id,
+            producing_op_id=producing_op_id,
+            pages=[
+                PreparedPageDraft(
+                    1,
+                    f"download blob:{text_blob}",
+                    positions={"page_image": {"blob": positions_blob}},
+                )
+            ],
+        )
     project.add_rows(sheet, [{"text": prepared}], {"text": column})
 
     project.undo()
@@ -120,11 +120,12 @@ def test_hash_looking_text_does_not_own_blobs(project):
 
 
 def _checkpoint(project, payload):
-    project.db.execute(
-        "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('checkpoint','row_effect','group','unit','test','identity','returned',?)",
-        (payload,),
-    )
-    project.db.commit()
+    # EffectCheckpointStore.complete serializes dicts, so raw SQL is required for malformed payloads.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('checkpoint','row_effect','group','unit','test','identity','returned',?)",
+            (payload,),
+        )
 
 
 @pytest.mark.parametrize("payload", ["not json", "[]", '{"output":{"row_files":[{}]}}'])
@@ -140,19 +141,34 @@ def test_receipt_owns_exports_but_model_response_is_not_a_file_publication(proje
     receipt, effect, orphan = [
         project.add_blob(value.encode()) for value in ("receipt", "effect", "orphan")
     ]
-    project.db.execute(
-        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('receipt','test','error',?)",
-        (
-            json.dumps(
-                {"exports": [{"kind": "export_project_file", "blob_hash": receipt}]}
-            ),
-        ),
+    ReceiptStore(project).insert_failed(
+        Receipt(
+            receipt_id="receipt",
+            project_id="roots",
+            action_id="test",
+            action_kind="test",
+            status="failed",
+            exports=[{"kind": "export_project_file", "blob_hash": receipt}],
+        )
     )
-    project.db.execute(
-        "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('paid','model','g','u','test','identity','returned',?)",
-        (json.dumps({"response": {"blob_hash": effect}}),),
+    checkpoints = EffectCheckpointStore(project.db)
+    checkpoints.reserve(
+        "paid",
+        family="model",
+        group_key="g",
+        unit_key="u",
+        action_kind="test",
+        identity="identity",
     )
-    project.db.commit()
+    checkpoints.complete(
+        "paid",
+        family="model",
+        group_key="g",
+        unit_key="u",
+        action_kind="test",
+        identity="identity",
+        payload={"response": {"blob_hash": effect}},
+    )
     assert set(project.gc_blobs()["hashes"]) == {effect, orphan}
 
 
@@ -181,11 +197,12 @@ def test_malformed_published_receipt_digest_retains_all_blob_metadata(
                 }
             ]
         }
-    project.db.execute(
-        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
-        (json.dumps(payload),),
-    )
-    project.db.commit()
+    # Deliberately damaged receipt shape that Receipt validation rejects.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
+            (json.dumps(payload),),
+        )
     assert project.gc_blobs()["hashes"] == []
     assert {row[0] for row in project.db.execute("SELECT hash FROM blobs")} == {
         retained,
@@ -211,11 +228,12 @@ def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, i
                 }
             ]
         }
-    project.db.execute(
-        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
-        (json.dumps(payload),),
-    )
-    project.db.commit()
+    # Deliberately damaged receipt container shape that Receipt validation rejects.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
+            (json.dumps(payload),),
+        )
     assert project.gc_blobs()["hashes"] == []
     assert {row[0] for row in project.db.execute("SELECT hash FROM blobs")} == {
         retained,
@@ -226,11 +244,12 @@ def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, i
 @pytest.mark.parametrize("ref", [None, "", [], 12])
 def test_malformed_receipt_evidence_reference_retains_blobs(project, ref):
     project.add_blob(b"unknown ownership")
-    project.db.execute(
-        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
-        (json.dumps({"evidence": [{"ref": ref}]}),),
-    )
-    project.db.commit()
+    # Deliberately damaged evidence reference shape that Receipt validation rejects.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
+            (json.dumps({"evidence": [{"ref": ref}]}),),
+        )
     assert project.gc_blobs()["hashes"] == []
 
 
@@ -244,11 +263,12 @@ def test_malformed_returned_file_ownership_retains_blobs(project, owner, invalid
         "supplemental": invalid if owner == "supplemental" else [],
     }
     response = {"row_files": invalid if owner == "row_files" else [occurrence]}
-    project.db.execute(
-        "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('returned','row_effect','g','u','test','identity','returned',?)",
-        (json.dumps({"response": response}),),
-    )
-    project.db.commit()
+    # Simulates an unparseable/damaged checkpoint payload for fail-closed GC.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('returned','row_effect','g','u','test','identity','returned',?)",
+            (json.dumps({"response": response}),),
+        )
     assert project.gc_blobs()["hashes"] == []
 
 
@@ -263,34 +283,46 @@ def test_malformed_returned_file_ownership_retains_blobs(project, owner, invalid
 )
 def test_optional_or_nonpublication_receipt_fields_do_not_disable_gc(project, payload):
     orphan = project.add_blob(b"unowned")
-    project.db.execute(
-        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('valid','test','error',?)",
-        (json.dumps(payload),),
-    )
-    project.db.commit()
+    if payload == {} or payload == {"evidence": [{}]}:
+        # Legacy/minimal receipt JSON missing required Receipt fields cannot pass Receipt validation.
+        with write_transaction(project.db):
+            project.db.execute(
+                "INSERT INTO receipts(id,action_kind,status,body) VALUES ('valid','test','error',?)",
+                (json.dumps(payload),),
+            )
+    else:
+        ReceiptStore(project).insert_failed(
+            Receipt(
+                receipt_id="valid",
+                project_id="roots",
+                action_id="test",
+                action_kind="test",
+                status="failed",
+                **payload,
+            )
+        )
     assert project.gc_blobs()["hashes"] == [orphan]
 
 
 def test_receipt_export_metadata_mentions_do_not_own_blobs(project):
     published = project.add_blob(b"published export")
     mentioned = project.add_blob(b"only mentioned in metadata")
-    project.db.execute(
-        "INSERT INTO receipts(id,action_kind,status,body) VALUES ('receipt','test','failed',?)",
-        (
-            json.dumps(
+    ReceiptStore(project).insert_failed(
+        Receipt(
+            receipt_id="receipt",
+            project_id="roots",
+            action_id="test",
+            action_kind="test",
+            status="failed",
+            exports=[
                 {
-                    "exports": [
-                        {
-                            "kind": "export_project_file",
-                            "blob_hash": published,
-                            "description": mentioned,
-                        }
-                    ]
+                    "kind": "export_project_file",
+                    "blob_hash": published,
+                    "description": mentioned,
                 }
-            ),
-        ),
+            ],
+        )
     )
-    project.db.commit()
     assert project.gc_blobs()["hashes"] == [mentioned]
 
 
@@ -344,11 +376,8 @@ def test_gc_preserves_outer_transaction(project):
 
 
 def test_returned_orphan_hashes_are_complete_not_a_truncated_page(project):
-    hashes = {hashlib.sha256(str(i).encode()).hexdigest() for i in range(1100)}
-    project.db.executemany(
-        "INSERT INTO blobs(hash,size) VALUES (?,1)", ((value,) for value in hashes)
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        hashes = {project.add_blob(str(i).encode(), commit=False) for i in range(1100)}
     result = project.gc_blobs()
     assert result["blobs_removed"] == 1100
     assert set(result["hashes"]) == hashes
@@ -366,11 +395,8 @@ def test_no_blobs_does_not_scan_root_text(project, monkeypatch):
 
 def test_delete_sheet_streams_surviving_roots_in_bounded_batches(project, monkeypatch):
     count = 3000
-    hashes = [hashlib.sha256(str(i).encode()).hexdigest() for i in range(count)]
-    project.db.executemany(
-        "INSERT INTO blobs(hash,size) VALUES (?,1)", ((value,) for value in hashes)
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        hashes = [project.add_blob(str(i).encode(), commit=False) for i in range(count)]
     sheet = project.add_sheet("survivors")
     column = project.add_column(sheet, "value", type="json")
     project.add_rows(
