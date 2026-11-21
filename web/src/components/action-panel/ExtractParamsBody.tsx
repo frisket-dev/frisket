@@ -3,12 +3,9 @@ import '../PanelPrimitives.css';
 import '../ActionPanel.css';
 
 import type { OutputJsonSchema } from '../../api/open';
-import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-import { useLoader } from '../../hooks/useLoader';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { PanelSelect } from '../PanelSelect';
-import { McpToolsSelector, type McpToolsSelectorServer } from './McpToolsSelector';
 import { StructuredFieldsEditor } from './StructuredFieldsEditor';
 
 type ExtractField = GeneratedActionParams['map.extract']['fields'][number];
@@ -16,7 +13,7 @@ const FIELD_TYPES: readonly ExtractField['type'][] = [
   'text', 'score', 'integer', 'number', 'boolean', 'category', 'date', 'list', 'json',
 ];
 
-function ExtractFieldsEditor({ fields, onChange, optional = false, error,
+export function ExtractFieldsEditor({ fields, onChange, optional = false, error,
   structureLocked = false, lockReason }: {
   fields: ExtractField[];
   onChange(fields: ExtractField[]): void;
@@ -108,63 +105,5 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine,
       </>}
       <Field name="context" />
     </details>
-  </>;
-}
-
-export function FindParamsBody({ params, setParams, errors, Field,
-  structureLocked, lockReason }:
-  GeneratedActionParamsBodyProps<'map.find'>) {
-  return <>
-    <Field name="source" />
-    <Field name="instruction" />
-    <ExtractFieldsEditor fields={params.fields ?? []} optional
-      structureLocked={structureLocked} lockReason={lockReason}
-      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
-    <Field name="model" />
-  </>;
-}
-
-const NO_SERVERS: McpToolsSelectorServer[] = [];
-
-export function McpExtractParamsBody({ params, setParams, errors, Field,
-  structureLocked, lockReason }:
-  GeneratedActionParamsBodyProps<'map.mcp_extract'>) {
-  const { projectApi } = useWorkspaceStores();
-  const loader = useLoader(() => projectApi.listMcpServers().then((value) => value.map(
-    (server): McpToolsSelectorServer => ({
-      id: server.id, name: server.name, enabled: server.enabled,
-      lastDiscoveredToolCount: server.last_discovered_tool_count ?? undefined,
-    }))), [projectApi], { keepPreviousData: true });
-  const servers = loader.data ?? NO_SERVERS;
-  const problem = loader.error === null ? null : 'MCP servers could not be loaded.';
-  return <>
-    <Field name="source" />
-    <ExtractFieldsEditor fields={params.fields ?? []}
-      structureLocked={structureLocked} lockReason={lockReason}
-      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
-    <Field name="instruction" />
-    <McpToolsSelector servers={servers} mcpServerIds={params.mcp_server_ids ?? []}
-      onMcpServerIdsChange={(mcp_server_ids) => setParams({ ...params, mcp_server_ids })} />
-    {(problem || errors.mcp_server_ids?.message) && <p className="panel-error" role="alert">
-      {problem ?? errors.mcp_server_ids?.message}
-    </p>}
-    <Field name="model" />
-    <Field name="include_confidence" />
-    <Field name="context" />
-  </>;
-}
-
-export function ResearchExtractParamsBody({ params, setParams, errors, Field,
-  structureLocked, lockReason }:
-  GeneratedActionParamsBodyProps<'research.extract'>) {
-  return <>
-    <Field name="source" />
-    <Field name="question" />
-    <ExtractFieldsEditor fields={params.fields ?? []}
-      structureLocked={structureLocked} lockReason={lockReason}
-      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
-    <Field name="model" />
-    <Field name="include_confidence" />
-    <Field name="include_sources" />
   </>;
 }

@@ -1,8 +1,10 @@
+import '../PanelPrimitives.css';
 import { Button } from '../Button';
 import { TextInput } from '../FormControls';
+import { PanelSelect } from '../PanelSelect';
 /* eslint-disable react-refresh/only-export-components -- sparse first-party field bindings */
 import { Plus, Trash2 } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { ActionFieldProps } from '../../generated/actionUI';
 
 import type { CanonicalActionDraft, CanonicalActionParamValue } from '../../actions/canonicalActionDraft';
@@ -13,21 +15,18 @@ import { CombineForm } from '../resolve/CombineForm';
 import { ReplaceForm } from '../resolve/ReplaceForm';
 import { SubstituteForm } from '../resolve/SubstituteForm';
 import { PythonCodeField } from './ActionParams';
-import { PythonParamsBody } from './PythonParamsBody';
 import { ApiCallParamsBody } from './ApiCallParamsBody';
-import { TopicSectionsParamsBody } from './TopicSectionsParamsBody';
-import { LinkTableParamsBody } from './LinkTableParamsBody';
 import { JoinParamsBody } from './JoinParamsBody';
 import { SemanticJoinParamsBody } from './SemanticJoinParamsBody';
 import { MediaSegmentsParamsBody, TranscriptSegmentsParamsBody } from './TranscriptSegmentsParamsBody';
 import { TemporalExtractParamsBody } from './TemporalExtractParamsBody';
 import { DownloadMediaOptions } from './DownloadMediaOptions';
-import { PdfTablesParamsBody } from './PdfTablesParamsBody';
 import { ClusterParamsBody } from './ClusterParamsBody';
 import { PageCaptureParamsBody } from './PageCaptureParamsBody';
 import { NerParamsBody } from './NerParamsBody';
 import { ClassifyParamsBody } from './ClassifyParamsBody';
-import { ExtractParamsBody, FindParamsBody, McpExtractParamsBody, ResearchExtractParamsBody } from './ExtractParamsBody';
+import { ExtractFieldsEditor, ExtractParamsBody } from './ExtractParamsBody';
+import { ProjectMcpToolsSelector } from './McpToolsSelector';
 import { TranslateParamsBody } from './TranslateParamsBody';
 import { RECOMMENDED_SPACY_TYPES } from './nerLabelModel';
 import { extractFieldFromQuestion } from './outputFieldModel';
@@ -36,7 +35,7 @@ import { OcrParamsBody, TranscribeParamsBody } from './MediaReadParamsBodies';
 import { ActionPromptField } from './ActionPromptField';
 import { ListTableParamsBody } from './ListTableParamsBody';
 import { EntityTableParamsBody } from './EntityTableParamsBody';
-import { CensusGeographyField, CensusParamsBody, GeocodeParamsBody } from './GeospatialParamsBodies';
+import { declarativeParamsBody } from './declarativeParamsBody';
 import type {
   DynamicGeneratedActionParamsBody,
   GeneratedActionParamsBody,
@@ -162,28 +161,34 @@ function ColumnsFromJsonRoutesField({ value, onChange }: GeneratedActionFieldPro
   );
 }
 
-function FillMissingParamsBody({ params, setParams, Field }:
-  GeneratedActionParamsBodyProps<'resolve.fill_missing'>) {
-  const usesExplicitValue = params.method === 'value';
-  useEffect(() => {
-    if (usesExplicitValue || !Object.prototype.hasOwnProperty.call(params, 'fill_value')) return;
-    const rest = { ...params };
-    delete rest.fill_value;
-    setParams(rest);
-  }, [params, setParams, usesExplicitValue]);
-  return (
-    <>
-      <Field name="source" />
-      <Field name="method" />
-      {usesExplicitValue && <Field name="fill_value" />}
-      <Field name="treat_blank_as_missing" />
-    </>
-  );
+function CensusGeographyField({ id, testid, label, value, onChange }: GeneratedActionFieldProps) {
+  return <div className="param-row">
+    <label className="form-label" htmlFor={id}>{label}</label>
+    <PanelSelect id={id} testId={testid} value={typeof value === 'string' ? value : 'tract'}
+      onValueChange={onChange} options={[
+        { value: 'tract', label: 'Census tract' },
+        { value: 'block_group', label: 'Census block group' },
+      ]} />
+  </div>;
 }
 
 function PromptField({ label, value, onChange }: GeneratedActionFieldProps) {
   return <ActionPromptField label={label} value={typeof value === 'string' ? value : ''}
     rows={5} onChange={onChange} />;
+}
+
+function extractFields<K extends 'map.find' | 'map.mcp_extract' | 'research.extract'>(optional = false) {
+  return ({ params, setParams, errors, structureLocked, lockReason }: GeneratedActionParamsBodyProps<K>) => (
+    <ExtractFieldsEditor fields={params.fields ?? []} optional={optional}
+      structureLocked={structureLocked} lockReason={lockReason}
+      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
+  );
+}
+
+function suffixedSourceOutput(outputKey: string, suffix: string) {
+  return (key: string, draft: CanonicalActionDraft) => (
+    key === outputKey && typeof draft.source === 'string' ? `${draft.source}_${suffix}` : undefined
+  );
 }
 
 const EXACT_CUSTOMIZATIONS = {
@@ -212,17 +217,65 @@ const EXACT_CUSTOMIZATIONS = {
   'media.video_frames': { body: VideoFramesParamsBody, initialParams: { max_dimension: 720 },
     inlineDiagnosticFields: ['source', 'sampling', 'max_dimension'],
     primaryLabel: 'Extract frames' },
-  'media.extract_pdf_tables': { body: PdfTablesParamsBody, primaryLabel: 'Extract PDF tables',
-    inlineDiagnosticFields: ['source', 'table_mode', 'extract_table'],
-    outputLabel: () => 'Tables' },
+  'media.extract_pdf_tables': {
+    body: declarativeParamsBody<'media.extract_pdf_tables'>([
+      { field: 'source', label: 'PDF' },
+      { field: 'table_mode', label: 'Table mode',
+        hint: 'Auto lets Natural PDF choose. Stream reads whitespace-aligned tables; lattice follows drawn ruled lines.' },
+      { advanced: 'Pages and extraction options', testId: 'pdf-table-extraction-options',
+        items: [{ field: 'extract_table', label: 'Extraction options' }] },
+    ]),
+    primaryLabel: 'Extract PDF tables', inlineDiagnosticFields: ['source', 'table_mode', 'extract_table'],
+    outputLabel: () => 'Tables',
+  },
   'derive.transcript_segments': { body: TranscriptSegmentsParamsBody, primaryLabel: 'Create transcript segments',
     inlineDiagnosticFields: ['source'] },
-  'derive.link_table': { body: LinkTableParamsBody, primaryLabel: 'Create link table',
-    inlineDiagnosticFields: ['include_unmatched'] },
-  'map.find_topic_sections': { body: TopicSectionsParamsBody, inlineDiagnosticFields: ['source', 'engine', 'settings'] },
+  'derive.link_table': {
+    body: declarativeParamsBody<'derive.link_table'>([
+      ({ params, setParams }) => <label className="field-group form-field">
+        <span className="form-label">Semantic join receipt</span>
+        <TextInput data-testid="link-table-receipt" value={params.source?.receipt_id ?? ''}
+          onChange={(event) => setParams({ ...params, source: { kind: 'semantic_join', receipt_id: event.target.value } })} />
+      </label>,
+      { hint: 'Creates a link table from a completed semantic join receipt. Matching is not run again.' },
+      'include_unmatched',
+    ]),
+    primaryLabel: 'Create link table', inlineDiagnosticFields: ['include_unmatched'],
+  },
+  'map.find_topic_sections': {
+    body: declarativeParamsBody<'map.find_topic_sections'>([
+      { field: 'source', label: 'Timestamped transcript' }, 'engine',
+      ({ params, setParams }) => <label className="field-group form-field">
+        <span className="form-label">Detail</span>
+        <PanelSelect data-testid="field-detail"
+          value={typeof params.settings?.detail === 'string' ? params.settings.detail : 'balanced'}
+          onChange={(event) => setParams({ ...params, settings: { ...params.settings, detail: event.target.value } })}>
+          <option value="fewer">Fewer sections</option>
+          <option value="balanced">Balanced</option>
+          <option value="more">More sections</option>
+        </PanelSelect>
+      </label>,
+      { hint: 'Find topic changes locally and save editable timeline ranges.' },
+      { advanced: 'Segmentation settings', items: ['settings'] },
+    ]),
+    inlineDiagnosticFields: ['source', 'engine', 'settings'],
+  },
   'map.api_call': { body: ApiCallParamsBody, primaryLabel: 'Run API calls', outputLabel: () => 'Response' },
   'map.python': {
-    body: PythonParamsBody,
+    initialParams: {
+      input_columns: [],
+      code: 'result = {"computed": sum(len(str(v)) for v in row.values() if v)}',
+      return_schema: { type: 'object' },
+      output_routes: [{ name: 'computed', path: '$', target: { kind: 'column', type: 'json' } }],
+    },
+    body: declarativeParamsBody<'map.python'>([
+      { field: 'input_columns', label: 'Inputs' },
+      { field: 'code', label: 'Python snippet' },
+      { advanced: 'Return schema and output routes', items: [
+        { hint: 'Routes select values from result. Column routes appear below; named results and receipt values remain hidden. Final column names do not change route keys.' },
+        'return_schema', 'output_routes',
+      ] },
+    ]),
     inlineDiagnosticFields: ['input_columns', 'code', 'return_schema', 'output_routes'],
     fields: {
       code: ({ label, value, onChange, testid }) => <PythonCodeField
@@ -230,13 +283,38 @@ const EXACT_CUSTOMIZATIONS = {
         value={typeof value === 'string' ? value : ''} onChange={onChange} testid={testid} />,
     },
   },
-  'enrich.geocode': { body: GeocodeParamsBody, freePublicApiLabel: 'Free public API request',
-    inlineDiagnosticFields: ['source', 'engine'] },
+  'enrich.geocode': {
+    body: declarativeParamsBody<'enrich.geocode'>([
+      { field: 'source', label: 'Address', hintTestId: 'action-input-summary',
+        hint: 'Use an address column or compose an address from multiple columns.' },
+      { field: 'engine', hint: 'Auto uses OpenCage when OPENCAGE_API_KEY is configured, else Nominatim.' },
+      ({ params, setParams }) => <div className="action-io-summary">
+        <div className="form-label">Outputs</div>
+        <div className="form-hint" data-testid="action-output-summary">
+          <strong>geo_point</strong> is the map column; <strong>formatted_address</strong> is the geocoder-normalized address.
+          {params.include_lat_lon && ' latitude and longitude duplicate the point as scalar columns.'}
+        </div>
+        <label className="form-check">
+          <input type="checkbox" data-testid="include-lat-lon-columns" checked={params.include_lat_lon ?? false}
+            onChange={(event) => setParams({ ...params, include_lat_lon: event.target.checked })} />
+          Also include latitude and longitude columns
+        </label>
+      </div>,
+    ]),
+    freePublicApiLabel: 'Free public API request', inlineDiagnosticFields: ['source', 'engine'],
+  },
   'enrich.census_demographics': {
-    body: CensusParamsBody,
+    body: declarativeParamsBody<'enrich.census_demographics'>([
+      ({ sheet, onNavigateToAction }) => (sheet?.columns ?? []).every((column) => column.type !== 'geo_point')
+        ? <div className="empty-inline" data-testid="census-no-geo-point">
+            <span>No compatible <code>geo_point</code> columns.</span>
+            <Button type="button" onClick={() => onNavigateToAction?.('enrich.geocode')}>Run Geocode first</Button>
+          </div>
+        : null,
+      { field: 'source', label: 'Location' }, 'geography', 'include_moe',
+    ]),
     inlineDiagnosticFields: ['source', 'geography', 'include_moe'],
-    fields: { geography: CensusGeographyField },
-    freePublicApiLabel: 'US Census ACS enrichment',
+    fields: { geography: CensusGeographyField }, freePublicApiLabel: 'US Census ACS enrichment',
   },
   'resolve.entities': {
     body: EntityTableParamsBody,
@@ -321,16 +399,21 @@ const EXACT_CUSTOMIZATIONS = {
     },
   },
   'map.mcp_extract': {
-    body: McpExtractParamsBody,
+    body: declarativeParamsBody<'map.mcp_extract'>([
+      'source', extractFields(), 'instruction',
+      ({ params, setParams, errors }) => <ProjectMcpToolsSelector mcpServerIds={params.mcp_server_ids ?? []}
+        error={errors.mcp_server_ids?.message}
+        onMcpServerIdsChange={(mcp_server_ids) => setParams({ ...params, mcp_server_ids })} />,
+      'model', 'include_confidence', 'context',
+    ]),
     inlineDiagnosticFields: ['source', 'fields', 'instruction', 'mcp_server_ids', 'model',
       'include_confidence', 'context'],
-    initialParams: {
-      fields: [{ name: 'value', type: 'text', description: '' }],
-      mcp_server_ids: [],
-    },
+    initialParams: { fields: [{ name: 'value', type: 'text', description: '' }], mcp_server_ids: [] },
   },
-  'map.find': { body: FindParamsBody, defaultSheetName: 'Findings',
-    inlineDiagnosticFields: ['source', 'instruction', 'fields', 'model'] },
+  'map.find': {
+    body: declarativeParamsBody<'map.find'>(['source', 'instruction', extractFields(true), 'model']),
+    defaultSheetName: 'Findings', inlineDiagnosticFields: ['source', 'instruction', 'fields', 'model'],
+  },
   'map.translate': {
     body: TranslateParamsBody,
     inlineDiagnosticFields: ['source', 'engine', 'language'],
@@ -342,7 +425,9 @@ const EXACT_CUSTOMIZATIONS = {
     outputLabel: (key) => key === 'answer' ? 'Answer' : 'Search results',
   },
   'research.extract': {
-    body: ResearchExtractParamsBody,
+    body: declarativeParamsBody<'research.extract'>([
+      'source', 'question', extractFields(), 'model', 'include_confidence', 'include_sources',
+    ]),
     inlineDiagnosticFields: ['source', 'question', 'fields', 'model', 'include_confidence', 'include_sources'],
     initialParams: { fields: [{ name: 'value', type: 'text', description: '' }] },
     defaultOutputName: (key) => key === 'sources' ? 'answer_sources' : undefined,
@@ -365,8 +450,7 @@ const EXACT_CUSTOMIZATIONS = {
     fields: { routes: (props) => <ColumnsFromJsonRoutesField {...props} /> },
   },
   'map.clean_dates': {
-    defaultOutputName: (key, draft) => key === 'cleaned' && typeof draft.source === 'string'
-      ? `${draft.source}_iso` : undefined,
+    defaultOutputName: suffixedSourceOutput('cleaned', 'iso'),
     fields: {
       format: ({ value, onChange }) => (
         <CleanDatesForm format={typeof value === 'string' ? value : ''}
@@ -374,36 +458,33 @@ const EXACT_CUSTOMIZATIONS = {
       ),
     },
   },
-  'map.clean_column': {
-    defaultOutputName: (key, draft) => key === 'cleaned' && typeof draft.source === 'string'
-      ? `${draft.source}_clean` : undefined,
-  },
+  'map.clean_column': { defaultOutputName: suffixedSourceOutput('cleaned', 'clean') },
   'resolve.substitute': {
     body: SubstituteForm satisfies GeneratedActionParamsBody<'resolve.substitute'>,
     primaryLabel: 'Apply mapping',
     primaryTestId: 'resolve-apply',
-    defaultOutputName: (key, draft) => key === 'cleaned' && typeof draft.source === 'string'
-      ? `${draft.source}_clean` : undefined,
+    defaultOutputName: suffixedSourceOutput('cleaned', 'clean'),
   },
   'resolve.replace': {
     body: ReplaceForm satisfies GeneratedActionParamsBody<'resolve.replace'>,
     primaryLabel: 'Apply rules',
     primaryTestId: 'resolve-apply',
-    defaultOutputName: (key, draft) => key === 'cleaned' && typeof draft.source === 'string'
-      ? `${draft.source}_clean` : undefined,
+    defaultOutputName: suffixedSourceOutput('cleaned', 'clean'),
   },
   'resolve.combine': {
     body: CombineForm satisfies GeneratedActionParamsBody<'resolve.combine'>,
     primaryLabel: 'Apply groups',
     primaryTestId: 'resolve-apply',
-    defaultOutputName: (key, draft) => key === 'cleaned' && typeof draft.source === 'string'
-      ? `${draft.source}_clean` : undefined,
+    defaultOutputName: suffixedSourceOutput('cleaned', 'clean'),
   },
   'resolve.fill_missing': {
-    body: FillMissingParamsBody satisfies GeneratedActionParamsBody<'resolve.fill_missing'>,
-    defaultOutputName: (key, draft) => key === 'cleaned' && typeof draft.source === 'string'
-      ? `${draft.source}_clean`
-      : undefined,
+    body: declarativeParamsBody<'resolve.fill_missing'>([
+      'source',
+      'method',
+      { field: 'fill_value', when: ({ params }) => params.method === 'value', clearWhenHidden: true },
+      'treat_blank_as_missing',
+    ]),
+    defaultOutputName: suffixedSourceOutput('cleaned', 'clean'),
   },
 } satisfies ExactGeneratedActionCustomizationMap;
 const CUSTOMIZATIONS: Record<string, StoredGeneratedActionCustomization> = EXACT_CUSTOMIZATIONS;
