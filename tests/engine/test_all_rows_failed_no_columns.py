@@ -88,13 +88,14 @@ def _prepare_claimed_run(
     spec: dict[str, Any],
 ):
     claim_token = f"output-claim:test:{id(runner)}"
-    claims, conflict = OutputColumnClaimStore(runner.project).acquire(
-        sheet_id=int(spec["sheet_id"]),
-        output_names=["relevance"],
-        action_kind=str(spec["action_kind"]),
-        claim_token=claim_token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(runner.project.db):
+        claims, conflict = OutputColumnClaimStore(runner.project).acquire(
+            sheet_id=int(spec["sheet_id"]),
+            output_names=["relevance"],
+            action_kind=str(spec["action_kind"]),
+            claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
+        )
     assert conflict is None
     assert len(claims) == 1
     prepared = runner._prepare(  # noqa: SLF001 - runner contract probe
@@ -364,9 +365,10 @@ class TestMapKindAllRowsFailed:
             return await asyncio.wait_for(task, timeout=2)
 
         first = asyncio.run(go_cancel())
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="cancelled"
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(
+                claim_token=claim_token, status="cancelled"
+            )
         assert first.cancelled and first.done
         assert 0 < first.completed < first.total
         assert first.failed == first.completed  # every processed row failed

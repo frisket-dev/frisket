@@ -255,6 +255,9 @@ class _ActionCoreSpec:
     confirmed_fn: Callable[[Any], bool] | None = None
     result_from_existing_fn: Callable[..., ActionResult | None] | None = None
     reserve_fn: Callable[..., dict[str, str] | ActionResult] | None = None
+    reserve_in_transaction_fn: Callable[..., dict[str, str] | ActionResult] | None = (
+        None
+    )
     delete_reservation_fn: Callable[[Any, str], None] | None = None
 
     # reserved-maprunner execution seams

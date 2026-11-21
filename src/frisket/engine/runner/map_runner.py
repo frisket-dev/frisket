@@ -721,12 +721,11 @@ class MapRunner:
             if resolved is not None
             else None
         )
-        attempt = self.authority.mint(
+        attempt = self.authority.mint_in_transaction(
             program=prepared.program,
             spec=spec,
             run_id=prepared.run_id,
             scope=self._attempt_scope(prepared, spec, output_column_ids),
-            commit=False,
             prepared_binding=prepared_binding,
         )
         if prepared.resolution_bound and not isinstance(

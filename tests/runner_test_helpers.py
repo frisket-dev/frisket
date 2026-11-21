@@ -64,13 +64,14 @@ async def run_with_exact_confirmation(
     output_names = [str(field["name"]) for field in program.output_fields(spec)]
     claim_token = f"output-claim:test:{program.name}:{uuid.uuid4()}"
     claim_store = OutputColumnClaimStore(runner.project)
-    claims, conflict = claim_store.acquire(
-        sheet_id=int(spec["sheet_id"]),
-        output_names=output_names,
-        action_kind=program.name,
-        claim_token=claim_token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(claim_store.db):
+        claims, conflict = claim_store.acquire(
+            sheet_id=int(spec["sheet_id"]),
+            output_names=output_names,
+            action_kind=program.name,
+            claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
+        )
     if conflict is not None:
         raise AssertionError(
             "test runner could not reserve its output plan: "
@@ -112,12 +113,14 @@ async def run_with_exact_confirmation(
             claim_token=claim_token,
             prepared_run=prepared,
         )
-        claim_store.release(claim_token=claim_token)
+        with write_transaction(claim_store.db):
+            claim_store.release(claim_token=claim_token)
         return progress
     except BaseException:
         # Normal runner finalization releases a bound claim.  This only
         # cleans up prepare/challenge failures before dispatch owns it.
-        claim_store.release(claim_token=claim_token, status="failed")
+        with write_transaction(claim_store.db):
+            claim_store.release(claim_token=claim_token, status="failed")
         raise
 
 
@@ -136,13 +139,14 @@ async def run_with_output_claim(
     output_names = [str(field["name"]) for field in action_program.output_fields(spec)]
     claim_token = f"output-claim:test:{action_program.name}:{uuid.uuid4()}"
     claim_store = OutputColumnClaimStore(runner.project)
-    claims, conflict = claim_store.acquire(
-        sheet_id=int(spec["sheet_id"]),
-        output_names=output_names,
-        action_kind=action_program.name,
-        claim_token=claim_token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(claim_store.db):
+        claims, conflict = claim_store.acquire(
+            sheet_id=int(spec["sheet_id"]),
+            output_names=output_names,
+            action_kind=action_program.name,
+            claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
+        )
     if conflict is not None:
         raise AssertionError(
             "test runner could not reserve its output plan: "
@@ -174,10 +178,12 @@ async def run_with_output_claim(
             claim_token=claim_token,
             prepared_run=prepared,
         )
-        claim_store.release(claim_token=claim_token)
+        with write_transaction(claim_store.db):
+            claim_store.release(claim_token=claim_token)
         return progress
     except BaseException:
-        claim_store.release(claim_token=claim_token, status="failed")
+        with write_transaction(claim_store.db):
+            claim_store.release(claim_token=claim_token, status="failed")
         raise
 
 

@@ -11,6 +11,7 @@ from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import Receipt
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 
 VECS = {
     "Acme Corporation": [1.0, 0.0, 0.0],
@@ -585,12 +586,13 @@ def test_direct_join_semantic_claim_conflict_precedes_embedding_and_run(
     from frisket.engine.store.output_claims import OutputColumnClaimStore
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
-        blocker, conflict = OutputColumnClaimStore(env.project).acquire(
-            sheet_id=env.seeded["source_sheet_id"],
-            output_names=["company_match_value"],
-            action_kind="join.semantic",
-            claim_token="output-claim:receipt_join_blocker",
-        )
+        with write_transaction(env.project.db):
+            blocker, conflict = OutputColumnClaimStore(env.project).acquire(
+                sheet_id=env.seeded["source_sheet_id"],
+                output_names=["company_match_value"],
+                action_kind="join.semantic",
+                claim_token="output-claim:receipt_join_blocker",
+            )
         assert conflict is None
         assert len(blocker) == 1
         before_runs = env.project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]

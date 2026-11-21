@@ -226,14 +226,15 @@ def consented_run(project):
         row_ids=row_ids,
     )
     claim_token = f"output-claim:settlement:{run_id}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["transcript"],
-        action_kind="media.transcribe",
-        run_id=run_id,
-        op_id=int(op_id),
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["transcript"],
+            action_kind="media.transcribe",
+            run_id=run_id,
+            op_id=int(op_id),
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
@@ -503,12 +504,13 @@ def test_fact_writer_refuses_a_foreign_current_attempt(project, consented_run):
 
     run_a = consented_run
     run_b = _peer_run(project, run_a)
-    foreign_attempt_id, _seq = open_attempt(
-        project,
-        run_id=run_b,
-        identity=action_identity_hash(SPEC),
-        scope=(1, 2),
-    )
+    with write_transaction(project.db):
+        foreign_attempt_id, _seq = open_attempt(
+            project,
+            run_id=run_b,
+            identity=action_identity_hash(SPEC),
+            scope=(1, 2),
+        )
     project.db.execute(
         "UPDATE runs SET current_attempt_id=? WHERE id=?",
         (foreign_attempt_id, run_a),
@@ -619,15 +621,16 @@ def test_same_call_id_cannot_reconcile_across_attempt_ownership(project, consent
         cost_source="unknown",
         units={"requests": 1},
     )
-    RunResultStore(project).write_model_calls(
-        run_id,
-        [{"row_id": 1, "column_id": 1, "model_calls": [accepted]}],
-        **_writer_authority(
-            project,
+    with write_transaction(project.db):
+        RunResultStore(project).write_model_calls(
             run_id,
-            attempt_id=attempt_a.attempt_id,
-        ),
-    )
+            [{"row_id": 1, "column_id": 1, "model_calls": [accepted]}],
+            **_writer_authority(
+                project,
+                run_id,
+                attempt_id=attempt_a.attempt_id,
+            ),
+        )
     set_attempt_state(project, attempt_a.attempt_id, "effected")
 
     attempt_b = _mint(project, run_id)
@@ -637,7 +640,10 @@ def test_same_call_id_cannot_reconcile_across_attempt_ownership(project, consent
         "provider_cost_usd": 0.25,
         "cost_source": "provider_reported",
     }
-    with pytest.raises(RuntimeError, match="attempt_id changed"):
+    with (
+        pytest.raises(RuntimeError, match="attempt_id changed"),
+        write_transaction(project.db),
+    ):
         RunResultStore(project).write_model_calls(
             run_id,
             [{"row_id": 1, "column_id": 1, "model_calls": [completed]}],
@@ -1734,14 +1740,15 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
         row_ids=row_ids,
     )
     claim_token = f"output-claim:settlement-offering:{run_id}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["transcript"],
-        action_kind="media.transcribe",
-        run_id=run_id,
-        op_id=int(op_id),
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["transcript"],
+            action_kind="media.transcribe",
+            run_id=run_id,
+            op_id=int(op_id),
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):

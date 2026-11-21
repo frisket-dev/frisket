@@ -42,6 +42,7 @@ from frisket.server.services.action_runs import ActionRunService
 from frisket.server.mcp.server import ActionToolSpec, RegisteredActionToolSpec
 from frisket.actions.classify import ClassifyParams, classify_prompt
 from frisket.actions.types import Row
+from frisket.engine.store.transactions import write_transaction
 
 MODEL = "anthropic/claude-haiku-4-5"
 
@@ -1826,13 +1827,14 @@ class TestRunAction:
                 status="running",
             )
         )
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet,
-            output_names=["uppercase"],
-            action_kind="map.python",
-            receipt_id="receipt_competing_mcp",
-            claim_token="output-claim:receipt_competing_mcp",
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet,
+                output_names=["uppercase"],
+                action_kind="map.python",
+                receipt_id="receipt_competing_mcp",
+                claim_token="output-claim:receipt_competing_mcp",
+            )
         assert conflict is None
         assert len(claims) == 1
         baseline = {

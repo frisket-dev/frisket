@@ -39,6 +39,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import ActionProgram
+from frisket.engine.store.transactions import write_transaction
 
 
 class UpperParams(ActionParams):
@@ -809,14 +810,15 @@ def test_typed_action_collision_preserves_recovery_identity(
         status="running",
     )
     ReceiptStore(store).insert_running(blocker)
-    claims, conflict = OutputColumnClaimStore(store).acquire(
-        sheet_id=sheet_id,
-        output_names=["upper"],
-        action_kind=blocker.action_kind,
-        receipt_id=blocker.receipt_id,
-        claim_token="claim:typed-map-rows-blocker",
-        lease_seconds=60,
-    )
+    with write_transaction(store.db):
+        claims, conflict = OutputColumnClaimStore(store).acquire(
+            sheet_id=sheet_id,
+            output_names=["upper"],
+            action_kind=blocker.action_kind,
+            receipt_id=blocker.receipt_id,
+            claim_token="claim:typed-map-rows-blocker",
+            lease_seconds=60,
+        )
     assert conflict is None
 
     result = run_typed_map_rows_action(

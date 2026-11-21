@@ -322,17 +322,17 @@ def run_writer_authority_fixture(
         raise AssertionError("claimed test authority crosses the run's sheet")
 
     token = f"output-claim:test-store-writer:{uuid.uuid4().hex}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=int(run["sheet_id"]),
-        output_names=[str(column["name"]) for column in columns],
-        action_kind=str(run["action_kind"]),
-        run_id=int(run_id),
-        claim_token=token,
-        lease_seconds=int(timedelta(hours=6).total_seconds()),
-    )
-    if conflict is not None or len(claims) != len(column_ids):
-        raise AssertionError("could not acquire exact test output authority")
     with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=int(run["sheet_id"]),
+            output_names=[str(column["name"]) for column in columns],
+            action_kind=str(run["action_kind"]),
+            run_id=int(run_id),
+            claim_token=token,
+            lease_seconds=int(timedelta(hours=6).total_seconds()),
+        )
+        if conflict is not None or len(claims) != len(column_ids):
+            raise AssertionError("could not acquire exact test output authority")
         OutputColumnClaimStore(project).bind_to_run(
             claim_token=token,
             run_id=int(run_id),

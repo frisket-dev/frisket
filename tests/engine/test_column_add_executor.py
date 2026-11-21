@@ -14,6 +14,7 @@ from http_test_helpers import (
     post_operation_redo_as_v1_action,
     post_operation_undo_as_v1_action,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_sheet(client: TestClient) -> tuple[str, int]:
@@ -251,18 +252,20 @@ def test_create_cannot_take_name_reserved_before_worker_starts(tmp_path: Path) -
     pid, sheet_id = _seed_sheet(client)
     project = client.app.state.workspace.get(pid)
     claims = OutputColumnClaimStore(project)
-    reserved, conflict = claims.acquire(
-        sheet_id=sheet_id,
-        output_names=["summary"],
-        action_kind="map.summarize",
-        claim_token="queued-name",
-    )
+    with write_transaction(claims.db):
+        reserved, conflict = claims.acquire(
+            sheet_id=sheet_id,
+            output_names=["summary"],
+            action_kind="map.summarize",
+            claim_token="queued-name",
+        )
     assert conflict is None
     assert reserved[0]["column_id"] is None
     response = post_column_add_as_v1_action(client, pid, sheet_id, "summary")
     assert response.status_code == 400, response.text
     assert response.json()["errors"][0]["code"] == "output_column_busy"
     assert "summary" not in _visible_columns(client, pid, sheet_id)
-    claims.release(claim_token="queued-name")
+    with write_transaction(claims.db):
+        claims.release(claim_token="queued-name")
     response = post_column_add_as_v1_action(client, pid, sheet_id, "summary")
     assert response.status_code == 200, response.text

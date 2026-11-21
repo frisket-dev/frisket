@@ -261,7 +261,6 @@ def publish_pdf_ocr_sample(
             op_id=op_id,
             claim_token=token,
             details={"output_fields": [{"name": name, "column_type": "text"}]},
-            commit=False,
         )
         if conflict is not None or len(claims) != 1:
             raise ValueError("document text is being updated")
@@ -383,7 +382,7 @@ def publish_pdf_ocr_sample(
             rebuild_review_stats=False,
             claim_token=token,
         )
-        OutputColumnClaimStore(project).release(claim_token=token, commit=False)
+        OutputColumnClaimStore(project).release(claim_token=token)
     return {
         "operation_id": op_id,
         "run_id": run_id,

@@ -1489,13 +1489,14 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
             status="running",
         )
     )
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["value"],
-        action_kind="map.extract",
-        receipt_id="cloud-llm-map-run",
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["value"],
+            action_kind="map.extract",
+            receipt_id="cloud-llm-map-run",
+            claim_token=claim_token,
+        )
     assert conflict is None and len(claims) == 1
 
     def bind_claim(progress):

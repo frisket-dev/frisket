@@ -12,6 +12,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 _PROJECT_ID = "proj-replay-chrome"
 
@@ -358,19 +359,21 @@ def test_replay_accept_checks_claim_identity_and_supports_undo_redo(fx):
         "invalid_replay_target"
     ]
 
-    _claims, conflict = OutputColumnClaimStore(fx.project).acquire(
-        sheet_id=fx.sheet,
-        output_names=["label"],
-        action_kind="map.classify",
-        claim_token="claim:replay-test",
-        lease_seconds=None,
-    )
+    with write_transaction(fx.project.db):
+        _claims, conflict = OutputColumnClaimStore(fx.project).acquire(
+            sheet_id=fx.sheet,
+            output_names=["label"],
+            action_kind="map.classify",
+            claim_token="claim:replay-test",
+            lease_seconds=None,
+        )
     assert conflict is None
     blocked = fx.run_action(request)
     assert [error.code for error in blocked.errors] == ["output_column_busy"]
-    OutputColumnClaimStore(fx.project).release(
-        claim_token="claim:replay-test", status="released"
-    )
+    with write_transaction(fx.project.db):
+        OutputColumnClaimStore(fx.project).release(
+            claim_token="claim:replay-test", status="released"
+        )
 
     stale = json.loads(json.dumps(request))
     stale["params"]["run_id"] = run_id + 100

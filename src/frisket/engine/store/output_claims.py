@@ -64,85 +64,93 @@ class OutputColumnClaimStore:
         claim_token: str | None = None,
         lease_seconds: int | None = None,
         details: dict[str, Any] | None = None,
-        commit: bool = True,
         now: datetime | None = None,
     ) -> tuple[list[sqlite3.Row], sqlite3.Row | None]:
+        """Acquire active claims for one output set in the caller's transaction."""
+        require_transaction(self.db, "output claim acquisition")
         names = sorted({name.strip() for name in output_names if name.strip()})
         if not names:
             return [], None
         token = claim_token or f"claim:{uuid.uuid4()}"
         expiry = self.claim_expiry(lease_seconds, now=now)
         details_json = json.dumps(details or {}, sort_keys=True)
+        savepoint = f"output_claim_acquire_{uuid.uuid4().hex}"
+        self.db.execute(f"SAVEPOINT {savepoint}")
         try:
-            with write_transaction(
-                self.db,
-                commit=commit,
-                what="OutputColumnClaimStore.acquire(commit=False)",
-            ):
-                for name in names:
-                    existing = self.db.execute(
-                        "SELECT * FROM output_column_claims "
-                        "WHERE sheet_id=? AND output_name=? AND status='active'",
-                        (sheet_id, name),
-                    ).fetchone()
-                    if existing is not None:
-                        if commit:
-                            self.db.rollback()
-                        return [], existing
-                created: list[sqlite3.Row] = []
-                for name in names:
-                    column = self.db.execute(
-                        "SELECT column.id, "
-                        "(SELECT MAX(head.run_id) FROM published_result_bases head "
-                        " WHERE head.column_id=column.id) AS current_head_run_id "
-                        "FROM columns column WHERE column.sheet_id=? AND column.name=? "
-                        "AND column.active=1",
-                        (sheet_id, name),
-                    ).fetchone()
-                    claim_id = f"claim:{uuid.uuid4()}"
-                    self.db.execute(
-                        "INSERT INTO output_column_claims ("
-                        "id, sheet_id, column_id, output_name, run_id, op_id, "
-                        "receipt_id, job_id, action_kind, mode, expected_current_run_id, "
-                        "claim_token, lease_expires_at, details"
-                        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            for name in names:
+                existing = self.db.execute(
+                    "SELECT * FROM output_column_claims "
+                    "WHERE sheet_id=? AND output_name=? AND status='active'",
+                    (sheet_id, name),
+                ).fetchone()
+                if existing is not None:
+                    self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    return [], existing
+            created: list[sqlite3.Row] = []
+            for name in names:
+                column = self.db.execute(
+                    "SELECT column.id, "
+                    "(SELECT MAX(head.run_id) FROM published_result_bases head "
+                    " WHERE head.column_id=column.id) AS current_head_run_id "
+                    "FROM columns column WHERE column.sheet_id=? AND column.name=? "
+                    "AND column.active=1",
+                    (sheet_id, name),
+                ).fetchone()
+                claim_id = f"claim:{uuid.uuid4()}"
+                self.db.execute(
+                    "INSERT INTO output_column_claims ("
+                    "id, sheet_id, column_id, output_name, run_id, op_id, "
+                    "receipt_id, job_id, action_kind, mode, expected_current_run_id, "
+                    "claim_token, lease_expires_at, details"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        claim_id,
+                        sheet_id,
+                        int(column["id"]) if column is not None else None,
+                        name,
+                        run_id,
+                        op_id,
+                        receipt_id,
+                        job_id,
+                        action_kind,
+                        mode,
                         (
-                            claim_id,
-                            sheet_id,
-                            int(column["id"]) if column is not None else None,
-                            name,
-                            run_id,
-                            op_id,
-                            receipt_id,
-                            job_id,
-                            action_kind,
-                            mode,
-                            (
-                                int(column["current_head_run_id"])
-                                if column is not None
-                                and column["current_head_run_id"] is not None
-                                else None
-                            ),
-                            token,
-                            expiry,
-                            details_json,
+                            int(column["current_head_run_id"])
+                            if column is not None
+                            and column["current_head_run_id"] is not None
+                            else None
                         ),
-                    )
-                    created.append(
-                        self.db.execute(
-                            "SELECT * FROM output_column_claims WHERE id=?", (claim_id,)
-                        ).fetchone()
-                    )
-                return created, None
+                        token,
+                        expiry,
+                        details_json,
+                    ),
+                )
+                created.append(
+                    self.db.execute(
+                        "SELECT * FROM output_column_claims WHERE id=?", (claim_id,)
+                    ).fetchone()
+                )
+            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            return created, None
         except sqlite3.IntegrityError:
+            self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             placeholders = ",".join("?" for _ in names)
             conflict = self.db.execute(
-                "SELECT * FROM output_column_claims "
-                f"WHERE sheet_id=? AND output_name IN ({placeholders}) "
-                "AND status='active' ORDER BY created_at, id LIMIT 1",
-                (sheet_id, *names),
+                "SELECT occ.* FROM output_column_claims occ "
+                "LEFT JOIN columns c ON c.id=occ.column_id AND c.active=1 "
+                "WHERE occ.status='active' AND ("
+                f"(occ.sheet_id=? AND occ.output_name IN ({placeholders})) "
+                f"OR (c.sheet_id=? AND c.name IN ({placeholders}))"
+                ") ORDER BY occ.created_at, occ.id LIMIT 1",
+                (sheet_id, *names, sheet_id, *names),
             ).fetchone()
             return [], conflict
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
 
     def bind_to_run(
         self,
@@ -373,17 +381,17 @@ class OutputColumnClaimStore:
         claim_token: str,
         lease_seconds: int,
         run_id: int | None = None,
-        commit: bool = True,
         now: datetime | None = None,
     ) -> int:
-        with write_transaction(self.db, commit=commit, what="output claim renewal"):
-            return self.renew_in_transaction(
-                self.db,
-                claim_token=claim_token,
-                lease_seconds=lease_seconds,
-                run_id=run_id,
-                now=now,
-            )
+        """Renew one active claim group's lease in the caller's transaction."""
+        require_transaction(self.db, "output claim renewal")
+        return self.renew_in_transaction(
+            self.db,
+            claim_token=claim_token,
+            lease_seconds=lease_seconds,
+            run_id=run_id,
+            now=now,
+        )
 
     @staticmethod
     def renew_in_transaction(
@@ -512,58 +520,56 @@ class OutputColumnClaimStore:
         run_id: int,
         cutoff: str,
         lease_cutoff: str,
-        commit: bool,
     ) -> int:
-        """Close attempts whose existing output claim lease has gone silent."""
+        """Close attempts whose existing output claim lease has gone silent in
+        the caller's transaction."""
 
-        with write_transaction(
-            self.db, commit=commit, what="stale-attempt sweep with commit=False"
-        ):
-            has_claim = (
-                self.db.execute(
-                    "SELECT 1 FROM output_column_claims WHERE run_id=? "
-                    "AND status='active' LIMIT 1",
-                    (run_id,),
-                ).fetchone()
-                is not None
+        require_transaction(self.db, "stale-attempt sweep")
+        has_claim = (
+            self.db.execute(
+                "SELECT 1 FROM output_column_claims WHERE run_id=? "
+                "AND status='active' LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            is not None
+        )
+        stopped_job = not has_claim and self._run_job_execution_stopped(run_id)
+        cursor = self.db.execute(
+            "UPDATE execution_attempts SET state='abandoned' "
+            "WHERE run_id=? AND state='dispatching' "
+            "AND ("
+            "(? AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+            "WHERE c.run_id=execution_attempts.run_id AND c.status='active')) "
+            "OR (created_at < ? AND EXISTS (SELECT 1 FROM output_column_claims c "
+            "WHERE c.run_id=execution_attempts.run_id AND c.status='active') "
+            "AND NOT EXISTS (SELECT 1 FROM output_column_claims live "
+            "WHERE live.run_id=execution_attempts.run_id "
+            "AND live.status='active' AND live.lease_expires_at > ?))"
+            ")",
+            (run_id, stopped_job, cutoff, lease_cutoff),
+        )
+        if cursor.rowcount:
+            self.db.execute(
+                "UPDATE runs SET current_attempt_id=NULL WHERE id=? AND "
+                "current_attempt_id IN (SELECT id FROM execution_attempts "
+                "WHERE run_id=? AND state='abandoned')",
+                (run_id, run_id),
             )
-            stopped_job = not has_claim and self._run_job_execution_stopped(run_id)
-            cursor = self.db.execute(
-                "UPDATE execution_attempts SET state='abandoned' "
-                "WHERE run_id=? AND state='dispatching' "
-                "AND ("
-                "(? AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
-                "WHERE c.run_id=execution_attempts.run_id AND c.status='active')) "
-                "OR (created_at < ? AND EXISTS (SELECT 1 FROM output_column_claims c "
-                "WHERE c.run_id=execution_attempts.run_id AND c.status='active') "
-                "AND NOT EXISTS (SELECT 1 FROM output_column_claims live "
-                "WHERE live.run_id=execution_attempts.run_id "
-                "AND live.status='active' AND live.lease_expires_at > ?))"
-                ")",
-                (run_id, stopped_job, cutoff, lease_cutoff),
-            )
-            if cursor.rowcount:
-                self.db.execute(
-                    "UPDATE runs SET current_attempt_id=NULL WHERE id=? AND "
-                    "current_attempt_id IN (SELECT id FROM execution_attempts "
-                    "WHERE run_id=? AND state='abandoned')",
-                    (run_id, run_id),
-                )
-            return int(cursor.rowcount or 0)
+        return int(cursor.rowcount or 0)
 
     def release(
         self,
         *,
         claim_token: str,
         status: str = "released",
-        commit: bool = True,
     ) -> int:
-        with write_transaction(self.db, commit=commit, what="output claim release"):
-            released = self.db.execute(
-                "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-                "WHERE claim_token=? AND status='active'",
-                (status, claim_token),
-            )
+        """Release one active claim group in the caller's transaction."""
+        require_transaction(self.db, "output claim release")
+        released = self.db.execute(
+            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+            "WHERE claim_token=? AND status='active'",
+            (status, claim_token),
+        )
         return released.rowcount
 
     def finish_current_writer(
@@ -606,7 +612,6 @@ class OutputColumnClaimStore:
                 else self.release(
                     claim_token=claim_token,
                     status=claim_status,
-                    commit=False,
                 )
             )
             return int(released)
@@ -645,16 +650,14 @@ class OutputColumnClaimStore:
         *,
         receipt_id: str,
         status: str,
-        commit: bool = True,
     ) -> int:
-        with write_transaction(
-            self.db, commit=commit, what="receipt output claim release"
-        ):
-            released = self.db.execute(
-                "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-                "WHERE receipt_id=? AND status='active'",
-                (status, receipt_id),
-            )
+        """Release active claims for one receipt in the caller's transaction."""
+        require_transaction(self.db, "receipt output claim release")
+        released = self.db.execute(
+            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+            "WHERE receipt_id=? AND status='active'",
+            (status, receipt_id),
+        )
         return released.rowcount
 
     def release_for_run_receipt(
@@ -663,45 +666,40 @@ class OutputColumnClaimStore:
         run_id: int,
         receipt_id: str,
         status: str,
-        commit: bool = True,
     ) -> int:
-        """Release claims by durable run/receipt identity, not token shape.
+        """Release claims by durable run/receipt identity, not token shape, in
+        the caller's transaction.
 
         Recovery cannot trust a caller-supplied token, and claim tokens are
         intentionally opaque (including custom tokens). The run/receipt pair
         is the stable join shared by the terminal transaction.
         """
 
-        with write_transaction(
-            self.db, commit=commit, what="run receipt output claim release"
-        ):
-            released = self.db.execute(
-                "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-                "WHERE run_id=? AND receipt_id=? AND status='active'",
-                (status, run_id, receipt_id),
-            )
+        require_transaction(self.db, "run receipt output claim release")
+        released = self.db.execute(
+            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+            "WHERE run_id=? AND receipt_id=? AND status='active'",
+            (status, run_id, receipt_id),
+        )
         return released.rowcount
 
     def discard_for_receipt(
         self,
         *,
         receipt_id: str,
-        commit: bool = True,
     ) -> int:
-        """Delete an unobservable pre-execution lease.
+        """Delete an unobservable pre-execution lease in the caller's transaction.
 
         A confirmation refusal is not a failed attempt: no work was authorized
         and no durable action state may remain.  This is deliberately narrower
         than ``release_for_receipt`` so terminal attempts retain their audit row.
         """
 
-        with write_transaction(
-            self.db, commit=commit, what="receipt output claim discard"
-        ):
-            discarded = self.db.execute(
-                "DELETE FROM output_column_claims WHERE receipt_id=? AND status='active'",
-                (receipt_id,),
-            )
+        require_transaction(self.db, "receipt output claim discard")
+        discarded = self.db.execute(
+            "DELETE FROM output_column_claims WHERE receipt_id=? AND status='active'",
+            (receipt_id,),
+        )
         return discarded.rowcount
 
     def active_for_columns(
@@ -720,9 +718,9 @@ class OutputColumnClaimStore:
         already gone terminal, instead of reporting it as busy. This runs
         inside the caller's own BEGIN IMMEDIATE (edits.py/operations.py's
         in-txn perform core) -- the release is NOT committed here
-        (`release_stale(..., commit=False)`); it lands or rolls back with
-        the rest of that transaction, same as every other write in this
-        gate's callers."""
+        (`release_stale(...)` joins the caller's transaction); it lands or rolls
+        back with the rest of that transaction, same as every other write in
+        this gate's callers."""
         ids = sorted({int(column_id) for column_id in column_ids})
         if not ids:
             return None
@@ -745,7 +743,6 @@ class OutputColumnClaimStore:
             self.release_stale(
                 claim_id=claim["id"],
                 reason="stale_claim_recovery: owning job terminal",
-                commit=False,
             )
             # Loop: another (genuinely active) claim may still block these
             # columns once the stale one is out of the way.
@@ -778,7 +775,6 @@ class OutputColumnClaimStore:
             self.release_stale(
                 claim_id=claim["id"],
                 reason="stale_claim_recovery: owning job terminal",
-                commit=False,
             )
 
     def _owning_job_is_terminal(self, claim: sqlite3.Row) -> bool:
@@ -931,30 +927,28 @@ class OutputColumnClaimStore:
         *,
         claim_id: str,
         reason: str,
-        commit: bool = True,
     ) -> int:
         """The RECOVERY release (distinct from `release()`'s normal
-        finalize-time release): stamps `details.recovered_by` so a recovered
-        claim is auditable/queryable separately from an ordinary release."""
-        with write_transaction(
-            self.db, commit=commit, what="stale output claim release"
-        ):
-            row = self.db.execute(
-                "SELECT details FROM output_column_claims WHERE id=?", (claim_id,)
-            ).fetchone()
-            if row is None:
-                return 0
-            try:
-                details = json.loads(row["details"] or "{}")
-            except (TypeError, ValueError):
-                details = {}
-            if not isinstance(details, dict):
-                details = {}
-            details["recovered_by"] = reason
-            released = self.db.execute(
-                "UPDATE output_column_claims SET status='released', "
-                "released_at=datetime('now'), details=? "
-                "WHERE id=? AND status='active'",
-                (json.dumps(details, sort_keys=True), claim_id),
-            )
+        finalize-time release): stamps `details.recovered_by` in the caller's
+        transaction so a recovered claim is auditable/queryable separately from
+        an ordinary release."""
+        require_transaction(self.db, "stale output claim release")
+        row = self.db.execute(
+            "SELECT details FROM output_column_claims WHERE id=?", (claim_id,)
+        ).fetchone()
+        if row is None:
+            return 0
+        try:
+            details = json.loads(row["details"] or "{}")
+        except (TypeError, ValueError):
+            details = {}
+        if not isinstance(details, dict):
+            details = {}
+        details["recovered_by"] = reason
+        released = self.db.execute(
+            "UPDATE output_column_claims SET status='released', "
+            "released_at=datetime('now'), details=? "
+            "WHERE id=? AND status='active'",
+            (json.dumps(details, sort_keys=True), claim_id),
+        )
         return released.rowcount

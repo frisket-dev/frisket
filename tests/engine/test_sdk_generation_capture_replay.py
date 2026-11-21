@@ -38,6 +38,7 @@ from frisket.sdk.replay import (
     output_columns_replay_error,
 )
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
+from frisket.engine.store.transactions import write_transaction
 
 
 _TEXT_OUTPUT = [{"name": "generated", "type": "text", "nullable": True}]
@@ -147,9 +148,11 @@ def _release(project: Project, authority: RunWriterAuthorityFixture) -> None:
     from frisket.execution.attempt import set_attempt_state
 
     set_attempt_state(project, authority.writer_attempt_id, "effected")
-    assert (
-        OutputColumnClaimStore(project).release(claim_token=authority.claim_token) >= 1
-    )
+    with write_transaction(project.db):
+        assert (
+            OutputColumnClaimStore(project).release(claim_token=authority.claim_token)
+            >= 1
+        )
 
 
 def _publish_managed(

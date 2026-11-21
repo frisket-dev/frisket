@@ -16,6 +16,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.sdk import ActionParams, TableResult, TableRow, action, create_sheet
+from frisket.engine.store.transactions import write_transaction
 
 
 class NumberParams(ActionParams):
@@ -234,19 +235,21 @@ def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
             dict(column) for column in project.db.execute("SELECT * FROM columns")
         ]
         claims = OutputColumnClaimStore(project)
-        acquired, conflict = claims.acquire(
-            sheet_id=sheet_id,
-            output_names=["note"],
-            action_kind="map.template",
-            claim_token="claim:sheet-transition",
-        )
+        with write_transaction(claims.db):
+            acquired, conflict = claims.acquire(
+                sheet_id=sheet_id,
+                output_names=["note"],
+                action_kind="map.template",
+                claim_token="claim:sheet-transition",
+            )
         assert len(acquired) == 1 and conflict is None
         for transition, expected_hidden in ((project.undo, 1), (project.redo, 0)):
             assert transition() == result.op_ids[0]
             if expected_hidden:
                 # Release this writer before restoring the sheet; a fresh name
                 # reservation while it is absent is a real restoration conflict.
-                claims.release(claim_token="claim:sheet-transition")
+                with write_transaction(claims.db):
+                    claims.release(claim_token="claim:sheet-transition")
             assert (
                 project.db.execute("SELECT hidden FROM sheets").fetchone()[0]
                 == expected_hidden

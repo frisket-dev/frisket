@@ -20,6 +20,7 @@ from frisket.execution.dispatch_control import (
 from frisket.ops._sidecar import sidecar_post
 from tests.engine.test_result_generation_store import _start_claimed_run
 from tests.ai.test_structured_wire_failures import UsagePolicy
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -243,7 +244,8 @@ async def test_dispatch_reads_current_thread_connection_and_claim(owned):
 
     project, run, control = owned
     await asyncio.to_thread(control.check)
-    OutputColumnClaimStore(project).release(claim_token=run.authority.claim_token)
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=run.authority.claim_token)
     with pytest.raises(asyncio.CancelledError):
         await asyncio.to_thread(control.check)
 

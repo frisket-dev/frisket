@@ -15,6 +15,7 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.workspace import Workspace
 from tests.deterministic_time import controlled_time
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed(
@@ -461,11 +462,12 @@ def test_column_transform_preview_refuses_output_gate_before_starting_a_job(
         project.add_column(sheet_id, "cleaned")
         expected_code = "output_column_exists"
     else:
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["cleaned"],
-            action_kind="test.blocker",
-        )
+        with write_transaction(project.db):
+            _claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["cleaned"],
+                action_kind="test.blocker",
+            )
         assert conflict is None
         expected_code = "output_column_busy"
     service = ActionPreviewRunService(workspace)
@@ -501,12 +503,13 @@ def test_column_transform_preview_ignores_terminal_owner_stale_claim(
         (op_id, sheet_id),
     )
     project.db.commit()
-    _claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["cleaned"],
-        action_kind="test.seed",
-        run_id=int(cursor.lastrowid),
-    )
+    with write_transaction(project.db):
+        _claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["cleaned"],
+            action_kind="test.seed",
+            run_id=int(cursor.lastrowid),
+        )
     assert conflict is None
 
     response = ActionPreviewRunService(workspace).start_preview(
