@@ -521,7 +521,7 @@ def test_hidden_source_is_omitted_before_returning_its_label(source):
 def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     source, monkeypatch
 ):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
@@ -564,7 +564,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
 
 
 def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,

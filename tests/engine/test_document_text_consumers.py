@@ -7,7 +7,7 @@ from frisket.engine.executor.find_plan import FindOperation
 from frisket.engine.executor.map_find_source import resolve_find_sources
 from frisket.contracts.action import ActionError
 from frisket.engine.store.document_text import ensure_document_text_role
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -301,7 +301,7 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
     make_project, source_column, copied_grounding
 ):
     from frisket.actions.types import ActionRequest
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         list_row_citations,
         resolve_citation_viewer,
     )
@@ -494,7 +494,7 @@ def test_ask_requested_link_must_match_selected_text(make_project):
             project,
             cell,
             expected_version=read_source_text(project, cell)["version"],
-            evidence_link_id=alternative[3]["stable_id"],
+            citation_id=alternative[3]["stable_id"],
         )
         is None
     )
@@ -503,7 +503,7 @@ def test_ask_requested_link_must_match_selected_text(make_project):
             project,
             cell,
             expected_version=read_source_text(project, cell)["version"],
-            evidence_link_id="missing-link",
+            citation_id="missing-link",
         )
         is None
     )
@@ -511,11 +511,11 @@ def test_ask_requested_link_must_match_selected_text(make_project):
         project,
         cell,
         expected_version=read_source_text(project, cell)["version"],
-        evidence_link_id=chosen[3]["stable_id"],
+        citation_id=chosen[3]["stable_id"],
     )
     assert selected is not None
     assert selected["cell"] == (cell[0], cell[1], text)
-    assert selected["evidence_link_id"] == chosen[3]["stable_id"]
+    assert selected["citation_id"] == chosen[3]["stable_id"]
 
 
 def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
@@ -543,7 +543,7 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
         project, cell, expected_version=read_source_text(project, cell)["version"]
     )
     assert selected is not None
-    assert selected["evidence_link_id"] is None
+    assert selected["citation_id"] is None
     store = ProjectQAStore(project)
     thread = store.create_thread(title="Ask")
     turn = store.submit_turn(

@@ -200,7 +200,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.engine.executor.temporal_transcripts import (
         resolve_timestamped_transcript,
     )
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     )
 
@@ -238,7 +238,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         assert resolved.language == "en"
         link_metadata = json.loads(
             project.db.execute(
-                "SELECT metadata FROM evidence_links WHERE id=?",
+                "SELECT metadata FROM citations WHERE id=?",
                 (resolved.evidence_link_id,),
             ).fetchone()["metadata"]
         )

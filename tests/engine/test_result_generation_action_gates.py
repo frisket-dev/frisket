@@ -63,7 +63,7 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
         create_base_cell_producer,
         initialize_base_cells,
     )
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.prepared_content import (
         PreparedContentStore,
         PreparedPageDraft,

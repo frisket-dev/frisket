@@ -11,7 +11,7 @@ from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,

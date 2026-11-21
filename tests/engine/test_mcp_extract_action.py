@@ -418,7 +418,7 @@ def test_rows_are_serial_and_isolated_while_sessions_are_run_shared(
         assert values["risk"] == {row_ids[0]: 7, row_ids[1]: None}
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM evidence_links WHERE run_id=?", (result.run_id,)
+                "SELECT COUNT(*) FROM citations WHERE run_id=?", (result.run_id,)
             ).fetchone()[0]
             == 0
         )

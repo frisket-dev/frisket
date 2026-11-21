@@ -168,12 +168,12 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
             "can_edit": True,
         }
     ]
-    assert {item["column_name"] for item in bundle["evidence"]} == {
+    assert {item["column_name"] for item in bundle["supporting_columns"]} == {
         "beat_confidence",
         "beat_justification",
     }
-    assert all(item["role"] == "evidence" for item in bundle["evidence"])
-    assert all(item["chore"] is False for item in bundle["evidence"])
+    assert all(item["role"] == "supporting" for item in bundle["supporting_columns"])
+    assert all(item["chore"] is False for item in bundle["supporting_columns"])
     assert {item["column_name"] for item in bundle["items"]} == {
         "beat",
         "beat_confidence",

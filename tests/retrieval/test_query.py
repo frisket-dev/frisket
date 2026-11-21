@@ -10,7 +10,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,

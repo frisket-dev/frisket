@@ -17,7 +17,7 @@ from frisket.ops.ner_local import LocalNerExtractor
 from typed_model_fixtures import model_request, render_ner
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     _text_hash,
     list_cell_citations,
     resolve_citation_viewer,
@@ -134,12 +134,12 @@ def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
         assert spans and all(sp["text_surface_id"] == s["id"] for sp in spans)
         # the link is an annotation layer
         link = project.db.execute(
-            "SELECT layer_family FROM evidence_links WHERE layer_family IS NOT NULL"
+            "SELECT layer_family FROM citations WHERE layer_family IS NOT NULL"
         ).fetchone()
         assert link["layer_family"] == "entities"
         roles = {
             r["span_role"]
-            for r in project.db.execute("SELECT span_role FROM evidence_link_spans")
+            for r in project.db.execute("SELECT span_role FROM citation_spans")
         }
         assert roles == {"annotation"}
         evidence = list_cell_citations(
@@ -273,7 +273,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
             (row_ids[2], None),
         ]
         link = project.db.execute(
-            "SELECT subject_ref_json FROM evidence_links WHERE row_id=? "
+            "SELECT subject_ref_json FROM citations WHERE row_id=? "
             "AND column_id=? AND status='active'",
             (row_ids[0], output_column_id),
         ).fetchone()
@@ -375,7 +375,7 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(
         ).fetchone()[0]
         == 0
     )
-    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 0
     monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
     before = tuple(project.db.iterdump())
@@ -525,7 +525,7 @@ def test_offset_mismatch_entity_is_not_positioned_but_kept(tmp_path, monkeypatch
             r["quote"]: r["span_role"]
             for r in project.db.execute(
                 "SELECT sp.quote, els.span_role FROM source_spans sp "
-                "JOIN evidence_link_spans els ON els.span_id = sp.id"
+                "JOIN citation_spans els ON els.span_id = sp.id"
             )
         }
         assert roles == {"Ada Lovelace": "annotation", "Babbage": "support"}
@@ -578,7 +578,7 @@ def test_no_positionable_entities_writes_spans_without_a_layer(tmp_path, monkeyp
     try:
         assert len(_spans(project)) == 1
         assert _surfaces(project) == []
-        link = project.db.execute("SELECT layer_family FROM evidence_links").fetchone()
+        link = project.db.execute("SELECT layer_family FROM citations").fetchone()
         assert link["layer_family"] is None
     finally:
         project.close()

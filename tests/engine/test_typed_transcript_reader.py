@@ -267,7 +267,7 @@ def _counts(project):
             "ops",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
             "artifact_timeline_segments",
         )
     }

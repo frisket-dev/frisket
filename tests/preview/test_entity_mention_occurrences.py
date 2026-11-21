@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     _text_hash,
     record_citation,
     record_source_artifact,

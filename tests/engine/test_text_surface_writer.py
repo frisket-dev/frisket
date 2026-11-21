@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     _text_hash,
     record_citation,
     record_source_artifact,
@@ -475,11 +475,11 @@ class TestSpanAndLinkThreading:
                 layer_family="entities",
             )
             row = p.db.execute(
-                "SELECT layer_family FROM evidence_links WHERE id=?", (link["id"],)
+                "SELECT layer_family FROM citations WHERE id=?", (link["id"],)
             ).fetchone()
             assert row["layer_family"] == "entities"
             js = p.db.execute(
-                "SELECT span_role FROM evidence_link_spans WHERE link_id=?",
+                "SELECT span_role FROM citation_spans WHERE citation_id=?",
                 (link["id"],),
             ).fetchone()
             assert js["span_role"] == "annotation"
@@ -529,7 +529,7 @@ class TestSpanAndLinkThreading:
                 spans=[{"span_id": span["id"], "rank": 0}],
             )
             row = p.db.execute(
-                "SELECT layer_family FROM evidence_links WHERE id=?", (link["id"],)
+                "SELECT layer_family FROM citations WHERE id=?", (link["id"],)
             ).fetchone()
             assert row["layer_family"] is None
         finally:

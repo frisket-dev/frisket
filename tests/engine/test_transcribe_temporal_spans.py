@@ -11,7 +11,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.sdk.ops import transcribe_engines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-transcribe-temporal-spans"
@@ -41,8 +41,8 @@ def _counts(project: Project) -> dict[str, int]:
         for table in (
             "source_artifacts",
             "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
+            "citations",
+            "citation_spans",
         )
     }
 
@@ -338,8 +338,8 @@ def test_evidence_counts_match_multi_row_expectations(
         # 3 rows write evidence (A, B, D); C (zero segments) writes nothing.
         assert after["source_artifacts"] == before["source_artifacts"] + 3
         assert after["source_spans"] == before["source_spans"] + 4  # A:2 + B:1 + D:1
-        assert after["evidence_links"] == before["evidence_links"] + 3
-        assert after["evidence_link_spans"] == before["evidence_link_spans"] + 4
+        assert after["citations"] == before["citations"] + 3
+        assert after["citation_spans"] == before["citation_spans"] + 4
     finally:
         project.close()
 

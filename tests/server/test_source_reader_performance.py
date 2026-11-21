@@ -15,7 +15,7 @@ from frisket.engine.store.current_value_windows import (
     current_text_metadata,
     read_current_value_window,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,

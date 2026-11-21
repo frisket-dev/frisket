@@ -19,7 +19,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.ops.ner_citations import _NER_CITATION_CAPTURE_KEY
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
@@ -366,9 +366,7 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
             project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0]
             == 0
         )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
-        )
+        assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 0
         monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
         before = tuple(project.db.iterdump())
         replay = run_action_with_confirmation(

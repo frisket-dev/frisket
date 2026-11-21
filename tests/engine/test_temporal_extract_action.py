@@ -29,7 +29,7 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
@@ -1370,7 +1370,7 @@ def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM evidence_links WHERE receipt_id=?",
+            "SELECT COUNT(*) FROM citations WHERE receipt_id=?",
             (result.receipt_id,),
         ).fetchone()[0]
         == 0
@@ -1623,7 +1623,7 @@ def test_extract_batch_projects_every_compatible_current_transcript(
     ]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM evidence_links "
+            "SELECT COUNT(*) FROM citations "
             "WHERE link_role='temporal_transcript_projection' AND receipt_id=?",
             (result.receipt_id,),
         ).fetchone()[0]

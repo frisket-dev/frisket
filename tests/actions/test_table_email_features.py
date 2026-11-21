@@ -85,7 +85,7 @@ def _assert_no_publication(project):
         "blobs",
         "source_artifacts",
         "source_spans",
-        "evidence_links",
+        "citations",
     ):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 

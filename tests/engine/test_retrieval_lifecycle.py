@@ -9,7 +9,7 @@ from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,

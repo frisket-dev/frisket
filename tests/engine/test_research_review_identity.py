@@ -44,13 +44,16 @@ def test_research_review_roles_use_authored_outputs_and_selected_run(
     bundle = review_bundle_page(project, run_id=run_id)["bundles"][0]
     assert [(item["output_key"], item["role"]) for item in bundle["items"]] == [
         ("answer", "field"),
-        ("sources", "evidence"),
+        ("sources", "supporting"),
     ]
-    assert bundle["evidence"][0]["value"] == f"{run_id}:{row_ids[0]}:{sources}"
-    assert bundle["evidence"][0]["chore"] is False
-    assert bundle["evidence"][0]["can_edit"] is False
-    assert ReviewBundleItem.model_validate(bundle["evidence"][0]).output_key == (
-        "sources"
+    assert (
+        bundle["supporting_columns"][0]["value"] == f"{run_id}:{row_ids[0]}:{sources}"
+    )
+    assert bundle["supporting_columns"][0]["chore"] is False
+    assert bundle["supporting_columns"][0]["can_edit"] is False
+    assert (
+        ReviewBundleItem.model_validate(bundle["supporting_columns"][0]).output_key
+        == "sources"
     )
 
     # Historical runs whose renamed sources were frozen as primary must
@@ -62,7 +65,7 @@ def test_research_review_roles_use_authored_outputs_and_selected_run(
     rebuild_run_review_stats(project.db, run_id)
     historical = review_bundle_page(project, run_id=run_id)["bundles"][0]
     assert len(historical["fields"]) == 2
-    assert historical["evidence"] == []
+    assert historical["supporting_columns"] == []
     source_item = next(
         item for item in historical["items"] if item["output_key"] == "sources"
     )

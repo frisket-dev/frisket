@@ -282,9 +282,7 @@ def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(make_proj
             ref["artifact_id"] for ref in docs
         ]
         assert [ref["row_id"] for ref in images] == [row_ids[1], row_ids[0]]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 2
-        )
+        assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 2
 
 
 def test_native_pdf_page_reference_refuses_duplicate_staged_bytes(make_project):

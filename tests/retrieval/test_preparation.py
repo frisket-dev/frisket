@@ -13,7 +13,7 @@ from frisket.engine.pdf_render import PdfRenderError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
 from frisket.engine.store.transactions import write_transaction
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,

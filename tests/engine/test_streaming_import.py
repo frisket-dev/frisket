@@ -278,7 +278,7 @@ def test_cancelled_session_removal_retains_saved_data_for_restore(
         ],
     )
     project.db.execute(
-        "INSERT INTO evidence_links "
+        "INSERT INTO citations "
         "(stable_id,subject_kind,sheet_id,op_id,receipt_id) VALUES (?,?,?,?,?)",
         (
             "evidence:session",
@@ -320,7 +320,7 @@ def test_cancelled_session_removal_retains_saved_data_for_restore(
     assert (
         project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 130
     )
-    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 1
     session = ImportSessionStore(project).get("import:one")
     assert session is not None and session.state == "removed"
 

@@ -155,7 +155,7 @@ EXPLICIT_CURSORS: Mapping[str, int] = {
     "src/frisket/engine/executor/temporal_extract_publication.py": 1,
     "src/frisket/engine/store/cells.py": 2,
     "src/frisket/engine/store/derived_updates.py": 1,
-    "src/frisket/engine/store/evidence.py": 1,
+    "src/frisket/engine/store/citations.py": 1,
     "src/frisket/features/graph/sheet_graph.py": 1,
     "src/frisket/server/feed_enqueue.py": 1,
     # The job queue's own database, not a project connection.

@@ -20,7 +20,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_artifact_timeline,
     resolve_timeline,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,

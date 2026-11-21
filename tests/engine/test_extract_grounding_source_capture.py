@@ -218,7 +218,7 @@ def _assert_captured_artifact(
     assert "application/pdf" not in prompt
     artifact = project.db.execute(
         "SELECT a.blob_hash,a.source_column_id,a.source_sheet_id,a.source_row_id,s.page_start "
-        "FROM evidence_links l JOIN evidence_link_spans ls ON ls.link_id=l.id "
+        "FROM citations l JOIN citation_spans ls ON ls.citation_id=l.id "
         "JOIN source_spans s ON s.id=ls.span_id JOIN source_artifacts a ON a.id=s.artifact_id "
         "WHERE l.run_id=?",
         (result.run_id,),
@@ -401,8 +401,8 @@ def test_grounding_only_transcript_never_augments_model_prompt(
         # segment IDs were never shown to the model. An empty claim cannot
         # turn it into supporting evidence for the selected title.
         artifact = project.db.execute(
-            "SELECT a.blob_hash,s.start_ms,s.end_ms FROM evidence_links l "
-            "JOIN evidence_link_spans ls ON ls.link_id=l.id "
+            "SELECT a.blob_hash,s.start_ms,s.end_ms FROM citations l "
+            "JOIN citation_spans ls ON ls.citation_id=l.id "
             "JOIN source_spans s ON s.id=ls.span_id "
             "JOIN source_artifacts a ON a.id=s.artifact_id WHERE l.run_id=?",
             (result.run_id,),

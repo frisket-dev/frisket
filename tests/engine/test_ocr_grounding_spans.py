@@ -14,7 +14,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from frisket.engine.store.grounding import normalize_bbox
 
 from helpers import stub_rapidocr_run_scope
@@ -147,8 +147,8 @@ def _counts(project: Project) -> dict[str, int]:
         for table in (
             "source_artifacts",
             "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
+            "citations",
+            "citation_spans",
         )
     }
 
@@ -373,9 +373,9 @@ def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
         ] == expected_addressed
 
         all_spans = project.db.execute(
-            "SELECT sp.span_kind, sp.quote, sp.snippet FROM evidence_link_spans els "
+            "SELECT sp.span_kind, sp.quote, sp.snippet FROM citation_spans els "
             "JOIN source_spans sp ON sp.id=els.span_id "
-            "WHERE els.link_id=? ORDER BY els.rank, sp.id",
+            "WHERE els.citation_id=? ORDER BY els.rank, sp.id",
             (resolved[0].evidence_link_id,),
         ).fetchall()
         assert len(all_spans) == len(expected_addressed) + 1

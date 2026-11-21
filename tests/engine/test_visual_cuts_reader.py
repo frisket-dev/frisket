@@ -41,7 +41,7 @@ from frisket.engine.store.artifact_timeline import (
     validate_timeline_anchor,
     write_rate1_timeline_segment,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.execution.provider import ExecutionLimitExceeded, ExecutionLimits
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority

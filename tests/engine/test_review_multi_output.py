@@ -86,13 +86,13 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
     assert len(bundles) == 2
     first = bundles[0]
     assert {field["column_name"] for field in first["fields"]} == {"beat", "tone"}
-    assert {item["column_name"] for item in first["evidence"]} == {
+    assert {item["column_name"] for item in first["supporting_columns"]} == {
         "beat_justification",
         "tone_justification",
         "beat_confidence",
     }
     assert all(field["chore"] for field in first["fields"])
-    assert not any(item["chore"] for item in first["evidence"])
+    assert not any(item["chore"] for item in first["supporting_columns"])
     assert first["source"]["story"]
     assert first["sources"] == [
         {
@@ -220,4 +220,4 @@ def test_review_bundles_endpoint_returns_row_run_bundles(tmp_path):
         "beat",
         "tone",
     }
-    assert not any(item["chore"] for item in bundles[0]["evidence"])
+    assert not any(item["chore"] for item in bundles[0]["supporting_columns"])

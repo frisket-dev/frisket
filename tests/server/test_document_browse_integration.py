@@ -4,7 +4,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     _text_hash,
     record_citation,
     record_source_artifact,

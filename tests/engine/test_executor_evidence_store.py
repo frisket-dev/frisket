@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 
-from frisket.engine.store.evidence import (
-    EVIDENCE_VIEWER_SCHEMA_VERSION,
+from frisket.engine.store.citations import (
+    CITATION_VIEWER_SCHEMA_VERSION,
     list_cell_citations,
     mark_citations_stale_for_cell_refs,
     record_citation,
@@ -86,12 +86,11 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         column_id=output_col,
         project_id="project-evidence",
     )
-    assert listed["schema_version"] == "frisket.cell_evidence.v1"
+    assert listed["schema_version"] == "frisket.cell_citations.v1"
     assert listed["stale_count"] == 0
     assert listed["links"][0]["stable_id"] == link["stable_id"]
     assert (
-        "/api/projects/project-evidence/evidence/links/"
-        in listed["links"][0]["viewer_href"]
+        "/api/projects/project-evidence/citations/" in listed["links"][0]["viewer_href"]
     )
 
     viewer = resolve_citation_viewer(
@@ -99,7 +98,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         link["stable_id"],
         project_id="project-evidence",
     )
-    assert viewer["schema_version"] == EVIDENCE_VIEWER_SCHEMA_VERSION
+    assert viewer["schema_version"] == CITATION_VIEWER_SCHEMA_VERSION
     assert viewer["artifacts"][0]["filename"] == "contract.pdf"
     assert viewer["artifacts"][0]["spans"][0]["quote"] == "$1,250,000"
 

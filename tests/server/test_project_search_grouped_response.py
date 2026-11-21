@@ -57,7 +57,7 @@ def _db() -> sqlite3.Connection:
             quote TEXT,
             snippet TEXT
         );
-        CREATE TABLE evidence_links(
+        CREATE TABLE citations(
             id INTEGER PRIMARY KEY,
             stable_id TEXT,
             sheet_id INTEGER,
@@ -65,8 +65,8 @@ def _db() -> sqlite3.Connection:
             column_id INTEGER,
             status TEXT
         );
-        CREATE TABLE evidence_link_spans(
-            link_id INTEGER,
+        CREATE TABLE citation_spans(
+            citation_id INTEGER,
             span_id INTEGER,
             rank INTEGER
         );
@@ -186,8 +186,8 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
         INSERT INTO source_artifacts VALUES (1, 'artifact-1', 1, 2, 3, 'harbor.pdf');
         INSERT INTO source_spans(id,stable_id,artifact_id)
         VALUES (1, 'span-1', 1);
-        INSERT INTO evidence_links VALUES (1, 'link-1', 1, 2, 3, 'active');
-        INSERT INTO evidence_link_spans VALUES (1, 1, 0);
+        INSERT INTO citations VALUES (1, 'link-1', 1, 2, 3, 'active');
+        INSERT INTO citation_spans VALUES (1, 1, 0);
         """
     )
     project = _Project(db)
@@ -252,8 +252,8 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
     ).coverage.rerank_unavailable_reason == ("Rerank is turned off on this server.")
     assert payload["groups"][0]["additional_count"] == 2
     assert payload["groups"][0]["primary"]["navigation"] == {
-        "kind": "evidence",
-        "evidence_link_id": "link-1",
+        "kind": "citation",
+        "citation_id": "link-1",
         "span_id": "span-1",
     }
     assert payload["groups"][0]["supporting"][0]["navigation"] == {
@@ -281,10 +281,10 @@ def test_evidence_navigation_selects_span_for_located_page(monkeypatch) -> None:
             (1, 'page-1-span', 1, 1, 1, 'Harbor'),
             (2, 'page-2-first-span', 1, 2, 2, 'Repair'),
             (3, 'page-2-match-span', 1, 2, 2, 'bluewharf');
-        INSERT INTO evidence_links VALUES (1, 'link-1', 1, 2, 3, 'active');
-        INSERT INTO evidence_link_spans VALUES (1, 1, 0);
-        INSERT INTO evidence_link_spans VALUES (1, 2, 1);
-        INSERT INTO evidence_link_spans VALUES (1, 3, 2);
+        INSERT INTO citations VALUES (1, 'link-1', 1, 2, 3, 'active');
+        INSERT INTO citation_spans VALUES (1, 1, 0);
+        INSERT INTO citation_spans VALUES (1, 2, 1);
+        INSERT INTO citation_spans VALUES (1, 3, 2);
         """
     )
     project = _Project(db)
@@ -323,8 +323,8 @@ def test_evidence_navigation_selects_span_for_located_page(monkeypatch) -> None:
     )
 
     assert payload["groups"][0]["primary"]["navigation"] == {
-        "kind": "evidence",
-        "evidence_link_id": "link-1",
+        "kind": "citation",
+        "citation_id": "link-1",
         "span_id": "page-2-match-span",
     }
 

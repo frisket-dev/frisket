@@ -13,7 +13,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,

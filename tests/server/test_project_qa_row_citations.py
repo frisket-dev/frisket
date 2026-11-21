@@ -6,7 +6,7 @@ import frisket.retrieval.service as retrieval_service
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -190,7 +190,7 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
     tools = ProjectQATools(project, turn, store)
 
     hits = tools.search_cells("turquoise lighthouse", int(seeded["sheet"]))["hits"]
-    hit = next(item for item in hits if item["navigation"]["kind"] == "evidence")
+    hit = next(item for item in hits if item["navigation"]["kind"] == "citation")
     assert hit["navigation"]["span_id"] == seeded["phrase_span"]["stable_id"]
     assert hit["navigation"]["span_id"] != seeded["heading_span"]["stable_id"]
     opened = tools.open_source(hit["citation_id"])
@@ -214,7 +214,7 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
     assert whole_cell["source_kind"] == "cell"
     assert (
         not {
-            "evidence_link_id",
+            "citation_id",
             "artifact_id",
             "span_id",
             "navigation",
@@ -239,11 +239,11 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
     resolved = resolve_citation(project, turn["thread_id"], hit["citation_id"])
     assert resolved["status"] == "current"
     assert resolved["target"] == {
-        "kind": "evidence",
+        "kind": "cell_citation",
         "sheet_id": seeded["sheet"],
         "row_id": seeded["row"],
         "column_id": seeded["text_column"],
-        "evidence_link_id": seeded["link"]["stable_id"],
+        "citation_id": seeded["link"]["stable_id"],
         "artifact_id": seeded["artifact"]["stable_id"],
         "span_id": hit["navigation"]["span_id"],
     }
@@ -479,7 +479,7 @@ def test_ask_keeps_all_search_phrase_highlights(make_project):
     hit = next(
         hit
         for hit in tools.search_cells("China trade", sheet)["hits"]
-        if hit["navigation"]["kind"] == "evidence"
+        if hit["navigation"]["kind"] == "citation"
     )
     expected = hit["navigation"]["span_ids"]
     assert len(expected) == 2

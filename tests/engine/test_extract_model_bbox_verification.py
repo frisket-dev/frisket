@@ -13,7 +13,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.executor.extract_citations import _source_spans
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 
 from helpers import stub_rapidocr_run_scope
 from frisket.engine.store.transactions import write_transaction

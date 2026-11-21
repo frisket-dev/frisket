@@ -58,7 +58,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
     def fail_evidence(self, ref, **kwargs):
         if ref.get("kind") == "map_extract_grounding_links":
             grounding_link_counts.append(
-                self.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
+                self.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0]
             )
             raise failure("private tenant value must not escape")
         return record(self, ref, **kwargs)
@@ -98,8 +98,8 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
             "cell_result_heads",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
+            "citations",
+            "citation_spans",
         ):
             assert (
                 project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
@@ -254,8 +254,6 @@ def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
             project.db.execute("SELECT state FROM effect_checkpoints").fetchone()[0]
             == "returned"
         )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
-        )
+        assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 0
     finally:
         project.close()

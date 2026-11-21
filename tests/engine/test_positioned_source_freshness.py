@@ -7,7 +7,7 @@ import pytest
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.document_extraction_read import load_positioned_document
 from frisket.engine.store.consumed_sources import positioned_source_revision
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
     merge_artifact_metadata,

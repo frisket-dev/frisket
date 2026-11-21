@@ -10,7 +10,7 @@ import pytest
 from frisket.ai.llm import ModelRouter, LLMResponse
 from frisket.engine.executor import run_action_spec
 from frisket.engine.runner.review import review_queue, review_bundle_page
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
     record_citation,
@@ -157,7 +157,7 @@ def test_reapply_preserves_citation_span_and_saved_result_ref_and_undoes_new_col
     assert len(citations["links"]) == 1
     assert (
         project.db.execute(
-            "SELECT COUNT(DISTINCT span_id) FROM evidence_link_spans"
+            "SELECT COUNT(DISTINCT span_id) FROM citation_spans"
         ).fetchone()[0]
         == 1
     )

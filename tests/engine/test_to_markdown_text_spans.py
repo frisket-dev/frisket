@@ -10,7 +10,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.executor.document_convert import _BoundDocumentConverter
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-to-markdown-text-spans"
@@ -45,8 +45,8 @@ def _counts(project: Project) -> dict[str, int]:
         for table in (
             "source_artifacts",
             "source_spans",
-            "evidence_links",
-            "evidence_link_spans",
+            "citations",
+            "citation_spans",
         )
     }
 
@@ -323,8 +323,8 @@ def test_evidence_counts_match_multi_row_expectations(
         # 1 row (A) writes evidence; B (empty markdown) writes nothing.
         assert after["source_artifacts"] == before["source_artifacts"] + 1
         assert after["source_spans"] == before["source_spans"] + 1
-        assert after["evidence_links"] == before["evidence_links"] + 1
-        assert after["evidence_link_spans"] == before["evidence_link_spans"] + 1
+        assert after["citations"] == before["citations"] + 1
+        assert after["citation_spans"] == before["citation_spans"] + 1
     finally:
         project.close()
 

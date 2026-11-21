@@ -13,7 +13,7 @@ from frisket.ops.entities import (
     canonicalize_entity_type,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-ner-spans"

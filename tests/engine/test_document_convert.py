@@ -710,7 +710,7 @@ def test_reads_recovered_from_durable_batch(project, monkeypatch):
     assert reads[row_id]["engine"] == "markitdown"
     assert _reads(project, result)[0]["document_read"] == reads[row_id]["document_read"]
     link = project.db.execute(
-        "SELECT COUNT(*) FROM evidence_links WHERE column_id=? "
+        "SELECT COUNT(*) FROM citations WHERE column_id=? "
         "AND link_role='source_provenance'",
         (md_col,),
     ).fetchone()[0]
@@ -729,7 +729,7 @@ def test_blank_output_writes_no_document_link(project, monkeypatch):
     assert project.get_values(sheet, md_col)[row_id] == ""
     assert _reads(project, result)[0]["produced_markdown"] is False
     link = project.db.execute(
-        "SELECT COUNT(*) FROM evidence_links WHERE column_id=?", (md_col,)
+        "SELECT COUNT(*) FROM citations WHERE column_id=?", (md_col,)
     ).fetchone()[0]
     assert link == 0
 
@@ -748,7 +748,7 @@ def test_errored_row_writes_no_document_link(project, monkeypatch):
     assert result.status == "failed", result.errors
     md_col = next(c["id"] for c in project.columns(sheet) if c["name"] == "converted")
     link = project.db.execute(
-        "SELECT COUNT(*) FROM evidence_links WHERE column_id=?", (md_col,)
+        "SELECT COUNT(*) FROM citations WHERE column_id=?", (md_col,)
     ).fetchone()[0]
     assert link == 0
 

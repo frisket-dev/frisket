@@ -10,7 +10,7 @@ from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.prepared_content import (

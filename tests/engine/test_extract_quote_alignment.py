@@ -17,7 +17,7 @@ from frisket.engine.executor.extract_citations import (
     _source_spans,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     resolve_citation_viewer,

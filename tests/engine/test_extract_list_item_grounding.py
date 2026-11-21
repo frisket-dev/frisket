@@ -16,7 +16,7 @@ from PIL import Image
 from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.transcript_doubles import fake_faster_whisper
 from tests.engine.extract_typed_chain_helpers import typed_extract_request

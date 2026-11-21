@@ -11,7 +11,7 @@ from frisket.actions.document_extraction_types import ExtractionTemplate
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.document_extraction_read import load_positioned_document
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
     list_cell_citations,
@@ -343,8 +343,8 @@ def test_page_scoped_pdf_geometry_and_run_only_read_selected_page(tmp_path):
     ) == ["SECOND-PAGE"]
     assert "FIRST-PAGE" not in str(result.model_dump(mode="json"))
     citation = project.db.execute(
-        "SELECT sp.page_start,sa.page_count,sa.metadata FROM evidence_links el "
-        "JOIN evidence_link_spans els ON els.link_id=el.id "
+        "SELECT sp.page_start,sa.page_count,sa.metadata FROM citations el "
+        "JOIN citation_spans els ON els.citation_id=el.id "
         "JOIN source_spans sp ON sp.id=els.span_id "
         "JOIN source_artifacts sa ON sa.id=sp.artifact_id "
         "WHERE el.sheet_id=? AND el.column_id=?",
@@ -1569,8 +1569,8 @@ def test_multiregion_publication_does_not_repeat_whole_value_as_page_quote(
     ) == ["first\nsecond"]
     spans = project.db.execute(
         "SELECT sp.page_start,sp.quote FROM source_spans sp "
-        "JOIN evidence_link_spans els ON els.span_id=sp.id "
-        "JOIN evidence_links el ON el.id=els.link_id "
+        "JOIN citation_spans els ON els.span_id=sp.id "
+        "JOIN citations el ON el.id=els.citation_id "
         "WHERE el.sheet_id=? AND el.column_id=? ORDER BY els.rank",
         (output["sheet_id"], output["columns"]["Name"]),
     ).fetchall()
