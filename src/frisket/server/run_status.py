@@ -758,7 +758,7 @@ def reconcile_project_run_status(
                     receipt_only=True,
                 )
 
-    if row["status"] != "running":
+    if row is None or row["status"] != "running":
         active_runs.pop(key, None)
         run_jobs.pop(key, None)
         progress = None

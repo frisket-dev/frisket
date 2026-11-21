@@ -143,6 +143,8 @@ class ImportXlsxUploadService:
         ) or ExecutorDeps()
 
     def _scan(self, upload: AdmittedUpload) -> XlsxFileScan:
+        if upload.source is None:
+            raise ValueError("xlsx upload has no source stream")
         return scan_xlsx_stream(
             upload.source, logical_path=upload.filename or "imported.xlsx"
         )
