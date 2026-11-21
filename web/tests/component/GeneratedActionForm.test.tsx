@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry, RunEstimate } from '../../src/api/types';
+import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry, JsonValue, RunEstimate } from '../../src/api/types';
 import { isGeneratedActionCatalogEntry } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { ActionPanel } from '../../src/components/ActionPanel';
@@ -605,7 +605,7 @@ describe('GeneratedActionForm', () => {
     expect(onExecute.mock.calls.at(-1)![0].output_names).toEqual({ page: 'page' });
   });
 
-  it.each([
+  it.each<Array<{ label: string; params: Record<string, JsonValue> }>[number]>([
     { label: 'omitted optional defaults', params: { caption: 'Rows' } },
     { label: 'explicit null, false and zero', params: {
       caption: 'Rows', options: null, enabled: false, limit: 0,
@@ -641,7 +641,7 @@ describe('GeneratedActionForm', () => {
         type: 'object', required: ['caption'],
         properties: { caption: { type: 'string' } },
       },
-      row_scope_policy: { kind: 'project', selectors: [] },
+      row_scope_policy: { kind: 'project' },
       ui_hints: {
         form: 'generated', category: 'convert', semantic_controls: {},
         logical_outputs: [], dynamic_outputs: true,
@@ -688,7 +688,7 @@ describe('GeneratedActionForm', () => {
       input_schema: {
         type: 'object', properties: { options: { type: 'object', title: 'Options' } },
       },
-      row_scope_policy: { kind: 'project', selectors: [] },
+      row_scope_policy: { kind: 'project' },
       ui_hints: { form: 'generated', semantic_controls: {}, logical_outputs: [],
         dynamic_outputs: true, typed_action: { creates_sheet: true } },
     }) as GeneratedActionCatalogEntry;
@@ -1114,7 +1114,7 @@ describe('GeneratedActionForm', () => {
 
   it('uses authoritative dynamic outputs for regex naming and execution', async () => {
     const entry = generatedEntry('map.regex_extract');
-    const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }) => (
+    const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }): Promise<ActionParamResolution> => (
       params.pattern === '('
         ? {
             diagnostics: { pattern: { ok: false, message: 'unterminated subpattern' } },
@@ -1168,10 +1168,16 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
 
-  it.each([
+  it.each<Array<{
+    label: string;
+    kind: 'map.regex_extract' | 'map.columns_from_json';
+    params: Record<string, JsonValue>;
+    saved: Record<string, string>;
+    outputs: ActionParamResolution['logical_outputs'];
+  }>[number]>([
     {
       label: 'regex',
-      kind: 'map.regex_extract' as const,
+      kind: 'map.regex_extract',
       params: {
         input_columns: ['raw'], pattern: '(a)', all_matches: false,
         group: null, timeout_seconds: 0.05,
@@ -1181,7 +1187,7 @@ describe('GeneratedActionForm', () => {
     },
     {
       label: 'columns from JSON',
-      kind: 'map.columns_from_json' as const,
+      kind: 'map.columns_from_json',
       params: {
         source_column: 'payload', routes: [{ name: 'city', path: '$.city' }],
       },
@@ -1225,7 +1231,7 @@ describe('GeneratedActionForm', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it.each([{}, { extracted_1: 'first' }])('defaults omitted dynamic output renames in saved drafts: %j', async (saved) => {
+  it.each<Record<string, string>>([{}, { extracted_1: 'first' }])('defaults omitted dynamic output renames in saved drafts: %j', async (saved) => {
     const entry = generatedEntry('map.regex_extract');
     const onExecute = vi.fn();
     render(<GeneratedActionForm catalogEntry={entry} actionTemplate={generatedTemplate(entry)}
@@ -1245,7 +1251,7 @@ describe('GeneratedActionForm', () => {
     } }), 'run');
   });
 
-  it.each([{}, { rendered: 'chosen_name' }])('keeps saved static output targets despite existing-name collisions: %j', async (saved) => {
+  it.each<Record<string, string>>([{}, { rendered: 'chosen_name' }])('keeps saved static output targets despite existing-name collisions: %j', async (saved) => {
     const entry = generatedEntry('map.template');
     const onExecute = vi.fn();
     const target = saved.rendered ?? 'rendered';
@@ -1754,7 +1760,7 @@ describe('GeneratedActionForm', () => {
           output_names: { geo_point: 'location' },
         }}
         running={false}
-        resolveParams={vi.fn(async ({ params }) => ({
+        resolveParams={vi.fn(async ({ params }): Promise<ActionParamResolution> => ({
           diagnostics: params.latitude_column === params.longitude_column
             ? { __all__: { ok: false,
                 message: 'latitude and longitude must come from different columns' } }

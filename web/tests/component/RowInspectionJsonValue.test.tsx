@@ -36,7 +36,7 @@ describe('row inspection structured results', () => {
     },
   ])('retains source selection and link interaction for $label', ({ item, tableId, itemId, headers }) => {
     const select = vi.fn();
-    render(<JsonValue value={[item, { ...item, url: 'https://example.test/other' }]}
+    render(<JsonValue value={JSON.stringify([item, { ...item, url: 'https://example.test/other' }])}
       onSelectItem={select} selectableItemIndices={new Set([0])} />);
     const table = screen.getByTestId(tableId);
     expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(headers);
@@ -53,10 +53,10 @@ describe('row inspection structured results', () => {
   });
 
   it('keeps all content columns when entity semantics take precedence over transcript shape', () => {
-    render(<JsonValue semanticType="entity_mentions" value={[{
+    render(<JsonValue semanticType="entity_mentions" value={JSON.stringify([{
       text: 'Ada', type: 'PERSON', segment_index: 0, start: 0, end: 3, score: 1,
       a: 'A', b: 'B', c: 'C', d: 'D', e: 'E',
-    }]} />);
+    }])} />);
     const table = screen.getByTestId('entity-mini-table');
     expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
       'text', 'type', 'segment_index', 'a', 'b', 'c', 'd', 'e',
@@ -66,7 +66,7 @@ describe('row inspection structured results', () => {
 
   it('keeps nested records readable and source-selectable outside compact tables', () => {
     const select = vi.fn();
-    render(<JsonValue value={[{ title: 'Source', metadata: { page: 4, url: 'https://example.test/source' } }]}
+    render(<JsonValue value={JSON.stringify([{ title: 'Source', metadata: { page: 4, url: 'https://example.test/source' } }])}
       onSelectItem={select} selectableItemIndices={new Set([0])} />);
     expect(screen.queryByTestId('json-mini-table')).not.toBeInTheDocument();
     const item = screen.getByTestId('review-result-item');
