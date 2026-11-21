@@ -25,6 +25,7 @@ from frisket.engine.pdf_text import (
 from frisket.engine.store import Project
 from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.import_blobs import (
     ImportBlob,
     ImportBlobCell,
@@ -530,12 +531,12 @@ def register_pdf_split_handler(
                     column["name"]: int(column["id"])
                     for column in project.columns(writer.sheet_id, include_hidden=True)
                 }
-                ensure_document_text_role(
-                    project,
-                    source_column_id=columns[plan["roles"]["media"]],
-                    text_column_id=columns[plan["roles"]["text"]],
-                    commit=True,
-                )
+                with write_transaction(project.db, what="document text role"):
+                    ensure_document_text_role(
+                        project,
+                        source_column_id=columns[plan["roles"]["media"]],
+                        text_column_id=columns[plan["roles"]["text"]],
+                    )
                 cursor = session.cursor
                 stopped_remaining = False
                 for ordinal, source in enumerate(plan["sources"]):

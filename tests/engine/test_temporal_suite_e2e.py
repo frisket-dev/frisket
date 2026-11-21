@@ -148,12 +148,13 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         "timestamped_transcript",
         ai_generated=True,
     )
-    blob_hash = project.add_blob_from_path(
-        source_path,
-        filename="three-scenes.mp4",
-        mime="video/mp4",
-        metadata=owned_media_metadata_document(probe={"duration_seconds": 3.0}),
-    )
+    with write_transaction(project.db):
+        blob_hash = project.add_blob_from_path(
+            source_path,
+            filename="three-scenes.mp4",
+            mime="video/mp4",
+            metadata=owned_media_metadata_document(probe={"duration_seconds": 3.0}),
+        )
     transcript_text = "Red scene. Green scene. Blue scene."
     row_id = project.add_rows(
         sheet_id,

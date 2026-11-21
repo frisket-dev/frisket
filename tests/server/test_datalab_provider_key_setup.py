@@ -51,10 +51,11 @@ def setup_client(tmp_path, monkeypatch):
         )
     )
     pid = client.post("/api/projects", json={"name": "Datalab setup"}).json()["id"]
-    write_project_settings(
-        client.app.state.workspace.get(pid),
-        ProjectSettings(model_execution_routes={"datalab": "own"}),
-    )
+    with client.app.state.workspace.get(pid).transaction_scope():
+        write_project_settings(
+            client.app.state.workspace.get(pid),
+            ProjectSettings(model_execution_routes={"datalab": "own"}),
+        )
     yield client, pid, requests
     transport_client.close()
     client.close()
@@ -230,10 +231,11 @@ def test_datalab_setup_respects_permissions_and_network(tmp_path, monkeypatch):
         )
     )
     pid = client.post("/api/projects", json={"name": "Read only"}).json()["id"]
-    write_project_settings(
-        client.app.state.workspace.get(pid),
-        ProjectSettings(model_execution_routes={"datalab": "own"}),
-    )
+    with client.app.state.workspace.get(pid).transaction_scope():
+        write_project_settings(
+            client.app.state.workspace.get(pid),
+            ProjectSettings(model_execution_routes={"datalab": "own"}),
+        )
     choice = _choice(client, pid, "media.ocr")
     assert not any(scope["can_mutate"] for scope in choice["setup"]["scopes"])
     assert choice["can_run"] is False

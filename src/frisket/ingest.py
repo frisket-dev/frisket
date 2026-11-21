@@ -288,27 +288,30 @@ def ingest_rss(
     url = source["url"]
     if not url:
         error = "rss feed has no url"
-        FeedStore(project).record_feed_check(
-            source_id, new_rows=0, status="error", error=error
-        )
+        with write_transaction(project.db, what="feed check record"):
+            FeedStore(project).record_feed_check(
+                source_id, new_rows=0, status="error", error=error
+            )
         raise IngestError(error)
 
     # --- fetch (SSRF-guarded) + parse ---
     try:
         text = fetch(url)
     except Exception as exc:  # noqa: BLE001 - recorded against the run
-        FeedStore(project).record_feed_check(
-            source_id, new_rows=0, status="error", error=str(exc)
-        )
+        with write_transaction(project.db, what="feed check record"):
+            FeedStore(project).record_feed_check(
+                source_id, new_rows=0, status="error", error=str(exc)
+            )
         raise IngestError(str(exc)) from exc
 
     parsed = feedparser.parse(text)
     if getattr(parsed, "bozo", False):
         exc = getattr(parsed, "bozo_exception", None)
         error = f"rss parse error: {exc}" if exc else "rss parse error"
-        FeedStore(project).record_feed_check(
-            source_id, new_rows=0, status="error", error=error
-        )
+        with write_transaction(project.db, what="feed check record"):
+            FeedStore(project).record_feed_check(
+                source_id, new_rows=0, status="error", error=error
+            )
         raise IngestError(error)
 
     # --- target sheet: create on first ingest if unset/missing ---
@@ -350,9 +353,10 @@ def ingest_rss(
     total_new = len(new_records) + len(revision_records)
     if total_new == 0:
         # still log the poll so monitoring/forecast see it
-        run_id = FeedStore(project).record_feed_check(
-            source_id, new_rows=0, status="ok", cursor=json.dumps(seen)
-        )
+        with write_transaction(project.db, what="feed check record"):
+            run_id = FeedStore(project).record_feed_check(
+                source_id, new_rows=0, status="ok", cursor=json.dumps(seen)
+            )
         return {
             "new_rows": 0,
             "revisions": 0,
@@ -408,7 +412,6 @@ def ingest_rss(
             status="ok",
             cursor=json.dumps(seen),
             op_id=op_id,
-            commit=False,
         )
     enclosure_row_ids = [
         row_id

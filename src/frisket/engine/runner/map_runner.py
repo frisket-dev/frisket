@@ -415,6 +415,14 @@ class RunProgress:
         self.cancelled = True
 
 
+def _require_execution_composition(
+    composition: ExecutionComposition | None,
+) -> ExecutionComposition:
+    if composition is None:
+        raise RuntimeError("MapRunner execution_composition is not initialized")
+    return composition
+
+
 @dataclass
 class MapRunner:
     project: Project
@@ -484,12 +492,11 @@ class MapRunner:
     def estimate(self, spec: dict, *, program: ActionProgram | None = None) -> dict:
         """Pre-run estimate for the cost gate. Facade over validation.estimate_run
         (public — server/services/action_previews.py and workbench call this)."""
-        assert self.execution_composition is not None
         return validation.estimate_run(
             self.project,
             spec,
             program=program,
-            composition=self.execution_composition,
+            composition=_require_execution_composition(self.execution_composition),
             pricing_policy=self.pricing_policy,
             consent_coverage=self.consent_coverage,
         )
@@ -672,7 +679,7 @@ class MapRunner:
             confirmed=confirmed,
             resume_run_id=resume_run_id,
             pricing_policy=self.pricing_policy,
-            composition=self.execution_composition,
+            composition=_require_execution_composition(self.execution_composition),
             consent_coverage=self.consent_coverage,
             precomputed_output_fields=precomputed_output_fields,
             trusted_consent_authorizer=trusted_consent_authorizer,
@@ -721,12 +728,11 @@ class MapRunner:
             if resolved is not None
             else None
         )
-        attempt = self.authority.mint(
+        attempt = self.authority.mint_in_transaction(
             program=prepared.program,
             spec=spec,
             run_id=prepared.run_id,
             scope=self._attempt_scope(prepared, spec, output_column_ids),
-            commit=False,
             prepared_binding=prepared_binding,
         )
         if prepared.resolution_bound and not isinstance(
@@ -891,7 +897,7 @@ class MapRunner:
             nonlocal publication_cancelled
             writer_attempt_id = attempt.attempt_id if attempt is not None else None
 
-            evidence_writer = None
+            evidence_writer: Callable[[], None] | None = None
             consumed = {
                 int(item["row_id"]): item["__consumed_sources"]
                 for item in batch
@@ -899,7 +905,7 @@ class MapRunner:
             }
             if callable(write_result_evidence) or consumed:
 
-                def evidence_writer() -> None:
+                def _write_citations() -> None:
                     try:
                         from frisket.engine.store.consumed_sources import store_capture
 
@@ -931,6 +937,8 @@ class MapRunner:
                             run_id, writer_attempt_id
                         ) from exc
 
+                evidence_writer = _write_citations
+
             from frisket.engine.store.changes import ChangePublicationClosed
             from frisket.engine.store.result_generations import GenerationStateError
 
@@ -960,7 +968,7 @@ class MapRunner:
                 closed = isinstance(
                     exc, (ChangePublicationClosed, StaleAttemptWriter)
                 ) or isinstance(exc.__cause__, ChangePublicationClosed)
-                if not closed:
+                if not closed or writer_attempt_id is None:
                     raise
                 from frisket.engine.store.run_lifecycle import require_terminal_writer
 
@@ -1344,7 +1352,10 @@ class MapRunner:
                     cancelled()
                     cooperative_stop = progress.cancelled
                     await _cancel_and_join_owned_task(batch_task)
-                    if not cooperative_stop or asyncio.current_task().cancelling():
+                    current_task = asyncio.current_task()
+                    if not cooperative_stop or (
+                        current_task is not None and current_task.cancelling()
+                    ):
                         raise
                     # A handler observed the existing cooperative stop signal;
                     # return through the ordinary receipt-owning close below.
@@ -1979,7 +1990,11 @@ class MapRunner:
                         if fname in out_cols
                     ]
                     replay_response = _accounted_replay_response(results)
-                    if cloud_llm_coordinator is not None:
+                    if (
+                        cloud_llm_coordinator is not None
+                        and attempt is not None
+                        and attempt.routed is not None
+                    ):
                         returned_call_ids = {
                             str(call.get("id"))
                             for result in returned_batch
@@ -2031,7 +2046,8 @@ class MapRunner:
                     # publication or another dispatch (including synchronous
                     # test/local adapters that have not yielded yet).
                     await asyncio.sleep(0)
-                    if asyncio.current_task().cancelling():
+                    current_task = asyncio.current_task()
+                    if current_task is not None and current_task.cancelling():
                         raise asyncio.CancelledError
             async with lock:
                 returned_batch = [
@@ -2220,7 +2236,10 @@ class MapRunner:
                 cancelled()
                 cooperative_stop = progress.cancelled
                 progress.cancel()
-                if not cooperative_stop or asyncio.current_task().cancelling():
+                current_task = asyncio.current_task()
+                if not cooperative_stop or (
+                    current_task is not None and current_task.cancelling()
+                ):
                     outer_cancellation = exc
             except ActionProgramInvocationHalt as exc:
                 progress.halted_code, progress.halted_reason = (
@@ -2349,7 +2368,7 @@ class MapRunner:
             spec,
             program=program,
             pricing_policy=self.pricing_policy,
-            composition=self.execution_composition,
+            composition=_require_execution_composition(self.execution_composition),
             consent_coverage=self.consent_coverage,
             allow_empty_scope=allow_empty_scope,
             accounted=accounted,
@@ -2377,7 +2396,7 @@ class MapRunner:
                 spec,
                 program=program,
                 pricing_policy=self.pricing_policy,
-                composition=self.execution_composition,
+                composition=_require_execution_composition(self.execution_composition),
                 consent_coverage=getattr(self, "consent_coverage", None),
                 allow_empty_scope=allow_empty_scope,
             ).row_ids
@@ -2408,7 +2427,7 @@ class MapRunner:
             spec,
             program=program,
             pricing_policy=self.pricing_policy,
-            composition=self.execution_composition,
+            composition=_require_execution_composition(self.execution_composition),
             consent_coverage=self.consent_coverage,
             allow_empty_scope=allow_empty_scope,
             progress_cb=progress_cb,

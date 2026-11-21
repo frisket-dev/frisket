@@ -257,6 +257,6 @@ def save_expected_answer(service, pid, raw):
                 info["created_sheets"] = created_sheets
             if created_columns:
                 info["created_columns"] = created_columns
-            project.set_undo_info(owner, info, commit=False)
+            project.set_undo_info(owner, info)
 
     return links.link_payload(project, store.link(project, link["id"]))

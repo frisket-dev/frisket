@@ -13,6 +13,9 @@ import pytest
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionRequest
+from frisket.ai.embeddings import build_batch_result
+from frisket.engine.executor import ExecutorDeps, run_action_spec
+from frisket.engine.store import Project
 
 
 @pytest.fixture(autouse=True)
@@ -481,6 +484,91 @@ def _assert_prepared_model_request_confirmation_reaches_its_host_gate(
         project.close()
 
 
+def _assert_embedding_refresh_request_confirmation_reaches_its_host_gate(
+    tmp_path, registered
+):
+    calls: list[list[str]] = []
+
+    class _Gateway:
+        def embed(self, texts, *, provider, model, modality="text"):
+            calls.append(list(texts))
+            return build_batch_result(
+                vectors=[[0.1] * 1536 for _ in texts],
+                provider_id=provider,
+                provider_kind="platform_api",
+                requested_model=model,
+                actual_model_id=model,
+                modality=modality,
+            )
+
+    project = Project.create(tmp_path / "embedding-refresh-confirm.frisket")
+    try:
+        sheet_id = project.add_sheet("Stories")
+        col_id = project.add_column(sheet_id, "headline")
+        project.add_rows(sheet_id, [{"headline": "story one"}], {"headline": col_id})
+        created = run_action_spec(
+            project,
+            {
+                "action_id": "embedding.index_create",
+                "scope": {"kind": "project"},
+                "params": {
+                    "sheet_id": sheet_id,
+                    "source_columns": ["headline"],
+                    "modality": "text",
+                    "provider": "openai",
+                    "model": "text-embedding-3-small",
+                    "provider_policy": {"allow_remote": True},
+                },
+                "idempotency_key": "embedding-refresh-confirm-create",
+            },
+            project_id="p-emb-ref",
+        )
+        assert created.status == "completed", created.errors
+        index_id = created.outputs[0].ref["index_id"]
+        request = {
+            "action_id": registered.action_id,
+            "scope": {"kind": "project"},
+            "params": {"index_id": index_id, "mode": "full"},
+            "idempotency_key": "embedding-refresh-confirm-run",
+        }
+        before = tuple(project.db.iterdump())
+        challenge = run_action_spec(
+            project,
+            request,
+            project_id="p-emb-ref",
+            deps=ExecutorDeps(embedding_gateway=_Gateway()),
+        )
+        assert challenge.status == "needs_confirmation", challenge.errors
+        assert challenge.errors[0].code == "model_cost_requires_confirmation"
+        assert challenge.errors[0].field == "confirmation"
+        assert calls == []
+        assert tuple(project.db.iterdump()) == before
+        token = challenge.errors[0].details["promise_set_hash"]
+        assert isinstance(token, str) and token
+
+        wrong = run_action_spec(
+            project,
+            {**request, "confirmation": "wrong-token"},
+            project_id="p-emb-ref",
+            deps=ExecutorDeps(embedding_gateway=_Gateway()),
+        )
+        assert wrong.status == "needs_confirmation"
+        assert wrong.errors[0].details["promise_set_hash"] == token
+        assert calls == []
+        assert tuple(project.db.iterdump()) == before
+
+        confirmed = run_action_spec(
+            project,
+            {**request, "confirmation": token},
+            project_id="p-emb-ref",
+            deps=ExecutorDeps(embedding_gateway=_Gateway()),
+        )
+        assert confirmed.status == "completed", confirmed.errors
+        assert len(calls) == 1
+    finally:
+        project.close()
+
+
 def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
     tmp_path,
 ) -> None:
@@ -503,7 +591,12 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
     from frisket.actions.research_types import Researcher, SearchAnswerer
     from frisket.actions.find_types import FindScanner
     from frisket.actions.group_summary_types import GroupSummarizer
-    from frisket.actions.types import ActionRequest, RunBackfiller, SheetRefresher
+    from frisket.actions.types import (
+        ActionRequest,
+        IndexRefresher,
+        RunBackfiller,
+        SheetRefresher,
+    )
     from frisket.actions.cluster_types import ValueClusterer
     from frisket.actions.system import BoundTypedActionRequest
     from frisket.engine.executor.map_rows_action import typed_queued_map_spec
@@ -527,6 +620,7 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
                 ValueClusterer,
                 FindScanner,
                 GroupSummarizer,
+                IndexRefresher,
             ), registered.action_id
             errors = {error["code"] for error in catalog["errors"]}
             if terminal.capabilities == (SheetRefresher,):
@@ -549,6 +643,10 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
                 )
             elif terminal.capabilities == (RunBackfiller,):
                 _assert_backfill_request_confirmation_reaches_its_host_gate(
+                    tmp_path, registered
+                )
+            elif terminal.capabilities == (IndexRefresher,):
+                _assert_embedding_refresh_request_confirmation_reaches_its_host_gate(
                     tmp_path, registered
                 )
             else:

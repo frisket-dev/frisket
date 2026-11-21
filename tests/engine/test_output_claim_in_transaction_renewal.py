@@ -7,6 +7,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
@@ -42,14 +43,15 @@ def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
             run_id=run_id,
         )
     )
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["result"],
-        action_kind="map.python",
-        receipt_id=receipt_id,
-        run_id=run_id,
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["result"],
+            action_kind="map.python",
+            receipt_id=receipt_id,
+            run_id=run_id,
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == 1
     project.db.execute(

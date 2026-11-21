@@ -72,13 +72,14 @@ def _make_run(project) -> int:
         row_ids=row_ids,
     )
     claim_token = f"output-claim:route-observation:{run_id}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["transcript"],
-        action_kind="media.transcribe",
-        run_id=run_id,
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["transcript"],
+            action_kind="media.transcribe",
+            run_id=run_id,
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):

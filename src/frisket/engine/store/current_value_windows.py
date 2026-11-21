@@ -19,7 +19,7 @@ import threading
 from collections import OrderedDict
 from contextlib import closing
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Generator, Iterator
 
 from .value_codec import decode_stored_value
 
@@ -233,7 +233,7 @@ def _blob_text_chunks(
     total_bytes: int,
     *,
     blob_location: tuple[str, str, int] | None = None,
-) -> Iterator[str]:
+) -> Generator[str, None, None]:
     """Decode one UTF-8 stream, preserving NUL and split character boundaries.
 
     Addressable authority rows use incremental SQLite blob I/O. WITHOUT ROWID
@@ -512,12 +512,16 @@ def read_prepared_text(
     pages: tuple[tuple[int, int, int, bool], ...] | None = None,
 ) -> str:
     """Read intersecting pages and exact two-newline assembly separators."""
-    pages = (
-        pages if pages is not None else _prepared_pages(db, [ref_id]).get(ref_id, [])
+    resolved_pages = (
+        pages
+        if pages is not None
+        else tuple(_prepared_pages(db, [ref_id]).get(ref_id, ()))
     )
     fragments = []
     offset = 0
-    for index, (version_id, characters, byte_size, has_nul) in enumerate(pages):
+    for index, (version_id, characters, byte_size, has_nul) in enumerate(
+        resolved_pages
+    ):
         if offset >= start + limit:
             break
         if offset + characters > start:
@@ -540,7 +544,7 @@ def read_prepared_text(
                 )
             )
         offset += characters
-        if index < len(pages) - 1:
+        if index < len(resolved_pages) - 1:
             if offset + 2 > start and offset < start + limit:
                 fragments.append(
                     "\n\n"[max(0, start - offset) : start + limit - offset]
@@ -927,7 +931,7 @@ def iter_current_value(
     column_id: int,
     expected_revision: int,
     metadata: CurrentTextMetadata | None = None,
-) -> Iterator[str]:
+) -> Generator[str, None, None]:
     """Stream exact UTF-8 chunks from the caller's revision-fenced snapshot."""
 
     metadata = metadata or current_text_metadata(
@@ -958,11 +962,15 @@ def iter_prepared_text(
     ref_id: int,
     *,
     pages: tuple[tuple[int, int, int, bool], ...] | None = None,
-) -> Iterator[str]:
-    pages = (
-        pages if pages is not None else _prepared_pages(db, [ref_id]).get(ref_id, [])
+) -> Generator[str, None, None]:
+    resolved_pages = (
+        pages
+        if pages is not None
+        else tuple(_prepared_pages(db, [ref_id]).get(ref_id, ()))
     )
-    for index, (version_id, _characters, byte_size, _has_nul) in enumerate(pages):
+    for index, (version_id, _characters, byte_size, _has_nul) in enumerate(
+        resolved_pages
+    ):
         if index:
             yield "\n\n"
         yield from _blob_text_chunks(

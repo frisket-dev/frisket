@@ -601,14 +601,19 @@ def test_refresh_resends_requested_model_and_stores_probed_width(project):
     )
     assert create.status == "completed", create.errors
     index_id = create.outputs[0].ref["index_id"]
+    refresh_request = {
+        "action_id": "embedding.index_refresh",
+        "scope": {"kind": "project"},
+        "params": {"index_id": index_id, "mode": "full"},
+        "idempotency_key": "cr_rf_refresh@1",
+    }
+    challenge = _run(project, refresh_request, gateway=gw)
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert [c for c in gw.calls if c[0] != ["dimension probe"]] == []
+    token = challenge.errors[0].details["promise_set_hash"]
     refresh = _run(
         project,
-        {
-            "action_id": "embedding.index_refresh",
-            "scope": {"kind": "project"},
-            "params": {"index_id": index_id, "mode": "full"},
-            "idempotency_key": "cr_rf_refresh@1",
-        },
+        {**refresh_request, "confirmation": token},
         gateway=gw,
     )
     assert refresh.status == "completed", refresh.errors
@@ -641,17 +646,21 @@ def test_paid_refresh_receipt_names_real_provider_cost(project):
     )
     assert create.status == "completed", create.errors
 
+    refresh_request = {
+        "action_id": "embedding.index_refresh",
+        "scope": {"kind": "project"},
+        "params": {
+            "index_id": create.outputs[0].ref["index_id"],
+            "mode": "full",
+        },
+        "idempotency_key": "cr_cost_refresh@1",
+    }
+    challenge = _run(project, refresh_request, gateway=gw)
+    assert challenge.status == "needs_confirmation", challenge.errors
+    token = challenge.errors[0].details["promise_set_hash"]
     refresh = _run(
         project,
-        {
-            "action_id": "embedding.index_refresh",
-            "scope": {"kind": "project"},
-            "params": {
-                "index_id": create.outputs[0].ref["index_id"],
-                "mode": "full",
-            },
-            "idempotency_key": "cr_cost_refresh@1",
-        },
+        {**refresh_request, "confirmation": token},
         gateway=gw,
     )
     assert refresh.status == "completed", refresh.errors

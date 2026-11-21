@@ -30,6 +30,7 @@ from frisket.feeds.youtube import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-source-youtube"
@@ -555,12 +556,13 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
         replace=True,
     )
     failed_project = make_project("Failed")
-    source_id = FeedStore(failed_project).add_feed(
-        name="Failing Playlist",
-        kind=YOUTUBE_PLAYLIST_KIND,
-        url=f"https://www.youtube.com/playlist?list={PLAYLIST_ID}",
-        config={"playlist_id": PLAYLIST_ID},
-    )
+    with write_transaction(failed_project.db):
+        source_id = FeedStore(failed_project).add_feed(
+            name="Failing Playlist",
+            kind=YOUTUBE_PLAYLIST_KIND,
+            url=f"https://www.youtube.com/playlist?list={PLAYLIST_ID}",
+            config={"playlist_id": PLAYLIST_ID},
+        )
     failed = run_action_spec(
         failed_project,
         _feed_poll_action(
@@ -599,19 +601,20 @@ def test_youtube_playlist_scheduled_feed_dispatches_generic_source_poll(
     workspace.mkdir()
     project = Project.create(workspace / "news.frisket", name="news")
     try:
-        youtube_source_id = FeedStore(project).add_feed(
-            name="YouTube",
-            kind=YOUTUBE_PLAYLIST_KIND,
-            url=f"https://www.youtube.com/playlist?list={PLAYLIST_ID}",
-            schedule="@hourly",
-            config={"playlist_id": PLAYLIST_ID, "max_pages_per_poll": 1},
-        )
-        FeedStore(project).add_feed(
-            name="Unsupported API",
-            kind="api",
-            url="https://example.com/api",
-            schedule="@hourly",
-        )
+        with write_transaction(project.db):
+            youtube_source_id = FeedStore(project).add_feed(
+                name="YouTube",
+                kind=YOUTUBE_PLAYLIST_KIND,
+                url=f"https://www.youtube.com/playlist?list={PLAYLIST_ID}",
+                schedule="@hourly",
+                config={"playlist_id": PLAYLIST_ID, "max_pages_per_poll": 1},
+            )
+            FeedStore(project).add_feed(
+                name="Unsupported API",
+                kind="api",
+                url="https://example.com/api",
+                schedule="@hourly",
+            )
     finally:
         project.close()
 
@@ -668,12 +671,13 @@ def test_scheduled_source_poll_idempotency_is_stable_across_attempts(
     workspace.mkdir()
     project = Project.create(workspace / "news.frisket", name="news")
     try:
-        source_id = FeedStore(project).add_feed(
-            name="Feed",
-            kind="rss",
-            url="https://example.com/feed.xml",
-            schedule="@hourly",
-        )
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(
+                name="Feed",
+                kind="rss",
+                url="https://example.com/feed.xml",
+                schedule="@hourly",
+            )
     finally:
         project.close()
 

@@ -10,6 +10,7 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_clip import ClipSource, cut_and_store_clip
+from frisket.engine.store.transactions import write_transaction
 
 
 def _wav_bytes(seconds: float, *, sample_rate: int = 8000) -> bytes:
@@ -134,12 +135,13 @@ def test_recording_derivation_fails_closed_when_source_blob_missing(
     missing_source = "0" * 64
 
     with pytest.raises(BlobNotFoundError):
-        project.record_blob_derivation(
-            derived_hash=derived_hash,
-            source_hash=missing_source,
-            op="ffmpeg_clip",
-            params={"start_ms": 0, "end_ms": 500},
-        )
+        with write_transaction(project.db):
+            project.record_blob_derivation(
+                derived_hash=derived_hash,
+                source_hash=missing_source,
+                op="ffmpeg_clip",
+                params={"start_ms": 0, "end_ms": 500},
+            )
 
     # ...and no dangling lineage row was silently written for it.
     assert project.blob_derivation(derived_hash) is None

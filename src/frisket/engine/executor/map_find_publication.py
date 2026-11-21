@@ -513,7 +513,6 @@ def write_find_result(
             op_id=write.op_id,
             claim_token=claim_token,
             details={"output_fields": output_fields},
-            commit=False,
         )
         if conflict is not None or len(claims) != len(output_fields):
             raise RuntimeError("map.find could not acquire its exact output claim")

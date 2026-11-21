@@ -64,15 +64,16 @@ class _Fixture:
             row_ids=list(values),
         )
         claim_token = f"output-claim:test-replay:{run_id}"
-        claims, conflict = OutputColumnClaimStore(self.project).acquire(
-            sheet_id=self.sheet,
-            output_names=["label"],
-            action_kind="map.classify",
-            run_id=run_id,
-            op_id=op_id,
-            claim_token=claim_token,
-            lease_seconds=6 * 60 * 60,
-        )
+        with write_transaction(self.project.db):
+            claims, conflict = OutputColumnClaimStore(self.project).acquire(
+                sheet_id=self.sheet,
+                output_names=["label"],
+                action_kind="map.classify",
+                run_id=run_id,
+                op_id=op_id,
+                claim_token=claim_token,
+                lease_seconds=6 * 60 * 60,
+            )
         assert conflict is None and len(claims) == 1
         with write_transaction(self.project.db):
             OutputColumnClaimStore(self.project).bind_to_run(

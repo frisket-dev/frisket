@@ -145,17 +145,18 @@ def _seed_orphaned_run(
         )
 
     claim_token = "custom:opaque-dead-writer-claim"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["extracted"],
-        action_kind=action_kind,
-        receipt_id=receipt_id,
-        run_id=run_id,
-        op_id=op_id,
-        claim_token=claim_token,
-        lease_seconds=None,
-        details={"fixture": "dead-writer-terminal-recovery"},
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["extracted"],
+            action_kind=action_kind,
+            receipt_id=receipt_id,
+            run_id=run_id,
+            op_id=op_id,
+            claim_token=claim_token,
+            lease_seconds=None,
+            details={"fixture": "dead-writer-terminal-recovery"},
+        )
     assert conflict is None
     assert len(claims) == 1
 
@@ -192,7 +193,8 @@ def _seed_orphaned_run(
             (claim_token,),
         )
     if swept:
-        assert abandon_stale_dispatching_attempts(project, run_id) == 1
+        with write_transaction(project.db):
+            assert abandon_stale_dispatching_attempts(project, run_id) == 1
     if request_cancel:
         assert RunResultStore(project).request_cancel(run_id)
     return _OrphanedRun(
@@ -305,30 +307,32 @@ def _seed_never_dispatched_run(
             )
     claim_token = "output-claim:never-dispatched"
     if include_claim:
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["extracted"],
-            action_kind=ACTION_KIND,
-            receipt_id=claim_receipt_id,
-            run_id=run_id if bind_claim else None,
-            op_id=op_id,
-            claim_token=claim_token,
-            lease_seconds=None,
-            details={"fixture": "never-dispatched-terminalization"},
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["extracted"],
+                action_kind=ACTION_KIND,
+                receipt_id=claim_receipt_id,
+                run_id=run_id if bind_claim else None,
+                op_id=op_id,
+                claim_token=claim_token,
+                lease_seconds=None,
+                details={"fixture": "never-dispatched-terminalization"},
+            )
         assert conflict is None
         assert len(claims) == 1
     else:
         claim_token = None
-    attempt_ids = tuple(
-        open_attempt(
-            project,
-            run_id=run_id,
-            identity=f"never-dispatched-{seq}",
-            scope=(row_id,),
-        )[0]
-        for seq in range(attempt_count)
-    )
+    with write_transaction(project.db):
+        attempt_ids = tuple(
+            open_attempt(
+                project,
+                run_id=run_id,
+                identity=f"never-dispatched-{seq}",
+                scope=(row_id,),
+            )[0]
+            for seq in range(attempt_count)
+        )
     if attempt_state != "created":
         # Admission needs a full commitment, and the historical states model
         # a dispatch these never-dispatched attempts must not have had.
@@ -473,7 +477,10 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
         (row["sheet_id"],),
     ).fetchone()
     assert run.claim_token is not None
-    project.set_undo_info(int(row["op_id"]), {"created_columns": [int(column["id"])]})
+    with write_transaction(project.db):
+        project.set_undo_info(
+            int(row["op_id"]), {"created_columns": [int(column["id"])]}
+        )
     ResultGenerationStore(project).declare(
         run.run_id,
         int(column["id"]),
@@ -1224,12 +1231,13 @@ def test_reserved_effect_still_requires_reconciliation_after_claim_is_lost(
     project,
 ) -> None:
     orphan = _seed_orphaned_run(project, reserved_checkpoint=True)
-    assert (
-        OutputColumnClaimStore(project).release(
-            claim_token=orphan.claim_token, status="expired"
+    with write_transaction(project.db):
+        assert (
+            OutputColumnClaimStore(project).release(
+                claim_token=orphan.claim_token, status="expired"
+            )
+            == 1
         )
-        == 1
-    )
     before = _durable_snapshot(project, orphan)
 
     result = terminalize_project_run(
@@ -1711,7 +1719,6 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
         run_id: int,
         receipt_id: str,
         status: str,
-        commit: bool = True,
     ) -> int:
         nonlocal release_reached
         release_reached = True
@@ -1719,7 +1726,6 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
         assert run_id == orphan.run_id
         assert receipt_id == orphan.receipt_id
         assert status == "cancelled"
-        assert commit is False
 
         run = self.db.execute(
             "SELECT status, finished_at FROM runs WHERE id=?",

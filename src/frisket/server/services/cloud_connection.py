@@ -29,13 +29,16 @@ from frisket.contracts.http.cloud_connection import (
     CloudConnectionPreferencesResponse,
     CloudConnectionResponse,
     CloudConnectionSignOutResponse,
+    CloudConnectionState,
     CloudDeviceAuthorizationPollResponse,
     CloudDeviceAuthorizationStartResponse,
     CloudOAuthError,
+    CloudSessionResponse,
     ProjectCloudRoutingPatch,
     ProjectCloudProviderKey,
     ProjectCloudRoutingResponse,
 )
+from frisket.engine.store import Project
 from frisket.project_settings import read_project_settings, write_project_settings
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
@@ -356,8 +359,9 @@ class CloudConnectionService:
             if settings.cloud_user_id == signed_user_id
             else None
         )
-        inherited = settings.cloud_execution_preference is None
-        if inherited:
+        configured_preference = settings.cloud_execution_preference
+        inherited = configured_preference is None
+        if configured_preference is None:
             try:
                 preference = self.preferences().preference
             except CloudConnectionServiceError:
@@ -368,7 +372,7 @@ class CloudConnectionService:
                     else "local_first"
                 )
         else:
-            preference = settings.cloud_execution_preference
+            preference = configured_preference
         return ProjectCloudRoutingResponse(
             connection_state=connection.state,
             selected_account_id=selected,
@@ -449,7 +453,6 @@ class CloudConnectionService:
                 write_project_settings(
                     project,
                     settings.model_copy(update=updates),
-                    commit=False,
                 )
             self._refresh_capabilities(
                 patch.selected_account_id,
@@ -461,7 +464,6 @@ class CloudConnectionService:
                 write_project_settings(
                     project,
                     settings.model_copy(update=updates),
-                    commit=False,
                 )
         return self._project_routing(
             project_id, connection if connection is not None else self.connection()
@@ -542,7 +544,7 @@ class CloudConnectionService:
             self._refresh_capabilities(account_id, user_id)
 
     def _overlap_provider_labels(
-        self, project: object, selected_account_id: int | None
+        self, project: Project, selected_account_id: int | None
     ) -> list[str]:
         if selected_account_id is None:
             return []
@@ -557,7 +559,7 @@ class CloudConnectionService:
         return sorted(PROVIDER_LABELS.get(provider, provider) for provider in overlap)
 
     def _connection_response(
-        self, state: str, session: object | None
+        self, state: CloudConnectionState, session: CloudSessionResponse | None
     ) -> CloudConnectionResponse:
         if session is None:
             return CloudConnectionResponse(

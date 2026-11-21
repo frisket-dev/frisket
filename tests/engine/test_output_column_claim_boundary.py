@@ -7,6 +7,7 @@ from action_test_helpers import run_typed_map_request, typed_map_request
 from frisket.engine.executor.actions import run_action_spec as run_legacy_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-output-claims"
@@ -163,14 +164,15 @@ def _claim_output(
     output_name: str = "rendered_note",
     token: str = "claim:test-running",
 ) -> str:
-    _claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=[output_name],
-        action_kind="map.template",
-        claim_token=token,
-        lease_seconds=None,
-        details={"fixture": "active-running-output"},
-    )
+    with write_transaction(project.db):
+        _claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=[output_name],
+            action_kind="map.template",
+            claim_token=token,
+            lease_seconds=None,
+            details={"fixture": "active-running-output"},
+        )
     assert conflict is None
     assert _active_claim_count(project, output_name) == 1
     return token
@@ -179,13 +181,14 @@ def _claim_output(
 def test_output_claim_group_supports_multiple_output_names(tmp_path: Path) -> None:
     project, sheet_id, _row_ids, _columns = _seed_project(tmp_path)
     try:
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["first_output", "second_output"],
-            action_kind="map.multi_output_fixture",
-            claim_token="claim:multi-output",
-            lease_seconds=None,
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["first_output", "second_output"],
+                action_kind="map.multi_output_fixture",
+                claim_token="claim:multi-output",
+                lease_seconds=None,
+            )
         assert conflict is None
         assert [row["output_name"] for row in claims] == [
             "first_output",
@@ -200,19 +203,21 @@ def test_output_claim_group_supports_multiple_output_names(tmp_path: Path) -> No
             == 2
         )
 
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["second_output"],
-            action_kind="map.other",
-            claim_token="claim:conflicting-output",
-            lease_seconds=None,
-        )
+        with write_transaction(project.db):
+            _claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["second_output"],
+                action_kind="map.other",
+                claim_token="claim:conflicting-output",
+                lease_seconds=None,
+            )
         assert conflict is not None
         assert conflict["output_name"] == "second_output"
 
-        OutputColumnClaimStore(project).release(
-            claim_token="claim:multi-output", status="released"
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(
+                claim_token="claim:multi-output", status="released"
+            )
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM output_column_claims "
@@ -249,7 +254,8 @@ def test_output_claim_blocks_competing_run_and_releases_after_success(
             == 0
         )
 
-        OutputColumnClaimStore(project).release(claim_token=token, status="failed")
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(claim_token=token, status="failed")
         completed = run_action_spec(
             project,
             _map_template_action(sheet_id, key="map_template_after_claim@sha256:v1"),
@@ -403,7 +409,10 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
         )
         assert undo_map.status == "completed", undo_map.errors
         assert project.get_column(output_column_id)["active"] == 0
-        OutputColumnClaimStore(project).release(claim_token=map_claim, status="failed")
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(
+                claim_token=map_claim, status="failed"
+            )
         assert project.redo() == map_op_id
         assert project.get_column(output_column_id)["active"] == 1
 

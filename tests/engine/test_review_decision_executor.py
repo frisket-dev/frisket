@@ -1338,11 +1338,12 @@ def test_review_note_undo_does_not_mutate_claimed_values(
         project, seeded = env.project, env.seeded
         noted = env.run_primary()
         assert noted.status == "completed", noted.errors
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=seeded["sheet_id"],
-            output_names=["risk"],
-            action_kind="map.python",
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=seeded["sheet_id"],
+                output_names=["risk"],
+                action_kind="map.python",
+            )
         assert conflict is None
         assert len(claims) == 1
 

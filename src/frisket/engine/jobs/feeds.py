@@ -22,6 +22,7 @@ from frisket.feeds.runtime import get_feed_checker
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import feed_health_notification_candidate
 from frisket.operability.structured_logging import correlation_log_payload
@@ -45,6 +46,16 @@ from .worker import HandlerRegistration, HandlerRegistry, NonRetryableJobError
 
 FEED_POLL_KIND = "source.poll"
 LOG = logging.getLogger(__name__)
+
+
+def _record_refused_feed_check(
+    project: Project,
+    feed_store: FeedStore,
+    feed_id: int,
+    message: str,
+) -> int:
+    with write_transaction(project.db, what="feed check record"):
+        return feed_store.record_feed_check(feed_id, status="error", error=message)
 
 
 def _feed_dict(row: Any) -> dict[str, Any]:
@@ -166,7 +177,7 @@ def register_feed_poll_handler(
                 # A refused check still advances cadence. Restoring its input
                 # permits the next scheduled poll; immediate job retries cannot.
                 refused_run_id = (
-                    feed_store.record_feed_check(feed_id, status="error", error=message)
+                    _record_refused_feed_check(project, feed_store, feed_id, message)
                     if refused
                     else None
                 )

@@ -287,9 +287,7 @@ class StreamingSheetWriter:
                 commit=False,
             )
             ChangeStore(project).start(op_id)
-            op_log.set_undo_info(
-                project, op_id, {"created_sheets": [sheet_id]}, commit=False
-            )
+            op_log.set_undo_info(project, op_id, {"created_sheets": [sheet_id]})
             producer_id = create_base_cell_producer(
                 db, stage_id=f"import-session:{session_id}", op_id=op_id
             )
@@ -1031,7 +1029,6 @@ class StreamingSheetWriter:
                     self.project,
                     op_id,
                     {"created_sheets": [self.sheet_id]},
-                    commit=False,
                 )
                 bind_base_cell_producer(db, self._producer_id, op_id=op_id)
                 receipt = Receipt(

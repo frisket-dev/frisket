@@ -163,7 +163,8 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
         terminal_disposition="cancelled",
     )
     store.finish_run(source_run, status="cancelled", **auth.terminal_kwargs())
-    OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run)
     assert (
         project.db.execute(
@@ -245,7 +246,8 @@ def test_completion_never_stitches_successful_siblings_from_different_attempts(w
             terminal_disposition="partial",
         )
         runs.finish_run(run_id, status="failed", **auth.terminal_kwargs())
-        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     assert completed_execution_rows(project, root, run_ids) == set()
     with (
         project.transaction_scope(),
@@ -312,16 +314,17 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
     )
     with write_transaction(project.db):
         ReceiptStore(project).insert_queued(receipt)
-    assert (
-        _acquire_output_claims_for_runner(
-            project,
-            SimpleNamespace(kind="run.retry", idempotency_key="queued-retry"),
-            {"sheet_id": work[1], "execution_root_run_id": original.run_id},
-            receipt_id=receipt.receipt_id,
-            output_fields=[{"name": "Answer", "column_type": "text"}],
+    with write_transaction(project.db):
+        assert (
+            _acquire_output_claims_for_runner(
+                project,
+                SimpleNamespace(kind="run.retry", idempotency_key="queued-retry"),
+                {"sheet_id": work[1], "execution_root_run_id": original.run_id},
+                receipt_id=receipt.receipt_id,
+                output_fields=[{"name": "Answer", "column_type": "text"}],
+            )
+            is None
         )
-        is None
-    )
     assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 1
     with pytest.raises(ValueError, match="Stop the execution"):
         _copy(work, original.run_id)
@@ -329,7 +332,8 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
         "SELECT claim_token FROM output_column_claims WHERE receipt_id=?",
         (receipt.receipt_id,),
     ).fetchone()[0]
-    OutputColumnClaimStore(project).release(claim_token=claim)
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=claim)
     project.db.execute(
         "UPDATE receipts SET status='cancelled' WHERE id=?", (receipt.receipt_id,)
     )
@@ -384,7 +388,8 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
         terminal_disposition="completed",
     )
     store.finish_run(source_run, status="completed", **auth.terminal_kwargs())
-    OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run, selected=[rows[0]])
     copied = project.db.execute(
         "SELECT outcome,value FROM copied_result_values WHERE op_id=?", (op,)

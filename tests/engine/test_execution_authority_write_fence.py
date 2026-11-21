@@ -63,15 +63,16 @@ def _seed_claimed_run(
             run_id=run_id,
         )
     )
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["python_result"],
-        action_kind="map.python",
-        receipt_id=receipt_id,
-        run_id=run_id,
-        claim_token=claim_token,
-        lease_seconds=int(timedelta(hours=6).total_seconds()),
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["python_result"],
+            action_kind="map.python",
+            receipt_id=receipt_id,
+            run_id=run_id,
+            claim_token=claim_token,
+            lease_seconds=int(timedelta(hours=6).total_seconds()),
+        )
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
@@ -304,14 +305,15 @@ def test_just_claimed_attempt_survives_an_immediate_sweep(tmp_path: Path) -> Non
         assert lease is not None
         assert lease["lease_expires_at"] is not None
 
-        assert (
-            abandon_stale_dispatching_attempts(
-                project,
-                run_id,
-                max_age=timedelta(hours=6),
+        with write_transaction(project.db):
+            assert (
+                abandon_stale_dispatching_attempts(
+                    project,
+                    run_id,
+                    max_age=timedelta(hours=6),
+                )
+                == 0
             )
-            == 0
-        )
         assert (
             project.db.execute(
                 "SELECT state FROM execution_attempts WHERE id='attempt_just_claimed'"
@@ -424,14 +426,15 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
                 writer_attempt_id="attempt_map_python",
                 claim_token=claim_token,
             )
-            assert (
-                abandon_stale_dispatching_attempts(
-                    project,
-                    run_id,
-                    max_age=timedelta(hours=6),
+            with write_transaction(project.db):
+                assert (
+                    abandon_stale_dispatching_attempts(
+                        project,
+                        run_id,
+                        max_age=timedelta(hours=6),
+                    )
+                    == 0
                 )
-                == 0
-            )
 
         assert (
             project.db.execute(
@@ -447,14 +450,15 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             (run_id,),
         )
         project.db.commit()
-        assert (
-            abandon_stale_dispatching_attempts(
-                project,
-                run_id,
-                max_age=timedelta(hours=6),
+        with write_transaction(project.db):
+            assert (
+                abandon_stale_dispatching_attempts(
+                    project,
+                    run_id,
+                    max_age=timedelta(hours=6),
+                )
+                == 1
             )
-            == 1
-        )
         _insert_attempt(
             project,
             attempt_id="attempt_map_python_b",
@@ -462,11 +466,12 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             seq=1,
             state="dispatching",
         )
-        OutputColumnClaimStore(project).renew(
-            claim_token=claim_token,
-            run_id=run_id,
-            lease_seconds=int(timedelta(hours=6).total_seconds()),
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).renew(
+                claim_token=claim_token,
+                run_id=run_id,
+                lease_seconds=int(timedelta(hours=6).total_seconds()),
+            )
         RunResultStore(project).write_results(
             run_id,
             _result_batch(row_ids[2], column_id, "replacement"),
@@ -804,19 +809,20 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
             )
             return 0.0
 
-        checkpoints.account_returned(
-            "checkpoint-replay-owner",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key=str(rows[0]),
-            action_kind="map.python",
-            identity="replay-owner",
-            payload={"response": "returned"},
-            accrue=accrue,
-            run_id=run_id,
-            writer_attempt_id="attempt_a",
-            claim_token=claim_token,
-        )
+        with write_transaction(checkpoints.db):
+            checkpoints.account_returned(
+                "checkpoint-replay-owner",
+                family="row_effect",
+                group_key=str(run_id),
+                unit_key=str(rows[0]),
+                action_kind="map.python",
+                identity="replay-owner",
+                payload={"response": "returned"},
+                accrue=accrue,
+                run_id=run_id,
+                writer_attempt_id="attempt_a",
+                claim_token=claim_token,
+            )
         fact = project.db.execute(
             "SELECT attempt_id FROM model_calls WHERE id='replayed-a'"
         ).fetchone()
@@ -945,10 +951,11 @@ def test_claimless_writer_must_remain_the_current_dispatch_holder(
     project, run_id, rows, _column_id, claim_token = _seed_claimed_run(tmp_path)
     checkpoints = EffectCheckpointStore(project.db)
     try:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token,
-            status="released",
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(
+                claim_token=claim_token,
+                status="released",
+            )
         _insert_attempt(
             project,
             attempt_id="attempt_claimless_a",
@@ -1377,13 +1384,14 @@ def test_write_and_abandonment_have_one_serialized_winner(
 
             def sweep() -> None:
                 started.set()
-                outcome.append(
-                    abandon_stale_dispatching_attempts(
-                        peer,
-                        run_id,
-                        max_age=timedelta(hours=6),
+                with write_transaction(peer.db):
+                    outcome.append(
+                        abandon_stale_dispatching_attempts(
+                            peer,
+                            run_id,
+                            max_age=timedelta(hours=6),
+                        )
                     )
-                )
 
             thread = Thread(target=sweep)
             thread.start()
@@ -1400,7 +1408,6 @@ def test_write_and_abandonment_have_one_serialized_winner(
                     peer,
                     run_id,
                     max_age=timedelta(hours=6),
-                    commit=False,
                 )
                 == 1
             )

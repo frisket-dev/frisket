@@ -58,7 +58,7 @@ def write_edit_overlay(
             {"stable_id": stable_id, "stale_reason": stale_reason}
             for stable_id in stale_ids
         ]
-        set_undo_info(project, op_id, info, commit=False)
+        set_undo_info(project, op_id, info)
     if close_change:
         from frisket.engine.store.changes import ChangeStore
 

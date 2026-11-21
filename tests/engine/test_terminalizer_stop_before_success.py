@@ -6,6 +6,7 @@ from frisket.engine.executor.project_run_terminalization import (
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import open_attempt
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_current_writer_success_terminalization_maps_durable_stop_to_cancelled(
@@ -33,12 +34,13 @@ def test_current_writer_success_terminalization_maps_durable_stop_to_cancelled(
         status="running",
     )
     ReceiptStore(project).insert_running(stored)
-    attempt_id, _seq = open_attempt(
-        project,
-        run_id=run_id,
-        identity="stop-before-success",
-        scope=(),
-    )
+    with write_transaction(project.db):
+        attempt_id, _seq = open_attempt(
+            project,
+            run_id=run_id,
+            identity="stop-before-success",
+            scope=(),
+        )
     project.db.execute(
         "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
         (attempt_id,),

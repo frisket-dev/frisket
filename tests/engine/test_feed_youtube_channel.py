@@ -32,6 +32,7 @@ from frisket.feeds.youtube import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-source-youtube-channel"
@@ -713,12 +714,13 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
         replace=True,
     )
     failed_project = make_project("Failed")
-    source_id = FeedStore(failed_project).add_feed(
-        name="Failing Channel",
-        kind=YOUTUBE_CHANNEL_KIND,
-        url=f"https://www.youtube.com/{CHANNEL_HANDLE}/videos",
-        config={"channel_handle": CHANNEL_HANDLE},
-    )
+    with write_transaction(failed_project.db):
+        source_id = FeedStore(failed_project).add_feed(
+            name="Failing Channel",
+            kind=YOUTUBE_CHANNEL_KIND,
+            url=f"https://www.youtube.com/{CHANNEL_HANDLE}/videos",
+            config={"channel_handle": CHANNEL_HANDLE},
+        )
     failed = run_action_spec(
         failed_project,
         _feed_poll_action(
@@ -757,19 +759,20 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
     workspace.mkdir()
     project = Project.create(workspace / "news.frisket", name="news")
     try:
-        youtube_source_id = FeedStore(project).add_feed(
-            name="YouTube Channel",
-            kind=YOUTUBE_CHANNEL_KIND,
-            url=f"https://www.youtube.com/{CHANNEL_HANDLE}/videos",
-            schedule="@hourly",
-            config={"channel_handle": CHANNEL_HANDLE, "max_pages_per_poll": 1},
-        )
-        FeedStore(project).add_feed(
-            name="Unsupported API",
-            kind="unsupported_api",
-            url="https://example.com/api",
-            schedule="@hourly",
-        )
+        with write_transaction(project.db):
+            youtube_source_id = FeedStore(project).add_feed(
+                name="YouTube Channel",
+                kind=YOUTUBE_CHANNEL_KIND,
+                url=f"https://www.youtube.com/{CHANNEL_HANDLE}/videos",
+                schedule="@hourly",
+                config={"channel_handle": CHANNEL_HANDLE, "max_pages_per_poll": 1},
+            )
+            FeedStore(project).add_feed(
+                name="Unsupported API",
+                kind="unsupported_api",
+                url="https://example.com/api",
+                schedule="@hourly",
+            )
     finally:
         project.close()
 

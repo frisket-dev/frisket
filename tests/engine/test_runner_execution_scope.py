@@ -757,13 +757,14 @@ def _prepare_claimed_run(
     program = validation_module.action_program_for_spec(spec)
     output_names = [str(field["name"]) for field in program.output_fields(spec)]
     claim_token = f"output-claim:test:{program.name}:{spec['sheet_id']}:{id(runner)}"
-    claims, conflict = OutputColumnClaimStore(runner.project).acquire(
-        sheet_id=int(spec["sheet_id"]),
-        output_names=output_names,
-        action_kind=program.name,
-        claim_token=claim_token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(runner.project.db):
+        claims, conflict = OutputColumnClaimStore(runner.project).acquire(
+            sheet_id=int(spec["sheet_id"]),
+            output_names=output_names,
+            action_kind=program.name,
+            claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
+        )
     assert conflict is None
     assert len(claims) == len(output_names)
     prepared = runner._prepare(  # noqa: SLF001 - runner contract probe

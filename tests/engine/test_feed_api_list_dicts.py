@@ -29,6 +29,7 @@ from frisket.feeds.runtime import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-source-api-list-dicts"
@@ -573,12 +574,13 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
         replace=True,
     )
     failed_project = make_project("Oversized")
-    source_id = FeedStore(failed_project).add_feed(
-        name="Too large",
-        kind=API_LIST_DICTS_KIND,
-        url=API_URL,
-        config={"list_path": "/rows", "max_bytes": 10},
-    )
+    with write_transaction(failed_project.db):
+        source_id = FeedStore(failed_project).add_feed(
+            name="Too large",
+            kind=API_LIST_DICTS_KIND,
+            url=API_URL,
+            config={"list_path": "/rows", "max_bytes": 10},
+        )
     failed = run_action_spec(
         failed_project,
         _feed_poll_action(
@@ -614,12 +616,13 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
         replace=True,
     )
     failed_project = make_project("Failed")
-    source_id = FeedStore(failed_project).add_feed(
-        name="Failing API",
-        kind=API_LIST_DICTS_KIND,
-        url=API_URL,
-        config={"list_path": "/results"},
-    )
+    with write_transaction(failed_project.db):
+        source_id = FeedStore(failed_project).add_feed(
+            name="Failing API",
+            kind=API_LIST_DICTS_KIND,
+            url=API_URL,
+            config={"list_path": "/results"},
+        )
     failed = run_action_spec(
         failed_project,
         _feed_poll_action(
@@ -653,23 +656,24 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     workspace.mkdir()
     project = Project.create(workspace / "news.frisket", name="news")
     try:
-        api_source_id = FeedStore(project).add_feed(
-            name="Scheduled API",
-            kind=API_LIST_DICTS_KIND,
-            url=API_URL,
-            schedule="@hourly",
-            config={
-                "list_path": "/results",
-                "item_id_path": "/id",
-                "max_items": 5,
-            },
-        )
-        FeedStore(project).add_feed(
-            name="Unsupported API",
-            kind="api",
-            url="https://example.com/api",
-            schedule="@hourly",
-        )
+        with write_transaction(project.db):
+            api_source_id = FeedStore(project).add_feed(
+                name="Scheduled API",
+                kind=API_LIST_DICTS_KIND,
+                url=API_URL,
+                schedule="@hourly",
+                config={
+                    "list_path": "/results",
+                    "item_id_path": "/id",
+                    "max_items": 5,
+                },
+            )
+            FeedStore(project).add_feed(
+                name="Unsupported API",
+                kind="api",
+                url="https://example.com/api",
+                schedule="@hourly",
+            )
     finally:
         project.close()
 

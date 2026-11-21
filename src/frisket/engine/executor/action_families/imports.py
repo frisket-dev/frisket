@@ -258,7 +258,6 @@ def _perform_import_rows_in_txn(
             "created_columns": list(column_ids.values()),
             "created_rows": row_ids,
         },
-        commit=False,
     )
     ReceiptStore(project).insert_completed(receipt)
     changes.close(op_id)

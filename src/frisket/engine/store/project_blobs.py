@@ -6,7 +6,11 @@ stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
-from frisket.engine.store.transactions import inserted_rowid, write_transaction
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 import hashlib
 import json
 import logging
@@ -60,8 +64,6 @@ def add_blob(
     mime: str | None = None,
     source_url: str | None = None,
     metadata: dict[str, Any] | None = None,
-    *,
-    commit: bool = True,
 ) -> str:
     expected_digest = hashlib.sha256(data).hexdigest()
     digest = project.blob_store.put(data)
@@ -69,7 +71,7 @@ def add_blob(
         raise BlobIntegrityError(
             "blob store returned a digest that does not match the submitted bytes"
         )
-    with write_transaction(project.db, commit=commit, what="blob add"):
+    with write_transaction(project.db, what="blob add"):
         project.db.execute(
             "INSERT OR IGNORE INTO blobs "
             "(hash, filename, mime, size, source_url, metadata) VALUES (?,?,?,?,?,?)",
@@ -90,18 +92,16 @@ def add_blob_from_path(
     source_url: str | None = None,
     metadata: dict[str, Any] | None = None,
     *,
-    commit: bool = True,
     expected_digest: str | None = None,
 ) -> str:
     """Add a canonical blob from a file without reading it wholly into RAM.
 
     The project computes the expected digest and byte count first, then the
     backend independently verifies the bytes it stores.  As with ``add_blob``,
-    canonical bytes are durable before their SQLite reference is inserted.
-    ``commit=False`` leaves both that reference and metadata in the caller's
-    active transaction.
+    canonical bytes are durable before their SQLite reference is inserted; the
+    SQLite reference and metadata join the caller's active transaction.
     """
-
+    require_transaction(project.db, "blob add from path")
     source_path = Path(path)
     observed_digest, size = sha256_blob_path(source_path)
     if expected_digest is not None and observed_digest != expected_digest:
@@ -115,16 +115,15 @@ def add_blob_from_path(
         raise BlobIntegrityError(
             "blob store returned a digest that does not match the submitted file"
         )
-    with write_transaction(project.db, commit=commit, what="blob add from path"):
-        project.db.execute(
-            "INSERT OR IGNORE INTO blobs "
-            "(hash, filename, mime, size, source_url, metadata) VALUES (?,?,?,?,?,?)",
-            (digest, filename, mime, size, source_url, json.dumps(metadata or {})),
-        )
-        if metadata:
-            from frisket.engine.store.media_blobs import MediaBlobStore
+    project.db.execute(
+        "INSERT OR IGNORE INTO blobs "
+        "(hash, filename, mime, size, source_url, metadata) VALUES (?,?,?,?,?,?)",
+        (digest, filename, mime, size, source_url, json.dumps(metadata or {})),
+    )
+    if metadata:
+        from frisket.engine.store.media_blobs import MediaBlobStore
 
-            MediaBlobStore(project).merge_metadata(digest, metadata)
+        MediaBlobStore(project).merge_metadata(digest, metadata)
     return digest
 
 
@@ -135,9 +134,8 @@ def record_blob_derivation(
     source_hash: str,
     op: str,
     params: dict[str, Any] | None = None,
-    commit: bool = True,
 ) -> int:
-    """Record a blob-to-blob derivation edge
+    """Record a blob-to-blob derivation edge in the caller's transaction
     (provenance-derived-audio-lineage-v1): ``derived_hash`` was produced
     FROM ``source_hash`` by ``op`` (e.g. "ffmpeg_clip") with ``params``
     (e.g. cut start/end ms). Fails CLOSED -- raises ``BlobNotFoundError``
@@ -146,32 +144,32 @@ def record_blob_derivation(
     blob can itself later be the SOURCE of a further derivation
     (clip-of-a-clip), so the read side (``blob_derivation_chain``) walks
     hop by hop rather than this table modeling a tree directly."""
-    with write_transaction(project.db, commit=commit, what="blob derivation"):
-        if (
-            project.db.execute(
-                "SELECT 1 FROM blobs WHERE hash=?", (source_hash,)
-            ).fetchone()
-            is None
-        ):
-            raise BlobNotFoundError(
-                f"cannot record derivation: source blob {source_hash!r} is "
-                "not in this project's blob store"
-            )
-        if (
-            project.db.execute(
-                "SELECT 1 FROM blobs WHERE hash=?", (derived_hash,)
-            ).fetchone()
-            is None
-        ):
-            raise BlobNotFoundError(
-                f"cannot record derivation: derived blob {derived_hash!r} is "
-                "not in this project's blob store (add it via add_blob first)"
-            )
-        cur = project.db.execute(
-            "INSERT INTO blob_derivations (derived_hash, source_hash, op, params_json) "
-            "VALUES (?,?,?,?)",
-            (derived_hash, source_hash, op, json.dumps(params or {})),
+    require_transaction(project.db, "blob derivation")
+    if (
+        project.db.execute(
+            "SELECT 1 FROM blobs WHERE hash=?", (source_hash,)
+        ).fetchone()
+        is None
+    ):
+        raise BlobNotFoundError(
+            f"cannot record derivation: source blob {source_hash!r} is "
+            "not in this project's blob store"
         )
+    if (
+        project.db.execute(
+            "SELECT 1 FROM blobs WHERE hash=?", (derived_hash,)
+        ).fetchone()
+        is None
+    ):
+        raise BlobNotFoundError(
+            f"cannot record derivation: derived blob {derived_hash!r} is "
+            "not in this project's blob store (add it via add_blob first)"
+        )
+    cur = project.db.execute(
+        "INSERT INTO blob_derivations (derived_hash, source_hash, op, params_json) "
+        "VALUES (?,?,?,?)",
+        (derived_hash, source_hash, op, json.dumps(params or {})),
+    )
     return inserted_rowid(cur)
 
 

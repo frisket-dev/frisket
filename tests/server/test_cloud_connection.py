@@ -383,7 +383,8 @@ def test_device_flow_keeps_secrets_server_side_and_coalesces_early_poll(tmp_path
     ticks = [100.0]
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Connect from this project")["id"]
-    write_project_settings(workspace.get(project_id), ProjectSettings())
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(workspace.get(project_id), ProjectSettings())
     client = CloudConnectionClient(
         "https://app.frisket.dev", transport=httpx.MockTransport(handler)
     )
@@ -491,12 +492,13 @@ def test_reconnect_hydrates_unique_retained_same_user_accounts(
     ):
         project_id = workspace.create(name)["id"]
         project = workspace.get(project_id)
-        write_project_settings(
-            project,
-            read_project_settings(project).model_copy(
-                update={"cloud_user_id": user_id, "cloud_account_id": account_id}
-            ),
-        )
+        with project.transaction_scope():
+            write_project_settings(
+                project,
+                read_project_settings(project).model_copy(
+                    update={"cloud_user_id": user_id, "cloud_account_id": account_id}
+                ),
+            )
     store = CloudConnectionStore(tmp_path / "profile")
     ticks = [100.0]
     service = CloudConnectionService(
@@ -835,7 +837,8 @@ def test_project_account_is_bound_to_signed_in_user(tmp_path):
     store.save_connection("first", _session(user_id=7, account_id=41))
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Cloud routing")["id"]
-    write_project_settings(workspace.get(project_id), ProjectSettings())
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(workspace.get(project_id), ProjectSettings())
     service = CloudConnectionService(
         workspace,
         store=store,
@@ -870,7 +873,8 @@ def test_preference_patch_preserves_a_concurrent_project_setting(tmp_path, monke
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Concurrent Cloud preference")["id"]
     project = workspace.get(project_id)
-    write_project_settings(project, ProjectSettings())
+    with project.transaction_scope():
+        write_project_settings(project, ProjectSettings())
 
     def reject_network(request: httpx.Request) -> httpx.Response:
         raise AssertionError(request.url)
@@ -903,10 +907,11 @@ def test_preference_patch_preserves_a_concurrent_project_setting(tmp_path, monke
         )
         assert transaction_requested.wait(5)
         settings = read_project_settings(project)
-        write_project_settings(
-            project,
-            settings.model_copy(update={"media_allow_private_hosts": True}),
-        )
+        with transaction_scope(project):
+            write_project_settings(
+                project,
+                settings.model_copy(update={"media_allow_private_hosts": True}),
+            )
         enter_transaction.set()
         response = future.result(timeout=5)
 
@@ -977,10 +982,11 @@ def test_project_routing_refreshes_the_selected_account_capability_snapshot(tmp_
     store.save_capabilities(_capabilities(revision="route-1"), expected_user_id=7)
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Refresh Cloud routes")["id"]
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+        )
     service = CloudConnectionService(
         workspace,
         store=store,
@@ -1028,10 +1034,11 @@ def test_project_routing_reads_selected_account_key_metadata_once(tmp_path):
     store.save_connection("token", _session())
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Cloud provider keys")["id"]
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+        )
     service = CloudConnectionService(
         workspace,
         store=store,
@@ -1070,10 +1077,11 @@ def test_project_routing_tolerates_old_cloud_without_key_metadata(tmp_path):
     store.save_connection("token", _session())
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("Old Cloud")["id"]
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+        )
     service = CloudConnectionService(
         workspace,
         store=store,
@@ -1167,10 +1175,11 @@ def test_corrupt_connection_does_not_break_project_routing(
     if saved_binding:
         project = app.state.workspace.get(project_id)
         try:
-            write_project_settings(
-                project,
-                ProjectSettings(cloud_user_id=7, cloud_account_id=41),
-            )
+            with project.transaction_scope():
+                write_project_settings(
+                    project,
+                    ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+                )
         finally:
             project.close()
 

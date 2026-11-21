@@ -501,7 +501,8 @@ def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
     )
     project.db.commit()
 
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    with write_transaction(project.db):
+        assert abandon_stale_dispatching_attempts(project, run_id) == 1
     assert attempt_receipt(project, crashed.attempt_id)["state"] == "abandoned"
     # The run no longer points at a live attempt, so reconsent is reachable
     # again.
@@ -526,7 +527,8 @@ def test_a_live_dispatching_attempt_is_never_abandoned(project, consented_run):
     run_id, _route, _set, _consent = consented_run
     live = _mint(project, run_id)
     _claim_unscoped(project, live)
-    assert abandon_stale_dispatching_attempts(project, run_id) == 0
+    with write_transaction(project.db):
+        assert abandon_stale_dispatching_attempts(project, run_id) == 0
     assert attempt_receipt(project, live.attempt_id)["state"] == "dispatching"
 
 
@@ -563,7 +565,8 @@ def test_old_claimless_attempt_requires_proof_its_handler_stopped(
                         raise OSError("queue unavailable")
 
                 project._frisket_run_queue = UnavailableQueue()
-        assert abandon_stale_dispatching_attempts(project, run_id) == 0
+        with write_transaction(project.db):
+            assert abandon_stale_dispatching_attempts(project, run_id) == 0
         assert attempt_receipt(project, live.attempt_id)["state"] == "dispatching"
         assert (
             project.db.execute(
@@ -575,7 +578,8 @@ def test_old_claimless_attempt_requires_proof_its_handler_stopped(
             assert queue.acknowledge_handler_exit(
                 job_id, "live-worker", authority_id=job.handler_authority_id
             )
-            assert abandon_stale_dispatching_attempts(project, run_id) == 1
+            with write_transaction(project.db):
+                assert abandon_stale_dispatching_attempts(project, run_id) == 1
     finally:
         queue.close()
 
@@ -1220,7 +1224,8 @@ def test_requeued_claimless_attempt_recovers_original_handler_not_current_job(
             job_id=job_id, authority_id=new_handler.handler_authority_id, queue=queue
         ):
             # Expiry and a successor are not evidence that the original code died.
-            assert abandon_stale_dispatching_attempts(project, run_id) == 0
+            with write_transaction(project.db):
+                assert abandon_stale_dispatching_attempts(project, run_id) == 0
             stopped = queue.abandon_stopped_worker_handler_authorities(
                 "old-worker", heartbeat_cutoff=now[0]
             )
@@ -1233,7 +1238,8 @@ def test_requeued_claimless_attempt_recovers_original_handler_not_current_job(
 
             claims = OutputColumnClaimStore(reopened)
             assert claims.attempt_handler_execution_stopped(original.attempt_id)
-            assert abandon_stale_dispatching_attempts(reopened, run_id) == 1
+            with write_transaction(reopened.db):
+                assert abandon_stale_dispatching_attempts(reopened, run_id) == 1
             assert claims.attempt_handler_execution_stopped(original.attempt_id)
             replacement = _mint(reopened, run_id)
             with record_handler_lineage(
@@ -1259,7 +1265,8 @@ def test_requeued_claimless_attempt_recovers_original_handler_not_current_job(
                     new_handler.handler_authority_id,
                 ),
             ]
-            assert abandon_stale_dispatching_attempts(reopened, run_id) == 0
+            with write_transaction(reopened.db):
+                assert abandon_stale_dispatching_attempts(reopened, run_id) == 0
     finally:
         if reopened is not None:
             reopened.close()
@@ -1317,7 +1324,8 @@ def test_missing_original_job_is_not_proof_of_dead_handler(project, consented_ru
     queue = SqliteJobQueue(project.path.parent / "empty-queue.db")
     project._frisket_run_queue = queue
     try:
-        assert abandon_stale_dispatching_attempts(project, run_id) == 0
+        with write_transaction(project.db):
+            assert abandon_stale_dispatching_attempts(project, run_id) == 0
         assert attempt_receipt(project, attempt.attempt_id)["state"] == "dispatching"
     finally:
         queue.close()

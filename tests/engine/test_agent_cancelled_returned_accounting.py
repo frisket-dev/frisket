@@ -97,27 +97,28 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
             from frisket.project_settings import write_project_mcp_servers
             from test_mcp_extract_runtime_bridge import FIXTURE_SERVER, _spec
 
-            write_project_mcp_servers(
-                project,
-                [
-                    {
-                        "id": "fixture",
-                        "name": "fixture",
-                        "enabled": True,
-                        # subprocess-boundary: real local MCP session opens and drains.
-                        "command": sys.executable,
-                        "args": [
-                            str(FIXTURE_SERVER),
-                            "--events",
-                            str(tmp_path / "mcp.jsonl"),
-                        ],
-                        "cwd": str(tmp_path),
-                        "env": {},
-                        "revision": 1,
-                        "lastTest": None,
-                    }
-                ],
-            )
+            with project.transaction_scope():
+                write_project_mcp_servers(
+                    project,
+                    [
+                        {
+                            "id": "fixture",
+                            "name": "fixture",
+                            "enabled": True,
+                            # subprocess-boundary: real local MCP session opens and drains.
+                            "command": sys.executable,
+                            "args": [
+                                str(FIXTURE_SERVER),
+                                "--events",
+                                str(tmp_path / "mcp.jsonl"),
+                            ],
+                            "cwd": str(tmp_path),
+                            "env": {},
+                            "revision": 1,
+                            "lastTest": None,
+                        }
+                    ],
+                )
             action = _spec(sheet_id, ["fixture"], row_id)
             action["params"]["source"] = ["country"]
         action["scope"]["row_ids"] = [row_id]

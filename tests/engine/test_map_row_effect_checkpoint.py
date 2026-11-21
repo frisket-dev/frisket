@@ -129,14 +129,15 @@ def _prepare_claimed_run(
     progress = runner.prepare_run(spec, program=program, confirmed=confirmed)
     fields = [dict(field) for field in program.output_fields(spec)]
     token = f"output-claim:test:{progress.run_id}"
-    claims, conflict = OutputColumnClaimStore(runner.project).acquire(
-        sheet_id=int(spec["sheet_id"]),
-        output_names=[str(field["name"]) for field in fields],
-        action_kind=str(spec["action_kind"]),
-        run_id=progress.run_id,
-        claim_token=token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(runner.project.db):
+        claims, conflict = OutputColumnClaimStore(runner.project).acquire(
+            sheet_id=int(spec["sheet_id"]),
+            output_names=[str(field["name"]) for field in fields],
+            action_kind=str(spec["action_kind"]),
+            run_id=progress.run_id,
+            claim_token=token,
+            lease_seconds=6 * 60 * 60,
+        )
     assert conflict is None
     assert len(claims) == len(fields)
     with write_transaction(runner.project.db):
@@ -705,7 +706,10 @@ def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
             claim_token=claim_token,
         )
     )
-    OutputColumnClaimStore(project).release(claim_token=claim_token, status="cancelled")
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(
+            claim_token=claim_token, status="cancelled"
+        )
     original_attempt = str(
         project.db.execute(
             "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)

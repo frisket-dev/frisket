@@ -80,6 +80,9 @@ def _invoke_begin_boundary(project, boundary, monkeypatch):
         precheck_fn=lambda *_: None,
         params_hash_fn=lambda _: "hash",
         reserve_fn=lambda *args, **kwargs: pytest.fail("reservation must not run"),
+        reserve_in_transaction_fn=lambda *args, **kwargs: pytest.fail(
+            "reservation must not run"
+        ),
     )
 
 
@@ -533,8 +536,8 @@ def test_atomic_map_preparation_failure_rolls_back_receipt_and_claims(
                 ).fetchone()
             raise error
 
-    def reserve(project, action, *, params_hash, project_id, commit):
-        assert commit is False
+    def reserve(project, action, *, params_hash, project_id):
+        assert project.db.in_transaction
         ReceiptStore(project).insert_running(
             Receipt(
                 receipt_id="receipt-interrupted",
@@ -545,7 +548,7 @@ def test_atomic_map_preparation_failure_rolls_back_receipt_and_claims(
                 params_hash=params_hash,
                 status="running",
             ),
-            commit=commit,
+            commit=False,
         )
         fail_at("reserve")
         return {"action_id": "act-interrupted", "receipt_id": "receipt-interrupted"}
@@ -577,7 +580,7 @@ def test_atomic_map_preparation_failure_rolls_back_receipt_and_claims(
             runner_spec_fn=lambda _: {},
             resolve_fn=lambda *_: None,
             precheck_fn=lambda *args, **kwargs: fail_at("precheck"),
-            reserve_fn=reserve,
+            reserve_in_transaction_fn=reserve,
             params_hash_fn=lambda _: "hash",
             confirmed_fn=lambda _: fail_at("confirmation"),
         )

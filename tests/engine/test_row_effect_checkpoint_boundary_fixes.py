@@ -110,13 +110,14 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
         )
     )
     output_names = [str(field["name"]) for field in plan.program.output_fields(spec)]
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet,
-        output_names=output_names,
-        action_kind="media.transcribe",
-        receipt_id=receipt_id,
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet,
+            output_names=output_names,
+            action_kind="media.transcribe",
+            receipt_id=receipt_id,
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == len(output_names)
 
@@ -265,14 +266,15 @@ def checkpointed_run(make_project):
             run_id=run_id,
         )
     )
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["classification"],
-        action_kind="map.classify",
-        receipt_id=receipt_id,
-        run_id=run_id,
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["classification"],
+            action_kind="map.classify",
+            receipt_id=receipt_id,
+            run_id=run_id,
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):

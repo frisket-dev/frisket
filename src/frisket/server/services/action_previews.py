@@ -24,7 +24,11 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
     bound_typed_program_request_from_runner_spec,
 )
-from frisket.actions.types import RowError, require_sheet_rows
+from frisket.actions.types import IndexRefresher, RowError, require_sheet_rows
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
+from frisket.engine.executor.action_families.embeddings import (
+    prepare_embedding_refresh,
+)
 from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.confirmation_context import (
@@ -238,6 +242,29 @@ class ActionPreviewService:
                         "action": {"kind": typed.action.action_id},
                         "project_id": project_id,
                         "estimate": estimate,
+                    }
+
+                if capabilities == (IndexRefresher,):
+                    prepared_refresh = prepare_embedding_refresh(
+                        get_project(),
+                        typed,
+                        project_id=project_id,
+                        consent_coverage=coverage,
+                        edition=self._workspace.edition,
+                    )
+                    if isinstance(prepared_refresh, ActionError):
+                        raise ActionPreviewRouteError(
+                            400,
+                            prepared_refresh.model_dump(mode="json"),
+                            bare_json=True,
+                        )
+                    return {
+                        "schema_version": ACTION_ESTIMATE_RESULT_SCHEMA_VERSION,
+                        "action": {"kind": typed.action.action_id},
+                        "project_id": project_id,
+                        "estimate": ActionEstimate.model_validate(
+                            prepared_refresh.wire_estimate()
+                        ).model_dump(mode="json"),
                     }
 
                 if capabilities in ((FindScanner,), (GroupSummarizer,)):

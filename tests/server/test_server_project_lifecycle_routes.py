@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.transactions import write_transaction
 from frisket.server.app import create_app
 
 
@@ -26,21 +27,21 @@ def test_sheet_list_reports_only_active_document_text_role_columns(client) -> No
     first_sheet = project.add_sheet("First")
     first_source = project.add_column(first_sheet, "Document", type="file")
     first_text = project.add_column(first_sheet, "Text", type="text")
-    ensure_document_text_role(
-        project,
-        source_column_id=first_source,
-        text_column_id=first_text,
-        commit=True,
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project,
+            source_column_id=first_source,
+            text_column_id=first_text,
+        )
     second_sheet = project.add_sheet("Second")
     second_source = project.add_column(second_sheet, "Document", type="file")
     second_text = project.add_column(second_sheet, "Text", type="text")
-    ensure_document_text_role(
-        project,
-        source_column_id=second_source,
-        text_column_id=second_text,
-        commit=True,
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project,
+            source_column_id=second_source,
+            text_column_id=second_text,
+        )
 
     listed = client.get(f"/api/projects/{project_id}/sheets")
     assert listed.status_code == 200, listed.text

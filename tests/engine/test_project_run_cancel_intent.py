@@ -204,16 +204,17 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
                 )
             )
         claim_token = "claim:custom-live-cancel"
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["number"],
-            action_kind="map.regex_extract",
-            receipt_id=receipt_id,
-            run_id=run_id,
-            op_id=op_id,
-            claim_token=claim_token,
-            lease_seconds=6 * 60 * 60,
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["number"],
+                action_kind="map.regex_extract",
+                receipt_id=receipt_id,
+                run_id=run_id,
+                op_id=op_id,
+                claim_token=claim_token,
+                lease_seconds=6 * 60 * 60,
+            )
         assert conflict is None and len(claims) == 1
         project.db.execute(
             "INSERT INTO execution_attempts "
@@ -375,16 +376,17 @@ def test_legacy_cancelled_split_never_returns_false_success(tmp_path: Path) -> N
                 )
             )
         claim_token = "claim:legacy-cancelled-split"
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["number"],
-            action_kind="map.regex_extract",
-            receipt_id=receipt_id,
-            run_id=run_id,
-            op_id=op_id,
-            claim_token=claim_token,
-            lease_seconds=6 * 60 * 60,
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["number"],
+                action_kind="map.regex_extract",
+                receipt_id=receipt_id,
+                run_id=run_id,
+                op_id=op_id,
+                claim_token=claim_token,
+                lease_seconds=6 * 60 * 60,
+            )
         assert conflict is None and len(claims) == 1
         project.db.execute(
             "INSERT INTO execution_attempts "

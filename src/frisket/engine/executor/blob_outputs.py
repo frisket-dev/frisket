@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from frisket.engine.store.blob_backend import BlobIntegrityError
+from frisket.engine.store.project_blobs import publish_prepared_blob
+from frisket.engine.store.transactions import require_transaction
+
 
 @dataclass(frozen=True)
 class RowBlobPlan:
@@ -71,20 +75,27 @@ def stage_blob_bytes(
 def commit_row_blob_plan(
     project: Any,
     plan: RowBlobPlan,
-    *,
-    commit: bool = False,
 ) -> str:
+    """Persist staged blob bytes and record metadata in the caller's transaction."""
+    require_transaction(project.db, "row blob plan commit")
     staged_path = Path(plan.staged_path)
     data = staged_path.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     expected = blob_digest(plan.content_digest)
     if digest != expected:
         raise ValueError(f"staged blob digest mismatch for {plan.filename}")
-    return project.add_blob(
-        data,
+    stored = project.blob_store.put(data)
+    if stored != digest:
+        raise BlobIntegrityError(
+            "blob store returned a digest that does not match the submitted bytes"
+        )
+    publish_prepared_blob(
+        project,
+        digest=digest,
+        size=len(data),
         filename=plan.filename,
         mime=plan.mime,
         source_url=plan.source_url,
         metadata=dict(plan.metadata),
-        commit=commit,
     )
+    return digest

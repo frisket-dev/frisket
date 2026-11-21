@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 # mock.ts (?mock=1 adapter) retired in onboard-sample-project-v1
@@ -17,22 +18,24 @@ def _seed_source_runs(tmp_path: Path) -> tuple[TestClient, str, int, list[int]]:
         "/api/projects", json={"name": "Source poll history paging"}
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
-    source_id = FeedStore(project).add_feed(
-        "Long-lived feed",
-        kind="rss",
-        url="https://example.test/feed.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Long-lived feed",
+            kind="rss",
+            url="https://example.test/feed.xml",
+            schedule="@hourly",
+        )
     run_ids: list[int] = []
     for index in range(125):
-        run_ids.append(
-            FeedStore(project).record_feed_check(
-                source_id,
-                status="error" if index % 10 == 0 else "ok",
-                new_rows=index % 7,
-                error=f"poll {index + 1} failed" if index % 10 == 0 else None,
+        with write_transaction(project.db):
+            run_ids.append(
+                FeedStore(project).record_feed_check(
+                    source_id,
+                    status="error" if index % 10 == 0 else "ok",
+                    new_rows=index % 7,
+                    error=f"poll {index + 1} failed" if index % 10 == 0 else None,
+                )
             )
-        )
     return client, project_id, source_id, run_ids
 
 

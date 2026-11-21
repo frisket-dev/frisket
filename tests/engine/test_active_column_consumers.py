@@ -30,12 +30,13 @@ def test_output_claims_bind_only_current_identity(project):
     sheet = project.add_sheet("Data")
     old = _undone_column(project, sheet, "result")
     store = OutputColumnClaimStore(project)
-    claims, conflict = store.acquire(
-        sheet_id=sheet,
-        output_names=["result"],
-        action_kind="map.regex_extract",
-        claim_token="fresh-output",
-    )
+    with write_transaction(store.db):
+        claims, conflict = store.acquire(
+            sheet_id=sheet,
+            output_names=["result"],
+            action_kind="map.regex_extract",
+            claim_token="fresh-output",
+        )
     assert conflict is None
     assert claims[0]["column_id"] is None
     assert store.active_for_columns([old]) is None

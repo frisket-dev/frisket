@@ -246,7 +246,6 @@ def _terminalize_action_job_receipt(
         OutputColumnClaimStore(project).release_for_receipt(
             receipt_id=receipt_id,
             status="released" if status in {"completed", "partial"} else status,
-            commit=False,
         )
         project.db.commit()
     except ActionJobTerminalizationError:

@@ -14,7 +14,10 @@ from pydantic import ValidationError
 from frisket.execution.action_admission import (
     missing_action_credential_error as missing_action_credential_error,
 )
-from frisket.actions.types import RowError
+from frisket.actions.types import IndexRefresher, RowError
+from frisket.engine.executor.action_families.embeddings import (
+    reserve_typed_embedding_refresh_action_job,
+)
 
 from frisket.contracts.action import (
     ActionResultStatus,
@@ -61,6 +64,7 @@ from frisket.local_provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.execution.attempt import STALE_DISPATCHING_AGE
 from frisket.engine.executor.action_jobs import merge_queue_payload
 from frisket.operability.structured_logging import correlation_log_payload
@@ -321,7 +325,12 @@ def _queue_v1_project_run_request(
         instance_principal(project)
         project.db.execute("BEGIN IMMEDIATE")
     try:
-        reservation = request.entry.reserve_action(
+        reserve_fn = (
+            request.entry.reserve_action_in_transaction
+            if atomic_publication
+            else request.entry.reserve_action
+        )
+        reservation = reserve_fn(
             project,
             request.action,
             request.params,
@@ -329,7 +338,6 @@ def _queue_v1_project_run_request(
             recover_unobservable=True,
             router=router,
             program=request.program,
-            commit=not atomic_publication,
         )
     except Exception:
         if atomic_publication:
@@ -422,30 +430,43 @@ def _queue_v1_project_run_request(
                     total=prepared.row_count,
                 )
                 attempt_id = admitted_attempt.attempt_id
+                request.entry.mark_prepared(
+                    project,
+                    receipt_id=reservation["receipt_id"],
+                    run_id=progress.run_id,
+                    attempt_id=attempt_id,
+                    output_fields=reservation["output_fields"],
+                    program=request.program,
+                    reservation_snapshot=reservation_snapshot,
+                )
+                attach_run_edition_run_context(
+                    project,
+                    progress.run_id,
+                    execution_context.edition_snapshot,
+                    commit=False,
+                )
+                project.db.commit()
             else:
                 progress = runner.prepare_run(
                     runner_spec,
                     program=request.program,
                     confirmed=bool(reservation.get("confirmed", False)),
                 )
-            request.entry.mark_prepared(
-                project,
-                receipt_id=reservation["receipt_id"],
-                run_id=progress.run_id,
-                attempt_id=attempt_id,
-                output_fields=reservation["output_fields"],
-                program=request.program,
-                reservation_snapshot=reservation_snapshot,
-                commit=not atomic_publication,
-            )
-            attach_run_edition_run_context(
-                project,
-                progress.run_id,
-                execution_context.edition_snapshot,
-                commit=not atomic_publication,
-            )
-            if atomic_publication:
-                project.db.commit()
+                with write_transaction(project.db):
+                    request.entry.mark_prepared(
+                        project,
+                        receipt_id=reservation["receipt_id"],
+                        run_id=progress.run_id,
+                        attempt_id=attempt_id,
+                        output_fields=reservation["output_fields"],
+                        program=request.program,
+                        reservation_snapshot=reservation_snapshot,
+                    )
+                attach_run_edition_run_context(
+                    project,
+                    progress.run_id,
+                    execution_context.edition_snapshot,
+                )
         except CostGate as exc:
             error = request.entry.prepare_cost_gate_error(request.action, exc)
             return abort_prepare(
@@ -521,7 +542,7 @@ def _queue_v1_project_run_request(
                     )
                 from frisket.engine.runner.validation import action_program_for_spec
 
-                attempt = runner.authority.mint(
+                attempt = runner.authority.mint_in_transaction(
                     program=request.program or action_program_for_spec(runner_spec),
                     spec=runner_spec,
                     run_id=progress.run_id,
@@ -531,13 +552,11 @@ def _queue_v1_project_run_request(
                             output_column_ids,
                         )
                     ),
-                    commit=False,
                 )
                 renewed = OutputColumnClaimStore(project).renew(
                     claim_token=claim_token,
                     run_id=progress.run_id,
                     lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
-                    commit=False,
                 )
                 if renewed != len(output_column_ids):
                     raise RuntimeError(
@@ -551,7 +570,6 @@ def _queue_v1_project_run_request(
                     output_fields=reservation["output_fields"],
                     program=request.program,
                     reservation_snapshot=reservation_snapshot,
-                    commit=False,
                 )
             if atomic_publication:
                 attach_run_edition_run_context(
@@ -735,6 +753,16 @@ def queue_v1_action_run(
                 )
 
                 envelope = reserve_typed_find_action_job(
+                    project,
+                    project_id,
+                    bound,
+                    edition_run_context=execution_context.edition_snapshot,
+                    consent_coverage=ctx.request_executor_deps().consent_coverage,
+                )
+            elif getattr(bound.action.definition.run, "capabilities", ()) == (
+                IndexRefresher,
+            ):
+                envelope = reserve_typed_embedding_refresh_action_job(
                     project,
                     project_id,
                     bound,

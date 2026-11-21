@@ -173,9 +173,10 @@ def test_cloud_model_estimate_and_run_price_the_same_uncapped_purchase(
 
     # Standing coverage includes the selected payer, then admission binds
     # that exact account, quote, route, and source scope for the worker.
-    write_project_settings(
-        project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
+        )
     kwargs["consent_coverage"] = ConsentCoverage(
         instance_principal(project), Decimal("2")
     )
@@ -192,7 +193,8 @@ def test_cloud_model_estimate_and_run_price_the_same_uncapped_purchase(
         ProjectSettings(cloud_user_id=8, cloud_account_id=41),
         ProjectSettings(cloud_user_id=7, cloud_account_id=42),
     ):
-        write_project_settings(project, settings)
+        with project.transaction_scope():
+            write_project_settings(project, settings)
         with pytest.raises(validation.ClaimsGate) as changed:
             validation.validate_spec(
                 project, router, RunResultStore(project), spec, **kwargs

@@ -104,13 +104,14 @@ def _bind_resume_claim(
     action_kind: str,
 ) -> str:
     claim_token = f"output-claim:test:paged-resume:{run_id}:{output_name}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=[output_name],
-        action_kind=action_kind,
-        claim_token=claim_token,
-        lease_seconds=6 * 60 * 60,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=[output_name],
+            action_kind=action_kind,
+            claim_token=claim_token,
+            lease_seconds=6 * 60 * 60,
+        )
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
@@ -266,13 +267,14 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
             authority=UnroutedOnlyAuthority(project),
         )
         claim_token = "output-claim:test:queued-paged-scope"
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["out"],
-            action_kind=_WindowProbeProgram.PROGRAM_NAME,
-            claim_token=claim_token,
-            lease_seconds=6 * 60 * 60,
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["out"],
+                action_kind=_WindowProbeProgram.PROGRAM_NAME,
+                claim_token=claim_token,
+                lease_seconds=6 * 60 * 60,
+            )
         assert conflict is None
         assert len(claims) == 1
         prepared = runner.prepare_run(_spec(sheet_id), confirmed=True)

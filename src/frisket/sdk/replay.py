@@ -263,8 +263,6 @@ def output_columns_replay_error(
         if ref.get("kind") != output_kind and not hidden:
             continue
         seen_output = True
-        column_id = ref.get("column_id")
-        sheet_id = ref.get("sheet_id")
         row = replay_output_column_identity(
             project,
             receipt,
@@ -275,6 +273,15 @@ def output_columns_replay_error(
         )
         if isinstance(row, ActionError):
             return row
+        column_id = ref.get("column_id")
+        sheet_id = ref.get("sheet_id")
+        if not isinstance(column_id, int) or not isinstance(sheet_id, int):
+            return ActionError(
+                code=error_code,
+                message=f"{action_kind} replay receipt has invalid output refs",
+                action_kind=receipt.action_kind,
+                details={"receipt_id": receipt.receipt_id, "output": output.name},
+            )
         # Treat `format` as operation policy only when the ref opts in.
         if (
             compare_declared_format

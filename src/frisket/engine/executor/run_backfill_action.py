@@ -164,12 +164,15 @@ def _resolve_retry(
     if not remaining:
         raise ValueError("Execution has no unfinished requested rows")
     columns = [project.get_column(binding.column_id) for binding in bindings]
-    if any(column is None or not column["active"] for column in columns):
+    active_columns = [
+        column for column in columns if column is not None and column["active"]
+    ]
+    if len(active_columns) != len(columns) or not active_columns:
         raise ValueError(
             "Original output columns are no longer active. Reapply saved results "
             "to restore completed work, or start a new action for unfinished rows."
         )
-    target = columns[0]
+    target = active_columns[0]
     resolved = _resolve_backfill_target(
         project,
         sheet_id=scope.sheet_id,
@@ -266,29 +269,30 @@ def run_typed_backfill_action(
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
     if existing is not None:
         prior = Receipt.model_validate(json.loads(existing["body"]))
-        replay_error = None
+        existing_replay_error: Callable[[Receipt], ActionError | None] | None = None
         if any(
             output.ref.get("kind") == "semantic_join_link_sheet"
             for output in prior.outputs
         ):
             from frisket.engine.executor.semantic_join_action import _replay_error
 
-            replay_error = partial(_replay_error, project)
+            existing_replay_error = partial(_replay_error, project)
         return _reserved_receipt_result_from_existing(
             project,
             existing,
             params_hash=request_hash,
             project_id=project_id,
             action=action,
-            replay_error_fn=replay_error,
+            replay_error_fn=existing_replay_error,
         )
     try:
         plan = prepare_backfill_action(project, bound, edition=edition)
         # A callable may inspect other admitted preparations before choosing one.
         # Recheck the selected source after it returns, before reserving or running.
+        source_run_id = getattr(bound.params, "source_run_id", None)
         if (
-            _resolve_retry(project, bound, bound.params.source_run_id, edition=edition)
-            if hasattr(bound.params, "source_run_id")
+            _resolve_retry(project, bound, source_run_id, edition=edition)
+            if isinstance(source_run_id, int)
             else _resolve(project, bound, ColumnRef[Any](plan.column), edition=edition)
         ) != plan:
             raise ValueError("the prepared backfill source changed before execution")
@@ -422,7 +426,7 @@ def run_typed_backfill_action(
                 ),
             ]
         )
-        if producer_plan is not None:
+        if producer_plan is not None and successor_request_hash is not None:
             producer = _typed_receipt(
                 current,
                 run_id,
@@ -465,22 +469,24 @@ def run_typed_backfill_action(
         runner.allow_action_lifecycle_only_programs = True
         return runner
 
-    write = None
-
-    def replay_error(_receipt):
+    def _no_replay_error(_receipt: Receipt) -> ActionError | None:
         return None
 
-    if semantic_origin is not None:
+    write: Callable[..., ActionResult] | None = None
+    replay_error: Callable[[Receipt], ActionError | None] = _no_replay_error
+
+    if semantic_origin is not None and semantic_resolved is not None:
         from frisket.engine.executor.action_specs import ResolvedAction
         from frisket.engine.executor.semantic_join_action import (
             _replay_error,
             finalize_semantic_join,
         )
 
+        resolved_semantic = semantic_resolved
         replay_error = partial(_replay_error, project)
 
-        def write(current, action, params, **kwargs):
-            kwargs["resolved"] = ResolvedAction.from_resolve_dict(semantic_resolved)
+        def _write_semantic(current, action, params, **kwargs):
+            kwargs["resolved"] = ResolvedAction.from_resolve_dict(resolved_semantic)
             return finalize_semantic_join(
                 current,
                 action,
@@ -490,6 +496,8 @@ def run_typed_backfill_action(
                 origin_receipt=semantic_origin,
                 **kwargs,
             )
+
+        write = _write_semantic
 
     return _run_reserved_maprunner_action(
         project,
