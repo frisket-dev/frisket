@@ -21,8 +21,8 @@ import sqlalchemy as sa
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from frisket.local_provider_config import ENV_VAR
 from frisket.ops import media_proxy as media_proxy_config
-from frisket.server.provider_config import ENV_VAR
 from frisket.team.control_plane import ORGANIZATION_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.http_helpers import invite_http_error

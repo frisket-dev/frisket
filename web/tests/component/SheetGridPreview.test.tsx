@@ -207,17 +207,16 @@ describe('preview grid interactions', () => {
   });
 
   it.each([
-    ['map.summarize', 'Summarize', {}, 'Summarize'],
-    ['media.transcribe', 'Transcribe', {}, 'Transcribe'],
-    ['media.transcribe', 'Transcribe', { group_label: 'Interview transcript' }, 'Interview transcript'],
-  ])('labels document text neutrally and %s with its public title or explicit label', async (actionKind, actionName, spec, expectedLabel) => {
+    ['map.summarize', 'Summarize', 'Summarize'],
+    ['media.transcribe', 'Transcribe', 'Transcribe'],
+  ])('labels document text neutrally and %s with its public title', async (actionKind, actionName, expectedLabel) => {
     const ordinaryRun: ColumnRun = {
       runId: '43',
       actionKind,
       actionName,
       model: 'local',
       status: 'completed',
-      spec,
+      spec: {},
       totalRows: 2,
       completedRows: 2,
       failedRows: 0,

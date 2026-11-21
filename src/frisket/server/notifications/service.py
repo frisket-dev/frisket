@@ -26,8 +26,6 @@ from frisket.engine.store.notifications import (
     require_notification_route,
 )
 
-NOTIFICATION_PAGE_SCHEMA_VERSION: Final = "frisket.notifications_page.v1"
-NOTIFICATION_SUMMARY_SCHEMA_VERSION: Final = "frisket.notifications_summary.v1"
 NOTIFICATION_CHANNELS_SCHEMA_VERSION: Final = "frisket.notification_channels.v1"
 NOTIFICATION_ROUTES_SCHEMA_VERSION: Final = "frisket.notification_routes.v1"
 NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION: Final = (

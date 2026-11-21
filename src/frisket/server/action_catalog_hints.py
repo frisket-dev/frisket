@@ -44,6 +44,7 @@ from frisket.execution.resolver import (
 )
 from frisket.execution.targets import ExecutionTarget, TargetEngineSupport
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
+from frisket.local_provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
 
 ACTION_PROVIDER_DEFAULT_OUTPUT = {
@@ -956,7 +957,6 @@ def _action_engines(
             PROVIDERLESS_CLASSIFY_MODEL,
             local_embedder,
         )
-        from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
         classify_declarations = _table_decls(CLASSIFY_ENGINE_TABLE)
         llm_providers = _configured_llm_providers(
@@ -1145,7 +1145,6 @@ def _action_engines(
         return [_declared_engine(declaration)]
     if action_kind == "map.translate":
         from frisket.credentials import resolve_credential
-        from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
         # Match execution's effective provider-key overlay.
         llm_providers = _configured_llm_providers(
@@ -1470,14 +1469,14 @@ def _action_engines(
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
-        from frisket.server.provider_config import ENV_VAR, PROVIDER_LABELS
+        from frisket.server.provider_config import PROVIDER_LABELS
 
         vision_engines = []
         for entry in ocr_vision_engines():
             provider = entry["provider"]
             available = provider in ocr_llm_providers
             label = PROVIDER_LABELS.get(provider, provider.replace("-", " ").title())
-            env_name = ENV_VAR.get(provider)
+            env_name = PROVIDER_ENV_VAR.get(provider)
             configuration_hint = (
                 f"env {env_name} or Settings → AI Providers"
                 if env_name
@@ -1656,7 +1655,6 @@ def _action_engines(
         # probe (find_spec only, never spacy.load), shared with the program so
         # catalog == runtime, mirroring tesseract_available for OCR.
         from frisket.ops.spacy_ner import SPACY_MODEL, spacy_available
-        from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
         spacy_ok, spacy_err = spacy_available()
         ok, err, models = _sidecar_engine(
