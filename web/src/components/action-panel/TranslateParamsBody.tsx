@@ -1,21 +1,13 @@
-import { useEffect, useRef } from 'react';
-
-import type { GeneratedActionParams } from '../../generated/actionTypes';
 import { TranslatePairPicker } from '../TranslatePairPicker';
 import { EngineLanguageControl } from './EngineLanguageControl';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { useMergedParams, useOnKeyChange } from './paramsBodyHooks';
 
 export function TranslateParamsBody({ params, setParams, engine, errors, Field }:
   GeneratedActionParamsBodyProps<'map.translate'>) {
   const selectedEngine = params.engine ?? 'llm';
-  const previousEngine = useRef(selectedEngine);
-  const latestParams = useRef(params);
 
-  useEffect(() => { latestParams.current = params; }, [params]);
-
-  useEffect(() => {
-    if (previousEngine.current === selectedEngine) return;
-    previousEngine.current = selectedEngine;
+  useOnKeyChange(selectedEngine, () => {
     const next = { ...params };
     if (selectedEngine !== 'llm') {
       delete next.model;
@@ -26,15 +18,11 @@ export function TranslateParamsBody({ params, setParams, engine, errors, Field }
       next.save_detected_language = false;
     }
     setParams(next);
-  }, [params, selectedEngine, setParams]);
+  });
 
-  // The pair swap emits two coordinated edits in one event. Merge both against
-  // the latest draft so the second update retains the first language change.
-  const updatePair = (change: Partial<GeneratedActionParams['map.translate']>) => {
-    const next = { ...latestParams.current, ...change };
-    latestParams.current = next;
-    setParams(next);
-  };
+  // The pair swap emits two coordinated edits in one event; merge against the
+  // latest draft so the second update retains the first language change.
+  const updatePair = useMergedParams(params, setParams);
 
   return <>
     <Field name="source" label="Content" />

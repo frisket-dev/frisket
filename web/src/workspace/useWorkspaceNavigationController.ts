@@ -22,7 +22,7 @@ import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { ChromeHandle } from '../core/route/projectRouteState';
 import { routeStateToRoute, type RouteState } from '../core/route/RouteState';
-import { activateSourceLink, openSourceLink, parseSourceLink } from '../components/evidence/sourceLink';
+import { activateSourceLink, openSourceLink, parseSourceLink } from '../components/citations/sourceLink';
 import { requestGridCellReveal } from '../grid/gridCellReveal';
 import { navigate, replaceRoute, takeRunLinkParam, type RoutePanel } from '../routes';
 import type { CitationViewerFocus, CitationViewerHost } from '../state/chromeStore';

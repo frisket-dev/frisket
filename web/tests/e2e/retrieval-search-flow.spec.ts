@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  REPO_ROOT,
   createProject,
   importCsv,
   openPalette,
@@ -14,10 +15,6 @@ import {
 } from './helpers';
 import { testPython } from '../support/testPython';
 
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 const SCREENSHOTS = process.env.FRISKET_RETRIEVAL_SCREENSHOTS;
 
 test.use({

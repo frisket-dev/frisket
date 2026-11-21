@@ -11,7 +11,7 @@ from frisket.execution.purchases import (
 )
 from frisket.execution.dispatch_control import dispatch_for_context
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from frisket.actions.translate_types import translation_text
 from frisket.ai.models.metadata import ModelCallMeta
@@ -23,13 +23,16 @@ from frisket.execution.credential_use import (
 from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 
+if TYPE_CHECKING:
+    from frisket.engine._workers.opus_mt_session import OpusMtSession
+
 
 class TranslationEngine:
     """Existing hosted/local engines, producing logical values and actual facts."""
 
     def __init__(self, *, invocation_owned: bool = False) -> None:
         self._invocation_owned = invocation_owned
-        self._opus_session = None
+        self._opus_session: OpusMtSession | None = None
 
     async def aclose(self) -> None:
         if self._opus_session is not None:
@@ -263,6 +266,12 @@ class TranslationEngine:
                     else None
                 )
             )
+            if credential_context is None or not isinstance(cost_posture, str):
+                raise ActionProgramInvocationHalt(
+                    "promise_violation",
+                    f"the hosted {engine} translation call is missing consented "
+                    "credential context; review the claims and re-consent to resume",
+                )
             try:
                 require_consented_credential(
                     cost_posture=cost_posture,

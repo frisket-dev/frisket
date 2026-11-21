@@ -49,7 +49,7 @@ import re
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
@@ -108,7 +108,7 @@ from .types import (
 
 # our mechanism ids -> pydantic-ai output modes (used only to drive a
 # ModelProfile).
-_MECH_TO_MODE = {
+_MECH_TO_MODE: dict[str, Literal["tool", "native", "prompted"]] = {
     NATIVE_STRICT: "native",
     NATIVE_TOOL: "tool",
     JSON_LOOSE: "prompted",
@@ -346,7 +346,7 @@ class FrisketRouterModel(Model):
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._params = dict(params or {})
-        self._reasoning_policy = reasoning_policy
+        self._reasoning_policy: ReasoningPolicy | None = reasoning_policy
         self._trace = trace
         self._on_request = on_request
         self._before_request = before_request
@@ -657,19 +657,22 @@ class FrisketRouterModel(Model):
                 # identity. Replay their logical result as assistant JSON so a
                 # validation retry never invents a provider-native tool call.
                 provider_details = {_WIRE_CONTENT: json.dumps(data)}
+            tool_part = (
+                ToolCallPart(
+                    tool_name=params.output_tools[0].name,
+                    args=data,
+                    tool_call_id=tool_call_id,
+                    provider_details=provider_details,
+                )
+                if tool_call_id is not None
+                else ToolCallPart(
+                    tool_name=params.output_tools[0].name,
+                    args=data,
+                    provider_details=provider_details,
+                )
+            )
             return ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        tool_name=params.output_tools[0].name,
-                        args=data,
-                        **(
-                            {"tool_call_id": tool_call_id}
-                            if tool_call_id is not None
-                            else {}
-                        ),
-                        provider_details=provider_details,
-                    )
-                ],
+                parts=[tool_part],
                 usage=usage,
                 model_name=self.model_name,
                 provider_name=self.system,
@@ -1011,12 +1014,15 @@ def _sum_response(
     # completion spent, not a fabricated NULL. A wholly-cached response or
     # any live attempt whose bracket didn't fire makes the total unknown
     # rather than a confident partial sum.
-    if not live_calls:
-        total_duration_ms = None
-    elif any(response.duration_ms is None for response in live_calls):
+    live_durations = [
+        response.duration_ms
+        for response in live_calls
+        if response.duration_ms is not None
+    ]
+    if not live_calls or len(live_durations) != len(live_calls):
         total_duration_ms = None
     else:
-        total_duration_ms = sum(response.duration_ms for response in live_calls)
+        total_duration_ms = sum(live_durations)
     actuals = [
         response.actual_accounting
         for response in live_calls

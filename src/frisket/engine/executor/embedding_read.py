@@ -12,6 +12,7 @@ from frisket.actions.types import EmbeddingVector, RowSource
 from frisket.ai.embeddings import EmbeddingStore
 from frisket.ai.embeddings.freshness import (
     FRESHNESS_FRESH,
+    IndexFreshness,
     freshness_error_code,
     freshness_reason,
     index_freshness,
@@ -362,10 +363,10 @@ def index_read_freshness_error(
     index: Any,
     action_kind: str,
     *,
-    fresh: Any | None = None,
+    fresh: IndexFreshness | None = None,
 ) -> ActionError | None:
-    fresh = index_freshness(project, index) if fresh is None else fresh
-    reason = freshness_reason(index, fresh)
+    resolved_fresh = index_freshness(project, index) if fresh is None else fresh
+    reason = freshness_reason(index, resolved_fresh)
     if reason == FRESHNESS_FRESH:
         return None
     code = freshness_error_code(reason) or "embedding_index_incomplete"
@@ -376,8 +377,8 @@ def index_read_freshness_error(
         field="params.index_id",
         details={
             "freshness_reason": reason,
-            "stale_source_keys": list(fresh.stale_source_key_samples),
-            "missing_source_keys": list(fresh.missing_source_key_samples),
+            "stale_source_keys": list(resolved_fresh.stale_source_key_samples),
+            "missing_source_keys": list(resolved_fresh.missing_source_key_samples),
         },
     )
 

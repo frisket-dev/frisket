@@ -164,6 +164,24 @@ def test_a_failed_row_leaves_its_project_partial_and_the_rest_built(
     assert "partial: Local stories" in out
 
 
+def test_a_failed_web_search_row_leaves_tariff_partial_and_continues(
+    monkeypatch, tmp_path
+):
+    server = FakeServer(failing=("Tariff impacts", "research.web_search"))
+
+    code, status = _seed(monkeypatch, tmp_path, server)
+
+    assert code == 0
+    assert status["Tariff impacts"]["state"] == "partial"
+    assert "failed_rows=1" in status["Tariff impacts"]["detail"]
+    # Downstream steps in the partial project are skipped once a row fails,
+    # while every other demo project still completes cleanly.
+    assert ("Tariff impacts", "map.summarize") not in server.actions
+    assert ("Tariff impacts", "map.classify") not in server.actions
+    for name in ["Local stories", "Council audio", "People mentioned"]:
+        assert status[name] == {"state": "complete", "detail": None}
+
+
 def test_a_project_that_cannot_be_built_does_not_stop_the_others(
     monkeypatch, tmp_path, capsys
 ):

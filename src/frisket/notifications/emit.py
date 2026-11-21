@@ -1,6 +1,6 @@
 """Generic notification core: candidate emission and route planning.
 
-Alerts, runs, sources, and plugins emit candidates. This module validates,
+Alerts, runs, feeds, and plugins emit candidates. This module validates,
 dedupes, records generic notification items, and plans external delivery
 requests. In-app delivery is the durable item/feed projection; external
 providers run only from delivery requests.

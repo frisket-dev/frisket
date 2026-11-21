@@ -104,7 +104,7 @@ def rapidocr_available() -> tuple[bool, str | None]:
             return False, RAPIDOCR_INSTALL_POINTER
         resolved_module = Path(module_file).resolve()
         if not any(
-            Path(distribution.locate_file(item)).resolve() == resolved_module
+            Path(str(distribution.locate_file(item))).resolve() == resolved_module
             for item in distribution_files
         ):
             return False, RAPIDOCR_INSTALL_POINTER
@@ -630,34 +630,47 @@ async def ocr_indra(
         ):
             report_progress(event["completed"], page_count)
 
-    runner = run_sandboxed_stdout_lines if pdf is not None else run_sandboxed
-    try:
-        result = await runner(
-            worker_argv("indra-ocr", runtime=runtime),
-            policy=SandboxPolicy(
-                cpu_seconds=1800,
-                wall_seconds=3600,
-                memory_mb=4096,
-                trusted_python_netwall=True,
-                confine=fence.Confinement(
-                    op="ocr (indra worker)",
-                    read=(
-                        *(str(page) for page in pages),
-                        *((str(pdf.absolute()),) if pdf is not None else ()),
-                        # Hub snapshot entries are symlinks into this repository's
-                        # sibling blobs directory, so confine the one repo cache.
-                        str(model_dir.parent.parent),
-                        "/proc/cpuinfo",
-                        "/sys/devices/system/cpu",
-                    ),
-                    write=(str(scratch),),
+    async def _run_worker():
+        argv = worker_argv("indra-ocr", runtime=runtime)
+        policy = SandboxPolicy(
+            cpu_seconds=1800,
+            wall_seconds=3600,
+            memory_mb=4096,
+            trusted_python_netwall=True,
+            confine=fence.Confinement(
+                op="ocr (indra worker)",
+                read=(
+                    *(str(page) for page in pages),
+                    *((str(pdf.absolute()),) if pdf is not None else ()),
+                    # Hub snapshot entries are symlinks into this repository's
+                    # sibling blobs directory, so confine the one repo cache.
+                    str(model_dir.parent.parent),
+                    "/proc/cpuinfo",
+                    "/sys/devices/system/cpu",
                 ),
+                write=(str(scratch),),
             ),
-            stdin_data=json.dumps(payload, separators=(",", ":")).encode(),
+        )
+        stdin_data = json.dumps(payload, separators=(",", ":")).encode()
+        if pdf is not None:
+            return await run_sandboxed_stdout_lines(
+                argv,
+                policy=policy,
+                stdin_data=stdin_data,
+                scratch_dir=scratch,
+                should_cancel=cancelled,
+                on_stdout_line=progress_line,
+            )
+        return await run_sandboxed(
+            argv,
+            policy=policy,
+            stdin_data=stdin_data,
             scratch_dir=scratch,
             should_cancel=cancelled,
-            **({"on_stdout_line": progress_line} if pdf is not None else {}),
         )
+
+    try:
+        result = await _run_worker()
     except (OSError, ValueError, fence.SandboxEnforcementUnavailable) as exc:
         raise ActionProgramInvocationHalt(
             "local_session_failed",

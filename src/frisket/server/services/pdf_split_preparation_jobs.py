@@ -185,6 +185,8 @@ class PdfSplitPreparationJobs:
                 raise ValueError("source-page preparation approval changed")
             plan = read_pdf_split_plan(directory)
             sources = {str(source["key"]): source for source in plan["sources"]}
+            if session.sheet_id is None:
+                return None
             columns = {
                 str(column["name"]): int(column["id"])
                 for column in project.columns(int(session.sheet_id))
@@ -508,7 +510,7 @@ class PdfSplitPreparationJobs:
             raise ValueError("Reading this import's text was stopped")
         project = self.workspace.get(project_id)
         session = ImportSessionStore(project).get(import_ref)
-        if self._superseded(project, session, str(generation)):
+        if session is None or self._superseded(project, session, str(generation)):
             raise ValueError("This import's rows are no longer available")
         sheet = project.db.execute(
             "SELECT hidden FROM sheets WHERE id=?", (session.sheet_id,)

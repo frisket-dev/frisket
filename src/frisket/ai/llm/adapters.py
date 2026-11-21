@@ -25,6 +25,7 @@ from .types import (
     LLMError,
     LLMRequest,
     LLMResponse,
+    LLMToolCall,
     SchemaViolation,
     has_document_content,
 )
@@ -351,13 +352,13 @@ class AnthropicAdapter:
         ):
             data = None
             content = None
-            output_tool_call = None
+            output_tool_call: LLMToolCall | None = None
             # Named (non-"emit") tool_use blocks round-trip to `tool_calls`
             # when this request carried `tools` -- collected as a list even though
             # today's callers dispatch one tool per turn, since Anthropic's wire
             # protocol allows multiple tool_use blocks in a single response
             # (parallel tool calls).
-            tool_calls = [] if req.tools else None
+            tool_calls: list[LLMToolCall] | None = [] if req.tools else None
             for block in out["content"]:
                 btype = block["type"]
                 if btype == "tool_use":
@@ -637,12 +638,12 @@ class OpenAICompatAdapter:
             # tool_use blocks above -- a list of {"name","args","id"}, collected
             # even though today's callers dispatch one tool per turn (OpenAI's
             # wire protocol allows several parallel tool_calls in one message).
-            tool_calls: list[dict[str, Any]] | None = None
+            tool_calls: list[LLMToolCall] | None = None
             if req.tools:
                 tool_calls = []
                 for tc in message.get("tool_calls") or []:
                     fn = tc["function"]
-                    call = {
+                    call: LLMToolCall = {
                         "name": fn["name"],
                         "args": fn["arguments"],
                         "id": tc["id"],
@@ -793,7 +794,7 @@ class OpenAICompatAdapter:
             output = out.get("output")
             if not isinstance(output, list):
                 raise TypeError("output is not a list")
-            calls: list[dict[str, Any]] = []
+            calls: list[LLMToolCall] = []
             text: list[str] = []
             reasoning: list[dict[str, Any]] = []
             for item in output:
@@ -1096,7 +1097,11 @@ def _usage_count(usage: dict[str, Any], field: str, api_key: str) -> int:
 def _malformed_response_error(
     operation: str, error: Exception, api_key: str
 ) -> LLMError:
-    error_detail = redact_text(error, secret_values=(api_key,), max_chars=500)
+    try:
+        raw_error = str(error)
+    except Exception:
+        raw_error = f"[UNPRINTABLE {type(error).__name__}]"
+    error_detail = redact_text(raw_error, secret_values=(api_key,), max_chars=500)
     return LLMError(
         redact_text(
             f"malformed {operation} response: {error_detail}",

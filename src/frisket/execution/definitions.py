@@ -55,7 +55,7 @@ import math
 import os
 import re
 from dataclasses import replace
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +116,7 @@ from frisket.execution.targets import (
     TargetEngineSupport,
     ToMarkdownOptionSupport,
     TranslateOptionSupport,
+    Transport,
 )
 
 MODELS_GATEWAY_TIMEOUT_ENV = "FRISKET_TRANSCRIPTION_SIDECAR_TIMEOUT_SECONDS"
@@ -409,7 +410,7 @@ def _with_current_llm_catalog(target: ExecutionTarget) -> ExecutionTarget:
     return replace(target, engines=tuple(engines))
 
 
-def _ner_support(engine: str, transport: str) -> TargetEngineSupport:
+def _ner_support(engine: str, transport: Transport) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
         transport=transport,
@@ -418,10 +419,10 @@ def _ner_support(engine: str, transport: str) -> TargetEngineSupport:
     )
 
 
-def _classify_support(engine: str, transport: str) -> TargetEngineSupport:
+def _classify_support(engine: str, transport: Transport) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
-        transport=transport,  # type: ignore[arg-type]
+        transport=transport,
         capability=CAPABILITY_CLASSIFY,
         options=ClassifyOptionSupport(),
     )
@@ -429,14 +430,14 @@ def _classify_support(engine: str, transport: str) -> TargetEngineSupport:
 
 def _translate_support(
     engine: str,
-    transport: str,
+    transport: Transport,
     *,
     source_language: bool,
     auto_detect_source: bool,
 ) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
-        transport=transport,  # type: ignore[arg-type]
+        transport=transport,
         capability=CAPABILITY_TRANSLATE,
         options=TranslateOptionSupport(
             source_language=source_language,
@@ -1081,6 +1082,8 @@ class StaticExecutionTargetProvider:
         if not callable(reader):
             return None
         rows = reader()
+        if isinstance(rows, (str, bytes)) or not isinstance(rows, Iterable):
+            raise TypeError("secret_rows must return rows with a name")
         try:
             return any(str(row["name"]) == name for row in rows)
         except (KeyError, IndexError, TypeError) as exc:
@@ -1210,7 +1213,8 @@ class StaticExecutionTargetProvider:
         reader = getattr(self._secrets, "provider_model_keys", None)
         if not callable(reader):
             return None
-        value = reader().get(provider)
+        keys = reader()
+        value = keys.get(provider) if isinstance(keys, Mapping) else None
         return str(value).strip() or None if value else None
 
     def _remote_api_connection(self, provider: str) -> ConnectionConfig | None:
@@ -1227,7 +1231,11 @@ class StaticExecutionTargetProvider:
         )
         source_reader = getattr(self._router, "configured_key_sources", None)
         sources = source_reader() if callable(source_reader) else {}
-        source = sources.get(provider, "local") if key else "local"
+        source = (
+            sources.get(provider, "local")
+            if key and isinstance(sources, Mapping)
+            else "local"
+        )
         if not key:
             key = self._project_provider_key(provider)
             source = "project_key" if key else "local"

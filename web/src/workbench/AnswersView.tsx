@@ -17,7 +17,7 @@ import type { CellCitationSummary, ColumnDef, Row, SheetMeta } from '../api/type
 import type { CitationViewerApiPort } from '../api/ports';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { ResizeSeam } from '../components/ResizeSeam';
-import { CitationChip } from '../components/evidence/CitationChip';
+import { CitationChip } from '../components/citations/CitationChip';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
 import { useResizable } from '../components/useResizable';

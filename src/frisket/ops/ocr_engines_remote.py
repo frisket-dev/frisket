@@ -168,13 +168,19 @@ def halt_unless_consented_credential(
     effect: str,
     *,
     selected_owner: Any = None,
-    context: CredentialUseContext,
+    context: CredentialUseContext | None,
 ) -> None:
     """The §3.5 fence's halt vocabulary, at the dispatch layer that owns it —
     the OCR twin of ``sdk/ops/transcribe_engines.py``'s. ``credential_use`` states the
     direct constraint and refuses before effect; ``run.backfill`` is the one
     supported resume door. The halt vocabulary is owned by ``ops.base``,
     which the execution leaf modules deliberately do not import."""
+    if context is None:
+        raise ActionProgramInvocationHalt(
+            "promise_violation",
+            f"{effect} is missing its trusted request credential context; "
+            "select an authorized credential before resuming",
+        )
     try:
         require_consented_credential(
             cost_posture=route.cost_posture,
@@ -282,8 +288,12 @@ async def ocr_datalab(pages: list[Path], ctx: ActionContext, usage: dict) -> lis
                 )
             except BaseException as error:
                 if accepted_accounting is not None:
-                    error.accounting = accepted_accounting
-                    error.provider_job_accepted = True
+                    if isinstance(error, DatalabEngineError):
+                        error.accounting = accepted_accounting
+                        error.provider_job_accepted = True
+                    else:
+                        setattr(error, "accounting", accepted_accounting)
+                        setattr(error, "provider_job_accepted", True)
                 raise
 
         rate = datalab_ocr_page_rate()

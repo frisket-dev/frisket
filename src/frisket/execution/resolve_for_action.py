@@ -570,18 +570,23 @@ def _classify_cost_basis(
     # The durable identity deliberately omits unset defaults. Execution already
     # has validated typed Params; use the same fully populated fields for cost.
     params = program._params.model_dump(mode="json")
-    question_builder, estimate_tokens = clef_questions, estimate_clef_input_tokens
+    context = classification_context(params)
     if engine == "openai-decisions":
         from frisket.contracts.decisions import (
             decisions_questions,
             estimate_decisions_tokens,
         )
 
-        question_builder, estimate_tokens = (
-            decisions_questions,
-            estimate_decisions_tokens,
-        )
-    questions = question_builder(params["fields"], classification_context(params))
+        decisions_qs = decisions_questions(params["fields"], context)
+
+        def estimate_row_tokens(text: str) -> int:
+            return estimate_decisions_tokens(text, decisions_qs)
+    else:
+        clef_qs = clef_questions(params["fields"], context)
+
+        def estimate_row_tokens(text: str) -> int:
+            return estimate_clef_input_tokens(text, clef_qs)
+
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     input_tokens = 0
     for row_id in target_rows(project, dict(spec)):
@@ -590,7 +595,7 @@ def _classify_cost_basis(
         )
         text = classification_text(values)
         if text.strip():
-            input_tokens += estimate_tokens(text, questions)
+            input_tokens += estimate_row_tokens(text)
     return estimate_classify(
         target_id=target_id,
         engine=engine,
@@ -1660,11 +1665,12 @@ def record_resolved_execution(
     from frisket.execution.attempt import _attempt_owner
 
     _attempt_owner(run_id, receipt_id)
-    store = (
-        RouteStore.for_receipt(project, receipt_id)
-        if receipt_id is not None
-        else RouteStore.for_run(project, run_id)
-    )
+    if receipt_id is not None:
+        store = RouteStore.for_receipt(project, receipt_id)
+    elif run_id is not None:
+        store = RouteStore.for_run(project, run_id)
+    else:
+        raise ValueError("route writer requires run_id or receipt_id")
     # The route row's authored options are the CAPABILITY's option set; the
     # capability comes off the selected support row rather than off the spec,
     # so what is recorded is what was resolved.

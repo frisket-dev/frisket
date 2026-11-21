@@ -629,7 +629,7 @@ def _redact_text_with_secrets(
 
 
 def redact_text(
-    text: str,
+    text: object,
     *,
     secret_values: Iterable[str | None] = (),
     max_chars: int = DEFAULT_ERROR_TEXT_MAX_CHARS,

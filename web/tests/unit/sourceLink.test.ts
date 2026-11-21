@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { GridCellKind } from '@glideapps/glide-data-grid';
-import { activateSourceLink, openSourceLink, parseSourceLink } from '../../src/components/evidence/sourceLink';
+import { activateSourceLink, openSourceLink, parseSourceLink } from '../../src/components/citations/sourceLink';
 import { buildCell } from '../../src/grid/cells';
 import { parsePathname } from '../../src/routes';
 import { routeToRouteState } from '../../src/core/route/locationMatchesRouteState';

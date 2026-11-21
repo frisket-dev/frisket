@@ -117,7 +117,12 @@ def _prepared_word_stream(
             tokens.append(
                 WordToken(
                     text=text,
-                    box=tuple(float(bbox[key]) for key in ("x0", "y0", "x1", "y1")),
+                    box=(
+                        float(bbox["x0"]),
+                        float(bbox["y0"]),
+                        float(bbox["x1"]),
+                        float(bbox["y1"]),
+                    ),
                     page=int(pin.page_number),
                     source="ocr",
                 )
@@ -684,7 +689,7 @@ def _transcript_segment_indices_spans(
     # Tolerate the shapes real models return: ints, but also numeric strings
     # ("2") and floats (2.0) that the structured-output stack may surface for an
     # integer-typed array. A non-numeric entry is dropped, not fatal.
-    indices: list[int] = []
+    indices: list[int | str] = []
     for value in raw_indices:
         coerced = _int_or_none(value)
         if coerced is not None:
@@ -914,7 +919,7 @@ def _resolve_citation_entry_spans(
             or []
         )
         prepared = _resolve_prepared_text(project, prepared_source)
-        if prepared.source_artifact_id is not None:
+        if prepared is not None and prepared.source_artifact_id is not None:
             from frisket.engine.store.evidence import get_source_artifact
 
             pdf_artifact = get_source_artifact(project, prepared.source_artifact_id)

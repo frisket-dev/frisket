@@ -22,13 +22,12 @@ from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
-from frisket.project_identity import ProjectStorageKey
 
+from .import_table import _project_payload
 from .ports import JobHandlerContext
 from .project_opener import ProjectOpener, open_claimed_project
 from .queue import (
     BLOB_METADATA_KIND,
-    CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY,
     IMPORT_FILES_PAGE_KIND,
     JobQueue,
     claimed_project_location,
@@ -107,20 +106,8 @@ def register_import_files_handler(
         )
         sessions = ImportSessionStore(project)
 
-        def project_payload() -> dict:
-            continuation = {
-                "project_id": project_id,
-                "workspace_root": str(project_root),
-            }
-            claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
-            if isinstance(claimed, ProjectStorageKey):
-                continuation["storage_org_id"] = claimed.storage_org_id
-            if isinstance(context.trusted_job_organization_id, int):
-                continuation["org_id"] = context.trusted_job_organization_id
-            return continuation
-
         def schedule_metadata(receipt_id: str) -> None:
-            continuation = project_payload()
+            continuation = _project_payload(payload, context, project_id, project_root)
             continuation["dedupe_key"] = f"blob-metadata:{receipt_id}"
             queue.enqueue(BLOB_METADATA_KIND, continuation)
 
@@ -250,7 +237,9 @@ def register_import_files_handler(
                                 else 0,
                             }
                         if pages >= _PAGES_PER_CLAIM:
-                            continuation = project_payload()
+                            continuation = _project_payload(
+                                payload, context, project_id, project_root
+                            )
                             continuation.update(
                                 import_ref=ref,
                                 through=through,
@@ -259,7 +248,9 @@ def register_import_files_handler(
                             queue.enqueue(IMPORT_FILES_PAGE_KIND, continuation)
                             return {
                                 "status": "running",
-                                "completed_rows": session.committed_rows,
+                                "completed_rows": session.committed_rows
+                                if session is not None
+                                else 0,
                             }
                         if header.staged_files:
                             for item in inventory.page(
@@ -289,9 +280,10 @@ def register_import_files_handler(
                         pages += 1
                         if session.state == "completed":
                             schedule_metadata(envelope.receipt_id)
-                            notify_terminal(
-                                project_id, envelope.receipt_id, session.sheet_id
-                            )
+                            if session.sheet_id is not None:
+                                notify_terminal(
+                                    project_id, envelope.receipt_id, session.sheet_id
+                                )
                             compact_terminal(directory)
                             return {
                                 "status": "completed",
@@ -314,7 +306,11 @@ def register_import_files_handler(
                 from .search_index import enqueue_search_index
 
                 try:
-                    enqueue_search_index(project, queue, project_payload())
+                    enqueue_search_index(
+                        project,
+                        queue,
+                        _project_payload(payload, context, project_id, project_root),
+                    )
                 except Exception:
                     logging.getLogger(__name__).warning(
                         "search_index_enqueue_failed", exc_info=True

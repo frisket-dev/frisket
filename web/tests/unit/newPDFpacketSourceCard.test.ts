@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CitationArtifact } from '../../src/api/open';
-import { pdfPacketSourceCardData } from '../../src/components/evidence/pdfPacketSourceCardModel';
+import { pdfPacketSourceCardData } from '../../src/components/citations/pdfPacketSourceCardModel';
 
 const artifact = {
   filename: 'FOIA packet.pdf',
