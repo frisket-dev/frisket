@@ -19,7 +19,7 @@ from frisket.engine.store.prepared_content import (
     PreparedPageDraft,
 )
 from frisket.retrieval.content import (
-    TextChunkRecipe,
+    TextSliceSpec,
     TextSurface,
     TranscriptSegment,
     TranscriptSurface,
@@ -169,7 +169,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     make_project,
 ) -> None:
     project = make_project("resume")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
     sheet_id = project.add_sheet("Documents")
@@ -200,7 +200,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None
@@ -223,7 +223,7 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None and state.status == "ready"
@@ -286,7 +286,7 @@ def test_unsupported_media_is_scoped_unavailable_without_encoder(
         dispatch_resolved_blob_source(store, resolved)
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="unsupported-media-v1",
+            slice_id="unsupported-media-v1",
             channel=UNSUPPORTED_MEDIA_CHANNEL,
         )
         assert state is not None
@@ -480,7 +480,7 @@ def test_pdf_render_failure_marks_target_failed_and_releases_queue(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="pdf-page-png-v1:dpi=144:max-edge=1600",
+            slice_id="pdf-page-png-v1:dpi=144:max-edge=1600",
             channel=PDF_PAGE_CHANNEL,
         )
         assert state is not None
@@ -588,7 +588,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="image-bytes-v1",
+            slice_id="image-bytes-v1",
             channel=IMAGE_CHANNEL,
         )
         assert state is not None
@@ -605,7 +605,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
         dispatch_resolved_blob_source(store, resolved)
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="image-bytes-v1",
+            slice_id="image-bytes-v1",
             channel=IMAGE_CHANNEL,
         )
         assert state is not None
@@ -618,7 +618,7 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id="image-bytes-v1",
+            slice_id="image-bytes-v1",
             channel=IMAGE_CHANNEL,
         )
         assert state is not None
@@ -668,10 +668,10 @@ def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
     project = make_project("policy-edit-during-index")
     concurrent = Project(project.path)
     old_policy = PreparationPolicy(
-        text_recipe=TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
+        text_recipe=TextSliceSpec(max_codepoints=8, overlap_codepoints=0)
     )
     current_policy = PreparationPolicy(
-        text_recipe=TextChunkRecipe(max_codepoints=16, overlap_codepoints=0)
+        text_recipe=TextSliceSpec(max_codepoints=16, overlap_codepoints=0)
     )
     original_read_snapshot = Project.read_snapshot
     injected = False
@@ -702,11 +702,11 @@ def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
         assert not index_needs_work(project)
         with RetrievalStore(project).open() as store:
             recipes = store.db.execute(
-                "SELECT recipe_id,status FROM preparation WHERE channel=?",
+                "SELECT slice_id,status FROM preparation WHERE channel=?",
                 (TEXT_CHANNEL,),
             ).fetchall()
             assert [tuple(row) for row in recipes] == [
-                (current_policy.text_recipe.recipe_id, "ready")
+                (current_policy.text_recipe.slice_id, "ready")
             ]
     finally:
         concurrent.close()
@@ -761,7 +761,7 @@ def test_stored_future_policy_keys_are_ignored_without_enabling_paid_work(
 
     policy = read_preparation_policy(project)
 
-    assert policy.text_recipe == TextChunkRecipe(
+    assert policy.text_recipe == TextSliceSpec(
         max_codepoints=256, overlap_codepoints=32
     )
     assert policy.video_recipe is None
@@ -841,7 +841,7 @@ def test_video_audio_opt_in_fans_out_and_policy_disable_retires_recipe(
             store, resolved, policy=DEFAULT_PREPARATION_POLICY
         )
         audio = store.db.execute(
-            "SELECT recipe_id,status,error_code FROM preparation "
+            "SELECT slice_id,status,error_code FROM preparation "
             "WHERE source_id=? AND channel='audio'",
             (resolved.source.source_id,),
         ).fetchone()
@@ -906,7 +906,7 @@ def test_transcript_preparation_resumes_derived_segments(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             source.source_id,
-            recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
+            slice_id=DEFAULT_TRANSCRIPT_RECIPE.slice_id,
             channel=TRANSCRIPT_CHANNEL,
         )
         assert state is not None and state.status == "ready"
@@ -944,7 +944,7 @@ def test_dirty_dispatch_prepares_real_timestamped_transcript_column(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             work.source_revision.source_id,
-            recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
+            slice_id=DEFAULT_TRANSCRIPT_RECIPE.slice_id,
             channel=TRANSCRIPT_CHANNEL,
         )
         assert state is not None and state.status == "ready"
@@ -1071,7 +1071,7 @@ def test_media_cell_dispatches_native_blob_and_derived_ocr(
 
 def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> None:
     project = make_project("unavailable")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
@@ -1093,7 +1093,7 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> 
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None and state.status == "unavailable"
@@ -1103,7 +1103,7 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> 
 
 def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) -> None:
     project = make_project("startup-miss")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _MissingAtStartEncoder()
     sheet_id = project.add_sheet("Documents")
@@ -1125,7 +1125,7 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) 
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             resolved.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None
@@ -1137,7 +1137,7 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) 
 
 def test_preparation_reuses_project_representation_cache(make_project) -> None:
     project = make_project("cache")
-    recipe = TextChunkRecipe(max_codepoints=32, overlap_codepoints=0)
+    recipe = TextSliceSpec(max_codepoints=32, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
     sheet_id = project.add_sheet("Documents")
@@ -1180,7 +1180,7 @@ def test_repeated_chunks_share_one_representation_with_distinct_locations(
     make_project,
 ) -> None:
     project = make_project("repeated-chunks")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
     sheet_id = project.add_sheet("Documents")
@@ -1301,7 +1301,7 @@ def test_lexical_drain_leaves_semantic_preparation_pending(make_project) -> None
 
 def test_edit_during_preparation_rejects_old_cursor_target(make_project) -> None:
     project = make_project("edit")
-    recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
@@ -1335,7 +1335,7 @@ def test_edit_during_preparation_rejects_old_cursor_target(make_project) -> None
     with RetrievalStore(project).open() as store:
         old_state = store.preparation_state(
             old.source.source_id,
-            recipe_id=recipe.recipe_id,
+            slice_id=recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert old_state is not None
@@ -1426,7 +1426,7 @@ def test_source_file_edit_retires_pending_text(
     with RetrievalStore(project).open() as store:
         state = store.preparation_state(
             source.source.source_id,
-            recipe_id=DEFAULT_PREPARATION_POLICY.text_recipe.recipe_id,
+            slice_id=DEFAULT_PREPARATION_POLICY.text_recipe.slice_id,
             channel=TEXT_CHANNEL,
         )
         assert state is not None

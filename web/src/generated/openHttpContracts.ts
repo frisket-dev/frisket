@@ -4232,7 +4232,7 @@ type HttpAskEventsPage_AskResearchState = ({
   "currency": ("USD") & (string);
   "id": (string);
   "max_turns": (((number)) | ((null)));
-  "pending_approval": ((({
+  "pending_pause": ((({
   [key: string]: (HttpAskEventsPage_JsonValue);
 })) | ((null)));
   "remaining_micros": (number);
@@ -4332,11 +4332,11 @@ export type HttpAskResearchConfiguration = ({
 });
 
 export type HttpAskResearchResume = ({
-  "approval_id": (string);
   "budget_usd"?: (((string)) | ((null)));
   "decision"?: ("continue" | "approve" | "skip") & (string);
   "expected_revision": (number);
   "max_turns"?: (((number)) | ((null)));
+  "pause_id": (string);
   "write_mode"?: ((("ask_each" | "ask_overwrite" | "full_access") & (string)) | ((null)));
 });
 
@@ -4528,7 +4528,7 @@ type HttpAskThreadDetail_AskResearchState = ({
   "currency": ("USD") & (string);
   "id": (string);
   "max_turns": (((number)) | ((null)));
-  "pending_approval": ((({
+  "pending_pause": ((({
   [key: string]: (HttpAskThreadDetail_JsonValue);
 })) | ((null)));
   "remaining_micros": (number);
@@ -4684,7 +4684,7 @@ type HttpAskTurn_AskResearchState = ({
   "currency": ("USD") & (string);
   "id": (string);
   "max_turns": (((number)) | ((null)));
-  "pending_approval": ((({
+  "pending_pause": ((({
   [key: string]: (HttpAskTurn_JsonValue);
 })) | ((null)));
   "remaining_micros": (number);
@@ -12090,8 +12090,8 @@ type HttpProjectSearchResponse_ProjectSearchChannelCoverage = ({
   "gap_sheet_ids"?: (((Array<(number)>)) | ((null)));
   "prepared_count"?: (((number)) | ((null)));
   "reason": (((string)) | ((null)));
-  "recipe_id": (((string)) | ((null)));
   "setup"?: (((HttpProjectSearchResponse_ProjectSearchSetup)) | ((null)));
+  "slice_id": (((string)) | ((null)));
   "state": ("ready" | "pending" | "failed" | "unavailable") & (string);
 });
 
@@ -12179,7 +12179,7 @@ type HttpProjectSearchResponse_ProjectSearchPageRange = ({
 type HttpProjectSearchResponse_ProjectSearchPart = ({
   "part_id": (string);
   "part_kind": (string);
-  "producer_recipe_id": (string);
+  "producer_slice_id": (string);
 });
 
 type HttpProjectSearchResponse_ProjectSearchSetup = ({

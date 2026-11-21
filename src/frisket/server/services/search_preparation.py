@@ -936,7 +936,7 @@ class SearchPreparationService:
                 pdf_files, pdf_files_truncated = read_pdf_indexing_progress(
                     project,
                     space_id=DEFAULT_TEXT_SPACE.identity,
-                    recipe_id=PDF_PAGE_RECIPE_ID,
+                    slice_id=PDF_PAGE_RECIPE_ID,
                     limit=MAX_PDF_INDEXING_FILES,
                 )
             except sqlite3.Error:

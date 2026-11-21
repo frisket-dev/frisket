@@ -91,7 +91,7 @@ class SemanticQueryVectors:
 class _Candidate:
     source: SourceRevision
     part_id: str
-    producer_recipe_id: str
+    producer_slice_id: str
     part_kind: str
     locator: SourceLocator
     binding: ScopedBinding
@@ -824,7 +824,7 @@ class RetrievalQueryService:
           JOIN chosen_groups USING (group_partition)
         )
         SELECT part.part_id,source.source_id,source.version_kind,
-               source.version_value,source.version_type,part.recipe_id,
+               source.version_value,source.version_type,part.slice_id,
                part.part_kind,part.locator_json,source.source_kind,
                source.content_hash,retrieval_binding.binding_id,
                retrieval_binding.sheet_id,retrieval_binding.row_id,
@@ -1286,7 +1286,7 @@ def read_preparation_sheet_names(project: Any, *, limit: int) -> tuple[str, ...]
               FROM idx.preparation
               WHERE status IN ('pending','preparing')
               ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
-                       source_id,recipe_id,channel
+                       source_id,slice_id,channel
               LIMIT ?
             )
             SELECT sheet.name
@@ -1316,7 +1316,7 @@ def read_preparation_sheet_names(project: Any, *, limit: int) -> tuple[str, ...]
 
 
 def read_pdf_indexing_progress(
-    project: Any, *, space_id: str, recipe_id: str, limit: int
+    project: Any, *, space_id: str, slice_id: str, limit: int
 ) -> tuple[tuple[PdfIndexingProgress, ...], bool]:
     """Read bounded committed PDF checkpoints through current visible bindings."""
     if limit < 1:
@@ -1337,14 +1337,14 @@ def read_pdf_indexing_progress(
              AND source.version_value=preparation.target_version_value
              AND source.version_type=preparation.target_version_type
             JOIN main.blobs AS blob ON blob.hash=source.version_value
-            WHERE preparation.recipe_id=? AND preparation.channel='pdf_page'
+            WHERE preparation.slice_id=? AND preparation.channel='pdf_page'
               AND preparation.space_id=? AND preparation.status='preparing'
               AND source.source_kind='blob' AND source.version_kind='blob_digest'
               AND source.version_type='text' AND source.source_id='blob:'||blob.hash
               AND blob.mime='application/pdf'
               AND json_extract(preparation.cursor_json,'$.kind')='pdf_pages'
               AND json_extract(preparation.cursor_json,'$.source_id')=source.source_id
-              AND json_extract(preparation.cursor_json,'$.recipe_id')=preparation.recipe_id
+              AND json_extract(preparation.cursor_json,'$.slice_id')=preparation.slice_id
               AND json_type(preparation.cursor_json,'$.next_page')='integer'
               AND json_type(preparation.cursor_json,'$.page_count')='integer'
               AND json_extract(preparation.cursor_json,'$.next_page')>=1
@@ -1360,7 +1360,7 @@ def read_pdf_indexing_progress(
                   AND {_binding_is_current("retrieval_binding")}
               )
             ORDER BY preparation.source_id LIMIT ?""",
-            (*scope.params, recipe_id, space_id, limit + 1),
+            (*scope.params, slice_id, space_id, limit + 1),
         ).fetchall()
     return (
         tuple(PdfIndexingProgress(**dict(row)) for row in rows[:limit]),
@@ -1534,7 +1534,7 @@ def _lexical_candidate(row: sqlite3.Row) -> _Candidate:
         part_id=identity_digest(
             "lexical_source_part", {"source": source, "locator": locator}
         ),
-        producer_recipe_id="frisket.lexical.whole-source.v1",
+        producer_slice_id="frisket.lexical.whole-source.v1",
         part_kind="lexical_source",
         locator=locator,
         binding=_binding(row),
@@ -1555,7 +1555,7 @@ def _semantic_candidate(row: sqlite3.Row) -> _Candidate:
     return _Candidate(
         source=_source_revision(row),
         part_id=str(row["part_id"]),
-        producer_recipe_id=str(row["recipe_id"]),
+        producer_slice_id=str(row["slice_id"]),
         part_kind=str(row["part_kind"]),
         locator=_locator_from_json(str(row["locator_json"])),
         binding=_binding(row),
@@ -1943,7 +1943,7 @@ def _located_hit(candidate: _Candidate, *, rank: int, rank_score: float) -> Loca
         part=IndexedPart(
             part_id=candidate.part_id,
             source=candidate.source,
-            producer_recipe_id=candidate.producer_recipe_id,
+            producer_slice_id=candidate.producer_slice_id,
             part_kind=candidate.part_kind,
             locator=candidate.locator,
         ),

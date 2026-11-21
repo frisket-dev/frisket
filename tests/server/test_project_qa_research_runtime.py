@@ -185,7 +185,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
     try:
         await asyncio.wait_for(published.wait(), 5)
         current = ledger.get(research["id"])
-        assert current["pending_approval"]["kind"] == "turn_limit"
+        assert current["pending_pause"]["kind"] == "turn_limit"
         assert current["turn_count"] == 1
         assert adapter.calls == 1
         assert len(adapter.policy.observations) == adapter.calls

@@ -307,7 +307,7 @@ class ProjectQAService:
                 "write_mode",
                 "max_turns",
                 "turn_count",
-                "pending_approval",
+                "pending_pause",
             )
         }
         state.update(
@@ -1055,7 +1055,7 @@ class ProjectQAService:
             if body.write_mode is not None:
                 preferences["write_mode"] = body.write_mode
             await session.resume(
-                pause_id=body.approval_id,
+                pause_id=body.pause_id,
                 expected_revision=body.expected_revision,
                 decision=body.decision,
                 actor=actor,

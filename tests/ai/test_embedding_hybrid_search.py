@@ -118,7 +118,7 @@ def _publish_lexical_cells(project, sheet, column, row_ids):
         for row_id, source in resolved.items():
             binding = source.binding
             retrieval.begin_preparation(
-                source.source, recipe_id="test-lexical-v1", channel="lexical"
+                source.source, slice_id="test-lexical-v1", channel="lexical"
             )
             assert retrieval.publish_source(
                 SourcePublication(

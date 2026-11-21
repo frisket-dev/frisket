@@ -649,11 +649,11 @@ def _check_constraints(sql):
 
 
 def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
+    upgrade_project_schema(old_db, bundle_path=Path("project.db"))
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)

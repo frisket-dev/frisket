@@ -45,10 +45,10 @@ def identity_digest(kind: str, payload: Any) -> str:
     return f"sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}"
 
 
-def producer_recipe_id(recipe: Any) -> str:
+def producer_slice_id(recipe: Any) -> str:
     """Identity of embedding-affecting part production and sampling settings."""
 
-    return identity_digest("producer_recipe", recipe)
+    return identity_digest("producer_slice", recipe)
 
 
 def part_id(source_revision: Any, recipe: Any, locator: Any, *, kind: str) -> str:

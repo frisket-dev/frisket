@@ -55,11 +55,11 @@ def publish_bindings(project, store, revision, locations):
             dependencies=(BindingDependency(row, column, cell_revision),),
         )
 
-    store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+    store.begin_preparation(revision, slice_id="passages:v1", channel="text")
     assert store.publish_source(
         SourcePublication(
             source_revision=revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             parts=(),
             bindings=tuple(
