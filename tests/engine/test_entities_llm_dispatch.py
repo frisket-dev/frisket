@@ -1,12 +1,10 @@
 from __future__ import annotations
 from functools import partial
-from contextlib import closing
 
 from model_doubles import canned_reply_router
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -94,49 +92,46 @@ def test_completion_derives_fingerprint_from_entity_values():
 
 
 def _seed_project(
-    project_path: Path,
+    project: Project,
     *,
     body: str = "Ada Lovelace wrote notes for Charles Babbage.",
 ) -> int:
-    with closing(Project.create(project_path, name="NER LLM Dispatch")) as project:
-        sheet_id = project.add_sheet("Docs")
-        columns = {"body": project.add_column(sheet_id, "body", type="text")}
-        project.add_rows(
-            sheet_id,
-            [{"body": body}],
-            columns,
-        )
-        return sheet_id
+    sheet_id = project.add_sheet("Docs")
+    columns = {"body": project.add_column(sheet_id, "body", type="text")}
+    project.add_rows(
+        sheet_id,
+        [{"body": body}],
+        columns,
+    )
+    return sheet_id
 
 
-def test_estimate_prices_llm_engine_as_a_real_model_call(tmp_path: Path) -> None:
-    project_path = tmp_path / "ner-llm-estimate.frisket"
-    sheet_id = _seed_project(project_path)
-    with closing(Project(project_path)) as project:
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        llm_spec = {
-            "action_kind": "map.ner",
-            "sheet_id": sheet_id,
-            "input_columns": ["body"],
-            "labels": ["person"],
-            "engine": "llm",
-            "model": "anthropic/claude-haiku-4-5",
-            "output_name": "entities",
-        }
-        gliner_spec = {**llm_spec, "engine": "gliner", "model": None}
-        llm = model_plan(llm_spec, project)
-        gliner = model_plan(gliner_spec, project)
-        runner.allow_action_lifecycle_only_programs = True
-        llm_est = runner.estimate(llm.spec_dict(), program=llm.program)
-        gliner_est = runner.estimate(gliner.spec_dict(), program=gliner.program)
-        assert "avg_input_tokens" in llm_est
-        assert gliner_est["cost"] == 0.0
+def test_estimate_prices_llm_engine_as_a_real_model_call(project: Project) -> None:
+    sheet_id = _seed_project(project)
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    llm_spec = {
+        "action_kind": "map.ner",
+        "sheet_id": sheet_id,
+        "input_columns": ["body"],
+        "labels": ["person"],
+        "engine": "llm",
+        "model": "anthropic/claude-haiku-4-5",
+        "output_name": "entities",
+    }
+    gliner_spec = {**llm_spec, "engine": "gliner", "model": None}
+    llm = model_plan(llm_spec, project)
+    gliner = model_plan(gliner_spec, project)
+    runner.allow_action_lifecycle_only_programs = True
+    llm_est = runner.estimate(llm.spec_dict(), program=llm.program)
+    gliner_est = runner.estimate(gliner.spec_dict(), program=gliner.program)
+    assert "avg_input_tokens" in llm_est
+    assert gliner_est["cost"] == 0.0
 
 
 def test_llm_engine_declares_model_cost_while_local_engine_is_free():
@@ -220,14 +215,13 @@ def test_map_ner_llm_engine_requires_a_model():
 
 
 def test_map_ner_llm_engine_runs_and_writes_unified_entities(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """The core dispatch proof: kind="map.ner", engine="llm" through the
     REAL executor (`run_action_spec`, no manual re-packaging into a
     map.extract action) completes and writes the SAME unified
     {text,type,start,end,score} shape spacy/gliner write."""
-    project_path = tmp_path / "ner-llm-dispatch.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_dispatch@sha256:run"
     )
@@ -245,69 +239,67 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
         }
     )
 
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        # stays a genuine map.ner run, not a re-labeled map.extract one.
-        assert result.action.kind == "map.ner"
-        assert len(adapter.requests) == 1
-        assert "Only named people." in json.dumps(
-            [m for m in adapter.requests[0].messages]
-        )
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    # stays a genuine map.ner run, not a re-labeled map.extract one.
+    assert result.action.kind == "map.ner"
+    assert len(adapter.requests) == 1
+    assert "Only named people." in json.dumps(
+        [m for m in adapter.requests[0].messages]
+    )
 
-        column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-        assert column["type"] == "json"
-        values = project.get_values(sheet_id, column["id"])
-        (row_id, entities) = next(iter(values.items()))
-        # unified shape: "label" -> "type", canonicalized -- same contract
-        # spacy/gliner write (tests/test_entities_output_spans.py).
-        assert entities == [
-            {
-                "text": "Ada Lovelace",
-                "type": "person",
-                "start": 0,
-                "end": 12,
-                "score": 0.92,
-                "fingerprint": "ada lovelace",
-            }
-        ]
+    column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    assert column["type"] == "json"
+    values = project.get_values(sheet_id, column["id"])
+    (row_id, entities) = next(iter(values.items()))
+    # unified shape: "label" -> "type", canonicalized -- same contract
+    # spacy/gliner write (tests/test_entities_output_spans.py).
+    assert entities == [
+        {
+            "text": "Ada Lovelace",
+            "type": "person",
+            "start": 0,
+            "end": 12,
+            "score": 0.92,
+            "fingerprint": "ada lovelace",
+        }
+    ]
 
-        # output refs: column + named_result, matching the gliner/spacy shape
-        # (tests/test_map_ner_executor.py) -- llm dispatch does not change
-        # the receipt's public contract.
-        assert [(output.kind, output.name) for output in result.outputs] == [
-            ("column", "entities"),
-            ("named_result", "entities"),
-        ]
+    # output refs: column + named_result, matching the gliner/spacy shape
+    # (tests/test_map_ner_executor.py) -- llm dispatch does not change
+    # the receipt's public contract.
+    assert [(output.kind, output.name) for output in result.outputs] == [
+        ("column", "entities"),
+        ("named_result", "entities"),
+    ]
 
-        # grounding/evidence per the NER precedent: map.ner's own span writer
-        # ran (entities-unified-output-and-spans-v1), not map.extract's
-        # generic grounding wrapper.
-        evidence = list_cell_citations(
-            project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
-        )
-        assert evidence["links"], "map.ner(engine=llm) must write an evidence link"
-        link = evidence["links"][0]
-        assert link["span_count"] == 1
-        viewer = resolve_citation_viewer(project, link["id"])
-        artifact = viewer["artifacts"][0]
-        assert artifact["artifact_kind"] == "text"
-        span = artifact["spans"][0]
-        assert span["quote"] == "Ada Lovelace"
-        assert span["selector"]["char_start"] == 0
-        assert span["selector"]["char_end"] == 12
+    # grounding/evidence per the NER precedent: map.ner's own span writer
+    # ran (entities-unified-output-and-spans-v1), not map.extract's
+    # generic grounding wrapper.
+    evidence = list_cell_citations(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
+    )
+    assert evidence["links"], "map.ner(engine=llm) must write an evidence link"
+    link = evidence["links"][0]
+    assert link["span_count"] == 1
+    viewer = resolve_citation_viewer(project, link["id"])
+    artifact = viewer["artifacts"][0]
+    assert artifact["artifact_kind"] == "text"
+    span = artifact["spans"][0]
+    assert span["quote"] == "Ada Lovelace"
+    assert span["selector"]["char_start"] == 0
+    assert span["selector"]["char_end"] == 12
 
 
 def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project_path = tmp_path / "ner-llm-evidence-rollback.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _stub_router(
         {
             "entities": [
@@ -328,55 +320,49 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
         raise RuntimeError("evidence write failed")
 
     monkeypatch.setattr(ner_module, "_write_ner_result_citations", fail_after_evidence)
-    project = Project(project_path)
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_evidence_rollback@sha256:stable"
     )
-    with closing(project):
-        result = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
-        assert result.status == "failed"
-        assert result.run_id is not None and result.receipt_id is not None
-        assert [error.code for error in result.errors] == ["project_write_failed"]
-        assert result.errors[0].message == "project write failed"
-        assert len(adapter.requests) == 1
-        run = project.db.execute("SELECT * FROM runs").fetchone()
-        assert run["status"] == "failed"
-        assert run["current_attempt_id"] is None
-        assert run["cost_actual"] == pytest.approx(0.004)
-        checkpoint = project.db.execute(
-            "SELECT state,payload FROM effect_checkpoints WHERE family='row_effect'"
-        ).fetchone()
-        assert checkpoint["state"] == "returned"
-        payload = json.loads(checkpoint["payload"])["entities"]
-        assert payload[_NER_CITATION_CAPTURE_KEY]["schema_version"].endswith(
-            "ner_input_capture.v1"
-        )
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
-        )
-        monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
-        before = tuple(project.db.iterdump())
-        replay = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
-        assert replay.model_dump() == result.model_dump()
-        assert len(adapter.requests) == 1
-        assert tuple(project.db.iterdump()) == before
+    result = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert result.status == "failed"
+    assert result.run_id is not None and result.receipt_id is not None
+    assert [error.code for error in result.errors] == ["project_write_failed"]
+    assert result.errors[0].message == "project write failed"
+    assert len(adapter.requests) == 1
+    run = project.db.execute("SELECT * FROM runs").fetchone()
+    assert run["status"] == "failed"
+    assert run["current_attempt_id"] is None
+    assert run["cost_actual"] == pytest.approx(0.004)
+    checkpoint = project.db.execute(
+        "SELECT state,payload FROM effect_checkpoints WHERE family='row_effect'"
+    ).fetchone()
+    assert checkpoint["state"] == "returned"
+    payload = json.loads(checkpoint["payload"])["entities"]
+    assert payload[_NER_CITATION_CAPTURE_KEY]["schema_version"].endswith(
+        "ner_input_capture.v1"
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0] == 0
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
+    before = tuple(project.db.iterdump())
+    replay = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert replay.model_dump() == result.model_dump()
+    assert len(adapter.requests) == 1
+    assert tuple(project.db.iterdump()) == before
 
 
-def test_map_ner_llm_engine_drops_malformed_model_entities(tmp_path: Path) -> None:
+def test_map_ner_llm_engine_drops_malformed_model_entities(project: Project) -> None:
     """postprocess_value's canonicalization runs on the llm path too: a
     malformed model entity (missing start/end) is dropped rather than
     corrupting the cell, same as spacy/gliner (canonicalize_entities)."""
-    project_path = tmp_path / "ner-llm-dispatch-malformed.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_dispatch@sha256:malformed"
     )
@@ -389,28 +375,28 @@ def test_map_ner_llm_engine_drops_malformed_model_entities(tmp_path: Path) -> No
         }
     )
 
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
-        assert result.status == "completed", result.errors
-        column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-        (entities,) = project.get_values(sheet_id, column["id"]).values()
-        assert entities == [
-            {
-                "text": "Ada Lovelace",
-                "type": "person",
-                "start": 0,
-                "end": 12,
-                "score": None,
-                "fingerprint": "ada lovelace",
-            }
-        ]
+    result = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert result.status == "completed", result.errors
+    column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    (entities,) = project.get_values(sheet_id, column["id"]).values()
+    assert entities == [
+        {
+            "text": "Ada Lovelace",
+            "type": "person",
+            "start": 0,
+            "end": 12,
+            "score": None,
+            "fingerprint": "ada lovelace",
+        }
+    ]
 
 
-def test_map_ner_llm_highlights_every_exact_repeated_mention(tmp_path: Path) -> None:
-    project_path = tmp_path / "ner-llm-repeated-mention.frisket"
-    sheet_id = _seed_project(project_path, body="Ada met Ada.")
+def test_map_ner_llm_highlights_every_exact_repeated_mention(
+    project: Project,
+) -> None:
+    sheet_id = _seed_project(project, body="Ada met Ada.")
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_dispatch@sha256:repeated"
     )
@@ -429,24 +415,22 @@ def test_map_ner_llm_highlights_every_exact_repeated_mention(tmp_path: Path) -> 
         }
     )
 
-    with closing(Project(project_path)) as project:
-        result = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
-        assert result.status == "completed", result.errors
-        column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-        values = project.get_values(sheet_id, column["id"])
-        row_id, entities = next(iter(values.items()))
-        assert [(entity["start"], entity["end"]) for entity in entities] == [
-            (0, 3),
-            (8, 11),
-        ]
-        link = list_cell_citations(
-            project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
-        )["links"][0]
-        viewer = resolve_citation_viewer(project, link["id"])
-        spans = viewer["artifacts"][0]["spans"]
-        assert [
-            (span["selector"]["char_start"], span["selector"]["char_end"])
-            for span in spans
-        ] == [(0, 3), (8, 11)]
+    result = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert result.status == "completed", result.errors
+    column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    values = project.get_values(sheet_id, column["id"])
+    row_id, entities = next(iter(values.items()))
+    assert [(entity["start"], entity["end"]) for entity in entities] == [
+        (0, 3),
+        (8, 11),
+    ]
+    link = list_cell_citations(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
+    )["links"][0]
+    viewer = resolve_citation_viewer(project, link["id"])
+    spans = viewer["artifacts"][0]["spans"]
+    assert [
+        (span["selector"]["char_start"], span["selector"]["char_end"]) for span in spans
+    ] == [(0, 3), (8, 11)]

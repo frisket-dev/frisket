@@ -149,22 +149,20 @@ def test_result_write_sheet_delete_blocked_but_undo_cancels_import(
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
-def test_only_importing_sheet_is_frozen(tmp_path: Path, state: str) -> None:
-    with closing(
-        Project.create(tmp_path / f"scope-{state}.frisket", name="scope")
-    ) as project:
-        writer = _session(project)
-        if state == "paused":
-            writer.pause(expected_cursor=0)
-        elif state == "cancelled":
-            writer.cancel(expected_cursor=0)
-        other = project.add_sheet("Other")
-        project.delete_sheet(other)
+def test_only_importing_sheet_is_frozen(make_project, state: str) -> None:
+    project = make_project(f"scope-{state}")
+    writer = _session(project)
+    if state == "paused":
+        writer.pause(expected_cursor=0)
+    elif state == "cancelled":
+        writer.cancel(expected_cursor=0)
+    other = project.add_sheet("Other")
+    project.delete_sheet(other)
 
-        with pytest.raises(ImportInProgress) as caught:
-            project.delete_sheet(writer.sheet_id)
-        assert caught.value.sheet_id == writer.sheet_id
-        assert caught.value.state == state
+    with pytest.raises(ImportInProgress) as caught:
+        project.delete_sheet(writer.sheet_id)
+    assert caught.value.sheet_id == writer.sheet_id
+    assert caught.value.state == state
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
