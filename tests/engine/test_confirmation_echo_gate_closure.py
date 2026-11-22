@@ -736,6 +736,62 @@ def _drive_derive_join(
 
 
 @contextmanager
+def _drive_derive_spatial_join(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[Project, dict[str, Any], Callable[..., Any]]]:
+    del monkeypatch
+    project = Project.create(tmp_path / "spatial_join.frisket", name="spatial_join")
+    try:
+        left_id = project.add_sheet("Points")
+        left_cols = {
+            "location": project.add_column(left_id, "location", type="geo_point")
+        }
+        project.add_rows(
+            left_id,
+            [{"location": {"lat": 1.0, "lon": 1.0}} for _ in range(3)],
+            left_cols,
+        )
+        right_id = project.add_sheet("Zones")
+        right_cols = {
+            "geometry": project.add_column(right_id, "geometry", type="geo_shape")
+        }
+        square = {
+            "type": "Polygon",
+            "coordinates": [
+                [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]
+            ],
+        }
+        project.add_rows(
+            right_id,
+            [{"geometry": square} for _ in range(3)],
+            right_cols,
+        )
+        project.db.commit()
+        # 3 points x 3 overlapping polygons = 9 rows > cap 5 -> fan-out gate arms.
+        action = {
+            "action_id": "derive.spatial_join",
+            "scope": {"kind": "sheet_rows", "sheet_id": left_id},
+            "sheet_name": "GuardedSpatial",
+            "params": {
+                "point_column": "location",
+                "right_sheet": {"sheet_id": right_id},
+                "shape_column": "geometry",
+                "how": "left",
+                "match": "all",
+                "max_output_rows": 5,
+            },
+            "idempotency_key": "derive_spatial_join@sha256:echo-closure",
+        }
+
+        def run(spec: dict[str, Any]) -> Any:
+            return run_action_spec(project, spec, project_id="p-echo-closure")
+
+        yield project, action, run
+    finally:
+        project.close()
+
+
+@contextmanager
 def _drive_derive_collection_expand(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[Project, dict[str, Any], Callable[..., Any]]]:
@@ -1111,6 +1167,7 @@ _BESPOKE_DRIVERS: dict[str, Driver] = {
     "map.find": _drive_map_find,
     "sheet.refresh": _drive_sheet_refresh,
     "derive.join": _drive_derive_join,
+    "derive.spatial_join": _drive_derive_spatial_join,
     "derive.collection_expand": _drive_derive_collection_expand,
     "export.google_sheets": _drive_export_google_sheets,
     "run.backfill": _drive_run_backfill,

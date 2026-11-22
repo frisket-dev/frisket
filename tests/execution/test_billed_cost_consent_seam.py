@@ -805,6 +805,7 @@ _GATE_MODULES = (
 #: cost), so they are correctly outside the roster. Asserted, not assumed.
 _SCOPE_GATE_MODULES = (
     "src/frisket/engine/executor/joined_tables_read.py",
+    "src/frisket/engine/executor/spatial_join_read.py",
     "src/frisket/engine/executor/collection_read.py",
 )
 

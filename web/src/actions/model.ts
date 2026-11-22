@@ -553,6 +553,7 @@ export const ACTION_PLACEMENTS: Partial<Record<string, ActionPlacement>> = {
   'map.columns_from_json': { tab: 'tables', group: 'SHEETS', order: 1 },
   'join.semantic': { tab: 'tables', group: 'JOIN', order: 2 },
   'derive.join': { tab: 'tables', group: 'JOIN', order: 3, primary: true },
+  'derive.spatial_join': { tab: 'tables', group: 'JOIN', order: 4 },
   'derive.link_table': { tab: 'tables', group: 'SHEETS', order: 4 },
   'map.ask': { tab: 'analyze', group: 'ANALYZE', order: 0, primary: true },
   'map.summarize': { tab: 'analyze', group: 'ANALYZE', order: 1 },
@@ -596,6 +597,18 @@ const ACTION_SEARCH_KEYWORDS: Partial<Record<string, string[]>> = {
   'resolve.replace': ['replace', 'rules', 'find and replace', 'regex', 'resolve', 'clean'],
   'resolve.combine': ['combine', 'group values', 'buckets', 'merge', 'resolve', 'clean'],
   'resolve.fill_missing': ['fill', 'missing', 'blank', 'null', 'ffill', 'impute', 'resolve'],
+  'derive.spatial_join': [
+    'spatial join',
+    'point in polygon',
+    'polygon',
+    'geojson',
+    'geo_shape',
+    'geo_point',
+    'boundary',
+    'district',
+    'region',
+    'contains',
+  ],
 };
 
 const GENERATED_CATEGORY_PLACEMENTS: Record<string, ActionPlacement> = {

@@ -15,6 +15,7 @@ from typing import Any, Literal, NoReturn, TypeGuard
 
 from frisket.actions.core import CreateSheet, _ProjectAction
 from frisket.actions.join_types import JoinedTablesReader
+from frisket.actions.spatial_join_types import SpatialJoinReader
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
@@ -72,6 +73,7 @@ class _RefreshFacts:
     row_count: int
     match_stats: dict[str, Any] | None = None
     reads: tuple[dict[str, Any], ...] = ()
+    parent_action_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,7 @@ class _PreparedRefresh:
     captures: tuple[dict[str, Any], ...]
     source_binding: dict[str, Any]
     match_stats: dict[str, Any] | None = None
+    parent_action_kind: str | None = None
 
     @property
     def row_count(self):
@@ -133,7 +136,10 @@ def _sheet_refresh_plan(
     if (
         saved_action is not None
         and isinstance(saved_action.definition.run, CreateSheet)
-        and JoinedTablesReader in saved_action.definition.run.capabilities
+        and (
+            JoinedTablesReader in saved_action.definition.run.capabilities
+            or SpatialJoinReader in saved_action.definition.run.capabilities
+        )
     ):
         return _SheetRefreshPlan("join", derive_request)
 
@@ -415,7 +421,7 @@ def run_typed_sheet_refresh_action(
         }
         supporting_records = [ReceiptRecord(ref=refresh_ref)]
         if facts.match_stats is not None:
-            refresh_ref["parent_op_kind"] = "derive.join"
+            refresh_ref["parent_op_kind"] = facts.parent_action_kind or "derive.join"
             supporting_records = [
                 ReceiptRecord(ref=refresh_ref),
                 ReceiptRecord(ref=facts.match_stats, retention="pinned"),
@@ -787,7 +793,10 @@ def _refresh_join(
             confirmation=bound.request.confirmation,
         ),
     ) as prepared:
-        reader = prepared.readers[JoinedTablesReader]
+        reader = prepared.readers.get(JoinedTablesReader) or prepared.readers.get(
+            SpatialJoinReader
+        )
+        assert reader is not None
         if prepared.parent_sheet_id != int(sheet["parent_sheet_id"]):
             raise TableError(
                 "invalid_input_ref", "refreshed join must retain its parent sheet"
@@ -839,6 +848,7 @@ def _refresh_join(
                     "how": reads[0]["how"],
                     **reads[0]["stats"],
                 },
+                parent_action_kind=str(parent_op["kind"]),
             )
         except BaseException:
             stage.close()
@@ -1049,6 +1059,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
         count,
         prepared.match_stats,
         prepared.reads,
+        prepared.parent_action_kind,
     )
 
 

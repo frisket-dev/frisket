@@ -108,6 +108,23 @@ export type LinkTableParams = ({
   "include_unmatched"?: (boolean);
 });
 
+type SpatialJoinParams_ColumnRef_GeoPoint_ = (string);
+
+type SpatialJoinParams_SheetRef = ({
+  "sheet_id": (number);
+});
+
+export type SpatialJoinParams = ({
+  "point_column": (SpatialJoinParams_ColumnRef_GeoPoint_);
+  "right_sheet": (SpatialJoinParams_SheetRef);
+  "shape_column": (string);
+  "how"?: ("left" | "inner") & (string);
+  "match"?: ("all" | "first") & (string);
+  "right_columns"?: (((Array<(string)>)) | ((null)));
+  "indicator"?: (boolean);
+  "max_output_rows"?: (number);
+});
+
 type ListTableParams_ListColumnSource = ({
   "kind": ("column") & (string);
   "sheet_id": (number);
@@ -1789,6 +1806,7 @@ export interface GeneratedActionParams {
   'derive.collection_expand': CollectionExpandParams;
   'derive.join': JoinParams;
   'derive.link_table': LinkTableParams;
+  'derive.spatial_join': SpatialJoinParams;
   'derive.table_from_list': ListTableParams;
   'derive.temporal_segments': TemporalSegmentsParams;
   'derive.transcript_segments': TranscriptSegmentsParams;

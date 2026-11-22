@@ -116,6 +116,10 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     how: 'Matches equal key values across two sheets and creates a materialized sheet containing columns from both.',
     goodFor: 'Combining records that share an ID, case number, filename, or other exact key.',
   },
+  'derive.spatial_join': {
+    how: 'Matches each row’s geo_point coordinate against geo_shape polygons in another sheet and creates a derived sheet with matched polygon attributes.',
+    goodFor: 'Assigning geocoded locations or incidents to neighborhoods, districts, counties, or custom GeoJSON/KML boundaries.',
+  },
   'map.python': {
     how: 'Runs your Python expression or function independently for each selected row in the controlled action runtime.',
     goodFor: 'Custom calculations and transformations that are awkward to express with built-in actions.',

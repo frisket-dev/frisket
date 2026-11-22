@@ -44,7 +44,7 @@ def materialized_source_sheets(project: Any) -> dict[int, set[int]]:
                 continue
             if fact.get("kind") == "semantic_join_link_source":
                 keys = ("source_sheet_id", "target_sheet_id")
-            elif fact.get("kind") == "joined_tables_source":
+            elif fact.get("kind") in {"joined_tables_source", "spatial_join_source"}:
                 keys = ("left_sheet_id", "right_sheet_id")
             else:
                 continue
