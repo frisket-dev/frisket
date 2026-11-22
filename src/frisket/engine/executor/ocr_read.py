@@ -54,7 +54,7 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
 )
-from frisket.execution.attempt import routed_admission_in_scope
+from frisket.execution.attempt import cache_hit_units, routed_admission_in_scope
 from frisket.execution.provider import enforce_pdf_page_limit
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.runtime_binding import bind_fact_to_route
@@ -156,7 +156,7 @@ def _ocr_cache_hit_model_call(engine: str, *, transport: str, admission) -> dict
         provider=provider,
         provider_kind=provider_kind,
         model_ids=model_ids,
-        units={"pages": 0},
+        units=cache_hit_units({"pages": 0}, admission),
         cache={"hit": True, "source": EXTRACTION_CACHE_SOURCE},
     ).as_dict()
     if admission is not None:
@@ -219,22 +219,23 @@ class AdmittedOcrReader:
             raise ActionProgramInvocationHalt(
                 "promise_violation", "OCR requires its admitted engine"
             )
-        expected = (
-            "frisket.cloud.media.v1"
-            if (
-                admission is not None
-                and admission.binding.facts.cloud_payer is not None
-            )
-            or (preview is not None and preview.facts.cloud_payer is not None)
-            else "local"
+        is_cloud = (
+            admission is not None and admission.binding.facts.cloud_payer is not None
+        ) or (preview is not None and preview.facts.cloud_payer is not None)
+        expected_transports = (
+            {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}
+            if is_cloud and is_generic_vlm_ocr_engine(engine)
+            else {"frisket.cloud.media.v1"}
+            if is_cloud
+            else {"local"}
             if engine in engines.LOCAL_ENGINES
-            else "sidecar.ocr"
+            else {"sidecar.ocr"}
             if engine in engines.SIDECAR_ENGINES
-            else "datalab.convert"
+            else {"datalab.convert"}
             if engine == engines.DATALAB_ENGINE
-            else "opendocrouter.parse"
+            else {"opendocrouter.parse"}
             if engine.startswith("opendocrouter/")
-            else "remote"
+            else {"remote"}
         )
         if admission is None and preview is None:
             if engine not in engines.LOCAL_ENGINES:
@@ -243,7 +244,8 @@ class AdmittedOcrReader:
                 )
         elif admission is not None and (
             admission.route.target_snapshot.get("capability") != CAPABILITY_OCR
-            or admission.route.target_snapshot.get("transport") != expected
+            or admission.route.target_snapshot.get("transport")
+            not in expected_transports
             or (self._engine is not None and engine != self._engine)
             or admission.route.options
             != authored_options(self._options, CAPABILITY_OCR)
@@ -253,7 +255,7 @@ class AdmittedOcrReader:
             )
         elif preview is not None and (
             preview.support.capability != CAPABILITY_OCR
-            or preview.support.transport != expected
+            or preview.support.transport not in expected_transports
             or (self._engine is not None and engine != self._engine)
         ):
             raise ActionProgramInvocationHalt(

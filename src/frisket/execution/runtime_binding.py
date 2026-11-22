@@ -361,7 +361,8 @@ def bind_fact_to_route(
             f"route {route.id} snapshot carries unknown transport {transport!r}"
         )
     bound = dict(call)
-    if _is_cache_hit_call(bound):
+    is_cache_hit = _is_cache_hit_call(bound)
+    if is_cache_hit:
         actual_credential = "cache"
         _apply_cache_hit_fields(route, snapshot, target_id, transport, bound)
     else:
@@ -399,8 +400,14 @@ def bind_fact_to_route(
         "provenance": binding_provenance_version(str(snapshot["capability"])),
         "target_id": target_id,
         "engine": str(bound.get("engine") or route.engine),
-        "credential_source": actual_credential,
     }
+    if is_cache_hit:
+        # A cache hit never touches a provider credential, so it must not be
+        # observed as a route-credential divergence (which would append a
+        # spurious successor route and shift epoch_id on partial-hit runs).
+        observed["cache_hit"] = True
+    else:
+        observed["credential_source"] = actual_credential
     source = out or {}
     for key in _OBSERVED_ONLY_KEYS:
         value = source.get(key)

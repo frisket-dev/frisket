@@ -322,12 +322,21 @@ def validate_transcribe_cache_payload(payload: Any) -> dict[str, Any] | None:
     }
 
 
+def _sidecar_has_symlink(path: Path) -> bool:
+    return (
+        path.is_symlink()
+        or Path(f"{path}-wal").is_symlink()
+        or Path(f"{path}-shm").is_symlink()
+    )
+
+
 class BlobExtractionCache:
     """Disposable per-project SQLite cache inside ``project.cache.db``."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._db: sqlite3.Connection | None = None
+        self._schema_ready = False
 
     @classmethod
     def for_project(cls, project: Any) -> BlobExtractionCache | None:
@@ -347,13 +356,31 @@ class BlobExtractionCache:
             except sqlite3.Error:
                 pass
             self._db = None
+        self._schema_ready = False
+
+    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
+        if self._schema_ready:
+            return
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.Error:
+            pass
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='blob_extraction_cache'"
+        ).fetchone()
+        if row is None:
+            conn.executescript(EXTRACTION_CACHE_SCHEMA)
+        self._schema_ready = True
 
     def _connect(self, *, create: bool) -> sqlite3.Connection | None:
-        if self.path.is_symlink():
+        if _sidecar_has_symlink(self.path):
+            self.close()
             return None
         if not create and not self.path.exists():
             return None
         if self._db is not None:
+            if create and not self._schema_ready:
+                self._ensure_schema(self._db)
             return self._db
         if create:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -364,7 +391,7 @@ class BlobExtractionCache:
         )
         conn.execute(f"PRAGMA busy_timeout={int(_SQLITE_TIMEOUT_SECONDS * 1000)}")
         if create:
-            conn.executescript(EXTRACTION_CACHE_SCHEMA)
+            self._ensure_schema(conn)
         self._db = conn
         return conn
 
@@ -580,6 +607,19 @@ def _non_empty_row_candidates(
     return candidates
 
 
+def _source_columns_for_spec(spec: Mapping[str, Any], program: Any) -> list[str]:
+    if program is not None:
+        return [str(name) for name in program.source_columns(dict(spec))]
+    raw = spec.get("input_columns")
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
+        return [str(name) for name in raw if isinstance(name, str) and name]
+    for key in ("source", "input_column", "source_column"):
+        val = spec.get(key)
+        if isinstance(val, str) and val:
+            return [val]
+    return []
+
+
 def probe_extraction_cache_rows(
     project: Any,
     target: ExtractionTarget,
@@ -594,12 +634,12 @@ def probe_extraction_cache_rows(
     proved fails closed into ``live_row_ids``.
     """
     options = _normalized_options_for_target(target, spec)
-    if options is None:
+    source_names = _source_columns_for_spec(spec, program)
+    if options is None or not source_names:
         return frozenset(), frozenset(int(r) for r in row_ids)
 
     sheet_id = int(spec["sheet_id"])
     col_map = {str(c["name"]): int(c["id"]) for c in project.columns(sheet_id)}
-    source_names = [str(name) for name in program.source_columns(dict(spec))]
     int_row_ids = [int(r) for r in row_ids]
     values_by_col = {
         name: project.get_values(sheet_id, col_map[name], row_ids=int_row_ids)
@@ -607,7 +647,9 @@ def probe_extraction_cache_rows(
         if name in col_map
     }
     sidecar = cache_db_path(project)
-    readable = sidecar is not None and sidecar.exists() and not sidecar.is_symlink()
+    readable = (
+        sidecar is not None and sidecar.exists() and not _sidecar_has_symlink(sidecar)
+    )
     blobs = MediaBlobStore(project) if readable else None
     cached: set[int] = set()
     live: set[int] = set()

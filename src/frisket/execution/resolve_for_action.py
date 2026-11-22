@@ -403,6 +403,7 @@ class _ScopedCostInput:
     program: Any
     row_ids: Sequence[int] | None = None
     cached_row_ids: frozenset[int] = frozenset()
+    all_rows_cached: bool = False
 
 
 def _ocr_cost_basis(
@@ -439,6 +440,8 @@ def _ocr_cost_basis_for_scope(
         engine=engine,
     )
     if offering is not None and offering.estimate.quantity_unit == "usd":
+        if scoped.all_rows_cached:
+            return _cloud_model_cost_basis(resolution, CAPABILITY_OCR, row_micro={}), 0
         return _cloud_model_cost_basis(resolution, CAPABILITY_OCR), None
     if offering is None and (
         isinstance(funding, PlatformMetered)
@@ -1190,6 +1193,7 @@ def resolve_for_action(
                 program=program,
                 row_ids=resolved_scope_row_ids,
                 cached_row_ids=cached_row_ids,
+                all_rows_cached=bool(cached_row_ids) and live_rows_count == 0,
             )
             scoped_estimator = (
                 _ocr_cost_basis_for_scope

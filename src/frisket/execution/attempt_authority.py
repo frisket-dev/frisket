@@ -71,6 +71,7 @@ from frisket.engine.store.extraction_cache import (
 )
 from frisket.execution.resolver import CandidateBinding
 from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 class DependentChoiceRefusal(RuntimeError):
@@ -891,6 +892,69 @@ class UnroutedOnlyAuthority:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _ExtractionCacheCheckContext:
+    store: Any
+    route: Any
+    promise_set_row: Any
+    promises: tuple[Any, ...]
+    snapshot: Mapping[str, Any]
+    spec: Mapping[str, Any]
+    program: Any
+    scope: tuple[int, ...] | None
+    observed: Mapping[str, Any]
+    consented_cached_ids: frozenset[int]
+
+
+def _verify_admitted_extraction_cache(
+    project: Any, ctx: _ExtractionCacheCheckContext
+) -> None:
+    capability_name = str(ctx.snapshot["capability"])
+    if not ctx.consented_cached_ids or capability_name not in {
+        CAPABILITY_OCR,
+        CAPABILITY_TRANSCRIBE,
+    }:
+        return
+    scoped_cached = (
+        sorted(ctx.consented_cached_ids & set(ctx.scope))
+        if ctx.scope is not None
+        else sorted(ctx.consented_cached_ids)
+    )
+    if not scoped_cached:
+        return
+    target = ExtractionTarget(
+        capability=capability_name,
+        engine=ctx.route.engine,
+        transport=str(ctx.snapshot["transport"]),
+    )
+    if verify_consented_extraction_cache(
+        project,
+        target,
+        spec=ctx.spec,
+        program=ctx.program,
+        cached_row_ids=scoped_cached,
+    ):
+        return
+    cost_promise = next((p for p in ctx.promises if p.field == "cost"), None)
+    if cost_promise is not None:
+        ctx.store.record_violation(
+            route_id=ctx.route.id,
+            promise_set_id=ctx.promise_set_row.id,
+            promise=cost_promise.to_row(),
+            observed={
+                **ctx.observed,
+                "extraction_cache_missing_rows": scoped_cached,
+            },
+        )
+    raise ActionProgramInvocationHalt(
+        "promise_violation",
+        "cached extraction entries required by this attempt's "
+        "consented estimate are no longer available in "
+        "project.cache.db; re-estimate and confirm before "
+        "calling a paid extraction engine",
+    )
+
+
 def admit_routed(
     project: Any,
     run_id: int | None,
@@ -952,7 +1016,6 @@ def admit_routed(
         candidate_binding,
         route_row_facts_from_row,
     )
-    from frisket.ops.base import ActionProgramInvocationHalt
 
     if not isinstance(composition, ExecutionComposition):
         raise TypeError("admit_routed requires a full ExecutionComposition")
@@ -1057,10 +1120,12 @@ def admit_routed(
     if binding.facts.cloud_payer is not None:
         observed["cloud_payer"] = binding.facts.cloud_payer.to_snapshot()
     work_scope_snapshot: dict[str, Any] | None = None
-    if any(
+    has_work_scope_promise = any(
         isinstance((promise.basis or {}).get("work_scope"), Mapping)
         for promise in promises
-    ):
+    )
+    consented_cached_ids = admitted_cached_row_ids_from_promises(promises)
+    if has_work_scope_promise:
         from frisket.engine.store.runs import RunResultStore
         from frisket.execution.scope_identity import canonical_work_scope_binding
 
@@ -1196,37 +1261,21 @@ def admit_routed(
             "current terms and work scope before resuming",
         )
 
-    capability_name = str(snapshot["capability"])
-    consented_cached_ids = admitted_cached_row_ids_from_promises(promises)
-    if consented_cached_ids and capability_name in {
-        CAPABILITY_OCR,
-        CAPABILITY_TRANSCRIBE,
-    }:
-        scoped_cached = (
-            sorted(consented_cached_ids & set(scope))
-            if scope is not None
-            else sorted(consented_cached_ids)
-        )
-        if scoped_cached:
-            target = ExtractionTarget(
-                capability=capability_name,
-                engine=route.engine,
-                transport=str(snapshot["transport"]),
-            )
-            if not verify_consented_extraction_cache(
-                project,
-                target,
-                spec=spec,
-                program=program,
-                cached_row_ids=scoped_cached,
-            ):
-                raise ActionProgramInvocationHalt(
-                    "promise_violation",
-                    "cached extraction entries required by this attempt's "
-                    "consented estimate are no longer available in "
-                    "project.cache.db; re-estimate and confirm before "
-                    "calling a paid extraction engine",
-                )
+    _verify_admitted_extraction_cache(
+        project,
+        _ExtractionCacheCheckContext(
+            store=store,
+            route=route,
+            promise_set_row=promise_set_row,
+            promises=promises,
+            snapshot=snapshot,
+            spec=spec,
+            program=program,
+            scope=scope,
+            observed=observed,
+            consented_cached_ids=consented_cached_ids,
+        ),
+    )
 
     from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
 

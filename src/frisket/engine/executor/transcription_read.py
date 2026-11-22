@@ -31,7 +31,7 @@ from frisket.engine.store.extraction_cache import (
 )
 from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
 from frisket.engine.executor.visual_cuts_read import _settle
-from frisket.execution.attempt import routed_admission_in_scope
+from frisket.execution.attempt import cache_hit_units, routed_admission_in_scope
 from frisket.execution.provider import enforce_media_duration_limit
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.resolver import preview_resolution_in_scope
@@ -63,7 +63,7 @@ def _transcribe_cache_hit_model_call(
         provider=provider,
         provider_kind=provider_kind,
         model_ids=model_ids,
-        units={"audio_seconds": 0.0},
+        units=cache_hit_units({"audio_seconds": 0.0}, admission),
         cache={"hit": True, "source": EXTRACTION_CACHE_SOURCE},
     ).as_dict()
     if admission is not None:
