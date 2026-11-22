@@ -11,6 +11,7 @@ from typing import Any
 
 from frisket.actions.python_types import ReceiptRecordTarget
 from frisket.actions.system import typed_action_for_request
+from frisket.alerts.triggers import feed_poll_materialization_from_receipt
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.action_families.runs import (
     typed_run_has_matching_producer_receipt,
@@ -23,6 +24,7 @@ from frisket.engine.store import Project
 from frisket.engine.store import evaluation as evaluation_store
 from frisket.engine.store.action_submissions import record_submission
 from frisket.engine.store.current_cells import register_current_cell_functions
+from frisket.engine.store.feeds import FeedStore
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.schema import (
@@ -35,6 +37,7 @@ from frisket.server.services.action_history import editable_action_draft
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
+from historical_schema import restore_pre_feeds_tables
 
 _PRE_ALERTS_WATCH_SCHEMA_SQL = """
 CREATE TABLE watches (
@@ -399,6 +402,117 @@ def _downgrade_alerts_and_seed_watch_rows(
     )
 
 
+def _downgrade_feeds_and_seed_source_rows(
+    db: sqlite3.Connection,
+    *,
+    sheet_id: int,
+    row_id: int,
+    op_id: int,
+) -> str:
+    restore_pre_feeds_tables(db)
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute(
+        "INSERT INTO sources "
+        "(id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
+        "last_checked_at, last_status, new_rows_total, created_at) "
+        "VALUES (7, 'Public Notices', 'rss', 'https://feeds.example/notices.xml', "
+        "'{}', ?, '@hourly', 1, 'cursor-v1', '2026-10-01 12:00:00', 'ok', 2, "
+        "'2026-09-01 00:00:00')",
+        (sheet_id,),
+    )
+    poll_receipt_id = "rcpt_chain_legacy_source_poll"
+    poll_receipt_body = {
+        "schema_version": "frisket.action_receipt.v1",
+        "receipt_id": poll_receipt_id,
+        "project_id": "proj-chain-invariant",
+        "action_id": "act_chain_source_poll",
+        "action_kind": "source.poll",
+        "idempotency_key": "chain-source-poll@1",
+        "params_hash": "hash-chain-source-poll",
+        "status": "completed",
+        "inputs": [
+            {
+                "name": "source",
+                "ref": {
+                    "kind": "source_poll_source",
+                    "source_id": 7,
+                    "source_kind": "rss",
+                    "name": "Public Notices",
+                },
+            }
+        ],
+        "outputs": [
+            {
+                "name": "source_run",
+                "ref": {
+                    "kind": "source_poll_run",
+                    "source_id": 7,
+                    "source_run_id": 11,
+                    "sheet_id": sheet_id,
+                    "op_id": op_id,
+                    "status": "ok",
+                    "materialized_rows": 1,
+                    "new_rows": 1,
+                },
+            },
+            {
+                "name": "rows",
+                "ref": {
+                    "kind": "source_poll_rows",
+                    "sheet_id": sheet_id,
+                    "op_id": op_id,
+                    "row_ids": [row_id],
+                },
+            },
+        ],
+        # Legacy evidence key: receipt_records_migration moves entries to records,
+        # then feeds_migration rewrites feed keys inside records.
+        "evidence": [
+            {
+                "name": "cursor",
+                "ref": {"kind": "source_poll_cursor", "source_id": 7},
+            }
+        ],
+        "errors": [],
+    }
+    db.execute(
+        "INSERT INTO receipts "
+        "(id, action_kind, action_id, idempotency_key, params_hash, status, body) "
+        "VALUES (?, 'source.poll', 'act_chain_source_poll', 'chain-source-poll@1', "
+        "'hash-chain-source-poll', 'completed', ?)",
+        (poll_receipt_id, json.dumps(poll_receipt_body, sort_keys=True)),
+    )
+    db.execute(
+        "INSERT INTO source_runs "
+        "(id, source_id, op_id, receipt_id, status, new_rows, skipped_rows, "
+        "changed_rows, revisions, error, cursor_before, cursor_after, "
+        "duration_ms, warning_count, cost_micro, summary_json, started_at, finished_at) "
+        "VALUES (11, 7, ?, ?, 'ok', 1, 0, 0, 0, NULL, 'cursor-v0', 'cursor-v1', "
+        "120, 0, 0, '{\"materialized_rows\":1}', '2026-10-01 11:59:00', "
+        "'2026-10-01 12:00:00')",
+        (op_id, poll_receipt_id),
+    )
+    db.execute(
+        "INSERT INTO notification_items "
+        "(id, source_kind, source_ref, dedupe_key, title, summary, severity, "
+        "deep_link, payload) VALUES "
+        "(102, 'source', ?, 'source:7:run:11:failed', 'Feed failed', "
+        "'Temporary outage', 'warning', ?, '{\"status\":\"failed\"}')",
+        (
+            json.dumps({"source_id": 7, "source_run_id": 11, "status": "failed"}),
+            json.dumps({"kind": "source", "source_id": 7, "sheet_id": sheet_id}),
+        ),
+    )
+    db.execute(
+        "INSERT INTO notification_routes "
+        "(id, name, enabled, channel_id, owner_kind, owner_ref, source_kind, "
+        "source_ref_match_json) VALUES "
+        "(302, 'Feed route', 1, 201, 'project', 'chain-invariant', 'source', ?)",
+        (json.dumps({"source_id": 7}),),
+    )
+    return poll_receipt_id
+
+
 def _seed_pre_upgrade_bundle(bundle_path: Path) -> dict[str, Any]:
     with closing(Project.create(bundle_path, name="chain-invariant")) as seed:
         sheet_id = seed.add_sheet("Documents")
@@ -555,6 +669,12 @@ def _seed_pre_upgrade_bundle(bundle_path: Path) -> dict[str, Any]:
             title_col_id=title_col,
             view_id=view_id,
         )
+        feed_poll_receipt_id = _downgrade_feeds_and_seed_source_rows(
+            raw,
+            sheet_id=sheet_id,
+            row_id=row_ids[0],
+            op_id=op_id,
+        )
         raw.execute("DELETE FROM meta WHERE key=?", (RECEIPT_RECORDS_META_KEY,))
         raw.execute(
             "UPDATE meta SET value=? WHERE key=?",
@@ -575,6 +695,7 @@ def _seed_pre_upgrade_bundle(bundle_path: Path) -> dict[str, Any]:
         "hidden_col_id": hidden_col_id,
         "exp_len_col": exp_len_col,
         "receipt_id": result.receipt_id,
+        "feed_poll_receipt_id": feed_poll_receipt_id,
         "run_id": result.run_id,
         "op_id": op_id,
         "submission_id": submission_id,
@@ -614,6 +735,8 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
             "alert_check_events",
             "alert_seen_rows",
             "alert_row_field_state",
+            "feeds",
+            "feed_checks",
         } <= tables
         assert not (
             {
@@ -624,6 +747,8 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
                 "watch_run_events",
                 "watch_seen_rows",
                 "watch_row_field_state",
+                "sources",
+                "source_runs",
             }
             & tables
         )
@@ -767,6 +892,50 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
         assert "watch_id" not in json.loads(channels[201]["config_json"])
         assert upgraded.get_alert(5) is not None
         assert upgraded.get_alert_check(12) is not None
+
+        feed_store = FeedStore(upgraded)
+        migrated_feed = feed_store.get_feed(7)
+        assert migrated_feed is not None
+        assert migrated_feed["name"] == "Public Notices"
+        migrated_checks = feed_store.feed_checks_page(7)
+        assert len(migrated_checks) == 1
+        assert migrated_checks[0]["id"] == 11
+        assert migrated_checks[0]["feed_id"] == 7
+
+        feed_poll_raw = ReceiptStore(upgraded).body_by_id(
+            fixture["feed_poll_receipt_id"]
+        )
+        assert feed_poll_raw is not None
+        feed_poll_body = json.loads(feed_poll_raw)
+        assert feed_poll_body["action_kind"] == "feed.poll"
+        assert "evidence" not in feed_poll_body
+        assert feed_poll_body["records"] == [
+            {"name": "cursor", "ref": {"kind": "feed_poll_cursor", "feed_id": 7}}
+        ]
+        materialized = feed_poll_materialization_from_receipt(
+            upgraded,
+            project_id="proj-chain-invariant",
+            receipt_id=fixture["feed_poll_receipt_id"],
+        )
+        assert materialized is not None
+        assert materialized["feed_id"] == 7
+        assert materialized["feed_check_id"] == 11
+
+        feed_notif = upgraded.notification_item_by_dedupe_key("feed:7:run:11:failed")
+        assert feed_notif is not None
+        assert feed_notif["source_kind"] == "feed"
+        assert json.loads(feed_notif["source_ref"]) == {
+            "feed_id": 7,
+            "feed_check_id": 11,
+            "status": "failed",
+        }
+        assert json.loads(feed_notif["deep_link"]) == {
+            "kind": "feed",
+            "feed_id": 7,
+            "sheet_id": fixture["sheet_id"],
+        }
+        assert routes[302]["source_kind"] == "feed"
+        assert json.loads(routes[302]["source_ref_match_json"]) == {"feed_id": 7}
 
         # (c) map.python replay succeeds cleanly on the upgraded bundle without stale_replay.
         bound_request = typed_action_for_request(fixture["request"])
