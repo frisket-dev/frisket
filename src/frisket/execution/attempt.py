@@ -314,6 +314,21 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
         return UnpriceableCost()
 
 
+def cache_hit_units(
+    default_units: Mapping[str, int | float], admission: Any
+) -> dict[str, int | float]:
+    """Build zero-metered units for a cache-hit call, including the pinned meter_key."""
+    units: dict[str, int | float] = dict(default_units)
+    if admission is None:
+        return units
+    promise_set = getattr(admission, "promise_set", None)
+    promises = getattr(promise_set, "promises", None)
+    basis = cost_basis_from_promises(promises)
+    if isinstance(basis, PricedCostBasis) and basis.meter_key:
+        units.setdefault(basis.meter_key, 0)
+    return units
+
+
 def _cost_basis_json(cost_basis: CostBasis) -> str:
     if isinstance(cost_basis, ProviderUsageCost):
         return json.dumps(

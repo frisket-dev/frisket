@@ -19,10 +19,12 @@ from executor_harness import (
     UndoRerun,
     case_env,
 )
+from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from helpers import write_claimless_test_model_calls
 from frisket.engine.store.transactions import write_transaction
 
@@ -928,6 +930,10 @@ def test_media_transcribe_rerun_replaces_prior_outputs_and_undo_restores_them(
         language_column_id = int(columns["detected_language"]["id"])
 
         generation["value"] = 2
+        env.run_kwargs["router"] = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache_mode="fresh",
+        )
         second = env.run(
             _transcribe_action(
                 sheet_id=sheet_id,

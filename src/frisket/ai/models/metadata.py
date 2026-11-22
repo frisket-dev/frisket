@@ -352,6 +352,7 @@ class ModelCallMeta:
         provider_kind: str,
         model_ids: list[str] | None = None,
         units: dict[str, float | int | str | bool | None] | None = None,
+        cache: dict[str, float | int | str | bool] | None = None,
         request_id: str | None = None,
         warnings: list[str] | None = None,
     ) -> "ModelCallMeta":
@@ -366,7 +367,7 @@ class ModelCallMeta:
             provider_cost_usd=0.0,
             cost_source="cache_hit",
             units=units or {},
-            cache={"hit": True},
+            cache=dict(cache) if cache is not None else {"hit": True},
             request_id=request_id,
             warnings=warnings or [],
         )

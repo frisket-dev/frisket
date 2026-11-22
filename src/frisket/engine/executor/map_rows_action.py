@@ -515,6 +515,12 @@ class _TypedMapRowsProgram(ActionProgram):
             estimate["audio_seconds"] = (
                 resolution.resolution.estimate_basis.quantity_hint
             )
+        if (
+            OcrReader in self._terminal.capabilities
+            or Transcriber in self._terminal.capabilities
+        ) and (resolution.cached_rows is not None and resolution.live_rows is not None):
+            estimate["cached_rows"] = resolution.cached_rows
+            estimate["live_rows"] = resolution.live_rows
 
         if HttpRequester in self._terminal.capabilities:
             estimate.update(cost=None, cost_source="unknown")

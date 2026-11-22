@@ -1018,7 +1018,7 @@ def test_routed_dispatch_reads_sources_through_bounded_live_pages(
     monkeypatch.setattr(RowSourcePage, "cell", record_lookup)
     runner = MapRunner(
         project,
-        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="fresh"),
         allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     )
@@ -1373,6 +1373,10 @@ def test_identical_rerun_is_admitted_and_carries_a_derived_consent(
     # Run 2: the IDENTICAL action, launched with NO confirmation at all.
     # The exact-match socket covers it (same identity, same compiled set
     # hash, same actor), so validation admits without re-asking.
+    # Drop the disposable extraction cache sidecar so the rerun exercises live
+    # worker dispatch on the identical blob rather than replaying Run 1's cache.
+    for suffix in ("", "-wal", "-shm"):
+        (project.path / f"project.cache.db{suffix}").unlink(missing_ok=True)
     plain_spec = _spec(sheet_id, engine="moss")
     plain_spec = _spec(sheet_id, engine="moss", output_name="transcript_2")
     run2_id = _prepare_local_run(project, plain_spec)
@@ -1397,6 +1401,8 @@ def test_identical_rerun_is_admitted_and_carries_a_derived_consent(
 
     # Run 3: derivation chains — run 2's own derived row is an equally
     # authoritative exact match for the next identical launch.
+    for suffix in ("", "-wal", "-shm"):
+        (project.path / f"project.cache.db{suffix}").unlink(missing_ok=True)
     plain_spec = _spec(sheet_id, engine="moss", output_name="transcript_3")
     run3_id = _prepare_local_run(project, plain_spec)
     [consent3] = _consent_rows(project, run3_id)

@@ -1174,16 +1174,30 @@ async def test_rapidocr_reuses_pool_and_releases_lease_after_children_stop(
             events.append("close")
 
     monkeypatch.setattr(local_engines, "RapidOCRProcessPool", Pool)
+    project, sheet_id, col_id, row_id, _cell = source
+    second_digest = project.add_blob(
+        _png() + b"second-row",
+        filename="scan-2.png",
+        mime="image/png",
+    )
+    second_cell = {"blob": second_digest, "filename": "scan-2.png", "mime": "image/png"}
+    second_row = Row({"scan": second_cell})
     async with _reader(source, engine="rapidocr") as (owner, first, row, options):
         await first.recognize(row, ColumnRef("scan"), options=options)
         second = owner.bind_row(
-            row,
-            sheet_id=source[1],
-            row_id=source[3] + 1,
-            sources=first._sources,
+            second_row,
+            sheet_id=sheet_id,
+            row_id=row_id + 1,
+            sources={
+                "scan": {
+                    "column_id": col_id,
+                    "column_type": "image",
+                    "value": second_cell,
+                }
+            },
             ctx=first._ctx,
         )
-        await second.recognize(row, ColumnRef("scan"), options=options)
+        await second.recognize(second_row, ColumnRef("scan"), options=options)
     assert events == [
         ("pool", 2, 2),
         "ocr",

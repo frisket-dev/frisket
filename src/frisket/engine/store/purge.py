@@ -12,6 +12,9 @@ from collections.abc import Iterable
 from contextlib import contextmanager
 from itertools import islice
 from typing import Any
+from frisket.engine.store.extraction_cache_store import (
+    delete_extraction_cache_for_blobs,
+)
 from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 PURGE_SCHEMA_SQL = """
@@ -722,6 +725,7 @@ def _erase_source_blobs(project, p):
     if root.is_symlink():
         raise ValueError("Refusing symlinked blob directory during purge")
     counts = {"blobs_removed": 0, "bytes_freed": 0}
+    erased_hashes: list[str] = []
     for (digest,) in project.db.execute(
         "SELECT hash FROM project_purge_blobs WHERE purge_id=:purge",
         p,
@@ -738,6 +742,9 @@ def _erase_source_blobs(project, p):
             counts["bytes_freed"] += size
         with project.db:
             project.db.execute("DELETE FROM blobs WHERE hash=?", (digest,))
+        erased_hashes.append(digest)
+    if erased_hashes:
+        delete_extraction_cache_for_blobs(project, erased_hashes)
     return counts
 
 

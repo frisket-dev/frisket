@@ -206,6 +206,8 @@ KNOWN_DISPLAY_KEYS = frozenset(
         "venue_label",
         "audio_seconds",
         "warning",
+        "cached_rows",
+        "live_rows",
     }
 )
 

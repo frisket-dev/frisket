@@ -51,6 +51,8 @@ class ActionEstimate(WireModel):
     remote_capability: str | None = None
     avg_input_tokens: int | None = None
     audio_seconds: float | None = None
+    cached_rows: int | None = None
+    live_rows: int | None = None
     billing_label: str | None = None
     venue_label: str | None = None
     warning: str | None = None

@@ -967,15 +967,15 @@ def test_free_local_llm_row_checkpoint_is_consumed(make_project) -> None:
     )
 
 
-def _wav(path) -> str:
-    """PCM16 mono 16 kHz half-second of silence."""
+def _wav(path, *, sample: bytes = b"\x00\x00") -> str:
+    """PCM16 mono 16 kHz half-second of constant samples."""
 
     sr = 16000
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(sr)
-        w.writeframes(b"\x00\x00" * (sr // 2))
+        w.writeframes(sample * (sr // 2))
     return str(path)
 
 
@@ -1004,7 +1004,12 @@ def test_local_halt_discards_reservation_so_the_run_stays_recoverable(
             {
                 "audio": media_cell(
                     project.add_blob(
-                        Path(_wav(tmp_path / f"row-{index}.wav")).read_bytes(),
+                        Path(
+                            _wav(
+                                tmp_path / f"row-{index}.wav",
+                                sample=bytes([index, 0]),
+                            )
+                        ).read_bytes(),
                         filename=f"row-{index}.wav",
                         mime="audio/wav",
                         metadata=owned_media_metadata_document(

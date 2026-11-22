@@ -40,6 +40,7 @@ route, and later releases may compile over them) but produce no rows.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Mapping, Union
@@ -250,12 +251,24 @@ class OperatorBorneZeroCost:
 CostBasis = Union[PricedCostBasis, UnpriceableCost, OperatorBorneZeroCost]
 
 
+def _cached_row_basis(cached_row_ids: Sequence[int] | None) -> dict[str, list[int]]:
+    if not cached_row_ids:
+        return {}
+    parsed: set[int] = set()
+    for raw_id in cached_row_ids:
+        if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
+            raise ValueError("cached_row_ids must be positive integers")
+        parsed.add(raw_id)
+    return {"cached_row_ids": sorted(parsed)}
+
+
 def compile_route_promises(
     route: "RouteRowFacts",
     cost: CostBasis,
     *,
     options: Mapping[str, Any] | None = None,
     work_scope: Mapping[str, Any] | None = None,
+    cached_row_ids: Sequence[int] | None = None,
 ) -> PromiseSet:
     """Compile the promise set for one resolved route, for ANY capability.
 
@@ -321,6 +334,7 @@ def compile_route_promises(
                 audience="user_claim",
             )
         )
+    cached_basis = _cached_row_basis(cached_row_ids)
     if isinstance(cost, PricedCostBasis):
         bound = cost.bound if cost.ceiling_mode == "consented_quantity" else None
         rows.append(
@@ -357,6 +371,7 @@ def compile_route_promises(
                         if cost.row_estimate_quantities is not None
                         else {}
                     ),
+                    **cached_basis,
                 },
                 # A PRICED basis means a meter exists and somebody will be
                 # billed by it, so the row is always the user's to consent to.
@@ -377,7 +392,11 @@ def compile_route_promises(
                 "cost",
                 "unbounded",
                 None,
-                basis={"kind": "provider_usage", "pricing_key": cost.pricing_key},
+                basis={
+                    "kind": "provider_usage",
+                    "pricing_key": cost.pricing_key,
+                    **cached_basis,
+                },
                 audience="user_claim",
             )
         )
@@ -387,6 +406,7 @@ def compile_route_promises(
                 "cost",
                 "unbounded",
                 None,
+                basis=cached_basis or None,
                 audience="user_claim",
             )
         )
