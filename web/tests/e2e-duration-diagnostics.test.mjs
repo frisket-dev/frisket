@@ -586,3 +586,151 @@ test('checklog reporter writes duration summary metadata', () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('server wrapper logs OOM signal and last 50 stderr lines when child dies after readiness', async () => {
+  const root = tempRoot();
+  const eventsPath = path.join(root, 'events.jsonl');
+  const pidPath = path.join(root, 'child.pid');
+  const port = await freePort();
+  const serverScript = path.join(root, 'crash-server.mjs');
+  fs.writeFileSync(
+    serverScript,
+    [
+      "import fs from 'node:fs';",
+      "import http from 'node:http';",
+      `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+      'for (let i = 1; i <= 65; i += 1) { console.error(`stderr-line-${i}`); }',
+      "http.createServer((_req, res) => { res.end('ok'); })",
+      `  .listen(${port}, '127.0.0.1');`,
+      'setInterval(() => {}, 1000);',
+    ].join('\n'),
+  );
+  const proc = spawn(
+    process.execPath,
+    [
+      'web/playwright/e2e-duration-server.mjs',
+      '--phase',
+      'backend_boot',
+      '--name',
+      'backend',
+      '--url',
+      `http://127.0.0.1:${port}/health`,
+      '--timeout',
+      '5000',
+      '--',
+      process.execPath,
+      serverScript,
+    ],
+    {
+      cwd: ROOT,
+      env: { ...process.env, FRISKET_E2E_DURATION_EVENTS_PATH: eventsPath },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  const stderr = [];
+  proc.stderr.on('data', (chunk) => stderr.push(String(chunk)));
+  try {
+    await waitFor(() => fs.existsSync(eventsPath), 'duration wrapper did not become ready');
+    await waitFor(() => fs.existsSync(pidPath), 'child did not record pid');
+    const childPid = Number(fs.readFileSync(pidPath, 'utf8').trim());
+    process.kill(childPid, 'SIGKILL');
+    const result = await new Promise((resolve) =>
+      proc.once('exit', (code, signal) => resolve({ code, signal })),
+    );
+    assert.equal(result.signal, 'SIGKILL');
+    const output = stderr.join('');
+    assert.match(output, /\[e2e-server\] backend exited unexpectedly before teardown/);
+    assert.match(output, /signal=SIGKILL/);
+    assert.match(output, /likely OOM kill \(SIGKILL \/ exit 137\)/);
+    assert.match(output, /Last 50 stderr line\(s\):/);
+    const tailSection = output.slice(output.indexOf('Last 50 stderr line(s):'));
+    assert.equal(tailSection.includes('stderr-line-15\n'), false);
+    assert.equal(tailSection.includes('stderr-line-16'), true);
+    assert.equal(tailSection.includes('stderr-line-65'), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('server wrapper flags exit 137 as likely OOM and stays quiet on normal SIGTERM teardown', async () => {
+  const root = tempRoot();
+  const eventsPath = path.join(root, 'events.jsonl');
+  const port = await freePort();
+  const proc137 = spawn(
+    process.execPath,
+    [
+      'web/playwright/e2e-duration-server.mjs',
+      '--phase',
+      'backend_boot',
+      '--name',
+      'backend',
+      '--url',
+      `http://127.0.0.1:${port}/health`,
+      '--timeout',
+      '5000',
+      '--',
+      process.execPath,
+      '-e',
+      "console.error('killed-137-marker'); process.exit(137)",
+    ],
+    {
+      cwd: ROOT,
+      env: { ...process.env, FRISKET_E2E_DURATION_EVENTS_PATH: eventsPath },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  const stderr137 = [];
+  proc137.stderr.on('data', (chunk) => stderr137.push(String(chunk)));
+  const code137 = await new Promise((resolve) => proc137.once('exit', resolve));
+  const out137 = stderr137.join('');
+  assert.equal(code137, 1);
+  assert.match(out137, /exited before readiness/);
+  assert.match(out137, /code=137/);
+  assert.match(out137, /likely OOM kill \(SIGKILL \/ exit 137\)/);
+  assert.match(out137, /killed-137-marker/);
+
+  const portOk = await freePort();
+  const eventsOk = path.join(root, 'events-ok.jsonl');
+  const serverScript = path.join(root, 'ok-server.mjs');
+  fs.writeFileSync(
+    serverScript,
+    [
+      "import http from 'node:http';",
+      "http.createServer((_req, res) => { res.end('ok'); })",
+      `  .listen(${portOk}, '127.0.0.1');`,
+      'setInterval(() => {}, 1000);',
+    ].join('\n'),
+  );
+  const procOk = spawn(
+    process.execPath,
+    [
+      'web/playwright/e2e-duration-server.mjs',
+      '--phase',
+      'backend_boot',
+      '--name',
+      'backend',
+      '--url',
+      `http://127.0.0.1:${portOk}/health`,
+      '--timeout',
+      '5000',
+      '--',
+      process.execPath,
+      serverScript,
+    ],
+    {
+      cwd: ROOT,
+      env: { ...process.env, FRISKET_E2E_DURATION_EVENTS_PATH: eventsOk },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  const stderrOk = [];
+  procOk.stderr.on('data', (chunk) => stderrOk.push(String(chunk)));
+  try {
+    await waitFor(() => fs.existsSync(eventsOk), 'duration wrapper did not become ready');
+    procOk.kill('SIGTERM');
+    await new Promise((resolve) => procOk.once('exit', resolve));
+    assert.equal(stderrOk.join('').includes('exited unexpectedly before teardown'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -50,4 +50,4 @@ if [ "${FRISKET_E2E_MINIMAL_DEPS:-0}" = "1" ]; then
 fi
 
 # Default E2E covers the FollowTheMoney and graph-neighborhood surfaces.
-exec uv run --extra entities frisket "$WS" "$PORT"
+exec uv run --frozen --extra entities frisket "$WS" "$PORT"
