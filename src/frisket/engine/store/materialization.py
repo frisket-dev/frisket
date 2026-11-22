@@ -185,7 +185,12 @@ class AggregateSheetWrite:
 
 def _append_new_materialization_op(
     cur: sqlite3.Cursor,
-    plan: (SingleParentChildSheetPlan | AggregateSheetPlan | EdgeTablePlan),
+    plan: (
+        SingleParentChildSheetPlan
+        | AggregateSheetPlan
+        | EdgeTablePlan
+        | ContributorTablePlan
+    ),
 ) -> int:
     cur.execute(
         "INSERT INTO changes (kind, label, spec, undo_info, barrier) "
@@ -206,7 +211,12 @@ def _append_new_materialization_op(
 
 def _insert_sheet_schema(
     cur: sqlite3.Cursor,
-    plan: (SingleParentChildSheetPlan | AggregateSheetPlan | EdgeTablePlan),
+    plan: (
+        SingleParentChildSheetPlan
+        | AggregateSheetPlan
+        | EdgeTablePlan
+        | ContributorTablePlan
+    ),
     change_id: int,
 ) -> tuple[int, dict[str, int]]:
     cur.execute(
