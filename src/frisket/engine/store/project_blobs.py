@@ -29,6 +29,7 @@ from .blob_backend import (
     sha256_blob_path,
     validate_blob_digest,
 )
+from .extraction_cache import delete_extraction_cache_for_blobs
 from .value_codec import decode_stored_value
 
 
@@ -567,6 +568,7 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
                         _fsync_directory(Path(shard.path))
 
         if not dry_run:
+            pruned_hashes: list[str] = []
             with db:
                 db.execute(
                     "DELETE FROM blob_derivations WHERE NOT EXISTS "
@@ -599,6 +601,9 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
                             "DELETE FROM blobs WHERE hash=?",
                             [(digest,) for digest in missing],
                         )
+                    pruned_hashes.extend(missing)
+            if pruned_hashes:
+                delete_extraction_cache_for_blobs(project, pruned_hashes)
     finally:
         if db.in_transaction:
             db.rollback()
@@ -631,6 +636,8 @@ def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
             db.execute(
                 "DELETE FROM blobs WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes live WHERE live.hash=blobs.hash)"
             )
+    if not dry_run and removed:
+        delete_extraction_cache_for_blobs(project, removed)
     return {
         "blobs_removed": len(removed),
         "bytes_freed": 0,
