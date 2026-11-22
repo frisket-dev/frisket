@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 
-from .consumed_sources import _descriptors, _hash, _records, authority_revisions
+from .consumed_sources import (
+    CAPTURE_SCHEMA_VERSION,
+    _descriptors,
+    _hash,
+    _records,
+    authority_revisions,
+)
 
 
 def iter_consumed_source_pages(
@@ -77,8 +83,7 @@ def iter_consumed_source_pages(
                     "hi": page[-1],
                     "fingerprint": _hash(
                         _records(
-                            sheet_id,
-                            columns,
+                            scope,
                             [list(row) for row in members],
                             descriptors,
                             refs,
@@ -100,8 +105,7 @@ def iter_consumed_source_pages(
                     "hi": 0,
                     "fingerprint": _hash(
                         _records(
-                            sheet_id,
-                            columns,
+                            scope,
                             [],
                             descriptors,
                             {column: {} for column in columns},
@@ -122,7 +126,7 @@ def iter_consumed_source_pages(
             )
         captures.append(
             {
-                "schema_version": 1,
+                "schema_version": CAPTURE_SCHEMA_VERSION,
                 "kind": "aggregate",
                 "scopes": [scope],
                 "revisions": revisions,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
@@ -9,10 +10,26 @@ from pathlib import Path
 
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
+from frisket.engine.store.changes import start_change
+from frisket.engine.store.consumed_sources import (
+    _descriptors,
+    _hash,
+    _members,
+    _records,
+    authority_revisions,
+    capture_fingerprint,
+    row_input_state,
+    verify_bundle,
+)
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.staleness import compute_sync_states
 from frisket.engine.store.transactions import write_transaction
+from frisket.server.services.project_qa_citations import resolve_citation
+from frisket.server.services.project_qa_sources import read_source_text
 from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.changes_migration import (
     CHANGES_FROM_DIGEST,
@@ -360,3 +377,565 @@ def test_changes_migration_preserves_schema_fks_receipts_cursors_and_undo_redo(
     with closing(Project(bundle_path)) as reopened:
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == CHANGES_TO_DIGEST
         assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def test_consumed_source_bundles_freshness_and_shared_inputs_survive_upgrade(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "consumed-sources-migration.frisket"
+    with closing(Project.create(bundle_path, name="Freshness Migration")) as seed:
+        src_sheet = seed.add_sheet("Sources")
+        src_col = seed.add_column(src_sheet, "title", type="text")
+        src_rows = seed.add_rows(
+            src_sheet, [{"title": "Alpha"}, {"title": "Beta"}], {"title": src_col}
+        )
+        derived_change = seed.append_change("derive.sheet", {"kind": "derive"})
+        derived_sheet = seed.add_sheet("Derived")
+        with write_transaction(seed.db):
+            start_change(seed.db, derived_change)
+            seed.db.execute(
+                "UPDATE sheets SET parent_sheet_id=?, parent_change_id=? WHERE id=?",
+                (src_sheet, derived_change, derived_sheet),
+            )
+        run_change = seed.append_change("map.extract", {"kind": "map"})
+        run_id = RunResultStore(seed).start_run(
+            run_change, src_sheet, "map.extract", row_ids=[src_rows[0]], total_rows=1
+        )
+        descriptors = _descriptors(seed, [src_col])
+        revisions = authority_revisions(seed, [src_col])
+        members = _members(seed, src_sheet, src_rows)
+        _, live_refs = seed.get_values_with_refs(
+            src_sheet, src_col, row_ids=src_rows, include_validity=True
+        )
+        _, row_live_refs = seed.get_values_with_refs(
+            src_sheet, src_col, row_ids=[src_rows[0]], include_validity=False
+        )
+        legacy_scope = {
+            "sheet_id": src_sheet,
+            "column_ids": [src_col],
+            "intent": "whole",
+            "cohort": None,
+            "max_row_id": max(src_rows),
+            "partitions": [
+                {
+                    "lo": 1,
+                    "hi": max(src_rows),
+                    "fingerprint": _hash(
+                        _records(
+                            {"sheet_id": src_sheet, "column_ids": [src_col]},
+                            members,
+                            descriptors,
+                            {src_col: live_refs},
+                            legacy_v1=True,
+                        )
+                    ),
+                    "count": len(src_rows),
+                    "member_count": len(members),
+                }
+            ],
+        }
+        v2_part_fp = _hash(
+            _records(
+                {"sheet_id": src_sheet, "column_ids": [src_col]},
+                members,
+                descriptors,
+                {src_col: live_refs},
+                legacy_v1=False,
+            )
+        )
+        assert legacy_scope["partitions"][0]["fingerprint"] != v2_part_fp
+
+        legacy_agg_capture = {
+            "schema_version": 1,
+            "kind": "aggregate",
+            "scopes": [legacy_scope],
+            "revisions": revisions,
+            "coherent": True,
+            "fingerprint": _hash([legacy_scope]),
+        }
+        legacy_shared_capture = {
+            "schema_version": 1,
+            "kind": "aggregate",
+            "scopes": [legacy_scope],
+            "revisions": revisions,
+            "coherent": True,
+            "fingerprint": _hash([legacy_scope]),
+            "shared_meta": {"op_id": run_change},
+        }
+        old_shared_fp = capture_fingerprint(legacy_shared_capture)
+
+        legacy_row_ref = dict(row_live_refs[src_rows[0]])
+        legacy_row_ref["op_id"] = legacy_row_ref.pop("change_id")
+        legacy_row_capture = {
+            "schema_version": 1,
+            "kind": "row",
+            "sheet_id": src_sheet,
+            "row_id": src_rows[0],
+            "inputs": [
+                {
+                    "role": "title",
+                    "column_id": src_col,
+                    "descriptor": descriptors[str(src_col)],
+                    "ref": legacy_row_ref,
+                }
+            ],
+            "shared_inputs": [old_shared_fp],
+            "revisions": revisions,
+            "coherent": True,
+        }
+
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        agg_fp = capture_fingerprint(legacy_agg_capture)
+        agg_id = int(
+            raw.execute(
+                "INSERT INTO consumed_source_bundles "
+                "(capture_key, owner_op_id, run_id, row_id, output_sheet_id, kind, "
+                "input_fingerprint, capture_json, state, checked_revisions_json) "
+                "VALUES (?, ?, NULL, NULL, ?, 'aggregate', ?, ?, 'unknown', '{}')",
+                (
+                    f"{derived_change}:None:None:{derived_sheet}",
+                    derived_change,
+                    derived_sheet,
+                    agg_fp,
+                    _canonical_json(legacy_agg_capture),
+                ),
+            ).lastrowid
+            or 0
+        )
+        raw.execute(
+            "INSERT INTO consumed_source_columns(bundle_id, column_id) VALUES (?, ?)",
+            (agg_id, src_col),
+        )
+        shared_id = int(
+            raw.execute(
+                "INSERT INTO consumed_source_bundles "
+                "(capture_key, owner_op_id, run_id, row_id, output_sheet_id, kind, "
+                "input_fingerprint, capture_json, state, checked_revisions_json) "
+                "VALUES (?, ?, ?, NULL, ?, 'aggregate', ?, ?, 'unknown', '{}')",
+                (
+                    f"{run_change}:{run_id}:None:{src_sheet}:shared:{old_shared_fp}",
+                    run_change,
+                    run_id,
+                    src_sheet,
+                    old_shared_fp,
+                    _canonical_json(legacy_shared_capture),
+                ),
+            ).lastrowid
+            or 0
+        )
+        raw.execute(
+            "INSERT INTO consumed_source_columns(bundle_id, column_id) VALUES (?, ?)",
+            (shared_id, src_col),
+        )
+        row_fp = capture_fingerprint(legacy_row_capture)
+        row_bundle_id = int(
+            raw.execute(
+                "INSERT INTO consumed_source_bundles "
+                "(capture_key, owner_op_id, run_id, row_id, output_sheet_id, kind, "
+                "input_fingerprint, capture_json, state, checked_revisions_json) "
+                "VALUES (?, ?, ?, ?, ?, 'row', ?, ?, 'unknown', '{}')",
+                (
+                    f"{run_change}:{run_id}:{src_rows[0]}:{src_sheet}",
+                    run_change,
+                    run_id,
+                    src_rows[0],
+                    src_sheet,
+                    row_fp,
+                    _canonical_json(legacy_row_capture),
+                ),
+            ).lastrowid
+            or 0
+        )
+        raw.execute(
+            "INSERT INTO consumed_source_columns(bundle_id, column_id) VALUES (?, ?)",
+            (row_bundle_id, src_col),
+        )
+        raw.execute(
+            "INSERT INTO effect_checkpoints "
+            "(id, family, group_key, unit_key, action_kind, identity, state, payload) "
+            "VALUES ('chk-shared-1', 'map', ?, 'row:1', 'map.extract', 'id-1', 'returned', ?)",
+            (
+                f"run:{run_id}",
+                json.dumps(
+                    {
+                        "op_id": run_change,
+                        "__consumed_sources": legacy_row_capture,
+                    }
+                ),
+            ),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    with closing(Project(bundle_path)) as upgraded:
+        assert upgraded.db.execute("PRAGMA foreign_key_check").fetchall() == []
+        # True pre-PR-10B v1 aggregate partition hashes verify as fresh / synced.
+        assert verify_bundle(upgraded, agg_id) == "fresh"
+        sync = compute_sync_states(upgraded, sheet_ids=[derived_sheet])
+        assert sync[derived_sheet]["sync_state"] == "synced"
+
+        # Shared bundle fingerprint + capture_key remapped and back-references updated.
+        shared_row = upgraded.db.execute(
+            "SELECT capture_key, input_fingerprint, capture_json "
+            "FROM consumed_source_bundles WHERE id=?",
+            (shared_id,),
+        ).fetchone()
+        new_shared_fp = str(shared_row["input_fingerprint"])
+        assert new_shared_fp != old_shared_fp
+        assert str(shared_row["capture_key"]).endswith(f":shared:{new_shared_fp}")
+        assert '"op_id"' not in str(shared_row["capture_json"])
+
+        row_bundle = upgraded.db.execute(
+            "SELECT input_fingerprint, capture_json FROM consumed_source_bundles WHERE id=?",
+            (row_bundle_id,),
+        ).fetchone()
+        parsed_row_cap = json.loads(row_bundle["capture_json"])
+        assert parsed_row_cap["shared_inputs"] == [new_shared_fp]
+        assert '"op_id"' not in str(row_bundle["capture_json"])
+        assert row_bundle["input_fingerprint"] == capture_fingerprint(parsed_row_cap)
+        assert verify_bundle(upgraded, row_bundle_id) == "fresh"
+        assert row_input_state(upgraded, run_id, src_rows[0]) == "fresh"
+
+        checkpoint = json.loads(
+            upgraded.db.execute(
+                "SELECT payload FROM effect_checkpoints WHERE id='chk-shared-1'"
+            ).fetchone()[0]
+        )
+        assert checkpoint["change_id"] == run_change
+        assert "op_id" not in checkpoint
+        assert checkpoint["__consumed_sources"]["shared_inputs"] == [new_shared_fp]
+        assert '"op_id"' not in json.dumps(checkpoint)
+
+        # Mutating a source cell turns v1 aggregate stale; undoing restores fresh/synced.
+        upgraded.apply_edits(
+            [{"row_id": src_rows[0], "column_id": src_col, "value": "Alpha Changed"}]
+        )
+        assert verify_bundle(upgraded, agg_id) == "stale"
+        assert (
+            compute_sync_states(upgraded, sheet_ids=[derived_sheet])[derived_sheet][
+                "sync_state"
+            ]
+            == "stale"
+        )
+        upgraded.undo()
+        assert verify_bundle(upgraded, agg_id) == "fresh"
+        assert (
+            compute_sync_states(upgraded, sheet_ids=[derived_sheet])[derived_sheet][
+                "sync_state"
+            ]
+            == "synced"
+        )
+
+
+def test_project_qa_citations_and_events_resolve_current_after_upgrade(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "qa-citations-migration.frisket"
+    with closing(Project.create(bundle_path, name="Ask Migration")) as seed:
+        sheet_id = seed.add_sheet("Reports")
+        col_id = seed.add_column(sheet_id, "summary", type="text")
+        row_id = seed.add_rows(
+            sheet_id, [{"summary": "Café résumé — clause 4"}], {"summary": col_id}
+        )[0]
+        edit_change = seed.apply_edits(
+            [{"row_id": row_id, "column_id": col_id, "value": "Café résumé — edited"}]
+        )
+        source_info = read_source_text(seed, (sheet_id, row_id, col_id), limit=100)
+        assert source_info["value_ref"]["change_id"] == edit_change
+        cursor_now = seed.change_cursor
+
+        qa = ProjectQAStore(seed)
+        thread = qa.create_thread(title="Check citations", scope={"kind": "project"})
+        turn = qa.submit_turn(
+            thread["id"],
+            request_id="req-qa-1",
+            question="Summarize row 1",
+            scope={"kind": "project"},
+        )
+        qa.append_event(
+            turn["id"],
+            kind="research_child",
+            payload={
+                "change_ids": [edit_change],
+                "source_change_cursor": cursor_now,
+                "note": "Café résumé",
+            },
+        )
+        cell_cit = qa.add_citation(
+            turn["id"],
+            source_kind="cell",
+            label="Reports · row 1 · summary",
+            excerpt="Café résumé — edited",
+            locator={
+                "sheet_id": sheet_id,
+                "row_id": row_id,
+                "column_id": col_id,
+                "value_ref": source_info["value_ref"],
+                "source_version": source_info["version"],
+                "note": "Café résumé",
+            },
+        )
+        query_cit = qa.add_citation(
+            turn["id"],
+            source_kind="query",
+            label="Reports query",
+            excerpt="1 row",
+            locator={
+                "sheet_id": sheet_id,
+                "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                "query": {
+                    "schema_version": "frisket.query_spec.v1",
+                    "kind": "sheet.filter",
+                    "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                    "filter": {},
+                },
+                "source_change_cursor": cursor_now,
+            },
+        )
+        cell_cit_id = str(cell_cit["id"])
+        query_cit_id = str(query_cit["id"])
+
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw_cell_loc = raw.execute(
+            "SELECT locator_json FROM project_qa_citations WHERE id=?", (cell_cit_id,)
+        ).fetchone()[0]
+        assert '"op_id"' in raw_cell_loc
+        raw_ev = raw.execute(
+            "SELECT payload_json FROM project_qa_events WHERE kind='research_child'"
+        ).fetchone()[0]
+        assert '"op_ids"' in raw_ev and '"source_op_cursor"' in raw_ev
+    finally:
+        raw.close()
+
+    with closing(Project(bundle_path)) as upgraded:
+        resolved_cell = resolve_citation(upgraded, thread["id"], cell_cit_id)
+        assert resolved_cell["status"] == "current", resolved_cell
+        resolved_query = resolve_citation(upgraded, thread["id"], query_cit_id)
+        assert resolved_query["status"] == "current", resolved_query
+
+        migrated_cell_loc = upgraded.db.execute(
+            "SELECT locator_json FROM project_qa_citations WHERE id=?", (cell_cit_id,)
+        ).fetchone()[0]
+        assert "Café résumé" in migrated_cell_loc
+        assert '"op_id"' not in migrated_cell_loc
+        assert '"change_id"' in migrated_cell_loc
+
+        migrated_event = upgraded.db.execute(
+            "SELECT payload_json FROM project_qa_events WHERE kind='research_child'"
+        ).fetchone()[0]
+        assert "Café résumé" in migrated_event
+        parsed_event = json.loads(migrated_event)
+        assert parsed_event["change_ids"] == [edit_change]
+        assert parsed_event["source_change_cursor"] == cursor_now
+        assert "op_ids" not in parsed_event and "source_op_cursor" not in parsed_event
+
+
+def test_action_submissions_migration_draft_hash_and_collision_safety(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "submissions-migration.frisket"
+    with closing(Project.create(bundle_path, name="Submissions Migration")) as seed:
+        seed.add_sheet("Items")
+
+    target_undo_draft = {
+        "action_id": "change.undo",
+        "params": {"expected_change_id": 5},
+    }
+    target_undo_json = _canonical_json(target_undo_draft)
+    target_undo_hash = hashlib.sha256(target_undo_json.encode()).hexdigest()
+
+    legacy_undo_draft = {
+        "action_id": "operation.undo",
+        "params": {"expected_op_id": 5},
+    }
+    legacy_undo_json = _canonical_json(legacy_undo_draft)
+    legacy_undo_hash = hashlib.sha256(legacy_undo_json.encode()).hexdigest()
+
+    legacy_redo_draft = {
+        "action_id": "operation.redo",
+        "params": {"expected_op_id": 6, "copied_op_id": 2},
+    }
+    legacy_redo_json = _canonical_json(legacy_redo_draft)
+    legacy_redo_hash = hashlib.sha256(legacy_redo_json.encode()).hexdigest()
+
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "INSERT INTO action_submissions "
+            "(id, request_key, draft_hash, action_id, draft_json) "
+            "VALUES (101, 'req-collide', ?, 'change.undo', ?)",
+            (target_undo_hash, target_undo_json),
+        )
+        raw.execute(
+            "INSERT INTO action_submissions "
+            "(id, request_key, draft_hash, action_id, draft_json) "
+            "VALUES (102, 'req-collide', ?, 'operation.undo', ?)",
+            (legacy_undo_hash, legacy_undo_json),
+        )
+        raw.execute(
+            "INSERT INTO action_submissions "
+            "(id, request_key, draft_hash, action_id, draft_json) "
+            "VALUES (103, 'req-clean', ?, 'operation.redo', ?)",
+            (legacy_redo_hash, legacy_redo_json),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    with closing(Project(bundle_path)) as upgraded:
+        clean = upgraded.db.execute(
+            "SELECT action_id, draft_hash, draft_json FROM action_submissions WHERE id=103"
+        ).fetchone()
+        assert clean["action_id"] == "change.redo"
+        expected_clean_json = _canonical_json(
+            {
+                "action_id": "change.redo",
+                "params": {"expected_change_id": 6, "copied_change_id": 2},
+            }
+        )
+        assert clean["draft_json"] == expected_clean_json
+        assert (
+            clean["draft_hash"]
+            == hashlib.sha256(expected_clean_json.encode()).hexdigest()
+        )
+
+        collided = upgraded.db.execute(
+            "SELECT action_id, draft_hash, draft_json FROM action_submissions WHERE id=102"
+        ).fetchone()
+        assert collided["action_id"] == "change.undo"
+        assert collided["draft_json"] == target_undo_json
+        assert collided["draft_hash"] == legacy_undo_hash
+
+
+def test_notification_items_and_extended_spec_keys_migrate(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "notifications-specs-migration.frisket"
+    with closing(Project.create(bundle_path, name="Notifications Migration")) as seed:
+        sheet_id = seed.add_sheet("Records")
+        change_id = seed.append_change("derive.join", {"kind": "join"})
+        run_id = RunResultStore(seed).start_run(
+            change_id, sheet_id, "derive.join", total_rows=0
+        )
+
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "UPDATE ops SET spec=? WHERE id=?",
+            (
+                json.dumps(
+                    {
+                        "source_op_id": 1,
+                        "parent_op_id": 1,
+                        "op_ids": [1, change_id],
+                        "source_op_ids": [1],
+                    }
+                ),
+                change_id,
+            ),
+        )
+        raw.execute(
+            "UPDATE runs SET params=? WHERE id=?",
+            (
+                json.dumps(
+                    {
+                        "source_op_id": 1,
+                        "parent_op_id": 1,
+                        "op_ids": [change_id],
+                        "source_op_ids": [1],
+                    }
+                ),
+                run_id,
+            ),
+        )
+        raw.execute(
+            "INSERT INTO notification_items "
+            "(id, source_kind, source_ref, dedupe_key, title, summary, severity, deep_link, payload) "
+            "VALUES (101, 'run', ?, 'dedupe-1', 'Done', 'Summary', 'info', ?, ?)",
+            (
+                json.dumps({"op_id": change_id}),
+                json.dumps({"op_id": change_id}),
+                json.dumps({"op_id": change_id, "op_ids": [change_id]}),
+            ),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    with closing(Project(bundle_path)) as upgraded:
+        spec = json.loads(
+            upgraded.db.execute(
+                "SELECT spec FROM changes WHERE id=?", (change_id,)
+            ).fetchone()[0]
+        )
+        assert spec == {
+            "source_change_id": 1,
+            "parent_change_id": 1,
+            "change_ids": [1, change_id],
+            "source_change_ids": [1],
+        }
+        params = json.loads(
+            upgraded.db.execute(
+                "SELECT params FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+        )
+        assert params == {
+            "source_change_id": 1,
+            "parent_change_id": 1,
+            "change_ids": [change_id],
+            "source_change_ids": [1],
+        }
+        notif = upgraded.db.execute(
+            "SELECT source_ref, deep_link, payload FROM notification_items WHERE id=101"
+        ).fetchone()
+        assert json.loads(notif["source_ref"]) == {"change_id": change_id}
+        assert json.loads(notif["deep_link"]) == {"change_id": change_id}
+        assert json.loads(notif["payload"]) == {
+            "change_id": change_id,
+            "change_ids": [change_id],
+        }
+
+
+def test_sqlite_sequence_high_water_preserved_with_deleted_tail_rows(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "sequence-highwater-migration.frisket"
+    with closing(Project.create(bundle_path, name="Sequence Migration")) as seed:
+        sheet_id = seed.add_sheet("Items")
+
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "INSERT INTO ops(id, kind, label, spec, status) VALUES (50, 'temp', 'Temp', '{}', 'applied')"
+        )
+        raw.execute(
+            "INSERT INTO runs(id, op_id, sheet_id, action_kind, params, status) "
+            "VALUES (75, 50, ?, 'map.python', '{}', 'completed')",
+            (sheet_id,),
+        )
+        raw.execute("DELETE FROM runs WHERE id=75")
+        raw.execute("DELETE FROM ops WHERE id=50")
+        raw.commit()
+    finally:
+        raw.close()
+
+    with closing(Project(bundle_path)) as upgraded:
+        seqs = {
+            str(r[0]): int(r[1])
+            for r in upgraded.db.execute("SELECT name, seq FROM sqlite_sequence")
+        }
+        assert "ops" not in seqs
+        assert seqs["changes"] >= 50
+        assert seqs["runs"] >= 75
+        next_change = upgraded.append_change("next.change", {})
+        assert next_change > 50

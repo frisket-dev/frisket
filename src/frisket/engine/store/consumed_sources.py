@@ -98,6 +98,7 @@ def capture_revisions(project: Any, capture: Mapping[str, Any]) -> dict[str, int
 
 CAPTURE_BATCH_SIZE = 1000
 INLINE_CHECK_ROWS = 1000
+CAPTURE_SCHEMA_VERSION = 2
 
 
 def _json(value: Any) -> str:
@@ -108,10 +109,12 @@ def _hash(value: Any) -> str:
     return hashlib.sha256(_json(value).encode("utf-8")).hexdigest()
 
 
-def _identity_ref(ref: Mapping[str, Any] | None) -> dict[str, Any] | None:
+def _identity_ref(
+    ref: Mapping[str, Any] | None, *, legacy_v1: bool = False
+) -> dict[str, Any] | None:
     if ref is None:
         return None
-    return {
+    out = {
         key: value
         for key, value in ref.items()
         if key
@@ -127,6 +130,9 @@ def _identity_ref(ref: Mapping[str, Any] | None) -> dict[str, Any] | None:
             "validity",
         }
     }
+    if legacy_v1 and "change_id" in out:
+        out["op_id"] = out.pop("change_id")
+    return out
 
 
 def _current_refs(
@@ -217,12 +223,15 @@ def _members(project: Any, sheet_id: int, row_ids: Sequence[int]) -> list[list[i
 
 
 def _records(
-    sheet_id: int,
-    column_ids: Sequence[int],
+    scope: Mapping[str, Any],
     members: Sequence[Sequence[int]],
     descriptors: Mapping[str, Any],
     refs: Mapping[int, Mapping[int, Mapping[str, Any]]],
+    *,
+    legacy_v1: bool = False,
 ) -> list[Any]:
+    sheet_id = int(scope["sheet_id"])
+    column_ids = scope["column_ids"]
     records: list[Any] = [
         ["descriptor", column_id, descriptors[str(column_id)]]
         for column_id in column_ids
@@ -236,7 +245,7 @@ def _records(
                     sheet_id,
                     row_id,
                     column_id,
-                    _identity_ref(refs[column_id].get(row_id)),
+                    _identity_ref(refs[column_id].get(row_id), legacy_v1=legacy_v1),
                 ]
             )
     return records
@@ -309,7 +318,7 @@ def read_consumed_source(
                 refs[column_id] = column_refs
                 if refs_out is not None:
                     refs_out.setdefault(column_id, {}).update(column_refs)
-            records = _records(sheet_id, columns, members, descriptors, refs)
+            records = _records(scope, members, descriptors, refs)
             if partition_reads_out is not None:
                 partition_reads_out.append(
                     {"members": members, "descriptors": descriptors, "refs": refs}
@@ -336,7 +345,7 @@ def read_consumed_source(
             part["member_count"] for part in scope["partitions"]
         )
     capture = {
-        "schema_version": 1,
+        "schema_version": CAPTURE_SCHEMA_VERSION,
         "kind": "aggregate",
         "scopes": [scope],
         "revisions": revisions or {},
@@ -391,16 +400,14 @@ def capture_read_scope(
                 if scope_intent == "whole"
                 else min(part, default=0),
                 "hi": max(part, default=0),
-                "fingerprint": _hash(
-                    _records(sheet_id, columns, members, descriptors, refs)
-                ),
+                "fingerprint": _hash(_records(scope, members, descriptors, refs)),
                 "count": len(part),
                 "member_count": len(members),
             }
         )
         previous_hi = max(part, default=0)
     return {
-        "schema_version": 1,
+        "schema_version": CAPTURE_SCHEMA_VERSION,
         "kind": "aggregate",
         "scopes": [scope],
         "revisions": authority_revisions(snapshot, columns),
@@ -416,6 +423,7 @@ def trim_consumed_page(
 ) -> None:
     """Finalize a partially iterated page from its original ephemeral refs."""
     scope = capture["scopes"][0]
+    legacy_v1 = int(capture.get("schema_version", 1)) < CAPTURE_SCHEMA_VERSION
     consumed = set(consumed_row_ids)
     scope["cohort"] = sorted(consumed)
     scope["partitions"] = []
@@ -430,11 +438,11 @@ def trim_consumed_page(
                 "member_count": len(ids),
                 "fingerprint": _hash(
                     _records(
-                        scope["sheet_id"],
-                        scope["column_ids"],
+                        scope,
                         members,
                         read["descriptors"],
                         read["refs"],
+                        legacy_v1=legacy_v1,
                     )
                 ),
             }
@@ -492,7 +500,7 @@ def merge_captures(captures: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             coherent = coherent and revisions.get(column_id, revision) == revision
             revisions[column_id] = revision
     merged = {
-        "schema_version": 1,
+        "schema_version": CAPTURE_SCHEMA_VERSION,
         "kind": "aggregate",
         "scopes": scopes,
         "revisions": revisions,
@@ -605,7 +613,7 @@ def capture_retained_results(
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": CAPTURE_SCHEMA_VERSION,
         "kind": "aggregate",
         "scopes": [scope],
         "revisions": authority_revisions(project, [column_id, *inherited_columns]),
@@ -632,7 +640,7 @@ def row_capture(
         for role, cell in sorted(source_cells.items())
     ]
     return {
-        "schema_version": 1,
+        "schema_version": CAPTURE_SCHEMA_VERSION,
         "kind": "row",
         "sheet_id": int(sheet_id),
         "row_id": int(row_id),
@@ -776,6 +784,7 @@ def _verify_aggregate(
         _, current = source_membership(snapshot, check["sheet_id"], check["cohort"])
         if current != check:
             return False
+    legacy_v1 = int(capture.get("schema_version", 1)) < CAPTURE_SCHEMA_VERSION
     for scope in capture["scopes"]:
         if cancelled is not None and cancelled():
             return None
@@ -870,7 +879,7 @@ def _verify_aggregate(
                 for column_id in columns
             }
             if (
-                _hash(_records(sheet_id, columns, members, descriptors, refs))
+                _hash(_records(scope, members, descriptors, refs, legacy_v1=legacy_v1))
                 != part["fingerprint"]
             ):
                 return False

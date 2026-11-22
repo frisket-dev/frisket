@@ -302,12 +302,22 @@ def _migrate_receipts(db: sqlite3.Connection) -> None:
             )
 
 
+def _encode_json(value: Any, encoding: str) -> str:
+    if encoding == "canonical":
+        return _canonical_json(value)
+    if encoding == "canonical_utf8":
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+    return json.dumps(value)
+
+
 def _migrate_json_column(
     db: sqlite3.Connection,
     target: tuple[str, tuple[str, ...], str],
     key_map: dict[str, str],
     *,
-    canonical: bool = False,
+    encoding: str = "default",
 ) -> None:
     table, pk_cols, json_col = target
     pk_select = ", ".join(pk_cols)
@@ -331,19 +341,38 @@ def _migrate_json_column(
         rewritten, changed = _rewrite_keys_recursive(parsed, key_map)
         if not changed:
             continue
-        encoded = _canonical_json(rewritten) if canonical else json.dumps(rewritten)
+        encoded = _encode_json(rewritten, encoding)
         db.execute(
             f"UPDATE {table} SET {json_col}=? WHERE {where_pk}",
             (encoded, *pk_vals),
         )
 
 
-def _migrate_consumed_sources(db: sqlite3.Connection) -> None:
+def _remap_shared_inputs_list(
+    capture: dict[str, Any], shared_fp_map: dict[str, str]
+) -> bool:
+    if not shared_fp_map:
+        return False
+    shared_inputs = capture.get("shared_inputs")
+    if not isinstance(shared_inputs, list):
+        return False
+    remapped = [
+        shared_fp_map.get(fp, fp) if isinstance(fp, str) else fp for fp in shared_inputs
+    ]
+    if remapped == shared_inputs:
+        return False
+    capture["shared_inputs"] = remapped
+    return True
+
+
+def _migrate_aggregate_consumed_sources(db: sqlite3.Connection) -> dict[str, str]:
+    shared_fp_map: dict[str, str] = {}
     rows = db.execute(
-        "SELECT id, capture_key, capture_json FROM consumed_source_bundles "
-        "WHERE capture_json LIKE '%\"op_id\"%'"
+        "SELECT id, capture_key, input_fingerprint, capture_json "
+        "FROM consumed_source_bundles "
+        "WHERE kind='aggregate' AND capture_json LIKE '%\"op_id\"%'"
     ).fetchall()
-    for bundle_id, capture_key, raw in rows:
+    for bundle_id, capture_key, old_fp, raw in rows:
         try:
             parsed = json.loads(raw)
         except (TypeError, ValueError):
@@ -352,6 +381,8 @@ def _migrate_consumed_sources(db: sqlite3.Connection) -> None:
         if not changed or not isinstance(rewritten, dict):
             continue
         new_fp = capture_fingerprint(rewritten)
+        if isinstance(old_fp, str) and new_fp != old_fp:
+            shared_fp_map[old_fp] = new_fp
         new_key = capture_key
         if isinstance(capture_key, str) and ":shared:" in capture_key:
             prefix = capture_key.split(":shared:", 1)[0]
@@ -361,17 +392,103 @@ def _migrate_consumed_sources(db: sqlite3.Connection) -> None:
             "SET capture_key=?, input_fingerprint=?, capture_json=? WHERE id=?",
             (new_key, new_fp, _canonical_json(rewritten), bundle_id),
         )
+    return shared_fp_map
+
+
+def _migrate_consumed_sources(db: sqlite3.Connection) -> dict[str, str]:
+    shared_fp_map = _migrate_aggregate_consumed_sources(db)
+    where_clause = "kind='row' AND (capture_json LIKE '%\"op_id\"%'"
+    if shared_fp_map:
+        where_clause += " OR capture_json LIKE '%\"shared_inputs\"%'"
+    where_clause += ")"
+    rows = db.execute(
+        f"SELECT id, capture_json FROM consumed_source_bundles WHERE {where_clause}"
+    ).fetchall()
+    for bundle_id, raw in rows:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        rewritten, changed = _rewrite_keys_recursive(parsed, {"op_id": "change_id"})
+        if not isinstance(rewritten, dict):
+            continue
+        changed = _remap_shared_inputs_list(rewritten, shared_fp_map) or changed
+        if not changed:
+            continue
+        new_fp = capture_fingerprint(rewritten)
+        db.execute(
+            "UPDATE consumed_source_bundles "
+            "SET input_fingerprint=?, capture_json=? WHERE id=?",
+            (new_fp, _canonical_json(rewritten), bundle_id),
+        )
+    return shared_fp_map
+
+
+def _migrate_effect_checkpoints(
+    db: sqlite3.Connection, shared_fp_map: dict[str, str]
+) -> None:
+    where_clause = "payload IS NOT NULL AND (payload LIKE '%\"op_id\"%'"
+    if shared_fp_map:
+        where_clause += " OR payload LIKE '%\"shared_inputs\"%'"
+    where_clause += ")"
+    rows = db.execute(
+        f"SELECT id, payload FROM effect_checkpoints WHERE {where_clause}"
+    ).fetchall()
+    for checkpoint_id, raw in rows:
+        if not isinstance(raw, str):
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        rewritten, changed = _rewrite_keys_recursive(parsed, {"op_id": "change_id"})
+        if isinstance(rewritten, dict) and isinstance(
+            rewritten.get("__consumed_sources"), dict
+        ):
+            changed = (
+                _remap_shared_inputs_list(
+                    rewritten["__consumed_sources"], shared_fp_map
+                )
+                or changed
+            )
+        if not changed:
+            continue
+        db.execute(
+            "UPDATE effect_checkpoints SET payload=? WHERE id=?",
+            (json.dumps(rewritten), checkpoint_id),
+        )
+
+
+def _rewrite_submission_draft(parsed: dict[str, Any]) -> bool:
+    changed = False
+    if parsed.get("action_id") in _ACTION_KIND_MAP:
+        parsed["action_id"] = _ACTION_KIND_MAP[parsed["action_id"]]
+        changed = True
+    params = parsed.get("params")
+    if isinstance(params, dict):
+        new_params, params_changed = _rewrite_keys_recursive(
+            params,
+            {
+                "copied_op_id": "copied_change_id",
+                "expected_op_id": "expected_change_id",
+                "op_id": "change_id",
+            },
+        )
+        if params_changed:
+            parsed["params"] = new_params
+            changed = True
+    return changed
 
 
 def _migrate_action_submissions(db: sqlite3.Connection) -> None:
     rows = db.execute(
-        "SELECT id, action_id, draft_json FROM action_submissions "
+        "SELECT id, request_key, action_id, draft_json FROM action_submissions "
         "WHERE action_id IN ('operation.undo','operation.redo','operation.revert','operation.restore') "
         "OR draft_json LIKE '%\"copied_op_id\"%' "
         "OR draft_json LIKE '%\"expected_op_id\"%' "
         "OR draft_json LIKE '%\"op_id\"%'"
     ).fetchall()
-    for sub_id, action_id, raw in rows:
+    for sub_id, request_key, action_id, raw in rows:
         new_action_id = _ACTION_KIND_MAP.get(action_id, action_id)
         try:
             parsed = json.loads(raw)
@@ -379,40 +496,45 @@ def _migrate_action_submissions(db: sqlite3.Connection) -> None:
             continue
         if not isinstance(parsed, dict):
             continue
-        changed = new_action_id != action_id
-        if parsed.get("action_id") in _ACTION_KIND_MAP:
-            parsed["action_id"] = _ACTION_KIND_MAP[parsed["action_id"]]
-            changed = True
-        params = parsed.get("params")
-        if isinstance(params, dict):
-            new_params, params_changed = _rewrite_keys_recursive(
-                params,
-                {
-                    "copied_op_id": "copied_change_id",
-                    "expected_op_id": "expected_change_id",
-                    "op_id": "change_id",
-                },
-            )
-            if params_changed:
-                parsed["params"] = new_params
-                changed = True
+        changed = _rewrite_submission_draft(parsed) or (new_action_id != action_id)
         if not changed:
             continue
         encoded = _canonical_json(parsed)
         digest = hashlib.sha256(encoded.encode()).hexdigest()
-        db.execute(
-            "UPDATE action_submissions SET action_id=?, draft_hash=?, draft_json=? "
-            "WHERE id=?",
-            (new_action_id, digest, encoded, sub_id),
+        conflict = (
+            db.execute(
+                "SELECT 1 FROM action_submissions "
+                "WHERE request_key=? AND draft_hash=? AND id!=?",
+                (request_key, digest, sub_id),
+            ).fetchone()
+            if request_key is not None
+            else None
         )
+        if conflict is not None:
+            db.execute(
+                "UPDATE action_submissions SET action_id=?, draft_json=? WHERE id=?",
+                (new_action_id, encoded, sub_id),
+            )
+        else:
+            db.execute(
+                "UPDATE action_submissions SET action_id=?, draft_hash=?, draft_json=? "
+                "WHERE id=?",
+                (new_action_id, digest, encoded, sub_id),
+            )
 
 
-def _migrate_params_and_specs(db: sqlite3.Connection) -> None:
+def _migrate_params_and_specs(
+    db: sqlite3.Connection, shared_fp_map: dict[str, str]
+) -> None:
     key_map = {
         "copied_op_id": "copied_change_id",
         "expected_op_id": "expected_change_id",
         "import_op_id": "import_change_id",
         "op_id": "change_id",
+        "op_ids": "change_ids",
+        "parent_op_id": "parent_change_id",
+        "source_op_id": "source_change_id",
+        "source_op_ids": "source_change_ids",
     }
     _migrate_json_column(db, ("changes", ("id",), "spec"), key_map)
     _migrate_json_column(db, ("runs", ("id",), "params"), key_map)
@@ -420,7 +542,7 @@ def _migrate_params_and_specs(db: sqlite3.Connection) -> None:
         db,
         ("citations", ("id",), "subject_ref_json"),
         {"op_id": "change_id"},
-        canonical=True,
+        encoding="canonical",
     )
     db.execute("DROP TRIGGER IF EXISTS trg_text_surfaces_no_update")
     try:
@@ -428,27 +550,30 @@ def _migrate_params_and_specs(db: sqlite3.Connection) -> None:
             db,
             ("text_surfaces", ("id",), "value_ref_json"),
             {"op_id": "change_id"},
-            canonical=True,
+            encoding="canonical",
         )
     finally:
         db.execute(TARGET_TRIGGER_DDLS["trg_text_surfaces_no_update"])
-    _migrate_json_column(
-        db, ("effect_checkpoints", ("id",), "payload"), {"op_id": "change_id"}
-    )
+    _migrate_effect_checkpoints(db, shared_fp_map)
     _migrate_json_column(
         db, ("feed_checks", ("id",), "summary_json"), {"op_id": "change_id"}
     )
+    qa_key_map = {
+        "source_op_cursor": "source_change_cursor",
+        "op_id": "change_id",
+        "op_ids": "change_ids",
+    }
     _migrate_json_column(
         db,
         ("project_qa_citations", ("id",), "locator_json"),
-        {"source_op_cursor": "source_change_cursor"},
-        canonical=True,
+        qa_key_map,
+        encoding="canonical_utf8",
     )
     _migrate_json_column(
         db,
         ("project_qa_events", ("thread_id", "seq"), "payload_json"),
-        {"source_op_cursor": "source_change_cursor"},
-        canonical=True,
+        qa_key_map,
+        encoding="canonical_utf8",
     )
     for col in ("source_ref", "deep_link", "payload"):
         _migrate_json_column(
@@ -503,9 +628,9 @@ def migrate_changes(db: sqlite3.Connection) -> None:
 
     _migrate_cursor_meta(db)
     _migrate_receipts(db)
-    _migrate_consumed_sources(db)
+    shared_fp_map = _migrate_consumed_sources(db)
     _migrate_action_submissions(db)
-    _migrate_params_and_specs(db)
+    _migrate_params_and_specs(db, shared_fp_map)
 
     violation = db.execute("PRAGMA foreign_key_check").fetchone()
     if violation is not None:

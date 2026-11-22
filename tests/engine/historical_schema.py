@@ -480,7 +480,11 @@ def restore_pre_changes_schema(db: sqlite3.Connection) -> None:
                     for rec in records:
                         rec[idx] = _downgrade_json_text(
                             rec[idx],
-                            {"source_change_cursor": "source_op_cursor"},
+                            {
+                                "source_change_cursor": "source_op_cursor",
+                                "change_id": "op_id",
+                                "change_ids": "op_ids",
+                            },
                             canonical=True,
                         )
                 elif table == "project_qa_events":
@@ -488,7 +492,11 @@ def restore_pre_changes_schema(db: sqlite3.Connection) -> None:
                     for rec in records:
                         rec[idx] = _downgrade_json_text(
                             rec[idx],
-                            {"source_change_cursor": "source_op_cursor"},
+                            {
+                                "source_change_cursor": "source_op_cursor",
+                                "change_id": "op_id",
+                                "change_ids": "op_ids",
+                            },
                             canonical=True,
                         )
                 saved[table] = (common, records)
