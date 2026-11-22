@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.leases import acquire_lease, release_lease
 from frisket.engine.store.transactions import require_transaction, write_transaction
 
@@ -57,7 +58,7 @@ class IndexCountUpdate:
 
 
 class EmbeddingStore:
-    def __init__(self, project: Project):
+    def __init__(self, project: Project | ProjectReadSnapshot):
         self.project = project
 
     @property

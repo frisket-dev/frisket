@@ -13,6 +13,7 @@ from frisket.ai.embeddings.scope import (
 )
 from frisket.ai.embeddings.source_payload import build_source_payloads
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.retrieval.query import PinnedRetrievalReader, RetrievalQueryError
 from frisket.retrieval.store import RetrievalStore
 
@@ -80,7 +81,7 @@ def freshness_error_code(reason: str) -> str | None:
 
 
 def embedding_search_freshness_error(
-    project: Project, index_id: Any
+    project: Project | ProjectReadSnapshot, index_id: Any
 ) -> tuple[str, str] | None:
     from frisket.ai.embeddings.store import EmbeddingStore
 
@@ -313,7 +314,7 @@ def _missing_scope_row_pages(
 
 
 def index_freshness(
-    project: Project, index: Any, *, scope: Any = None
+    project: Project | ProjectReadSnapshot, index: Any, *, scope: Any = None
 ) -> IndexFreshness:
     """Read exact counts without reconstructing every ready source payload.
 

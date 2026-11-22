@@ -13,7 +13,8 @@ from .contracts import RetrievalScope, SheetScope
 
 
 class ScopeReader(Protocol):
-    db: sqlite3.Connection
+    @property
+    def db(self) -> sqlite3.Connection: ...
 
     def columns(
         self, sheet_id: int, include_hidden: bool = False

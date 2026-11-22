@@ -269,7 +269,9 @@ class EmbeddingRouteService:
             "artifacts": artifacts,
         }
 
-    def _check_search_freshness(self, project: Project, query: dict[str, Any]) -> None:
+    def _check_search_freshness(
+        self, project: Project | ProjectReadSnapshot, query: dict[str, Any]
+    ) -> None:
         index_id = query.get("embedding_index_id") if isinstance(query, dict) else None
         if isinstance(index_id, str) and index_id.strip():
             gate = embedding_search_freshness_error(project, index_id)

@@ -23,7 +23,7 @@ from frisket.engine.store.transactions import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance for annotations
-    from frisket.engine.store.project import Project
+    from frisket.engine.store.project import Project, ProjectReadSnapshot
 
 
 TIMELINE_FINGERPRINT_SCHEMA_VERSION = "frisket.timeline_fingerprint.v1"
@@ -251,7 +251,9 @@ def transcript_timeline_fingerprint(
     )
 
 
-def resolve_artifact_timeline(project: Project, artifact_id: int) -> TimelineAnchor:
+def resolve_artifact_timeline(
+    project: Project | ProjectReadSnapshot, artifact_id: int
+) -> TimelineAnchor:
     """Resolve an artifact's canonical timeline from its current stored facts."""
 
     return _compute_timeline(project, _positive_int(artifact_id, "artifact_id"))
@@ -938,7 +940,7 @@ def map_range_to_root(
 
 
 def _compute_timeline(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     artifact_id: int,
     *,
     stack: tuple[int, ...] = (),
@@ -1052,7 +1054,9 @@ def _derived_timeline_fingerprint(
     return canonical_json_hash(payload)
 
 
-def _validate_v1_segment(project: Project, segment: ArtifactTimelineSegment) -> None:
+def _validate_v1_segment(
+    project: Project | ProjectReadSnapshot, segment: ArtifactTimelineSegment
+) -> None:
     if segment.derived_artifact_id == segment.source_artifact_id:
         raise TimelineError("ambiguous_time_mapping", "timeline mapping self-links")
     if segment.ordinal != 0:
@@ -1090,7 +1094,9 @@ def _validate_v1_segment(project: Project, segment: ArtifactTimelineSegment) -> 
         raise TimelineError("ambiguous_time_mapping", "mapping precision is invalid")
 
 
-def _mapping_rows(project: Project, derived_artifact_id: int) -> list[Any]:
+def _mapping_rows(
+    project: Project | ProjectReadSnapshot, derived_artifact_id: int
+) -> list[Any]:
     return project.db.execute(
         "SELECT * FROM artifact_timeline_segments "
         "WHERE derived_artifact_id=? ORDER BY ordinal, id",
@@ -1126,7 +1132,9 @@ def _segment(row: Any) -> ArtifactTimelineSegment:
     )
 
 
-def _artifact(project: Project, artifact_id: int) -> dict[str, Any]:
+def _artifact(
+    project: Project | ProjectReadSnapshot, artifact_id: int
+) -> dict[str, Any]:
     row = project.db.execute(
         "SELECT * FROM source_artifacts WHERE id=?", (artifact_id,)
     ).fetchone()
