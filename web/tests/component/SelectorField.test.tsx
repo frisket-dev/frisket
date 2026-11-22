@@ -57,7 +57,7 @@ function response(): HttpSelectorChoicesResponse {
 }
 
 describe('SelectorField', () => {
-  it('keeps an empty disabled selector mounted until choices arrive', async () => {
+  it('shows a visible Loading… shimmer trigger until choices arrive', async () => {
     let complete!: (value: ReturnType<typeof response>) => void;
     const load = vi.fn(() => new Promise<ReturnType<typeof response>>((resolve) => { complete = resolve; }));
     render(<SelectorField projectId="project-a" label="Model"
@@ -65,11 +65,17 @@ describe('SelectorField', () => {
       recentNamespace="loading-shell" load={load} onSelect={vi.fn()} />);
     const trigger = screen.getByRole('button', { name: 'Loading model' });
     expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute('aria-busy', 'true');
+    expect(trigger).toHaveClass('engine-selector__trigger--loading');
+    expect(within(trigger).getByText('Loading…')).toBeVisible();
     expect(screen.getByTestId('engine-selector')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Loading choices…')).not.toBeInTheDocument();
     await act(async () => complete(response()));
     expect(await screen.findByRole('button', { name: /Ready model/ })).toBe(trigger);
     expect(trigger).toBeEnabled();
+    expect(trigger).not.toHaveAttribute('aria-busy');
+    expect(trigger).not.toHaveClass('engine-selector__trigger--loading');
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     expect(screen.getByTestId('engine-selector')).not.toHaveAttribute('aria-busy');
   });
 

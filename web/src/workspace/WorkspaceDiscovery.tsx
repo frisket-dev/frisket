@@ -49,8 +49,6 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
     activeViewId,
     viewModified,
     currentDefinition,
-    updateViewSelection,
-    clearViewSelection,
     addAlertForCurrentView,
     openCellSimilarity,
     selectedRowIdsForSheet,
@@ -108,9 +106,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
           editor={viewsEditor}
           activeViewId={activeViewId}
           viewModified={viewModified}
-          currentSelection={currentDefinition?.selection}
-          onSelectionChange={updateViewSelection}
-          onClearSelection={clearViewSelection}
+          currentDefinition={currentDefinition}
           isSaving={viewsSaving}
           lastPublication={viewsLastPublication}
           onPublicationConsumed={consumeViewsPublication}

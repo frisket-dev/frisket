@@ -13,8 +13,8 @@ import { SegmentedToggle } from '../components/PanelPrimitives';
 import { type WorkViewKind } from './useWorkspaceChromeState';
 import { DeleteRowsButton } from '../components/TabStripButtons';
 import { ROW_HEIGHTS } from './workspaceState';
-import { gridFilterSummaryLabel, gridSortLabel } from './gridColumnState';
 import { GridSortPanel } from './GridSortPanel';
+import { SheetFilterBar } from './SheetFilterBar';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { selectInlineFilterColumn, selectInlineFilterOpen } from '../state/gridViewStore';
 import { useSelector } from '../bind/useSelector';
@@ -566,11 +566,15 @@ function ToolbarOverflowMenu() {
 
 export function WorkspaceGridControls() {
   const {
+    activeViewId,
     applyGridSort,
     clearGridFilter,
     clearGridSort,
+    clearViewSelection,
+    currentDefinition,
     effectiveSortColumn,
     sheet,
+    updateViewSelection,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
@@ -586,53 +590,39 @@ export function WorkspaceGridControls() {
   if (!sheet) return null;
 
   return (
-<>
-              {sortPanelOpen && (
-                <GridSortPanel
-                  sheet={sheet}
-                  column={effectiveSortColumn}
-                  direction={draftSortDirection}
-                  onColumnChange={gridView.setDraftSortColumn}
-                  onDirectionChange={gridView.setDraftSortDirection}
-                  onApply={applyGridSort}
-                  onClose={() => gridView.setSortPanelOpen(false)}
-                />
-              )}
+    <>
+      {sortPanelOpen && (
+        <GridSortPanel
+          sheet={sheet}
+          column={effectiveSortColumn}
+          direction={draftSortDirection}
+          onColumnChange={gridView.setDraftSortColumn}
+          onDirectionChange={gridView.setDraftSortDirection}
+          onApply={applyGridSort}
+          onClose={() => gridView.setSortPanelOpen(false)}
+        />
+      )}
 
-              {(activeGridFilter || activeGridSort || scopeRowIds !== null) && (
-                <div className="grid-active-bar">
-                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <Button type="button" onClick={() => gridView.store.set((state) => ({ ...state, activeViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</Button></span>}
-                  {activeGridFilter && (
-                    <span className="active-grid-state active-grid-filter" data-testid="active-grid-filter">
-                      <span className="active-grid-filter-label">
-                        Filter: {gridFilterSummaryLabel(activeGridFilter, activeGridFilterValueLabel)}
-                      </span>
-                      <Button
-                        type="button"
-
-                        data-testid="clear-grid-filter"
-                        onClick={clearGridFilter}
-                      >
-                        Clear
-                      </Button>
-                    </span>
-                  )}
-                  {activeGridSort && (
-                    <span className="active-grid-state" data-testid="active-grid-sort">
-                      Sort: {gridSortLabel(activeGridSort)}
-                      <Button
-                        type="button"
-
-                        data-testid="clear-grid-sort"
-                        onClick={clearGridSort}
-                      >
-                        Clear
-                      </Button>
-                    </span>
-                  )}
-                </div>
-              )}
-  </>
+      <SheetFilterBar
+        currentSelection={currentDefinition?.selection ?? null}
+        onSelectionChange={updateViewSelection}
+        onClearSelection={clearViewSelection}
+        activeGridFilter={activeGridFilter}
+        activeGridFilterValueLabel={activeGridFilterValueLabel}
+        activeGridSort={activeGridSort}
+        scopeRowIds={scopeRowIds}
+        activeViewId={activeViewId}
+        onClearGridFilter={clearGridFilter}
+        onClearGridSort={clearGridSort}
+        onClearScopeRowIds={() =>
+          gridView.store.set((state) => ({
+            ...state,
+            activeViewId: null,
+            applied: { ...state.applied, scopeRowIds: null },
+          }))
+        }
+      />
+    </>
   );
 }
 

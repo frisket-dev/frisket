@@ -1,22 +1,21 @@
-import { PanelSelect } from '../components/PanelSelect';
 import { ViewResults } from '../components/ViewResults';
 import '../components/PanelPrimitives.css';
 import '../components/IconButton.css';
 import { ConfirmDialog } from '../components/Modal';
 import './ViewsPanel.css';
 import { Button } from '../components/Button';
-import { TextInput, FormField } from '../components/FormControls';
+import { TextInput } from '../components/FormControls';
 // Saved-views panel. This is intentionally presentational: persistence and
 // successful-create/update transitions belong to the workspace controller.
 import { useEffect, useRef, useState } from 'react';
 import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
-import type { View, ViewSelection } from '../api/open';
+import type { View, ViewDefinitionInput } from '../api/open';
 import type {
   ViewsConfirmation,
   ViewsEditor,
   ViewsPublication,
 } from '../state/viewsStore';
-import { summarizeView } from './summarizeView';
+import { summarizeView, summarizeViewDefinition } from './summarizeView';
 
 export interface ViewsPanelProps {
   views: View[];
@@ -29,9 +28,7 @@ export interface ViewsPanelProps {
   confirmationError?: string | null;
   canEdit: boolean;
   viewModified?: boolean;
-  currentSelection?: ViewSelection | null;
-  onSelectionChange?(selection: ViewSelection): void;
-  onClearSelection?(): void;
+  currentDefinition?: ViewDefinitionInput | null;
   activeViewId?: View['id'] | null;
   onNameChange(name: string): void;
   onStartCreating(): void;
@@ -59,9 +56,7 @@ export function ViewsPanel({
   canEdit,
   activeViewId = null,
   viewModified = false,
-  currentSelection = null,
-  onSelectionChange,
-  onClearSelection,
+  currentDefinition = null,
   onNameChange,
   onStartCreating,
   onSave,
@@ -80,10 +75,27 @@ export function ViewsPanel({
   const nextStatusToken = useRef(0);
   const viewRows = useRef(new Map<View['id'], HTMLDivElement>());
   const listRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const confirmationTrigger = useRef<HTMLElement | null>(null);
   const confirmationWasOpen = useRef(confirmation !== null);
   const nameIsBlank = viewName.trim() === '';
   const nameErrorId = 'view-name-error';
+  const editorKey = editor
+    ? editor.kind === 'edit'
+      ? `edit:${editor.view.id}`
+      : 'create'
+    : null;
+  const createSummary = currentDefinition
+    ? (() => {
+        const info = summarizeViewDefinition(currentDefinition);
+        return info.hasNoEffectiveFilter
+          && !info.sortSummary
+          && currentDefinition.selection.limit == null
+          && info.columnCount === null
+          ? 'All rows (no filters)'
+          : info.summary;
+      })()
+    : null;
   const publishedView = lastPublication
     ? views.find((candidate) => candidate.id === lastPublication.viewId)
     : null;
@@ -99,6 +111,11 @@ export function ViewsPanel({
   const announce = (message: string) => {
     setStatusEvent({ token: ++nextStatusToken.current, message });
   };
+
+  useEffect(() => {
+    if (!editorKey || !canEdit) return;
+    nameInputRef.current?.focus();
+  }, [canEdit, editorKey]);
 
   useEffect(() => {
     if (!lastPublication) return;
@@ -140,30 +157,21 @@ export function ViewsPanel({
       >
         {publicationAnnouncement || statusEvent.message}
       </div>
-      {currentSelection && onSelectionChange && <div className="form-stack">
-        {onClearSelection && <Button onClick={onClearSelection}>Show all rows</Button>}
-        <FormField label="Search text"><TextInput aria-label="View search text" value={currentSelection.search?.text ?? ''} placeholder="All content"
-          onChange={(event) => onSelectionChange({ ...currentSelection, search: event.currentTarget.value.trim() ? { text: event.currentTarget.value } : undefined,
-            order: !event.currentTarget.value.trim() ? currentSelection.order.filter((item) => !('score' in item && item.score === 'search')) : currentSelection.order })} /></FormField>
-        {(currentSelection.search || currentSelection.similarity) && <FormField label="Sort results"><PanelSelect aria-label="View score order"
-          value={currentSelection.order[0] && 'score' in currentSelection.order[0] ? currentSelection.order[0].score : currentSelection.order.length ? 'column' : 'rows'}
-          onChange={(event) => onSelectionChange({ ...currentSelection, order: event.currentTarget.value === 'rows' ? [] : [{ score: event.currentTarget.value as 'search' | 'similarity', dir: 'desc' }] })}>
-          {currentSelection.order.some((item) => 'column_id' in item) && <option value="column" disabled>Current column sort</option>}
-          <option value="rows">Row order</option>{currentSelection.search && <option value="search">Search score, highest first</option>}{currentSelection.similarity && <option value="similarity">Similarity score, highest first</option>}
-        </PanelSelect></FormField>}
-        <FormField label="Limit results"><TextInput aria-label="View result limit" type="number" min={1} placeholder="All matching rows" value={currentSelection.limit ?? ''}
-          onChange={(event) => { const limit = event.currentTarget.value === '' ? null : Number(event.currentTarget.value); if (limit === null || Number.isInteger(limit) && limit > 0) onSelectionChange({ ...currentSelection, limit }); }} /></FormField>
-      </div>}
       {editor && canEdit ? (
         <div
           className="views-create"
           data-testid={editor.kind === 'create' ? 'view-create' : 'view-edit'}
           aria-busy={isSaving}
         >
-          {editor.kind === 'edit' && (
+          {editor.kind === 'edit' ? (
             <span className="view-summary" data-testid="view-filter-summary">{summarizeView(editor.view).summary}</span>
+          ) : (
+            createSummary && (
+              <span className="view-summary" data-testid="view-create-summary">Saving: {createSummary}</span>
+            )
           )}
           <TextInput
+            ref={nameInputRef}
             data-testid="view-name-input"
             placeholder="View name"
             value={viewName}
@@ -171,6 +179,16 @@ export function ViewsPanel({
             aria-describedby={nameIsBlank ? nameErrorId : undefined}
             disabled={isSaving}
             onChange={(event) => onNameChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !nameIsBlank && !isSaving) {
+                event.preventDefault();
+                if (editor.kind === 'edit') onUpdate();
+                else onSave();
+              } else if (event.key === 'Escape' && !isSaving) {
+                event.preventDefault();
+                onCancel();
+              }
+            }}
           />
           {nameIsBlank && <span id={nameErrorId}>Enter a name to continue.</span>}
           <div className="views-editor-actions">

@@ -417,6 +417,43 @@ describe('EngineSelector', () => {
     else expect(progress).toHaveAttribute('aria-valuenow', String(percent));
   });
 
+  it('renders a visible Loading… state with aria-busy and shimmer class while loading', () => {
+    const { rerender } = render(
+      <EngineSelector
+        label="OCR engine"
+        groups={[]}
+        value={null}
+        recentNamespace="loading-state"
+        loading
+        disabled
+        onSelect={vi.fn()}
+      />,
+    );
+    const container = screen.getByTestId('engine-selector');
+    const trigger = screen.getByRole('button', { name: 'Loading ocr engine' });
+    expect(container).toHaveAttribute('aria-busy', 'true');
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute('aria-busy', 'true');
+    expect(trigger).toHaveClass('engine-selector__trigger--loading');
+    expect(within(trigger).getByText('Loading…')).toBeVisible();
+    expect(trigger.querySelector('.engine-selector__status--loading')).not.toBeNull();
+
+    rerender(
+      <EngineSelector
+        label="OCR engine"
+        groups={groups}
+        value="parakeet"
+        recentNamespace="loading-state"
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(container).not.toHaveAttribute('aria-busy');
+    expect(trigger).toBeEnabled();
+    expect(trigger).not.toHaveAttribute('aria-busy');
+    expect(trigger).not.toHaveClass('engine-selector__trigger--loading');
+    expect(within(trigger).getByText('Parakeet')).toBeVisible();
+  });
+
   it('portals setup forms and stops their submit from reaching the action form', async () => {
     const outerSubmit = vi.fn();
     render(
