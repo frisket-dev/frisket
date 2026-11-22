@@ -151,6 +151,11 @@ class ProjectReadSnapshot:
         self.db  # Refuse borrowing an already closed snapshot.
         return nullcontext(self)
 
+    def materialize_blob(self, digest: str) -> AbstractContextManager[Path]:
+        """Materialize a content-addressed blob for this read snapshot."""
+        self.db  # Refuse blob access after the snapshot lifetime ends.
+        return self.blob_store.materialize(digest)
+
     # ---------- cells: read-only sheet, column and value reads ----------
     pending_replay_values = cells.pending_replay_values
     pending_replay_count = cells.pending_replay_count

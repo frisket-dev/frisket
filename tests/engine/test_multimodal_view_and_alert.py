@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from pypdf import PdfWriter
 
+import frisket.engine.jobs.search_index as search_index_jobs_mod
 import frisket.retrieval.preparation as preparation_mod
 from frisket.ai.llm import ModelRouter
 from frisket.alerts.service import check_alert
@@ -23,6 +24,7 @@ from frisket.engine.jobs import (
     register_feed_poll_handler,
 )
 from frisket.engine.jobs.search_index import process_index_batches
+from frisket.engine.pdf_render import PdfRenderError
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
 from frisket.engine.store.transactions import write_transaction
@@ -57,6 +59,7 @@ from frisket.retrieval.preparation import (
     process_timed_media_preparation_batch,
 )
 from frisket.retrieval.query import RetrievalQueryService, SemanticQueryVectors
+from frisket.retrieval.sources import cell_source_binding_id
 from frisket.retrieval.store import RetrievalStore
 from frisket.search_index import index_batch
 from frisket.server.app import create_app
@@ -408,8 +411,16 @@ def test_local_retrieval_validation_and_threshold_pinned_alert_stability(
             },
         )
 
-    # Invalid min_score bounds are rejected.
-    for bad_score in (0.0, -0.5, 1.5, float("nan"), True):
+    # Invalid min_score bounds (including +/-inf and bool) are rejected.
+    for bad_score in (
+        0.0,
+        -0.5,
+        1.5,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        True,
+    ):
         with pytest.raises(ValueError, match="min_score"):
             normalize_selection(
                 project,
@@ -422,6 +433,21 @@ def test_local_retrieval_validation_and_threshold_pinned_alert_stability(
                     },
                 },
             )
+
+    # Putting limit inside the local_retrieval similarity dict is rejected.
+    with pytest.raises(ValueError, match="unknown local_retrieval similarity fields"):
+        normalize_selection(
+            project,
+            {
+                "scope": {"kind": "sheet", "sheet_id": sheet},
+                "similarity": {
+                    "kind": "local_retrieval",
+                    "query_text": "contract",
+                    "min_score": 0.7,
+                    "limit": 5,
+                },
+            },
+        )
 
     # Missing both query_text and source_anchor is rejected.
     with pytest.raises(ValueError, match="query_text"):
@@ -452,8 +478,9 @@ def test_local_retrieval_validation_and_threshold_pinned_alert_stability(
             "presentation": {},
         },
     )
-    with pytest.raises(ValueError, match="top-K limit"):
+    with pytest.raises(SelectionUnavailable, match="top-K limit") as add_exc:
         project.add_alert("Capped alert", view_id=capped_view)
+    assert add_exc.value.code == "alert_top_k_limit_forbidden"
 
     # Threshold-pinned View + Alert: adding higher-scoring rows never evicts existing matches.
     pinned_view = project.add_view(
@@ -481,7 +508,7 @@ def test_local_retrieval_validation_and_threshold_pinned_alert_stability(
     )
 
     # Cannot mutate an Alert-bound local_retrieval View to add a top-K limit later.
-    with pytest.raises(ValueError, match="top-K limit"):
+    with pytest.raises(SelectionUnavailable, match="top-K limit") as upd_exc:
         project.update_view(
             pinned_view,
             spec={
@@ -497,6 +524,7 @@ def test_local_retrieval_validation_and_threshold_pinned_alert_stability(
                 "presentation": {},
             },
         )
+    assert upd_exc.value.code == "alert_top_k_limit_forbidden"
 
     baseline = check_alert(
         project, project.get_alert(alert_id), embedding_encoder=encoder
@@ -910,6 +938,345 @@ def test_http_views_and_alerts_local_retrieval_end_to_end(tmp_path) -> None:
         assert checked.json()["run"]["status"] == "ok"
         assert checked.json()["run"]["matched_rows"] == 1
 
+        # Updating an Alert-bound local_retrieval View to add a top-K limit returns HTTP 400 (not 500).
+        bad_update = client.put(
+            f"/api/projects/{pid}/views/{view_id}/definition",
+            json={
+                "selection": {
+                    "scope": {"kind": "project"},
+                    "similarity": {
+                        "kind": "local_retrieval",
+                        "query_text": "urgent contract",
+                        "min_score": 0.85,
+                    },
+                    "limit": 2,
+                }
+            },
+        )
+        assert bad_update.status_code == 400, bad_update.text
+        assert bad_update.json()["detail"]["code"] == "alert_top_k_limit_forbidden"
+
+        # Creating an Alert on a capped local_retrieval View returns HTTP 400 (not 500).
+        capped_view_resp = client.post(
+            f"/api/projects/{pid}/views",
+            json={
+                "name": "Capped local view",
+                "selection": {
+                    "scope": {"kind": "sheet", "sheet_id": sheet},
+                    "similarity": {
+                        "kind": "local_retrieval",
+                        "query_text": "urgent contract",
+                        "min_score": 0.85,
+                    },
+                    "limit": 1,
+                },
+            },
+        )
+        assert capped_view_resp.status_code == 200, capped_view_resp.text
+        capped_view_id = capped_view_resp.json()["id"]
+
+        bad_alert = client.post(
+            f"/api/projects/{pid}/alerts",
+            json={
+                "name": "Capped alert",
+                "view_id": capped_view_id,
+                "detection_policy": {"kind": "new_matches"},
+            },
+        )
+        assert bad_alert.status_code == 400, bad_alert.text
+
+        # Sheet grid surface (open_sheet_selection) reuses workspace.embedding_runtime cleanly.
+        grid = client.get(
+            f"/api/projects/{pid}/sheets/{sheet}/data",
+            params={"view_id": capped_view_id},
+        )
+        assert grid.status_code == 200, grid.text
+        assert [row["id"] for row in grid.json()["rows"]] == [rows[0]]
+
+
+def test_local_retrieval_unprepared_media_source_anchor_fallback(
+    make_project,
+) -> None:
+    """On-demand media source_anchor fallback materializes blobs through ProjectReadSnapshot."""
+    project = make_project("unprepared-media-anchor")
+    encoder = _MultimodalTestEncoder()
+
+    sheet_targets = project.add_sheet("Targets")
+    col_target = project.add_column(sheet_targets, "img", type="image")
+    red_target_hash = project.add_blob(
+        _png_bytes("red"), mime="image/png", filename="target_red.png"
+    )
+    blue_target_hash = project.add_blob(
+        _png_bytes("blue"), mime="image/png", filename="target_blue.png"
+    )
+    target_rows = project.add_rows(
+        sheet_targets,
+        [
+            {"img": {"blob": red_target_hash}},
+            {"img": {"blob": blue_target_hash}},
+        ],
+        {"img": col_target},
+    )
+    _drain_local(project, encoder)
+
+    # Add a distinct red image (different bytes via pixel 1,0 so its blob_hash is
+    # NOT prepared in project.retrieval.db) in a separate sheet without indexing it.
+    img = Image.new("RGB", (8, 8), "red")
+    img.putpixel((1, 0), (254, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    unprepared_hash = project.add_blob(
+        buf.getvalue(), mime="image/png", filename="unprepared_ref.png"
+    )
+    sheet_anchor = project.add_sheet("AnchorSheet")
+    col_anchor = project.add_column(sheet_anchor, "ref", type="image")
+    anchor_row = project.add_rows(
+        sheet_anchor,
+        [{"ref": {"blob": unprepared_hash}}],
+        {"ref": col_anchor},
+    )[0]
+    rev = int(
+        project.db.execute(
+            "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+            (anchor_row, col_anchor),
+        ).fetchone()[0]
+    )
+    source_id = f"blob:{unprepared_hash}"
+    binding_id = cell_source_binding_id(
+        sheet_id=sheet_anchor,
+        row_id=anchor_row,
+        column_id=col_anchor,
+        source_id=source_id,
+    )
+
+    spec = {
+        "scope": {"kind": "sheet", "sheet_id": sheet_targets},
+        "similarity": {
+            "kind": "local_retrieval",
+            "min_score": 0.9,
+            "source_anchor": {
+                "source": {
+                    "source_id": source_id,
+                    "source_kind": "blob",
+                    "version_kind": "blob_digest",
+                    "version_value": unprepared_hash,
+                    "content_hash": f"sha256:{unprepared_hash}",
+                },
+                "locator": {"kind": "image"},
+                "binding": {
+                    "binding_id": binding_id,
+                    "sheet_id": sheet_anchor,
+                    "row_id": anchor_row,
+                    "column_id": col_anchor,
+                    "dependencies": [
+                        {
+                            "row_id": anchor_row,
+                            "column_id": col_anchor,
+                            "retrieval_revision": rev,
+                        }
+                    ],
+                },
+                "exclude_exact": True,
+            },
+        },
+    }
+    calls_before = encoder.calls
+    with open_selection(project, spec, embedding_encoder=encoder) as selected:
+        hits = list(selected.hits())
+        assert [(h["sheet_id"], h["row_id"]) for h in hits] == [
+            (sheet_targets, target_rows[0])
+        ]
+    assert encoder.calls == calls_before + 1
+
+
+def test_alert_evaluate_continuation_same_marker_and_cross_sheet_failure(
+    tmp_path, monkeypatch
+) -> None:
+    """Continuations never self-collide on unchanged markers and survive unrelated failing blobs."""
+    # Scenario A: Multi-batch continuation where pass 1 makes progress (processed > 0)
+    # without changing index_work_marker, then pass 2 advances marker, then pass 3 finishes.
+    ws_a = tmp_path / "ws-a"
+    ws_a.mkdir()
+    pid_a = "same-marker-cont"
+    proj_a = Project.create(ws_a / f"{pid_a}.frisket", name="Same Marker")
+    sheet_a = proj_a.add_sheet("Docs")
+    col_a = proj_a.add_column(sheet_a, "body")
+    proj_a.add_rows(sheet_a, [{"body": "urgent contract"}], {"body": col_a})
+    view_a = proj_a.add_view(
+        "Contracts",
+        {
+            "selection": {
+                "scope": {"kind": "sheet", "sheet_id": sheet_a},
+                "similarity": {
+                    "kind": "local_retrieval",
+                    "query_text": "urgent contract",
+                    "min_score": 0.85,
+                },
+            },
+            "presentation": {},
+        },
+    )
+    alert_a = proj_a.add_alert("Contract watch", view_id=view_a, schedule="@hourly")
+    proj_a.close()
+
+    real_process = search_index_jobs_mod.process_index_batches
+    real_marker = search_index_jobs_mod.index_work_marker
+    phase = {"step": 0}
+
+    def scripted_process(project, *, stopped=lambda: False, embedding_encoder=None):
+        phase["step"] += 1
+        if phase["step"] in (1, 2):
+            return 2, False
+        return real_process(
+            project, stopped=stopped, embedding_encoder=embedding_encoder
+        )
+
+    def scripted_marker(project, *, include_preparation=True):
+        if phase["step"] == 0:
+            return "prepare:same-marker"
+        if phase["step"] == 1:
+            return "prepare:same-marker"  # Unchanged marker after progress!
+        if phase["step"] == 2:
+            return "prepare:next-marker"
+        return real_marker(project, include_preparation=include_preparation)
+
+    monkeypatch.setattr(
+        search_index_jobs_mod, "process_index_batches", scripted_process
+    )
+    monkeypatch.setattr(search_index_jobs_mod, "index_work_marker", scripted_marker)
+
+    encoder = _MultimodalTestEncoder(is_available=True)
+    queue_a = SqliteJobQueue(ws_a / "jobs.sqlite")
+    worker_a = Worker(queue_a)
+    register_alert_evaluate_handler(
+        worker_a.registry,
+        workspace_root=ws_a,
+        queue=queue_a,
+        embedding_encoder=encoder,
+    )
+    queue_a.enqueue(
+        ALERT_EVALUATE_KIND,
+        {
+            "project_id": pid_a,
+            "alert_id": alert_a,
+            "workspace_root": str(ws_a),
+            "trigger_ref": {"feed_check_id": 7},
+            "dedupe_key": f"alert:{alert_a}:eval:run-7:index:prepare:same-marker",
+        },
+    )
+    ran_a = 0
+    while worker_a.run_once():
+        ran_a += 1
+        assert ran_a <= 10
+    assert ran_a == 3
+
+    check_a = Project(ws_a / f"{pid_a}.frisket")
+    try:
+        run_a = check_a.alert_latest_run(alert_a)
+        assert run_a is not None
+        assert run_a["status"] == "ok"
+        assert run_a["matched_rows"] == 1
+    finally:
+        check_a.close()
+
+    monkeypatch.undo()
+
+    # Scenario B: Corrupt PDF in unrelated Sheet 1 fails with processed==0 while advancing
+    # preparation_work_marker; Sheet 2's alert continuation MUST keep draining and succeed!
+    async def failing_pdf_render(pdf_path, out_dir, **kwargs):
+        del pdf_path, out_dir, kwargs
+        raise PdfRenderError("corrupt pdf bytes")
+
+    monkeypatch.setattr(preparation_mod, "render_pdf_pages", failing_pdf_render)
+
+    ws_b = tmp_path / "ws-b"
+    ws_b.mkdir()
+    pid_b = "cross-sheet-corrupt"
+    proj_b = Project.create(ws_b / f"{pid_b}.frisket", name="Cross Sheet Corrupt")
+    bad_sheet = proj_b.add_sheet("BrokenPDFs")
+    bad_col = proj_b.add_column(bad_sheet, "file", type="file")
+    bad_pdf_hash = proj_b.add_blob(
+        _two_page_pdf_bytes(), mime="application/pdf", filename="broken.pdf"
+    )
+    proj_b.add_rows(bad_sheet, [{"file": {"blob": bad_pdf_hash}}], {"file": bad_col})
+
+    good_sheet = proj_b.add_sheet("HealthyText")
+    good_col = proj_b.add_column(good_sheet, "body")
+    proj_b.add_rows(
+        good_sheet, [{"body": "urgent contract filing"}], {"body": good_col}
+    )
+    # Drain lexical scopes first so preparation has both broken PDF and healthy text pending.
+    _drain_dirty(proj_b)
+
+    view_b = proj_b.add_view(
+        "Healthy contracts",
+        {
+            "selection": {
+                "scope": {"kind": "sheet", "sheet_id": good_sheet},
+                "similarity": {
+                    "kind": "local_retrieval",
+                    "query_text": "urgent contract",
+                    "min_score": 0.85,
+                },
+            },
+            "presentation": {},
+        },
+    )
+    alert_b = proj_b.add_alert("Healthy alert", view_id=view_b, schedule="@hourly")
+    proj_b.close()
+
+    # Simulate a quantum where only the failing PDF runs first (processed=0, marker advances),
+    # followed by the healthy text batch on the continuation.
+    step_calls = {"n": 0}
+
+    def two_step_process(project, *, stopped=lambda: False, embedding_encoder=None):
+        step_calls["n"] += 1
+        if step_calls["n"] == 1:
+            process_blob_image_preparation_batch(
+                project, channel=PDF_PAGE_CHANNEL, encoder=embedding_encoder
+            )
+            return 0, False
+        return real_process(
+            project, stopped=stopped, embedding_encoder=embedding_encoder
+        )
+
+    monkeypatch.setattr(
+        search_index_jobs_mod, "process_index_batches", two_step_process
+    )
+
+    queue_b = SqliteJobQueue(ws_b / "jobs.sqlite")
+    worker_b = Worker(queue_b)
+    register_alert_evaluate_handler(
+        worker_b.registry,
+        workspace_root=ws_b,
+        queue=queue_b,
+        embedding_encoder=encoder,
+    )
+    queue_b.enqueue(
+        ALERT_EVALUATE_KIND,
+        {
+            "project_id": pid_b,
+            "alert_id": alert_b,
+            "workspace_root": str(ws_b),
+            "trigger_ref": {"feed_check_id": 9},
+            "dedupe_key": f"alert:{alert_b}:eval:run-9",
+        },
+    )
+    ran_b = 0
+    while worker_b.run_once():
+        ran_b += 1
+        assert ran_b <= 10
+    assert ran_b >= 2
+
+    check_b = Project(ws_b / f"{pid_b}.frisket")
+    try:
+        run_b = check_b.alert_latest_run(alert_b)
+        assert run_b is not None
+        assert run_b["status"] == "ok"
+        assert run_b["matched_rows"] == 1
+    finally:
+        check_b.close()
+
 
 def test_cross_sheet_blob_dedup_pdf_and_authored_page(
     make_project, monkeypatch
@@ -938,7 +1305,7 @@ def test_cross_sheet_blob_dedup_pdf_and_authored_page(
 
     sheet_a = project.add_sheet("Sheet A")
     col_a = project.add_column(sheet_a, "file", type="file")
-    project.add_rows(sheet_a, [{"file": {"blob": pdf_hash}}], {"file": col_a})
+    rows_a = project.add_rows(sheet_a, [{"file": {"blob": pdf_hash}}], {"file": col_a})
 
     _drain_dirty(project)
     step_a = process_blob_image_preparation_batch(
@@ -1013,6 +1380,28 @@ def test_cross_sheet_blob_dedup_pdf_and_authored_page(
         )
     )
     assert [(h["sheet_id"], h["row_id"]) for h in hits_c] == [(sheet_c, rows_c[0])]
+
+    # Deleting/clearing Sheet A's whole-PDF row preserves Sheet C's reused page-2 binding & searchability!
+    project.apply_edits([{"row_id": rows_a[0], "column_id": col_a, "value": None}])
+    _drain_dirty(project)
+    hits_c_after = list(
+        RetrievalQueryService(project).iter_row_matches(
+            SearchRequest(
+                scope=RetrievalScope((SheetScope(sheet_c),)),
+                query=WeightedSemanticQuery(
+                    terms=(WeightedTerm("green"),), minimum_similarity=0.9
+                ),
+                mode="semantic",
+                group_by="row",
+                limit=10,
+                space_id=space.identity,
+            ),
+            semantic_vectors=SemanticQueryVectors(term_vectors=(green_vec,)),
+        )
+    )
+    assert [(h["sheet_id"], h["row_id"]) for h in hits_c_after] == [
+        (sheet_c, rows_c[0])
+    ]
 
 
 def test_cross_sheet_blob_dedup_video_zero_duplicate_decode_or_encode(

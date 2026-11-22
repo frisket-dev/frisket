@@ -71,12 +71,15 @@ class ViewService:
     ) -> View:
         project = self._workspace.get(project_id)
         _require_view(project, view_id)
-        project.update_view(
-            view_id,
-            spec=_normalize_spec(
-                project, {"selection": selection, "presentation": presentation or {}}
-            ),
+        spec = _normalize_spec(
+            project, {"selection": selection, "presentation": presentation or {}}
         )
+        try:
+            project.update_view(view_id, spec=spec)
+        except ValueError as exc:
+            raise ViewRequestError(
+                code=getattr(exc, "code", "invalid_selection"), message=str(exc)
+            ) from exc
         return _view_dict(project.get_view(view_id))
 
     def delete_view(self, project_id: str, view_id: int) -> ViewDelete:

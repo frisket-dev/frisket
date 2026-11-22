@@ -78,15 +78,18 @@ def update_view(
         )
 
         spec = normalize_view_spec(project, spec)
-        if project.db.execute(
-            "SELECT 1 FROM alerts WHERE view_id=? LIMIT 1", (view_id,)
-        ).fetchone():
-            validate_alert_selection(spec["selection"])
         sets.extend(["spec=?", "sheet_id=?"])
         vals.extend([json.dumps(spec), spec["selection"]["scope"].get("sheet_id")])
     if not sets:
         return
     with write_transaction(project.db, what="view update"):
+        if (
+            spec is not None
+            and project.db.execute(
+                "SELECT 1 FROM alerts WHERE view_id=? LIMIT 1", (view_id,)
+            ).fetchone()
+        ):
+            validate_alert_selection(spec["selection"])
         op_id = project.append_change_in_transaction(
             "view",
             {"view_id": view_id, "name": name, "spec": spec},

@@ -1115,6 +1115,7 @@ class Workspace:
             return changed
 
         setattr(project, "_frisket_retry_retrieval_encoder", retry_retrieval_encoder)
+        setattr(project, "_frisket_embedding_runtime", self.embedding_runtime)
 
         def schedule_metadata(receipt_id: str = "recovery") -> int | None:
             # Opening a million-blob project must not synchronously inspect

@@ -37,9 +37,10 @@ def is_local_retrieval_similarity(selection: dict[str, Any]) -> bool:
 def validate_alert_selection(selection: dict[str, Any]) -> None:
     """Forbid top-K limit eviction on Alert-bound local_retrieval views."""
     if is_local_retrieval_similarity(selection) and selection.get("limit") is not None:
-        raise ValueError(
+        raise SelectionUnavailable(
             "Alerts bound to local_retrieval views cannot use a top-K limit; "
-            "use min_score threshold instead."
+            "use min_score threshold instead.",
+            code="alert_top_k_limit_forbidden",
         )
 
 
