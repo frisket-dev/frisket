@@ -97,6 +97,7 @@ def test_default_mode_adds_entities_to_the_base_e2e_runtime(tmp_path: Path) -> N
     args, _env = _run_backend_entrypoint(tmp_path, minimal=False)
     assert args == [
         "run",
+        "--frozen",
         "--extra",
         "entities",
         "frisket",
