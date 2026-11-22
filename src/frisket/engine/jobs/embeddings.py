@@ -103,9 +103,9 @@ def refresh_dedupe_key(
     trigger_kind = str(
         trigger_ref.get("trigger_kind") or trigger_ref.get("kind") or "source_append"
     )
-    source_run_id = trigger_ref.get("source_run_id") or trigger_ref.get("run_id")
-    if source_run_id is not None:
-        return f"{index_id}:{trigger_kind}:run-{source_run_id}"
+    feed_check_id = trigger_ref.get("feed_check_id") or trigger_ref.get("run_id")
+    if feed_check_id is not None:
+        return f"{index_id}:{trigger_kind}:run-{feed_check_id}"
     scope_hash = hashlib.sha256(
         canonical_json(sorted(int(r) for r in row_ids)).encode("utf-8")
     ).hexdigest()[:16]

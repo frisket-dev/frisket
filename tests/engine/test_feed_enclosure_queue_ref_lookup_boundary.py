@@ -53,7 +53,7 @@ def _insert_newer_running_jobs(queue: SqliteJobQueue, *, count: int) -> None:
             FEED_POLL_KIND,
             {
                 "project_id": f"unrelated-{idx}",
-                "source_id": idx + 1000,
+                "feed_id": idx + 1000,
                 "workspace_root": f"/tmp/unrelated/{idx}",
             },
         )
@@ -100,7 +100,7 @@ def test_indexed_ref_lookup_rejects_under_scoped_workspace_queries(
             queue.find_job_by_refs(
                 FEED_POLL_KIND,
                 project_id="news",
-                source_id=1,
+                feed_id=1,
             )
         with pytest.raises(ValueError, match="project_id"):
             queue.find_job_by_refs(
@@ -114,7 +114,7 @@ def test_indexed_ref_lookup_rejects_under_scoped_workspace_queries(
                 FEED_POLL_KIND,
                 statuses=(),
                 project_id="news",
-                source_id=1,
+                feed_id=1,
                 workspace_root=str(tmp_path),
             )
     finally:
@@ -134,7 +134,7 @@ def test_due_source_poll_dedupe_uses_indexed_refs_beyond_recent_queue_window(
             FEED_POLL_KIND,
             {
                 "project_id": "news",
-                "source_id": source_id,
+                "feed_id": source_id,
                 "poll_id": "old-poll",
                 "workspace_root": str(workspace),
             },
@@ -153,7 +153,7 @@ def test_due_source_poll_dedupe_uses_indexed_refs_beyond_recent_queue_window(
             for job in queue.list_jobs(status="queued", limit=2000)
             if job.kind == FEED_POLL_KIND
             and job.project_id == "news"
-            and job.source_id == source_id
+            and job.feed_id == source_id
             and job.workspace_root == str(workspace)
         ]
         assert [job.id for job in matching] == [old_job_id]
@@ -175,7 +175,7 @@ def test_due_source_poll_dedupe_is_scoped_by_workspace_root(
             FEED_POLL_KIND,
             {
                 "project_id": "news",
-                "source_id": source_id,
+                "feed_id": source_id,
                 "poll_id": "other-workspace-poll",
                 "workspace_root": str(other_workspace),
             },
@@ -184,7 +184,7 @@ def test_due_source_poll_dedupe_is_scoped_by_workspace_root(
             FEED_POLL_KIND,
             {
                 "project_id": "news",
-                "source_id": source_id,
+                "feed_id": source_id,
                 "poll_id": "legacy-rootless-poll",
             },
         )
@@ -200,7 +200,7 @@ def test_due_source_poll_dedupe_is_scoped_by_workspace_root(
         assert job is not None
         assert job.kind == FEED_POLL_KIND
         assert job.project_id == "news"
-        assert job.source_id == source_id
+        assert job.feed_id == source_id
         assert job.workspace_root == str(workspace)
     finally:
         queue.close()
@@ -213,7 +213,7 @@ def test_running_source_poll_identity_uses_indexed_refs_beyond_recent_window(
     queue = SqliteJobQueue(workspace / ".queue.db")
     payload = {
         "project_id": "news",
-        "source_id": 7,
+        "feed_id": 7,
         "poll_id": "old-running-poll",
         "workspace_root": str(workspace),
     }
@@ -238,7 +238,7 @@ def test_running_source_poll_identity_ignores_rootless_or_other_workspace_jobs(
     queue = SqliteJobQueue(tmp_path / ".queue.db")
     payload = {
         "project_id": "news",
-        "source_id": 7,
+        "feed_id": 7,
         "poll_id": "current-poll",
         "workspace_root": str(workspace),
     }
@@ -247,7 +247,7 @@ def test_running_source_poll_identity_ignores_rootless_or_other_workspace_jobs(
             FEED_POLL_KIND,
             {
                 "project_id": "news",
-                "source_id": 7,
+                "feed_id": 7,
                 "poll_id": "legacy-rootless-poll",
             },
         )
@@ -257,7 +257,7 @@ def test_running_source_poll_identity_ignores_rootless_or_other_workspace_jobs(
             FEED_POLL_KIND,
             {
                 "project_id": "news",
-                "source_id": 7,
+                "feed_id": 7,
                 "poll_id": "other-workspace-poll",
                 "workspace_root": str(other_workspace),
             },

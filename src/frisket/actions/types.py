@@ -205,7 +205,7 @@ class RetainedResultPublisher(Protocol):
     def reapply(self, source_run_id: int) -> ReappliedResults: ...
 
 
-class SourceCreateIntent(ActionParams):
+class FeedCreateIntent(ActionParams):
     name: Annotated[str, nonblank("value must be non-empty")] = Field(min_length=1)
     kind: Annotated[str, nonblank("value must be non-empty")] = Field(
         default="url", min_length=1
@@ -222,22 +222,22 @@ class SourceCreateIntent(ActionParams):
         return value.strip() if value is not None else None
 
 
-SourcePollSelector = Annotated[int, Field(gt=0, strict=True)] | SourceCreateIntent
+FeedPollSelector = Annotated[int, Field(gt=0, strict=True)] | FeedCreateIntent
 
 
-class PolledSource(BaseModel):
+class PolledFeed(BaseModel):
     """Descriptive result of a fetch; publication facts remain host-owned."""
 
-    source_id: int
+    feed_id: int
     status: Literal["ok", "error"]
     item_count: int
     cost_micro: int
     error: str | None = None
 
 
-class SourcePollOutput(BaseModel):
-    source_id: int
-    source_run_id: int
+class FeedPollOutput(BaseModel):
+    feed_id: int
+    feed_check_id: int
     sheet_id: int | None = None
     new_rows: int
     revisions: int
@@ -253,8 +253,8 @@ class SourcePollOutput(BaseModel):
     cursor_after: str | None = None
 
 
-class SourcePoller(Protocol):
-    def poll(self, source: SourcePollSelector) -> PolledSource: ...
+class FeedPoller(Protocol):
+    def poll(self, feed: FeedPollSelector) -> PolledFeed: ...
 
 
 class RowError(Exception):
@@ -562,8 +562,8 @@ class ColumnTransformContext:
 
 
 @dataclass(frozen=True)
-class SourceRecord:
-    source_id: int
+class FeedRecord:
+    feed_id: int
     name: str
     kind: str
     url: str | None
@@ -580,21 +580,21 @@ class SourceRecord:
 
 
 @dataclass(frozen=True)
-class UpdatedSource:
-    source: SourceRecord
+class UpdatedFeed:
+    feed: FeedRecord
     updated_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class DeletedSource:
-    source: SourceRecord
-    source_run_count: int
+class DeletedFeed:
+    feed: FeedRecord
+    feed_check_count: int
 
 
 @dataclass(frozen=True)
-class CheckedSource:
-    source: SourceRecord
-    source_run_id: int
+class CheckedFeed:
+    feed: FeedRecord
+    feed_check_id: int
     status: Literal["ok", "error"]
     new_rows: int
     error: str | None
@@ -1025,14 +1025,14 @@ class OperationStepActionOutput(BaseModel):
     receipt_id: str | None = None
 
 
-class SourceActionOutput(BaseModel):
-    """Host projection of a source record into the public action result."""
+class FeedActionOutput(BaseModel):
+    """Host projection of a feed record into the public action result."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_id: int
+    feed_id: int
     name: str
-    source_kind: str
+    feed_kind: str
     url: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     sheet_id: int | None = None
@@ -1044,27 +1044,27 @@ class SourceActionOutput(BaseModel):
     receipt_id: str | None = None
 
 
-class SourceUpdateActionOutput(SourceActionOutput):
+class FeedUpdateActionOutput(FeedActionOutput):
     updated_fields: list[str] = Field(default_factory=list)
 
 
-class SourceDeleteActionOutput(BaseModel):
+class FeedDeleteActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_id: int
+    feed_id: int
     name: str
-    source_kind: str
+    feed_kind: str
     sheet_id: int | None = None
     deleted: bool = True
-    source_run_count: int = 0
+    feed_check_count: int = 0
     receipt_id: str | None = None
 
 
-class SourceCheckActionOutput(BaseModel):
+class FeedCheckActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_id: int
-    source_run_id: int
+    feed_id: int
+    feed_check_id: int
     status: Literal["ok", "error"]
     new_rows: int
     receipt_id: str | None = None
@@ -1106,8 +1106,8 @@ class ExportSheetParquetOutput(_ExportSheetOutput):
     format: Literal["parquet"]
 
 
-class SourcePatch(ActionParams):
-    """The exact explicitly supplied source fields for one update."""
+class FeedPatch(ActionParams):
+    """The exact explicitly supplied feed fields for one update."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1129,7 +1129,7 @@ class SourcePatch(ActionParams):
         return value.strip() if value is not None else None
 
     @model_validator(mode="after")
-    def _nonempty_patch(self) -> SourcePatch:
+    def _nonempty_patch(self) -> FeedPatch:
         if not self.model_fields_set:
             raise ValueError("patch must contain at least one field")
         return self
@@ -1142,7 +1142,7 @@ class SourcePatch(ActionParams):
         return self.values()
 
 
-class SourceCreator(Protocol):
+class FeedCreator(Protocol):
     def create(
         self,
         *,
@@ -1153,27 +1153,27 @@ class SourceCreator(Protocol):
         sheet_id: int | None,
         schedule: str | None,
         enabled: bool,
-    ) -> SourceRecord: ...
+    ) -> FeedRecord: ...
 
 
-class SourceUpdater(Protocol):
-    def update(self, source_id: int, *, patch: SourcePatch) -> UpdatedSource: ...
+class FeedUpdater(Protocol):
+    def update(self, feed_id: int, *, patch: FeedPatch) -> UpdatedFeed: ...
 
 
-class SourceDeleter(Protocol):
-    def delete(self, source_id: int) -> DeletedSource: ...
+class FeedDeleter(Protocol):
+    def delete(self, feed_id: int) -> DeletedFeed: ...
 
 
-class SourceChecker(Protocol):
+class FeedChecker(Protocol):
     def check(
         self,
-        source_id: int,
+        feed_id: int,
         *,
         new_rows: int,
         status: Literal["ok", "error"],
         error: str | None,
         cursor: str | None,
-    ) -> CheckedSource: ...
+    ) -> CheckedFeed: ...
 
 
 class ColumnPatcher(Protocol):

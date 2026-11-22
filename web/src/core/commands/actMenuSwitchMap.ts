@@ -26,7 +26,7 @@ export const RUN_ACT_SWITCH_CASE_TO_COMMAND: Readonly<
   Record<string, WorkspaceCommand['type']>
 > = {
   import: 'import.open',
-  sources: 'sources.open',
+  sources: 'feeds.open',
   'export-csv': 'export.open',
   'export-google-sheets': 'export.open',
   'export-column-tables': 'export.open',

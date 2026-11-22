@@ -34,7 +34,7 @@ test('workbench regions expose product-purpose slots instead of prototype sideba
   await openDiscoverTab(page, 'Sources');
   const sources = page
     .getByTestId('discover-panel')
-    .getByTestId('workbench-contribution-frisket-core-panel-sources');
+    .getByTestId('workbench-contribution-frisket-core-panel-feeds');
   await expect(sources).toBeVisible();
   await expect(sources).toHaveAttribute('data-host', 'leftSidebar');
   await expect(sources).toHaveAttribute('data-slot', 'scope');
@@ -56,10 +56,10 @@ test('workbench regions expose product-purpose slots instead of prototype sideba
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P');
   const palette = page.getByTestId('workbench-region-commandPalette');
   await expect(palette).toBeVisible();
-  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-sources');
+  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-feeds');
   await expect(openSources).toHaveAttribute('data-host', 'commandPalette');
   await expect(openSources).toHaveAttribute('data-slot', 'launcher');
-  await expect(openSources).toHaveAttribute('data-placement-id', /frisket\.core\.command\.open_sources/);
+  await expect(openSources).toHaveAttribute('data-placement-id', /frisket\.core\.command\.open_feeds/);
   await page.getByLabel('Close command palette').click();
 
   await expect(modalOrPeek).toHaveAttribute('data-modal-stack-host', 'true');

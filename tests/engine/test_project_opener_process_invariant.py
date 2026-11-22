@@ -119,7 +119,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         # carries an ATTACKER project_id/workspace_root; only the claimed key
         # may be honored.
         calls.clear()
-        handler = registry.get("source.poll")
+        handler = registry.get("feed.poll")
         assert handler is not None
         try:
             handler(
@@ -128,7 +128,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
                     "project_id": "payload-attacker",
                     "storage_organization_id": 999,
                     "workspace_root": str(tmp_path / "payload-root"),
-                    "source_id": -1,
+                    "feed_id": -1,
                 },
                 JobHandlerContext.without_job_row(),
             )

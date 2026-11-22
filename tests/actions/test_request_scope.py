@@ -16,7 +16,7 @@ from frisket.actions.types import ActionParams, ActionRequest, DynamicTableResul
         ("run.backfill", "sheet_rows"),
         ("derive.transcript_segments", "sheet_rows"),
         ("import.csv", "project"),
-        ("source.create", "project"),
+        ("feed.create", "project"),
         ("derive.link_table", "project"),
     ],
 )

@@ -90,11 +90,11 @@ def _feed_poll_action(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if source_id is not None:
-        params["source"] = source_id
+        params["feed"] = source_id
     if source is not None:
-        params["source"] = source
+        params["feed"] = source
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -458,11 +458,11 @@ def test_courtlistener_solo_poll_materializes_legacy_cap_plus_one(
     assert len(item_ids) == 501
     assert len(set(item_ids)) == 501
     run_ref = next(
-        output.ref for output in result.outputs if output.kind == "source_run"
+        output.ref for output in result.outputs if output.kind == "feed_check"
     )
     source_run = project.db.execute(
-        "SELECT cursor_after FROM source_runs WHERE id=?",
-        (run_ref["source_run_id"],),
+        "SELECT cursor_after FROM feed_checks WHERE id=?",
+        (run_ref["feed_check_id"],),
     ).fetchone()
     assert source_run is not None
     cursor = json.loads(source_run["cursor_after"])
@@ -532,12 +532,12 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
         }
     ]
     source_id = next(
-        output.ref["source_id"] for output in first.outputs if output.kind == "source"
+        output.ref["feed_id"] for output in first.outputs if output.kind == "feed"
     )
     source_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in first.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     sheet_id = next(
         output.sheet_id for output in first.outputs if output.kind == "sheet"
@@ -580,7 +580,7 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
     assert "agency" not in _columns(project, sheet_id)
 
     first_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (source_run_id,),
     ).fetchone()
     assert first_run is not None
@@ -594,7 +594,7 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
     assert "courtlistener:docket_entry:9001" in first_cursor["item_hashes"]
 
     receipt = _receipt(project, first.receipt_id)
-    assert receipt["action_kind"] == "source.poll"
+    assert receipt["action_kind"] == "feed.poll"
     assert receipt["status"] == "completed"
     assert receipt["warnings"] == []
     assert receipt["provider_use"][0]["provider"] == "courtlistener"
@@ -612,12 +612,12 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
     )
     assert second.status == "completed"
     second_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in second.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     second_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (second_run_id,),
     ).fetchone()
     assert second_run["new_rows"] == 2
@@ -649,12 +649,12 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
     )
     assert third.status == "completed"
     third_run_id = next(
-        output.ref["source_run_id"]
+        output.ref["feed_check_id"]
         for output in third.outputs
-        if output.kind == "source_run"
+        if output.kind == "feed_check"
     )
     third_run = project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
+        "SELECT * FROM feed_checks WHERE id=?",
         (third_run_id,),
     ).fetchone()
     assert third_run["new_rows"] == 0
@@ -767,11 +767,11 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
         project_id=PROJECT_ID,
     )
     assert invalid.status == "failed"
-    assert invalid.errors[0].code == "unsupported_source_config"
+    assert invalid.errors[0].code == "unsupported_feed_config"
     assert "token" in invalid.errors[0].message
     assert "SECRET" not in invalid.errors[0].message
-    assert _table_count(invalid_project, "sources") == 0
-    assert _table_count(invalid_project, "source_runs") == 0
+    assert _table_count(invalid_project, "feeds") == 0
+    assert _table_count(invalid_project, "feed_checks") == 0
 
     bad_schema = run_action_spec(
         invalid_project,
@@ -782,10 +782,10 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
         project_id=PROJECT_ID,
     )
     assert bad_schema.status == "failed"
-    assert bad_schema.errors[0].code == "unsupported_source_config"
+    assert bad_schema.errors[0].code == "unsupported_feed_config"
     assert "schema_version" in bad_schema.errors[0].message
-    assert _table_count(invalid_project, "sources") == 0
-    assert _table_count(invalid_project, "source_runs") == 0
+    assert _table_count(invalid_project, "feeds") == 0
+    assert _table_count(invalid_project, "feed_checks") == 0
 
     capped_provider = FakeCourtListenerProvider(
         [
@@ -845,11 +845,11 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
     assert "document_url" not in rows[2]
     assert "media" not in rows[2]
     run_ref = next(
-        output.ref for output in capped.outputs if output.kind == "source_run"
+        output.ref for output in capped.outputs if output.kind == "feed_check"
     )
     source_run = capped_project.db.execute(
-        "SELECT * FROM source_runs WHERE id=?",
-        (run_ref["source_run_id"],),
+        "SELECT * FROM feed_checks WHERE id=?",
+        (run_ref["feed_check_id"],),
     ).fetchone()
     cursor = json.loads(source_run["cursor_after"])
     assert cursor["max_entries_per_poll"] == 1
@@ -886,7 +886,7 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
     )
     assert failed.status == "failed"
     assert failed.receipt_id is not None
-    assert failed.errors[0].code == "source_poll_failed"
+    assert failed.errors[0].code == "feed_poll_failed"
     assert "SECRET" not in failed.errors[0].message
     assert "abc123" not in failed.errors[0].message
     source_run = FeedStore(failed_project).feed_checks_page(source_id, limit=1)[0]
@@ -918,12 +918,12 @@ def test_courtlistener_missing_token_returns_disabled_feed_state(
     )
     assert result.status == "failed"
     assert result.receipt_id is not None
-    assert result.errors[0].code == "source_poll_failed"
+    assert result.errors[0].code == "feed_poll_failed"
     assert "disabled" in result.errors[0].message
     assert "COURTLISTENER_API_TOKEN" in result.errors[0].message
 
     source = project.db.execute(
-        "SELECT * FROM sources WHERE kind=?", (COURTLISTENER_DOCKET_KIND,)
+        "SELECT * FROM feeds WHERE kind=?", (COURTLISTENER_DOCKET_KIND,)
     ).fetchone()
     assert source is not None
     source_run = FeedStore(project).feed_checks_page(int(source["id"]), limit=1)[0]
@@ -966,7 +966,7 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
     try:
         jobs = enqueue_due_feed_polls(workspace_root=workspace, queue=queue)
         assert len(jobs) == 1
-        assert jobs[0]["source_id"] == courtlistener_source_id
+        assert jobs[0]["feed_id"] == courtlistener_source_id
         job_id = int(jobs[0]["job_id"])
 
         def unexpected_rss_fetch(_url: str) -> str:
@@ -982,8 +982,8 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
         assert Worker(queue, registry).run_once()
         job = queue.get(job_id)
         assert job.status == "done"
-        assert job.result["action_kind"] == "source.poll"
-        assert job.result["source_id"] == courtlistener_source_id
+        assert job.result["action_kind"] == "feed.poll"
+        assert job.result["feed_id"] == courtlistener_source_id
         assert job.result["new_rows"] == 4
         assert provider.calls[0]["max_entries"] == 1
 
@@ -995,7 +995,7 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
             assert len(runs) == 1
             assert runs[0]["status"] == "ok"
             receipt = _receipt(reopened, job.result["receipt_id"])
-            assert receipt["action_kind"] == "source.poll"
+            assert receipt["action_kind"] == "feed.poll"
             assert receipt["provider_use"][0]["provider"] == "courtlistener"
     finally:
         queue.close()

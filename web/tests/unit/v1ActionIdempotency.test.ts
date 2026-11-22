@@ -226,7 +226,7 @@ describe('V1ActionIdempotencyKeys — the double-buy guard', () => {
   it('releases a successful registered project action and clears a failed one', async () => {
     const completed = {
       schema_version: 'frisket.action_result.v1',
-      action: { kind: 'source.delete', action_id: 'delete-1' },
+      action: { kind: 'feed.delete', action_id: 'delete-1' },
       status: 'completed',
       project_id: 'project-a',
       run_id: null,
@@ -239,10 +239,10 @@ describe('V1ActionIdempotencyKeys — the double-buy guard', () => {
       headers: { 'Content-Type': 'application/json' },
     })));
     const session = createV1ActionSession('project-a');
-    const first = session.registeredProjectActionSpec('source.delete', { source_id: 7 });
+    const first = session.registeredProjectActionSpec('feed.delete', { feed_id: 7 });
     await session.withV1ActionResult(first, () => undefined, { clearIdempotency: 'finally' });
     vi.advanceTimersByTime(5001);
-    const afterSuccess = session.registeredProjectActionSpec('source.delete', { source_id: 7 });
+    const afterSuccess = session.registeredProjectActionSpec('feed.delete', { feed_id: 7 });
     expect(afterSuccess.idempotency_key).not.toBe(first.idempotency_key);
 
     vi.stubGlobal('fetch', vi.fn(async () => {
@@ -253,7 +253,7 @@ describe('V1ActionIdempotencyKeys — the double-buy guard', () => {
       () => undefined,
       { clearIdempotency: 'finally' },
     )).rejects.toThrow('network failed');
-    const afterFailure = session.registeredProjectActionSpec('source.delete', { source_id: 7 });
+    const afterFailure = session.registeredProjectActionSpec('feed.delete', { feed_id: 7 });
     expect(afterFailure.idempotency_key).not.toBe(afterSuccess.idempotency_key);
   });
 });

@@ -251,7 +251,7 @@ def _counts(project: Project) -> dict[str, int]:
 
 _NO_PAIR_EXCLUSIONS = {
     "media.enclosure_materialize",
-    "source.poll",
+    "feed.poll",
     # Typed transcript repetition is semantic Params intent, not paid consent.
     # The historical error suffix still makes the mechanical roster include it.
     "derive.transcript_segments",

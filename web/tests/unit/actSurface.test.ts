@@ -19,7 +19,7 @@ const EMPTY_CONTEXT = {
   activeColumn: false,
   activeCell: false,
   activeEvidence: false,
-  activeSource: false,
+  activeFeed: false,
   activeEntity: false,
   activeProjection: false,
   selectedRowIds: [],

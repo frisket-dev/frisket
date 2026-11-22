@@ -163,7 +163,7 @@ EXCLUSIONS: dict[str, str] = {
     # HTTP poll of the user's own registered feed URL.  No provider
     # credential; polling repeatedly is the product behavior, and a failed
     # poll persists as a durable source_run trace, not a retryable charge.
-    "source.poll": (
+    "feed.poll": (
         "feed poll of the user's registered URL; no provider credential; "
         "re-polling is the intended behavior, not a purchase"
     ),

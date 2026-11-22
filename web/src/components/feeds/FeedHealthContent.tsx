@@ -96,7 +96,7 @@ export function FeedHealthChecks({ health, sourceId }: { health: FeedHealth; sou
           )}
 
           <div className="panel-item-meta" data-testid={`feed-health-redactions-${sourceId}`}>
-            Redacted: {health.source.redactions.join(', ') || 'none'} / cursor {health.summary.lastCursorSummary}
+            Redacted: {health.feed.redactions.join(', ') || 'none'} / cursor {health.summary.lastCursorSummary}
           </div>
   </>;
 }

@@ -92,7 +92,7 @@ def _due_digest(project: Project) -> None:
 
 
 SWEEPS: dict[str, tuple[cli._Sweep, Callable[[Project], None], str]] = {
-    "source": (cli._FEED_POLLS, _due_source, "source_project_schedule_failed"),
+    "source": (cli._FEED_POLLS, _due_source, "feed_project_schedule_failed"),
     "embedding": (
         cli._SCHEDULED_EMBEDDINGS,
         _due_embedding_index,

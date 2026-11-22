@@ -52,7 +52,7 @@ test('admin page exposes recent browser and worker errors', async ({ page }) => 
             kind: 'job',
             source: 'worker',
             severity: 'error',
-            name: 'source.poll',
+            name: 'feed.poll',
             message: 'feed response exceeded 52428800 bytes',
             stack: null,
             route: null,

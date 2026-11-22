@@ -166,10 +166,10 @@ def run_transition_notification_candidate(
 def feed_health_notification_candidate(
     *,
     project_id: str,
-    source_id: int,
+    feed_id: int,
     status: str,
-    source_name: str | None = None,
-    source_run_id: int | None = None,
+    feed_name: str | None = None,
+    feed_check_id: int | None = None,
     stale_reason: str | None = None,
     error: str | None = None,
     schedule: str | None = None,
@@ -180,11 +180,11 @@ def feed_health_notification_candidate(
         return None
     source_ref: dict[str, Any] = {
         "project_id": project_id,
-        "source_id": int(source_id),
+        "feed_id": int(feed_id),
         "status": normalized_status,
     }
-    if source_run_id is not None:
-        source_ref["source_run_id"] = int(source_run_id)
+    if feed_check_id is not None:
+        source_ref["feed_check_id"] = int(feed_check_id)
     if stale_reason:
         source_ref["stale_reason"] = stale_reason
     candidate_payload: dict[str, Any] = dict(payload or {})
@@ -192,13 +192,13 @@ def feed_health_notification_candidate(
         candidate_payload["error"] = error
     if schedule:
         candidate_payload["schedule"] = schedule
-    label = source_name or f"Feed {int(source_id)}"
+    label = feed_name or f"Feed {int(feed_id)}"
     candidate = {
-        "source_kind": "source",
+        "source_kind": "feed",
         "source_ref": source_ref,
         "dedupe_key": (
-            f"source:{project_id}:{int(source_id)}:"
-            f"{_feed_health_reason_key(normalized_status, source_run_id, stale_reason)}"
+            f"feed:{project_id}:{int(feed_id)}:"
+            f"{_feed_health_reason_key(normalized_status, feed_check_id, stale_reason)}"
         ),
         "title": _feed_health_title(normalized_status, label),
         "summary": _feed_health_summary(
@@ -209,9 +209,9 @@ def feed_health_notification_candidate(
         ),
         "severity": "info" if normalized_status == "recovered" else "warning",
         "deep_link": {
-            "kind": "source",
+            "kind": "feed",
             "project_id": project_id,
-            "source_id": int(source_id),
+            "feed_id": int(feed_id),
         },
         "payload": candidate_payload,
     }

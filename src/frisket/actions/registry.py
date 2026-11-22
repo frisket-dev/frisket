@@ -144,9 +144,7 @@ RESOLVE_ACTIONS = ActionNamespace(
         FILL_MISSING,
     ),
 )
-SOURCE_ACTIONS = ActionNamespace(
-    "source", actions=(CREATE, UPDATE, DELETE, CHECK, POLL)
-)
+FEED_ACTIONS = ActionNamespace("feed", actions=(CREATE, UPDATE, DELETE, CHECK, POLL))
 RUN_ACTIONS = ActionNamespace("run", actions=(BACKFILL, REAPPLY, RETRY))
 SHEET_ACTIONS = ActionNamespace("sheet", actions=(REFRESH,))
 PLUGIN_ACTIONS = ActionNamespace("plugin", actions=(LOAD,))
@@ -248,7 +246,7 @@ ACTION_REGISTRY = ActionRegistry(
     (
         MAP_ACTIONS,
         RESOLVE_ACTIONS,
-        SOURCE_ACTIONS,
+        FEED_ACTIONS,
         PLUGIN_ACTIONS,
         SHEET_ACTIONS,
         RUN_ACTIONS,

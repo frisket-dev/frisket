@@ -68,6 +68,11 @@ from frisket.upgrades.project.citations_migration import (
     CITATIONS_TO_DIGEST,
     migrate_citations,
 )
+from frisket.upgrades.project.feeds_migration import (
+    FEEDS_FROM_DIGEST,
+    FEEDS_TO_DIGEST,
+    migrate_feeds,
+)
 from frisket.upgrades.project.generated_columns_migration import (
     GENERATED_COLUMNS_FROM_DIGEST,
     GENERATED_COLUMNS_TO_DIGEST,
@@ -220,6 +225,13 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         ALERTS_FROM_DIGEST,
         ALERTS_TO_DIGEST,
         migrate_alerts,
+        bundle_path=bundle_path,
+    )
+    run_rebuild_step(
+        db,
+        FEEDS_FROM_DIGEST,
+        FEEDS_TO_DIGEST,
+        migrate_feeds,
         bundle_path=bundle_path,
     )
 

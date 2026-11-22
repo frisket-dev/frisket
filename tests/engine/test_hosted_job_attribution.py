@@ -40,7 +40,7 @@ from frisket.engine.jobs.queue import (
     normalize_queue_organization_id,
 )
 
-FEED_POLL_KIND = "source.poll"
+FEED_POLL_KIND = "feed.poll"
 
 
 def _hosted(tmp_path, name="hosted.db"):
@@ -168,7 +168,7 @@ def test_engine_site_shape_storage_label_without_funding_account_is_accepted(tmp
         {
             "project_id": "news",
             "storage_organization_id": 23,
-            "source_id": 1,
+            "feed_id": 1,
             "workspace_root": str(tmp_path),
         },
     )
@@ -211,7 +211,7 @@ def test_funding_account_may_differ_from_the_data_owner(tmp_path):
     "payload",
     [
         {"project_id": "proj"},
-        {"project_id": "proj", "source_id": 1, "workspace_root": "/w"},
+        {"project_id": "proj", "feed_id": 1, "workspace_root": "/w"},
         {"pull_id": 1, "workspace_root": "/w"},
         {},
     ],

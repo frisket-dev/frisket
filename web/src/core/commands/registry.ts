@@ -82,7 +82,7 @@ export const FIRST_PARTY_COMMANDS = collectEagerRegistrations(
 export const PALETTE_EXPOSED_COMMANDS: Readonly<
   Partial<Record<WorkspaceCommand['type'], string>>
 > = {
-  'sources.open': 'frisket.core.command.open_sources',
+  'feeds.open': 'frisket.core.command.open_feeds',
   'settings.open': 'frisket.core.command.open_settings',
   'ocrCompare.open': 'frisket.media.command.ocr_compare',
   'transcribeCompare.open': 'frisket.media.command.transcribe_compare',

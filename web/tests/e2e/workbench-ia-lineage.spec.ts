@@ -178,7 +178,7 @@ test('the Monitor Lineage tab renders the three-tier DAG with the stale node amb
 }) => {
   const { pid, parentId, childId, jsonColumnId, firstRowId } = await seedDerivedProject(request);
   // Populate the sources tier for real: a source that lands rows on the root.
-  await postProjectAction(request, pid, 'source.create', {
+  await postProjectAction(request, pid, 'feed.create', {
     name: 'PACER feed',
     kind: 'url',
     url: 'https://example.test/feed',

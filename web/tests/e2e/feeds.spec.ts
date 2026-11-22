@@ -33,7 +33,7 @@ interface WireSource {
 }
 
 async function sources(request: import('@playwright/test').APIRequestContext, pid: string): Promise<WireSource[]> {
-  const res = await request.get(`/api/projects/${pid}/sources`);
+  const res = await request.get(`/api/projects/${pid}/feeds`);
   expect(res.ok()).toBeTruthy();
   return res.json();
 }
@@ -49,17 +49,17 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   // Sources re-homed into the Discover panel (workbench-ia-right-edge-v1).
   await openDiscoverTab(page, 'Sources');
 
-  const contribution = page.getByTestId('workbench-contribution-frisket-core-panel-sources');
+  const contribution = page.getByTestId('workbench-contribution-frisket-core-panel-feeds');
   await expect(contribution).toBeVisible();
-  await expect(contribution).toHaveAttribute('data-contribution-id', 'frisket.core.panel.sources');
+  await expect(contribution).toHaveAttribute('data-contribution-id', 'frisket.core.panel.feeds');
   await expect(contribution).toHaveAttribute('data-host', 'leftSidebar');
   await expect(contribution).toHaveAttribute('data-mode', 'panel');
   await expect(contribution).toHaveAttribute(
     'data-runtime-component-key',
-    'core.panels.SourcesPanel',
+    'core.panels.FeedsPanel',
   );
-  await expect(contribution).toHaveAttribute('data-required-capabilities', /source\.list/);
-  await expect(contribution).toHaveAttribute('data-required-capabilities', /source\.poll/);
+  await expect(contribution).toHaveAttribute('data-required-capabilities', /feed\.list/);
+  await expect(contribution).toHaveAttribute('data-required-capabilities', /feed\.poll/);
   await expect(contribution).toHaveAttribute(
     'data-required-capabilities',
     /host\.navigation\.openSheet/,
@@ -75,7 +75,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   let legacyDeleteCalled = false;
   let legacyFetchCalled = false;
   const sourceDetailQueries: string[] = [];
-  await page.route(`**/api/projects/${pid}/sources`, async (route) => {
+  await page.route(`**/api/projects/${pid}/feeds`, async (route) => {
     if (route.request().method() === 'POST') {
       legacyCreateCalled = true;
       await route.fulfill({
@@ -89,10 +89,10 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   });
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.action_id === 'source.create') sourceCreateActions.push(payload);
-    if (payload.action_id === 'source.update') sourceUpdateActions.push(payload);
-    if (payload.action_id === 'source.delete') sourceDeleteActions.push(payload);
-    if (payload.action_id === 'source.poll') sourceFetchActions.push(payload);
+    if (payload.action_id === 'feed.create') sourceCreateActions.push(payload);
+    if (payload.action_id === 'feed.update') sourceUpdateActions.push(payload);
+    if (payload.action_id === 'feed.delete') sourceDeleteActions.push(payload);
+    if (payload.action_id === 'feed.poll') sourceFetchActions.push(payload);
     await route.continue();
   });
 
@@ -107,7 +107,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await page.getByTestId('feed-create').click();
   await expect.poll(() => sourceCreateActions.length).toBe(1);
   expect(sourceCreateActions[0]).toMatchObject({
-    action_id: 'source.create',
+    action_id: 'feed.create',
     scope: { kind: 'project' },
     output_names: {},
     params: {
@@ -117,7 +117,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
       schedule: '@hourly',
     },
   });
-  expect(String(sourceCreateActions[0].idempotency_key)).toMatch(/^web-source\.create:/);
+  expect(String(sourceCreateActions[0].idempotency_key)).toMatch(/^web-feed\.create:/);
   expect(legacyCreateCalled).toBe(false);
 
   // feed-add-populate-prompt-v1: creation swaps to a "Populate feed?" prompt
@@ -137,7 +137,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await expect(page.getByTestId(`feed-item-${id}`)).toBeVisible();
   await expect(page.getByTestId(`feed-status-${id}`)).toHaveText(/never/i);
 
-  await page.route(`**/api/projects/${pid}/sources/${id}/fetch`, async (route) => {
+  await page.route(`**/api/projects/${pid}/feeds/${id}/fetch`, async (route) => {
     legacyFetchCalled = true;
     await route.fulfill({
       status: 599,
@@ -146,7 +146,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
     });
   });
   await page.route((url) => (
-    url.pathname === `/api/projects/${pid}/sources/${id}`
+    url.pathname === `/api/projects/${pid}/feeds/${id}`
   ), async (route) => {
     if (route.request().method() === 'PATCH') {
       legacyUpdateCalled = true;
@@ -179,11 +179,11 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await page.getByTestId(`feed-check-now-${id}`).click();
   await expect.poll(() => sourceFetchActions.length).toBe(1);
   expect(sourceFetchActions[0]).toMatchObject({
-    action_id: 'source.poll',
+    action_id: 'feed.poll',
     scope: { kind: 'project' },
-    params: { source: id },
+    params: { feed: id },
   });
-  expect(String(sourceFetchActions[0].idempotency_key)).toMatch(/^web-source\.poll:/);
+  expect(String(sourceFetchActions[0].idempotency_key)).toMatch(/^web-feed\.poll:/);
   await expect(page.getByTestId(`feed-checks-${id}`)).toBeVisible();
   await expect(page.getByTestId('feeds-error')).toContainText(/Check failed:/);
   await expect(page.getByTestId('feeds-error')).toContainText(/blocked|localhost|private/i);
@@ -195,19 +195,19 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   ))).toBeTruthy();
   expect(legacyFetchCalled).toBe(false);
 
-  // Edit the cadence through source.update.
+  // Edit the cadence through feed.update.
   await page.getByTestId(`feed-sched-${id}`).selectOption('@daily');
   await expect.poll(() => sourceUpdateActions.length).toBe(1);
   expect(sourceUpdateActions[0]).toMatchObject({
-    action_id: 'source.update',
+    action_id: 'feed.update',
     scope: { kind: 'project' },
     output_names: {},
     params: {
-      source_id: id,
+      feed_id: id,
       patch: { schedule: '@daily' },
     },
   });
-  expect(String(sourceUpdateActions[0].idempotency_key)).toMatch(/^web-source\.update:/);
+  expect(String(sourceUpdateActions[0].idempotency_key)).toMatch(/^web-feed\.update:/);
   await expect
     .poll(async () => (await sources(page.request, pid)).find((s) => s.id === id)?.schedule)
     .toBe('@daily');
@@ -216,31 +216,31 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await page.getByLabel(`Enable ${feedName}`).click();
   await expect.poll(() => sourceUpdateActions.length).toBe(2);
   expect(sourceUpdateActions[1]).toMatchObject({
-    action_id: 'source.update',
+    action_id: 'feed.update',
     scope: { kind: 'project' },
     output_names: {},
     params: {
-      source_id: id,
+      feed_id: id,
       patch: { enabled: false },
     },
   });
-  expect(String(sourceUpdateActions[1].idempotency_key)).toMatch(/^web-source\.update:/);
+  expect(String(sourceUpdateActions[1].idempotency_key)).toMatch(/^web-feed\.update:/);
   await expect
     .poll(async () => (await sources(page.request, pid)).find((s) => s.id === id)?.enabled)
     .toBe(false);
   expect(legacyUpdateCalled).toBe(false);
 
-  // Delete (arm, then confirm) through source.delete → it leaves the list.
+  // Delete (arm, then confirm) through feed.delete → it leaves the list.
   await page.getByTestId(`feed-delete-${id}`).click();
   await page.getByTestId(`feed-delete-${id}`).click();
   await expect.poll(() => sourceDeleteActions.length).toBe(1);
   expect(sourceDeleteActions[0]).toMatchObject({
-    action_id: 'source.delete',
+    action_id: 'feed.delete',
     scope: { kind: 'project' },
     output_names: {},
-    params: { source_id: id },
+    params: { feed_id: id },
   });
-  expect(String(sourceDeleteActions[0].idempotency_key)).toMatch(/^web-source\.delete:/);
+  expect(String(sourceDeleteActions[0].idempotency_key)).toMatch(/^web-feed\.delete:/);
   await expect(page.getByTestId(`feed-item-${id}`)).toHaveCount(0);
   await expect
     .poll(async () => (await sources(page.request, pid)).find((s) => s.id === id))

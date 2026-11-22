@@ -31,9 +31,9 @@ const FIRST_PARTY_FEED_DETAIL_TABS: Record<
   string,
   { shortName: 'summary' | 'health' | 'runs'; frameKey: keyof FeedDetailFrames }
 > = {
-  'frisket.core.view.source_summary': { shortName: 'summary', frameKey: 'Summary' },
-  'frisket.core.view.source_health': { shortName: 'health', frameKey: 'Health' },
-  'frisket.core.view.source_runs': { shortName: 'runs', frameKey: 'Runs' },
+  'frisket.core.view.feed_summary': { shortName: 'summary', frameKey: 'Summary' },
+  'frisket.core.view.feed_health': { shortName: 'health', frameKey: 'Health' },
+  'frisket.core.view.feed_checks': { shortName: 'runs', frameKey: 'Runs' },
 };
 interface FeedHealthDrawerProps {
   actions: FeedPanelActions;
@@ -82,7 +82,7 @@ export function FeedHealthDrawer({
   );
   const activeTab = tabState.sourceId === healthOpenId ? tabState.tab : 'summary';
   const setActiveTab = (tab: string) => setTabState({ sourceId: healthOpenId, tab });
-  const subject: PluginDetailSubject = { kind: 'source', sourceId: String(healthOpenId) };
+  const subject: PluginDetailSubject = { kind: 'feed', feedId: String(healthOpenId) };
   const activePluginTab = detailTabs.find(
     (contribution) =>
       contribution.runtimeSource === 'runtimeIndex' &&
@@ -152,11 +152,11 @@ export function FeedHealthDrawer({
         <>
           {activeTab === 'summary' && (
             <div className="panel-card panel-item-meta" data-testid="feed-detail-summary-panel">
-              <strong className="panel-item-title">{openHealth.source.name}</strong>
-              <span>{feedKindLabel(openHealth.source.kind)}</span>
-              <span>{healthFeed ? feedConfigSummary(healthFeed) : redactedUrl(openHealth.source.url) ?? 'feed details'}</span>
+              <strong className="panel-item-title">{openHealth.feed.name}</strong>
+              <span>{feedKindLabel(openHealth.feed.kind)}</span>
+              <span>{healthFeed ? feedConfigSummary(healthFeed) : redactedUrl(openHealth.feed.url) ?? 'feed details'}</span>
               <span>
-                {openHealth.source.enabled ? 'enabled' : 'disabled'} /{' '}
+                {openHealth.feed.enabled ? 'enabled' : 'disabled'} /{' '}
                 <span data-testid={`feed-health-status-${healthOpenId}`}>
                   {statusLabel(openHealth.summary.status)}
                 </span>

@@ -210,8 +210,8 @@ def test_joined_feed_writes_roll_back_with_their_caller(project):
     store.delete_feed(feed_id)
     project.db.rollback()
 
-    assert _committed_count(project, "sources") == 1
-    assert _committed_count(project, "source_runs") == 0
+    assert _committed_count(project, "feeds") == 1
+    assert _committed_count(project, "feed_checks") == 0
 
 
 def test_joined_feed_check_rolls_back_with_its_caller(project):
@@ -222,32 +222,32 @@ def test_joined_feed_check_rolls_back_with_its_caller(project):
     store.finish_feed_check(store.start_feed_check(feed_id), status="ok")
     project.db.rollback()
 
-    assert _committed_count(project, "source_runs") == 0
-    assert _committed(project, "SELECT last_status FROM sources")[0][0] == "never"
+    assert _committed_count(project, "feed_checks") == 0
+    assert _committed(project, "SELECT last_status FROM feeds")[0][0] == "never"
 
 
 def test_feed_check_whose_feed_update_fails_leaves_no_check(project):
     feed_id = _add_feed(project)
-    _refuse(project, "UPDATE", "sources")
+    _refuse(project, "UPDATE", "feeds")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         with write_transaction(project.db):
             FeedStore(project).record_feed_check(feed_id)
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "source_runs") == 0
+    assert _committed_count(project, "feed_checks") == 0
 
 
 def test_feed_delete_whose_feed_row_delete_fails_leaves_nothing_pending(project):
     feed_id = _add_feed(project)
-    _refuse(project, "DELETE", "sources")
+    _refuse(project, "DELETE", "feeds")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         with write_transaction(project.db):
             FeedStore(project).delete_feed(feed_id)
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "sources") == 1
+    assert _committed_count(project, "feeds") == 1
 
 
 # -- embedding spaces and indexes --------------------------------------------

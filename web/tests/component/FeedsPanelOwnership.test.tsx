@@ -24,7 +24,7 @@ function setup(item = source()) {
     runs: [{ id: 8, status: 'error', newRows: 1, changedRows: 2, skippedRows: 3,
       revisions: 4, warningCount: 1, durationMs: 1000, costMicro: 0,
       receiptId: null, error: 'Redacted poll failure', startedAt: '2026-10-19T12:00:00Z', finishedAt: null }],
-    runsPage: { schemaVersion: 'frisket.source_runs_page.v1', order: 'desc', offset: 0,
+    runsPage: { schemaVersion: 'frisket.feed_checks_page.v1', order: 'desc', offset: 0,
       limit: 20, total: 23, hasMore: true, nextOffset: 20, latestRun: null, latestRunLoaded: false },
   };
   const api = {

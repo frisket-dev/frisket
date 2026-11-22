@@ -139,7 +139,7 @@ def test_queue_schema_and_product_paths_have_structured_ref_boundary(
     assert {
         "project_id",
         "run_id",
-        "source_id",
+        "feed_id",
         "sheet_id",
         "row_id",
         "receipt_id",
@@ -152,7 +152,7 @@ def test_queue_schema_and_product_paths_have_structured_ref_boundary(
     assert {
         "project_id",
         "run_id",
-        "source_id",
+        "feed_id",
         "sheet_id",
         "row_id",
         "receipt_id",

@@ -529,7 +529,7 @@ function FeedDetailSummaryTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
       descriptor={FEED_SUMMARY_VIEW_DESCRIPTOR}
-      host="sourceDetail"
+      host="feedDetail"
       className="source-detail-contribution-tab"
     >
       {children}
@@ -541,7 +541,7 @@ function FeedDetailHealthTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
       descriptor={FEED_HEALTH_VIEW_DESCRIPTOR}
-      host="sourceDetail"
+      host="feedDetail"
       className="source-detail-contribution-tab"
     >
       {children}
@@ -564,7 +564,7 @@ function FeedDetailChecksTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
       descriptor={FEED_CHECKS_VIEW_DESCRIPTOR}
-      host="sourceDetail"
+      host="feedDetail"
       className="source-detail-contribution-tab"
     >
       {children}

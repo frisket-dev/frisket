@@ -134,7 +134,7 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
 
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.action_id === 'source.poll') {
+    if (payload.action_id === 'feed.poll') {
       pollPosts.push(payload);
       await route.fulfill({
         status: 200,
@@ -144,12 +144,12 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
           status: 'completed',
           outputs: [
             {
-              kind: 'source_run',
-              name: 'source_run',
+              kind: 'feed_check',
+              name: 'feed_check',
               sheet_id: null,
               ref: {
-                source_run_id: 999,
-                source_id: (payload.params as Record<string, unknown>).source,
+                feed_check_id: 999,
+                feed_id: (payload.params as Record<string, unknown>).feed,
                 sheet_id: null,
                 new_rows: 0,
                 skipped_rows: 0,
@@ -172,22 +172,22 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
 
   await page.getByTestId(`feed-health-${seeded.failingId}`).click();
   await expect(page.getByTestId('feed-health-drawer')).toBeVisible();
-  const summaryTab = page.getByTestId('workbench-contribution-frisket-core-view-source-summary');
-  const healthTab = page.getByTestId('workbench-contribution-frisket-core-view-source-health');
-  const runsTab = page.getByTestId('workbench-contribution-frisket-core-view-source-runs');
+  const summaryTab = page.getByTestId('workbench-contribution-frisket-core-view-feed-summary');
+  const healthTab = page.getByTestId('workbench-contribution-frisket-core-view-feed-health');
+  const runsTab = page.getByTestId('workbench-contribution-frisket-core-view-feed-checks');
   await expect(summaryTab).toBeVisible();
   await expect(summaryTab).toHaveAttribute('data-schema-version', 'frisket.workbench.view.v1');
-  await expect(summaryTab).toHaveAttribute('data-contribution-id', 'frisket.core.view.source_summary');
-  await expect(summaryTab).toHaveAttribute('data-host', 'sourceDetail');
+  await expect(summaryTab).toHaveAttribute('data-contribution-id', 'frisket.core.view.feed_summary');
+  await expect(summaryTab).toHaveAttribute('data-host', 'feedDetail');
   await expect(summaryTab).toHaveAttribute('data-mode', 'tab');
-  await expect(summaryTab).toHaveAttribute('data-runtime-component-key', 'core.sourceDetail.Summary');
-  await expect(summaryTab).toHaveAttribute('data-required-capabilities', /source.detail.summary/);
-  await expect(healthTab).toHaveAttribute('data-runtime-component-key', 'core.sourceDetail.Health');
-  await expect(healthTab).toHaveAttribute('data-host', 'sourceDetail');
-  await expect(healthTab).toHaveAttribute('data-required-capabilities', /source.health.read/);
-  await expect(runsTab).toHaveAttribute('data-runtime-component-key', 'core.sourceDetail.Runs');
-  await expect(runsTab).toHaveAttribute('data-host', 'sourceDetail');
-  await expect(runsTab).toHaveAttribute('data-required-capabilities', /source.runs.list/);
+  await expect(summaryTab).toHaveAttribute('data-runtime-component-key', 'core.feedDetail.Summary');
+  await expect(summaryTab).toHaveAttribute('data-required-capabilities', /feed.detail.summary/);
+  await expect(healthTab).toHaveAttribute('data-runtime-component-key', 'core.feedDetail.Health');
+  await expect(healthTab).toHaveAttribute('data-host', 'feedDetail');
+  await expect(healthTab).toHaveAttribute('data-required-capabilities', /feed.health.read/);
+  await expect(runsTab).toHaveAttribute('data-runtime-component-key', 'core.feedDetail.Checks');
+  await expect(runsTab).toHaveAttribute('data-host', 'feedDetail');
+  await expect(runsTab).toHaveAttribute('data-required-capabilities', /feed.checks.list/);
   await expect(page.getByTestId('source-detail-tab-summary')).toHaveAttribute('aria-selected', 'true');
   await page.getByTestId('source-detail-tab-health').click();
   await expect(page.getByTestId(`feed-health-status-${seeded.failingId}`)).toHaveText('failing');
@@ -209,9 +209,9 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
   await page.getByTestId(`feed-health-retry-${seeded.failingId}`).click();
   await expect.poll(() => pollPosts.length).toBe(1);
   expect(pollPosts[0]).toEqual({
-    action_id: 'source.poll',
+    action_id: 'feed.poll',
     scope: { kind: 'project' },
-    params: { source: seeded.failingId },
+    params: { feed: seeded.failingId },
     output_names: {},
     idempotency_key: expect.any(String),
   });
@@ -222,15 +222,15 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
   await expect(mainViewHealth).toBeVisible();
   const mainViewContribution = page
     .getByTestId('workbench-region-mainView')
-    .getByTestId('workbench-contribution-frisket-core-view-source-health');
+    .getByTestId('workbench-contribution-frisket-core-view-feed-health');
   await expect(mainViewContribution).toBeVisible();
   await expect(mainViewContribution).toHaveAttribute('data-schema-version', 'frisket.workbench.view.v1');
-  await expect(mainViewContribution).toHaveAttribute('data-contribution-id', 'frisket.core.view.source_health');
+  await expect(mainViewContribution).toHaveAttribute('data-contribution-id', 'frisket.core.view.feed_health');
   await expect(mainViewContribution).toHaveAttribute('data-host', 'mainView');
   await expect(mainViewContribution).toHaveAttribute('data-mode', 'pane');
-  await expect(mainViewContribution).toHaveAttribute('data-runtime-component-key', 'core.sourceDetail.Health');
-  await expect(mainViewContribution).toHaveAttribute('data-required-capabilities', /source.health.read/);
-  await expect(mainViewContribution).toHaveAttribute('data-required-capabilities', /source.poll/);
+  await expect(mainViewContribution).toHaveAttribute('data-runtime-component-key', 'core.feedDetail.Health');
+  await expect(mainViewContribution).toHaveAttribute('data-required-capabilities', /feed.health.read/);
+  await expect(mainViewContribution).toHaveAttribute('data-required-capabilities', /feed.poll/);
   await expect(mainViewContribution.getByTestId(`feed-health-status-${seeded.failingId}`)).toHaveText('failing');
   await expect(mainViewContribution.getByTestId(`feed-health-redactions-${seeded.failingId}`)).toContainText('config');
   await mainViewContribution.getByTestId(`feed-health-retry-${seeded.failingId}`).click();
@@ -241,7 +241,7 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
   await expect(
     page
       .getByTestId('workbench-region-mainView')
-      .getByTestId('workbench-contribution-frisket-core-view-source-health'),
+      .getByTestId('workbench-contribution-frisket-core-view-feed-health'),
   ).toHaveAttribute('data-host', 'mainView');
 
   await page.getByTestId(`feed-health-${seeded.disabledId}`).click();

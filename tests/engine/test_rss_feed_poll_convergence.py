@@ -27,11 +27,11 @@ def _feed_poll_action(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if source_id is not None:
-        params["source"] = source_id
+        params["feed"] = source_id
     if source is not None:
-        params["source"] = source
+        params["feed"] = source
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -107,26 +107,26 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
         assert first.receipt_id is not None
         assert first.op_ids
         source_ref = next(
-            output.ref for output in first.outputs if output.kind == "source"
+            output.ref for output in first.outputs if output.kind == "feed"
         )
-        source_id = int(source_ref["source_id"])
+        source_id = int(source_ref["feed_id"])
 
         receipt = _receipt(project, first.receipt_id)
-        assert receipt["action_kind"] == "source.poll"
+        assert receipt["action_kind"] == "feed.poll"
         refs = [
             item["ref"]
             for item in receipt["inputs"] + receipt["outputs"] + receipt["records"]
         ]
         ref_kinds = {ref["kind"] for ref in refs}
         assert {
-            "source_poll_run",
-            "source_poll_rows",
-            "source_poll_cursor",
+            "feed_poll_check",
+            "feed_poll_rows",
+            "feed_poll_cursor",
         } <= ref_kinds
         assert "rss_source_run" not in ref_kinds
         assert "rss_feed_rows" not in ref_kinds
         enclosure_ref = next(
-            ref for ref in refs if ref["kind"] == "source_poll_enclosure_pointers"
+            ref for ref in refs if ref["kind"] == "feed_poll_enclosure_pointers"
         )
         assert enclosure_ref["may_feed"] == ["media.enclosure_materialize"]
         assert enclosure_ref["row_ids"] == first.outputs[-1].row_ids
@@ -150,7 +150,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
         assert second.status == "completed", second.errors
         assert second.op_ids == []
         source_run = next(
-            output.ref for output in second.outputs if output.kind == "source_run"
+            output.ref for output in second.outputs if output.kind == "feed_check"
         )
         assert source_run["skipped_rows"] == 1
         assert (
@@ -222,9 +222,9 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
         )
         assert first.status == "completed", first.errors
         source_ref = next(
-            output.ref for output in first.outputs if output.kind == "source"
+            output.ref for output in first.outputs if output.kind == "feed"
         )
-        source_id = int(source_ref["source_id"])
+        source_id = int(source_ref["feed_id"])
 
         # Identical keys collapse; conflicting groups are skipped as ambiguous.
         assert project.db.execute("SELECT COUNT(*) FROM keyed_observations").fetchone()[
@@ -277,7 +277,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
         )
         assert result.status == "completed", result.errors
         source_run = next(
-            output.ref for output in result.outputs if output.kind == "source_run"
+            output.ref for output in result.outputs if output.kind == "feed_check"
         )
         sheet_id = next(
             output.sheet_id for output in result.outputs if output.kind == "sheet"

@@ -11,9 +11,9 @@ from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
     ActionParams,
     ActionRequest,
-    CheckedSource,
+    CheckedFeed,
+    FeedChecker,
     ProjectScope,
-    SourceChecker,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.transactions import write_transaction
@@ -24,8 +24,8 @@ class ReportParams(ActionParams):
     page: int | None
 
 
-def report_page(params: ReportParams, sources: SourceChecker) -> CheckedSource:
-    return sources.check(
+def report_page(params: ReportParams, feeds: FeedChecker) -> CheckedFeed:
+    return feeds.check(
         params.target_id,
         new_rows=3,
         status="ok",
@@ -85,7 +85,7 @@ def test_custom_source_check_records_actual_capability_arguments(
         entry["ref"] for entry in body["inputs"] if entry["name"] == "request"
     )
     evidence = body["records"][0]["ref"]
-    assert request["source_id"] == evidence["source_id"] == source_id
+    assert request["feed_id"] == evidence["feed_id"] == source_id
     assert request["reported_new_rows"] == 3
     assert request["cursor_provided"] is (cursor is not None)
     assert evidence["cursor_provided"] is (cursor is not None)
@@ -108,10 +108,10 @@ def _source_check_action(
     status: str = "ok",
     error: str | None = None,
     cursor: str | None = None,
-    idempotency_key: str = "source_check@sha256:first-check",
+    idempotency_key: str = "feed_check@sha256:first-check",
 ) -> dict[str, Any]:
     params: dict[str, Any] = {
-        "source_id": source_id,
+        "feed_id": source_id,
         "new_rows": new_rows,
         "status": status,
     }
@@ -120,7 +120,7 @@ def _source_check_action(
     if cursor is not None:
         params["cursor"] = cursor
     return {
-        "action_id": "source.check",
+        "action_id": "feed.check",
         "scope": {"kind": "project"},
         "params": params,
         "idempotency_key": idempotency_key,
@@ -176,15 +176,15 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.engine.store.feeds import FeedStore
 
     source_id = seeded["url_source_id"]
-    assert result.outputs[0].kind == "source"
+    assert result.outputs[0].kind == "feed"
     source_run = next(
-        output for output in result.outputs if output.kind == "source_run"
+        output for output in result.outputs if output.kind == "feed_check"
     )
-    assert source_run.ref["source_id"] == source_id
-    assert source_run.ref["source_run_id"]
+    assert source_run.ref["feed_id"] == source_id
+    assert source_run.ref["feed_check_id"]
     assert source_run.ref["new_rows"] == 5
     assert source_run.ref["status"] == "ok"
-    assert result.outputs[0].ref["source_kind"] == "courtlistener.custom"
+    assert result.outputs[0].ref["feed_kind"] == "courtlistener.custom"
 
     source_after = FeedStore(project).get_feed(source_id)
     assert source_after is not None
@@ -197,16 +197,16 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     ).fetchone()
     assert row is not None
     receipt = Receipt.model_validate(json.loads(row["body"]))
-    assert receipt.action_kind == "source.check"
+    assert receipt.action_kind == "feed.check"
     assert receipt.status == "completed"
     refs = [item.ref for item in [*receipt.inputs, *receipt.outputs, *receipt.records]]
-    assert "source_check_source" in {ref["kind"] for ref in refs}
-    assert "source_check_run" in {ref["kind"] for ref in refs}
+    assert "feed_check_feed" in {ref["kind"] for ref in refs}
+    assert "feed_check_record" in {ref["kind"] for ref in refs}
 
 
 CASES = [
     ExecutorCase(
-        kind="source.check",
+        kind="feed.check",
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",
@@ -214,29 +214,29 @@ CASES = [
             receipt_policy="writes_receipt",
             required_capabilities=("project:write",),
             side_effects=frozenset(
-                {"advance_source_cursor", "write_source_run", "write_receipt"}
+                {"advance_feed_cursor", "write_feed_check", "write_receipt"}
             ),
             error_codes=frozenset(
                 {
                     "invalid_action_request",
                     "invalid_params",
                     "invalid_input_ref",
-                    "unsupported_source_kind",
+                    "unsupported_feed_kind",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
             ),
             cost_policy_kind="none",
             input_schema_properties=(
-                "source_id",
+                "feed_id",
                 "new_rows",
                 "status",
                 "error",
                 "cursor",
             ),
             output_schema_properties=(
-                "source_id",
-                "source_run_id",
+                "feed_id",
+                "feed_check_id",
                 "status",
                 "new_rows",
                 "receipt_id",
@@ -252,12 +252,12 @@ CASES = [
                 after_primary_run=True,
             ),
             Gate(
-                "unsupported_source_kind",
+                "unsupported_feed_kind",
                 _rss_source_action,
-                "unsupported_source_kind",
+                "unsupported_feed_kind",
             ),
         ),
-        expect_counts={"source_runs": 1, "receipts": 1},
+        expect_counts={"feed_checks": 1, "receipts": 1},
         check_state=_check_state,
         replay_output_names=False,
         request_style="typed",
@@ -273,12 +273,12 @@ def test_source_check_validation_normalizes_params() -> None:
             3,
             new_rows=7,
             cursor="cursor-2",
-            idempotency_key="source_check@sha256:validated",
+            idempotency_key="feed_check@sha256:validated",
         )
     )
     assert valid.ok is True
     assert valid.params == {
-        "source_id": 3,
+        "feed_id": 3,
         "new_rows": 7,
         "status": "ok",
         "cursor": "cursor-2",
@@ -295,10 +295,10 @@ def test_source_check_replay_normalizes_omitted_and_explicit_defaults(
     with write_transaction(project.db):
         source_id = FeedStore(project).add_feed(name="API", kind="api")
     base = {
-        "action_id": "source.check",
+        "action_id": "feed.check",
         "scope": {"kind": "project"},
-        "params": {"source_id": source_id},
-        "idempotency_key": "source-check-defaults",
+        "params": {"feed_id": source_id},
+        "idempotency_key": "feed-check-defaults",
     }
     first = run_action_spec(project, base, project_id="project-defaults")
     replay = run_action_spec(
@@ -306,7 +306,7 @@ def test_source_check_replay_normalizes_omitted_and_explicit_defaults(
         {
             **base,
             "params": {
-                "source_id": source_id,
+                "feed_id": source_id,
                 "new_rows": 0,
                 "status": "ok",
                 "error": None,
@@ -375,7 +375,7 @@ def test_source_check_validates_feed_inside_transaction(
         assert result.status == "failed"
         assert result.errors[0].code == "invalid_input_ref"
         assert (
-            env.project.db.execute("SELECT COUNT(*) FROM source_runs").fetchone()[0]
+            env.project.db.execute("SELECT COUNT(*) FROM feed_checks").fetchone()[0]
             == 0
         )
         assert (
@@ -401,9 +401,9 @@ def test_source_check_validates_rss_kind_inside_transaction(
         result = env.run(_make_action(env.seeded))
 
         assert result.status == "failed"
-        assert result.errors[0].code == "unsupported_source_kind"
+        assert result.errors[0].code == "unsupported_feed_kind"
         assert (
-            env.project.db.execute("SELECT COUNT(*) FROM source_runs").fetchone()[0]
+            env.project.db.execute("SELECT COUNT(*) FROM feed_checks").fetchone()[0]
             == 0
         )
         assert (
@@ -432,7 +432,7 @@ def test_source_check_and_receipt_roll_back_together(
         assert result.errors[0].code == "project_write_failed"
         assert dict(FeedStore(env.project).get_feed(source_id) or {}) == before
         assert (
-            env.project.db.execute("SELECT COUNT(*) FROM source_runs").fetchone()[0]
+            env.project.db.execute("SELECT COUNT(*) FROM feed_checks").fetchone()[0]
             == 0
         )
 
@@ -452,7 +452,7 @@ def test_source_check_null_cursor_preserves_cursor_and_records_error(
                 source_id,
                 status="error",
                 error="upstream unavailable",
-                idempotency_key="source-check-error",
+                idempotency_key="feed-check-error",
             )
         )
 
@@ -462,6 +462,6 @@ def test_source_check_null_cursor_preserves_cursor_and_records_error(
         assert source["cursor"] == "existing-cursor"
         assert source["last_status"] == "error"
         source_run = next(
-            output for output in result.outputs if output.kind == "source_run"
+            output for output in result.outputs if output.kind == "feed_check"
         )
         assert source_run.ref["error"] == "upstream unavailable"

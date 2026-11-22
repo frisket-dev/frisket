@@ -12,9 +12,9 @@ def test_manual_feed_http_returns_destination_and_visible_cancellable_job(client
     response = client.post(
         f"/api/projects/{pid}/actions/v1/run",
         json={
-            "action_id": "source.poll",
+            "action_id": "feed.poll",
             "scope": {"kind": "project"},
-            "params": {"source": sid},
+            "params": {"feed": sid},
             "idempotency_key": "import-feed",
         },
     )

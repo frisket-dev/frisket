@@ -44,33 +44,33 @@
       "id": "sources_panel_and_source_kind_forms",
       "rawDescriptor": {
         "schemaVersion": "frisket.workbench.panel.v1",
-        "id": "frisket.core.panel.sources",
+        "id": "frisket.core.panel.feeds",
         "kind": "panel",
         "ownerPluginId": "frisket.core",
-        "title": "Sources",
+        "title": "Feeds",
         "icon": "Database",
-        "componentKey": "core.panels.SourcesPanel",
+        "componentKey": "core.panels.FeedsPanel",
         "placements": [
           {"host": "leftSidebar", "mode": "panel", "default": true, "order": 20},
-          {"host": "bottomDock", "mode": "tab", "placementId": "source-runs", "order": 50, "tabChrome": {"closeable": true, "singleton": true}}
+          {"host": "bottomDock", "mode": "tab", "placementId": "feed-checks", "order": 50, "tabChrome": {"closeable": true, "singleton": true}}
         ],
         "requires": [
-          {"kind": "hostCapability", "id": "source.list"},
-          {"kind": "hostCapability", "id": "source.poll"},
+          {"kind": "hostCapability", "id": "feed.list"},
+          {"kind": "hostCapability", "id": "feed.poll"},
           {"kind": "hostCapability", "id": "host.navigation.openSheet"}
         ],
-        "provides": ["frisket.core.source_kind_form.rss", "frisket.core.source_kind_form.api_list_dicts"]
+        "provides": ["frisket.core.feed_kind_form.rss", "frisket.core.feed_kind_form.api_list_dicts"]
       },
       "sourceKindForms": [
         {
-          "schemaVersion": "frisket.source.kind.form.v1",
-          "id": "frisket.core.source_kind_form.rss",
+          "schemaVersion": "frisket.feed.kind.form.v1",
+          "id": "frisket.core.feed_kind_form.rss",
           "kind": "provider",
           "ownerPluginId": "frisket.core",
-          "title": "RSS source",
-          "componentKey": "core.sources.RssSourceForm",
+          "title": "RSS feed",
+          "componentKey": "core.feeds.RssFeedForm",
           "placements": [{"host": "modalOrPeek", "mode": "peek", "default": true}],
-          "accepts": [{"kind": "objectType", "id": "source.rss"}]
+          "accepts": [{"kind": "objectType", "id": "feed.rss"}]
         }
       ],
       "expectedResolved": {"status": "enabled", "activation": "loadAllowed"}

@@ -449,7 +449,7 @@ class _FakeJob:
     org_id = None
     project_id = "p1"
     run_id = 1
-    source_id = None
+    feed_id = None
     sheet_id = None
     trace_id = None
     action_kind = "map.template"

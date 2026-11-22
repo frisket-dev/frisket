@@ -7,8 +7,8 @@ instead of every guarded migration module.
 
 from __future__ import annotations
 
-from frisket.upgrades.project.alerts_migration import (
-    ALERTS_TO_DIGEST,
+from frisket.upgrades.project.feeds_migration import (
+    FEEDS_TO_DIGEST,
 )
 
-CURRENT_CHAIN_TIP_DIGEST = ALERTS_TO_DIGEST
+CURRENT_CHAIN_TIP_DIGEST = FEEDS_TO_DIGEST

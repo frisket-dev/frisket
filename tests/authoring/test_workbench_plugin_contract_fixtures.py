@@ -114,15 +114,15 @@ def test_workbench_plugin_manifest_projection() -> None:
     descriptors = load_fixture_descriptors(ROOT)
     by_id = {descriptor["id"]: descriptor for descriptor in descriptors}
 
-    sources_manifest = project_manifest(by_id["frisket.core.panel.sources"])
-    assert sources_manifest["id"] == "frisket.core.panel.sources"
+    sources_manifest = project_manifest(by_id["frisket.core.panel.feeds"])
+    assert sources_manifest["id"] == "frisket.core.panel.feeds"
     assert "componentKey" not in sources_manifest
     assert sources_manifest["placements"][1]["host"] == "bottomDock"
     assert sources_manifest["placements"][1]["mode"] == "tab"
 
-    command_manifest = project_manifest(by_id["frisket.core.command.open_sources"])
+    command_manifest = project_manifest(by_id["frisket.core.command.open_feeds"])
     assert "handlerKey" not in command_manifest
-    assert command_manifest["commandId"] == "frisket.core.command.open_sources"
+    assert command_manifest["commandId"] == "frisket.core.command.open_feeds"
 
 
 def test_workbench_plugin_layout_profile_runtime_host_foundation() -> None:

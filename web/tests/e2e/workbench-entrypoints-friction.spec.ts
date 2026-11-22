@@ -60,7 +60,7 @@ test('the command palette Commands section filters by the typed query, joins key
   const queryInput = page.getByTestId('command-palette-input');
   const commandsSection = page.getByTestId('palette-section-commands');
   const commandRows = commandsSection.locator('.workbench-command-palette-item');
-  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-sources');
+  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-feeds');
 
   // Placeholder text now names commands as a filterable target too.
   await expect(queryInput).toHaveAttribute('placeholder', /commands/i);
@@ -137,7 +137,7 @@ test('Sources panel does not render an independent add-source form', async ({ pa
   await openProject(page, pid, sheetId);
 
   await openDiscoverTab(page, 'Sources');
-  const sources = page.getByTestId('workbench-contribution-frisket-core-panel-sources');
+  const sources = page.getByTestId('workbench-contribution-frisket-core-panel-feeds');
   await expect(sources.getByTestId('feeds-panel')).toBeVisible();
   await expect(sources.getByTestId('source-add-button')).toHaveCount(0);
   await expect(sources.getByTestId('feed-form')).toHaveCount(0);

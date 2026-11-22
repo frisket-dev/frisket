@@ -53,10 +53,10 @@ def test_standalone_index_race_retries_only_failed_keyword_alert(monkeypatch):
 
     monkeypatch.setattr(triggers, "check_alert", evaluate)
     event = {
-        "kind": "source_poll_materialized",
+        "kind": "feed_poll_materialized",
         "project_id": PROJECT_ID,
-        "source_id": 1,
-        "source_run_id": 2,
+        "feed_id": 1,
+        "feed_check_id": 2,
         "sheet_id": 3,
         "op_id": 4,
         "row_ids": [5],
@@ -91,10 +91,10 @@ def _feed(items: list[dict[str, Any]], feed_title: str = "Public Notices") -> st
 
 def _feed_poll_action(source_id: int, key: str) -> dict[str, Any]:
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
-        "params": {"source": source_id},
-        "idempotency_key": f"source-watch@sha256:{key}",
+        "params": {"feed": source_id},
+        "idempotency_key": f"feed-watch@sha256:{key}",
     }
 
 
@@ -212,7 +212,7 @@ def test_completed_source_poll_evaluates_affected_enabled_alerts(
         receipt_id=second.receipt_id,
     )
     assert materialized is not None
-    assert materialized["source_id"] == source_id
+    assert materialized["feed_id"] == source_id
     assert materialized["sheet_id"] == sheet_id
     assert materialized["op_id"] is not None
     assert materialized["materialized_rows"] == 1
@@ -221,9 +221,9 @@ def test_completed_source_poll_evaluates_affected_enabled_alerts(
     triggered = trigger_source_materialized_alerts(project, materialized)
 
     assert [item["alert_id"] for item in triggered] == [project_alert, sheet_alert]
-    assert {item["trigger_kind"] for item in triggered} == {"source_poll_materialized"}
+    assert {item["trigger_kind"] for item in triggered} == {"feed_poll_materialized"}
     assert all(
-        item["source_run_id"] == materialized["source_run_id"] for item in triggered
+        item["feed_check_id"] == materialized["feed_check_id"] for item in triggered
     )
     assert all(item["run"]["matched_rows"] == 2 for item in triggered)
     assert all(item["run"]["new_rows"] == 0 for item in triggered)
@@ -316,7 +316,7 @@ def _finish_source_poll_job(client: TestClient, body: dict[str, Any]):
     workspace = client.app.state.workspace
     queue = workspace.queue
     job_id = body["job_id"]
-    assert queue.get(job_id).kind == "source.poll"
+    assert queue.get(job_id).kind == "feed.poll"
     worker = Worker(queue, workspace.registry)
     for _ in range(20):
         job = queue.get(job_id)
@@ -555,5 +555,5 @@ def test_v1_source_poll_job_enqueues_embedding_refresh(
     refresh = next(j for j in jobs if j.payload.get("index_id") == index_id)
     assert refresh.status == "queued"
     assert (
-        refresh.payload["trigger_ref"]["source_run_id"] == second_job.result["run_id"]
+        refresh.payload["trigger_ref"]["feed_check_id"] == second_job.result["run_id"]
     )

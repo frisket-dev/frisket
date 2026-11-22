@@ -125,7 +125,7 @@ test('command palette entries advertise only executable commands with honest ava
 
   // Every advertised command carries a real runtime handler binding — the
   // palette does not surface commands it cannot dispatch.
-  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-sources');
+  const openSources = palette.getByTestId('workbench-command-frisket-core-command-open-feeds');
   await expect(openSources).toHaveAttribute(
     'data-runtime-handler-key',
     'core.commands.openContribution',

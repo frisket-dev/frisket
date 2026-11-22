@@ -27,6 +27,7 @@ from frisket.upgrades.project.edit_precedence_migration import (
 )
 from tests.engine.test_citations_migration import _downgrade_to_pre_citations_schema
 from helpers import make_client
+from tests.engine.historical_schema import restore_pre_feeds_tables
 
 _PROJECT_ID = "proj-edit-precedence"
 
@@ -550,6 +551,7 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
     run_heads = canonical_heads_sql(
         "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
     )
+    restore_pre_feeds_tables(db)
     db.execute("BEGIN")
     db.execute(
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "
@@ -588,6 +590,7 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
     copy_heads = canonical_heads_sql(
         "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
     )
+    restore_pre_feeds_tables(db)
     db.execute("BEGIN")
     db.execute(
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "

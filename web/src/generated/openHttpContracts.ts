@@ -1204,6 +1204,18 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.get_feed.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/feeds/{feed_id}",
+      "request": null
+    },
+    {
+      "id": "tenant.get_feed_health.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/feeds/{feed_id}/health",
+      "request": null
+    },
+    {
       "id": "tenant.get_guide_sample.get",
       "method": "GET",
       "path": "/api/guide-samples/{sample_id}",
@@ -1333,18 +1345,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "tenant.get_source_ep.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/sources/{source_id}",
-      "request": null
-    },
-    {
-      "id": "tenant.get_source_health_ep.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/sources/{source_id}/health",
-      "request": null
-    },
-    {
       "id": "tenant.get_table_import.get",
       "method": "GET",
       "path": "/api/projects/{pid}/import/table-imports/{draft_id}",
@@ -1450,6 +1450,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.list_feeds.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/feeds",
+      "request": null
+    },
+    {
       "id": "tenant.list_guide_samples.get",
       "method": "GET",
       "path": "/api/guide-samples",
@@ -1543,12 +1549,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.list_skills.get",
       "method": "GET",
       "path": "/api/skills",
-      "request": null
-    },
-    {
-      "id": "tenant.list_sources.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/sources",
       "request": null
     },
     {
@@ -2557,7 +2557,7 @@ type HttpActionCatalog_ActionCatalogEntry = ({
   "examples"?: (Array<({
   [key: string]: JsonValue;
 })>);
-  "execution_mode": ("per_row" | "batch_deduped" | "atomic_column_transform" | "grouped" | "source_poll" | "whole_project" | "cross_sheet" | "queued_action_job" | "queued_project_run") & (string);
+  "execution_mode": ("per_row" | "batch_deduped" | "atomic_column_transform" | "grouped" | "feed_poll" | "whole_project" | "cross_sheet" | "queued_action_job" | "queued_project_run") & (string);
   "idempotency": (HttpActionCatalog_IdempotencyPolicy);
   "input_schema": ({
   [key: string]: JsonValue;
@@ -8057,11 +8057,6 @@ type HttpInline_1137e1194abf7002_JsonValue = JsonValue;
 
 export type HttpInline_1137e1194abf7002 = (((HttpInline_1137e1194abf7002_HttpError)) | ((HttpInline_1137e1194abf7002_ActionError)));
 
-export type HttpInline_120dda3b6fb473ac = ({
-  "pid": (string);
-  "source_id": (number);
-});
-
 export type HttpInline_1711c9a82655e546 = ({
   "run_id"?: (((number)) | ((null)));
 });
@@ -9379,6 +9374,11 @@ export type HttpInline_df89fa766b1ef309 = ({
 export type HttpInline_e485faf537ea9711 = ({
   "pid": (string);
   "split_id": (string);
+});
+
+export type HttpInline_e53b51faed4381b8 = ({
+  "feed_id": (number);
+  "pid": (string);
 });
 
 export type HttpInline_e581724f37bc5d5c = ({
@@ -12013,6 +12013,190 @@ export type HttpProjectDeleteRequest = ({
   "project_row_id"?: (number);
 });
 
+type HttpProjectFeedDetail_JsonValue = JsonValue;
+
+type HttpProjectFeedDetail_ProjectFeedCheck = ({
+  "changed_rows": (number);
+  "cost_micro": (number);
+  "cursor_after": (((string)) | ((null)));
+  "cursor_before": (((string)) | ((null)));
+  "duration_ms": (((number)) | ((null)));
+  "error": (((string)) | ((null)));
+  "feed_id": (number);
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "new_rows": (number);
+  "op_id": (((number)) | ((null)));
+  "receipt_id": (((string)) | ((null)));
+  "revisions": (number);
+  "skipped_rows": (number);
+  "started_at": (string);
+  "status": (string);
+  "summary_json": (string);
+  "warning_count": (number);
+});
+
+type HttpProjectFeedDetail_ProjectFeedChecksPage = ({
+  "has_more": (boolean);
+  "latest_run": (((HttpProjectFeedDetail_ProjectFeedCheck)) | ((null)));
+  "latest_run_loaded": (boolean);
+  "limit": (number);
+  "next_offset": (((number)) | ((null)));
+  "offset": (number);
+  "order": ("desc") & (string);
+  "schema_version": ("frisket.feed_checks_page.v1") & (string);
+  "total": (number);
+});
+
+export type HttpProjectFeedDetail = ({
+  "config": (HttpProjectFeedDetail_JsonValue);
+  "created_at": (string);
+  "cursor": (((string)) | ((null)));
+  "enabled": (boolean);
+  "id": (number);
+  "kind": (string);
+  "last_checked_at": (((string)) | ((null)));
+  "last_status": (((string)) | ((null)));
+  "name": (string);
+  "new_rows_total": (number);
+  "runs": (Array<(HttpProjectFeedDetail_ProjectFeedCheck)>);
+  "runs_page": (HttpProjectFeedDetail_ProjectFeedChecksPage);
+  "schedule": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "url": (((string)) | ((null)));
+});
+
+type HttpProjectFeedHealth_JsonValue = JsonValue;
+
+type HttpProjectFeedHealth_ProjectFeedHealthCheck = ({
+  "changed_rows": (number);
+  "cost_micro": (number);
+  "cursor_after_present": (boolean);
+  "cursor_before_present": (boolean);
+  "duration_ms": (((number)) | ((null)));
+  "error_summary": (((string)) | ((null)));
+  "feed_id": (number);
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "new_rows": (number);
+  "op_id": (((number)) | ((null)));
+  "receipt_id": (((string)) | ((null)));
+  "revisions": (number);
+  "skipped_rows": (number);
+  "started_at": (string);
+  "status": (string);
+  "summary_present": (boolean);
+  "warning_count": (number);
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthChecksPage = ({
+  "has_more": (boolean);
+  "limit": (number);
+  "next_offset": (((number)) | ((null)));
+  "offset": (number);
+  "order": ("desc") & (string);
+  "schema_version": ("frisket.feed_checks_page.v1") & (string);
+  "total": (number);
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthCosts = ({
+  "basis": (string);
+  "recent_actual_micro": (number);
+  "recent_estimated_micro": (number);
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthFeed = ({
+  "created_at": (string);
+  "enabled": (boolean);
+  "id": (number);
+  "kind": (string);
+  "name": (string);
+  "redactions": (Array<(string)>);
+  "schedule": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "url": (((string)) | ((null)));
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthJob = ({
+  "attempts": (number);
+  "created_at": (string);
+  "error_summary": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "job_id": (number);
+  "kind": (string);
+  "max_attempts": (number);
+  "refs": (HttpProjectFeedHealth_ProjectFeedHealthJobRefs);
+  "result_summary": ({
+  [key: string]: (HttpProjectFeedHealth_JsonValue);
+});
+  "stalled": (boolean);
+  "started_at": (((string)) | ((null)));
+  "status": (string);
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthJobRefs = ({
+  "feed_check_id"?: (((number)) | ((null)));
+  "feed_id": (number);
+  "sheet_id"?: (((number)) | ((null)));
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthSparseCheckNotice = ({
+  "code": ("sparse_feed_check_metadata") & (string);
+  "message": (string);
+  "run_ids": (Array<(number)>);
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthSummary = ({
+  "changed_rows_recent": (number);
+  "consecutive_failures": (number);
+  "last_cursor_summary": ("stored" | "run_cursor_available" | "run_cursor_before_only" | "not_recorded") & (string);
+  "last_failure_at": (((string)) | ((null)));
+  "last_success_at": (((string)) | ((null)));
+  "new_rows_recent": (number);
+  "new_rows_total": (number);
+  "recent_run_count": (number);
+  "revisions_recent": (number);
+  "skipped_rows_recent": (number);
+  "status": ("disabled" | "never_run" | "failing" | "stale" | "healthy") & (string);
+});
+
+type HttpProjectFeedHealth_ProjectFeedHealthUnsupportedScheduleNotice = ({
+  "code": ("unsupported_feed_schedule") & (string);
+  "message": (string);
+});
+
+export type HttpProjectFeedHealth = ({
+  "alerts": (Array<(((HttpProjectFeedHealth_ProjectFeedHealthSparseCheckNotice)) | ((HttpProjectFeedHealth_ProjectFeedHealthUnsupportedScheduleNotice)))>);
+  "costs": (HttpProjectFeedHealth_ProjectFeedHealthCosts);
+  "downstream_jobs": (Array<(HttpProjectFeedHealth_ProjectFeedHealthJob)>);
+  "feed": (HttpProjectFeedHealth_ProjectFeedHealthFeed);
+  "runs": (Array<(HttpProjectFeedHealth_ProjectFeedHealthCheck)>);
+  "runs_page": (HttpProjectFeedHealth_ProjectFeedHealthChecksPage);
+  "schema_version": ("frisket.feed_health.v1") & (string);
+  "summary": (HttpProjectFeedHealth_ProjectFeedHealthSummary);
+  "warnings": (Array<(((HttpProjectFeedHealth_ProjectFeedHealthSparseCheckNotice)) | ((HttpProjectFeedHealth_ProjectFeedHealthUnsupportedScheduleNotice)))>);
+});
+
+type HttpProjectFeedList_JsonValue = JsonValue;
+
+type HttpProjectFeedList_ProjectFeed = ({
+  "config": (HttpProjectFeedList_JsonValue);
+  "created_at": (string);
+  "cursor": (((string)) | ((null)));
+  "enabled": (boolean);
+  "id": (number);
+  "kind": (string);
+  "last_checked_at": (((string)) | ((null)));
+  "last_status": (((string)) | ((null)));
+  "name": (string);
+  "new_rows_total": (number);
+  "schedule": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "url": (((string)) | ((null)));
+});
+
+export type HttpProjectFeedList = (Array<(HttpProjectFeedList_ProjectFeed)>);
+
 type HttpProjectInviteCreate_ProjectInvite = ({
   "accepted_at": (((string)) | ((null)));
   "created_at": (string);
@@ -12545,190 +12729,6 @@ export type HttpProjectSettingsResponse = ({
   "media_allow_private_hosts_locked": (boolean);
   "retrieval": (HttpProjectSettingsResponse_ProjectRetrievalSettingsResponse);
 });
-
-type HttpProjectSourceDetail_JsonValue = JsonValue;
-
-type HttpProjectSourceDetail_ProjectSourceRun = ({
-  "changed_rows": (number);
-  "cost_micro": (number);
-  "cursor_after": (((string)) | ((null)));
-  "cursor_before": (((string)) | ((null)));
-  "duration_ms": (((number)) | ((null)));
-  "error": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "id": (number);
-  "new_rows": (number);
-  "op_id": (((number)) | ((null)));
-  "receipt_id": (((string)) | ((null)));
-  "revisions": (number);
-  "skipped_rows": (number);
-  "source_id": (number);
-  "started_at": (string);
-  "status": (string);
-  "summary_json": (string);
-  "warning_count": (number);
-});
-
-type HttpProjectSourceDetail_ProjectSourceRunsPage = ({
-  "has_more": (boolean);
-  "latest_run": (((HttpProjectSourceDetail_ProjectSourceRun)) | ((null)));
-  "latest_run_loaded": (boolean);
-  "limit": (number);
-  "next_offset": (((number)) | ((null)));
-  "offset": (number);
-  "order": ("desc") & (string);
-  "schema_version": ("frisket.source_runs_page.v1") & (string);
-  "total": (number);
-});
-
-export type HttpProjectSourceDetail = ({
-  "config": (HttpProjectSourceDetail_JsonValue);
-  "created_at": (string);
-  "cursor": (((string)) | ((null)));
-  "enabled": (boolean);
-  "id": (number);
-  "kind": (string);
-  "last_checked_at": (((string)) | ((null)));
-  "last_status": (((string)) | ((null)));
-  "name": (string);
-  "new_rows_total": (number);
-  "runs": (Array<(HttpProjectSourceDetail_ProjectSourceRun)>);
-  "runs_page": (HttpProjectSourceDetail_ProjectSourceRunsPage);
-  "schedule": (((string)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "url": (((string)) | ((null)));
-});
-
-type HttpProjectSourceHealth_JsonValue = JsonValue;
-
-type HttpProjectSourceHealth_ProjectSourceHealthCosts = ({
-  "basis": (string);
-  "recent_actual_micro": (number);
-  "recent_estimated_micro": (number);
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthJob = ({
-  "attempts": (number);
-  "created_at": (string);
-  "error_summary": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "job_id": (number);
-  "kind": (string);
-  "max_attempts": (number);
-  "refs": (HttpProjectSourceHealth_ProjectSourceHealthJobRefs);
-  "result_summary": ({
-  [key: string]: (HttpProjectSourceHealth_JsonValue);
-});
-  "stalled": (boolean);
-  "started_at": (((string)) | ((null)));
-  "status": (string);
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthJobRefs = ({
-  "sheet_id"?: (((number)) | ((null)));
-  "source_id": (number);
-  "source_run_id"?: (((number)) | ((null)));
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthRun = ({
-  "changed_rows": (number);
-  "cost_micro": (number);
-  "cursor_after_present": (boolean);
-  "cursor_before_present": (boolean);
-  "duration_ms": (((number)) | ((null)));
-  "error_summary": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "id": (number);
-  "new_rows": (number);
-  "op_id": (((number)) | ((null)));
-  "receipt_id": (((string)) | ((null)));
-  "revisions": (number);
-  "skipped_rows": (number);
-  "source_id": (number);
-  "started_at": (string);
-  "status": (string);
-  "summary_present": (boolean);
-  "warning_count": (number);
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthRunsPage = ({
-  "has_more": (boolean);
-  "limit": (number);
-  "next_offset": (((number)) | ((null)));
-  "offset": (number);
-  "order": ("desc") & (string);
-  "schema_version": ("frisket.source_runs_page.v1") & (string);
-  "total": (number);
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthSource = ({
-  "created_at": (string);
-  "enabled": (boolean);
-  "id": (number);
-  "kind": (string);
-  "name": (string);
-  "redactions": (Array<(string)>);
-  "schedule": (((string)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "url": (((string)) | ((null)));
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthSparseRunNotice = ({
-  "code": ("sparse_source_run_metadata") & (string);
-  "message": (string);
-  "run_ids": (Array<(number)>);
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthSummary = ({
-  "changed_rows_recent": (number);
-  "consecutive_failures": (number);
-  "last_cursor_summary": ("stored" | "run_cursor_available" | "run_cursor_before_only" | "not_recorded") & (string);
-  "last_failure_at": (((string)) | ((null)));
-  "last_success_at": (((string)) | ((null)));
-  "new_rows_recent": (number);
-  "new_rows_total": (number);
-  "recent_run_count": (number);
-  "revisions_recent": (number);
-  "skipped_rows_recent": (number);
-  "status": ("disabled" | "never_run" | "failing" | "stale" | "healthy") & (string);
-});
-
-type HttpProjectSourceHealth_ProjectSourceHealthUnsupportedScheduleNotice = ({
-  "code": ("unsupported_source_schedule") & (string);
-  "message": (string);
-});
-
-export type HttpProjectSourceHealth = ({
-  "alerts": (Array<(((HttpProjectSourceHealth_ProjectSourceHealthSparseRunNotice)) | ((HttpProjectSourceHealth_ProjectSourceHealthUnsupportedScheduleNotice)))>);
-  "costs": (HttpProjectSourceHealth_ProjectSourceHealthCosts);
-  "downstream_jobs": (Array<(HttpProjectSourceHealth_ProjectSourceHealthJob)>);
-  "runs": (Array<(HttpProjectSourceHealth_ProjectSourceHealthRun)>);
-  "runs_page": (HttpProjectSourceHealth_ProjectSourceHealthRunsPage);
-  "schema_version": ("frisket.source_health.v1") & (string);
-  "source": (HttpProjectSourceHealth_ProjectSourceHealthSource);
-  "summary": (HttpProjectSourceHealth_ProjectSourceHealthSummary);
-  "warnings": (Array<(((HttpProjectSourceHealth_ProjectSourceHealthSparseRunNotice)) | ((HttpProjectSourceHealth_ProjectSourceHealthUnsupportedScheduleNotice)))>);
-});
-
-type HttpProjectSourceList_JsonValue = JsonValue;
-
-type HttpProjectSourceList_ProjectSource = ({
-  "config": (HttpProjectSourceList_JsonValue);
-  "created_at": (string);
-  "cursor": (((string)) | ((null)));
-  "enabled": (boolean);
-  "id": (number);
-  "kind": (string);
-  "last_checked_at": (((string)) | ((null)));
-  "last_status": (((string)) | ((null)));
-  "name": (string);
-  "new_rows_total": (number);
-  "schedule": (((string)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "url": (((string)) | ((null)));
-});
-
-export type HttpProjectSourceList = (Array<(HttpProjectSourceList_ProjectSource)>);
 
 type HttpProvenanceManifest_ProvenanceActionKindSummary = ({
   "action_kind": (string);
@@ -17836,6 +17836,34 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.get_feed.get": {
+    readonly pathParams: HttpInline_e53b51faed4381b8;
+    readonly query: HttpInline_9d162aa16be8fbce;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpProjectFeedDetail;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.get_feed_health.get": {
+    readonly pathParams: HttpInline_e53b51faed4381b8;
+    readonly query: HttpInline_257b8f9f88face12;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpProjectFeedHealth;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.get_guide_sample.get": {
     readonly pathParams: HttpInline_b782b1851b85e75a;
     readonly query: HttpInline_bbfb2b0d9eb11e67;
@@ -18137,34 +18165,6 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
-  readonly "tenant.get_source_ep.get": {
-    readonly pathParams: HttpInline_120dda3b6fb473ac;
-    readonly query: HttpInline_9d162aa16be8fbce;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpProjectSourceDetail;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.get_source_health_ep.get": {
-    readonly pathParams: HttpInline_120dda3b6fb473ac;
-    readonly query: HttpInline_257b8f9f88face12;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpProjectSourceHealth;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.get_table_import.get": {
     readonly pathParams: HttpInline_4695a2cbe654ff39;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18360,6 +18360,19 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpColumnTypeList;
       readonly "401": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_feeds.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpProjectFeedList;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
       readonly "500": HttpError;
     };
   };
@@ -18575,19 +18588,6 @@ export type HttpContractOperationMap = {
       readonly "409": HttpError;
       readonly "415": HttpError;
       readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.list_sources.get": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpProjectSourceList;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
       readonly "500": HttpError;
     };
   };

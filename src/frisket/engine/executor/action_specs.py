@@ -322,11 +322,11 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "row.add",
         "row.delete",
         "sheet.refresh",
-        "source.check",
-        "source.create",
-        "source.delete",
-        "source.poll",
-        "source.update",
+        "feed.check",
+        "feed.create",
+        "feed.delete",
+        "feed.poll",
+        "feed.update",
         "temporal.extract_range",
         "web.capture_page",
     }
@@ -594,16 +594,16 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "operation.restore": "Restore one selected Change transactionally without resuming work.",
         # join.semantic joined _QUEUED_PROJECT_RUN_KINDS above; it is no
         # longer declared here.
-        # -- source.*: source metadata/monitor mutation, not project.run -----
-        "source.check": "Source check records source monitor status synchronously.",
-        "source.create": "Source create mutates source metadata synchronously.",
-        "source.delete": "Source delete mutates source metadata synchronously.",
-        "source.poll": (
-            "Generic source polling owns receipt semantics and runs via "
-            "manual invocation or the generic JobQueue's source.poll worker, "
+        # -- feed.*: feed metadata/monitor mutation, not project.run ---------
+        "feed.check": "Feed check records feed monitor status synchronously.",
+        "feed.create": "Feed create mutates feed metadata synchronously.",
+        "feed.delete": "Feed delete mutates feed metadata synchronously.",
+        "feed.poll": (
+            "Generic feed polling owns receipt semantics and runs via "
+            "manual invocation or the generic JobQueue's feed.poll worker, "
             "not the project.run MapRunner queue."
         ),
-        "source.update": "Source update mutates source metadata synchronously.",
+        "feed.update": "Feed update mutates feed metadata synchronously.",
         # -- bounded single-call/single-row direct actions, kept out of the --
         # -- queue for reasons of their own -----------------------------------
         "reduce.group_summary": (

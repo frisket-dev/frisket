@@ -30,7 +30,7 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
 }
 
 const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = {
-  alert: 'Open alert', import: 'Open sheet', run: 'Open run', source: 'Open feed',
+  alert: 'Open alert', import: 'Open sheet', run: 'Open run', feed: 'Open feed',
 };
 
 function openSourceLabel(item: NotificationItem): string {
@@ -41,7 +41,7 @@ function itemSourceLabel(item: NotificationItem): string {
   if (item.sourceKind === 'alert') return 'Alert';
   if (item.sourceKind === 'run') return 'Run';
   if (item.sourceKind === 'import') return 'Import';
-  if (item.sourceKind === 'source') return 'Feed';
+  if (item.sourceKind === 'feed') return 'Feed';
   return item.sourceKind || 'Source';
 }
 

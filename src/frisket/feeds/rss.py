@@ -1,4 +1,4 @@
-"""RSS feed checker for source.poll."""
+"""RSS feed checker for feed.poll."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class RssFeedChecker:
             return "RSS feed config must be an object"
         merge = config.get("merge_strategy", "append-new")
         if merge != "append-new":
-            return "RSS source.poll supports only append-new merge strategy"
+            return "RSS feed.poll supports only append-new merge strategy"
         return None
 
     def poll(self, ctx: FeedCheckContext) -> FeedCheckResult:

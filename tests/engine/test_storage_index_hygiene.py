@@ -11,6 +11,7 @@ from frisket.upgrades.project._step import run_step
 from frisket.engine.store.bundle_io import export_database
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from tests.engine.historical_schema import restore_pre_feeds_tables
 from tests.engine.test_bundle_schema_fence import (
     _restore_legacy_authorities,
     _restore_pre_hygiene_indexes,
@@ -50,9 +51,9 @@ def _seed_ledgers(project: Project) -> None:
         "id,run_id,seq,state,action_identity_hash,scope_json,created_at"
         ") VALUES('attempt-1',1,1,'created','identity','[]','2026-10-02')"
     )
-    project.db.execute("INSERT INTO sources(id,name,sheet_id) VALUES(1,'Source',1)")
+    project.db.execute("INSERT INTO feeds(id,name,sheet_id) VALUES(1,'Source',1)")
     project.db.execute(
-        "INSERT INTO source_runs(id,source_id,status,started_at) "
+        "INSERT INTO feed_checks(id,feed_id,status,started_at) "
         "VALUES(1,1,'ok','2026-10-02')"
     )
     project.db.commit()
@@ -95,9 +96,9 @@ def _assert_runtime_access_paths(project: Project) -> None:
         ).fetchone()
         is None
     )
-    assert "idx_source_runs_source_started" in _plan(
+    assert "idx_feed_checks_feed_started" in _plan(
         project.db,
-        "SELECT COUNT(*) FROM source_runs WHERE source_id=?",
+        "SELECT COUNT(*) FROM feed_checks WHERE feed_id=?",
         (1,),
     )
 
@@ -178,7 +179,7 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     assert [
         tuple(row)
         for row in migrated.db.execute(
-            "SELECT id,status FROM source_runs WHERE source_id=1"
+            "SELECT id,status FROM feed_checks WHERE feed_id=1"
         ).fetchall()
     ] == [(1, "ok")]
     _assert_runtime_access_paths(migrated)
@@ -201,7 +202,7 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
         ).fetchone()
         is None
     )
-    assert export_db.execute("SELECT COUNT(*) FROM source_runs").fetchone()[0] == 1
+    assert export_db.execute("SELECT COUNT(*) FROM feed_checks").fetchone()[0] == 1
     export_db.close()
 
 
@@ -212,6 +213,7 @@ def test_index_hygiene_upgrade_rolls_back_all_changes_on_failure(tmp_path) -> No
     project.close()
 
     db = sqlite3.connect(path / "project.db")
+    restore_pre_feeds_tables(db)
     _restore_pre_hygiene_indexes(db)
     _seed_legacy_source_item(db)
     db.execute(

@@ -47,12 +47,12 @@ def _code(action: dict[str, Any]) -> str:
     return result.error.code
 
 
-def _source_poll_request(params: dict[str, Any]) -> dict[str, Any]:
+def _feed_poll_request(params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "action_id": "source.poll",
+        "action_id": "feed.poll",
         "scope": {"kind": "project"},
         "params": params,
-        "idempotency_key": "source-poll-validation",
+        "idempotency_key": "feed-poll-validation",
     }
 
 
@@ -60,30 +60,30 @@ def _source_poll_request(params: dict[str, Any]) -> dict[str, Any]:
     "params",
     [
         {},
-        {"source_id": 1},
-        {"source": None},
-        {"source": True},
-        {"source": 0},
-        {"source": -1},
-        {"source": "1"},
-        {"source": []},
-        {"source": {}},
-        {"source": {"name": " "}},
-        {"source": {"name": "Feed", "enabled": 1}},
-        {"source": {"name": "Feed", "bogus": True}},
-        {"source": 1, "bogus": True},
-        {"source": 1, "consented_promise_set_hash": "sha256:golden"},
+        {"feed_id": 1},
+        {"feed": None},
+        {"feed": True},
+        {"feed": 0},
+        {"feed": -1},
+        {"feed": "1"},
+        {"feed": []},
+        {"feed": {}},
+        {"feed": {"name": " "}},
+        {"feed": {"name": "Feed", "enabled": 1}},
+        {"feed": {"name": "Feed", "bogus": True}},
+        {"feed": 1, "bogus": True},
+        {"feed": 1, "consented_promise_set_hash": "sha256:golden"},
     ],
 )
-def test_source_poll_typed_params_and_selectors_are_strict(
+def test_feed_poll_typed_params_and_selectors_are_strict(
     params: dict[str, Any],
 ) -> None:
-    result = validate_root_action(_source_poll_request(params))
+    result = validate_root_action(_feed_poll_request(params))
 
     assert result.ok is False
     assert result.error is not None
     assert result.error.code == "invalid_action_request"
-    assert result.error.action_kind == "source.poll"
+    assert result.error.action_kind == "feed.poll"
 
 
 @pytest.mark.parametrize(
@@ -91,16 +91,16 @@ def test_source_poll_typed_params_and_selectors_are_strict(
     [
         {"idempotency_key": None},
         {"capabilities": []},
-        {"capabilities": ["project:write", "external:source_poll"]},
+        {"capabilities": ["project:write", "external:feed_poll"]},
         {"confirmed": True},
         {"consented_promise_set_hash": "sha256:golden"},
         {"scope": {"kind": "sheet_rows", "sheet_id": 1}},
     ],
 )
-def test_source_poll_typed_envelope_refuses_legacy_and_row_controls(patch) -> None:
+def test_feed_poll_typed_envelope_refuses_legacy_and_row_controls(patch) -> None:
     # Caller-authored capabilities are forbidden envelope data, not a grant
     # or a simulation of the host's permission policy.
-    request = _source_poll_request({"source": 1})
+    request = _feed_poll_request({"feed": 1})
     request.update(patch)
     result = validate_root_action(request)
 
@@ -110,31 +110,31 @@ def test_source_poll_typed_envelope_refuses_legacy_and_row_controls(patch) -> No
 
 
 @pytest.mark.parametrize(
-    "source",
+    "feed",
     [1, {"name": "Feed", "kind": "rss", "url": "https://example.test/feed.xml"}],
 )
-def test_source_poll_typed_selectors_validate_without_reading_project_or_source(
-    source: Any,
+def test_feed_poll_typed_selectors_validate_without_reading_project_or_feed(
+    feed: Any,
 ) -> None:
     # Existence, registered-poller configuration and network policy are host
     # checks; root validation accepts either typed selector without performing IO.
-    result = validate_root_action(_source_poll_request({"source": source}))
+    result = validate_root_action(_feed_poll_request({"feed": feed}))
 
     assert result.ok is True
     assert result.error is None
-    if isinstance(source, int):
-        assert result.params == {"source": source}
+    if isinstance(feed, int):
+        assert result.params == {"feed": feed}
     else:
-        for field, value in source.items():
-            assert result.params["source"][field] == value
+        for field, value in feed.items():
+            assert result.params["feed"][field] == value
 
 
-def test_source_poll_retired_envelope_does_not_enter_legacy_validation() -> None:
+def test_feed_poll_retired_envelope_does_not_enter_legacy_validation() -> None:
     result = validate_root_action(
         _action(
-            "source.poll",
-            {"source_id": 1},
-            capabilities=["project:write", "external:source_poll"],
+            "feed.poll",
+            {"feed_id": 1},
+            capabilities=["project:write", "external:feed_poll"],
         )
     )
 

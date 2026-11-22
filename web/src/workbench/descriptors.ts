@@ -22,7 +22,7 @@ export type WorkbenchHostId =
   | WorkbenchRegionId
   | 'rowDetail'
   | 'entityDetail'
-  | 'sourceDetail'
+  | 'feedDetail'
   | 'columnDetail'
   | 'rowInspector'
   | 'columnInspector'
@@ -71,7 +71,7 @@ export interface WorkbenchDataRequirement {
     | 'activeColumn'
     | 'activeCell'
     | 'activeEvidence'
-    | 'activeSource'
+    | 'activeFeed'
     | 'activeEntity'
     | 'activeProjection'
     | 'selectedRows'
@@ -89,7 +89,7 @@ interface WorkbenchContributionDescriptorBase {
     | 'frisket.row_inspector.section.v1'
     | 'frisket.column_inspector.section.v1'
     | 'frisket.command.v1'
-    | 'frisket.source.kind.form.v1'
+    | 'frisket.feed.kind.form.v1'
     | 'frisket.action.form.v1';
   id: string;
   kind: 'panel' | 'view' | 'inspectorSection' | 'command' | 'provider' | 'actionForm';
@@ -142,7 +142,7 @@ export interface WorkbenchCommandDescriptor extends WorkbenchContributionDescrip
 }
 
 export interface FeedKindFormDescriptor extends WorkbenchContributionDescriptorBase {
-  schemaVersion: 'frisket.source.kind.form.v1';
+  schemaVersion: 'frisket.feed.kind.form.v1';
   kind: 'provider';
   accepts: string[];
 }
@@ -177,7 +177,7 @@ export const WORKBENCH_SLOT_BY_HOST: Record<WorkbenchHostId, WorkbenchPlacementS
   modalOrPeek: 'interruption',
   rowDetail: 'detail',
   entityDetail: 'detail',
-  sourceDetail: 'detail',
+  feedDetail: 'detail',
   columnDetail: 'detail',
   rowInspector: 'detail',
   columnInspector: 'detail',
@@ -276,7 +276,7 @@ export const MENTIONS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescripto
 );
 
 export const FEEDS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
-  'frisket.core.panel.sources',
+  'frisket.core.panel.feeds',
 );
 
 export const NOTIFICATIONS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
@@ -296,8 +296,8 @@ export const EMBEDDINGS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescrip
 );
 
 export const FEED_KIND_FORM_DESCRIPTORS: Record<string, FeedKindFormDescriptor> = {
-  rss: firstPartyDescriptor('frisket.core.source_kind_form.rss'),
-  api_list_dicts: firstPartyDescriptor('frisket.core.source_kind_form.api_list_dicts'),
+  rss: firstPartyDescriptor('frisket.core.feed_kind_form.rss'),
+  api_list_dicts: firstPartyDescriptor('frisket.core.feed_kind_form.api_list_dicts'),
 };
 
 // No ACTIONS panel descriptor: actions are EXPRESSED by the shell as the
@@ -372,7 +372,7 @@ export const BOTTOM_DOCK_ERRORS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPart
 );
 
 export const OPEN_FEEDS_COMMAND_DESCRIPTOR: WorkbenchCommandDescriptor = firstPartyDescriptor(
-  'frisket.core.command.open_sources',
+  'frisket.core.command.open_feeds',
 );
 
 // Settings re-home: the retired sidebar footer's SettingsLink lands as a
@@ -469,13 +469,13 @@ export const ENTITY_CONNECTIONS_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = first
 );
 
 export const FEED_SUMMARY_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
-  'frisket.core.view.source_summary',
+  'frisket.core.view.feed_summary',
 );
 
 export const FEED_HEALTH_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
-  'frisket.core.view.source_health',
+  'frisket.core.view.feed_health',
 );
 
 export const FEED_CHECKS_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
-  'frisket.core.view.source_runs',
+  'frisket.core.view.feed_checks',
 );

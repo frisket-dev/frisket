@@ -14,7 +14,7 @@ const templates = actionTemplatesFromCatalog({ ...catalog,
 });
 const context = {
   activeProject: true, activeSheet: true, activeRow: false, activeColumn: false,
-  activeCell: false, activeEvidence: false, activeSource: false, activeEntity: false,
+  activeCell: false, activeEvidence: false, activeFeed: false, activeEntity: false,
   activeProjection: false, selectedRowIds: [], columnTypes: [],
 };
 const tabs = resolveRibbonTabs(templates, context);

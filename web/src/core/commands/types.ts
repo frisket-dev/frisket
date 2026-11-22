@@ -31,7 +31,7 @@ export type WorkspaceCommand =
   | { type: 'openSheet'; sheetId: string }
   | { type: 'openRow'; sheetId: string; rowId: string; columnId?: string }
   | { type: 'openColumn'; columnId: string }
-  | { type: 'openSource'; sourceId: string }
+  | { type: 'openFeed'; feedId: string }
   | { type: 'openCitation'; linkId: string | number; host?: 'modalOrPeek' | 'mainView' }
   | { type: 'openMap'; columnId?: string }
   | { type: 'openGraph' }
@@ -39,7 +39,7 @@ export type WorkspaceCommand =
   | { type: 'openMainViewContribution'; contributionId: string }
   // runActCommand cases
   | { type: 'import.open' }
-  | { type: 'sources.open' }
+  | { type: 'feeds.open' }
   | { type: 'export.open'; kind: 'dataset' | 'google_sheets' | 'column_tables' }
   | { type: 'ocrCompare.open' }
   | { type: 'transcribeCompare.open' }
@@ -63,8 +63,8 @@ export interface RouteHandle {
   openRow(sheetId: string, rowId: string, columnId?: string): void;
   /** = navigation.openColumn's inline body */
   openColumn(columnId: string): void;
-  /** = navigation.openSource's inline body */
-  openSource(sourceId: string): void;
+  /** = navigation.openFeed's inline body */
+  openFeed(feedId: string): void;
   /** = navigation.openActionRoute's inline body */
   openActionRoute(actionKind?: string): void;
 }
@@ -88,7 +88,7 @@ export interface ChromeHandle {
   /** = openFeedsFromCommandPalette — the canonical body for BOTH the
    *  palette entry AND runActCommand's 'sources' case (superset-body
    *  divergence, see registry.ts). */
-  openSources(): void;
+  openFeeds(): void;
   /** = openSettingsFromCommandPalette */
   openSettings(): void;
 }

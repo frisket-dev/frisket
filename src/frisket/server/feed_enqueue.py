@@ -16,7 +16,7 @@ def queue_feed_poll(
     project: Any, project_id: str, body: dict, ctx: Any
 ) -> ActionResult | None:
     bound = typed_action_for_request(body)
-    feed_id = getattr(bound.params, "source", None)
+    feed_id = getattr(bound.params, "feed", None)
     if type(feed_id) is not int:
         return None
     feed = FeedStore(project).get_feed(feed_id)
@@ -33,7 +33,7 @@ def queue_feed_poll(
     error = feed_checker.validate_config(feed)
     if error:
         raise ValueError(error)
-    # The source-bound destination is durable before any provider request starts.
+    # The feed-bound destination is durable before any provider request starts.
     with project.db:
         sheet_id = _feed_poll_sheet_id_in_txn(project, project.db.cursor(), feed)
     existing = [
@@ -45,8 +45,8 @@ def queue_feed_poll(
                 "storage_organization_id"
             ),
             status=status,
-            kind="source.poll",
-            source_id=feed_id,
+            kind="feed.poll",
+            feed_id=feed_id,
             limit=1,
         )
     ]
@@ -54,15 +54,15 @@ def queue_feed_poll(
         existing[0].id
         if existing
         else ctx.queue.enqueue(
-            "source.poll",
+            "feed.poll",
             {
                 **ctx.queue_payload_extra,
                 "project_id": project_id,
                 "workspace_root": str(ctx.workspace_root),
-                "source_id": feed_id,
+                "feed_id": feed_id,
                 "sheet_id": sheet_id,
-                "source_name": feed["name"],
-                "action_kind": "source.poll",
+                "feed_name": feed["name"],
+                "action_kind": "feed.poll",
                 "poll_id": bound.request.idempotency_key,
             },
             max_attempts=1,
@@ -70,7 +70,7 @@ def queue_feed_poll(
     )
     return ActionResult(
         action=ActionIdentity(
-            kind="source.poll", action_id=bound.request.idempotency_key
+            kind="feed.poll", action_id=bound.request.idempotency_key
         ),
         status="queued",
         project_id=project_id,

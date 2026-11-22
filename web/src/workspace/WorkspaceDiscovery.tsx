@@ -66,13 +66,13 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
   switch (contribution.contributionId) {
     case 'frisket.core.panel.notifications':
       return <NotificationsWorkbenchPanel projectId={project.id} />;
-    case 'frisket.core.panel.sources':
+    case 'frisket.core.panel.feeds':
       return (
         <FeedsWorkbenchPanel
           feedApi={projectApi}
           jobs={job}
           feedDetailContributions={
-            resolveRegionContributions(resolvedWorkbenchLayout, 'sourceDetail').contributions
+            resolveRegionContributions(resolvedWorkbenchLayout, 'feedDetail').contributions
           }
           renderPluginDetailTab={renderPluginDetailTab}
           onPolled={(sheetId) => {

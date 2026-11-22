@@ -64,7 +64,7 @@ PDF_SPLIT_APPLY_KIND = "pdf.split.apply"
 CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY = "__frisket_claimed_project_storage_key"
 # Server-owned jobs require an explicit marker; missing tenant identity fails closed.
 SERVER_SCOPED_JOB_PAYLOAD_KEY = "server_scoped"
-WORKSPACE_SCOPED_REF_KINDS = {"source.poll", "enclosure.download", MODEL_PULL_KIND}
+WORKSPACE_SCOPED_REF_KINDS = {"feed.poll", "enclosure.download", MODEL_PULL_KIND}
 COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
     {
         ACTION_RUN_KIND,
@@ -75,7 +75,7 @@ COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
         IMPORT_FILES_PAGE_KIND,
         IMPORT_TABLE_STREAM_KIND,
         PDF_SPLIT_APPLY_KIND,
-        "source.poll",
+        "feed.poll",
     }
 )
 
@@ -236,17 +236,15 @@ _JobRefs = TypedDict(
 def _job_refs(kind: str, payload: Mapping[str, object] | None) -> _JobRefs:
     data = payload or {}
     spec = _mapping(data.get("spec"))
-    # Normalize every supported source-reference spelling at enqueue time.
+    # Normalize every supported feed-reference spelling at enqueue time.
     trigger_ref = _mapping(data.get("trigger_ref"))
     return {
         "organization_id": _coerce_str(data.get("organization_id")),
         "storage_organization_id": _coerce_int(data.get("storage_organization_id")),
         "project_id": _coerce_str(data.get("project_id")),
         "run_id": _coerce_int(data.get("run_id")),
-        "source_id": _coerce_int(
-            data.get("source_id")
-            or spec.get("source_id")
-            or trigger_ref.get("source_id")
+        "feed_id": _coerce_int(
+            data.get("feed_id") or spec.get("feed_id") or trigger_ref.get("feed_id")
         ),
         "sheet_id": _coerce_int(data.get("sheet_id") or spec.get("sheet_id")),
         "row_id": _coerce_int(data.get("row_id") or spec.get("row_id")),
@@ -361,7 +359,7 @@ def _validate_ref_lookup(
     statuses: tuple[str, ...],
     project_id: str | None,
     storage_organization_id: int | None,
-    source_id: int | None,
+    feed_id: int | None,
     sheet_id: int | None,
     row_id: int | None,
     workspace_root: str | None,
@@ -370,7 +368,7 @@ def _validate_ref_lookup(
     if not statuses:
         raise ValueError("find_job_by_refs requires at least one status")
     if (
-        source_id is not None
+        feed_id is not None
         or sheet_id is not None
         or row_id is not None
         or dedupe_key is not None
@@ -415,7 +413,7 @@ class Job:
     storage_organization_id: int | None = None
     project_id: str | None = None
     run_id: int | None = None
-    source_id: int | None = None
+    feed_id: int | None = None
     sheet_id: int | None = None
     row_id: int | None = None
     receipt_id: str | None = None
@@ -622,7 +620,7 @@ jobs_table = sa.Table(
     sa.Column("storage_organization_id", sa.Integer),
     sa.Column("project_id", sa.String),
     sa.Column("run_id", sa.Integer),
-    sa.Column("source_id", sa.Integer),
+    sa.Column("feed_id", sa.Integer),
     sa.Column("sheet_id", sa.Integer),
     sa.Column("row_id", sa.Integer),
     sa.Column("receipt_id", sa.String),
@@ -658,13 +656,13 @@ jobs_table = sa.Table(
         sa.desc("id"),
     ),
     sa.Index(
-        "idx_jobs_source_status_id", "project_id", "source_id", "status", sa.desc("id")
+        "idx_jobs_feed_status_id", "project_id", "feed_id", "status", sa.desc("id")
     ),
     sa.Index(
-        "idx_jobs_source_pending",
+        "idx_jobs_feed_pending",
         "kind",
         "project_id",
-        "source_id",
+        "feed_id",
         "workspace_root",
         "status",
         sa.desc("id"),
@@ -822,7 +820,7 @@ class JobQueue:
             storage_organization_id=row.storage_organization_id,
             project_id=row.project_id,
             run_id=row.run_id,
-            source_id=row.source_id,
+            feed_id=row.feed_id,
             sheet_id=row.sheet_id,
             row_id=row.row_id,
             receipt_id=row.receipt_id,
@@ -856,7 +854,7 @@ class JobQueue:
                         storage_organization_id=refs["storage_organization_id"],
                         project_id=refs["project_id"],
                         run_id=refs["run_id"],
-                        source_id=refs["source_id"],
+                        feed_id=refs["feed_id"],
                         sheet_id=refs["sheet_id"],
                         row_id=refs["row_id"],
                         receipt_id=refs["receipt_id"],
@@ -1659,7 +1657,7 @@ class JobQueue:
         statuses: tuple[str, ...] = ("queued", "running"),
         project_id: str | None = None,
         storage_organization_id: int | None = None,
-        source_id: int | None = None,
+        feed_id: int | None = None,
         sheet_id: int | None = None,
         row_id: int | None = None,
         workspace_root: str | None = None,
@@ -1673,7 +1671,7 @@ class JobQueue:
             statuses=statuses,
             project_id=project_id,
             storage_organization_id=storage_organization_id,
-            source_id=source_id,
+            feed_id=feed_id,
             sheet_id=sheet_id,
             row_id=row_id,
             workspace_root=workspace_root,
@@ -1687,8 +1685,8 @@ class JobQueue:
             q = q.where(c.project_id == project_id)
         if storage_organization_id is not None:
             q = q.where(c.storage_organization_id == storage_organization_id)
-        if source_id is not None:
-            q = q.where(c.source_id == source_id)
+        if feed_id is not None:
+            q = q.where(c.feed_id == feed_id)
         if sheet_id is not None:
             q = q.where(c.sheet_id == sheet_id)
         if row_id is not None:
@@ -1732,14 +1730,14 @@ class JobQueue:
         status: str | None = None,
         limit: int = 100,
         kind: str | None = None,
-        source_id: int | None = None,
+        feed_id: int | None = None,
     ) -> list[Job]:
         """Newest-first project jobs, narrowed in SQL.
 
-        ``source_id`` matches the ``jobs.source_id`` column minted by
+        ``feed_id`` matches the ``jobs.feed_id`` column minted by
         ``_job_refs``. Narrowing here rather than in the caller is what makes
         ``limit`` a budget for the rows the caller actually wants: a quiet
-        source beside a busy one used to have its jobs pushed out of the
+        feed beside a busy one used to have its jobs pushed out of the
         window by traffic the caller then discarded in Python.
         """
         c = jobs_table.c
@@ -1755,10 +1753,10 @@ class JobQueue:
             q = q.where(c.status == status)
         if kind:
             q = q.where(c.kind == kind)
-        if source_id is not None:
-            # Covered by idx_jobs_source_status_id (project_id, source_id,
+        if feed_id is not None:
+            # Covered by idx_jobs_feed_status_id (project_id, feed_id,
             # status, id DESC).
-            q = q.where(c.source_id == source_id)
+            q = q.where(c.feed_id == feed_id)
         with self.engine.connect() as cx:
             rows = cx.execute(q).fetchall()
         return [self._job(r) for r in rows]

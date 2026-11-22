@@ -212,6 +212,26 @@ def _pre_upgrade_schema() -> str:
             "'artifact','alert_check','text_surface'",
             "'artifact','watch_run','text_surface'",
         )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS feeds (",
+            "CREATE TABLE IF NOT EXISTS sources (",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_feeds_sheet ON feeds(sheet_id);",
+            "CREATE INDEX IF NOT EXISTS idx_sources_sheet ON sources(sheet_id);",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS feed_checks (\n  id INTEGER PRIMARY KEY,\n  feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,",
+            "CREATE TABLE IF NOT EXISTS source_runs (\n  id INTEGER PRIMARY KEY,\n  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_feed_checks_feed_started\n  ON feed_checks(feed_id, started_at DESC, id DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_source_runs_source_started\n  ON source_runs(source_id, started_at DESC, id DESC);",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_feed_checks_receipt ON feed_checks(receipt_id);",
+            "CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);",
+        )
     )
 
 

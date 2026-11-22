@@ -38,8 +38,8 @@ export function FeedHealthMainView({
     <section className="content-stack" data-testid="feed-health-mainView">
       <div className="control-row">
         <div className="panel-item-main">
-          <div className="panel-item-title">{health?.source.name ?? 'Feed health'}</div>
-          {health && <div className="panel-item-meta">{feedKindLabel(health.source.kind)}</div>}
+          <div className="panel-item-title">{health?.feed.name ?? 'Feed health'}</div>
+          {health && <div className="panel-item-meta">{feedKindLabel(health.feed.kind)}</div>}
         </div>
         <WindowCloseButton size="compact" label="Close feed health" onClick={onClose} />
       </div>

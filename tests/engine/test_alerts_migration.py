@@ -10,7 +10,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST
-from frisket.upgrades.project.alerts_migration import ALERTS_TO_DIGEST
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.generated_columns_migration import (
     GENERATED_COLUMNS_TO_DIGEST,
 )
@@ -282,7 +282,7 @@ def test_alerts_migration_preserves_all_tables_purge_targets_notifications_and_s
         stamped = migrated.db.execute(
             "SELECT value FROM meta WHERE key='schema_digest'"
         ).fetchone()[0]
-        assert stamped == SCHEMA_DIGEST == ALERTS_TO_DIGEST
+        assert stamped == SCHEMA_DIGEST == CURRENT_CHAIN_TIP_DIGEST
         assert migrated.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
         tables = {

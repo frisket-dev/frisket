@@ -71,51 +71,51 @@ def _plugin_candidate(project_id: str) -> dict[str, Any]:
 def test_feed_health_candidates_cover_failure_stale_and_recovery() -> None:
     failed = feed_health_notification_candidate(
         project_id="proj",
-        source_id=7,
-        source_name="Court RSS",
-        source_run_id=44,
+        feed_id=7,
+        feed_name="Court RSS",
+        feed_check_id=44,
         status="failed",
         error="feed timeout",
     )
     assert failed is not None
-    assert failed["source_kind"] == "source"
+    assert failed["source_kind"] == "feed"
     assert failed["source_ref"] == {
         "project_id": "proj",
-        "source_id": 7,
+        "feed_id": 7,
         "status": "failed",
-        "source_run_id": 44,
+        "feed_check_id": 44,
     }
-    assert failed["dedupe_key"] == "source:proj:7:failed:44"
+    assert failed["dedupe_key"] == "feed:proj:7:failed:44"
     assert failed["severity"] == "warning"
     assert failed["payload"]["error"] == "feed timeout"
 
     stale = feed_health_notification_candidate(
         project_id="proj",
-        source_id=7,
-        source_name="Court RSS",
+        feed_id=7,
+        feed_name="Court RSS",
         status="stale",
         stale_reason="missed_two_intervals",
         schedule="@hourly",
     )
     assert stale is not None
-    assert stale["dedupe_key"] == "source:proj:7:stale:missed_two_intervals"
+    assert stale["dedupe_key"] == "feed:proj:7:stale:missed_two_intervals"
     assert stale["source_ref"]["stale_reason"] == "missed_two_intervals"
     assert stale["payload"]["schedule"] == "@hourly"
 
     recovered = feed_health_notification_candidate(
         project_id="proj",
-        source_id=7,
-        source_name="Court RSS",
-        source_run_id=45,
+        feed_id=7,
+        feed_name="Court RSS",
+        feed_check_id=45,
         status="recovered",
     )
     assert recovered is not None
-    assert recovered["dedupe_key"] == "source:proj:7:recovered:45"
+    assert recovered["dedupe_key"] == "feed:proj:7:recovered:45"
     assert recovered["severity"] == "info"
     assert (
         feed_health_notification_candidate(
             project_id="proj",
-            source_id=7,
+            feed_id=7,
             status="running",
         )
         is None

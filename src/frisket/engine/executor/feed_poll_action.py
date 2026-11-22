@@ -16,7 +16,7 @@ from pydantic import TypeAdapter
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
-from frisket.actions.types import PolledSource, SourcePoller, SourcePollSelector
+from frisket.actions.types import FeedPoller, FeedPollSelector, PolledFeed
 from frisket.contracts.action import (
     ActionResultStatus,
     ActionError,
@@ -65,7 +65,7 @@ logger = logging.getLogger("frisket.executor")
 
 def supports_typed_feed_poll_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
-        SourcePoller,
+        FeedPoller,
     )
 
 
@@ -91,16 +91,16 @@ class _FeedPollCapability:
         self._called = False
         self.resolved: dict[str, Any] | None = None
 
-    def poll(self, source: SourcePollSelector) -> PolledSource:
+    def poll(self, feed: FeedPollSelector) -> PolledFeed:
         if self._called:
-            raise RuntimeError("source polling capability may be called only once")
+            raise RuntimeError("feed polling capability may be called only once")
         self._called = True
-        source = TypeAdapter(SourcePollSelector).validate_python(source)
+        feed = TypeAdapter(FeedPollSelector).validate_python(feed)
         ensure_rss_feed_checker()
         resolved = _resolve_and_poll_feed(
             self._project,
             self._action,
-            source,
+            feed,
             rss_fetcher=self._fetcher,
             on_progress=self._on_progress,
             should_cancel=self._should_cancel,
@@ -109,8 +109,8 @@ class _FeedPollCapability:
             raise _PollRefused(resolved)
         self.resolved = resolved
         result = resolved["poll_result"]
-        return PolledSource(
-            source_id=resolved["source_id"],
+        return PolledFeed(
+            feed_id=resolved["feed_id"],
             status="error" if resolved["poll_error"] is not None else "ok",
             item_count=len(result.items) if result is not None else 0,
             cost_micro=_feed_poll_cost_micro(result.cost) if result is not None else 0,
@@ -129,7 +129,7 @@ def run_typed_feed_poll_action(
 ) -> ActionResult:
     terminal = bound.action.definition.run
     if not supports_typed_feed_poll_action(terminal):
-        raise TypeError("typed source poll executor requires a polling capability")
+        raise TypeError("typed feed poll executor requires a polling capability")
     envelope = _typed_params_envelope(bound)
 
     def resolve(project_: Project, params: Any) -> Any:
@@ -138,9 +138,9 @@ def run_typed_feed_poll_action(
         )
         try:
             returned = terminal.handler(params, capability)
-            if capability.resolved is None or not isinstance(returned, PolledSource):
+            if capability.resolved is None or not isinstance(returned, PolledFeed):
                 raise TypeError(
-                    "source poll handler must call its capability and return PolledSource"
+                    "feed poll handler must call its capability and return PolledFeed"
                 )
         except Exception as error:
             if capability.resolved is not None:
@@ -187,24 +187,24 @@ def run_typed_feed_poll_action(
 def _resolve_and_poll_feed(
     project: Project,
     action: _TypedProjectEnvelope,
-    feed: SourcePollSelector,
+    feed: FeedPollSelector,
     *,
     rss_fetcher: Any | None,
     on_progress=None,
     should_cancel=None,
 ) -> dict[str, Any] | ActionError:
-    """The source.poll pre-txn resolve (`plain_resolve_fn`): resolve/create the source,
-    select the feed checker, validate config, then run the whole-source `feed_checker.poll(...)` network
-    fetch. Pre-poll validation failures (missing source, unsupported kind/config) return an
+    """The feed.poll pre-txn resolve (`plain_resolve_fn`): resolve/create the feed,
+    select the feed checker, validate config, then run the whole-feed `feed_checker.poll(...)` network
+    fetch. Pre-poll validation failures (missing feed, unsupported kind/config) return an
     ActionError so the core fails receiptless; a poll exception is CAPTURED into the resolved
     payload (poll_error) so the in-txn perform writes the persisted failed receipt + error
-    source_run. A created source is rolled back on a config error (the only pre-poll error
+    feed_check. A created feed is rolled back on a config error (the only pre-poll error
     reachable after creation)."""
     started = time.perf_counter()
     resolved = _resolve_poll_feed(project, action, feed)
     if isinstance(resolved, ActionError):
         return resolved
-    feed_before = dict(resolved["source"])
+    feed_before = dict(resolved["feed"])
     feed_id = int(feed_before["id"])
     feed_kind = str(feed_before["kind"])
     try:
@@ -218,7 +218,7 @@ def _resolve_and_poll_feed(
             message=str(exc),
             action_kind=action.kind,
             field="params",
-            details={"source_id": feed_id},
+            details={"feed_id": feed_id},
         )
     feed_checker = rss_feed_checker_for_fetch_override(
         feed_kind,
@@ -226,13 +226,13 @@ def _resolve_and_poll_feed(
     ) or get_feed_checker(feed_kind)
     if feed_checker is None:
         # The create path pre-checks the feed checker in _resolve_poll_feed, so only an
-        # existing source_id with an unsupported kind reaches here (nothing to roll back).
+        # existing feed_id with an unsupported kind reaches here (nothing to roll back).
         return ActionError(
-            code="unsupported_source_kind",
+            code="unsupported_feed_kind",
             message="Frisket cannot check this feed type",
             action_kind=action.kind,
             field="params",
-            details={"source_kind": feed_kind},
+            details={"feed_kind": feed_kind},
         )
     feed_for_checker = _feed_dict_for_checker(feed_before)
     config_error = feed_checker.validate_config(feed_for_checker)
@@ -241,7 +241,7 @@ def _resolve_and_poll_feed(
             with write_transaction(project.db, what="feed delete"):
                 FeedStore(project).delete_feed(feed_id)
         return ActionError(
-            code="unsupported_source_config",
+            code="unsupported_feed_config",
             message=str(config_error),
             action_kind=action.kind,
             field="params",
@@ -268,9 +268,9 @@ def _resolve_and_poll_feed(
     except Exception as exc:
         poll_error = str(exc)
     return {
-        "source_before": feed_before,
-        "source_id": feed_id,
-        "source_kind": feed_kind,
+        "feed_before": feed_before,
+        "feed_id": feed_id,
+        "feed_kind": feed_kind,
         "cursor_before_text": cursor_before_text,
         "started": started,
         "poll_result": poll_result,
@@ -290,16 +290,16 @@ def _perform_feed_poll_in_txn(
     params_hash: str,
     resolved: Any,
 ) -> ActionResult:
-    """The source.poll in-txn perform (`plain_perform_in_txn_fn`): open a source_run, then
+    """The feed.poll in-txn perform (`plain_perform_in_txn_fn`): open a feed_check, then
     EITHER materialize the polled rows (success) OR write only the failure record (a failed
-    receipt + an error source_run) when the pre-txn poll raised. All project writes
-    (sheet/columns/rows/op) and source-store writes run inline on the core's open cursor with
+    receipt + an error feed_check) when the pre-txn poll raised. All project writes
+    (sheet/columns/rows/op) and feed-store writes run inline on the core's open cursor with
     `commit=False`; the core owns the BEGIN IMMEDIATE/recheck/commit envelope and supplies the
     ids. A `failed` result is committed by the body's persist_failure policy, preserving the
-    failed-receipt + error source_run trace."""
-    feed_before = dict(resolved["source_before"])
-    feed_id = int(resolved["source_id"])
-    feed_kind = str(resolved["source_kind"])
+    failed-receipt + error feed_check trace."""
+    feed_before = dict(resolved["feed_before"])
+    feed_id = int(resolved["feed_id"])
+    feed_kind = str(resolved["feed_kind"])
     cursor_before_text = resolved["cursor_before_text"]
     started = resolved["started"]
     feed_store = FeedStore(project)
@@ -318,7 +318,7 @@ def _perform_feed_poll_in_txn(
         )
         artifacts = list(poll_result.artifacts) if poll_result is not None else []
         error = ActionError(
-            code="source_poll_failed",
+            code="feed_poll_failed",
             message=poll_error,
             action_kind=action.kind,
             field="params",
@@ -327,9 +327,9 @@ def _perform_feed_poll_in_txn(
             feed_before=feed_before,
             feed_after=feed_before,
             summary={
-                "source_id": feed_id,
-                "source_kind": feed_kind,
-                "source_run_id": feed_check_id,
+                "feed_id": feed_id,
+                "feed_kind": feed_kind,
+                "feed_check_id": feed_check_id,
                 "status": "error",
                 "new_rows": 0,
                 "skipped_rows": 0,
@@ -362,8 +362,8 @@ def _perform_feed_poll_in_txn(
             provider_use=provider_use,
             errors=[error],
         )
-        # Insert the failed receipt before linking the error source_run to it
-        # (source_runs.receipt_id carries a FK to receipts.id).
+        # Insert the failed receipt before linking the error feed_check to it
+        # (feed_checks.receipt_id carries a FK to receipts.id).
         ReceiptStore(project).insert_finished_in_transaction(receipt)
         feed_store.finish_feed_check(
             feed_check_id,
@@ -404,9 +404,9 @@ def _perform_feed_poll_in_txn(
     feed_after = dict(feed_store.get_feed(feed_id) or feed_before)
     summary.update(
         {
-            "source_id": feed_id,
-            "source_kind": feed_kind,
-            "source_run_id": feed_check_id,
+            "feed_id": feed_id,
+            "feed_kind": feed_kind,
+            "feed_check_id": feed_check_id,
             "status": "ok",
             "cursor_before": cursor_before_text,
             "cursor_after": encode_cursor(poll_result.cursor_after),
@@ -436,7 +436,7 @@ def _perform_feed_poll_in_txn(
         provider_use=list(poll_result.provider_use),
         errors=[],
     )
-    # Insert the receipt before linking the source_run to it (source_runs.receipt_id carries
+    # Insert the receipt before linking the feed_check to it (feed_checks.receipt_id carries
     # a FK to receipts.id).
     from frisket.engine.store.changes import ChangeStore
 
@@ -472,25 +472,25 @@ def _perform_feed_poll_in_txn(
 def _resolve_poll_feed(
     project: Project,
     action: _TypedProjectEnvelope,
-    selector: SourcePollSelector,
+    selector: FeedPollSelector,
 ) -> dict[str, Any] | ActionError:
     if isinstance(selector, int):
         feed = FeedStore(project).get_feed(selector)
         if feed is None:
             return ActionError(
                 code="invalid_input_ref",
-                message="source.poll source_id does not exist",
+                message="feed.poll feed_id does not exist",
                 action_kind=action.kind,
                 field="params",
             )
-        return {"source": dict(feed), "created": False}
+        return {"feed": dict(feed), "created": False}
     if get_feed_checker(selector.kind) is None:
         return ActionError(
-            code="unsupported_source_kind",
+            code="unsupported_feed_kind",
             message="Frisket cannot check this feed type",
             action_kind=action.kind,
             field="params",
-            details={"source_kind": selector.kind},
+            details={"feed_kind": selector.kind},
         )
     feed_store = FeedStore(project)
     with write_transaction(project.db, what="feed add"):
@@ -507,10 +507,10 @@ def _resolve_poll_feed(
     if feed is None:
         return ActionError(
             code="project_write_failed",
-            message="source.poll could not create the feed",
+            message="feed.poll could not create the feed",
             action_kind=action.kind,
         )
-    return {"source": dict(feed), "created": True}
+    return {"feed": dict(feed), "created": True}
 
 
 def _feed_dict_for_checker(feed: dict[str, Any]) -> dict[str, Any]:
@@ -582,9 +582,9 @@ def _materialize_registered_feed_poll_in_txn(
         if op_id is None:
             op_id = append_change_in_transaction(
                 project,
-                "source.poll",
-                {"source_id": feed_id, "source_run_id": feed_check_id},
-                label=f"source poll {feed_before['name']}",
+                "feed.poll",
+                {"feed_id": feed_id, "feed_check_id": feed_check_id},
+                label=f"feed poll {feed_before['name']}",
             )
             producer_id = create_base_cell_producer(
                 project.db, stage_id=f"op:{op_id}", op_id=op_id
@@ -956,18 +956,18 @@ def _feed_poll_refs(
     summary: dict[str, Any],
     params_hash: str,
 ) -> dict[str, dict[str, Any]]:
-    feed_id = int(summary["source_id"])
-    feed_kind = str(summary.get("source_kind") or feed_after.get("kind") or "")
+    feed_id = int(summary["feed_id"])
+    feed_kind = str(summary.get("feed_kind") or feed_after.get("kind") or "")
     sheet_id = summary.get("sheet_id")
     row_ids = list(summary.get("row_ids") or [])
     enclosure_row_ids = list(summary.get("enclosure_row_ids") or [])
     cursor_before = str(summary.get("cursor_before") or "")
     cursor_after = str(summary.get("cursor_after") or "")
     feed_ref = {
-        "kind": "source_poll_source",
-        "source_id": feed_id,
+        "kind": "feed_poll_feed",
+        "feed_id": feed_id,
         "name": feed_after.get("name") or feed_before.get("name"),
-        "source_kind": feed_kind,
+        "feed_kind": feed_kind,
         "url_hash": _text_hash(str(feed_after.get("url") or "")),
         "sheet_id_before": feed_before.get("sheet_id"),
         "sheet_id": feed_after.get("sheet_id"),
@@ -976,10 +976,10 @@ def _feed_poll_refs(
         "params_hash": params_hash,
     }
     feed_check_ref = {
-        "kind": "source_poll_run",
-        "source_id": feed_id,
-        "source_kind": feed_kind,
-        "source_run_id": summary.get("source_run_id"),
+        "kind": "feed_poll_check",
+        "feed_id": feed_id,
+        "feed_kind": feed_kind,
+        "feed_check_id": summary.get("feed_check_id"),
         "status": summary.get("status"),
         "new_rows": int(summary.get("new_rows") or 0),
         "skipped_rows": int(summary.get("skipped_rows") or 0),
@@ -994,48 +994,48 @@ def _feed_poll_refs(
         "op_id": summary.get("op_id"),
     }
     return {
-        "source": feed_ref,
+        "feed": feed_ref,
         "request": {
-            "kind": "source_poll_request",
-            "source_id": feed_id,
-            "source_kind": feed_kind,
+            "kind": "feed_poll_request",
+            "feed_id": feed_id,
+            "feed_kind": feed_kind,
             "external_api": True,
             "params_hash": params_hash,
         },
-        "source_run": feed_check_ref,
+        "feed_check": feed_check_ref,
         "sheet": {
-            "kind": "source_sheet",
-            "source_id": feed_id,
+            "kind": "feed_sheet",
+            "feed_id": feed_id,
             "sheet_id": sheet_id,
-            "source_run_id": summary.get("source_run_id"),
+            "feed_check_id": summary.get("feed_check_id"),
         },
         "rows": {
-            "kind": "source_poll_rows",
-            "source_id": feed_id,
-            "source_kind": feed_kind,
-            "source_run_id": summary.get("source_run_id"),
+            "kind": "feed_poll_rows",
+            "feed_id": feed_id,
+            "feed_kind": feed_kind,
+            "feed_check_id": summary.get("feed_check_id"),
             "sheet_id": sheet_id,
             "row_ids": row_ids,
             "op_id": summary.get("op_id"),
         },
         "cursor": {
-            "kind": "source_poll_cursor",
-            "source_id": feed_id,
-            "source_run_id": summary.get("source_run_id"),
+            "kind": "feed_poll_cursor",
+            "feed_id": feed_id,
+            "feed_check_id": summary.get("feed_check_id"),
             "before_hash": _text_hash(cursor_before),
             "after_hash": _text_hash(cursor_after),
         },
         "artifacts": {
-            "kind": "source_poll_artifacts",
-            "source_id": feed_id,
-            "source_run_id": summary.get("source_run_id"),
+            "kind": "feed_poll_artifacts",
+            "feed_id": feed_id,
+            "feed_check_id": summary.get("feed_check_id"),
             "artifacts": list(summary.get("artifacts") or []),
         },
         "enclosures": {
-            "kind": "source_poll_enclosure_pointers",
-            "source_id": feed_id,
-            "source_kind": feed_kind,
-            "source_run_id": summary.get("source_run_id"),
+            "kind": "feed_poll_enclosure_pointers",
+            "feed_id": feed_id,
+            "feed_kind": feed_kind,
+            "feed_check_id": summary.get("feed_check_id"),
             "sheet_id": sheet_id,
             "row_ids": enclosure_row_ids,
             "downloaded": False,
@@ -1047,20 +1047,20 @@ def _feed_poll_refs(
 def _feed_poll_outputs(refs: dict[str, dict[str, Any]]) -> list[ActionOutput]:
     return [
         ActionOutput(
-            kind="source",
-            name=str(refs["source"].get("name") or "source"),
-            sheet_id=refs["source"].get("sheet_id"),
-            ref=refs["source"],
+            kind="feed",
+            name=str(refs["feed"].get("name") or "feed"),
+            sheet_id=refs["feed"].get("sheet_id"),
+            ref=refs["feed"],
         ),
         ActionOutput(
-            kind="source_run",
-            name="source_run",
-            sheet_id=refs["source_run"].get("sheet_id"),
-            ref=refs["source_run"],
+            kind="feed_check",
+            name="feed_check",
+            sheet_id=refs["feed_check"].get("sheet_id"),
+            ref=refs["feed_check"],
         ),
         ActionOutput(
             kind="sheet",
-            name="source_sheet",
+            name="feed_sheet",
             sheet_id=refs["sheet"].get("sheet_id"),
             ref=refs["sheet"],
         ),
@@ -1098,12 +1098,12 @@ def _feed_poll_receipt(
         params_hash=params_hash,
         status=status,
         inputs=[
-            ReceiptIO(name="source", ref=refs["source"]),
+            ReceiptIO(name="feed", ref=refs["feed"]),
             ReceiptIO(name="request", ref=refs["request"]),
         ],
         outputs=[
-            ReceiptIO(name="source", ref=refs["source"]),
-            ReceiptIO(name="source_run", ref=refs["source_run"]),
+            ReceiptIO(name="feed", ref=refs["feed"]),
+            ReceiptIO(name="feed_check", ref=refs["feed_check"]),
             ReceiptIO(name="sheet", ref=refs["sheet"]),
             ReceiptIO(name="rows", ref=refs["rows"]),
         ],

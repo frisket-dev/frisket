@@ -89,7 +89,7 @@ BENIGN_IDS = [
     "research.web_search",
     "enrich.geocode",
     "map.api_call",
-    "source.poll",
+    "feed.poll",
 ]
 
 
@@ -338,7 +338,7 @@ class TestGatedCapabilityClosure:
             "NOT gated: fetches caller-named media URLs; no code executes and "
             "the model directs nothing."
         ),
-        "external:source_poll": (
+        "external:feed_poll": (
             "NOT gated: polls a source the operator configured, on a fixed "
             "cursor-advancing shape."
         ),

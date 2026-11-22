@@ -50,7 +50,7 @@ CANONICAL_REGIONS = {
     "mainView",
     "modalOrPeek",
 }
-DETAIL_HOSTS = {"rowDetail", "entityDetail", "sourceDetail", "columnDetail"}
+DETAIL_HOSTS = {"rowDetail", "entityDetail", "feedDetail", "columnDetail"}
 OTHER_HOSTS = {"rowInspector", "columnInspector", "commandPalette"}
 LEGAL_HOSTS = CANONICAL_REGIONS | DETAIL_HOSTS | OTHER_HOSTS
 TAB_HOSTS = {"mainView", "bottomDock"} | DETAIL_HOSTS
@@ -101,7 +101,7 @@ PLUGIN_LEGAL_PLACEMENTS: dict[str, list[dict[str, str]]] = {
         {"host": "columnDetail", "mode": "tab"},
         {"host": "columnInspector", "mode": "section"},
         {"host": "entityDetail", "mode": "tab"},
-        {"host": "sourceDetail", "mode": "tab"},
+        {"host": "feedDetail", "mode": "tab"},
         {"host": "modalOrPeek", "mode": "peek"},
         {"host": "activityRail", "mode": "command"},
     ],
@@ -129,7 +129,7 @@ WORKBENCH_SLOT_BY_HOST: dict[str, str] = {
     "modalOrPeek": "interruption",
     "rowDetail": "detail",
     "entityDetail": "detail",
-    "sourceDetail": "detail",
+    "feedDetail": "detail",
     "columnDetail": "detail",
     "rowInspector": "detail",
     "columnInspector": "detail",
@@ -153,7 +153,7 @@ DATA_REQUIREMENT_KINDS: tuple[str, ...] = (
     "activeColumn",
     "activeCell",
     "activeEvidence",
-    "activeSource",
+    "activeFeed",
     "activeEntity",
     "activeProjection",
     "selectedRows",

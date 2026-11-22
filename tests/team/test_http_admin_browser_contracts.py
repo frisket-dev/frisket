@@ -252,7 +252,7 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
 def test_browser_admin_jobs_are_nonempty_and_cancel_is_truthful(tmp_path: Path) -> None:
     app, owner = _claimed_app(tmp_path)
     queue = app.state.workspace.queue
-    completed_id = queue.enqueue("source.poll", {"project_id": "alpha"})
+    completed_id = queue.enqueue("feed.poll", {"project_id": "alpha"})
     claimed = queue.claim("browser-contract")
     assert claimed is not None and claimed.id == completed_id
     assert queue.complete(

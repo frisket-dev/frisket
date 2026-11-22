@@ -153,9 +153,9 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(project):
             result = run_action_spec(
                 project,
                 {
-                    "action_id": "source.poll",
+                    "action_id": "feed.poll",
                     "scope": {"kind": "project"},
-                    "params": {"source": ref},
+                    "params": {"feed": ref},
                     "idempotency_key": key,
                 },
                 project_id="tiktok-test",
@@ -165,9 +165,7 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(project):
 
         first = poll(source(), "tiktok-first")
         source_id = next(
-            output.ref["source_id"]
-            for output in first.outputs
-            if output.kind == "source"
+            output.ref["feed_id"] for output in first.outputs if output.kind == "feed"
         )
         sheet = next(
             output.sheet_id for output in first.outputs if output.kind == "sheet"
@@ -188,7 +186,7 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(project):
         assert columns["video_id"]["default_hidden"] == 1
         assert (
             project.db.execute(
-                "SELECT name FROM sources WHERE id=?", (source_id,)
+                "SELECT name FROM feeds WHERE id=?", (source_id,)
             ).fetchone()[0]
             == "Example newsroom"
         )

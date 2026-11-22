@@ -179,7 +179,7 @@ def test_offset_page_routes_share_metadata_and_validate_params(tmp_path: Path) -
     )
 
     source_detail = client.get(
-        f"/api/projects/{project_id}/sources/{source_id}",
+        f"/api/projects/{project_id}/feeds/{source_id}",
         params={"runs_offset": 2, "runs_limit": 2},
     )
     assert source_detail.status_code == 200, source_detail.text
@@ -229,9 +229,9 @@ def test_offset_page_routes_share_metadata_and_validate_params(tmp_path: Path) -
         (f"/api/projects/{project_id}/review/bundles", {"offset": -1}),
         (f"/api/projects/{project_id}/review/bundles", {"limit": 0}),
         (f"/api/projects/{project_id}/review/bundles", {"limit": 101}),
-        (f"/api/projects/{project_id}/sources/{source_id}", {"runs_offset": -1}),
-        (f"/api/projects/{project_id}/sources/{source_id}", {"runs_limit": 0}),
-        (f"/api/projects/{project_id}/sources/{source_id}", {"runs_limit": 101}),
+        (f"/api/projects/{project_id}/feeds/{source_id}", {"runs_offset": -1}),
+        (f"/api/projects/{project_id}/feeds/{source_id}", {"runs_limit": 0}),
+        (f"/api/projects/{project_id}/feeds/{source_id}", {"runs_limit": 101}),
         (f"/api/projects/{project_id}/provenance", {"runs_offset": -1}),
         (f"/api/projects/{project_id}/provenance", {"runs_limit": 0}),
         (f"/api/projects/{project_id}/provenance", {"runs_limit": 101}),

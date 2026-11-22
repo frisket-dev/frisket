@@ -8,7 +8,7 @@ export type { WorkspaceTelemetryPanel, WorkspaceTelemetryView } from './productT
 const PANEL_KINDS: Readonly<Record<string, WorkspaceTelemetryPanel>> = {
   'frisket.investigative.panel.friendly_filters': 'filter',
   'frisket.investigative.panel.mentions': 'mentions',
-  'frisket.core.panel.sources': 'sources',
+  'frisket.core.panel.feeds': 'sources',
   'frisket.core.panel.views': 'views',
   'frisket.core.panel.alerts': 'alerts',
   'frisket.core.panel.notifications': 'notifications',

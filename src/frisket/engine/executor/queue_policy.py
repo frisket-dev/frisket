@@ -19,7 +19,7 @@ QUEUE_POLICY_EXECUTION_MODES = {
     "cross_sheet",
     "grouped",
     "per_row",
-    "source_poll",
+    "feed_poll",
 }
 
 
@@ -75,14 +75,14 @@ INTENTIONALLY_DIRECT_V1_ACTIONS = MappingProxyType(
             ),
             owner="typed-table-runtime",
         ),
-        "source.poll": DirectV1ActionPolicy(
+        "feed.poll": DirectV1ActionPolicy(
             reason=(
-                "Generic source polling owns source_runs receipt "
+                "Generic feed polling owns feed_checks receipt "
                 "semantics and is invoked either directly for manual polls or "
-                "through the generic JobQueue's source.poll worker, not the "
+                "through the generic JobQueue's feed.poll worker, not the "
                 "project.run MapRunner queue."
             ),
-            owner="source-runtime",
+            owner="feed-runtime",
         ),
         "embedding.index_create": DirectV1ActionPolicy(
             reason=(

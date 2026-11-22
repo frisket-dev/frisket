@@ -23,7 +23,7 @@ async function sources(
   page: Page,
   pid: string,
 ): Promise<WireSource[]> {
-  const res = await page.request.get(`/api/projects/${pid}/sources`);
+  const res = await page.request.get(`/api/projects/${pid}/feeds`);
   expect(res.ok()).toBeTruthy();
   return res.json();
 }
@@ -233,7 +233,7 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
       courtMaxEntries: null,
     });
     const createAction = actionPosts.find((post) => {
-      if (post.action_id !== 'source.create') return false;
+      if (post.action_id !== 'feed.create') return false;
       const params = post.params as Record<string, unknown>;
       return params.name === item.name;
     });
@@ -255,16 +255,16 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
     }
     const editedName = `${item.name} edited`;
     await page.getByTestId('feed-name').fill(editedName);
-    const updateCount = actionPosts.filter((post) => post.action_id === 'source.update').length;
+    const updateCount = actionPosts.filter((post) => post.action_id === 'feed.update').length;
     await page.getByTestId('feed-create').click();
     await expect.poll(
-      () => actionPosts.filter((post) => post.action_id === 'source.update').length,
+      () => actionPosts.filter((post) => post.action_id === 'feed.update').length,
     ).toBe(updateCount + 1);
-    const updateAction = actionPosts.filter((post) => post.action_id === 'source.update').at(-1)!;
+    const updateAction = actionPosts.filter((post) => post.action_id === 'feed.update').at(-1)!;
     const updateParams = updateAction.params as Record<string, unknown>;
     const patch = updateParams.patch as Record<string, unknown>;
     const updateConfig = patch.config as Record<string, unknown>;
-    expect(updateParams.source_id).toBe(source.id);
+    expect(updateParams.feed_id).toBe(source.id);
     for (const key of item.omittedKeys) {
       expect(updateConfig).not.toHaveProperty(key);
     }
@@ -285,7 +285,7 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
   );
   const boundedPlaylistAction = actionPosts.find((post) => {
     const params = post.params as Record<string, unknown>;
-    return post.action_id === 'source.create' && params.name === boundedPlaylistName;
+    return post.action_id === 'feed.create' && params.name === boundedPlaylistName;
   });
   expect(boundedPlaylistAction).toBeTruthy();
   const boundedPlaylistConfig = (
@@ -310,7 +310,7 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
   );
   const boundedDocketAction = actionPosts.find((post) => {
     const params = post.params as Record<string, unknown>;
-    return post.action_id === 'source.create' && params.name === boundedDocketName;
+    return post.action_id === 'feed.create' && params.name === boundedDocketName;
   });
   expect(boundedDocketAction).toBeTruthy();
   const boundedDocketConfig = (
@@ -320,7 +320,7 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
   expect(boundedDocket.config.max_entries_per_poll).toBe(250);
 });
 
-test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener through source.poll', async ({
+test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener through feed.poll', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-investigative-sources'));
@@ -330,9 +330,9 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
     actionPosts.push(payload);
-    if (payload.action_id === 'source.poll') {
+    if (payload.action_id === 'feed.poll') {
       const params = payload.params as Record<string, unknown>;
-      const sourceId = Number(params.source);
+      const sourceId = Number(params.feed);
       const source = (await sources(page, pid)).find((candidate) => candidate.id === sourceId);
       if (source && source.kind !== 'rss') {
         const seeded = seedFakeSourcePoll(pid, sourceId, source.kind);
@@ -345,12 +345,12 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
             status: 'completed',
             outputs: [
               {
-                kind: 'source_run',
-                name: 'source_run',
+                kind: 'feed_check',
+                name: 'feed_check',
                 sheet_id: seeded.sheetId,
                 ref: {
-                  source_run_id: seeded.runId,
-                  source_id: sourceId,
+                  feed_check_id: seeded.runId,
+                  feed_id: sourceId,
                   sheet_id: seeded.sheetId,
                   new_rows: 1,
                   skipped_rows: 2,
@@ -361,7 +361,7 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
               },
               {
                 kind: 'sheet',
-                name: 'source_sheet',
+                name: 'feed_sheet',
                 sheet_id: seeded.sheetId,
                 ref: { sheet_id: seeded.sheetId },
               },
@@ -439,22 +439,22 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
 
   await page.getByTestId(`feed-check-now-${rss.id}`).click();
   await expect.poll(() => (
-    actionPosts.some((post) => post.action_id === 'source.poll'
-      && (post.params as Record<string, unknown>).source === rss.id)
+    actionPosts.some((post) => post.action_id === 'feed.poll'
+      && (post.params as Record<string, unknown>).feed === rss.id)
   )).toBeTruthy();
-  const rssPoll = actionPosts.find((post) => post.action_id === 'source.poll'
-    && (post.params as Record<string, unknown>).source === rss.id);
+  const rssPoll = actionPosts.find((post) => post.action_id === 'feed.poll'
+    && (post.params as Record<string, unknown>).feed === rss.id);
   expect(rssPoll).toMatchObject({
-    action_id: 'source.poll',
-    params: { source: rss.id },
+    action_id: 'feed.poll',
+    params: { feed: rss.id },
   });
   expect(actionPosts.some((post) => post.action_id === 'source.rss_fetch')).toBe(false);
 
-  const apiPoll = actionPosts.find((post) => post.action_id === 'source.poll'
-    && (post.params as Record<string, unknown>).source === api.id);
+  const apiPoll = actionPosts.find((post) => post.action_id === 'feed.poll'
+    && (post.params as Record<string, unknown>).feed === api.id);
   expect(apiPoll).toMatchObject({
-    action_id: 'source.poll',
-    params: { source: api.id },
+    action_id: 'feed.poll',
+    params: { feed: api.id },
   });
 
   const apiSheetId = mockedPolls.get(api.id)?.sheetId;

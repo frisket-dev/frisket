@@ -6,7 +6,7 @@ import {
 
 test('source type and cadence selects fill their flex rows', async ({ page }) => {
   const pid = await createProject(page.request, 'Select source layout');
-  await page.route(`**/api/projects/${pid}/sources`, route => route.fulfill({ json: [{
+  await page.route(`**/api/projects/${pid}/feeds`, route => route.fulfill({ json: [{
     id: 1, name: 'Council meetings', kind: 'rss', url: 'https://example.org/feed',
     config: {}, sheet_id: null, schedule: '@daily', enabled: true,
     last_checked_at: null, last_status: 'ok', new_rows_total: 0,

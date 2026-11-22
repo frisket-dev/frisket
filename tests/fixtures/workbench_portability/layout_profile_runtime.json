@@ -49,7 +49,7 @@
           },
           "openByContribution": {
             "frisket.core.panel.actions": false,
-            "frisket.core.panel.sources": true,
+            "frisket.core.panel.feeds": true,
             "frisket.investigative.panel.friendly_filters": false
           }
         },
@@ -75,7 +75,7 @@
           ]
         },
         "regions": {
-          "leftSidebar": [{"contributionId": "frisket.core.panel.sources", "slot": "scope", "collapsed": false, "size": 300}],
+          "leftSidebar": [{"contributionId": "frisket.core.panel.feeds", "slot": "scope", "collapsed": false, "size": 300}],
           "rightInspector": [{"contributionId": "frisket.investigative.panel.friendly_filters", "slot": "inspection", "collapsed": false, "size": 360}],
           "bottomDock": [{"contributionId": "frisket.core.panel.jobs", "slot": "companion.output", "collapsed": true}]
         }

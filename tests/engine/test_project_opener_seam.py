@@ -144,7 +144,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
             )
 
         monkeypatch.setattr(sources_module, "Project", forbid_direct_project)
-        handler = registry.get("source.poll")
+        handler = registry.get("feed.poll")
         assert handler is not None
         before_handler_keys = len(store_keys)
         before_handler_paths = len(opened_paths)
@@ -155,7 +155,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
                     "project_id": "payload-attacker",
                     "storage_organization_id": 99,
                     "workspace_root": str(tmp_path / "payload-root"),
-                    "source_id": -1,
+                    "feed_id": -1,
                 },
                 JobHandlerContext.without_job_row(),
             )
@@ -228,7 +228,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
             "job_id": 1,
             "run_id": 999,
             "spec": {},
-            "source_id": 999,
+            "feed_id": 999,
             "sheet_id": 999,
             "row_id": 999,
             "index_id": "missing-index",
@@ -248,7 +248,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
             # job kind for it anymore.
             "action.run",
             "alert.evaluate",
-            "source.poll",
+            "feed.poll",
             "enclosure.download",
             "notification.deliver",
             "notification.digest",

@@ -14,7 +14,7 @@ export type PluginDetailSubject =
   | { kind: 'row'; sheetId: string; rowId: string }
   | { kind: 'column'; sheetId: string; columnId: string; columnName: string }
   | { kind: 'entity'; entityId: string; label: string }
-  | { kind: 'source'; sourceId: string };
+  | { kind: 'feed'; feedId: string };
 
 interface PluginDetailContext extends PanelShapedSections {
   schemaVersion: 'frisket.plugin_detail_context.v1';

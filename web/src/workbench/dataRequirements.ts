@@ -10,7 +10,7 @@ export const DATA_REQUIREMENT_CONTEXT_KINDS = [
   'activeColumn',
   'activeCell',
   'activeEvidence',
-  'activeSource',
+  'activeFeed',
   'activeEntity',
   'activeProjection',
 ] as const;
@@ -24,7 +24,7 @@ export interface WorkbenchDataRequirementContext {
   activeColumn: boolean;
   activeCell: boolean;
   activeEvidence: boolean;
-  activeSource: boolean;
+  activeFeed: boolean;
   activeEntity: boolean;
   activeProjection: boolean;
   selectedRowIds: readonly string[];
@@ -38,7 +38,7 @@ const EMPTY_DATA_REQUIREMENT_CONTEXT: WorkbenchDataRequirementContext = {
   activeColumn: false,
   activeCell: false,
   activeEvidence: false,
-  activeSource: false,
+  activeFeed: false,
   activeEntity: false,
   activeProjection: false,
   selectedRowIds: [],

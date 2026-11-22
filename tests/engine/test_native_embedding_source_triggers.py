@@ -651,10 +651,10 @@ def test_source_poll_skips_embedding_alerts_inline(env):
         },
     )
     materialization = {
-        "kind": "source_poll_materialized",
+        "kind": "feed_poll_materialized",
         "sheet_id": env.sheet,
-        "source_id": 1,
-        "source_run_id": 1,
+        "feed_id": 1,
+        "feed_check_id": 1,
         "op_id": 1,
         "row_ids": [_row_id(env, "story 1")],
     }

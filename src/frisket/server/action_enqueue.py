@@ -674,7 +674,7 @@ def queue_v1_action_run(
             action_kind=kind,
             error=_typed_plan_error(kind, exc),
         )
-    if kind == "source.poll":
+    if kind == "feed.poll":
         from frisket.server.feed_enqueue import queue_feed_poll
 
         try:
@@ -683,7 +683,7 @@ def queue_v1_action_run(
             return _failed_result(
                 project_id=project_id,
                 action_kind=kind,
-                error=ActionError(code="source_poll_invalid", message=str(exc)),
+                error=ActionError(code="feed_poll_invalid", message=str(exc)),
             )
     from frisket.engine.executor.import_update_admission import UPDATE_ACTIONS
 

@@ -62,7 +62,7 @@ it('keeps opt-out and missing project contexts silent', () => {
 it('maps builtin panels and custom panels without forwarding extension identifiers', () => {
   expect(telemetryPanelKind('frisket.investigative.panel.friendly_filters')).toBe('filter');
   expect(telemetryPanelKind('frisket.investigative.panel.mentions')).toBe('mentions');
-  expect(telemetryPanelKind('frisket.core.panel.sources')).toBe('sources');
+  expect(telemetryPanelKind('frisket.core.panel.feeds')).toBe('sources');
   expect(telemetryPanelKind('frisket.core.panel.history')).toBe('history');
   expect(telemetryPanelKind('private-org.secret-plugin.panel')).toBe('plugin');
 });

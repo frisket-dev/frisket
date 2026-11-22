@@ -21,7 +21,7 @@ from frisket.engine.jobs.queue_provision import RUN_QUEUE_RUNTIME_ROLE
 from frisket.engine.worker_version import code_version
 
 
-QUEUE_SCHEMA_VERSION = 13
+QUEUE_SCHEMA_VERSION = 14
 QUEUE_SCHEMA_MIGRATION_LOCK_ID = 7_154_819_250_847_113_102
 QUEUE_SCHEMA_LEDGER = "frisket_queue_schema_migrations"
 STORAGE_RECONCILIATION_INDEX = "idx_jobs_storage_project_status_id"
@@ -50,6 +50,7 @@ _REQUIRED_COLUMNS = {
         "organization_id",
         "storage_organization_id",
         "project_id",
+        "feed_id",
     ),
     # A table missing the endpoint-fingerprint/provenance columns is just as
     # unsafe to run product code against as a missing table would be.

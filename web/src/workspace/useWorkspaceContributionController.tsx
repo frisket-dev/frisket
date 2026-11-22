@@ -154,7 +154,7 @@ export function useWorkspaceContributionController({
   const workbenchCommandEntries = useMemo<WorkbenchCommandEntry[]>(() => {
     const entries: WorkbenchCommandEntry[] = [
       firstPartyCommandEntry(
-        { type: 'sources.open' },
+        { type: 'feeds.open' },
         commandContext,
         OPEN_FEEDS_COMMAND_DESCRIPTOR,
       ),
@@ -225,7 +225,7 @@ export function useWorkspaceContributionController({
       columnDetail: columnPanels,
       columnInspector: columnPanels,
       entityDetail: panelsForHost('entityDetail'),
-      sourceDetail: panelsForHost('sourceDetail'),
+      feedDetail: panelsForHost('feedDetail'),
       modalOrPeek: modalOrPeekPluginPanelDescriptors,
       activityRail: activityRailPluginDescriptors,
     };

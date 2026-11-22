@@ -6,14 +6,14 @@
       "commands": [
         {
           "schemaVersion": "frisket.command.v1",
-          "id": "frisket.core.command.open_sources",
+          "id": "frisket.core.command.open_feeds",
           "kind": "command",
           "ownerPluginId": "frisket.core",
-          "title": "Open Sources",
-          "commandId": "frisket.core.command.open_sources",
+          "title": "Open Feeds",
+          "commandId": "frisket.core.command.open_feeds",
           "handlerKey": "core.commands.openContribution",
           "placements": [{"host": "commandPalette", "mode": "command", "default": true}],
-          "requires": [{"kind": "contribution", "id": "frisket.core.panel.sources"}]
+          "requires": [{"kind": "contribution", "id": "frisket.core.panel.feeds"}]
         },
         {
           "schemaVersion": "frisket.command.v1",
@@ -103,8 +103,8 @@
           "ownerPluginId": "frisket.ftm",
           "title": "Source",
           "componentKey": "ftm.views.SourceDetail",
-          "placements": [{"host": "sourceDetail", "mode": "tab", "placementId": "source-detail", "order": 10, "tabChrome": {"closeable": false, "singleton": true}}],
-          "dataRequirements": [{"kind": "activeSource"}]
+          "placements": [{"host": "feedDetail", "mode": "tab", "placementId": "feed-detail", "order": 10, "tabChrome": {"closeable": false, "singleton": true}}],
+          "dataRequirements": [{"kind": "activeFeed"}]
         }
       ],
       "expected": {"detailTabsUsePlacementMetadata": true}

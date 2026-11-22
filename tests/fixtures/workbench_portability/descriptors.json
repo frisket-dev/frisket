@@ -35,32 +35,32 @@
       "id": "sources_scope_panel_with_disabled_secondary",
       "rawDescriptor": {
         "schemaVersion": "frisket.workbench.panel.v1",
-        "id": "frisket.core.panel.sources",
+        "id": "frisket.core.panel.feeds",
         "kind": "panel",
         "ownerPluginId": "frisket.core",
-        "title": "Sources",
+        "title": "Feeds",
         "icon": "Database",
-        "componentKey": "core.panels.SourcesPanel",
+        "componentKey": "core.panels.FeedsPanel",
         "placements": [
-          {"host": "leftSidebar", "mode": "panel", "slot": "scope", "placementId": "sources-scope", "default": true, "order": 20},
-          {"host": "bottomDock", "mode": "tab", "slot": "companion.output", "placementId": "source-runs-companion", "order": 55, "tabChrome": {"closeable": true, "singleton": true}, "availability": {"status": "disabled", "reason": "source run companion not implemented"}}
+          {"host": "leftSidebar", "mode": "panel", "slot": "scope", "placementId": "feeds-scope", "default": true, "order": 20},
+          {"host": "bottomDock", "mode": "tab", "slot": "companion.output", "placementId": "feed-checks-companion", "order": 55, "tabChrome": {"closeable": true, "singleton": true}, "availability": {"status": "disabled", "reason": "feed check companion not implemented"}}
         ],
         "requires": [
-          {"kind": "hostCapability", "id": "source.list"},
-          {"kind": "hostCapability", "id": "source.poll"},
+          {"kind": "hostCapability", "id": "feed.list"},
+          {"kind": "hostCapability", "id": "feed.poll"},
           {"kind": "hostCapability", "id": "layout.profile.persist"}
         ],
         "dataRequirements": [{"kind": "activeProject"}]
       },
       "sourceKindForms": [
         {
-          "schemaVersion": "frisket.source.kind.form.v1",
-          "id": "frisket.core.source_form.rss",
+          "schemaVersion": "frisket.feed.kind.form.v1",
+          "id": "frisket.core.feed_kind_form.rss",
           "kind": "sourceForm",
           "ownerPluginId": "frisket.core",
-          "title": "RSS source",
-          "componentKey": "core.sources.RssSourceForm",
-          "placements": [{"host": "modalOrPeek", "mode": "peek", "slot": "interruption", "placementId": "rss-source-form", "default": true}],
+          "title": "RSS feed",
+          "componentKey": "core.feeds.RssFeedForm",
+          "placements": [{"host": "modalOrPeek", "mode": "peek", "slot": "interruption", "placementId": "rss-feed-form", "default": true}],
           "accepts": [{"kind": "sourceKind", "id": "rss"}]
         }
       ],
@@ -150,28 +150,28 @@
       "id": "source_health_main_view",
       "rawDescriptor": {
         "schemaVersion": "frisket.workbench.view.v1",
-        "id": "frisket.core.view.source_health",
+        "id": "frisket.core.view.feed_health",
         "kind": "view",
         "ownerPluginId": "frisket.core",
-        "title": "Source health",
+        "title": "Feed health",
         "icon": "Activity",
-        "componentKey": "core.views.SourceHealthDashboard",
+        "componentKey": "core.views.FeedHealthDashboard",
         "placements": [
-          {"host": "mainView", "mode": "pane", "slot": "work.primary", "placementId": "source-health-primary", "default": true, "order": 45},
-          {"host": "bottomDock", "mode": "tab", "slot": "companion.output", "placementId": "source-health-runs", "order": 45, "tabChrome": {"closeable": true, "singleton": true}}
+          {"host": "mainView", "mode": "pane", "slot": "work.primary", "placementId": "feed-health-primary", "default": true, "order": 45},
+          {"host": "bottomDock", "mode": "tab", "slot": "companion.output", "placementId": "feed-health-checks", "order": 45, "tabChrome": {"closeable": true, "singleton": true}}
         ],
         "requires": [
-          {"kind": "hostCapability", "id": "source.list"},
-          {"kind": "hostCapability", "id": "source.poll"}
+          {"kind": "hostCapability", "id": "feed.list"},
+          {"kind": "hostCapability", "id": "feed.poll"}
         ],
-        "dataRequirements": [{"kind": "activeSource"}]
+        "dataRequirements": [{"kind": "activeFeed"}]
       },
       "expectedResolved": {"status": "disabled", "reason": "missing_context"}
       ,
       "hostContext": {
-        "hostCapabilities": ["source.list", "source.poll"],
+        "hostCapabilities": ["feed.list", "feed.poll"],
         "activeProject": true,
-        "activeSource": false
+        "activeFeed": false
       }
     },
     {
@@ -221,15 +221,15 @@
       "commands": [
         {
           "schemaVersion": "frisket.command.v1",
-          "id": "frisket.core.command.open_sources",
+          "id": "frisket.core.command.open_feeds",
           "kind": "command",
           "ownerPluginId": "frisket.core",
-          "title": "Open Sources",
-          "handlerKey": "core.commands.openSources",
-          "commandId": "frisket.core.open_sources",
-          "placements": [{"host": "commandPalette", "mode": "command", "slot": "launcher", "placementId": "open-sources-command", "default": true, "order": 10}],
+          "title": "Open Feeds",
+          "handlerKey": "core.commands.openFeeds",
+          "commandId": "frisket.core.open_feeds",
+          "placements": [{"host": "commandPalette", "mode": "command", "slot": "launcher", "placementId": "open-feeds-command", "default": true, "order": 10}],
           "requires": [
-            {"kind": "contribution", "id": "frisket.core.panel.sources"},
+            {"kind": "contribution", "id": "frisket.core.panel.feeds"},
             {"kind": "hostCapability", "id": "layout.profile.persist"}
           ]
         }

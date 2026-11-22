@@ -964,7 +964,7 @@ class ActionRunService:
             RUN_PROJECT_KIND,
             ACTION_RUN_KIND,
             IMPORT_TABLE_STREAM_KIND,
-            "source.poll",
+            "feed.poll",
         ):
             jobs.extend(
                 self._workspace.queue.list_project_jobs(
@@ -1051,7 +1051,7 @@ class ActionRunService:
                 RUN_PROJECT_KIND,
                 ACTION_RUN_KIND,
                 IMPORT_TABLE_STREAM_KIND,
-                "source.poll",
+                "feed.poll",
             }
             or job_project_id(job) != project_id
             or (
@@ -1076,7 +1076,7 @@ class ActionRunService:
         job = self._workspace.queue.get(job_id)
         if (
             job is None
-            or job.kind not in {ACTION_RUN_KIND, "source.poll"}
+            or job.kind not in {ACTION_RUN_KIND, "feed.poll"}
             or job_project_id(job) != project_id
             or (
                 self._storage_organization_id() is not None
@@ -1095,7 +1095,7 @@ class ActionRunService:
         # cancellation and claim machinery, including installed actions.
         cancelled = (
             self._workspace.queue.cancel(job_id)
-            if job.kind == "source.poll"
+            if job.kind == "feed.poll"
             else self._workspace.queue.cancel_queued(job_id)
         )
         if not cancelled:
@@ -1131,7 +1131,7 @@ class ActionRunService:
     ) -> int:
         if (
             result.status != "completed"
-            or result.action.kind != "source.poll"
+            or result.action.kind != "feed.poll"
             or not result.receipt_id
         ):
             return 0
@@ -1147,34 +1147,30 @@ class ActionRunService:
             for item in [*receipt.get("outputs", []), *receipt.get("records", [])]
             if isinstance(item, dict)
         ]
-        source_run = next(
-            (ref for ref in refs if ref.get("kind") == "source_poll_run"),
+        feed_check = next(
+            (ref for ref in refs if ref.get("kind") == "feed_poll_check"),
             {},
         )
         enclosures = next(
-            (
-                ref
-                for ref in refs
-                if ref.get("kind") == "source_poll_enclosure_pointers"
-            ),
+            (ref for ref in refs if ref.get("kind") == "feed_poll_enclosure_pointers"),
             {},
         )
         row_ids = [int(row_id) for row_id in enclosures.get("row_ids") or []]
         if not row_ids:
             return 0
         try:
-            source_id = int(source_run.get("source_id") or enclosures["source_id"])
-            sheet_id = int(enclosures.get("sheet_id") or source_run["sheet_id"])
+            feed_id = int(feed_check.get("feed_id") or enclosures["feed_id"])
+            sheet_id = int(enclosures.get("sheet_id") or feed_check["sheet_id"])
         except (KeyError, TypeError, ValueError):
             return 0
-        source = FeedStore(project).get_feed(source_id)
-        if source is None:
+        feed = FeedStore(project).get_feed(feed_id)
+        if feed is None:
             return 0
-        source_data = dict(source)
+        feed_data = dict(feed)
         try:
-            source_data["config"] = json.loads(source_data.get("config") or "{}")
+            feed_data["config"] = json.loads(feed_data.get("config") or "{}")
         except (TypeError, ValueError):
-            source_data["config"] = {}
+            feed_data["config"] = {}
         return len(
             enqueue_enclosure_downloads(
                 self._workspace.queue,
@@ -1182,7 +1178,7 @@ class ActionRunService:
                 project_id=project_id,
                 workspace_root=self._workspace.root,
                 storage_organization_id=self._workspace.queue_storage_organization_id,
-                feed=source_data,
+                feed=feed_data,
                 sheet_id=sheet_id,
                 row_ids=row_ids,
                 prepare_for_search=self._workspace.edition != "cloud",
@@ -1195,7 +1191,7 @@ class ActionRunService:
         project_id: str,
         result: V1ActionResult,
     ) -> int:
-        if result.status != "completed" or result.action.kind != "source.poll":
+        if result.status != "completed" or result.action.kind != "feed.poll":
             return 0
         materialization = feed_poll_materialization_from_receipt(
             project,
@@ -1212,9 +1208,9 @@ class ActionRunService:
                 sheet_id=int(materialization["sheet_id"]),
                 row_ids=[int(r) for r in materialization.get("row_ids") or []],
                 trigger_ref={
-                    "trigger_kind": "source_run_completed",
-                    "source_id": materialization.get("source_id"),
-                    "source_run_id": materialization.get("source_run_id"),
+                    "trigger_kind": "feed_check_completed",
+                    "feed_id": materialization.get("feed_id"),
+                    "feed_check_id": materialization.get("feed_check_id"),
                     "receipt_id": result.receipt_id,
                     "sheet_id": materialization["sheet_id"],
                 },
@@ -1228,7 +1224,7 @@ class ActionRunService:
                 project_id=project_id,
                 workspace_root=self._workspace.root,
                 storage_organization_id=self._workspace.queue_storage_organization_id,
-                trigger_ref={"source_run_id": materialization["source_run_id"]},
+                trigger_ref={"feed_check_id": materialization["feed_check_id"]},
             )
 
         return len(
