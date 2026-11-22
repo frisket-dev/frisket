@@ -24,6 +24,7 @@ from frisket.engine.store.schema import (
 )
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._step import run_step
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.generated_columns_migration import (
     GENERATED_COLUMNS_FROM_DIGEST,
     GENERATED_COLUMNS_TO_DIGEST,
@@ -134,6 +135,82 @@ def _pre_upgrade_schema() -> str:
         .replace(
             "generated_columns_json TEXT NOT NULL CHECK (json_valid(generated_columns_json)),",
             "output_columns_json TEXT NOT NULL CHECK (json_valid(output_columns_json)),",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS alerts (",
+            "CREATE TABLE IF NOT EXISTS watches (",
+        )
+        .replace(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_view ON alerts(view_id);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_watches_view ON watches(view_id);",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS alert_checks (",
+            "CREATE TABLE IF NOT EXISTS watch_runs (",
+        )
+        .replace(
+            "  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,",
+            "  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_checks_notification_pending ON alert_checks(id) WHERE notification_pending=1;",
+            "CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1;",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_checks_alert_started\n  ON alert_checks(alert_id, started_at DESC, id DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_runs_watch_started\n  ON watch_runs(watch_id, started_at DESC, id DESC);",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS alert_check_hits (\n  run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,",
+            "CREATE TABLE IF NOT EXISTS watch_run_hits (\n  run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_check_hits_run_rank\n  ON alert_check_hits(run_id, rank);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_run_hits_run_rank\n  ON watch_run_hits(run_id, rank);",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS alert_check_events (\n  id INTEGER PRIMARY KEY,\n  run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,",
+            "CREATE TABLE IF NOT EXISTS watch_run_events (\n  id INTEGER PRIMARY KEY,\n  run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_check_events_run_rank\n  ON alert_check_events(run_id, rank, id);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_run_events_run_rank\n  ON watch_run_events(run_id, rank, id);",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_check_events_alert_id\n  ON alert_check_events(alert_id, id);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_run_events_watch_id\n  ON watch_run_events(watch_id, id);",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_check_events_kind\n  ON alert_check_events(event_kind, run_id, rank);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_run_events_kind\n  ON watch_run_events(event_kind, run_id, rank);",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS alert_seen_rows (",
+            "CREATE TABLE IF NOT EXISTS watch_seen_rows (",
+        )
+        .replace(
+            "  PRIMARY KEY (alert_id, sheet_id, row_id)",
+            "  PRIMARY KEY (watch_id, sheet_id, row_id)",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_seen_rows_alert\n  ON alert_seen_rows(alert_id);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_seen_rows_watch\n  ON watch_seen_rows(watch_id);",
+        )
+        .replace(
+            "CREATE TABLE IF NOT EXISTS alert_row_field_state (",
+            "CREATE TABLE IF NOT EXISTS watch_row_field_state (",
+        )
+        .replace(
+            "  last_observed_run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,\n  PRIMARY KEY (alert_id, sheet_id, row_id, column_id)",
+            "  last_observed_run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,\n  PRIMARY KEY (watch_id, sheet_id, row_id, column_id)",
+        )
+        .replace(
+            "CREATE INDEX IF NOT EXISTS idx_alert_row_field_state_alert\n  ON alert_row_field_state(alert_id, last_observed_run_id);",
+            "CREATE INDEX IF NOT EXISTS idx_watch_row_field_state_watch\n  ON watch_row_field_state(watch_id, last_observed_run_id);",
+        )
+        .replace(
+            "'artifact','alert_check','text_surface'",
+            "'artifact','watch_run','text_surface'",
         )
     )
 
@@ -295,7 +372,7 @@ def test_generated_columns_migration_preserves_columns_claims_and_evaluation(
         digest = project.db.execute(
             "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
         ).fetchone()[0]
-        assert digest == SCHEMA_DIGEST == GENERATED_COLUMNS_TO_DIGEST
+        assert digest == SCHEMA_DIGEST == CURRENT_CHAIN_TIP_DIGEST
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
         tables = {

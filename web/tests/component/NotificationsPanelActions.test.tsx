@@ -9,9 +9,9 @@ import { createWorkspaceTestHarness, projectApiWith } from '../support/workspace
 
 function notification(id: number, state: NotificationItem['state'] = 'unseen'): NotificationItem {
   return {
-    id, state, sourceKind: 'watch', sourceRef: { watch_id: 3 }, sourceEventIds: [11],
-    eventCount: 1, eventKinds: ['row_entered'], title: `Watch ${id}`, summary: 'New match',
-    severity: 'info', deepLink: { kind: 'watch_run', watch_id: 3, run_id: 5, event_ids: [11] },
+    id, state, sourceKind: 'alert', sourceRef: { alert_id: 3 }, sourceEventIds: [11],
+    eventCount: 1, eventKinds: ['row_entered'], title: `Alert ${id}`, summary: 'New match',
+    severity: 'info', deepLink: { kind: 'alert_check', alert_id: 3, run_id: 5, event_ids: [11] },
     createdAt: '', updatedAt: '', seenAt: null, readAt: null, acknowledgedAt: null, acknowledgedBy: null,
   };
 }

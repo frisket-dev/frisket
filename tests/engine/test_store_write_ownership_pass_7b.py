@@ -261,8 +261,8 @@ def _seed_alert_run(project) -> tuple[int, int]:
     alert_id = project.add_alert("Watch", view_id=view_id)
     with write_transaction(project.db):
         cur = project.db.execute(
-            "INSERT INTO watch_runs "
-            "(watch_id, status, op_cursor_before, op_cursor_after, "
+            "INSERT INTO alert_checks "
+            "(alert_id, status, op_cursor_before, op_cursor_after, "
             "matched_rows, new_rows, notification_pending) "
             "VALUES (?, 'ok', 0, 0, 1, 1, 1)",
             (alert_id,),

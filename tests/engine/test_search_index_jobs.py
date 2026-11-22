@@ -360,7 +360,7 @@ def test_dependent_alert_and_index_keep_fifo_while_foreground_passes(
         registry.register("other", lambda *_: foreground_runs.append(True))
         alert = queue.enqueue(
             ALERT_EVALUATE_KIND,
-            {"project_id": "docs", "watch_id": alert_id},
+            {"project_id": "docs", "alert_id": alert_id},
         )
         with closing(Project(tmp_path / "docs.frisket")) as project:
             index = search_index.enqueue_search_index(
@@ -415,7 +415,7 @@ def test_queued_alert_waits_for_complete_unified_index(tmp_path):
             ALERT_EVALUATE_KIND,
             {
                 "project_id": "docs",
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "workspace_root": str(tmp_path),
             },
         )
@@ -466,7 +466,7 @@ def test_keyword_alert_index_drain_does_not_wait_for_embedding_encoder(
         )
         queue.enqueue(
             ALERT_EVALUATE_KIND,
-            {"project_id": "docs", "watch_id": alert_id},
+            {"project_id": "docs", "alert_id": alert_id},
         )
 
         assert Worker(queue, registry).run_once()
@@ -505,7 +505,7 @@ def test_edit_after_index_quantum_prevents_a_stale_alert_check(tmp_path, monkeyp
         register_alert_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
         first = queue.enqueue(
             ALERT_EVALUATE_KIND,
-            {"project_id": "docs", "watch_id": alert_id},
+            {"project_id": "docs", "alert_id": alert_id},
         )
         worker = Worker(queue, registry)
         assert worker.run_once()

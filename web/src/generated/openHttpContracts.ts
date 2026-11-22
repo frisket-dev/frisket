@@ -529,6 +529,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.check_alert.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/alerts/{alert_id}/check",
+      "request": null
+    },
+    {
       "id": "tenant.citation_viewer.get",
       "method": "GET",
       "path": "/api/projects/{pid}/citations/{citation_id}/viewer",
@@ -608,6 +614,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "POST",
       "path": "/api/projects/{pid}/import/pdf-imports/{draft_id}/match",
       "request": null
+    },
+    {
+      "id": "tenant.create_alert.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/alerts",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.create_import_session.post",
@@ -745,15 +760,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.create_watch.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/watches",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.decide_search_preparation.post",
       "method": "POST",
       "path": "/api/projects/{pid}/search-preparation/{batch_id}/decision",
@@ -761,6 +767,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
         "mediaType": "application/json",
         "required": true
       }
+    },
+    {
+      "id": "tenant.delete_alert.delete",
+      "method": "DELETE",
+      "path": "/api/projects/{pid}/alerts/{alert_id}",
+      "request": null
     },
     {
       "id": "tenant.delete_cloud_connection.delete",
@@ -832,12 +844,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.delete_view_ep.delete",
       "method": "DELETE",
       "path": "/api/projects/{pid}/views/{view_id}",
-      "request": null
-    },
-    {
-      "id": "tenant.delete_watch.delete",
-      "method": "DELETE",
-      "path": "/api/projects/{pid}/watches/{watch_id}",
       "request": null
     },
     {
@@ -1420,6 +1426,24 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.list_alert_check_events.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/alerts/{alert_id}/checks/{check_id}/events",
+      "request": null
+    },
+    {
+      "id": "tenant.list_alert_checks.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/alerts/{alert_id}/checks",
+      "request": null
+    },
+    {
+      "id": "tenant.list_alerts.get",
+      "method": "GET",
+      "path": "/api/projects/{pid}/alerts",
+      "request": null
+    },
+    {
       "id": "tenant.list_column_types.get",
       "method": "GET",
       "path": "/api/column-types",
@@ -1540,24 +1564,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "tenant.list_watch_run_events.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/watches/{watch_id}/runs/{run_id}/events",
-      "request": null
-    },
-    {
-      "id": "tenant.list_watch_runs.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/watches/{watch_id}/runs",
-      "request": null
-    },
-    {
-      "id": "tenant.list_watches.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/watches",
-      "request": null
-    },
-    {
       "id": "tenant.locate_sheet_row.get",
       "method": "GET",
       "path": "/api/projects/{pid}/sheets/{sheet_id}/rows/{row_id}/locate",
@@ -1612,6 +1618,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.patch_alert.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/alerts/{alert_id}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.patch_cloud_preferences.patch",
       "method": "PATCH",
       "path": "/api/cloud-connection/preferences",
@@ -1651,15 +1666,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.patch_view.patch",
       "method": "PATCH",
       "path": "/api/projects/{pid}/views/{view_id}",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
-      "id": "tenant.patch_watch.patch",
-      "method": "PATCH",
-      "path": "/api/projects/{pid}/watches/{watch_id}",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -2023,12 +2029,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.run_rows.get",
       "method": "GET",
       "path": "/api/projects/{pid}/actions/runs/{run_id}/rows",
-      "request": null
-    },
-    {
-      "id": "tenant.run_watch.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/watches/{watch_id}/run",
       "request": null
     },
     {
@@ -4048,6 +4048,249 @@ type HttpAdminOverviewResponse_JsonValue = JsonValue;
 export type HttpAdminOverviewResponse = ({
   "totals": (HttpAdminOverviewResponse_AdminOverviewTotals);
   [key: string]: (HttpAdminOverviewResponse_JsonValue) | (HttpAdminOverviewResponse_AdminOverviewTotals);
+});
+
+type HttpAlert_AlertCheck = ({
+  "alert_id": (number);
+  "error": (((string)) | ((null)));
+  "error_code": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "matched_rows": (number);
+  "new_rows": (number);
+  "op_cursor_after": (number);
+  "op_cursor_before": (number);
+  "resolved_query": ({
+  [key: string]: (HttpAlert_JsonValue);
+});
+  "resolved_query_hash": (((string)) | ((null)));
+  "started_at": (string);
+  "status": (string);
+});
+
+type HttpAlert_JsonValue = JsonValue;
+
+export type HttpAlert = ({
+  "created_at": (string);
+  "detection_policy": ({
+  [key: string]: (HttpAlert_JsonValue);
+});
+  "enabled": (boolean);
+  "id": (number);
+  "last_evaluated_op": (number);
+  "last_run_id": (((number)) | ((null)));
+  "last_status": (((string)) | ((null)));
+  "latest_run": (((HttpAlert_AlertCheck)) | ((null)));
+  "name": (string);
+  "schedule": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "updated_at": (string);
+  "view_id": (number);
+});
+
+type HttpAlertCheckEventsPage_AlertCheckEvent = ({
+  "after_json": ((({
+  [key: string]: (HttpAlertCheckEventsPage_JsonValue);
+})) | ((null)));
+  "alert_id": (number);
+  "before_json": ((({
+  [key: string]: (HttpAlertCheckEventsPage_JsonValue);
+})) | ((null)));
+  "created_at": (string);
+  "delta_json": ((({
+  [key: string]: (HttpAlertCheckEventsPage_JsonValue);
+})) | ((null)));
+  "event_kind": (string);
+  "id": (number);
+  "rank": (number);
+  "run_id": (number);
+  "severity": (string);
+  "snippet": (((string)) | ((null)));
+  "subject_kind": (string);
+  "subject_ref": ({
+  [key: string]: (HttpAlertCheckEventsPage_JsonValue);
+});
+});
+
+type HttpAlertCheckEventsPage_JsonValue = JsonValue;
+
+export type HttpAlertCheckEventsPage = ({
+  "events": (Array<(HttpAlertCheckEventsPage_AlertCheckEvent)>);
+  "has_more": (boolean);
+  "limit": (number);
+  "next_offset": (((number)) | ((null)));
+  "offset": (number);
+  "order": ("asc") & (string);
+  "schema_version": ("frisket.alert_check_events_page.v1") & (string);
+  "total": (number);
+});
+
+type HttpAlertCheckResult_Alert = ({
+  "created_at": (string);
+  "detection_policy": ({
+  [key: string]: (HttpAlertCheckResult_JsonValue);
+});
+  "enabled": (boolean);
+  "id": (number);
+  "last_evaluated_op": (number);
+  "last_run_id": (((number)) | ((null)));
+  "last_status": (((string)) | ((null)));
+  "latest_run": (((HttpAlertCheckResult_AlertCheck)) | ((null)));
+  "name": (string);
+  "schedule": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "updated_at": (string);
+  "view_id": (number);
+});
+
+type HttpAlertCheckResult_AlertCheck = ({
+  "alert_id": (number);
+  "error": (((string)) | ((null)));
+  "error_code": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "matched_rows": (number);
+  "new_rows": (number);
+  "op_cursor_after": (number);
+  "op_cursor_before": (number);
+  "resolved_query": ({
+  [key: string]: (HttpAlertCheckResult_JsonValue);
+});
+  "resolved_query_hash": (((string)) | ((null)));
+  "started_at": (string);
+  "status": (string);
+});
+
+type HttpAlertCheckResult_AlertCheckHit = ({
+  "column_id": (((number)) | ((null)));
+  "is_new": (boolean);
+  "rank": (number);
+  "row_id": (number);
+  "run_id": (number);
+  "sheet_id": (number);
+  "snippet": (((string)) | ((null)));
+});
+
+type HttpAlertCheckResult_JsonValue = JsonValue;
+
+export type HttpAlertCheckResult = ({
+  "alert": (HttpAlertCheckResult_Alert);
+  "hits": (Array<(HttpAlertCheckResult_AlertCheckHit)>);
+  "run": (HttpAlertCheckResult_AlertCheck);
+  "schema_version": ("frisket.alert_check.v1") & (string);
+});
+
+type HttpAlertChecksPage_AlertCheckHit = ({
+  "column_id": (((number)) | ((null)));
+  "is_new": (boolean);
+  "rank": (number);
+  "row_id": (number);
+  "run_id": (number);
+  "sheet_id": (number);
+  "snippet": (((string)) | ((null)));
+});
+
+type HttpAlertChecksPage_AlertCheckWithHits = ({
+  "alert_id": (number);
+  "error": (((string)) | ((null)));
+  "error_code": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "hits": (Array<(HttpAlertChecksPage_AlertCheckHit)>);
+  "hits_limit": (number);
+  "hits_truncated": (boolean);
+  "id": (number);
+  "matched_rows": (number);
+  "new_rows": (number);
+  "op_cursor_after": (number);
+  "op_cursor_before": (number);
+  "resolved_query": ({
+  [key: string]: (HttpAlertChecksPage_JsonValue);
+});
+  "resolved_query_hash": (((string)) | ((null)));
+  "started_at": (string);
+  "status": (string);
+});
+
+type HttpAlertChecksPage_JsonValue = JsonValue;
+
+export type HttpAlertChecksPage = ({
+  "has_more": (boolean);
+  "hits_limit": (number);
+  "limit": (number);
+  "next_offset": (((number)) | ((null)));
+  "offset": (number);
+  "order": ("desc") & (string);
+  "runs": (Array<(HttpAlertChecksPage_AlertCheckWithHits)>);
+  "schema_version": ("frisket.alert_checks_page.v1") & (string);
+  "total": (number);
+});
+
+type HttpAlertCreateRequest_JsonValue = JsonValue;
+
+export type HttpAlertCreateRequest = ({
+  "detection_policy"?: ((({
+  [key: string]: (HttpAlertCreateRequest_JsonValue);
+})) | ((null)));
+  "enabled"?: (boolean);
+  "name": (string);
+  "schedule"?: (((string)) | ((null)));
+  "view_id": (number);
+});
+
+export type HttpAlertDelete = ({
+  "deleted": (number);
+  "ok": (boolean);
+});
+
+type HttpAlertList_Alert = ({
+  "created_at": (string);
+  "detection_policy": ({
+  [key: string]: (HttpAlertList_JsonValue);
+});
+  "enabled": (boolean);
+  "id": (number);
+  "last_evaluated_op": (number);
+  "last_run_id": (((number)) | ((null)));
+  "last_status": (((string)) | ((null)));
+  "latest_run": (((HttpAlertList_AlertCheck)) | ((null)));
+  "name": (string);
+  "schedule": (((string)) | ((null)));
+  "sheet_id": (((number)) | ((null)));
+  "updated_at": (string);
+  "view_id": (number);
+});
+
+type HttpAlertList_AlertCheck = ({
+  "alert_id": (number);
+  "error": (((string)) | ((null)));
+  "error_code": (((string)) | ((null)));
+  "finished_at": (((string)) | ((null)));
+  "id": (number);
+  "matched_rows": (number);
+  "new_rows": (number);
+  "op_cursor_after": (number);
+  "op_cursor_before": (number);
+  "resolved_query": ({
+  [key: string]: (HttpAlertList_JsonValue);
+});
+  "resolved_query_hash": (((string)) | ((null)));
+  "started_at": (string);
+  "status": (string);
+});
+
+type HttpAlertList_JsonValue = JsonValue;
+
+export type HttpAlertList = (Array<(HttpAlertList_Alert)>);
+
+type HttpAlertPatchRequest_JsonValue = JsonValue;
+
+export type HttpAlertPatchRequest = ({
+  "detection_policy"?: ((({
+  [key: string]: (HttpAlertPatchRequest_JsonValue);
+})) | ((null)));
+  "enabled"?: (((boolean)) | ((null)));
+  "name"?: (((string)) | ((null)));
+  "schedule"?: (((string)) | ((null)));
 });
 
 export type HttpApiTokenCreateRequest = ({
@@ -7936,6 +8179,12 @@ export type HttpInline_38aa6fedb0c0d4ef = ({
   "sheet_id": (number);
 });
 
+export type HttpInline_3a61a4df4a6f6d58 = ({
+  "alert_id": (number);
+  "check_id": (number);
+  "pid": (string);
+});
+
 export type HttpInline_3bd51e57d66e30f8 = ({
   "token_id": (number);
 });
@@ -8362,6 +8611,11 @@ export type HttpInline_8b265931c6336b68 = ({
   "run_id": (number);
 });
 
+export type HttpInline_8cf4e57e7eb71b2c = ({
+  "alert_id": (number);
+  "pid": (string);
+});
+
 export type HttpInline_8dd8e83611062581 = ({
   "user_ref": (string);
 });
@@ -8418,12 +8672,6 @@ type HttpInline_95dd5aaa354f43b3_HttpError = ({
 type HttpInline_95dd5aaa354f43b3_JsonValue = JsonValue;
 
 export type HttpInline_95dd5aaa354f43b3 = (((HttpInline_95dd5aaa354f43b3_HttpError)) | ((HttpInline_95dd5aaa354f43b3_ActionResult)));
-
-export type HttpInline_96a5d2705cf3cbbb = ({
-  "pid": (string);
-  "run_id": (number);
-  "watch_id": (number);
-});
 
 type HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest = ({
   "copied_op_id"?: (((number)) | ((null)));
@@ -8898,11 +9146,6 @@ export type HttpInline_aa89741f8bc33a39 = (((HttpInline_aa89741f8bc33a39_Platfor
 
 export type HttpInline_aab9b590e06de116 = ({
   "provider"?: (((string)) | ((null)));
-});
-
-export type HttpInline_b0c001af64fcca02 = ({
-  "pid": (string);
-  "watch_id": (number);
 });
 
 export type HttpInline_b1e07c7c7e5c3960 = ({
@@ -15106,249 +15349,6 @@ export type HttpWalkthroughCatalogResponse = ({
   "walkthroughs": (Array<(HttpWalkthroughCatalogResponse_WalkthroughBadge)>);
 });
 
-type HttpWatch_JsonValue = JsonValue;
-
-type HttpWatch_WatchRun = ({
-  "error": (((string)) | ((null)));
-  "error_code": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "id": (number);
-  "matched_rows": (number);
-  "new_rows": (number);
-  "op_cursor_after": (number);
-  "op_cursor_before": (number);
-  "resolved_query": ({
-  [key: string]: (HttpWatch_JsonValue);
-});
-  "resolved_query_hash": (((string)) | ((null)));
-  "started_at": (string);
-  "status": (string);
-  "watch_id": (number);
-});
-
-export type HttpWatch = ({
-  "created_at": (string);
-  "detection_policy": ({
-  [key: string]: (HttpWatch_JsonValue);
-});
-  "enabled": (boolean);
-  "id": (number);
-  "last_evaluated_op": (number);
-  "last_run_id": (((number)) | ((null)));
-  "last_status": (((string)) | ((null)));
-  "latest_run": (((HttpWatch_WatchRun)) | ((null)));
-  "name": (string);
-  "schedule": (((string)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "updated_at": (string);
-  "view_id": (number);
-});
-
-type HttpWatchCreateRequest_JsonValue = JsonValue;
-
-export type HttpWatchCreateRequest = ({
-  "detection_policy"?: ((({
-  [key: string]: (HttpWatchCreateRequest_JsonValue);
-})) | ((null)));
-  "enabled"?: (boolean);
-  "name": (string);
-  "schedule"?: (((string)) | ((null)));
-  "view_id": (number);
-});
-
-export type HttpWatchDelete = ({
-  "deleted": (number);
-  "ok": (boolean);
-});
-
-type HttpWatchList_JsonValue = JsonValue;
-
-type HttpWatchList_Watch = ({
-  "created_at": (string);
-  "detection_policy": ({
-  [key: string]: (HttpWatchList_JsonValue);
-});
-  "enabled": (boolean);
-  "id": (number);
-  "last_evaluated_op": (number);
-  "last_run_id": (((number)) | ((null)));
-  "last_status": (((string)) | ((null)));
-  "latest_run": (((HttpWatchList_WatchRun)) | ((null)));
-  "name": (string);
-  "schedule": (((string)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "updated_at": (string);
-  "view_id": (number);
-});
-
-type HttpWatchList_WatchRun = ({
-  "error": (((string)) | ((null)));
-  "error_code": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "id": (number);
-  "matched_rows": (number);
-  "new_rows": (number);
-  "op_cursor_after": (number);
-  "op_cursor_before": (number);
-  "resolved_query": ({
-  [key: string]: (HttpWatchList_JsonValue);
-});
-  "resolved_query_hash": (((string)) | ((null)));
-  "started_at": (string);
-  "status": (string);
-  "watch_id": (number);
-});
-
-export type HttpWatchList = (Array<(HttpWatchList_Watch)>);
-
-type HttpWatchPatchRequest_JsonValue = JsonValue;
-
-export type HttpWatchPatchRequest = ({
-  "detection_policy"?: ((({
-  [key: string]: (HttpWatchPatchRequest_JsonValue);
-})) | ((null)));
-  "enabled"?: (((boolean)) | ((null)));
-  "name"?: (((string)) | ((null)));
-  "schedule"?: (((string)) | ((null)));
-});
-
-type HttpWatchRunEventsPage_JsonValue = JsonValue;
-
-type HttpWatchRunEventsPage_WatchRunEvent = ({
-  "after_json": ((({
-  [key: string]: (HttpWatchRunEventsPage_JsonValue);
-})) | ((null)));
-  "before_json": ((({
-  [key: string]: (HttpWatchRunEventsPage_JsonValue);
-})) | ((null)));
-  "created_at": (string);
-  "delta_json": ((({
-  [key: string]: (HttpWatchRunEventsPage_JsonValue);
-})) | ((null)));
-  "event_kind": (string);
-  "id": (number);
-  "rank": (number);
-  "run_id": (number);
-  "severity": (string);
-  "snippet": (((string)) | ((null)));
-  "subject_kind": (string);
-  "subject_ref": ({
-  [key: string]: (HttpWatchRunEventsPage_JsonValue);
-});
-  "watch_id": (number);
-});
-
-export type HttpWatchRunEventsPage = ({
-  "events": (Array<(HttpWatchRunEventsPage_WatchRunEvent)>);
-  "has_more": (boolean);
-  "limit": (number);
-  "next_offset": (((number)) | ((null)));
-  "offset": (number);
-  "order": ("asc") & (string);
-  "schema_version": ("frisket.watch_run_events_page.v1") & (string);
-  "total": (number);
-});
-
-type HttpWatchRunResult_JsonValue = JsonValue;
-
-type HttpWatchRunResult_Watch = ({
-  "created_at": (string);
-  "detection_policy": ({
-  [key: string]: (HttpWatchRunResult_JsonValue);
-});
-  "enabled": (boolean);
-  "id": (number);
-  "last_evaluated_op": (number);
-  "last_run_id": (((number)) | ((null)));
-  "last_status": (((string)) | ((null)));
-  "latest_run": (((HttpWatchRunResult_WatchRun)) | ((null)));
-  "name": (string);
-  "schedule": (((string)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "updated_at": (string);
-  "view_id": (number);
-});
-
-type HttpWatchRunResult_WatchHit = ({
-  "column_id": (((number)) | ((null)));
-  "is_new": (boolean);
-  "rank": (number);
-  "row_id": (number);
-  "run_id": (number);
-  "sheet_id": (number);
-  "snippet": (((string)) | ((null)));
-});
-
-type HttpWatchRunResult_WatchRun = ({
-  "error": (((string)) | ((null)));
-  "error_code": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "id": (number);
-  "matched_rows": (number);
-  "new_rows": (number);
-  "op_cursor_after": (number);
-  "op_cursor_before": (number);
-  "resolved_query": ({
-  [key: string]: (HttpWatchRunResult_JsonValue);
-});
-  "resolved_query_hash": (((string)) | ((null)));
-  "started_at": (string);
-  "status": (string);
-  "watch_id": (number);
-});
-
-export type HttpWatchRunResult = ({
-  "hits": (Array<(HttpWatchRunResult_WatchHit)>);
-  "run": (HttpWatchRunResult_WatchRun);
-  "schema_version": ("frisket.watch_run.v1") & (string);
-  "watch": (HttpWatchRunResult_Watch);
-});
-
-type HttpWatchRunsPage_JsonValue = JsonValue;
-
-type HttpWatchRunsPage_WatchHit = ({
-  "column_id": (((number)) | ((null)));
-  "is_new": (boolean);
-  "rank": (number);
-  "row_id": (number);
-  "run_id": (number);
-  "sheet_id": (number);
-  "snippet": (((string)) | ((null)));
-});
-
-type HttpWatchRunsPage_WatchRunWithHits = ({
-  "error": (((string)) | ((null)));
-  "error_code": (((string)) | ((null)));
-  "finished_at": (((string)) | ((null)));
-  "hits": (Array<(HttpWatchRunsPage_WatchHit)>);
-  "hits_limit": (number);
-  "hits_truncated": (boolean);
-  "id": (number);
-  "matched_rows": (number);
-  "new_rows": (number);
-  "op_cursor_after": (number);
-  "op_cursor_before": (number);
-  "resolved_query": ({
-  [key: string]: (HttpWatchRunsPage_JsonValue);
-});
-  "resolved_query_hash": (((string)) | ((null)));
-  "started_at": (string);
-  "status": (string);
-  "watch_id": (number);
-});
-
-export type HttpWatchRunsPage = ({
-  "has_more": (boolean);
-  "hits_limit": (number);
-  "limit": (number);
-  "next_offset": (((number)) | ((null)));
-  "offset": (number);
-  "order": ("desc") & (string);
-  "runs": (Array<(HttpWatchRunsPage_WatchRunWithHits)>);
-  "schema_version": ("frisket.watch_runs_page.v1") & (string);
-  "total": (number);
-});
-
 export type HttpWorkbenchPluginActivation = ({
   "activation": (string);
   "arbitraryPackageLoadAllowed": (boolean);
@@ -16572,6 +16572,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.check_alert.post": {
+    readonly pathParams: HttpInline_8cf4e57e7eb71b2c;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAlertCheckResult;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.citation_viewer.get": {
     readonly pathParams: HttpInline_b2f43a821eb1c5ea;
     readonly query: HttpInline_85aeb6f0ad4a1736;
@@ -16739,6 +16754,21 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.create_alert.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAlertCreateRequest;
+    readonly responses: {
+      readonly "200": HttpAlert;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.create_import_session.post": {
@@ -16972,21 +17002,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.create_watch.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpWatchCreateRequest;
-    readonly responses: {
-      readonly "200": HttpWatch;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.decide_search_preparation.post": {
     readonly pathParams: HttpInline_b1e07c7c7e5c3960;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -17001,6 +17016,20 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.delete_alert.delete": {
+    readonly pathParams: HttpInline_8cf4e57e7eb71b2c;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAlertDelete;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpHTTPValidationError;
+      readonly "500": HttpError;
     };
   };
   readonly "tenant.delete_cloud_connection.delete": {
@@ -17147,20 +17176,6 @@ export type HttpContractOperationMap = {
       readonly "404": HttpError;
       readonly "409": HttpError;
       readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.delete_watch.delete": {
-    readonly pathParams: HttpInline_b0c001af64fcca02;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpWatchDelete;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpHTTPValidationError;
       readonly "500": HttpError;
     };
   };
@@ -18296,6 +18311,48 @@ export type HttpContractOperationMap = {
       readonly "500": HttpInline_08600a3f31630079;
     };
   };
+  readonly "tenant.list_alert_check_events.get": {
+    readonly pathParams: HttpInline_3a61a4df4a6f6d58;
+    readonly query: HttpInline_2db1a359156d1ac7;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAlertCheckEventsPage;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_alert_checks.get": {
+    readonly pathParams: HttpInline_8cf4e57e7eb71b2c;
+    readonly query: HttpInline_9e7b45d6a7a78694;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAlertChecksPage;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_alerts.get": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpAlertList;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.list_column_types.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18559,48 +18616,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.list_watch_run_events.get": {
-    readonly pathParams: HttpInline_96a5d2705cf3cbbb;
-    readonly query: HttpInline_2db1a359156d1ac7;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpWatchRunEventsPage;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.list_watch_runs.get": {
-    readonly pathParams: HttpInline_b0c001af64fcca02;
-    readonly query: HttpInline_9e7b45d6a7a78694;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpWatchRunsPage;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.list_watches.get": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpWatchList;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.locate_sheet_row.get": {
     readonly pathParams: HttpInline_38aa6fedb0c0d4ef;
     readonly query: HttpInline_4f6b33f41c3e2dad;
@@ -18703,6 +18718,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.patch_alert.patch": {
+    readonly pathParams: HttpInline_8cf4e57e7eb71b2c;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpAlertPatchRequest;
+    readonly responses: {
+      readonly "200": HttpAlert;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.patch_cloud_preferences.patch": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18761,21 +18791,6 @@ export type HttpContractOperationMap = {
     readonly request: HttpViewRenameRequest;
     readonly responses: {
       readonly "200": HttpView;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.patch_watch.patch": {
-    readonly pathParams: HttpInline_b0c001af64fcca02;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpWatchPatchRequest;
-    readonly responses: {
-      readonly "200": HttpWatch;
       readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
@@ -19460,21 +19475,6 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpActionRunRows;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.run_watch.post": {
-    readonly pathParams: HttpInline_b0c001af64fcca02;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpWatchRunResult;
       readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;

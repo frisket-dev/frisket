@@ -1667,9 +1667,9 @@ CREATE TABLE IF NOT EXISTS views (
 );
 CREATE INDEX IF NOT EXISTS idx_views_sheet ON views(sheet_id);
 
--- Watchlists promote saved queries into recurring checks. A watch is a
+-- Alerts promote saved views into recurring checks. An alert is a
 -- saved View with shared conditions, cadence, and check history.
-CREATE TABLE IF NOT EXISTS watches (
+CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
@@ -1683,11 +1683,11 @@ CREATE TABLE IF NOT EXISTS watches (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_watches_view ON watches(view_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_view ON alerts(view_id);
 
-CREATE TABLE IF NOT EXISTS watch_runs (
+CREATE TABLE IF NOT EXISTS alert_checks (
   id INTEGER PRIMARY KEY,
-  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'ok',
   op_cursor_before INTEGER NOT NULL,
   op_cursor_after INTEGER NOT NULL,
@@ -1702,12 +1702,12 @@ CREATE TABLE IF NOT EXISTS watch_runs (
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1;
-CREATE INDEX IF NOT EXISTS idx_watch_runs_watch_started
-  ON watch_runs(watch_id, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_checks_notification_pending ON alert_checks(id) WHERE notification_pending=1;
+CREATE INDEX IF NOT EXISTS idx_alert_checks_alert_started
+  ON alert_checks(alert_id, started_at DESC, id DESC);
 
-CREATE TABLE IF NOT EXISTS watch_run_hits (
-  run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS alert_check_hits (
+  run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   column_id INTEGER REFERENCES columns(id) ON DELETE SET NULL,
@@ -1716,13 +1716,13 @@ CREATE TABLE IF NOT EXISTS watch_run_hits (
   is_new INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, rank)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_watch_run_hits_run_rank
-  ON watch_run_hits(run_id, rank);
+CREATE INDEX IF NOT EXISTS idx_alert_check_hits_run_rank
+  ON alert_check_hits(run_id, rank);
 
-CREATE TABLE IF NOT EXISTS watch_run_events (
+CREATE TABLE IF NOT EXISTS alert_check_events (
   id INTEGER PRIMARY KEY,
-  run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,
-  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+  run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,
+  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
   event_kind TEXT NOT NULL,
   subject_kind TEXT NOT NULL,
   subject_ref TEXT NOT NULL DEFAULT '{}',
@@ -1734,36 +1734,36 @@ CREATE TABLE IF NOT EXISTS watch_run_events (
   snippet TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_watch_run_events_run_rank
-  ON watch_run_events(run_id, rank, id);
-CREATE INDEX IF NOT EXISTS idx_watch_run_events_watch_id
-  ON watch_run_events(watch_id, id);
-CREATE INDEX IF NOT EXISTS idx_watch_run_events_kind
-  ON watch_run_events(event_kind, run_id, rank);
+CREATE INDEX IF NOT EXISTS idx_alert_check_events_run_rank
+  ON alert_check_events(run_id, rank, id);
+CREATE INDEX IF NOT EXISTS idx_alert_check_events_alert_id
+  ON alert_check_events(alert_id, id);
+CREATE INDEX IF NOT EXISTS idx_alert_check_events_kind
+  ON alert_check_events(event_kind, run_id, rank);
 
-CREATE TABLE IF NOT EXISTS watch_seen_rows (
-  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS alert_seen_rows (
+  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
   sheet_id INTEGER NOT NULL,
   row_id INTEGER NOT NULL,
   first_seen_run_id INTEGER NOT NULL,
   last_seen_run_id INTEGER NOT NULL,
-  PRIMARY KEY (watch_id, sheet_id, row_id)
+  PRIMARY KEY (alert_id, sheet_id, row_id)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_watch_seen_rows_watch
-  ON watch_seen_rows(watch_id);
+CREATE INDEX IF NOT EXISTS idx_alert_seen_rows_alert
+  ON alert_seen_rows(alert_id);
 
-CREATE TABLE IF NOT EXISTS watch_row_field_state (
-  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS alert_row_field_state (
+  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
   sheet_id INTEGER NOT NULL,
   row_id INTEGER NOT NULL,
   column_id INTEGER NOT NULL,
   value_hash TEXT NOT NULL,
   value_json TEXT,
-  last_observed_run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,
-  PRIMARY KEY (watch_id, sheet_id, row_id, column_id)
+  last_observed_run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,
+  PRIMARY KEY (alert_id, sheet_id, row_id, column_id)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_watch_row_field_state_watch
-  ON watch_row_field_state(watch_id, last_observed_run_id);
+CREATE INDEX IF NOT EXISTS idx_alert_row_field_state_alert
+  ON alert_row_field_state(alert_id, last_observed_run_id);
 
 -- Generic notification core (Stage 2 lane 4). Domain facts stay in their
 -- owning tables; notification_items are attention projections over those

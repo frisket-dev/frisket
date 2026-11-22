@@ -341,21 +341,21 @@ def notification_summary(
     }
     by_alert = [
         {
-            "source_kind": "watch",
-            "source_ref": {"watch_id": int(row["watch_id"])},
+            "source_kind": "alert",
+            "source_ref": {"alert_id": int(row["alert_id"])},
             "unseen": int(row["unseen"] or 0),
         }
         for row in project.db.execute(
-            "SELECT json_extract(i.source_ref, '$.watch_id') AS watch_id, "
+            "SELECT json_extract(i.source_ref, '$.alert_id') AS alert_id, "
             "COUNT(*) AS unseen "
             "FROM notification_items i "
             "LEFT JOIN notification_actor_state s "
             "ON s.notification_id=i.id AND s.actor_id=? "
-            "WHERE i.source_kind='watch' "
+            "WHERE i.source_kind='alert' "
             "AND COALESCE(s.state, 'unseen')='unseen' "
-            "AND json_extract(i.source_ref, '$.watch_id') IS NOT NULL "
-            "GROUP BY json_extract(i.source_ref, '$.watch_id') "
-            "ORDER BY CAST(json_extract(i.source_ref, '$.watch_id') AS INTEGER)",
+            "AND json_extract(i.source_ref, '$.alert_id') IS NOT NULL "
+            "GROUP BY json_extract(i.source_ref, '$.alert_id') "
+            "ORDER BY CAST(json_extract(i.source_ref, '$.alert_id') AS INTEGER)",
             (actor_id,),
         )
     ]

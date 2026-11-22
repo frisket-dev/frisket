@@ -655,7 +655,7 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path)
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    upgrade_project_schema(old_db, bundle_path=tmp_path)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "migrated.frisket")
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
@@ -680,12 +680,6 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path)
                 row[1]: tuple(row[2:])
                 for row in fresh.execute(f'PRAGMA table_info("{table}")')
             }
-            # ADD COLUMN retains these historical representation differences.
-            # Neither changes existing rows or the typed writer's required data.
-            if table == "watches":
-                name = "view_id"
-                assert before[name][1] == 0 and after[name][1] == 1
-                before[name] = (before[name][0], 1, *before[name][2:])
             assert before == after, table
             assert sorted(
                 tuple(row[2:])

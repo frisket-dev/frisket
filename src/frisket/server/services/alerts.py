@@ -6,12 +6,12 @@ import json
 from typing import Any
 
 from frisket.contracts.http.alerts import (
-    Watch,
-    WatchDelete,
-    WatchList,
-    WatchRunEventsPage,
-    WatchRunResult,
-    WatchRunsPage,
+    Alert,
+    AlertCheckEventsPage,
+    AlertCheckResult,
+    AlertChecksPage,
+    AlertDelete,
+    AlertList,
 )
 from frisket.engine.jobs import enqueue_notification_emit_result
 from frisket.contracts.http.paging import offset_page_meta
@@ -48,9 +48,9 @@ class AlertService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def list_alerts(self, project_id: str) -> WatchList:
+    def list_alerts(self, project_id: str) -> AlertList:
         project = self._workspace.get(project_id)
-        return WatchList.model_validate(
+        return AlertList.model_validate(
             [_alert_dict(project, row) for row in project.alerts()]
         )
 
@@ -63,7 +63,7 @@ class AlertService:
         detection_policy: dict[str, Any] | None,
         enabled: bool,
         schedule: str | None = "@hourly",
-    ) -> Watch:
+    ) -> Alert:
         project = self._workspace.get(project_id)
         alert_name = name.strip()
         if not alert_name:
@@ -87,9 +87,9 @@ class AlertService:
             )
         except ValueError as exc:
             raise AlertRequestError(str(exc)) from exc
-        return Watch.model_validate(_alert_dict(project, project.get_alert(alert_id)))
+        return Alert.model_validate(_alert_dict(project, project.get_alert(alert_id)))
 
-    def check_alert(self, project_id: str, alert_id: int) -> WatchRunResult:
+    def check_alert(self, project_id: str, alert_id: int) -> AlertCheckResult:
         project = self._workspace.get(project_id)
         row = project.get_alert(alert_id)
         if row is None:
@@ -116,10 +116,10 @@ class AlertService:
             project_opener=self._workspace.project_opener,
         )
         run = evaluation["run"]
-        return WatchRunResult.model_validate(
+        return AlertCheckResult.model_validate(
             {
-                "schema_version": "frisket.watch_run.v1",
-                "watch": _alert_dict(project, project.get_alert(alert_id)),
+                "schema_version": "frisket.alert_check.v1",
+                "alert": _alert_dict(project, project.get_alert(alert_id)),
                 "run": _alert_check_dict(project, run),
                 "hits": evaluation["hits"],
             }
@@ -131,12 +131,12 @@ class AlertService:
         alert_id: int,
         *,
         fields: dict[str, Any],
-    ) -> Watch:
+    ) -> Alert:
         if not fields:
-            raise AlertRequestError("at least one watch field is required")
+            raise AlertRequestError("at least one alert field is required")
         unsupported = set(fields) - {"name", "enabled", "detection_policy", "schedule"}
         if unsupported:
-            raise AlertRequestError("unsupported watch field")
+            raise AlertRequestError("unsupported alert field")
         name = fields.get("name")
         if "name" in fields:
             if not isinstance(name, str):
@@ -172,13 +172,13 @@ class AlertService:
             raise AlertRequestError(str(exc)) from exc
         if row is None:
             raise AlertNotFound("alert not found")
-        return Watch.model_validate(_alert_dict(project, row))
+        return Alert.model_validate(_alert_dict(project, row))
 
-    def delete_alert(self, project_id: str, alert_id: int) -> WatchDelete:
+    def delete_alert(self, project_id: str, alert_id: int) -> AlertDelete:
         project = self._workspace.get(project_id)
         if not project.delete_alert(alert_id):
             raise AlertNotFound("alert not found")
-        return WatchDelete(ok=True, deleted=int(alert_id))
+        return AlertDelete(ok=True, deleted=int(alert_id))
 
     def list_alert_checks(
         self,
@@ -188,7 +188,7 @@ class AlertService:
         offset: int,
         limit: int,
         hits_limit: int,
-    ) -> WatchRunsPage:
+    ) -> AlertChecksPage:
         project = self._workspace.get(project_id)
         if project.get_alert(alert_id) is None:
             raise AlertNotFound("alert not found")
@@ -197,10 +197,10 @@ class AlertService:
             for row in project.alert_checks_page(alert_id, offset=offset, limit=limit)
         ]
         total = project.alert_checks_total(alert_id)
-        return WatchRunsPage.model_validate(
+        return AlertChecksPage.model_validate(
             {
                 **offset_page_meta(
-                    schema_version="frisket.watch_runs_page.v1",
+                    schema_version="frisket.alert_checks_page.v1",
                     order="desc",
                     offset=offset,
                     limit=limit,
@@ -221,12 +221,12 @@ class AlertService:
         offset: int,
         limit: int,
         event_kind: str | None,
-    ) -> WatchRunEventsPage:
+    ) -> AlertCheckEventsPage:
         project = self._workspace.get(project_id)
         if project.get_alert(alert_id) is None:
             raise AlertNotFound("alert not found")
         run = project.get_alert_check(run_id)
-        if run is None or int(run["watch_id"]) != int(alert_id):
+        if run is None or int(run["alert_id"]) != int(alert_id):
             raise AlertCheckNotFound("alert check not found")
         if event_kind is not None and event_kind not in ALLOWED_EVENT_KINDS:
             raise AlertRequestError("unsupported alert check event kind")
@@ -240,7 +240,7 @@ class AlertService:
             )
         ]
         total = project.alert_check_events_total(run_id, event_kind=event_kind)
-        return WatchRunEventsPage.model_validate(
+        return AlertCheckEventsPage.model_validate(
             {
                 **offset_page_meta(
                     schema_version=ALERT_CHECK_EVENT_SCHEMA_VERSION,

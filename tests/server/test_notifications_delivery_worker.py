@@ -93,7 +93,7 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     drain_index(client.app.state.workspace.get(pid))
     alert_response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget watch",
             "scope": {"kind": "project"},
@@ -105,11 +105,11 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     from alert_helpers import seed_empty_alert_baseline
 
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
+    run_response = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
@@ -146,8 +146,8 @@ def _create_route(
         json={
             "name": "Budget email",
             "channel_id": channel_id,
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
@@ -165,9 +165,9 @@ def _emit_alert(
     response = client.post(
         f"/api/projects/{pid}/notifications/emit",
         json={
-            "source_kind": "watch",
+            "source_kind": "alert",
             "source_ref": {
-                "watch_id": refs["watch"]["id"],
+                "alert_id": refs["watch"]["id"],
                 "run_id": refs["run"]["id"],
             },
             "source_event_ids": event_ids,
@@ -175,7 +175,7 @@ def _emit_alert(
             "title": "Budget watch found rows",
             "summary": "Budget rows matched.",
             "severity": "warning",
-            "deep_link": {"kind": "watch_run", "watch_id": refs["watch"]["id"]},
+            "deep_link": {"kind": "alert_check", "alert_id": refs["watch"]["id"]},
             "payload": {},
         },
     )
@@ -350,9 +350,9 @@ def test_retry_exhaustion_marks_one_terminal_failed_request(tmp_path: Path) -> N
     result = emit_notification_candidate(
         project,
         {
-            "source_kind": "watch",
+            "source_kind": "alert",
             "source_ref": {
-                "watch_id": refs["watch"]["id"],
+                "alert_id": refs["watch"]["id"],
                 "run_id": refs["run"]["id"],
             },
             "source_event_ids": event_ids,
@@ -360,7 +360,7 @@ def test_retry_exhaustion_marks_one_terminal_failed_request(tmp_path: Path) -> N
             "title": "Budget watch found rows",
             "summary": "Budget rows matched.",
             "severity": "warning",
-            "deep_link": {"kind": "watch_run", "watch_id": refs["watch"]["id"]},
+            "deep_link": {"kind": "alert_check", "alert_id": refs["watch"]["id"]},
             "payload": {},
         },
     )

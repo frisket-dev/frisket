@@ -99,7 +99,7 @@ def delete_view(project: Any, view_id: int) -> None:
 
     with write_transaction(project.db, what="view delete"):
         for row in project.db.execute(
-            "SELECT id FROM watches WHERE view_id=?", (view_id,)
+            "SELECT id FROM alerts WHERE view_id=?", (view_id,)
         ).fetchall():
             delete_alert_rows(project, int(row["id"]))
         project.db.execute("DELETE FROM views WHERE id=?", (view_id,))

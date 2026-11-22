@@ -778,8 +778,8 @@ def test_live_notification_routes_preserve_their_current_payloads(
             "source_event_ids, event_count, event_kinds, title, summary, "
             "severity, deep_link, dedupe_key) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
-                "watch",
-                '{"watch_id": 5}',
+                "alert",
+                '{"alert_id": 5}',
                 "[]",
                 1,
                 "[]",
@@ -812,20 +812,20 @@ def test_live_notification_routes_preserve_their_current_payloads(
         assert system_item["acknowledged_by"] is None
 
         filtered = client.get(
-            f"/api/projects/{project_id}/notifications?source_kind=watch"
+            f"/api/projects/{project_id}/notifications?source_kind=alert"
         ).json()
-        assert [row["source_kind"] for row in filtered["notifications"]] == ["watch"]
+        assert [row["source_kind"] for row in filtered["notifications"]] == ["alert"]
 
-        # Summary: watch-only by_source_ref, frozen by SQL — the system item
+        # Summary: alert-only by_source_ref, frozen by SQL — the system item
         # counts in by_source_kind but never enters by_source_ref.
         summary = client.get(f"/api/projects/{project_id}/notifications/summary").json()
         assert set(summary) == _SUMMARY_FIELDS
         assert summary["schema_version"] == "frisket.notifications_summary.v1"
         assert summary["total"] == 2
         assert summary["unseen"] == 2
-        assert summary["by_source_kind"] == {"system": 1, "watch": 1}
+        assert summary["by_source_kind"] == {"system": 1, "alert": 1}
         assert summary["by_source_ref"] == [
-            {"source_kind": "watch", "source_ref": {"watch_id": 5}, "unseen": 1}
+            {"source_kind": "alert", "source_ref": {"alert_id": 5}, "unseen": 1}
         ]
 
         # Per-item actor-state lifecycle.
@@ -871,7 +871,7 @@ def test_live_notification_routes_preserve_their_current_payloads(
 
         bulk = client.post(
             f"/api/projects/{project_id}/notifications/ack",
-            json={"source_kind": "watch"},
+            json={"source_kind": "alert"},
         )
         assert bulk.status_code == 200
         assert bulk.json() == {"acknowledged_count": 1}

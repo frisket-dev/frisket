@@ -477,7 +477,7 @@ def test_entity_eq_reaches_the_shared_query_and_alert_consumers(tmp_path):
     }
     alert = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Acme rows",
             "query": alert_query,

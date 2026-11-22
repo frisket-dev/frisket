@@ -131,8 +131,8 @@ class NotificationSummary(WireModel):
     acknowledged: int
     by_severity: dict[str, int]
     by_source_kind: dict[str, int]
-    # Watch-only by construction: the producing SQL groups on
-    # json_extract(source_ref, '$.watch_id').
+    # Alert-only by construction: the producing SQL groups on
+    # json_extract(source_ref, '$.alert_id').
     by_source_ref: list[NotificationSummarySourceRef]
 
 

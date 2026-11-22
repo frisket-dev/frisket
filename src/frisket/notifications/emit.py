@@ -214,22 +214,22 @@ def plan_notification_routes(
 def _event_kinds_for_candidate(
     project: Project, candidate: NotificationCandidate, event_ids: list[int]
 ) -> list[str]:
-    if candidate["source_kind"] != "watch":
+    if candidate["source_kind"] != "alert":
         return []
     source_ref = candidate["source_ref"]
     try:
-        alert_id = int(source_ref["watch_id"])
+        alert_id = int(source_ref["alert_id"])
         run_id = int(source_ref["run_id"])
     except (KeyError, TypeError, ValueError):
-        raise ValueError("watch notification source_ref requires watch_id and run_id")
+        raise ValueError("alert notification source_ref requires alert_id and run_id")
     if not event_ids:
-        raise ValueError("watch notification source events are required")
+        raise ValueError("alert notification source events are required")
     rows = project.alert_events_for_notification(
         alert_id=alert_id, run_id=run_id, event_ids=event_ids
     )
     found = {int(row["id"]) for row in rows}
     if found != set(event_ids):
-        raise ValueError("watch notification source events must exist in this project")
+        raise ValueError("alert notification source events must exist in this project")
     return sorted({str(row["event_kind"]) for row in rows})
 
 
@@ -295,9 +295,9 @@ def _severity_rank(value: str) -> int:
 def _dedupe_key(
     candidate: NotificationCandidate, source_ref: dict[str, Any], event_ids: list[int]
 ) -> str:
-    if candidate["source_kind"] == "watch" and event_ids:
+    if candidate["source_kind"] == "alert" and event_ids:
         return alert_events_dedupe_key(
-            alert_id=int(source_ref["watch_id"]),
+            alert_id=int(source_ref["alert_id"]),
             run_id=int(source_ref["run_id"]),
             event_ids=event_ids,
         )
@@ -306,7 +306,7 @@ def _dedupe_key(
 
 def alert_events_dedupe_key(*, alert_id: int, run_id: int, event_ids: list[int]) -> str:
     # The check owns one summary, irrespective of how many detail previews fit.
-    return f"watch:{int(alert_id)}:run:{int(run_id)}"
+    return f"alert:{int(alert_id)}:run:{int(run_id)}"
 
 
 def _redact_payload(value: Any) -> Any:

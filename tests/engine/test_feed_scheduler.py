@@ -199,8 +199,8 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
     p.create_notification_route(
         name="Budget route",
         channel_id=int(channel["id"]),
-        source_kind="watch",
-        source_ref_match={"watch_id": alert_id},
+        source_kind="alert",
+        source_ref_match={"alert_id": alert_id},
     )
     p.close()
 

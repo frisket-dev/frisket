@@ -960,7 +960,7 @@ export async function openHistory(page: Page): Promise<void> {
  */
 export async function openDiscoverTab(
   page: Page,
-  tab: 'Facets' | 'Mentions' | 'Sources' | 'Watches' | 'Embeddings' | 'Notifications',
+  tab: 'Facets' | 'Mentions' | 'Sources' | 'Alerts' | 'Embeddings' | 'Notifications',
 ): Promise<void> {
   const panel = page.getByTestId('discover-panel');
   const rail = page.getByTestId('discover-rail');

@@ -56,7 +56,7 @@ test('R2: Discover hosted panel bodies contribute zero own-padding; the host own
   const zero = '0px 0px 0px 0px';
 
   // Alerts tab: the host gutter is the contract; the alerts body adds none.
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const bodyW = await box(page.getByTestId('discover-body'));
   expect(`${bodyW.pt} ${bodyW.pr} ${bodyW.pb} ${bodyW.pl}`).toBe(gutter);
   const alerts = await box(page.getByTestId('alerts-panel'));

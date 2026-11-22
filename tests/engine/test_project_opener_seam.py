@@ -232,7 +232,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
             "sheet_id": 999,
             "row_id": 999,
             "index_id": "missing-index",
-            "watch_id": 999,
+            "alert_id": 999,
             "request_id": 999,
             "route_id": 999,
             "cadence": "daily",
@@ -247,7 +247,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
             # "embedding.index_refresh") — there is no separate top-level
             # job kind for it anymore.
             "action.run",
-            "watch.evaluate",
+            "alert.evaluate",
             "source.poll",
             "enclosure.download",
             "notification.deliver",

@@ -138,23 +138,23 @@ def _make_alert(
         },
         "detection_policy": policy or {"kind": "new_matches"},
     }
-    return post_alert(client, f"/api/projects/{pid}/watches", json=body)
+    return post_alert(client, f"/api/projects/{pid}/alerts", json=body)
 
 
 def _run(client, pid, alert_id):
-    return client.post(f"/api/projects/{pid}/watches/{alert_id}/run").json()
+    return client.post(f"/api/projects/{pid}/alerts/{alert_id}/check").json()
 
 
 def _events(client, pid, alert_id, run_id):
     return client.get(
-        f"/api/projects/{pid}/watches/{alert_id}/runs/{run_id}/events"
+        f"/api/projects/{pid}/alerts/{alert_id}/checks/{run_id}/events"
     ).json()
 
 
 def _notifications(client, pid):
     # Index refresh runs notify as runs; these tests assert on alert notifications.
     return client.get(
-        f"/api/projects/{pid}/notifications", params={"source_kind": "watch"}
+        f"/api/projects/{pid}/notifications", params={"source_kind": "alert"}
     ).json()
 
 
@@ -358,7 +358,7 @@ def test_single_column_cell_anchor_is_precise_and_supported(tmp_path):
     cat = _row_id(project, sheet, col, "cat")
     resp = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "row cell",
             "scope": {"kind": "sheet", "sheet_id": sheet},
@@ -381,7 +381,7 @@ def test_manual_text_query_waits_for_explicit_preparation(tmp_path):
     _refresh(project, pid, index_id)
     resp = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "manual text",
             "scope": {"kind": "sheet", "sheet_id": sheet},

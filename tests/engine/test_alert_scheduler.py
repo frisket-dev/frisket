@@ -75,11 +75,11 @@ def test_scheduled_checks_observe_edits_and_undo(scene):
 def test_pending_event_continuation_dedupes_and_manual_disables(scene):
     p, _, _, _, alert, queue, _ = scene
     queue.enqueue(
-        "watch.evaluate",
+        "alert.evaluate",
         {
             "project_id": "alerts",
-            "watch_id": alert,
-            "dedupe_key": f"watch:{alert}:eval:run-3:index:next",
+            "alert_id": alert,
+            "dedupe_key": f"alert:{alert}:eval:run-3:index:next",
         },
     )
     assert schedule(scene) == []
@@ -124,11 +124,11 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
         )
     failed = run(scene, datetime.now(UTC) + timedelta(hours=2))
     assert failed["status"] == "error"
-    assert failed["error_code"] == "watch_inputs_unavailable"
+    assert failed["error_code"] == "alert_inputs_unavailable"
     assert p.get_alert(alert)["baseline_run_id"] == baseline["id"]
     assert (
         p.db.execute(
-            "SELECT row_id FROM watch_seen_rows WHERE watch_id=?", (alert,)
+            "SELECT row_id FROM alert_seen_rows WHERE alert_id=?", (alert,)
         ).fetchone()[0]
         == row
     )
@@ -177,37 +177,37 @@ def test_clock_changes_membership_without_data_write(scene, monkeypatch):
 def test_queue_prefix_is_literal_and_organization_scoped(scene):
     _, _, _, _, _, queue, _ = scene
     queue.enqueue(
-        "watch.evaluate",
+        "alert.evaluate",
         {
             "project_id": "alerts",
             "storage_organization_id": 9,
-            "dedupe_key": "watch:1:eval:a_b%:next",
+            "dedupe_key": "alert:1:eval:a_b%:next",
         },
     )
     assert (
         queue.find_job_by_refs(
-            "watch.evaluate",
+            "alert.evaluate",
             project_id="alerts",
             storage_organization_id=9,
-            dedupe_key_prefix="watch:1:eval:a_b%:",
+            dedupe_key_prefix="alert:1:eval:a_b%:",
         )
         is not None
     )
     assert (
         queue.find_job_by_refs(
-            "watch.evaluate",
+            "alert.evaluate",
             project_id="alerts",
             storage_organization_id=8,
-            dedupe_key_prefix="watch:1:eval:",
+            dedupe_key_prefix="alert:1:eval:",
         )
         is None
     )
     assert (
         queue.find_job_by_refs(
-            "watch.evaluate",
+            "alert.evaluate",
             project_id="alerts",
             storage_organization_id=9,
-            dedupe_key_prefix="watch:1:eval:a_b_:",
+            dedupe_key_prefix="alert:1:eval:a_b_:",
         )
         is None
     )
@@ -257,10 +257,10 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
     assert opened == [(84, "alerts", p.path)]
     assert (
         queue.find_job_by_refs(
-            "watch.evaluate",
+            "alert.evaluate",
             project_id="alerts",
             storage_organization_id=84,
-            dedupe_key_prefix=f"watch:{alert}:eval:",
+            dedupe_key_prefix=f"alert:{alert}:eval:",
         )
         is not None
     )
@@ -292,11 +292,11 @@ def test_shared_periodic_loop_runs_checks_and_digests():
 def test_failed_job_without_observation_waits_until_next_cadence(scene):
     p, _, _, _, alert, queue, _ = scene
     job_id = queue.enqueue(
-        "watch.evaluate",
+        "alert.evaluate",
         {
             "project_id": "alerts",
-            "watch_id": alert,
-            "dedupe_key": f"watch:{alert}:eval:sched-failed",
+            "alert_id": alert,
+            "dedupe_key": f"alert:{alert}:eval:sched-failed",
         },
     )
     assert queue.fail_queued(job_id, "project could not open")
@@ -383,7 +383,7 @@ def test_one_broken_project_does_not_stop_other_scheduled_alerts(
         project_opener=scoped_opener if scoped else None,
     )
     assert opened == ["a-broken", "alerts"]
-    assert len(result) == 1 and result[0]["watch_id"] == alert
+    assert len(result) == 1 and result[0]["alert_id"] == alert
     assert queue.get(result[0]["job_id"]).status == "queued"
     errors = [
         record

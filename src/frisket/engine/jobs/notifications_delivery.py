@@ -903,12 +903,12 @@ def reconcile_notification_delivery_requests(
             )
 
             pending_checks = project.db.execute(
-                "SELECT id,watch_id FROM watch_runs WHERE notification_pending=1 ORDER BY id LIMIT 100"
+                "SELECT id,alert_id FROM alert_checks WHERE notification_pending=1 ORDER BY id LIMIT 100"
             ).fetchall()
             for check in pending_checks:
                 try:
                     emit_alert_check_notification(
-                        project, alert_id=check["watch_id"], run_id=check["id"]
+                        project, alert_id=check["alert_id"], run_id=check["id"]
                     )
                 except Exception:
                     LOG.warning(

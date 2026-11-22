@@ -686,7 +686,7 @@ def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
         resolved_query_hash="purge-alert",
     )
     for source_kind, source_ref, dedupe_key, summary in (
-        ("watch", json.dumps({"watch_id": alert, "run_id": wr}), "private", "secret"),
+        ("alert", json.dumps({"alert_id": alert, "run_id": wr}), "private", "secret"),
         ("other", "{}", "public", "unrelated"),
     ):
         insert_notification_item(
@@ -710,22 +710,24 @@ def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
     assert [
         r[0] for r in project.db.execute("SELECT summary FROM notification_items")
     ] == ["unrelated"]
-    assert project.db.execute("SELECT count(*) FROM watch_runs").fetchone()[0] == 1
-    assert project.db.execute("SELECT count(*) FROM watch_run_hits").fetchone()[0] == 1
+    assert project.db.execute("SELECT count(*) FROM alert_checks").fetchone()[0] == 1
     assert (
-        project.db.execute("SELECT row_id FROM watch_run_hits").fetchone()[0]
-        == second[2]
-    )
-    assert project.db.execute("SELECT baseline_run_id FROM watches").fetchone()[0] == wr
-    assert (
-        project.db.execute("SELECT row_id FROM watch_seen_rows").fetchone()[0]
-        == second[2]
+        project.db.execute("SELECT count(*) FROM alert_check_hits").fetchone()[0] == 1
     )
     assert (
-        project.db.execute("SELECT row_id FROM watch_row_field_state").fetchone()[0]
+        project.db.execute("SELECT row_id FROM alert_check_hits").fetchone()[0]
         == second[2]
     )
-    assert project.db.execute("SELECT count(*) FROM watches").fetchone()[0] == 1
+    assert project.db.execute("SELECT baseline_run_id FROM alerts").fetchone()[0] == wr
+    assert (
+        project.db.execute("SELECT row_id FROM alert_seen_rows").fetchone()[0]
+        == second[2]
+    )
+    assert (
+        project.db.execute("SELECT row_id FROM alert_row_field_state").fetchone()[0]
+        == second[2]
+    )
+    assert project.db.execute("SELECT count(*) FROM alerts").fetchone()[0] == 1
 
 
 def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):

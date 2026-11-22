@@ -17,8 +17,8 @@ test('Notifications is a sibling Discover tab, not nested under Alerts', async (
   // (openDiscoverTab reaches the tab whether it's directly visible or folded
   // into the `»` overflow menu, and pins aria-selected — proof both tabs
   // exist as reachable siblings in the strip.)
-  await openDiscoverTab(page, 'Watches');
-  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-watches')).toBeVisible();
+  await openDiscoverTab(page, 'Alerts');
+  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-alerts')).toBeVisible();
   await expect(
     page.getByTestId('workbench-contribution-frisket-core-panel-notifications'),
   ).toHaveCount(0);
@@ -32,6 +32,6 @@ test('Notifications is a sibling Discover tab, not nested under Alerts', async (
     page.getByTestId('workbench-contribution-frisket-core-panel-notifications'),
   ).toBeVisible();
   await expect(page.getByTestId('notifications-panel')).toBeVisible();
-  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-watches')).toHaveCount(0);
+  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-alerts')).toHaveCount(0);
   await expect(page.getByTestId('alerts-panel')).toHaveCount(0);
 });

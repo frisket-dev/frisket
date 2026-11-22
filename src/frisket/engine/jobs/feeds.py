@@ -288,7 +288,7 @@ def register_feed_poll_handler(
                 "op_id": summary["op_id"],
                 "enclosure_jobs": len(jobs),
                 "embedding_refresh_jobs": len(embedding_jobs),
-                "triggered_watch_runs": len(triggered_alert_checks),
+                "triggered_alert_checks": len(triggered_alert_checks),
             }
         finally:
             project.close()

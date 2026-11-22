@@ -157,8 +157,8 @@ function useAlertsPanelController(canEdit: boolean) {
 
   const alertNotificationCounts: AlertNotificationCounts = {};
   for (const item of notificationSummary?.bySourceRef ?? []) {
-    if (item.sourceKind !== 'watch') continue;
-    const alertId = Number(item.sourceRef.watch_id);
+    if (item.sourceKind !== 'alert') continue;
+    const alertId = Number(item.sourceRef.alert_id);
     if (Number.isInteger(alertId) && alertId > 0) alertNotificationCounts[alertId] = item.unseen;
   }
 
@@ -245,7 +245,7 @@ function useAlertsPanelController(canEdit: boolean) {
   // intent on its later mount. Read the store FRESH (alertCheckLinkHandle.store.get(), not
   // the closed-over selector value) so a StrictMode double-fired effect sees
   // the slot already acked and is a no-op the second time.
-  // NO blind clear: only the target this panel owns ('watches') acks.
+  // NO blind clear: only the target this panel owns ('alerts') acks.
   const pendingAlertCheckLink = useSelector(
     alertCheckLinkHandle.store,
     (s) => s.pendingAlertCheckLink,
@@ -733,7 +733,7 @@ function AlertItem({
 }) {
   const RunChevron = expanded ? ChevronDown : ChevronRight;
   const blockedIndexId = blockedEmbeddingIndexId(alert);
-  const { WatchControlSlot: AlertControlSlot } = useEditionModule();
+  const { AlertControlSlot } = useEditionModule();
   const { projectId } = useWorkspaceStores().chromePreferences;
   const itemRef = useRef<HTMLLIElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
@@ -875,8 +875,8 @@ function AlertItem({
       {canEdit && AlertControlSlot && (
         <AlertControlSlot
           projectId={projectId}
-          watch={alert}
-          refreshWatches={onRefreshAlerts}
+          alert={alert}
+          refreshAlerts={onRefreshAlerts}
         />
       )}
       <div className="control-row panel-item-meta">

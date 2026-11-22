@@ -99,7 +99,7 @@ _PROPERTY_VALUES: dict[str, frozenset[str]] = {
             "mentions",
             "sources",
             "views",
-            "watches",
+            "alerts",
             "embeddings",
             "notifications",
             "action",

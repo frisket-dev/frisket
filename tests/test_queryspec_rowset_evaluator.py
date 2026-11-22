@@ -123,7 +123,7 @@ def test_shared_sheet_filter_rowset_drives_grid_locate_and_alert(tmp_path: Path)
 
     alert = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Done tasks",
             "scope": {"kind": "sheet", "sheet_id": sheet_id},
@@ -135,6 +135,6 @@ def test_shared_sheet_filter_rowset_drives_grid_locate_and_alert(tmp_path: Path)
         },
     )
     assert alert.status_code == 200, alert.text
-    run = client.post(f"/api/projects/{pid}/watches/{alert.json()['id']}/run")
+    run = client.post(f"/api/projects/{pid}/alerts/{alert.json()['id']}/check")
     assert run.status_code == 200, run.text
     assert [hit["row_id"] for hit in run.json()["hits"]] == resolved.row_ids

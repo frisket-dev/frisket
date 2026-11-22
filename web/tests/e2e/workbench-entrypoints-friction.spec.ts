@@ -27,21 +27,21 @@ test('hidden contributions recover through the command palette', async ({ page }
 
   // Alerts re-homed into the Discover panel's Alerts tab
   // (workbench-ia-right-edge-v1); hide/reveal now surfaces there.
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const alertsContribution = page
     .getByTestId('discover-panel')
-    .getByTestId('workbench-contribution-frisket-core-panel-watches');
+    .getByTestId('workbench-contribution-frisket-core-panel-alerts');
   await expect(alertsContribution).toBeVisible();
 
   const hidePalette = await openCommandPalette(page);
   await hidePalette
-    .getByTestId('workbench-visibility-command-hide-frisket-core-panel-watches')
+    .getByTestId('workbench-visibility-command-hide-frisket-core-panel-alerts')
     .click();
   await page.getByLabel('Close command palette').click();
   await expect(alertsContribution).toHaveCount(0);
 
   const palette = await openCommandPalette(page);
-  await palette.getByTestId('workbench-visibility-command-reveal-frisket-core-panel-watches').click();
+  await palette.getByTestId('workbench-visibility-command-reveal-frisket-core-panel-alerts').click();
   await expect(alertsContribution).toBeVisible();
 });
 

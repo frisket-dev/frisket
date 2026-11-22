@@ -59,6 +59,11 @@ from frisket.upgrades.project.edit_precedence_migration import (
     EDIT_PRECEDENCE_TO_DIGEST,
     apply_edit_precedence,
 )
+from frisket.upgrades.project.alerts_migration import (
+    ALERTS_FROM_DIGEST,
+    ALERTS_TO_DIGEST,
+    migrate_alerts,
+)
 from frisket.upgrades.project.citations_migration import (
     CITATIONS_TO_DIGEST,
     migrate_citations,
@@ -209,6 +214,13 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         GENERATED_COLUMNS_FROM_DIGEST,
         GENERATED_COLUMNS_TO_DIGEST,
         apply_generated_columns_migration,
+    )
+    run_rebuild_step(
+        db,
+        ALERTS_FROM_DIGEST,
+        ALERTS_TO_DIGEST,
+        migrate_alerts,
+        bundle_path=bundle_path,
     )
 
 

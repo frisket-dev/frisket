@@ -56,31 +56,31 @@ test('the palette hides a re-homed panel (Alerts) and it recovers', async ({ pag
   await openProject(page, pid, sheetId);
 
   // Alerts now renders in the Discover panel's Alerts tab.
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const discover = page.getByTestId('discover-panel');
   await expect(
-    discover.getByTestId('workbench-contribution-frisket-core-panel-watches'),
+    discover.getByTestId('workbench-contribution-frisket-core-panel-alerts'),
   ).toBeVisible();
 
   const hidePalette = await openCommandPalette(page);
   await hidePalette
-    .getByTestId('workbench-visibility-command-hide-frisket-core-panel-watches')
+    .getByTestId('workbench-visibility-command-hide-frisket-core-panel-alerts')
     .click();
   await page.getByLabel('Close command palette').click();
 
   // Contribution-scoped hide: the Discover panel body drops it.
   await expect(
-    discover.getByTestId('workbench-contribution-frisket-core-panel-watches'),
+    discover.getByTestId('workbench-contribution-frisket-core-panel-alerts'),
   ).toHaveCount(0);
 
   // Revealing through the palette restores it to the Discover panel.
   const revealPalette = await openCommandPalette(page);
   await revealPalette
-    .getByTestId('workbench-visibility-command-reveal-frisket-core-panel-watches')
+    .getByTestId('workbench-visibility-command-reveal-frisket-core-panel-alerts')
     .click();
   await page.getByLabel('Close command palette').click();
   await expect(
-    discover.getByTestId('workbench-contribution-frisket-core-panel-watches'),
+    discover.getByTestId('workbench-contribution-frisket-core-panel-alerts'),
   ).toBeVisible();
 });
 

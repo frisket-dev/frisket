@@ -16,7 +16,7 @@ export type {
   EditionModule,
   EditionModuleDefinition,
   PersonalProfileSlotProps,
-  WatchControlSlotProps,
+  AlertControlSlotProps,
 } from './editions/module';
 export type {
   EditionDescriptor,

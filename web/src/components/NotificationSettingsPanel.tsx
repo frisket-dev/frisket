@@ -47,7 +47,7 @@ interface RouteDraft {
   name: string;
   channelId: string;
   enabled: boolean;
-  sourceKind: 'all' | 'watch' | 'run' | 'import' | 'source';
+  sourceKind: 'all' | 'alert' | 'run' | 'import' | 'source';
   alertId: string;
   severityMin: 'info' | 'warning' | 'critical';
   deliveryMode: 'immediate' | 'digest';
@@ -71,7 +71,7 @@ const initialRouteDraft: RouteDraft = {
   name: 'Alert Slack immediate',
   channelId: '',
   enabled: true,
-  sourceKind: 'watch',
+  sourceKind: 'alert',
   alertId: '',
   severityMin: 'info',
   deliveryMode: 'immediate',
@@ -99,8 +99,8 @@ function routeModeLabel(route: NotificationRoute): string {
 
 function sourceMatchLabel(route: NotificationRoute): string {
   if (!route.sourceKind) return 'all notifications';
-  const alertId = route.sourceRefMatch.watch_id;
-  if (route.sourceKind === 'watch' && alertId !== undefined) return `watch_id: ${String(alertId)}`;
+  const alertId = route.sourceRefMatch.alert_id;
+  if (route.sourceKind === 'alert' && alertId !== undefined) return `alert_id: ${String(alertId)}`;
   return route.sourceKind;
 }
 
@@ -127,8 +127,8 @@ function statusChipTone(status: string): StatusTone {
 }
 
 function routePayload(draft: RouteDraft) {
-  const sourceRefMatch = draft.sourceKind === 'watch' && draft.alertId.trim()
-    ? { watch_id: Number(draft.alertId.trim()) }
+  const sourceRefMatch = draft.sourceKind === 'alert' && draft.alertId.trim()
+    ? { alert_id: Number(draft.alertId.trim()) }
     : {};
   return {
     name: draft.name.trim(),
@@ -513,14 +513,14 @@ function RouteSection({
         </FormField>
         <FormField layout="inline" label="Triggered by">
           <PanelSelect data-testid="notification-route-source-kind" value={draft.sourceKind} onChange={(event) => onDraftChange({ sourceKind: event.target.value as RouteDraft['sourceKind'] })}>
-            <option value="watch">Alert</option>
+            <option value="alert">Alert</option>
             <option value="run">Run</option>
             <option value="import">Import</option>
             <option value="source">Feed</option>
             <option value="all">All</option>
           </PanelSelect>
         </FormField>
-        {draft.sourceKind === 'watch' && (
+        {draft.sourceKind === 'alert' && (
           <FormField layout="inline" label="Alert ID">
             <TextInput aria-label="Alert ID" data-testid="notification-route-alert-id" value={draft.alertId} onChange={(event) => onDraftChange({ alertId: event.target.value })} placeholder="Alert ID" />
           </FormField>

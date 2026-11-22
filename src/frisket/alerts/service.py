@@ -44,7 +44,7 @@ def alert_match_dict(row: Any) -> dict[str, Any]:
 def resolve_alert_check(project: Project, row: Any) -> dict[str, Any]:
     query = normalize_selection(project, alert_query(row))
     return {
-        "watch": dict(row),
+        "alert": dict(row),
         "resolved_query": query,
         "resolved_query_hash": membership_hash(query),
     }
@@ -62,7 +62,7 @@ def check_alert(project: Project, row: Any) -> dict[str, Any]:
         except AlertCheckConflict as exc:
             row = project.get_alert(int(row["id"]))
             if row is None or attempt:
-                raise AlertBindingError("watch_check_conflict", str(exc)) from exc
+                raise AlertBindingError("alert_check_conflict", str(exc)) from exc
     raise AssertionError("unreachable")
 
 
@@ -89,7 +89,7 @@ def _check_alert(project: Project, row: Any) -> dict[str, Any]:
             expected = get_alert(snapshot, alert_id)
             if expected is None:
                 raise AlertBindingError(
-                    "watch_not_found", "The alert was deleted."
+                    "alert_not_found", "The alert was deleted."
                 ) from exc
             error, error_code, status = (
                 str(exc),
@@ -118,7 +118,7 @@ def _check_alert(project: Project, row: Any) -> dict[str, Any]:
         project, alert_id=alert_id, run_id=run_id
     )
     return {
-        "watch_id": alert_id,
+        "alert_id": alert_id,
         "run_id": run_id,
         "run": dict(run),
         "hits": [

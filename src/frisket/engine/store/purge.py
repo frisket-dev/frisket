@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS project_purges (
  created_at TEXT NOT NULL DEFAULT(datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS project_purge_targets (
- kind TEXT NOT NULL CHECK(kind IN ('sheet','column','row','change','run','artifact','watch_run','text_surface','qa_thread')),
+ kind TEXT NOT NULL CHECK(kind IN ('sheet','column','row','change','run','artifact','alert_check','text_surface','qa_thread')),
  object_id INTEGER NOT NULL,
  purge_id INTEGER NOT NULL REFERENCES project_purges(id),
  PRIMARY KEY(purge_id,kind,object_id)
@@ -268,8 +268,8 @@ def begin_purge(
             f"SELECT id FROM text_surfaces WHERE {_scope(sheet='text_sheet_id', column='text_column_id', row='text_row_id')} OR {_scope(sheet="json_extract(surface_ref_json,'$.identity.sheet_id')", row="json_extract(surface_ref_json,'$.identity.row_id')")}",
         )
         remember(
-            "watch_run",
-            f"SELECT run_id id FROM watch_run_hits WHERE {_scope(sheet='sheet_id', column='column_id', row='row_id')} UNION SELECT run_id FROM watch_run_events WHERE {_scope(sheet="json_extract(subject_ref,'$.sheet_id')", column="json_extract(subject_ref,'$.column_id')", row="json_extract(subject_ref,'$.row_id')")}",
+            "alert_check",
+            f"SELECT run_id id FROM alert_check_hits WHERE {_scope(sheet='sheet_id', column='column_id', row='row_id')} UNION SELECT run_id FROM alert_check_events WHERE {_scope(sheet="json_extract(subject_ref,'$.sheet_id')", column="json_extract(subject_ref,'$.column_id')", row="json_extract(subject_ref,'$.row_id')")}",
         )
         # Offline destructive maintenance also stops affected producers. Keep
         # completed contributions applied; never turn purge into a cascade.
@@ -455,11 +455,14 @@ def _scrub_content(project, p, batch_size):
         ("replay_edit_dismissals", cell),
         ("column_descriptor_changes", _scope(column="column_id")),
         ("citations", scope),
-        ("watch_row_field_state", scope),
-        ("watch_seen_rows", _scope(sheet="sheet_id", row="row_id")),
-        ("watch_run_hits", _scope(sheet="sheet_id", column="column_id", row="row_id")),
+        ("alert_row_field_state", scope),
+        ("alert_seen_rows", _scope(sheet="sheet_id", row="row_id")),
         (
-            "watch_run_events",
+            "alert_check_hits",
+            _scope(sheet="sheet_id", column="column_id", row="row_id"),
+        ),
+        (
+            "alert_check_events",
             _scope(
                 sheet="json_extract(subject_ref,'$.sheet_id')",
                 column="json_extract(subject_ref,'$.column_id')",
@@ -468,7 +471,7 @@ def _scrub_content(project, p, batch_size):
         ),
         (
             "notification_items",
-            f"(source_kind='watch' AND json_extract(source_ref,'$.run_id') IN ({_targets('watch_run')})) OR EXISTS (SELECT 1 FROM json_each(source_event_ids) e JOIN watch_run_events w ON w.id=e.value WHERE w.run_id IN ({_targets('watch_run')}))",
+            f"(source_kind='alert' AND json_extract(source_ref,'$.run_id') IN ({_targets('alert_check')})) OR EXISTS (SELECT 1 FROM json_each(source_event_ids) e JOIN alert_check_events w ON w.id=e.value WHERE w.run_id IN ({_targets('alert_check')}))",
         ),
     )
     for table, predicate in deletions:
@@ -518,9 +521,9 @@ def _scrub_content(project, p, batch_size):
         ),
         ("columns", "name='purged_'||id,format=NULL", f"id IN ({_targets('column')})"),
         (
-            "watch_runs",
+            "alert_checks",
             "resolved_query='{}',resolved_query_hash=NULL,detection_policy=NULL,error=NULL",
-            f"id IN ({_targets('watch_run')})",
+            f"id IN ({_targets('alert_check')})",
         ),
         (
             "sheets",

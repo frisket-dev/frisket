@@ -462,7 +462,7 @@ def test_alert_evaluate_handler_requires_delivery_queue(tmp_path):
 def _notification_count(env):
     # Index refresh runs notify as runs; these tests count alert notifications.
     return env.project.db.execute(
-        "SELECT COUNT(*) AS n FROM notification_items WHERE source_kind='watch'"
+        "SELECT COUNT(*) AS n FROM notification_items WHERE source_kind='alert'"
     ).fetchone()["n"]
 
 
@@ -485,7 +485,7 @@ def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
         assert _notification_count(env) == 0
     before = env.project.get_alert(alert_id)["last_evaluated_op"]
     seen = [
-        dict(row) for row in env.project.db.execute("SELECT * FROM watch_seen_rows")
+        dict(row) for row in env.project.db.execute("SELECT * FROM alert_seen_rows")
     ]
     with monkeypatch.context() as missing_runtime:
         missing_runtime.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
@@ -505,7 +505,7 @@ def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
     assert alert["last_evaluated_op"] == before
     assert alert["baseline_run_id"] == (baseline["run_id"] if baseline else None)
     assert [
-        dict(row) for row in env.project.db.execute("SELECT * FROM watch_seen_rows")
+        dict(row) for row in env.project.db.execute("SELECT * FROM alert_seen_rows")
     ] == seen
     assert _notification_count(env) == 0
     recovered = check_alert(env.project, env.project.get_alert(alert_id))
@@ -607,11 +607,11 @@ def test_queued_automatic_alert_rechecks_pause_but_manual_evaluation_remains_ava
     [queued] = env.queue.list_project_jobs(
         env.project_id, kind=ALERT_EVALUATE_KIND, status="queued"
     )
-    assert queued.payload["watch_id"] == alert_id
+    assert queued.payload["alert_id"] == alert_id
 
     # The lifecycle route owns the corresponding public mutation. This direct
     # state transition isolates the worker's required re-fetch-at-claim seam.
-    env.project.db.execute("UPDATE watches SET enabled=0 WHERE id=?", (alert_id,))
+    env.project.db.execute("UPDATE alerts SET enabled=0 WHERE id=?", (alert_id,))
     env.project.db.commit()
 
     assert worker.run_once() is True
@@ -620,7 +620,7 @@ def test_queued_automatic_alert_rechecks_pause_but_manual_evaluation_remains_ava
     )
     assert completed.result == {
         "project_id": env.project_id,
-        "watch_id": alert_id,
+        "alert_id": alert_id,
         "skipped": True,
         "reason": "disabled",
     }
