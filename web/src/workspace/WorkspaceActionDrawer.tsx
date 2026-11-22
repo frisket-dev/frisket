@@ -5,11 +5,13 @@ import { ActionDrawer } from '../workbench/ActionDrawer';
 import { isRunActionBlockedStatus } from '../runStatusModel';
 import { ActionWorkbenchFormFrame } from '../workbench/contributions';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
+import { useViewsHandle } from '../bind/useViewsHandle';
 import { useRouteHandle } from '../bind/useRouteHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWorkspaceShell, useRun, useSelectedRowIdsForSheet, useCurrentSheet } from './WorkspaceContext';
+import { sameViewSelection } from './viewDefinition';
 import { useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 const LazyActionPanel = lazy(() => (
@@ -40,6 +42,9 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   const { sheet } = useCurrentSheet();
   const sheetId = sheet?.id ?? null;
   const gridView = useGridViewHandle();
+  const viewsHandle = useViewsHandle();
+  const activeViewId = useSelector(gridView.store, (state) => state.activeViewId);
+  const views = useSelector(viewsHandle.store, (state) => state.views);
   const baseSelection = useSelector(gridView.store, (state) => state.applied.selection ?? null);
   const activeGridFilter = useSelector(gridView.store, (state) => state.applied.filter);
   const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
@@ -59,6 +64,21 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   const routeActionKind = useSelector(route.store, (s) => s.actionKind);
   const hasActionTarget = Boolean(routeActionKind || proposalInspect);
   const currentSelection = useCurrentViewSelection(sheet);
+  const activeView = useMemo(() => {
+    if (!sheet || selectedRowIdsForSheet.length > 0 || activeViewId === null || !currentSelection) {
+      return null;
+    }
+    const candidate = views.find((item) => item.id === activeViewId);
+    if (!candidate?.spec?.selection) return null;
+    if (
+      candidate.spec.selection.scope.kind !== 'sheet'
+      || candidate.spec.selection.scope.sheet_id !== Number(sheet.id)
+    ) {
+      return null;
+    }
+    if (!sameViewSelection(candidate.spec.selection, currentSelection)) return null;
+    return { id: candidate.id, name: candidate.name };
+  }, [sheet, selectedRowIdsForSheet.length, activeViewId, currentSelection, views]);
   const viewSelection = useMemo(() => {
     if (!sheet || selectedRowIdsForSheet.length > 0) return null;
     if (!baseSelection && !activeGridFilter && !activeChildFilter && scopeRowIds === null) return null;
@@ -85,7 +105,9 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: actionPanelVisible && hasActionTarget ? ['action'] : [] });
   if (!actionPanelVisible) return null;
   if (!routeActionKind && !proposalInspect) return null;
-  const hasExactRowScopeInitializer = selectedRowIdsForSheet.length > 0 || viewSelection !== null;
+  const hasExactRowScopeInitializer = (
+    selectedRowIdsForSheet.length > 0 || activeView !== null || viewSelection !== null
+  );
 
   return (
     <ActionDrawer onClose={closeDrawer}>
@@ -103,6 +125,8 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
           launchPending={launchPending}
           runningLabel={launchPending ? 'Starting…' : run?.status === 'queued' ? 'Queued…' : 'Running…'}
           selectedRowIds={selectedRowIdsForSheet}
+          viewId={activeView?.id ?? null}
+          viewName={activeView?.name ?? null}
           viewSelection={viewSelection}
           hasExactRowScopeInitializer={hasExactRowScopeInitializer}
           activeRowId={activeDetailRowId ?? undefined}

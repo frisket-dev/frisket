@@ -46,18 +46,23 @@ export async function backfillWithConfirmation(
   sheetId: string,
   columnName: string,
   rowIds?: number[],
+  viewId?: number,
 ): Promise<BackfillResult | null> {
   try {
-    // rowIds: a deliberate per-row retry names its exact rows; omitted, this
-    // is the plain sweep. The transport preserves this distinction in scope.
-    return await api.backfillColumn(sheetId, columnName, false, rowIds);
+    // rowIds: a deliberate per-row retry names its exact rows; viewId scopes
+    // the sweep to newly matching rows in that saved View; omitted is the plain sweep.
+    return viewId !== undefined
+      ? await api.backfillColumn(sheetId, columnName, false, rowIds, undefined, viewId)
+      : await api.backfillColumn(sheetId, columnName, false, rowIds);
   } catch (e: unknown) {
     if (e instanceof ConfirmationRequiredError) {
       const consentedHash = e.estimate.promise_set_hash;
       if (!consentedHash) throw e;
       const approved = await requestConfirmation(e.estimate, e.message);
       if (!approved) return null;
-      return api.backfillColumn(sheetId, columnName, true, rowIds, consentedHash);
+      return viewId !== undefined
+        ? api.backfillColumn(sheetId, columnName, true, rowIds, consentedHash, viewId)
+        : api.backfillColumn(sheetId, columnName, true, rowIds, consentedHash);
     }
     throw e;
   }

@@ -78,7 +78,9 @@ export function throwIfActionAborted(signal?: AbortSignal): void {
 }
 
 function canonicalSheetRowScope(rowScope: SheetRowScope): SheetRowScope {
-  if (rowScope.selector.kind === 'all_rows') return rowScope;
+  if (rowScope.selector.kind === 'all_rows' || rowScope.selector.kind === 'view') {
+    return rowScope;
+  }
   return {
     sheet_id: rowScope.sheet_id,
     selector: {

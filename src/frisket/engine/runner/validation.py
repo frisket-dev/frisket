@@ -64,6 +64,10 @@ from frisket.engine.runner.row_inputs import (
     row_source_values_empty,
     row_values,
 )
+from frisket.engine.executor.selection_scope import (
+    evaluate_sheet_view_row_ids,
+    stored_view_id_from_runner_spec,
+)
 from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import (
     CONSENT_BASIS_ALLOWANCE,
@@ -764,6 +768,15 @@ def target_rows(project: Project, spec: dict) -> list[int]:
         if missing:
             raise InvalidTargetRows(missing)
         return visible
+    row_scope = spec.get("row_scope")
+    if isinstance(row_scope, Mapping) and row_scope.get("kind") == "view":
+        view_id = stored_view_id_from_runner_spec(spec)
+        assert view_id is not None
+        return evaluate_sheet_view_row_ids(
+            project,
+            sheet_id=int(sheet_id),
+            view_id=view_id,
+        )
     return project.visible_row_ids(sheet_id)
 
 

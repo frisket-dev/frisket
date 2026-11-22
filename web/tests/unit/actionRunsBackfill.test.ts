@@ -95,4 +95,23 @@ describe('typed backfill transport', () => {
     expect(posts[0].confirmation).toBeUndefined();
     expect(posts[0].params).toEqual({ column: 'Transcript' });
   });
+
+  it('sends view_id in scope for saved-view backfill and confirmation retry', async () => {
+    const posts: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      posts.push(JSON.parse(String(init.body)));
+      return posts.length === 1 ? response({
+        ...completed, status: 'needs_confirmation', outputs: [],
+        errors: [{ code: 'model_cost_requires_confirmation', message: 'Approve view backfill',
+          details: { reason: 'model_cost', estimate: { cost: 1.25, rows: 3 }, promise_set_hash: 'view-bf-quote' } }],
+      }, 402) : response(completed);
+    }));
+    const approve = vi.fn(async () => true);
+    const api = createProjectApi('backfill-wire');
+    await expect(backfillWithConfirmation(api, approve, '7', 'Transcript', undefined, 42))
+      .resolves.toEqual({ filled: 2, runId: '12' });
+    expect(posts).toHaveLength(2);
+    expect(posts[0].scope).toEqual({ kind: 'sheet_rows', sheet_id: 7, view_id: 42 });
+    expect(posts[1]).toEqual({ ...posts[0], confirmation: 'view-bf-quote' });
+  });
 });

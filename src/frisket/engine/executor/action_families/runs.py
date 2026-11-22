@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from frisket.contracts.action import (
@@ -13,6 +14,12 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _ActionExecutionEnvelope
+from frisket.engine.executor.selection_scope import (
+    evaluate_sheet_selection_row_ids,
+    evaluate_sheet_view_row_ids,
+    stored_view_id_from_runner_spec,
+)
+from frisket.engine.views.specs import SelectionUnavailable
 from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -88,12 +95,181 @@ def _run_backfill_terminal_projection(
     ]
 
 
+def _backfill_parent_run_id(receipts: ReceiptStore, run_id: int) -> int | None:
+    stored = receipts.latest_for_run_statuses(run_id, FINISHED_RECEIPT_STATUSES)
+    if stored is None:
+        return None
+    try:
+        parsed = stored.parsed()
+    except ValueError:
+        return None
+    for record in parsed.records:
+        ref = record.ref
+        if (
+            ref.get("kind") == "backfill_source_generation"
+            and ref.get("successor_run_id") == run_id
+            and isinstance(ref.get("run_id"), int)
+            and not isinstance(ref.get("run_id"), bool)
+        ):
+            return int(ref["run_id"])
+    return None
+
+
+def _empty_view_generation_origin(project: Project, column_id: int) -> list[int]:
+    empty_gen_rows = project.db.execute(
+        "SELECT generation.run_id, run.params FROM run_output_generations generation "
+        "JOIN runs run ON run.id=generation.run_id "
+        "JOIN changes op ON op.id=run.change_id "
+        "JOIN run_scopes scope ON scope.run_id=generation.run_id "
+        "WHERE generation.column_id=? AND op.status='applied' "
+        "AND scope.row_count=0 ORDER BY generation.run_id DESC LIMIT 2",
+        (int(column_id),),
+    ).fetchall()
+    if len(empty_gen_rows) != 1:
+        return []
+    try:
+        stored_spec = json.loads(empty_gen_rows[0]["params"] or "{}")
+    except (TypeError, ValueError):
+        return []
+    if (
+        isinstance(stored_spec, dict)
+        and stored_view_id_from_runner_spec(stored_spec) is not None
+    ):
+        return [int(empty_gen_rows[0]["run_id"])]
+    return []
+
+
+def _single_backfill_lineage_run_id(
+    project: Project,
+    generation_store: ResultGenerationStore,
+    column_id: int,
+) -> list[int]:
+    """Return a single origin run_id when all column origins form one backfill lineage."""
+    rows = project.db.execute(
+        "SELECT DISTINCT run_id FROM generated_result_candidates "
+        "WHERE column_id=? ORDER BY run_id DESC",
+        (int(column_id),),
+    ).fetchall()
+    origin_ids = [int(row["run_id"]) for row in rows]
+    if not origin_ids:
+        return _empty_view_generation_origin(project, column_id)
+    if len(origin_ids) == 1:
+        return origin_ids
+
+    receipts = ReceiptStore(project)
+    parent_cache: dict[int, int | None] = {}
+
+    def _lineage_root(run_id: int) -> int:
+        current = run_id
+        visited: set[int] = set()
+        while current not in visited:
+            visited.add(current)
+            if current not in parent_cache:
+                parent_cache[current] = _backfill_parent_run_id(receipts, current)
+            next_id = parent_cache[current]
+            if next_id is None:
+                return current
+            current = next_id
+        return current
+
+    roots = {_lineage_root(run_id) for run_id in origin_ids}
+    if len(roots) == 1:
+        return [origin_ids[0]]
+    return generation_store.origin_run_ids(column_id, limit=2)
+
+
+@dataclass(frozen=True)
+class _BackfillSweepContext:
+    sheet_id: int
+    run_id: int
+    all_row_ids: list[int]
+    heads: dict[int, Any]
+    view_id: int | None
+    selection: dict[str, Any] | None
+    action_kind: str = "run.backfill"
+
+
+def _apply_backfill_sweep_view_scope(
+    project: Project,
+    runner_spec: dict[str, Any],
+    ctx: _BackfillSweepContext,
+) -> list[int] | ActionError:
+    try:
+        stored_view_id = stored_view_id_from_runner_spec(runner_spec)
+    except ValueError as exc:
+        return ActionError(
+            code="invalid_run_params",
+            message=str(exc),
+            action_kind=ctx.action_kind,
+            field="params.column",
+            details={"run_id": int(ctx.run_id)},
+        )
+    done_row_ids = {
+        row_id
+        for row_id, head in ctx.heads.items()
+        if head.outcome not in FAILURE_OUTCOMES
+    }
+    effective_view_id = ctx.view_id if ctx.view_id is not None else stored_view_id
+    if ctx.selection is not None:
+        try:
+            matched_rows = set(
+                evaluate_sheet_selection_row_ids(
+                    project,
+                    sheet_id=ctx.sheet_id,
+                    selection=ctx.selection,
+                )
+            )
+        except SelectionUnavailable as exc:
+            return ActionError(
+                code=exc.code,
+                message=str(exc),
+                action_kind=ctx.action_kind,
+                field="scope.selection",
+            )
+        runner_spec.pop("row_scope", None)
+        return [
+            row_id
+            for row_id in ctx.all_row_ids
+            if row_id in matched_rows and row_id not in done_row_ids
+        ]
+    if effective_view_id is not None:
+        try:
+            matched_rows = set(
+                evaluate_sheet_view_row_ids(
+                    project,
+                    sheet_id=ctx.sheet_id,
+                    view_id=effective_view_id,
+                )
+            )
+        except SelectionUnavailable as exc:
+            return ActionError(
+                code=exc.code,
+                message=str(exc),
+                action_kind=ctx.action_kind,
+                field="scope.view_id" if ctx.view_id is not None else "params.column",
+                details={"view_id": int(effective_view_id)},
+            )
+        runner_spec["row_scope"] = {
+            "kind": "view",
+            "view_id": int(effective_view_id),
+        }
+        return [
+            row_id
+            for row_id in ctx.all_row_ids
+            if row_id in matched_rows and row_id not in done_row_ids
+        ]
+    runner_spec.pop("row_scope", None)
+    return [row_id for row_id in ctx.all_row_ids if row_id not in done_row_ids]
+
+
 def _resolve_backfill_target(
     project: Project,
     *,
     sheet_id: int,
     column: str,
     row_ids: list[int] | None = None,
+    view_id: int | None = None,
+    selection: dict[str, Any] | None = None,
     confirmation: str | None = None,
     source_run_id: int | None = None,
 ) -> dict[str, Any] | ActionError:
@@ -196,15 +372,17 @@ def _resolve_backfill_target(
             )
     else:
         # An automatic sweep fills cells without successful heads. Its source
-        # is representable only while the column has one active generation;
-        # a mixed-origin column has no single action to apply to a new row.
+        # is representable only while the column has one active generation
+        # lineage; a mixed-origin column has no single action to apply to a new row.
         done_row_ids = {
             row_id
             for row_id, head in heads.items()
             if head.outcome not in FAILURE_OUTCOMES
         }
         unrun_row_ids = [row_id for row_id in all_row_ids if row_id not in done_row_ids]
-        source_run_ids = generation_store.origin_run_ids(column_id, limit=2)
+        source_run_ids = _single_backfill_lineage_run_id(
+            project, generation_store, column_id
+        )
     if not source_run_ids:
         return ActionError(
             code="run_required",
@@ -382,7 +560,25 @@ def _resolve_backfill_target(
     runner_spec.pop("halted_reason", None)
     runner_spec.pop("_frisket_queued_action_run", None)
     # Retry-only state belongs to the old run. The successor is an ordinary
-    # fresh run over an explicit row scope.
+    # fresh run over an explicit row scope (preserving View lineage when
+    # the source run or backfill request is view-scoped).
+    if source_run_id is None and row_ids is None:
+        scoped = _apply_backfill_sweep_view_scope(
+            project,
+            runner_spec,
+            _BackfillSweepContext(
+                sheet_id=sheet_id,
+                run_id=int(run_id),
+                all_row_ids=all_row_ids,
+                heads=heads,
+                view_id=view_id,
+                selection=selection,
+                action_kind=action_kind,
+            ),
+        )
+        if isinstance(scoped, ActionError):
+            return scoped
+        unrun_row_ids = scoped
     runner_spec["row_ids"] = unrun_row_ids
     runner_spec["overwrite"] = True
     return {

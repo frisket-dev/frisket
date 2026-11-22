@@ -91,6 +91,8 @@ interface ActionPanelProps {
   launchPending?: boolean;
   runningLabel?: string;
   selectedRowIds?: string[];
+  viewId?: number | null;
+  viewName?: string | null;
   viewSelection?: ViewSelection | null;
   hasExactRowScopeInitializer?: boolean;
   /** Active Detail row used by literal temporal drafts when row markers are
@@ -114,8 +116,8 @@ interface ActionPanelProps {
   /** Drawer × — closes the drawer and returns focus to the grid. */
   onClose?: () => void;
   /** Re-run failed/missing rows (run.backfill path) — enabled iff the resolved
-   *  target column currently has failures/gaps; undefined = not offered. */
-  onBackfill?: (targetColumnName: string) => void;
+   *  target column currently has failures/gaps or an active saved View; undefined = not offered. */
+  onBackfill?: (targetColumnName: string, rowIds?: number[], viewId?: number) => void;
   /** The shared configure-first launch seam (runActionFromSurface), threaded
    *  down so an in-form deep link (the "Ask every row" button; the geocode
    *  empty-state's "Run Geocode first") can open a DIFFERENT action prefilled,
@@ -152,6 +154,8 @@ export function ActionPanel({
   launchPending = false,
   runningLabel = 'Running…',
   selectedRowIds = EMPTY_SELECTED_ROW_IDS,
+  viewId = null,
+  viewName = null,
   viewSelection = null,
   hasExactRowScopeInitializer = false,
   activeRowId,
@@ -607,9 +611,19 @@ export function ActionPanel({
             title={openAction.title}
             sheet={sheet}
             selectedRowIds={generatedSelectedRowIds}
+            viewId={openAction.generatedDraft?.scope.kind === 'sheet_rows'
+              ? openAction.generatedDraft.scope.view_id ?? null
+              : viewId}
+            viewName={openAction.generatedDraft?.scope.kind === 'sheet_rows'
+              ? null
+              : viewName}
             viewSelection={openAction.generatedDraft?.scope.kind === 'sheet_rows' ? openAction.generatedDraft.scope.selection ?? null : viewSelection}
             hasExactRowScopeInitializer={hasExactRowScopeInitializer
-              || (savedScope?.kind === 'sheet_rows' && savedScope.row_ids !== undefined)}
+              || (savedScope?.kind === 'sheet_rows' && (
+                savedScope.row_ids !== undefined
+                || savedScope.view_id !== undefined
+                || savedScope.selection !== undefined
+              ))}
             initialSourceColumn={openAction.initial?.sourceColumn}
             initialPrompt={openAction.initial?.prompt}
             initialDraft={openAction.generatedDraft}

@@ -765,23 +765,35 @@ def bind_typed_action_job(
             from .selection_scope import freeze_action_selection
             from frisket.actions.types import SheetRows
 
-            frozen_scope = SheetRows.model_validate(
-                envelope.resolved_snapshot["selection_scope"]
-            )
+            raw_frozen_scope = envelope.resolved_snapshot["selection_scope"]
             request_scope = bound.request.scope
             if (
-                not isinstance(request_scope, SheetRows)
-                or frozen_scope.selection is not None
-                or frozen_scope.row_ids is None
-                or frozen_scope.sheet_id != request_scope.sheet_id
+                isinstance(raw_frozen_scope, dict)
+                and raw_frozen_scope.get("row_ids") == []
+                and isinstance(request_scope, SheetRows)
+                and request_scope.view_id is not None
+                and raw_frozen_scope.get("kind") == "sheet_rows"
+                and raw_frozen_scope.get("sheet_id") == request_scope.sheet_id
+                and raw_frozen_scope.get("selection") is None
+                and raw_frozen_scope.get("view_id") is None
             ):
-                raise ValueError("Frozen action selection scope is invalid")
-            bound = freeze_action_selection(bound, frozen_scope.row_ids)
+                bound = freeze_action_selection(bound, ())
+            else:
+                frozen_scope = SheetRows.model_validate(raw_frozen_scope)
+                if (
+                    not isinstance(request_scope, SheetRows)
+                    or frozen_scope.selection is not None
+                    or frozen_scope.view_id is not None
+                    or frozen_scope.row_ids is None
+                    or frozen_scope.sheet_id != request_scope.sheet_id
+                ):
+                    raise ValueError("Frozen action selection scope is invalid")
+                bound = freeze_action_selection(bound, frozen_scope.row_ids)
         from frisket.actions.types import SheetRows
 
-        if (
-            isinstance(bound.request.scope, SheetRows)
-            and bound.request.scope.selection is not None
+        if isinstance(bound.request.scope, SheetRows) and (
+            bound.request.scope.selection is not None
+            or bound.request.scope.view_id is not None
         ):
             raise ValueError("Queued View selection has no frozen cohort")
         if (

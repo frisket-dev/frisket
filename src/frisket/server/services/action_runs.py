@@ -52,6 +52,7 @@ from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.import_intake import import_intake_dir
 from frisket.engine.store.receipts import (
     ReceiptStore,
@@ -637,12 +638,18 @@ class ActionRunService:
             return
         try:
             sheet_id = int(scope["sheet_id"])
-            selected = scope.get("row_ids")
-            row_ids = (
-                project.visible_row_ids(sheet_id)
-                if selected is None
-                else [int(value) for value in selected]
-            )
+            row_ids: list[int] | None = None
+            if result.run_id is not None:
+                row_ids = RunResultStore(project).run_row_scope_if_present(
+                    result.run_id
+                )
+            if row_ids is None:
+                selected = scope.get("row_ids")
+                row_ids = (
+                    project.visible_row_ids(sheet_id)
+                    if selected is None
+                    else [int(value) for value in selected]
+                )
         except (KeyError, TypeError, ValueError):
             return
         if not row_ids:

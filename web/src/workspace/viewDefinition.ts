@@ -30,13 +30,23 @@ export function gridFromSelection(sheet: SheetMeta, selection: ViewSelection): {
   };
 }
 
+function canonicalViewValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalViewValue).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalViewValue(child)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export function sameViewDefinition(a: ViewDefinitionInput, b: ViewDefinitionInput): boolean {
-  const canonical = (value: unknown): string => {
-    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-    if (value !== null && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(',')}}`;
-    return JSON.stringify(value);
-  };
-  return canonical(a) === canonical(b);
+  return canonicalViewValue(a) === canonicalViewValue(b);
+}
+
+export function sameViewSelection(a: ViewSelection, b: ViewSelection): boolean {
+  return canonicalViewValue(a) === canonicalViewValue(b);
 }
 
 /** Layout references are IDs on disk; grid-local names are resolved only at the boundary. */

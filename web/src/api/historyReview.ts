@@ -503,7 +503,12 @@ export function createHistoryReviewApi(
       });
       return {
         action_id: draft.action_id,
-        scope: draft.scope,
+        scope: {
+          kind: draft.scope.kind,
+          sheet_id: draft.scope.sheet_id,
+          row_ids: draft.scope.row_ids,
+          ...(draft.scope.view_id == null ? {} : { view_id: draft.scope.view_id }),
+        },
         params: draft.params,
         output_names: draft.output_names,
         ...(draft.sheet_name == null ? {} : { sheet_name: draft.sheet_name }),

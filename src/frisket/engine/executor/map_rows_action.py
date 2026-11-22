@@ -76,6 +76,7 @@ from frisket.actions.types import (
     RowError,
     RowResult,
     Rows,
+    SheetRows,
     Template,
     discover_references,
     require_sheet_rows,
@@ -83,6 +84,8 @@ from frisket.actions.types import (
 )
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.engine.executor.invocation_context import HostInvocationContext
+from frisket.engine.executor.selection_scope import stored_view_id_from_runner_spec
+from frisket.engine.views.specs import SelectionUnavailable
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
@@ -2009,6 +2012,21 @@ def _runner_spec_expected_generated_columns(
     return runner_spec.get("expected_output_columns")
 
 
+def _attach_stored_view_scope(
+    bound: BoundTypedActionRequest, runner_spec: Mapping[str, Any]
+) -> BoundTypedActionRequest:
+    stored_view_id = stored_view_id_from_runner_spec(runner_spec)
+    if stored_view_id is None or not isinstance(bound.request.scope, SheetRows):
+        return bound
+    return replace(
+        bound,
+        authored_scope=SheetRows(
+            sheet_id=bound.request.scope.sheet_id,
+            view_id=stored_view_id,
+        ),
+    )
+
+
 def bound_typed_program_request_from_runner_spec(
     runner_spec: Mapping[str, Any],
     *,
@@ -2093,7 +2111,7 @@ def bound_typed_program_request_from_runner_spec(
         ):
             raise ValueError("stored installed action implementation changed")
         bound = installed
-    return bound
+    return _attach_stored_view_scope(bound, runner_spec)
 
 
 def typed_program_from_runner_spec(
@@ -2691,6 +2709,11 @@ def _typed_map_rows_plan(
             spec["consented_promise_set_hash"] = request.confirmation
     if scope.row_ids is not None:
         spec["row_ids"] = list(scope.row_ids)
+    if bound.authored_scope is not None and bound.authored_scope.view_id is not None:
+        spec["row_scope"] = {
+            "kind": "view",
+            "view_id": int(bound.authored_scope.view_id),
+        }
 
     frozen_names = MappingProxyType(final_names)
     program_type = (
@@ -2762,6 +2785,8 @@ def normalized_typed_request_identity(
     scope_identity = (bound.authored_scope or request.scope).model_dump(mode="json")
     if scope_identity.get("selection") is None:
         scope_identity.pop("selection", None)
+    if scope_identity.get("view_id") is None:
+        scope_identity.pop("view_id", None)
     payload = {
         "action_id": action.action_id,
         "scope": scope_identity,
@@ -2905,7 +2930,9 @@ def _typed_replay_error(
             return None
         scope = require_sheet_rows(request.scope)
         requested_rows = scope.row_ids
-        if scope.selection is not None and receipt.run_id is not None:
+        if (
+            scope.selection is not None or scope.view_id is not None
+        ) and receipt.run_id is not None:
             from frisket.engine.store.runs import RunResultStore
 
             requested_rows = RunResultStore(project).run_row_scope_if_present(
@@ -2929,7 +2956,10 @@ def _typed_replay_error(
                 if receipt.status in {"partial", "cancelled", "failed"}
                 else "expected"
             ),
-            allow_empty_rows=receipt.status == "cancelled",
+            allow_empty_rows=(
+                receipt.status == "cancelled"
+                or (scope.view_id is not None and requested_rows == [])
+            ),
             expected_row_ids=replay_expected_row_ids(
                 project,
                 sheet_id=scope.sheet_id,
@@ -3017,6 +3047,15 @@ def _typed_plan_error(action_id: str, exc: Exception) -> ActionError:
             action_kind=action_id,
             field=exc.field,
             details=dict(exc.details),
+        )
+    if isinstance(exc, SelectionUnavailable):
+        return ActionError(
+            code=exc.code,
+            message=str(exc),
+            action_kind=action_id,
+            field="scope.view_id"
+            if exc.code in {"view_not_found", "view_sheet_mismatch"}
+            else "scope",
         )
     return ActionError(
         code="invalid_params",

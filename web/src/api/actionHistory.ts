@@ -22,7 +22,8 @@ export function createActionHistoryApi(projectId: string) {
         action_id: raw.action_id, params: raw.params, output_names: raw.output_names ?? {},
         scope: raw.scope.kind === 'project' ? { kind: 'project' }
           : { kind: 'sheet_rows', sheet_id: raw.scope.sheet_id,
-            ...(raw.scope.row_ids == null ? {} : { row_ids: raw.scope.row_ids }) },
+            ...(raw.scope.row_ids == null ? {} : { row_ids: raw.scope.row_ids }),
+            ...(raw.scope.view_id == null ? {} : { view_id: raw.scope.view_id }) },
         ...(raw.sheet_name == null ? {} : { sheet_name: raw.sheet_name }),
       } };
     },
