@@ -16,7 +16,7 @@ import json
 import sqlite3
 from typing import Any
 
-NotificationChannelRow = Mapping[str, Any]
+NotificationChannelRow = sqlite3.Row | Mapping[str, Any]
 NotificationChannelResolver = Callable[
     [sqlite3.Row | None],
     NotificationChannelRow | None,

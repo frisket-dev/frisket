@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -351,7 +351,7 @@ class ModelCallMeta:
         provider: str,
         provider_kind: str,
         model_ids: list[str] | None = None,
-        units: dict[str, float | int | str | bool | None] | None = None,
+        units: Mapping[str, float | int | str | bool | None] | None = None,
         cache: dict[str, float | int | str | bool] | None = None,
         request_id: str | None = None,
         warnings: list[str] | None = None,
@@ -366,7 +366,7 @@ class ModelCallMeta:
             provider_reported_cost_usd=0.0,
             provider_cost_usd=0.0,
             cost_source="cache_hit",
-            units=units or {},
+            units=dict(units) if units is not None else {},
             cache=dict(cache) if cache is not None else {"hit": True},
             request_id=request_id,
             warnings=warnings or [],
