@@ -21,7 +21,7 @@ export type GridViewportProps = Omit<DataEditorProps, SharedViewportProp> & {
 };
 
 export const GridViewport = forwardRef<DataEditorRef, GridViewportProps>(function GridViewport(
-  { extraHeaderIcons, ...props },
+  { extraHeaderIcons, className, ...props },
   ref,
 ) {
   const icons = useMemo(() => extraHeaderIcons
@@ -29,6 +29,7 @@ export const GridViewport = forwardRef<DataEditorRef, GridViewportProps>(functio
   return <DataEditor
     {...props}
     ref={ref}
+    className={className ? `grid-viewport ${className}` : 'grid-viewport'}
     width="100%"
     height="100%"
     customRenderers={customRenderers}

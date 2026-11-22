@@ -102,6 +102,13 @@ const legacyWidthsKey = (sheetId: string) => `frisket:col-widths:${sheetId}`;
 const EMPTY_COLUMN_NAMES: string[] = [];
 const EMPTY_COLUMN_ANNOTATIONS: ColumnAnnotation[] = [];
 const GROUP_HEADER_HEIGHT = 28;
+const GROUP_HOVER_CLOSE_DELAY_MS = 260;
+
+function clampGroupMenuTop(bounds: Rectangle, minBottomClearance: number): number {
+  const flushTop = bounds.y + bounds.height;
+  const maxTop = Math.max(8, window.innerHeight - minBottomClearance);
+  return Math.max(8, Math.min(flushTop, maxTop));
+}
 
 export type ColumnGroupViewSpec = ViewColumnGroup;
 
@@ -1101,9 +1108,21 @@ function useGridHeaderHandlers(
     }
   }, []);
 
+  const openGroupDetails = useCallback(
+    (group: ColumnGroupModel, bounds: Rectangle) => {
+      keepGroupHoverOpen();
+      loadGroupEntry(group);
+      setGroupMenu({ sheetId, runId: group.runId, bounds });
+    },
+    [keepGroupHoverOpen, loadGroupEntry, sheetId],
+  );
+
   const closeGroupHover = useCallback(() => {
     keepGroupHoverOpen();
-    hoverCloseTimer.current = window.setTimeout(() => setHoveredGroupMenu(null), 140);
+    hoverCloseTimer.current = window.setTimeout(
+      () => setHoveredGroupMenu(null),
+      GROUP_HOVER_CLOSE_DELAY_MS,
+    );
   }, [keepGroupHoverOpen]);
 
   const onItemHovered = useCallback((event: GridMouseEventArgs) => {
@@ -1192,6 +1211,11 @@ function useGridHeaderHandlers(
   const cachedEntry = activeEntryKey ? entryCache[activeEntryKey] : undefined;
   const activeEntry = cachedEntry?.loader === loadActionRunEntry ? cachedEntry : undefined;
 
+  const onViewActiveGroupDetails =
+    loadActionRunEntry && activeGroupMenu && activeGroupMenuBounds
+      ? () => openGroupDetails(activeGroupMenu, activeGroupMenuBounds)
+      : undefined;
+
   return {
     activeEntry,
     activeGroupAnchor,
@@ -1206,6 +1230,7 @@ function useGridHeaderHandlers(
     onItemHovered,
     onHeaderClicked,
     onHeaderMenuClick,
+    onViewActiveGroupDetails,
     keepGroupHoverOpen,
     closeGroupHover,
     ...entryCallbacks,
@@ -1221,6 +1246,7 @@ function NativeColumnGroupMenu({
   entry,
   selectedRowCount,
   showLayoutControls,
+  onViewRunDetails,
   onCompareActionRun, onCheckExpected,
   onPointerEnter,
   onPointerLeave,
@@ -1236,42 +1262,61 @@ function NativeColumnGroupMenu({
   } | undefined;
   selectedRowCount: number;
   showLayoutControls: boolean;
+  onViewRunDetails?(): void;
   onPointerEnter(): void;
   onPointerLeave(): void;
 } & ActionRunEntryCallbacks) {
-  const layoutControls = (
+  const hasConfidence = group.confidenceColumns.length > 0;
+  const hasJustification = group.justificationColumns.length > 0;
+  const layoutControls = hasConfidence || hasJustification ? (
     <div className="action-run-entry-layout">
-      <label className="grid-header-menu-item">
-        <input
-          type="checkbox"
-          data-testid="native-column-group-show-confidence"
-          checked={layout.showConfidence}
-          onChange={(event) =>
-            onLayoutChange(group.runId, {
-              showConfidence: event.target.checked,
-            })
-          }
-        />
-        Confidence columns
-      </label>
-      <label className="grid-header-menu-item">
-        <input
-          type="checkbox"
-          data-testid="native-column-group-show-justification"
-          checked={layout.showJustification}
-          onChange={(event) =>
-            onLayoutChange(group.runId, {
-              showJustification: event.target.checked,
-            })
-          }
-        />
-        Justification columns
-      </label>
+      {hasConfidence && (
+        <label className="grid-header-menu-item">
+          <input
+            type="checkbox"
+            data-testid="native-column-group-show-confidence"
+            checked={layout.showConfidence}
+            onChange={(event) =>
+              onLayoutChange(group.runId, {
+                showConfidence: event.target.checked,
+              })
+            }
+          />
+          Confidence columns
+        </label>
+      )}
+      {hasJustification && (
+        <label className="grid-header-menu-item">
+          <input
+            type="checkbox"
+            data-testid="native-column-group-show-justification"
+            checked={layout.showJustification}
+            onChange={(event) =>
+              onLayoutChange(group.runId, {
+                showJustification: event.target.checked,
+              })
+            }
+          />
+          Justification columns
+        </label>
+      )}
     </div>
-  );
+  ) : null;
   if (anchor && entry) {
+    const cardClearance = entry.details
+      ? (showLayoutControls && layoutControls ? 320 : 240)
+      : 140;
     return (
-      <div data-testid="native-column-group-menu">
+      <div
+        className="native-column-group-menu-popover"
+        data-testid="native-column-group-menu"
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
+        style={{
+          left: Math.max(8, Math.min(bounds.x, window.innerWidth - 378)),
+          top: clampGroupMenuTop(bounds, cardClearance),
+        }}
+      >
         <ActionRunEntryCard
           anchor={anchor}
           fallbackTitle={layout.label}
@@ -1281,33 +1326,43 @@ function NativeColumnGroupMenu({
           layoutControls={showLayoutControls ? layoutControls : undefined}
           onCompareActionRun={onCompareActionRun}
           onCheckExpected={onCheckExpected}
-          onPointerEnter={onPointerEnter}
-          onPointerLeave={onPointerLeave}
-          style={{
-            left: Math.max(8, Math.min(bounds.x, window.innerWidth - 378)),
-            top: Math.max(
-              8,
-              Math.min(bounds.y + bounds.height + 4, window.innerHeight - 420),
-            ),
-          }}
         />
       </div>
     );
   }
+  const showViewRunDetails = !layoutControls && Boolean(anchor && onViewRunDetails);
+  if (!layoutControls && !showViewRunDetails && !showLayoutControls) {
+    return null;
+  }
+  const fallbackClearance = hasConfidence && hasJustification ? 128 : 96;
   return (
     <div
-      className="grid-header-menu"
+      className="native-column-group-menu-popover"
       data-testid="native-column-group-menu"
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       style={{
-        left: Math.min(bounds.x, window.innerWidth - 266),
-        top: Math.min(bounds.y + bounds.height + 4, window.innerHeight - 190),
+        left: Math.max(8, Math.min(bounds.x, window.innerWidth - 254)),
+        top: clampGroupMenuTop(bounds, fallbackClearance),
       }}
     >
-      <div className="grid-header-menu-title">
-        <span>{layout.label}</span>
-        <span>AI group</span>
+      <div className="grid-header-menu">
+        <div className="grid-header-menu-title">
+          <span>{layout.label}</span>
+          <span>AI group</span>
+        </div>
+        {layoutControls}
+        {showViewRunDetails && (
+          <button
+            type="button"
+            className="grid-header-menu-item"
+            data-testid="native-column-group-view-run-details"
+            onClick={onViewRunDetails}
+          >
+            View run details
+          </button>
+        )}
       </div>
-      {layoutControls}
     </div>
   );
 }
@@ -2606,6 +2661,7 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             entry={headerHandlers.activeEntry}
             selectedRowCount={gridSelection.rows.toArray().length}
             showLayoutControls={headerHandlers.activeGroupMenuPinned}
+            onViewRunDetails={headerHandlers.onViewActiveGroupDetails}
             onCompareActionRun={headerHandlers.onCompareActionRun}
             onCheckExpected={headerHandlers.onCheckExpected}
             onPointerEnter={headerHandlers.keepGroupHoverOpen}

@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CompactSelection,
   type DataEditorProps,
-  type GroupHeaderClickedEventArgs,
   type GridMouseEventArgs,
+  type GridMouseGroupHeaderEventArgs,
+  type GroupHeaderClickedEventArgs,
 } from '@glideapps/glide-data-grid';
 import type { ActionCatalogEntry, SheetMeta } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
@@ -57,6 +58,7 @@ const { render } = createWorkspaceTestHarness({
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   localStorage.clear();
   vi.clearAllMocks();
@@ -268,5 +270,264 @@ describe('group-header provenance entry', () => {
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     await act(async () => editor.props!.onGroupHeaderClicked?.(0, activate));
     expect(await screen.findByText('Extract structured fields')).toBeInTheDocument();
+  });
+
+  function groupHoverEvent(
+    group: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ): GridMouseGroupHeaderEventArgs {
+    return {
+      kind: 'group-header',
+      group,
+      location: [0, -2],
+      bounds,
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      isTouch: false,
+      isEdge: false,
+      button: 0,
+      buttons: 0,
+      scrollEdge: [0, 0],
+      localEventX: 1,
+      localEventY: 1,
+    };
+  }
+
+  function groupHeaderClickEvent(
+    group: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ): GroupHeaderClickedEventArgs {
+    return {
+      ...groupHoverEvent(group, bounds),
+      preventDefault: vi.fn(),
+    };
+  }
+
+  function headerLeaveEvent(
+    group: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ): GridMouseEventArgs {
+    return {
+      kind: 'header',
+      group,
+      location: [0, -1],
+      bounds,
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      isTouch: false,
+      isEdge: false,
+      button: 0,
+      buttons: 0,
+      scrollEdge: [0, 0],
+      localEventX: 1,
+      localEventY: 1,
+    };
+  }
+
+  it('renders only the Confidence checkbox when a group has confidence columns only', async () => {
+    const load = vi.fn().mockResolvedValue(details);
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'out-1', name: 'beat', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'beat_confidence', ai: aiMeta(), latestRunId: '42' }),
+    ], { id: 'sheet-1', name: 'Stories', rowCount: 1 });
+    render(
+      <SheetGrid
+        sheet={sheet}
+        dataVersion={0}
+        liveRun={null}
+        rowHeight={32}
+        wrapText={false}
+        columnGroupsStorageScope="entry-tests-conf-only"
+        onRowOpen={vi.fn()}
+        onColumnOpen={vi.fn()}
+        onCellEdit={vi.fn()}
+        loadActionRunEntry={load}
+      />,
+    );
+    const group = editor.props!.columns[0].group!;
+    const bounds = { x: 100, y: 40, width: 280, height: 28 };
+
+    await act(async () => editor.props!.onItemHovered?.(groupHoverEvent(group, bounds)));
+    expect(screen.getByTestId('native-column-group-show-confidence')).toBeInTheDocument();
+    expect(screen.queryByTestId('native-column-group-show-justification')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('native-column-group-view-run-details')).not.toBeInTheDocument();
+
+    const activate = groupHeaderClickEvent(group, bounds);
+    await act(async () => editor.props!.onGroupHeaderClicked?.(0, activate));
+    await waitFor(() => expect(screen.getByTestId('action-run-entry-card')).toBeInTheDocument());
+    expect(screen.getByTestId('native-column-group-show-confidence')).toBeInTheDocument();
+    expect(screen.queryByTestId('native-column-group-show-justification')).not.toBeInTheDocument();
+  });
+
+  it('renders only the Justification checkbox when a group has justification columns only', async () => {
+    const load = vi.fn().mockResolvedValue(details);
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'out-1', name: 'beat', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'beat_justification', ai: aiMeta(), latestRunId: '42' }),
+    ], { id: 'sheet-1', name: 'Stories', rowCount: 1 });
+    render(
+      <SheetGrid
+        sheet={sheet}
+        dataVersion={0}
+        liveRun={null}
+        rowHeight={32}
+        wrapText={false}
+        columnGroupsStorageScope="entry-tests-just-only"
+        onRowOpen={vi.fn()}
+        onColumnOpen={vi.fn()}
+        onCellEdit={vi.fn()}
+        loadActionRunEntry={load}
+      />,
+    );
+    const group = editor.props!.columns[0].group!;
+    const bounds = { x: 100, y: 40, width: 280, height: 28 };
+
+    await act(async () => editor.props!.onItemHovered?.(groupHoverEvent(group, bounds)));
+    expect(screen.queryByTestId('native-column-group-show-confidence')).not.toBeInTheDocument();
+    expect(screen.getByTestId('native-column-group-show-justification')).toBeInTheDocument();
+
+    const activate = groupHeaderClickEvent(group, bounds);
+    await act(async () => editor.props!.onGroupHeaderClicked?.(0, activate));
+    await waitFor(() => expect(screen.getByTestId('action-run-entry-card')).toBeInTheDocument());
+    expect(screen.queryByTestId('native-column-group-show-confidence')).not.toBeInTheDocument();
+    expect(screen.getByTestId('native-column-group-show-justification')).toBeInTheDocument();
+  });
+
+  it('omits both checkboxes when neither exists and lets View run details load and pin the card', async () => {
+    const load = vi.fn().mockResolvedValue(details);
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
+    ], { id: 'sheet-1', name: 'Court filings', rowCount: 1 });
+    render(
+      <SheetGrid
+        sheet={sheet}
+        dataVersion={0}
+        liveRun={null}
+        rowHeight={32}
+        wrapText={false}
+        columnGroupsStorageScope="entry-tests-neither"
+        onRowOpen={vi.fn()}
+        onColumnOpen={vi.fn()}
+        onCellEdit={vi.fn()}
+        loadActionRunEntry={load}
+      />,
+    );
+    expect(editor.props?.className).toContain('grid-viewport');
+
+    const group = editor.props!.columns[0].group!;
+    const bounds = { x: 100, y: 40, width: 280, height: 28 };
+
+    await act(async () => editor.props!.onItemHovered?.(groupHoverEvent(group, bounds)));
+    expect(load).not.toHaveBeenCalled();
+
+    const menu = screen.getByTestId('native-column-group-menu');
+    expect(menu).toHaveClass('native-column-group-menu-popover');
+    expect(menu.style.top).toBe(`${bounds.y + bounds.height}px`);
+    expect(screen.queryByTestId('native-column-group-show-confidence')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('native-column-group-show-justification')).not.toBeInTheDocument();
+    expect(menu.querySelector('.action-run-entry-layout')).toBeNull();
+
+    const viewButton = screen.getByRole('button', { name: 'View run details' });
+    fireEvent.click(viewButton);
+    await waitFor(() => expect(load).toHaveBeenCalledWith(anchor));
+    await waitFor(() => expect(screen.getByTestId('action-run-entry-card')).toBeInTheDocument());
+
+    const pinnedMenu = screen.getByTestId('native-column-group-menu');
+    expect(pinnedMenu.style.top).toBe(`${bounds.y + bounds.height}px`);
+    expect(screen.queryByTestId('native-column-group-show-confidence')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('native-column-group-show-justification')).not.toBeInTheDocument();
+    expect(pinnedMenu.querySelector('.action-run-entry-layout')).toBeNull();
+  });
+
+  it('positions flush to header bottom and keeps fallback hover menu open while pointer is inside', () => {
+    vi.useFakeTimers();
+    const load = vi.fn().mockResolvedValue(details);
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
+    ], { id: 'sheet-1', name: 'Court filings', rowCount: 1 });
+    render(
+      <SheetGrid
+        sheet={sheet}
+        dataVersion={0}
+        liveRun={null}
+        rowHeight={32}
+        wrapText={false}
+        columnGroupsStorageScope="entry-tests-hover"
+        onRowOpen={vi.fn()}
+        onColumnOpen={vi.fn()}
+        onCellEdit={vi.fn()}
+        loadActionRunEntry={load}
+      />,
+    );
+    const group = editor.props!.columns[0].group!;
+    const bounds = { x: 120, y: 52, width: 260, height: 28 };
+
+    act(() => {
+      editor.props!.onItemHovered?.(groupHoverEvent(group, bounds));
+    });
+    const menu = screen.getByTestId('native-column-group-menu');
+    expect(menu.style.top).toBe('80px');
+
+    // Moving off the group header into the sub-header row starts the 260ms buffer.
+    act(() => {
+      editor.props!.onItemHovered?.(
+        headerLeaveEvent(group, { x: 120, y: 80, width: 260, height: 34 }),
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(screen.getByTestId('native-column-group-menu')).toBeInTheDocument();
+
+    // Entering the fallback popover cancels the pending close timer.
+    fireEvent.pointerEnter(screen.getByTestId('native-column-group-menu'));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByTestId('native-column-group-menu')).toBeInTheDocument();
+
+    // Leaving the fallback popover closes it after the 260ms hover buffer.
+    fireEvent.pointerLeave(screen.getByTestId('native-column-group-menu'));
+    act(() => {
+      vi.advanceTimersByTime(259);
+    });
+    expect(screen.getByTestId('native-column-group-menu')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByTestId('native-column-group-menu')).not.toBeInTheDocument();
+  });
+
+  it('does not render an empty hover popover when a group has no layout controls and no visible anchor', () => {
+    const load = vi.fn().mockResolvedValue(details);
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'src-1', name: 'source' }),
+      columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
+    ], { id: 'sheet-1', name: 'Court filings', rowCount: 1 });
+    render(
+      <SheetGrid
+        sheet={sheet}
+        dataVersion={0}
+        liveRun={null}
+        rowHeight={32}
+        wrapText={false}
+        columnGroupsStorageScope="entry-tests-no-anchor"
+        hiddenColumnNames={['plaintiff', 'defendant']}
+        onRowOpen={vi.fn()}
+        onColumnOpen={vi.fn()}
+        onCellEdit={vi.fn()}
+        loadActionRunEntry={load}
+      />,
+    );
+    const bounds = { x: 100, y: 40, width: 280, height: 28 };
+    act(() => {
+      editor.props!.onItemHovered?.(groupHoverEvent('ai-run:42', bounds));
+    });
+    expect(screen.queryByTestId('native-column-group-menu')).not.toBeInTheDocument();
   });
 });
