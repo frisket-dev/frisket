@@ -72,7 +72,10 @@ def update_view(
         sets.append("name=?")
         vals.append(name)
     if spec is not None:
-        from frisket.engine.views.specs import normalize_view_spec
+        from frisket.engine.views.specs import (
+            normalize_view_spec,
+            validate_alert_selection,
+        )
 
         spec = normalize_view_spec(project, spec)
         sets.extend(["spec=?", "sheet_id=?"])
@@ -80,6 +83,13 @@ def update_view(
     if not sets:
         return
     with write_transaction(project.db, what="view update"):
+        if (
+            spec is not None
+            and project.db.execute(
+                "SELECT 1 FROM alerts WHERE view_id=? LIMIT 1", (view_id,)
+            ).fetchone()
+        ):
+            validate_alert_selection(spec["selection"])
         op_id = project.append_change_in_transaction(
             "view",
             {"view_id": view_id, "name": name, "spec": spec},

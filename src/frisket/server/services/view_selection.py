@@ -33,7 +33,11 @@ def open_sheet_selection(project, sheet_id, selection, view_id, *, legacy_scope=
         validated = ViewSelection.model_validate(definition)
         if validated.scope.kind != "sheet" or validated.scope.sheet_id != sheet_id:
             raise ValueError("Selection must target this sheet")
-        with open_selection(project, definition) as selected:
+        with open_selection(
+            project,
+            definition,
+            embedding_encoder=getattr(project, "_frisket_embedding_runtime", None),
+        ) as selected:
             yield selected
     except (
         ValueError,
