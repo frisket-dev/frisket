@@ -37,8 +37,5 @@
     "sidecar/tests/test_gpu_lease.py": "real child processes contending a GPU lease lock file"
   },
   "pure-surface-assertions": {},
-  "conditional-only-assertions": {
-    "sidecar/tests/test_engines_real.py": 1,
-    "tests/engine/test_change_precedence_contract.py": 1
-  }
+  "conditional-only-assertions": {}
 }

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 
-import frisket.retrieval.service as retrieval_service
 import pytest
+from helpers import write_claimed_test_results
 
+import frisket.retrieval.service as retrieval_service
 from frisket.engine.store import Project
 from frisket.engine.store.citations import (
     record_citation,
@@ -14,6 +15,7 @@ from frisket.engine.store.citations import (
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.retrieval.contracts import (
     BindingRevision,
     PageRange,
@@ -23,10 +25,7 @@ from frisket.retrieval.contracts import (
 from frisket.search import drain_index
 from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.services.project_qa_tools import ProjectQAScopeError, ProjectQATools
-from tests.server.test_project_qa_search_integrity import _response
-
-from helpers import write_claimed_test_results
-from frisket.engine.store.transactions import write_transaction
+from tests.server.test_project_qa_sources import _response
 
 
 def _turn(project: Project, *, scope: dict | None = None):
