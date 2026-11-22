@@ -24,6 +24,8 @@
 }
 
 select.panel-select-control:not([multiple]) {
+  -webkit-appearance: none;
+  -moz-appearance: none;
   appearance: none;
   padding-right: 32px;
   background-image: none;

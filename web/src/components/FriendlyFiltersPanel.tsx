@@ -2,9 +2,9 @@ import './PanelPrimitives.css';
 import './IconButton.css';
 import './FriendlyFiltersPanel.css';
 import './EntityFacetsPanel.css';
-import { FormField } from './FormControls';
+import { FormField, TextInput } from './FormControls';
 import { Button } from './Button';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Filter, RefreshCw, Search, X } from 'lucide-react';
 import type {
   ColumnDef,
@@ -15,6 +15,7 @@ import type {
   GridFilterSpec,
   GridFilterValue,
   SheetMeta,
+  ViewSelection,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { facetBehaviorFor } from '../grid/typeRegistry';
@@ -29,6 +30,7 @@ const ENUM_LIMIT = 20;
 const SEARCH_LIMIT = 50;
 const MAX_SELECTED_VALUES = 100;
 const SEARCH_DEBOUNCE_MS = 250;
+const SHEET_SEARCH_DEBOUNCE_MS = 180;
 const MONTHS = Array.from({ length: 12 }, (_, index) => ({
   value: String(index + 1),
   label: new Intl.DateTimeFormat(undefined, { month: 'long', timeZone: 'UTC' }).format(
@@ -289,6 +291,11 @@ export interface FriendlyFiltersPanelProps {
   /** Atomic replacement is important: a series of single-column callbacks
    *  would race React's readback and lose one of two facets clicked quickly. */
   onApplyFilterSpec?(filter: GridFilterSpec | null): void;
+  currentSelection?: ViewSelection | null;
+  activeViewId?: number | null;
+  onSelectionChange?(selection: ViewSelection): void;
+  onClearSelection?(): void;
+  searchDebounceMs?: number;
 }
 
 function withColumnCondition(
@@ -365,6 +372,11 @@ export function FriendlyFiltersPanel({
   gridFilter = null,
   dataVersion = 0,
   onApplyFilterSpec,
+  currentSelection = null,
+  activeViewId = null,
+  onSelectionChange,
+  onClearSelection,
+  searchDebounceMs = SHEET_SEARCH_DEBOUNCE_MS,
 }: FriendlyFiltersPanelProps) {
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? null;
   const [reloadSeq, setReloadSeq] = useState(0);
@@ -382,6 +394,18 @@ export function FriendlyFiltersPanel({
     [activeSheet],
   );
   const activeEntries = Object.entries(gridFilter ?? {});
+  const hasScopedRows =
+    currentSelection?.scope.kind === 'sheet' && currentSelection.scope.row_ids != null;
+  const hasActiveSelection = Boolean(
+    activeEntries.length > 0 ||
+    (currentSelection?.filters.length ?? 0) > 0 ||
+    currentSelection?.search ||
+    currentSelection?.similarity ||
+    currentSelection?.limit != null ||
+    (currentSelection?.order.length ?? 0) > 0 ||
+    hasScopedRows ||
+    activeViewId !== null,
+  );
 
   const updateColumn = useCallback(
     (columnName: string, condition: FilterCondition | null) => {
@@ -418,6 +442,17 @@ export function FriendlyFiltersPanel({
           <RefreshCw size={13} />
         </button>
       </div>
+
+      {currentSelection && onSelectionChange && (
+        <FriendlyQueryControls
+          key={activeSheet.id}
+          currentSelection={currentSelection}
+          hasActiveSelection={hasActiveSelection}
+          onSelectionChange={onSelectionChange}
+          onClearSelection={onClearSelection}
+          searchDebounceMs={searchDebounceMs}
+        />
+      )}
 
       <div className="friendly-facet-stack" data-testid="friendly-filters-panel">
         {facetColumns.map((column, index) => (
@@ -471,6 +506,212 @@ export function FriendlyFiltersPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function FriendlyQueryControls({
+  currentSelection,
+  hasActiveSelection,
+  onSelectionChange,
+  onClearSelection,
+  searchDebounceMs,
+}: {
+  currentSelection: ViewSelection;
+  hasActiveSelection: boolean;
+  onSelectionChange(selection: ViewSelection): void;
+  onClearSelection?(): void;
+  searchDebounceMs: number;
+}) {
+  const externalSearch = currentSelection.search?.text ?? '';
+  const [searchDraft, setSearchDraft] = useState(externalSearch);
+  const lastExternalSearchRef = useRef(externalSearch);
+  const selectionRef = useRef(currentSelection);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const debounceTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    selectionRef.current = currentSelection;
+  }, [currentSelection]);
+
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
+
+  const cancelPendingSearch = useCallback(() => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => cancelPendingSearch(), [cancelPendingSearch]);
+
+  useEffect(() => {
+    if (externalSearch === lastExternalSearchRef.current) return;
+    lastExternalSearchRef.current = externalSearch;
+    cancelPendingSearch();
+    setSearchDraft(externalSearch);
+  }, [cancelPendingSearch, externalSearch]);
+
+  const commitSearch = useCallback((rawText: string) => {
+    cancelPendingSearch();
+    const selection = selectionRef.current;
+    const trimmed = rawText.trim();
+    const nextSearch = trimmed ? { text: rawText } : undefined;
+    if ((selection.search?.text ?? '') === (nextSearch?.text ?? '')) return;
+    lastExternalSearchRef.current = nextSearch?.text ?? '';
+    onSelectionChangeRef.current({
+      ...selection,
+      search: nextSearch,
+      order: !trimmed
+        ? selection.order.filter((item) => !('score' in item && item.score === 'search'))
+        : selection.order,
+    });
+  }, [cancelPendingSearch]);
+
+  const handleSearchChange = (next: string) => {
+    setSearchDraft(next);
+    cancelPendingSearch();
+    if (next.trim() === '' || searchDebounceMs <= 0) {
+      commitSearch(next);
+      return;
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null;
+      commitSearch(next);
+    }, searchDebounceMs);
+  };
+
+  const handleClearSearch = () => {
+    setSearchDraft('');
+    commitSearch('');
+    searchInputRef.current?.focus();
+  };
+
+  const handleShowAllRows = () => {
+    cancelPendingSearch();
+    lastExternalSearchRef.current = '';
+    setSearchDraft('');
+    onClearSelection?.();
+  };
+
+  const hasScoreSort = Boolean(currentSelection.search || currentSelection.similarity);
+  const scoreOrderValue = currentSelection.order[0] && 'score' in currentSelection.order[0]
+    ? currentSelection.order[0].score
+    : currentSelection.order.length
+      ? 'column'
+      : 'rows';
+  const sortOptions = [
+    ...(currentSelection.order.some((item) => 'column_id' in item)
+      ? [{ value: 'column', label: 'Current column sort', disabled: true }]
+      : []),
+    { value: 'rows', label: 'Row order' },
+    ...(currentSelection.search
+      ? [{ value: 'search', label: 'Search score, highest first' }]
+      : []),
+    ...(currentSelection.similarity
+      ? [{ value: 'similarity', label: 'Similarity score, highest first' }]
+      : []),
+  ];
+
+  return (
+    <div
+      className="friendly-query-controls"
+      data-testid="sheet-filter-controls"
+      role="search"
+      aria-label="Search and limit rows"
+    >
+      <div className="friendly-query-search">
+        <Search size={12} className="friendly-query-search-icon" aria-hidden />
+        <input
+          ref={searchInputRef}
+          type="text"
+          className="friendly-query-search-input"
+          data-testid="sheet-filter-search"
+          aria-label="Search text"
+          placeholder="Search text…"
+          value={searchDraft}
+          onChange={(event) => handleSearchChange(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitSearch(searchDraft);
+            } else if (event.key === 'Escape' && searchDraft) {
+              event.preventDefault();
+              handleClearSearch();
+            }
+          }}
+        />
+        {searchDraft && (
+          <button
+            type="button"
+            className="friendly-query-search-clear"
+            data-testid="sheet-filter-search-clear"
+            aria-label="Clear search"
+            onClick={handleClearSearch}
+          >
+            <X size={12} aria-hidden />
+          </button>
+        )}
+      </div>
+      <div className="friendly-query-row">
+        <label className="friendly-query-field">
+          <span className="friendly-query-field-label">Limit</span>
+          <TextInput
+            className="friendly-query-limit-input"
+            density="compact"
+            fullWidth={false}
+            data-testid="sheet-filter-limit"
+            aria-label="Limit"
+            type="number"
+            min={1}
+            inputMode="numeric"
+            placeholder="All"
+            value={currentSelection.limit ?? ''}
+            onChange={(event) => {
+              const raw = event.currentTarget.value;
+              const limit = raw === '' ? null : Number(raw);
+              if (limit === null || (Number.isInteger(limit) && limit > 0)) {
+                onSelectionChange({ ...currentSelection, limit });
+              }
+            }}
+          />
+        </label>
+        {hasActiveSelection && onClearSelection && (
+          <Button
+            type="button"
+            variant="link"
+            className="friendly-query-reset"
+            data-testid="sheet-filter-show-all"
+            onClick={handleShowAllRows}
+          >
+            Show all rows
+          </Button>
+        )}
+      </div>
+      {hasScoreSort && (
+        <label className="friendly-query-field friendly-query-sort-field">
+          <span className="friendly-query-field-label">Sort results</span>
+          <PanelSelect
+            className="friendly-query-sort-select"
+            testId="sheet-filter-sort"
+            ariaLabel="Sort results"
+            value={scoreOrderValue}
+            options={sortOptions}
+            onValueChange={(nextValue) =>
+              onSelectionChange({
+                ...currentSelection,
+                order:
+                  nextValue === 'rows'
+                    ? []
+                    : [{ score: nextValue as 'search' | 'similarity', dir: 'desc' }],
+              })
+            }
+          />
+        </label>
+      )}
+    </div>
   );
 }
 

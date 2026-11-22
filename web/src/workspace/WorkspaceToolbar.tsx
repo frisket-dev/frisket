@@ -566,11 +566,9 @@ function ToolbarOverflowMenu() {
 
 export function WorkspaceGridControls() {
   const {
-    activeViewId,
     applyGridSort,
     clearGridFilter,
     clearGridSort,
-    clearViewSelection,
     currentDefinition,
     effectiveSortColumn,
     sheet,
@@ -606,12 +604,10 @@ export function WorkspaceGridControls() {
       <SheetFilterBar
         currentSelection={currentDefinition?.selection ?? null}
         onSelectionChange={updateViewSelection}
-        onClearSelection={clearViewSelection}
         activeGridFilter={activeGridFilter}
         activeGridFilterValueLabel={activeGridFilterValueLabel}
         activeGridSort={activeGridSort}
         scopeRowIds={scopeRowIds}
-        activeViewId={activeViewId}
         onClearGridFilter={clearGridFilter}
         onClearGridSort={clearGridSort}
         onClearScopeRowIds={() =>

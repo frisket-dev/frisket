@@ -49,6 +49,8 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
     activeViewId,
     viewModified,
     currentDefinition,
+    updateViewSelection,
+    clearViewSelection,
     addAlertForCurrentView,
     openCellSimilarity,
     selectedRowIdsForSheet,
@@ -89,6 +91,10 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
         <FriendlyFiltersWorkbenchPanel
           sheets={sheets}
           hostContext={workbenchHostContext}
+          currentSelection={currentDefinition?.selection ?? null}
+          activeViewId={activeViewId}
+          onSelectionChange={updateViewSelection}
+          onClearSelection={clearViewSelection}
         />
       );
     case 'frisket.investigative.panel.mentions':
