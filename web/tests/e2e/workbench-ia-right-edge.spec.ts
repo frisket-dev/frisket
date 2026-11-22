@@ -115,7 +115,7 @@ test('Discover tabs switch content; collapse to rail; rail icon re-expands to th
   }
   await expect(page.getByTestId('discover-tab-Sources')).toHaveAttribute('aria-selected', 'true');
   await expect(
-    panel.getByTestId('workbench-contribution-frisket-core-panel-sources'),
+    panel.getByTestId('workbench-contribution-frisket-core-panel-feeds'),
   ).toBeVisible();
 
   // Collapse to the 48px rail: the panel body is hidden, the rail shows.

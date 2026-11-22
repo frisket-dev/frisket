@@ -75,7 +75,7 @@ test('workbench host shell exposes fixed regions while the grid remains usable',
   await expect(
     page
       .getByTestId('discover-panel')
-      .getByTestId('workbench-contribution-frisket-core-panel-sources'),
+      .getByTestId('workbench-contribution-frisket-core-panel-feeds'),
   ).toBeVisible();
 
   // Hide a dock tab via the ⌘K palette, then recover it the same way — a real

@@ -37,7 +37,7 @@ test('the left sidebar is retired; re-homed panels live in Discover and chrome s
   // truth still the resolved layout).
   await openDiscoverTab(page, 'Sources');
   await expect(
-    page.getByTestId('discover-panel').getByTestId('workbench-contribution-frisket-core-panel-sources'),
+    page.getByTestId('discover-panel').getByTestId('workbench-contribution-frisket-core-panel-feeds'),
   ).toBeVisible();
 
   // Chrome regression guard: sheet navigation via the tab strip, the project

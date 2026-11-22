@@ -34,7 +34,7 @@ test('workbench regions expose product-purpose slots instead of prototype sideba
   await openDiscoverTab(page, 'Sources');
   const sources = page
     .getByTestId('discover-panel')
-    .getByTestId('workbench-contribution-frisket-core-panel-sources');
+    .getByTestId('workbench-contribution-frisket-core-panel-feeds');
   await expect(sources).toBeVisible();
   await expect(sources).toHaveAttribute('data-host', 'leftSidebar');
   await expect(sources).toHaveAttribute('data-slot', 'scope');

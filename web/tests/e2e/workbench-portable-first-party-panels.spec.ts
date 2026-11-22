@@ -27,14 +27,14 @@ test('Sources, History, and Actions expose honest portable placements', async ({
   await openDiscoverTab(page, 'Sources');
   const sources = page
     .getByTestId('discover-panel')
-    .getByTestId('workbench-contribution-frisket-core-panel-sources');
+    .getByTestId('workbench-contribution-frisket-core-panel-feeds');
   await expect(sources).toBeVisible();
   await expect(sources).toHaveAttribute('data-host', 'leftSidebar');
   await expect(sources).toHaveAttribute('data-slot', 'scope');
-  await expect(bottomLayout).not.toHaveAttribute('data-contribution-ids', /frisket\.core\.panel\.sources/);
-  // The interim sidebar no longer renders Sources.
+  await expect(bottomLayout).not.toHaveAttribute('data-contribution-ids', /frisket\.core\.panel\.feeds/);
+  // The interim sidebar no longer renders Feeds.
   await expect(
-    leftSidebar.getByTestId('workbench-contribution-frisket-core-panel-sources'),
+    leftSidebar.getByTestId('workbench-contribution-frisket-core-panel-feeds'),
   ).toHaveCount(0);
 
   // History is bottom-dock-only now — it must not render in the sidebar.
