@@ -138,7 +138,7 @@ describe.each(TABS)('$prefix variant chips markup', (tab) => {
     expect(chipsRow(tab.prefix)).toMatchSnapshot();
   });
 
-  it('renders the chip row with a blank variant being configured', async () => {
+  it('renders the chip row with a newly added variant being configured', async () => {
     const user = userEvent.setup();
     tab.render();
     await catalogChips(tab);

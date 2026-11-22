@@ -64,6 +64,7 @@ function templateText(value: CanonicalFieldValue | undefined): string {
     && typeof value.text === 'string' ? value.text : '';
 }
 const EMPTY_ROW_IDS: string[] = [];
+let nextOcrCompareLaunchId = 0;
 function actionSelectorQuery(
   actionId: string,
   field: string,
@@ -1337,11 +1338,25 @@ function GeneratedActionFormContents({
     }
   };
 
+  const ocrSourceColumn = (() => {
+    if (typeof draft.source === 'string' && draft.source) return draft.source;
+    if (Array.isArray(draft.source)) {
+      const first = draft.source.find((item): item is string => typeof item === 'string' && item.length > 0);
+      if (first) return first;
+    }
+    return columns.find((column) => column.type === 'file')?.name
+      ?? columns.find((column) => column.type === 'image')?.name;
+  })();
+
   const ocrCompareTarget: OcrCompareTarget = {
     engine: typeof draft.engine === 'string' ? draft.engine : undefined,
     language: typeof draft.language === 'string' ? draft.language : undefined,
     dpi: typeof draft.dpi === 'number' ? draft.dpi : undefined,
     searchable_pdf: typeof draft.searchable_pdf === 'boolean' ? draft.searchable_pdf : undefined,
+    sheetId: sheet?.id,
+    sourceColumn: ocrSourceColumn,
+    selectedRowIds: scopeSelectedRowIds.length > 0 ? [...scopeSelectedRowIds] : undefined,
+    maxItems: 10,
   };
 
   const costLine = <>
@@ -1455,10 +1470,18 @@ function GeneratedActionFormContents({
         data-testid="generated-locked-param-problem">{lockedUpdateProblem}</p>}
 
       {!paramsOnly && catalogEntry.kind === 'media.ocr' && (
-        <div className="form-actions">
-          <Button type="button" data-testid="ocr-compare-open"
+        <div className="action-form-secondary-link">
+          <Button
+            type="button"
+            variant="link"
+            className="action-form-link"
+            data-testid="ocr-compare-open"
             disabled={running || !onOpenOcrCompare}
-            onClick={() => onOpenOcrCompare?.(ocrCompareTarget)}>
+            onClick={() => onOpenOcrCompare?.({
+              ...ocrCompareTarget,
+              launchId: ++nextOcrCompareLaunchId,
+            })}
+          >
             Compare engines
           </Button>
         </div>

@@ -327,6 +327,25 @@ fieldset.ocr-compare-chips-row {
   min-height: 0;
   text-align: center;
 }
+.ocr-compare-seeding {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  padding: 24px;
+  font-size: var(--font-size-small);
+}
+.ocr-compare-seeding-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: var(--font-size-meta);
+}
 .ocr-compare-frontdoor svg {
   color: var(--accent);
 }

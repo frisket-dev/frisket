@@ -97,6 +97,13 @@
 
 /* Action panel layout. Shared controls own their appearance. */
 .action-panel .action-form { padding: 0 18px 16px; }
+.action-form-secondary-link {
+  margin-top: 8px;
+  font-size: var(--font-size-meta);
+}
+.action-form-link {
+  font-weight: 500;
+}
 .action-panel .form-label-row { margin: 18px 0 4px; }
 .action-form .engine-selector { margin-top: 18px; }
 .locked-param-fields {

@@ -152,11 +152,35 @@ describe('typed OCR/transcription forms', () => {
 
   it.each([{ selectedRowIds: [] }, { selectedRowIds: ['3', '8'] }])('opens upload OCR comparison without requiring one selected project row (%j)', ({ selectedRowIds }) => {
     const { onOpenOcrCompare, onExecute } = form('media.ocr', { columns: [], selectedRowIds });
-    expect(screen.getByTestId('ocr-compare-open')).toBeEnabled();
-    fireEvent.click(screen.getByTestId('ocr-compare-open'));
+    const trigger = screen.getByTestId('ocr-compare-open');
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveAttribute('data-button-variant', 'link');
+    fireEvent.click(trigger);
     expect(onOpenOcrCompare).toHaveBeenCalledOnce();
     expect(onOpenOcrCompare.mock.calls[0][0]).not.toHaveProperty('request');
     expect(onExecute).not.toHaveBeenCalled();
+  });
+
+  it('passes sheet seeding context and a fresh launchId when opening Compare engines from the OCR form', () => {
+    const { onOpenOcrCompare } = form('media.ocr', { selectedRowIds: ['3', '8'] });
+    const trigger = screen.getByTestId('ocr-compare-open');
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger).toHaveAttribute('data-button-variant', 'link');
+    expect(trigger.closest('.form-actions')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    expect(onOpenOcrCompare).toHaveBeenCalledTimes(2);
+    const first = onOpenOcrCompare.mock.calls[0][0];
+    const second = onOpenOcrCompare.mock.calls[1][0];
+    expect(first).toMatchObject({
+      sheetId: '7',
+      sourceColumn: 'scan',
+      selectedRowIds: ['3', '8'],
+      maxItems: 10,
+    });
+    expect(typeof first.launchId).toBe('number');
+    expect(second.launchId).toBeGreaterThan(first.launchId);
   });
 
   it('submits a fresh transcription without manufacturing unsupported optional knobs', async () => {

@@ -8,12 +8,13 @@ vi.mock('../../src/media/pdfjsSetup', () => ({ pdfjsLib: { getDocument: vi.fn() 
 
 import { selectorChoicesApi } from '../../src/api/selectorChoices';
 import { mediaChoices } from '../support/mediaSelectorFixtures';
-import type { PreviewSampleResult } from '../../src/api/types';
+import type { ActionCatalogPayload, ColumnDef, EngineOption, PreviewSampleResult, Row } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { installDialogPolyfill } from '../support/domPolyfills';
 import { TranscribeCompareTab } from '../../src/workbench/TranscribeCompareTab';
 import { OcrCompareTab } from '../../src/workbench/OcrCompareTab';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { columnDef } from '../support/domainFixtures';
 
 beforeAll(installDialogPolyfill);
 
@@ -138,6 +139,181 @@ describe('OcrCompareTab upload comparison', () => {
 
     await waitFor(() => expect(estimates).toHaveBeenCalled());
     expect(estimates.mock.calls.map(([, input]) => input.engine)).toEqual(['dots.mocr']);
+  });
+
+  it('opens empty with zero sheet fetches when target is null', async () => {
+    const getSheetData = vi.spyOn(api, 'getSheetData');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    render(<OcrCompareTab target={null} onSessionChange={() => undefined} />);
+
+    expect(screen.getByTestId('ocr-compare-dropzone')).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getSheetData).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('seeds up to 10 sheet files without re-ingesting on re-render', async () => {
+    const scanCol: ColumnDef = columnDef({ id: '1', name: 'scan', type: 'file' });
+    const rows: Row[] = Array.from({ length: 12 }, (_, index) => ({
+      id: String(index + 1),
+      index,
+      cells: {
+        '1': JSON.stringify({
+          blob: `blob-${index + 1}`,
+          filename: `doc-${index + 1}.pdf`,
+          mime: 'application/pdf',
+        }),
+      },
+      provenance: {},
+    }));
+    let resolveSheet!: (value: { rows: Row[]; total: number; columns: ColumnDef[] }) => void;
+    const getSheetData = vi.spyOn(api, 'getSheetData').mockImplementation(
+      () => new Promise((resolve) => { resolveSheet = resolve; }),
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => (
+      new Response('%PDF-1.4', {
+        status: 200,
+        headers: { 'Content-Type': 'application/pdf' },
+      })
+    ));
+
+    const target = { sheetId: '7', sourceColumn: 'scan', maxItems: 10, launchId: 1 };
+    const view = render(<OcrCompareTab target={target} onSessionChange={() => undefined} />);
+
+    expect(screen.getByTestId('ocr-compare-seeding-status')).toHaveTextContent('Loading files from sheet…');
+    expect(screen.queryByTestId('ocr-compare-dropzone')).not.toBeInTheDocument();
+
+    resolveSheet({ rows, total: rows.length, columns: [scanCol] });
+
+    await waitFor(() => expect(screen.getAllByTestId('ocr-compare-doc-item')).toHaveLength(10));
+    expect(screen.queryByTestId('ocr-compare-seeding-status')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('ocr-compare-doc-item').map((item) => item.textContent))
+      .toEqual(Array.from({ length: 10 }, (_, index) => expect.stringContaining(`doc-${index + 1}.pdf`)));
+    expect(getSheetData).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(10);
+
+    // Re-rendering with the same launchId must never re-fetch or duplicate docs.
+    view.rerender(<OcrCompareTab target={{ ...target }} active={false} onSessionChange={() => undefined} />);
+    view.rerender(<OcrCompareTab target={{ ...target }} active onSessionChange={() => undefined} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getSheetData).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId('ocr-compare-doc-item')).toHaveLength(10);
+  });
+
+  it('prioritizes selectedRowIds in order and falls back to sheet rows when selected rows have no media', async () => {
+    const scanCol: ColumnDef = columnDef({ id: '1', name: 'scan', type: 'file' });
+    const rowWithMedia = (id: string, filename: string): Row => ({
+      id,
+      index: Number(id) - 1,
+      cells: { '1': JSON.stringify({ blob: `b-${id}`, filename, mime: 'application/pdf' }) },
+      provenance: {},
+    });
+    const emptyRow = (id: string): Row => ({
+      id,
+      index: Number(id) - 1,
+      cells: { '1': null },
+      provenance: {},
+    });
+    const getSheetData = vi.spyOn(api, 'getSheetData')
+      .mockResolvedValueOnce({
+        rows: [rowWithMedia('2', 'second.pdf'), rowWithMedia('5', 'fifth.pdf')],
+        total: 2,
+        columns: [scanCol],
+      })
+      .mockResolvedValueOnce({
+        rows: [emptyRow('9')],
+        total: 1,
+        columns: [scanCol],
+      })
+      .mockResolvedValueOnce({
+        rows: [rowWithMedia('1', 'fallback.pdf')],
+        total: 1,
+        columns: [scanCol],
+      });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => (
+      new Response('%PDF-1.4', {
+        status: 200,
+        headers: { 'Content-Type': 'application/pdf' },
+      })
+    ));
+
+    const view = render(
+      <OcrCompareTab
+        target={{ sheetId: '7', sourceColumn: 'scan', selectedRowIds: ['5', '2'], maxItems: 10, launchId: 10 }}
+        onSessionChange={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('ocr-compare-doc-item')).toHaveLength(2));
+    expect(screen.getAllByTestId('ocr-compare-doc-item').map((item) => item.textContent)).toEqual([
+      expect.stringContaining('fifth.pdf'),
+      expect.stringContaining('second.pdf'),
+    ]);
+
+    // Launching again with selected rows that contain no media falls back to the sheet's media rows.
+    view.rerender(
+      <OcrCompareTab
+        target={{ sheetId: '7', sourceColumn: 'scan', selectedRowIds: ['9'], maxItems: 10, launchId: 11 }}
+        onSessionChange={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('ocr-compare-doc-item')).toHaveLength(3));
+    expect(screen.getAllByTestId('ocr-compare-doc-item')[2]).toHaveTextContent('fallback.pdf');
+    expect(getSheetData).toHaveBeenCalledTimes(3);
+  });
+
+function ocrCatalogPayload(engines: EngineOption[]): ActionCatalogPayload {
+  return {
+    schema_version: 'frisket.action_catalog.v2',
+    action_schema: {},
+    error_schema: {},
+    result_schema: {},
+    receipt_schema: {},
+    validation_result_schema: {},
+    actions: [{
+      kind: 'media.ocr',
+      authoring_contract_version: 1,
+      title: 'OCR',
+      description: 'Read text from PDFs and images',
+      input_schema: {},
+      output_schema: {},
+      errors: [],
+      side_effects: [],
+      required_capabilities: [],
+      required_credentials: [],
+      cost_policy: { kind: 'none' },
+      idempotency: { kind: 'none' },
+      retry_policy: { kind: 'none' },
+      execution_mode: 'async',
+      async_mode: 'job',
+      writes_project: true,
+      examples: [],
+      receipt_policy: 'writes_receipt',
+      ui_hints: { engines },
+    }],
+  };
+}
+
+  it('picks the next unused available engine and shows OCR options immediately on + Engine', async () => {
+    vi.mocked(api.listActionCatalog).mockResolvedValue(ocrCatalogPayload([
+      { id: 'rapidocr', label: 'RapidOCR', tier: 'local', available: true },
+      { id: 'dots.mocr', label: 'dots.mocr', tier: 'sidecar', available: true },
+      { id: 'tesseract', label: 'Tesseract', tier: 'local', available: true },
+    ]));
+    vi.mocked(selectorChoicesApi.getSelectorChoices).mockImplementation(async (_pid, query) =>
+      mediaChoices(query, ['rapidocr', 'dots.mocr', 'tesseract']));
+    const user = userEvent.setup();
+    render(<OcrCompareTab onSessionChange={() => undefined} />);
+    await waitFor(() => expect(screen.getAllByTestId('ocr-compare-variant-chip')).toHaveLength(2));
+
+    await user.click(screen.getByTestId('ocr-compare-add-engine'));
+    const popover = await screen.findByTestId('ocr-compare-configure');
+    expect(screen.getAllByTestId('ocr-compare-variant-chip')).toHaveLength(3);
+    expect(screen.getAllByTestId('ocr-compare-variant-chip')[2]).toHaveAttribute('data-engine-id', 'tesseract');
+    expect(within(popover).getByTestId('ocr-compare-dpi-presets')).toBeVisible();
+    expect(within(popover).getByTestId('ocr-compare-configure-language')).toBeVisible();
+    expect(within(popover).getByTestId('ocr-compare-configure-pages')).toBeVisible();
+    expect(within(popover).getByTestId('ocr-compare-configure-searchable-pdf')).toBeVisible();
+    expect(within(popover).queryByText('Choose an engine to configure options.')).not.toBeInTheDocument();
   });
 });
 

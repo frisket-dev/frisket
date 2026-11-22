@@ -122,11 +122,21 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
       ...(link ? { expected: { sheetName: link.expected_sheet_name, rowCount: matchedCounts[link.id] ?? 0 } } : {}) };
   }), [runs, availableLinks, entries, matchedCounts, sheet?.id]);
   const actionChoices = useMemo(() => (entries ?? []).filter(entry => actionComparisonKind(entry) || entry.kind in MEDIA_COMPARE_COMMAND_BY_ACTION).map(entry => {
+    const group = (entry.kind in MEDIA_COMPARE_COMMAND_BY_ACTION && entry.kind !== 'map.translate') ? 'media' as const : 'rows' as const;
     const template = templates.find(item => item.kind === entry.kind);
     const requirement = template ? primaryColumnRequirement(template) : null;
     const compatible = sheet && (!requirement || compatibleSourceColumns(sheet.columns, requirement).length > 0);
-    return { kind: entry.kind, label: entry.title, group: (entry.kind in MEDIA_COMPARE_COMMAND_BY_ACTION && entry.kind !== 'map.translate') ? 'media' as const : 'rows' as const,
-      ...(!sheet ? { disabledReason: 'Choose a sheet' } : !compatible ? { disabledReason: `Needs ${requirement?.label ?? 'a compatible column'}` } : entry.ui_hints.unavailable_reason ? { disabledReason: entry.ui_hints.unavailable_reason } : entry.ui_hints.missing_credentials?.length ? { disabledReason: 'Set up credentials first' } : {}) };
+    const sheetDisabledReason = group === 'media'
+      ? undefined
+      : !sheet
+        ? 'Choose a sheet'
+        : !compatible
+          ? `Needs ${requirement?.label ?? 'a compatible column'}`
+          : undefined;
+    const disabledReason = sheetDisabledReason
+      ?? (entry.ui_hints.unavailable_reason || undefined)
+      ?? (entry.ui_hints.missing_credentials?.length ? 'Set up credentials first' : undefined);
+    return { kind: entry.kind, label: entry.title, group, ...(disabledReason ? { disabledReason } : {}) };
   }), [entries, templates, sheet]);
   const joinSheets = useMemo(() => sheets.map(item => ({ id: Number(item.id), name: item.name, columns: item.columns.map(column => ({ id: Number(column.id), name: column.name })) })), [sheets]);
   const joinActions = useMemo(() => runs.map(({ anchor, context }) => ({ id: `${anchor.runId}:${anchor.columnId}`, actionId: context.draft.action_id,

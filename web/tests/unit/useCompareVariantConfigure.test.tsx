@@ -5,8 +5,9 @@ import { createPortal } from 'react-dom';
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useCompareVariantConfigure } from '../../src/workbench/useCompareVariantConfigure';
+import { nextEngineForCompareAdd, useCompareVariantConfigure } from '../../src/workbench/useCompareVariantConfigure';
 import { useTranscribeVariantConfigure } from '../../src/workbench/useTranscribeVariantConfigure';
+import type { EngineOption } from '../../src/api/open';
 import type { CompareColumn, MediaCompareSession } from '../../src/workbench/mediaCompareSession';
 import type { TranscribeCompareEngineResult } from '../../src/api/open';
 
@@ -176,5 +177,83 @@ describe('comparison variant editor lifecycle', () => {
       language: undefined, modelSize: undefined, vad: undefined, diarize: undefined,
       numSpeakers: undefined, minSpeakers: undefined, maxSpeakers: undefined,
     });
+  });
+
+  it('selects the next unused available engine and falls back cleanly for + Engine', () => {
+    const catalog: EngineOption[] = [
+      { id: 'rapidocr', label: 'RapidOCR', tier: 'local', available: true },
+      { id: 'dots.mocr', label: 'dots.mocr', tier: 'sidecar', available: true },
+      { id: 'tesseract', label: 'Tesseract', tier: 'local', available: true },
+      { id: 'offline', label: 'Offline', tier: 'local', available: false },
+    ];
+    expect(nextEngineForCompareAdd(catalog, [
+      { id: 'c1', engineId: 'rapidocr', options: {} },
+      { id: 'c2', engineId: 'dots.mocr', options: {} },
+    ])).toBe('tesseract');
+    expect(nextEngineForCompareAdd(catalog, [
+      { id: 'c1', engineId: 'rapidocr', options: {} },
+      { id: 'c2', engineId: 'dots.mocr', options: {} },
+      { id: 'c3', engineId: 'tesseract', options: {} },
+    ])).toBe('rapidocr');
+    expect(nextEngineForCompareAdd(
+      [{ id: 'offline', label: 'Offline', tier: 'local', available: false }],
+      [],
+    )).toBe('offline');
+    expect(nextEngineForCompareAdd([], [])).toBeNull();
+  });
+
+  it('adds a real engine immediately and keeps it when Configure is dismissed', async () => {
+    const catalog: EngineOption[] = [
+      { id: 'rapidocr', label: 'RapidOCR', tier: 'local', available: true },
+      { id: 'tesseract', label: 'Tesseract', tier: 'local', available: true },
+    ];
+    function CatalogHarness() {
+      const [columns, setColumns] = useState<CompareColumn[]>([
+        { id: 'c1', engineId: 'rapidocr', options: {} },
+      ]);
+      const nextId = useRef(1);
+      const editor = useCompareVariantConfigure({
+        catalog,
+        columns,
+        addBlankColumn: () => {
+          const id = `blank-${++nextId.current}`;
+          setColumns((current) => [...current, { id, engineId: null, options: {} }]);
+          return id;
+        },
+        addEngineColumn: (engineId) => {
+          const id = `c${++nextId.current}`;
+          setColumns((current) => [...current, { id, engineId, options: {} }]);
+          return id;
+        },
+        removeColumn: (id) => setColumns((current) => current.filter((column) => column.id !== id)),
+        chooseEngine: (id, engineId) => setColumns((current) => current.map((column) => (
+          column.id === id ? { ...column, engineId } : column
+        ))),
+        duplicateColumn: () => null,
+      });
+      return <>
+        <button onClick={editor.addVariant}>Add Engine</button>
+        {columns.map((column) => (
+          <div key={column.id} data-testid={column.id}
+            ref={editor.configureVariantId === column.id ? editor.configureAnchorRef : undefined}>
+            <span>{column.engineId ?? 'blank'}</span>
+            {editor.configureVariantId === column.id && (
+              <div data-testid="catalog-editor" ref={editor.configurePopoverRef}>
+                <button ref={editor.engineSelectorRef}>Engine: {column.engineId}</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </>;
+    }
+
+    const user = userEvent.setup();
+    render(<CatalogHarness />);
+    await user.click(screen.getByRole('button', { name: 'Add Engine' }));
+    expect(screen.getByTestId('c2')).toHaveTextContent('tesseract');
+    expect(screen.getByTestId('catalog-editor')).toHaveTextContent('Engine: tesseract');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('catalog-editor')).not.toBeInTheDocument();
+    expect(screen.getByTestId('c2')).toHaveTextContent('tesseract');
   });
 });
