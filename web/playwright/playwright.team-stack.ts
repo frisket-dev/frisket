@@ -115,7 +115,7 @@ export function teamStack() {
     // keep it here so this e2e stack preserves the FollowTheMoney/graph-
     // neighborhood/frisket.ftm runtime surface it had before, not a
     // silently narrower one.
-    `uv run --extra entities --project ${shellQuote(ROOT)} uvicorn frisket.team.asgi:app ` +
+    `uv run --frozen --extra entities --project ${shellQuote(ROOT)} uvicorn frisket.team.asgi:app ` +
     `--host 127.0.0.1 --port ${backendPort} --loop asyncio`;
 
   const frontendCommand =

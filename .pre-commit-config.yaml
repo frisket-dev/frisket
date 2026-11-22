@@ -3,21 +3,27 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check --fix
+        entry: uv run --frozen ruff check --fix
         language: system
         types_or: [python, pyi]
         files: ^(src|tests)/
         require_serial: true
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format
+        entry: uv run --frozen ruff format
         language: system
         types_or: [python, pyi]
         files: ^(src|tests)/
         require_serial: true
       - id: gitleaks-staged
         name: gitleaks staged audit
-        entry: uv run python scripts/gitleaks_audit.py staged
+        entry: uv run --frozen python scripts/gitleaks_audit.py staged
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: uv-lock-guard
+        name: guard against accidental uv.lock drift
+        entry: python3 scripts/ci/check_uv_lock_drift.py
         language: system
         pass_filenames: false
         always_run: true
