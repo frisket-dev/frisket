@@ -1,5 +1,4 @@
 export const TEAM_SPEC_BASENAMES = [
-  'admin-debug-errors.spec.ts',
   'diagnostic-bundle.spec.ts',
 ] as const;
 

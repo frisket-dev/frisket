@@ -8,6 +8,7 @@ vi.mock("pluralize", () => ({
 }));
 
 import type { AlertInput } from "../../src/api/types";
+import { jsonResponse } from "../support/httpContractTestHelpers";
 
 const runRow = {
   id: 4,
@@ -157,17 +158,6 @@ const expectedEvent = {
   snippet: "budget line",
   createdAt: "2026-08-10T00:00:01Z",
 };
-
-function jsonResponse(
-  payload: unknown,
-  status = 200,
-  contentType = "application/json",
-): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": contentType },
-  });
-}
 
 type AlertsModule = typeof import("../../src/api/alerts");
 

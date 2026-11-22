@@ -8,6 +8,7 @@ vi.mock("pluralize", () => ({
 }));
 
 import type { RequestOptions } from "../../src/api/httpContract";
+import { jsonResponse } from "../support/httpContractTestHelpers";
 
 const rawRun = {
   id: 8,
@@ -167,17 +168,6 @@ const healthFixture = {
     },
   ],
 };
-
-function jsonResponse(
-  payload: unknown,
-  status = 200,
-  contentType = "application/json",
-): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": contentType },
-  });
-}
 
 interface ProjectSourcesTransport {
   listFeeds(options?: RequestOptions): Promise<Array<{ config: unknown }>>;
