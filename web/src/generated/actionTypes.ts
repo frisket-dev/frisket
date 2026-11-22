@@ -20,6 +20,14 @@ export type CellEditQueryParams = ({
   "value": ((JsonValue) | ((null)));
 });
 
+export type ChangeStepParams = ({
+  "expected_change_id"?: (((number)) | ((null)));
+});
+
+export type ChangeTargetParams = ({
+  "change_id": (number);
+});
+
 type ClusterParams_ClusterColumn = (string);
 
 type ClusterParams_ClusterReview = ({
@@ -1489,14 +1497,6 @@ export type MediaDownloadParams = ({
 })) | ((null)));
 });
 
-export type OperationStepParams = ({
-  "expected_op_id"?: (((number)) | ((null)));
-});
-
-export type OperationTargetParams = ({
-  "op_id": (number);
-});
-
 type PluginLoadParams_PluginManifestSource = ({
   "kind": ("local_file") & (string);
   "path": (string);
@@ -1677,7 +1677,7 @@ export type SubstituteParams = ({
 
 export type ReviewDecisionParams = ({
   "run_id"?: (((number)) | ((null)));
-  "copied_op_id"?: (((number)) | ((null)));
+  "copied_change_id"?: (((number)) | ((null)));
   "row_id": (number);
   "column_id": (number);
   "decision": ("accept" | "reject" | "reject_clear" | "clear") & (string);
@@ -1686,7 +1686,7 @@ export type ReviewDecisionParams = ({
 
 export type ReviewNoteParams = ({
   "run_id"?: (((number)) | ((null)));
-  "copied_op_id"?: (((number)) | ((null)));
+  "copied_change_id"?: (((number)) | ((null)));
   "row_id": (number);
   "note"?: (((string)) | ((null)));
 });
@@ -1778,6 +1778,10 @@ export type ScreenshotParams = ({
 export interface GeneratedActionParams {
   'cell.edit': CellEditParams;
   'cell.edit_query': CellEditQueryParams;
+  'change.redo': ChangeStepParams;
+  'change.restore': ChangeTargetParams;
+  'change.revert': ChangeTargetParams;
+  'change.undo': ChangeStepParams;
   'cluster.values': ClusterParams;
   'column.add': ColumnAddParams;
   'column.patch': ColumnPatchParams;
@@ -1859,10 +1863,6 @@ export interface GeneratedActionParams {
   'media.transcribe': TranscribeParams;
   'media.video_frames': VideoFramesParams;
   'media.ytdlp_download': MediaDownloadParams;
-  'operation.redo': OperationStepParams;
-  'operation.restore': OperationTargetParams;
-  'operation.revert': OperationTargetParams;
-  'operation.undo': OperationStepParams;
   'plugin.load': PluginLoadParams;
   'query.preview': QueryPreviewParams;
   'reduce.group_summary': GroupSummaryParams;

@@ -652,8 +652,8 @@ export interface LineageNode {
   derived?: boolean;
   syncState?: 'synced' | 'stale' | 'unknown' | 'checking' | null;
   stale_reason?: string | null;
-  op_kind?: string;
-  op_label?: string | null;
+  change_kind?: string;
+  change_label?: string | null;
   model?: string | null;
   source_kind?: string;
 }
@@ -662,7 +662,7 @@ export type LineageEdge = HttpProjectLineageResponse['edges'][number];
 
 export interface LineageDag {
   project_id: string;
-  op_cursor: number;
+  change_cursor: number;
   nodes: LineageNode[];
   edges: LineageEdge[];
 }
@@ -695,7 +695,7 @@ export interface CellValueRef {
   rowId: string;
   columnId: string;
   runId: string | null;
-  opId: string | null;
+  changeId: string | null;
 }
 
 /** Per-cell provenance for AI-generated values ("row drawers own provenance"). */
@@ -2262,7 +2262,7 @@ export interface View {
   name: string;
   sheet_id: number | null;
   spec: ViewDefinitionInput | null;
-  op_id: number | null;
+  change_id: number | null;
   unavailable_reason: string | null;
 }
 export interface ViewCreateInput extends ViewDefinitionInput { name: string; }
@@ -2307,8 +2307,8 @@ export interface AlertCheck {
   id: number;
   alertId: number;
   status: string;
-  opCursorBefore: number;
-  opCursorAfter: number;
+  changeCursorBefore: number;
+  changeCursorAfter: number;
   matchedRows: number;
   newRows: number;
   error: string | null;
@@ -2328,7 +2328,7 @@ export interface AlertInfo {
   detectionPolicy: ViewAlertConditions;
   schedule: string | null;
   enabled: boolean;
-  lastEvaluatedOp: number;
+  lastEvaluatedChange: number;
   lastRunId: number | null;
   lastStatus: string | null;
   createdAt: string;
@@ -3169,7 +3169,7 @@ export interface V1Receipt {
   actionId: string;
   actionKind: string;
   runId: string | null;
-  opIds: number[];
+  changeIds: number[];
   idempotencyKey: string | null;
   paramsHash: string | null;
   status: string;
@@ -3534,7 +3534,7 @@ export interface FeedHealthSummary {
 
 export interface FeedHealthCheck extends FeedCheck {
   feedId: number;
-  opId: number | null;
+  changeId: number | null;
   errorSummary: string | null;
   cursorBeforePresent: boolean;
   cursorAfterPresent: boolean;

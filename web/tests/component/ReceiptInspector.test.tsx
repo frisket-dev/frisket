@@ -25,7 +25,7 @@ async function inspect(ref: Record<string, unknown>, overrides: Partial<V1Receip
   const receipt: V1Receipt = {
     schemaVersion: 'frisket.receipt.v1', receiptId: 'receipt-export',
     projectId: 'source/project ?', actionId: 'action-export', actionKind: 'export.column_tables',
-    runId: null, opIds: [], idempotencyKey: null, paramsHash: null, status: 'completed',
+    runId: null, changeIds: [], idempotencyKey: null, paramsHash: null, status: 'completed',
     inputs: [], outputs: [{ name: 'package', ref }], providerUse: [], records: [], errors: [],
     ...overrides,
   };

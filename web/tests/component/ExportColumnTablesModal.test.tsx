@@ -52,7 +52,7 @@ function receipt(status: string): V1Receipt {
     actionId: 'action-a',
     actionKind: 'export.column_tables',
     runId: null,
-    opIds: [],
+    changeIds: [],
     idempotencyKey: 'key-a',
     paramsHash: 'hash-a',
     status,

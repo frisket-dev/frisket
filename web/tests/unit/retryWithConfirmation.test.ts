@@ -24,7 +24,7 @@ function failedRow(id: string, runId: string | null) {
     id, index: Number(id), cells: { '4': null },
     provenance: {
       '4': {
-        currentValueRef: { kind: 'run_result' as const, runId, rowId: id, columnId: '4', opId: null },
+        currentValueRef: { kind: 'run_result' as const, runId, rowId: id, columnId: '4', changeId: null },
         runId: runId ?? '', model: '', actionName: '', cost: 0, confidence: null, justification: '',
       },
     },

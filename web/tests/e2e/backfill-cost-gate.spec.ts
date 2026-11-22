@@ -86,7 +86,7 @@ const NEEDS_CONFIRMATION_402 = (pid: string) =>
     project_id: pid,
     run_id: null,
     receipt_id: null,
-    op_ids: [],
+    change_ids: [],
     outputs: [],
     warnings: [],
     errors: [
@@ -111,7 +111,7 @@ const COMPLETED_200 = (pid: string) =>
     project_id: pid,
     run_id: 88001,
     receipt_id: 'rcpt_backfill_e2e',
-    op_ids: [],
+    change_ids: [],
     outputs: [{ kind: 'run_backfill', name: null, ref: { filled: 1, run_id: 88001 } }],
     warnings: [],
     errors: [],

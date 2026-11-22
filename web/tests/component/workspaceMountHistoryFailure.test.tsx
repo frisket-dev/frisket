@@ -72,7 +72,7 @@ const SHEET_LIST_WIRE = [
     id: 1,
     name: 'Stories',
     parent_sheet_id: null,
-    parent_op_id: null,
+    parent_change_id: null,
     rows: 0,
     title_column_id: null,
     cited_column_ids: [],
@@ -113,7 +113,7 @@ const SHEET_DATA_WIRE = {
 // A healthy empty history page, served AFTER the scripted malformed
 // responses run out — proves the model recovers on the next refresh.
 const HISTORY_WIRE = {
-  ops: [],
+  changes: [],
   offset: 0,
   limit: 50,
   total: 0,
@@ -122,11 +122,11 @@ const HISTORY_WIRE = {
   prev_offset: null,
   next_offset: null,
   cursor_index: -1,
-  cursor_op: null,
-  cursor_op_loaded: true,
+  cursor_change: null,
+  cursor_change_loaded: true,
   undo_target: null,
   redo_target: null,
-  revision: { total: 0, max_op_id: 0, op_cursor: 0 },
+  revision: { total: 0, max_change_id: 0, change_cursor: 0 },
 };
 
 /** Scripted responses for successive GET /history calls; falls through to

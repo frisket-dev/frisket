@@ -70,11 +70,11 @@ const historyFixture = {
   prev_offset: null,
   next_offset: null,
   cursor_index: 0,
-  cursor_op_loaded: true,
+  cursor_change_loaded: true,
   undo_target: null,
   redo_target: null,
-  revision: { total: 1, max_op_id: 12, op_cursor: 12 },
-  ops: [
+  revision: { total: 1, max_change_id: 12, change_cursor: 12 },
+  changes: [
     {
       id: 12,
       index: 0,
@@ -604,9 +604,9 @@ describe('history and review generated HTTP reads', () => {
       ...historyFixture,
       total: 2,
       cursor_index: -1,
-      cursor_op_loaded: false,
-      revision: { total: 0, max_op_id: 0, op_cursor: -1 },
-      ops: [
+      cursor_change_loaded: false,
+      revision: { total: 0, max_change_id: 0, change_cursor: -1 },
+      changes: [
         {
           id: 20,
           index: 0,
@@ -758,11 +758,11 @@ describe('history and review generated HTTP reads', () => {
 
   it.each([
     {
-      name: 'undo preserves its captured project when operation_mismatch is returned',
+      name: 'undo preserves its captured project when change_mismatch is returned',
       invoke: (projectApi: ReturnType<typeof import('../../src/api/real').createProjectApi>) => projectApi.undo(),
       initial: { cursor: 1, undo: 12, redo: null },
       following: [{ cursor: 1, undo: 12, redo: null }],
-      actions: [{ kind: 'operation.undo', expectedOpId: 12, mismatch: true }],
+      actions: [{ kind: 'change.undo', expectedChangeId: 12, mismatch: true }],
       expectedCursor: 1,
     },
     {
@@ -770,7 +770,7 @@ describe('history and review generated HTTP reads', () => {
       invoke: (projectApi: ReturnType<typeof import('../../src/api/real').createProjectApi>) => projectApi.redo(),
       initial: { cursor: 0, undo: null, redo: 12 },
       following: [{ cursor: 1, undo: 12, redo: null }],
-      actions: [{ kind: 'operation.redo', expectedOpId: 12, mismatch: false }],
+      actions: [{ kind: 'change.redo', expectedChangeId: 12, mismatch: false }],
       expectedCursor: 1,
     },
   ])('$name across an ambient project switch', async (scenario) => {
@@ -809,7 +809,7 @@ describe('history and review generated HTTP reads', () => {
         project_id: projectA,
         run_id: null,
         receipt_id: null,
-        errors: action.mismatch ? [{ code: 'operation_mismatch', message: 'history moved' }] : [],
+        errors: action.mismatch ? [{ code: 'change_mismatch', message: 'history moved' }] : [],
       };
       return Promise.resolve(jsonResponse(result, action.mismatch ? 409 : 200));
     }));
@@ -833,9 +833,9 @@ describe('history and review generated HTTP reads', () => {
       scenario.actions.map((action) => expect.objectContaining({
         action_id: action.kind,
         scope: { kind: 'project' },
-        params: { expected_op_id: action.expectedOpId },
+        params: { expected_change_id: action.expectedChangeId },
         output_names: {},
-        idempotency_key: expect.stringMatching(/^web-operation\.(undo|redo):/),
+        idempotency_key: expect.stringMatching(/^web-change\.(undo|redo):/),
       })),
     );
   });
@@ -845,15 +845,15 @@ describe('history and review mutations owned by the domain', () => {
   it.each([
     {
       mutation: 'undo' as const,
-      kind: 'operation.undo',
-      key: /^web-operation\.undo:/,
+      kind: 'change.undo',
+      key: /^web-change\.undo:/,
       before: { cursor: 1, undo: 12 },
       after: { cursor: 0, redo: 12 },
     },
     {
       mutation: 'redo' as const,
-      kind: 'operation.redo',
-      key: /^web-operation\.redo:/,
+      kind: 'change.redo',
+      key: /^web-change\.redo:/,
       before: { cursor: 0, redo: 12 },
       after: { cursor: 1, undo: 12 },
     },
@@ -875,22 +875,22 @@ describe('history and review mutations owned by the domain', () => {
     expect(exchange.bodies()).toEqual([{
       action_id: scenario.kind,
       scope: { kind: 'project' },
-      params: { expected_op_id: 12 },
+      params: { expected_change_id: 12 },
       output_names: {},
       idempotency_key: expect.stringMatching(scenario.key),
     }]);
   });
 
-  it('omits expected_op_id when the cursor offers no undo target', async () => {
+  it('omits expected_change_id when the cursor offers no undo target', async () => {
     const exchange = stubHistoryAndPosts(
       [historyPage({ cursor: 0 }), historyPage({ cursor: 0 })],
-      [{ result: actionResult('operation.undo', 'completed') }],
+      [{ result: actionResult('change.undo', 'completed') }],
     );
     const api = historyReviewDomain('111');
 
     await expect(api.undo()).resolves.toMatchObject({ cursorIndex: 0, undoTarget: null });
     expect(exchange.bodies()).toEqual([
-      expect.objectContaining({ action_id: 'operation.undo', params: {} }),
+      expect.objectContaining({ action_id: 'change.undo', params: {} }),
     ]);
   });
 
@@ -901,14 +901,14 @@ describe('history and review mutations owned by the domain', () => {
     await expect(api.undo()).rejects.toMatchObject({
       name: 'ApiError',
       status: 400,
-      message: 'Operation 0 is not a valid v1 operation ref',
+      message: 'Change 0 is not a valid v1 change ref',
     });
     expect(exchange.calls()).toEqual([['/api/projects/112/history?limit=50', 'GET']]);
   });
 
   it.each([
-    { code: 'operation_mismatch', status: 409, message: 'history moved underneath the step' },
-    { code: 'operation_unavailable', status: 200, message: 'that operation is gone' },
+    { code: 'change_mismatch', status: 409, message: 'history moved underneath the step' },
+    { code: 'change_unavailable', status: 200, message: 'that operation is gone' },
     { code: 'irreversible_barrier', status: 200, message: 'the import cannot be undone' },
   ])('leaves the cursor where it is when a step reports $code', async (blocked) => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -916,7 +916,7 @@ describe('history and review mutations owned by the domain', () => {
       [historyPage({ cursor: 0, redo: 12 })],
       [{
         status: blocked.status,
-        result: actionResult('operation.redo', 'failed', [
+        result: actionResult('change.redo', 'failed', [
           { code: blocked.code, message: blocked.message },
         ]),
       }],
@@ -930,14 +930,14 @@ describe('history and review mutations owned by the domain', () => {
       ['/api/projects/113/actions/v1/run', 'POST'],
       ['/api/projects/113/history?limit=50', 'GET'],
     ]);
-    expect(warn).toHaveBeenCalledWith('operation.redo blocked:', blocked.message);
+    expect(warn).toHaveBeenCalledWith('change.redo blocked:', blocked.message);
   });
 
   it('surfaces an unrecognized Redo error', async () => {
     stubHistoryAndPosts(
       [historyPage({ cursor: 0, redo: 12 })],
       [{
-        result: actionResult('operation.redo', 'failed', [
+        result: actionResult('change.redo', 'failed', [
           { code: 'operation_locked', message: 'locked by another writer' },
         ]),
       }],
@@ -954,7 +954,7 @@ describe('history and review mutations owned by the domain', () => {
   it.each(['revert', 'restore'] as const)('selectively %ss one operation without walking other changes', async (direction) => {
     const exchange = stubHistoryAndPosts(
       [historyPage({ cursor: 9, undo: 99 })],
-      [{ result: actionResult(`operation.${direction}`, 'completed') }],
+      [{ result: actionResult(`change.${direction}`, 'completed') }],
     );
     const api = historyReviewDomain('selective-project');
     const command = direction === 'revert' ? api.revertChange : api.restoreChange;
@@ -963,11 +963,11 @@ describe('history and review mutations owned by the domain', () => {
       ['/api/projects/selective-project/actions/v1/run', 'POST'],
       ['/api/projects/selective-project/history?limit=50', 'GET'],
     ]);
-    expect(exchange.bodies()[0]).toMatchObject({ action_id: `operation.${direction}`, params: { op_id: 12 }, scope: { kind: 'project' } });
+    expect(exchange.bodies()[0]).toMatchObject({ action_id: `change.${direction}`, params: { change_id: 12 }, scope: { kind: 'project' } });
   });
 
   it('surfaces a selective Restore conflict instead of silently walking history', async () => {
-    const exchange = stubHistoryAndPosts([], [{ result: actionResult('operation.restore', 'failed', [{ code: 'restore_conflict', message: 'Column summary already exists' }]) }]);
+    const exchange = stubHistoryAndPosts([], [{ result: actionResult('change.restore', 'failed', [{ code: 'restore_conflict', message: 'Column summary already exists' }]) }]);
     await expect(historyReviewDomain('conflict').restoreChange('12')).rejects.toMatchObject({ message: 'Column summary already exists' });
     expect(exchange.calls()).toHaveLength(1);
   });
@@ -1015,7 +1015,7 @@ describe('history and review mutations owned by the domain', () => {
   it('reviews a saved copy using its Change identity, without an execution id', async () => {
     const exchange = stubHistoryAndPosts([], [{ result: actionResult('review.decision', 'completed') }]);
     await historyReviewDomain('118').reviewItem('copy:12:7:5','accept');
-    expect(exchange.bodies()[0].params).toEqual({copied_op_id:12,row_id:7,column_id:5,decision:'accept'});
+    expect(exchange.bodies()[0].params).toEqual({copied_change_id:12,row_id:7,column_id:5,decision:'accept'});
   });
 
   it('does not turn a cell edit into a review judgment', async () => {

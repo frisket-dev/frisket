@@ -33,7 +33,7 @@ async function expectDeleteRowsContribution(contribution: Locator) {
   const capabilitiesAttr = await contribution.getAttribute('data-required-capabilities');
   expect(capabilitiesAttr).not.toBeNull();
   expect(capabilitiesAttr?.split(/\s+/).filter(Boolean).sort()).toEqual([
-    'operation.undo',
+    'change.undo',
     'row.delete',
   ]);
 }

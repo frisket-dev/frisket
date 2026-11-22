@@ -23,13 +23,13 @@ try:
     source_column_id = int(project.db.execute("SELECT id FROM columns WHERE sheet_id=? AND type='file'", (sheet_id,)).fetchone()["id"])
     blob_hash = project.db.execute("SELECT hash FROM blobs ORDER BY rowid LIMIT 1").fetchone()["hash"]
     text_column_id = project.add_column(sheet_id, "Text", "text", generated=True)
-    op_id = project.append_change("media.ocr", {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}}, label="fixture OCR")
+    change_id = project.append_change("media.ocr", {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}}, label="fixture OCR")
     runs = RunResultStore(project)
-    run_id = runs.start_run(op_id, sheet_id, "media.ocr", model="local/fixture", params={"output_name": "Text"}, total_rows=1, row_ids=[row_id])
+    run_id = runs.start_run(change_id, sheet_id, "media.ocr", model="local/fixture", params={"output_name": "Text"}, total_rows=1, row_ids=[row_id])
     write_claimed_test_results(project, run_id, [{"row_id": row_id, "column_id": text_column_id, "value": "page one page two total 42", "confidence": 0.9, "justification": "fixture"}])
     runs.finish_run(run_id)
     with write_transaction(project.db):
-        runs.point_column_at_run(op_id, text_column_id, run_id)
+        runs.point_column_at_run(change_id, text_column_id, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, text_column_id, row_ids=[row_id])
     with write_transaction(project.db):
         artifact = record_source_artifact(
@@ -46,7 +46,7 @@ try:
             project, subject_kind="cell", subject_ref=refs[row_id],
             spans=[{"span_id": span["id"], "rank": index} for index, span in enumerate(spans)],
             sheet_id=sheet_id, row_id=row_id, column_id=text_column_id, run_id=run_id,
-            op_id=op_id, receipt_id="receipt-lazy-pdf", link_role="media_ocr_grounding",
+            change_id=change_id, receipt_id="receipt-lazy-pdf", link_role="media_ocr_grounding",
             producer={"action_kind": "media.ocr", "engine": "fixture"},
         )
 finally:

@@ -60,11 +60,11 @@ beforeEach(() => {
     const column = { id: 7, name: 'body', type: columnType, generated: false, format: null,
       current_run_id: null, transcript_status: null, media_download_candidate: null };
     if (url.pathname.endsWith('/sheets')) return json([1, 2].map((id) => ({ id, name: `Sheet ${id}`, rows: 1,
-      parent_sheet_id: null, parent_op_id: null, title_column_id: null, cited_column_ids: [],
+      parent_sheet_id: null, parent_change_id: null, title_column_id: null, cited_column_ids: [],
       annotated_text_column_ids: [], document_text_column_ids: [], dependent_sheet_ids: [], columns: [column] })));
     if (url.pathname.endsWith('/locate')) return json({ found: true, row_id: 20, index: 0, page_offset: 0, page_size: 100 });
     if (url.pathname.endsWith('/data')) return json({ total: 1, columns: [column], rows: [{ id: 20, cells: {}, meta: {
-      '7': { current_value_ref: { kind: 'source_cell', row_id: 20, column_id: 7, run_id: null, op_id: null }, bounded_value: { preview: 'preview only', value_kind: 'text', total_characters: total, total_bytes: total + 3,
+      '7': { current_value_ref: { kind: 'source_cell', row_id: 20, column_id: 7, run_id: null, change_id: null }, bounded_value: { preview: 'preview only', value_kind: 'text', total_characters: total, total_bytes: total + 3,
         retrieval_revision: 9, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 } },
     }, parent_row_id: null, child_count: 0 }] });
     if (url.pathname.endsWith('/text-window')) {

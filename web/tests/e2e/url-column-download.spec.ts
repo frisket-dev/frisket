@@ -38,7 +38,7 @@ async function mockV1FetchUrlRun(page: Page, pid: string): Promise<PostedFetchUr
         status: 'completed',
         project_id: pid,
         run_id: null,
-        op_ids: [884],
+        change_ids: [884],
         outputs: [],
         receipt_id: 'receipt-web-fetch-url',
         warnings: [],

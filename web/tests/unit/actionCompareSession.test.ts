@@ -23,7 +23,7 @@ function valueCell(value: string | number | boolean | null): ActionComparisonCel
     origin: {
       kind: 'run_result',
       run_id: 41,
-      op_id: 9,
+      change_id: 9,
       review_decision: null,
     },
   };

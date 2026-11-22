@@ -42,7 +42,7 @@ test('history detail panel exposes the full run record: params, id, deep link, w
   const historyResponse = await request.get(`/api/projects/${pid}/history?limit=50`);
   expect(historyResponse.ok()).toBeTruthy();
   const history = await historyResponse.json() as {
-    ops: Array<{
+    changes: Array<{
       id: number;
       run: {
         run_id: number;
@@ -54,7 +54,7 @@ test('history detail panel exposes the full run record: params, id, deep link, w
       } | null;
     }>;
   };
-  const templateOp = history.ops.at(-1);
+  const templateOp = history.changes.at(-1);
   expect(templateOp?.run).not.toBeNull();
   const run = templateOp!.run!;
   expect(run.generated_columns.map((c) => c.name)).toContain('note');

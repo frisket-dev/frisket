@@ -367,10 +367,10 @@ export function ProvenanceBlock({
             </span>
           </>
         )}
-        {prov.currentValueRef.kind === 'manual_edit' && prov.currentValueRef.opId && (
+        {prov.currentValueRef.kind === 'manual_edit' && prov.currentValueRef.changeId && (
           <>
-            <span className="prov-key">op</span>
-            <span>{prov.currentValueRef.opId}</span>
+            <span className="prov-key">change</span>
+            <span>{prov.currentValueRef.changeId}</span>
           </>
         )}
         {prov.currentValueRef.kind === 'source_cell' && (

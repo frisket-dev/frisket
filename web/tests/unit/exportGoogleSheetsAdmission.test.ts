@@ -46,7 +46,7 @@ function receipt(
     action_id: 'google-export-action',
     action_kind: 'export.google_sheets',
     run_id: null,
-    op_ids: [],
+    change_ids: [],
     idempotency_key: 'server-does-not-rewrite-client-key',
     params_hash: 'sha256:google-export',
     status,

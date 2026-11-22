@@ -15,7 +15,7 @@ const health: FeedHealth = {
     summary: { status: 'failing', lastSuccessAt: null, lastFailureAt: null, consecutiveFailures: 2,
       newRowsTotal: 9, newRowsRecent: 4, changedRowsRecent: 1, skippedRowsRecent: 3, revisionsRecent: 2, recentRunCount: 1, lastCursorSummary: 'page 2' },
     runsPage: { schemaVersion: 'frisket.feed_checks_page.v1', order: 'desc', offset: 0, limit: 20, total: 1, hasMore: false, nextOffset: null },
-    runs: [{ id: 8, feedId: 4, opId: null, status: 'error', newRows: 4, skippedRows: 3, changedRows: 1, revisions: 2,
+    runs: [{ id: 8, feedId: 4, changeId: null, status: 'error', newRows: 4, skippedRows: 3, changedRows: 1, revisions: 2,
       warningCount: 1, durationMs: 1000, costMicro: 4200, receiptId: null, error: 'Fetch failed', errorSummary: 'Fetch failed',
       startedAt: '2026-10-19T12:00:00Z', finishedAt: null, cursorBeforePresent: false, cursorAfterPresent: true, summaryPresent: true }],
     downstreamJobs: [{ jobId: 1, kind: 'extract', status: 'failed', attempts: 1, maxAttempts: 3,

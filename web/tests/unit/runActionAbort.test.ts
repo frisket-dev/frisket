@@ -286,7 +286,7 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
           action_id: 'extract-9901',
           action_kind: 'map.extract',
           run_id: 9901,
-          op_ids: [91],
+          change_ids: [91],
           idempotency_key: 'extract-key',
           params_hash: 'sha256:extract',
           status: 'completed',
@@ -298,7 +298,7 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
               sheet_id: 7,
               column_id: 44,
               run_id: 9901,
-              op_id: 91,
+              change_id: 91,
               route: 'items',
               schema: 'items_list',
               item_schema: {

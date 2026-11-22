@@ -35,7 +35,7 @@ const sheetListWire = [{
   id: 7,
   name: 'Sheet One',
   parent_sheet_id: null,
-  parent_op_id: null,
+  parent_change_id: null,
   rows: 0,
   title_column_id: null,
   cited_column_ids: [],
@@ -76,7 +76,7 @@ describe('sheet and grid HTTP contracts', () => {
       total: 1, columns: [{ ...sheetColumnWire, generated: true }],
       rows: [{ id: 11, cells: { 9: 'Pages one and three' }, meta: { 9: {
         warnings: ['Page 2 failed during OCR.'],
-        current_value_ref: { kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, op_id: 5 },
+        current_value_ref: { kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, change_id: 5 },
       } }, parent_row_id: null, child_count: 0 }],
     })));
     const page = await realApi.getSheetData('7', 0, 25, { valueMode: 'bounded' });
@@ -91,7 +91,7 @@ describe('sheet and grid HTTP contracts', () => {
       total: 1, columns: [{ ...sheetColumnWire, type: 'link' }],
       rows: [{ id: 11, cells: { 9: href }, meta: { 9: {
         source_link: { label: 'Original.pdf · p 3' },
-        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, op_id: null },
+        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, change_id: null },
       } }, parent_row_id: null, child_count: 0 }],
     })));
     const page = await realApi.getSheetData('7', 0, 25);
@@ -104,7 +104,7 @@ describe('sheet and grid HTTP contracts', () => {
       total_bytes: 100001, retrieval_revision: 3, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 };
     const fetchMock = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ columns: [sheetColumnWire], total: 1,
       rows: [{ id: 11, cells: {}, meta: { 9: { bounded_value: descriptor,
-        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, op_id: null } } },
+        current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, change_id: null } } },
         parent_row_id: null, child_count: 0 }] }));
     vi.stubGlobal('fetch', fetchMock);
     const page = await realApi.getSheetData('7', 0, 25, { columnIds: ['9'], valueMode: 'bounded' });
@@ -120,7 +120,7 @@ describe('sheet and grid HTTP contracts', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       total: 1, columns: [{ ...sheetColumnWire, replay_pending_count: null, replay_comparison_available: false }],
       rows: [{ id: 11, cells: { 9: 'small manual value' }, meta: { 9: { replay_comparison_unavailable: true,
-        current_value_ref: { kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, op_id: 3 } } },
+        current_value_ref: { kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, change_id: 3 } } },
         parent_row_id: null, child_count: 0 }],
     })));
     const page = await realApi.getSheetData('7', 0, 25, { valueMode: 'bounded' });
@@ -861,7 +861,7 @@ describe('sheet and grid HTTP contracts', () => {
               confidence: 0.75,
               justification: 'review this',
               current_value_ref: {
-                kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, op_id: 5,
+                kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, change_id: 5,
               },
               pending_value: {
                 fresh_value: { nested: false },
@@ -913,7 +913,7 @@ describe('sheet and grid HTTP contracts', () => {
         provenance: {
           9: {
             currentValueRef: {
-              kind: 'run_result', rowId: '11', columnId: '9', runId: '4', opId: '5',
+              kind: 'run_result', rowId: '11', columnId: '9', runId: '4', changeId: '5',
             },
             model: 'remembered-model', actionName: 'Remembered action', cost: 0,
             confidence: 0.75, justification: 'review this', runId: '4',
@@ -947,7 +947,7 @@ describe('sheet and grid HTTP contracts', () => {
           cells: { 9: 'One' },
           meta: { 9: {
             current_value_ref: {
-              kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, op_id: 2,
+              kind: 'manual_edit', row_id: 11, column_id: 9, run_id: null, change_id: 2,
             },
           } },
           parent_row_id: null,
@@ -1001,7 +1001,7 @@ describe('sheet and grid HTTP contracts', () => {
           error: 'new exact error',
           outcome: 'model_error',
           current_value_ref: {
-            kind: 'run_result', row_id: 11, column_id: 9, run_id: 6, op_id: 16,
+            kind: 'run_result', row_id: 11, column_id: 9, run_id: 6, change_id: 16,
           },
         } },
         parent_row_id: null,
@@ -1011,7 +1011,7 @@ describe('sheet and grid HTTP contracts', () => {
         cells: { 9: 'retained old exact value' },
         meta: { 9: {
           current_value_ref: {
-            kind: 'run_result', row_id: 12, column_id: 9, run_id: 4, op_id: 14,
+            kind: 'run_result', row_id: 12, column_id: 9, run_id: 4, change_id: 14,
           },
         } },
         parent_row_id: null,
@@ -1037,10 +1037,10 @@ describe('sheet and grid HTTP contracts', () => {
       cells: { 9: null },
       cellStates: { 9: 'error' },
       cellErrors: { 9: 'new exact error' },
-      provenance: { 9: { currentValueRef: { runId: '6', opId: '16' }, model: cachedRunId === '6' ? 'cached-6' : '' } },
+      provenance: { 9: { currentValueRef: { runId: '6', changeId: '16' }, model: cachedRunId === '6' ? 'cached-6' : '' } },
     }, {
       cells: { 9: 'retained old exact value' },
-      provenance: { 9: { currentValueRef: { runId: '4', opId: '14' }, model: cachedRunId === '4' ? 'cached-4' : '' } },
+      provenance: { 9: { currentValueRef: { runId: '4', changeId: '14' }, model: cachedRunId === '4' ? 'cached-4' : '' } },
     }]);
   });
 

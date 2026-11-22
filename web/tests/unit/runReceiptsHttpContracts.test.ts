@@ -87,7 +87,7 @@ describe('run and receipt HTTP contracts', () => {
       action_id: 'action-1',
       action_kind: 'map.template',
       run_id: 7,
-      op_ids: [3],
+      change_ids: [3],
       idempotency_key: 'template@sha256:v1',
       params_hash: 'sha256:v1',
       status: 'completed',
@@ -108,8 +108,8 @@ describe('run and receipt HTTP contracts', () => {
       value,
     });
     expect(Object.keys(receipt).sort()).toEqual([
-      'actionId', 'actionKind', 'errors', 'idempotencyKey', 'inputs',
-      'opIds', 'outputs', 'paramsHash', 'projectId', 'providerUse', 'receiptId',
+      'actionId', 'actionKind', 'changeIds', 'errors', 'idempotencyKey', 'inputs',
+      'outputs', 'paramsHash', 'projectId', 'providerUse', 'receiptId',
       'records', 'runId', 'schemaVersion', 'status', 'value',
     ]);
   });

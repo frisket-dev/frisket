@@ -28,7 +28,7 @@ function alertWire(overrides: Record<string, unknown> = {}): Record<string, unkn
     sheet_id: null,
     detection_policy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
     enabled: true,
-    last_evaluated_op: 0,
+    last_evaluated_change: 0,
     last_run_id: null,
     last_status: null,
     created_at: '2026-08-31T00:00:00Z',
