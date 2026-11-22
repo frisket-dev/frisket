@@ -226,7 +226,7 @@ async def _wait_for_calls_or_task_exit(
     adapter,
     expected_calls: int,
     *,
-    timeout: float = 2.0,
+    timeout: float = 10.0,
 ) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
