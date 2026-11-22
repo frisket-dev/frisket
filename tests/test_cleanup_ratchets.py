@@ -36,6 +36,7 @@ web_types = _load("web_tests_type_ratchet")
 collection = _load("check_test_collection")
 web_hygiene = _load("lint_web_source_hygiene")
 test_tokens = _load("lint_test_tokens")
+uv_lock_guard = _load("check_uv_lock_drift")
 
 
 def test_ruff_ratchet_flags_increases_and_new_files_only():
@@ -264,6 +265,108 @@ def test_file_counts_may_shrink_but_not_grow_or_appear():
     above, below = file_counts.compare({"a.py": 2, "b.py": 1}, {"a.py": 1, "c.py": 1})
     assert above == ["c.py"]
     assert below == ["a.py", "b.py"]
+
+
+def test_file_count_ratchet_reports_slack_and_update_command(capsys):
+    baseline = {"a.py": 5, "b.py": 3, "c.py": 2}
+    current = {"a.py": 2, "c.py": 2}
+    cleared, below = file_counts.slack(baseline, current)
+    assert cleared == 6
+    assert below == ["a.py", "b.py"]
+
+    code = file_counts.enforce(
+        "demo_ratchet",
+        baseline,
+        current,
+        unit="issue(s)",
+        fix="Fix them.",
+        update=None,
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "a.py: 2 < baseline 5" in out
+    assert "b.py: 0 < baseline 3" in out
+    assert "6 baseline slot(s) cleared across 2 file(s)" in out
+    assert "baseline still freezes 10" in out
+    assert "python scripts/ci/demo_ratchet.py --update" in out
+
+
+def test_file_count_ratchet_reports_clean_frozen_state_when_no_slack(capsys):
+    baseline = {"a.py": 2}
+    code = file_counts.enforce(
+        "demo_ratchet",
+        baseline,
+        {"a.py": 2},
+        unit="issue(s)",
+        fix="Fix them.",
+        update=None,
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.strip() == "demo_ratchet: ok (2 issue(s) frozen in 1 files)."
+
+
+def test_file_count_ratchet_update_lowers_and_refuses_to_grow(capsys):
+    written: list[dict[str, int]] = []
+    code_ok = file_counts.enforce(
+        "demo_ratchet",
+        {"a.py": 3, "b.py": 1},
+        {"a.py": 1},
+        unit="issue(s)",
+        fix="Fix them.",
+        update=written.append,
+    )
+    out_ok = capsys.readouterr().out
+    assert code_ok == 0
+    assert written == [{"a.py": 1}]
+    assert "4 -> 1 issue(s)" in out_ok
+    assert "3 baseline slot(s) cleared across 2 file(s)" in out_ok
+
+    written.clear()
+    code_fail = file_counts.enforce(
+        "demo_ratchet",
+        {"a.py": 1},
+        {"a.py": 2},
+        unit="issue(s)",
+        fix="Fix them.",
+        update=written.append,
+    )
+    out_fail = capsys.readouterr().out
+    assert code_fail == 1
+    assert written == []
+    assert "above baseline" in out_fail
+
+
+def test_uv_lock_guard_blocks_lock_only_and_allows_manifest_or_override(
+    monkeypatch, capsys
+):
+    assert uv_lock_guard.check_staged_paths(["src/frisket/cli.py"]) == []
+    assert uv_lock_guard.check_staged_paths(["uv.lock"]) == ["uv.lock"]
+    assert uv_lock_guard.check_staged_paths(["uv.lock", "pyproject.toml"]) == []
+    assert uv_lock_guard.check_staged_paths(["sidecar/retrieval-runtime/uv.lock"]) == [
+        "sidecar/retrieval-runtime/uv.lock"
+    ]
+    assert (
+        uv_lock_guard.check_staged_paths(
+            [
+                "sidecar/retrieval-runtime/uv.lock",
+                "sidecar/retrieval-runtime/pyproject.toml",
+            ]
+        )
+        == []
+    )
+    assert uv_lock_guard.check_staged_paths(["uv.lock"], allow_lock_only=True) == []
+
+    monkeypatch.setattr(uv_lock_guard, "staged_files", lambda: ["uv.lock"])
+    monkeypatch.delenv(uv_lock_guard.ALLOW_ENV, raising=False)
+    assert uv_lock_guard.main([]) == 1
+    err = capsys.readouterr().err
+    assert "uv.lock is staged without pyproject.toml" in err
+    assert f"{uv_lock_guard.ALLOW_ENV}=1" in err
+
+    monkeypatch.setenv(uv_lock_guard.ALLOW_ENV, "1")
+    assert uv_lock_guard.main([]) == 0
+    assert capsys.readouterr().err == ""
 
 
 def test_web_test_type_errors_parse_the_first_line_of_each_error():

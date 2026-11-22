@@ -22,6 +22,13 @@ def compare(baseline: Counts, current: Counts) -> tuple[list[str], list[str]]:
     return above, below
 
 
+def slack(baseline: Counts, current: Counts) -> tuple[int, list[str]]:
+    """Return (cleared baseline slots, sorted entries below baseline)."""
+    _, below = compare(baseline, current)
+    cleared = sum(baseline[rel] - current.get(rel, 0) for rel in below)
+    return cleared, below
+
+
 def read(path: Path) -> Counts:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -41,6 +48,7 @@ def enforce(
     fix: str,
     update: Callable[[Counts], None] | None,
     detail: Callable[[str], list[str]] = lambda rel: [],
+    update_command: str | None = None,
 ) -> int:
     """Print the verdict for one ratchet and return its exit code.
 
@@ -59,13 +67,25 @@ def enforce(
             f"{name}: {len(above)} file(s) above baseline. {fix} The baseline only shrinks."
         )
         return 1
+    total = sum(current.values())
+    baseline_total = sum(baseline.values())
+    cleared = baseline_total - total
     if update is not None:
         update(current)
-        print(f"{name}: baseline lowered ({len(below)} file(s)).")
+        print(
+            f"{name}: baseline lowered ({baseline_total} -> {total} {unit}, "
+            f"{cleared} baseline slot(s) cleared across {len(below)} file(s))."
+        )
         return 0
     for rel in below:
         print(f"{rel}: {current.get(rel, 0)} < baseline {baseline[rel]}")
-    note = " Run with --update to lock in." if below else ""
-    total = sum(current.values())
-    print(f"{name}: ok ({total} {unit} frozen in {len(current)} files).{note}")
+    if below:
+        cmd = update_command or f"python scripts/ci/{name}.py --update"
+        print(
+            f"{name}: ok ({total} {unit} in {len(current)} files; "
+            f"{cleared} baseline slot(s) cleared across {len(below)} file(s), "
+            f"baseline still freezes {baseline_total}). Run `{cmd}` to lock in."
+        )
+    else:
+        print(f"{name}: ok ({total} {unit} frozen in {len(current)} files).")
     return 0
