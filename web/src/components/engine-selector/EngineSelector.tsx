@@ -400,18 +400,22 @@ export function EngineSelector({
       <button
         ref={triggerRef}
         type="button"
-        className="engine-selector__trigger form-input select-trigger"
+        className={`engine-selector__trigger form-input select-trigger${loading ? ' engine-selector__trigger--loading' : ''}`}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-busy={loading || undefined}
         disabled={disabled || loading}
         aria-label={loading ? `Loading ${label.toLowerCase()}` : undefined}
         onClick={openSelector}
       >
-        <span className={`engine-selector__status engine-selector__status--${triggerCopy?.status ?? 'unavailable'}`} aria-hidden />
-        <span className="engine-selector__trigger-copy" aria-hidden={loading || undefined}>
-          <strong>{triggerCopy?.label ?? `Choose ${label.toLowerCase()}`}</strong>
-          <small>{triggerSecondaryCopy}</small>
-          {triggerActivity && <progress
+        <span
+          className={`engine-selector__status engine-selector__status--${loading ? 'loading' : (triggerCopy?.status ?? 'unavailable')}`}
+          aria-hidden
+        />
+        <span className="engine-selector__trigger-copy">
+          <strong>{loading ? 'Loading…' : (triggerCopy?.label ?? `Choose ${label.toLowerCase()}`)}</strong>
+          <small>{loading ? '' : triggerSecondaryCopy}</small>
+          {!loading && triggerActivity && <progress
             className="engine-selector__trigger-progress"
             aria-label={`${triggerCopy?.label ?? label}: ${triggerActivity.label}`}
             aria-valuemin={triggerProgressValue === undefined ? undefined : 0}
