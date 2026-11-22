@@ -180,7 +180,7 @@ def test_list_table_schema_validation_needs_no_destination_and_writes_nothing(
     def counts():
         return tuple(
             project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("sheets", "columns", "rows", "ops", "receipts")
+            for table in ("sheets", "columns", "rows", "changes", "receipts")
         )
 
     before = counts()

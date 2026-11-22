@@ -115,13 +115,13 @@ def seed_run(
     """Insert a finished run directly (the seeded-run pattern from
     test_server's isolation test) so spend math is deterministic."""
     p = client.app.state.workspace.get(pid)
-    p.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'seed')")
-    op_id = p.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
+    p.db.execute("INSERT INTO changes (kind, label) VALUES ('run', 'seed')")
+    change_id = p.db.execute("SELECT MAX(id) AS m FROM changes").fetchone()["m"]
     cur = p.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, model, status, total_rows, "
+        "INSERT INTO runs (change_id, sheet_id, action_kind, model, status, total_rows, "
         "completed_rows, cost_actual) VALUES (?, ?, 'map.classify', ?, 'completed', "
         "?, ?, ?)",
-        (op_id, sheet_id, model, completed_rows, completed_rows, cost),
+        (change_id, sheet_id, model, completed_rows, completed_rows, cost),
     )
     run_id = cur.lastrowid
     if with_tokens:

@@ -181,8 +181,8 @@ def publish_keyed_records(
                 if int(column) in writable_columns
             }
             if restore:
-                op_id, _ = writer()
-                start_change(db, op_id, writing=True)
+                change_id, _ = writer()
+                start_change(db, change_id, writing=True)
                 db.execute("UPDATE rows SET hidden=0 WHERE id=?", (target,))
                 result.restored.append(target)
             if changes or restore:

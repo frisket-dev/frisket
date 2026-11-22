@@ -409,9 +409,9 @@ class TestApi:
         ][0]
         r = post_column_set_type_as_v1_action(client, pid, col["id"], plugin_type)
         assert r.status_code == 200
-        set_type_op_id = r.json()["op_ids"][0]
+        set_type_op_id = r.json()["change_ids"][0]
 
-        hist = client.get(f"/api/projects/{pid}/history").json()["ops"]
+        hist = client.get(f"/api/projects/{pid}/history").json()["changes"]
         kinds = [o["kind"] for o in hist]
         assert "column.set_type" in kinds
 
@@ -421,14 +421,14 @@ class TestApi:
 
         assert coltype() == plugin_type
         undo = post_operation_undo_as_v1_action(
-            client, pid, expected_op_id=set_type_op_id
+            client, pid, expected_change_id=set_type_op_id
         )
         assert undo.status_code == 200, undo.text
         assert undo.json()["schema_version"] == "frisket.action_result.v1"
         assert undo.json()["status"] == "completed"
         assert coltype() == "text"
         redo = post_operation_redo_as_v1_action(
-            client, pid, expected_op_id=set_type_op_id
+            client, pid, expected_change_id=set_type_op_id
         )
         assert redo.status_code == 200, redo.text
         assert redo.json()["schema_version"] == "frisket.action_result.v1"

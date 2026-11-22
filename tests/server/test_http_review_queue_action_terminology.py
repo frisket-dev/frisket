@@ -139,7 +139,7 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
     assert bundle["fields"] == [
         {
             "run_id": result.run_id,
-            "copied_op_id": None,
+            "copied_change_id": None,
             "row_id": 1,
             "column_id": queue[0]["column_id"],
             "column_name": "beat",

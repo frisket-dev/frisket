@@ -199,7 +199,7 @@ def test_lazy_reader_cannot_change_published_parent_sheet(seeded, mode):
                 "sheets",
                 "columns",
                 "rows",
-                "ops",
+                "changes",
                 "receipts",
                 "materialized_row_sources",
             )
@@ -244,7 +244,7 @@ def test_renamed_derived_reader_arguments_and_repeated_sources(seeded):
     assert "Renamed" in ref["columns"]
     op = json.loads(
         project.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+            "SELECT spec FROM changes WHERE id=?", (result.change_ids[0],)
         ).fetchone()[0]
     )
     assert op["params"] == {"identifier": "prefix:" + index_id}
@@ -311,11 +311,11 @@ def test_unadmitted_and_unsupported_sources_refuse_without_writes(seeded, shape)
             ]
         )
 
-    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     result = run_typed_create_sheet_action(project, "p", bound_for(produce, index_id))
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_params"
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before
     assert (
         project.db.execute("SELECT 1 FROM sheets WHERE name='Output'").fetchone()
         is None
@@ -393,8 +393,8 @@ def test_explicit_parent_and_all_contributors_support_mixed_rows(seeded):
         == left.sheet_id
     )
     membership = project.db.execute(
-        "SELECT materialized_row_id,source_row_id,role FROM materialized_row_sources WHERE op_id=?",
-        (result.op_ids[0],),
+        "SELECT materialized_row_id,source_row_id,role FROM materialized_row_sources WHERE change_id=?",
+        (result.change_ids[0],),
     ).fetchall()
     assert {(row[0], row[1], row[2]) for row in membership} == {
         (rows[1]["id"], left.row_id, "aggregate_source"),
@@ -473,8 +473,8 @@ def test_admitted_roles_are_preserved_even_for_preferred_parent(seeded, monkeypa
     assert {
         row[0]
         for row in project.db.execute(
-            "SELECT role FROM materialized_row_sources WHERE op_id=?",
-            (result.op_ids[0],),
+            "SELECT role FROM materialized_row_sources WHERE change_id=?",
+            (result.change_ids[0],),
         )
     } == {"join_left", "join_right"}
 
@@ -518,8 +518,8 @@ def test_distinct_list_item_tokens_share_one_canonical_row_membership(make_proje
         is None
     )
     membership = project.db.execute(
-        "SELECT source_row_id,role FROM materialized_row_sources WHERE op_id=?",
-        (result.op_ids[0],),
+        "SELECT source_row_id,role FROM materialized_row_sources WHERE change_id=?",
+        (result.change_ids[0],),
     ).fetchall()
     assert [(row[0], row[1]) for row in membership] == [(row_id, "aggregate_source")]
     assert (
@@ -539,8 +539,8 @@ def test_distinct_list_item_tokens_share_one_canonical_row_membership(make_proje
         "missing_refs",
         "sheet_id_dict",
         "sheet_id_list",
-        "op_id_dict",
-        "op_id_list",
+        "change_id_dict",
+        "change_id_list",
     ],
 )
 def test_parented_table_replay_rejects_tampered_publication_without_read(

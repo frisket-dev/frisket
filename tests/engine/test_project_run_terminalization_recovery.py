@@ -95,9 +95,9 @@ def _seed_orphaned_run(
         [{"source": "alpha"}],
         {"source": source_column_id},
     )
-    op_id = project.append_change(ACTION_KIND, {"action_kind": "map.regex_extract"})
+    change_id = project.append_change(ACTION_KIND, {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         action_kind,
         total_rows=1,
@@ -157,7 +157,7 @@ def _seed_orphaned_run(
             action_kind=action_kind,
             receipt_id=receipt_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             claim_token=claim_token,
             lease_seconds=None,
             details={"fixture": "dead-writer-terminal-recovery"},
@@ -275,11 +275,11 @@ def _seed_never_dispatched_run(
         [{"source": "alpha"}],
         {"source": source_column_id},
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         ACTION_KIND, spec or {"action_kind": "map.regex_extract"}
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         ACTION_KIND,
         total_rows=1,
@@ -322,7 +322,7 @@ def _seed_never_dispatched_run(
                 action_kind=ACTION_KIND,
                 receipt_id=claim_receipt_id,
                 run_id=run_id if bind_claim else None,
-                op_id=op_id,
+                change_id=change_id,
                 claim_token=claim_token,
                 lease_seconds=None,
                 details={"fixture": "never-dispatched-terminalization"},
@@ -431,7 +431,7 @@ def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> N
 
     run = _seed_never_dispatched_run(project, attempt_count=0)
     row = project.db.execute(
-        "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
+        "SELECT change_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
     ).fetchone()
     column = project.db.execute(
         "SELECT id FROM columns WHERE sheet_id=? AND name='extracted'",
@@ -458,11 +458,11 @@ def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> N
 
     assert result.disposition == "terminalized"
     operation = project.db.execute(
-        "SELECT status,publication_closed FROM ops WHERE id=?", (row["op_id"],)
+        "SELECT status,publication_closed FROM changes WHERE id=?", (row["change_id"],)
     ).fetchone()
     assert tuple(operation) == ("applied", 1)
     with pytest.raises(ChangePublicationClosed):
-        ChangeStore(project).require_publication(int(row["op_id"]))
+        ChangeStore(project).require_publication(int(row["change_id"]))
     outcome = project.db.execute(
         "SELECT outcome FROM effective_current_cells WHERE row_id IN "
         "(SELECT row_id FROM run_rows WHERE run_id=?) AND column_id=?",
@@ -479,7 +479,7 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
         project, attempt_count=0, spec={"deferred_publication": True}
     )
     row = project.db.execute(
-        "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
+        "SELECT change_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
     ).fetchone()
     column = project.db.execute(
         "SELECT id,hidden FROM columns WHERE sheet_id=? AND name='extracted'",
@@ -488,7 +488,7 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
     assert run.claim_token is not None
     with write_transaction(project.db):
         project.set_undo_info(
-            int(row["op_id"]), {"created_columns": [int(column["id"])]}
+            int(row["change_id"]), {"created_columns": [int(column["id"])]}
         )
     with write_transaction(project.db):
         ResultGenerationStore(project).declare(
@@ -1013,9 +1013,9 @@ def test_never_dispatched_authority_requires_owned_immediate_transaction(
 
 def test_cancelled_insert_mode_uses_finished_receipt_contract(project) -> None:
     sheet_id = project.add_sheet("Cancelled insert")
-    op_id = project.append_change(ACTION_KIND, {"fixture": "cancelled-insert"})
+    change_id = project.append_change(ACTION_KIND, {"fixture": "cancelled-insert"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         ACTION_KIND,
         total_rows=0,
@@ -1777,11 +1777,11 @@ def test_run_store_refuses_current_writer_without_authority(
     project.db.execute("BEGIN IMMEDIATE")
     from frisket.engine.store.changes import start_change
 
-    op_id = project.db.execute(
-        "SELECT op_id FROM runs WHERE id=?",
+    change_id = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?",
         (orphan.run_id,),
     ).fetchone()[0]
-    start_change(project.db, op_id, writing=True)
+    start_change(project.db, change_id, writing=True)
     RunResultStore(project).request_cancel_in_transaction(orphan.run_id)
     project.db.commit()
     assert RunResultStore(project).get_run(orphan.run_id)["status"] == "running"
@@ -1793,8 +1793,8 @@ def test_run_store_refuses_current_writer_without_authority(
     project.db.rollback()
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?",
-            (op_id,),
+            "SELECT publication_closed FROM changes WHERE id=?",
+            (change_id,),
         ).fetchone()[0]
         == 1
     )
@@ -1811,8 +1811,8 @@ def test_run_store_refuses_current_writer_without_authority(
     assert result.disposition == "terminalized"
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?",
-            (op_id,),
+            "SELECT publication_closed FROM changes WHERE id=?",
+            (change_id,),
         ).fetchone()[0]
         == 1
     )

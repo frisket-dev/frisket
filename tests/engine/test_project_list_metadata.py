@@ -152,7 +152,9 @@ def test_project_list_pending_review_count_tracks_run_and_review_actions(client)
     # Undo restores the exact review metadata and makes the item pending again.
     undone = client.post(
         f"/api/projects/{pid}/actions/v1/run",
-        json=operation_step_action("operation.undo", expected_op_id=project.op_cursor),
+        json=operation_step_action(
+            "change.undo", expected_change_id=project.change_cursor
+        ),
     )
     assert undone.status_code == 200, undone.text
     assert undone.json()["status"] == "completed"

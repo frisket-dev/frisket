@@ -30,13 +30,13 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
     run_ids: list[int] = []
     for index in range(5):
         project.db.commit()
-        op_id = project.append_change(
+        change_id = project.append_change(
             "map",
             {"action_kind": "map.classify", "index": index},
             label=f"classify {index}",
         )
         run_id = RunResultStore(project).start_run(
-            op_id,
+            change_id,
             sheet_id,
             "map.classify",
             model="anthropic/test",
@@ -60,7 +60,7 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
         )
         RunResultStore(project).finish_run(run_id)
         with write_transaction(project.db):
-            RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+            RunResultStore(project).point_column_at_run(change_id, topic_col, run_id)
         project.db.execute(
             "INSERT INTO receipts (id, run_id, action_kind, action_id, "
             "idempotency_key, params_hash, status, body) "

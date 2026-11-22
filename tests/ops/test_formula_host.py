@@ -71,7 +71,7 @@ def test_formula_publishes_typed_number_once(make_project) -> None:
     assert first.status == "completed", first.errors
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "SELECT publication_closed FROM changes JOIN runs ON runs.change_id=changes.id "
             "WHERE runs.id=?",
             (first.run_id,),
         ).fetchone()[0]
@@ -776,13 +776,13 @@ def test_formula_whole_scope_retype_refuses_row_appended_before_publish(
         == 3
     )
     # Reverting only the failed replacement preserves the unrelated appended edit.
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
-    op_id = project.db.execute(
-        "SELECT op_id FROM runs WHERE id=?", (replacement.run_id,)
+    change_id = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?", (replacement.run_id,)
     ).fetchone()[0]
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "revert", change_id=op_id)
+    step_change(project, "revert", change_id=change_id)
     project.db.commit()
     assert project.get_values(sheet, column, row_ids=rows + appended) == {
         rows[0]: 3,

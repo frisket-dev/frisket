@@ -33,9 +33,9 @@ def test_add_rows_nested_batch_publishes_when_caller_commits(make_project):
             == 2
         )
         producers = db.execute(
-            "SELECT p.op_id,o.kind FROM cells c "
+            "SELECT p.change_id,o.kind FROM cells c "
             "JOIN base_cell_producers p ON p.id=c.producer_id "
-            "JOIN ops o ON o.id=p.op_id "
+            "JOIN changes o ON o.id=p.change_id "
             "WHERE c.column_id=?",
             (column_id,),
         ).fetchall()

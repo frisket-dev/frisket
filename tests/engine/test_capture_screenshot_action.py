@@ -340,12 +340,12 @@ def test_queued_screenshot_same_bytes_keep_occurrence_evidence_and_one_undo(
     assert {item["source_row_id"] for item in artifacts} == set(rows)
     assert len(artifacts) == 2
     assert project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 2
-    assert len(receipt.op_ids) == 1
+    assert len(receipt.change_ids) == 1
     replay = client.post(f"/api/projects/{pid}/actions/v1/run", json=body)
     assert replay.status_code == 200, replay.text
     assert replay.json()["receipt_id"] == queued["receipt_id"]
     assert len(calls) == 2
-    assert project.undo() == receipt.op_ids[0]
+    assert project.undo() == receipt.change_ids[0]
     assert not any(project.get_values(sheet, column["id"]).values())
 
 
@@ -415,7 +415,7 @@ def test_late_evidence_failure_rolls_back_only_its_row(screenshot_client, monkey
     assert receipt.status == "queued"
     job = client.app.state.workspace.queue.get(response.json()["job_id"])
     assert job.status == "failed"
-    run = project.db.execute("SELECT id, op_id, status FROM runs").fetchone()
+    run = project.db.execute("SELECT id, change_id, status FROM runs").fetchone()
     assert run["status"] == "running"
     checkpoints = project.db.execute(
         "SELECT state FROM effect_checkpoints WHERE family='row_effect' AND group_key=?",
@@ -437,7 +437,7 @@ def test_late_evidence_failure_rolls_back_only_its_row(screenshot_client, monkey
     assert project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 1
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
     _, refs = project.get_values_with_refs(sheet, image["id"])
-    assert refs[rows[0]]["op_id"] == run["op_id"]
+    assert refs[rows[0]]["change_id"] == run["change_id"]
 
 
 @pytest.mark.parametrize(

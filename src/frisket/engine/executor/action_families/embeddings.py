@@ -1858,7 +1858,7 @@ def _embedding_create_existing_state(
     )
     if (
         receipt.run_id is None
-        or not receipt.op_ids
+        or not receipt.change_ids
         or not isinstance(fact, dict)
         or fact.get("fact_version") != "frisket.model-call-fact.v1"
     ):
@@ -1900,7 +1900,7 @@ def _mark_embedding_probe_egress_reserved(
     *,
     receipt_id: str,
     run_id: int,
-    op_id: int,
+    change_id: int,
     attempt_id: str,
     provider_id: str,
     requested_model: str | None,
@@ -1930,7 +1930,7 @@ def _mark_embedding_probe_egress_reserved(
             ref={
                 "kind": "embedding_dimension_probe_egress_reservation",
                 "run_id": run_id,
-                "op_id": op_id,
+                "change_id": change_id,
                 "attempt_id": attempt_id,
                 "provider_id": provider_id,
                 "requested_model": requested_model,
@@ -1939,7 +1939,11 @@ def _mark_embedding_probe_egress_reserved(
         )
     )
     receipt = receipt.model_copy(
-        update={"run_id": run_id, "op_ids": [op_id], "records": supporting_records}
+        update={
+            "run_id": run_id,
+            "change_ids": [change_id],
+            "records": supporting_records,
+        }
     )
     with write_transaction(project.db, what="embedding probe egress reservation"):
         landed = ReceiptStore(project).update_body_status_in_transaction(
@@ -1966,14 +1970,14 @@ def _run_paid_embedding_dimension_probe(
     embedding_gateway: Any | None,
 ) -> ActionResult | dict[str, Any]:
     try:
-        op_id = project.append_change(
+        change_id = project.append_change(
             "embedding.index_create",
             {"action_id": action.kind, "params": dict(action.params)},
             label="Probe embedding model dimension",
         )
         run_store = RunResultStore(project)
         run_id = run_store.start_run(
-            op_id,
+            change_id,
             sheet_id,
             action.kind,
             model=str(params.model or cap["model_id"]),
@@ -2020,7 +2024,7 @@ def _run_paid_embedding_dimension_probe(
             project,
             receipt_id=receipt_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             attempt_id=attempt_id,
             provider_id=str(cap["provider_id"]),
             requested_model=params.model,
@@ -2192,7 +2196,7 @@ def _run_paid_embedding_dimension_probe(
         params_hash=params_hash,
         status="running",
         run_id=run_id,
-        op_ids=[op_id],
+        change_ids=[change_id],
         inputs=[
             ReceiptIO(
                 name="source",
@@ -2425,7 +2429,7 @@ def _create_index(
         reserved_action_id = checkpoint_receipt.action_id
         reserved_receipt_id = checkpoint_receipt.receipt_id
         probe_run_id = int(checkpoint_receipt.run_id)
-        probe_op_id = int(checkpoint_receipt.op_ids[0])
+        probe_op_id = int(checkpoint_receipt.change_ids[0])
         probe_run_store = RunResultStore(project)
         if probe_run_store.get_run(probe_run_id) is None:
             return _error(
@@ -2588,7 +2592,7 @@ def _create_index(
                 params_hash=params_hash,
                 status="completed",
                 run_id=probe_run_id,
-                op_ids=[probe_op_id] if probe_op_id is not None else [],
+                change_ids=[probe_op_id] if probe_op_id is not None else [],
                 inputs=[
                     ReceiptIO(
                         name="source",
@@ -2682,7 +2686,7 @@ def _create_index(
         status="completed",
         project_id=project_id,
         run_id=probe_run_id,
-        op_ids=[probe_op_id] if probe_op_id is not None else [],
+        change_ids=[probe_op_id] if probe_op_id is not None else [],
         outputs=[
             ActionOutput(
                 kind="embedding_index",
@@ -2986,13 +2990,13 @@ def _do_refresh(
                 replay_resume_admission = None
                 stored_effect = stored_payload.get("effect") or {}
                 prior_run_id = stored_effect.get("run_id")
-                prior_op_id = stored_effect.get("op_id")
+                prior_op_id = stored_effect.get("change_id")
                 if (
                     isinstance(prior_run_id, int)
                     and isinstance(prior_op_id, int)
                     and run_store.get_run(prior_run_id) is not None
                 ):
-                    op_id = int(prior_op_id)
+                    change_id = int(prior_op_id)
                     run_id = int(prior_run_id)
                     # An in-process failure closes the original accounting
                     # run as failed. Replaying its durable returned checkpoint
@@ -3010,13 +3014,13 @@ def _do_refresh(
                             details={"retryable": True},
                         )
                 else:
-                    op_id = project.append_change(
+                    change_id = project.append_change(
                         "embedding.index_refresh",
                         {"action_id": action.kind, "params": dict(action.params)},
                         label=f"Refresh embedding index {params.index_id}",
                     )
                     run_id = run_store.start_run(
-                        op_id,
+                        change_id,
                         int(index["sheet_id"]),
                         "embedding.index_refresh",
                         model=str(space["actual_model_id"]),
@@ -3054,13 +3058,13 @@ def _do_refresh(
                 # dispatch.  A process crash during/after the call therefore
                 # leaves a visible running run for recovery instead of an
                 # untracked billable call.
-                op_id = project.append_change(
+                change_id = project.append_change(
                     "embedding.index_refresh",
                     {"action_id": action.kind, "params": dict(action.params)},
                     label=f"Refresh embedding index {params.index_id}",
                 )
                 run_id = run_store.start_run(
-                    op_id,
+                    change_id,
                     int(index["sheet_id"]),
                     "embedding.index_refresh",
                     model=str(space["actual_model_id"]),
@@ -3104,7 +3108,7 @@ def _do_refresh(
                                 effect_ref,
                                 payload={
                                     "effect": {
-                                        "op_id": op_id,
+                                        "change_id": change_id,
                                         "run_id": run_id,
                                         "attempt_id": attempt_id,
                                     }
@@ -3182,7 +3186,7 @@ def _do_refresh(
                                     effect_ref,
                                     payload={
                                         "effect": {
-                                            "op_id": op_id,
+                                            "change_id": change_id,
                                             "run_id": run_id,
                                             "attempt_id": attempt_id,
                                         },
@@ -3210,7 +3214,7 @@ def _do_refresh(
                             )
                             completion_payload = {
                                 "effect": {
-                                    "op_id": op_id,
+                                    "change_id": change_id,
                                     "run_id": run_id,
                                     "attempt_id": attempt_id,
                                 },
@@ -4319,7 +4323,7 @@ def run_typed_embedding_action(
                     update={
                         "receipt_id": capability.result.receipt_id,
                         "run_id": capability.result.run_id,
-                        "op_ids": capability.result.op_ids,
+                        "change_ids": capability.result.change_ids,
                         "outputs": capability.result.outputs,
                     }
                 )

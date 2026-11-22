@@ -295,8 +295,8 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
         assert project.get_values(whole_sheet, whole_markdown_id)[whole_row] == (
             whole_markdown
         )
-        assert project.undo() == extracted.op_ids[0]
-        assert project.redo() == extracted.op_ids[0]
+        assert project.undo() == extracted.change_ids[0]
+        assert project.redo() == extracted.change_ids[0]
         assert project.get_values(sheet_id, finding_id)[rows[1]] == "OMEGATWO"
         with project.materialize_blob(digest) as stored:
             assert stored.read_bytes() == raw

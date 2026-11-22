@@ -37,7 +37,10 @@ from frisket.server.services.action_history import editable_action_draft
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
-from historical_schema import restore_pre_feeds_tables
+from tests.engine.historical_schema import (
+    restore_pre_changes_schema,
+    restore_pre_feeds_tables,
+)
 
 _PRE_ALERTS_WATCH_SCHEMA_SQL = """
 CREATE TABLE watches (
@@ -532,7 +535,7 @@ def _seed_pre_upgrade_bundle(bundle_path: Path) -> dict[str, Any]:
         result = run_action_spec(seed, request, project_id="proj-chain-invariant")
         assert result.status == "completed", result.errors
         assert result.receipt_id is not None and result.run_id is not None
-        op_id = result.op_ids[0]
+        op_id = result.change_ids[0]
 
         length_col_id = int(
             seed.db.execute(
@@ -653,6 +656,7 @@ def _seed_pre_upgrade_bundle(bundle_path: Path) -> dict[str, Any]:
     raw = sqlite3.connect(bundle_path / "project.db")
     try:
         register_current_cell_functions(raw)
+        restore_pre_changes_schema(raw)
         raw.execute("PRAGMA foreign_keys=OFF")
         _downgrade_receipt_and_run_rows(
             raw,
@@ -728,6 +732,7 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
             ).fetchall()
         }
         assert {
+            "changes",
             "generated_column_claims",
             "alerts",
             "alert_checks",
@@ -740,6 +745,7 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
         } <= tables
         assert not (
             {
+                "ops",
                 "output_column_claims",
                 "watches",
                 "watch_runs",
@@ -759,6 +765,8 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
         receipt_dict = json.loads(raw_receipt)
         assert "evidence" not in receipt_dict
         assert "records" in receipt_dict
+        assert "op_ids" not in receipt_dict
+        assert "change_ids" in receipt_dict
         for stale_token in (
             "map_python_receipt_evidence",
             "receipt_evidence",
@@ -784,7 +792,7 @@ def test_full_upgrade_chain_preserves_payload_hygiene_and_map_python_replay(
         )
 
         raw_op_spec = upgraded.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (fixture["op_id"],)
+            "SELECT spec FROM changes WHERE id=?", (fixture["op_id"],)
         ).fetchone()[0]
         assert "receipt_evidence" not in raw_op_spec
         assert "__evidence_debug" not in raw_op_spec

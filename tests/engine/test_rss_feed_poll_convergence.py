@@ -105,7 +105,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
         )
         assert first.status == "completed", first.errors
         assert first.receipt_id is not None
-        assert first.op_ids
+        assert first.change_ids
         source_ref = next(
             output.ref for output in first.outputs if output.kind == "feed"
         )
@@ -148,7 +148,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
             project_id=PROJECT_ID,
         )
         assert second.status == "completed", second.errors
-        assert second.op_ids == []
+        assert second.change_ids == []
         source_run = next(
             output.ref for output in second.outputs if output.kind == "feed_check"
         )

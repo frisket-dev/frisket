@@ -47,7 +47,7 @@ def test_projection_repair_preserves_revision_until_source_writer_changes_value(
 ) -> None:
     _sheet_id, row_id, column_id = _seed_current_cell_project(project)
     before = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
+        "SELECT origin_kind,origin_change_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
@@ -72,7 +72,7 @@ def test_projection_repair_preserves_revision_until_source_writer_changes_value(
         project, row_id=row_id, column_id=column_id, value="second"
     )
     after = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
+        "SELECT origin_kind,origin_change_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
@@ -244,11 +244,11 @@ def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path: Path) -
     assert [
         tuple(row)
         for row in migrated.db.execute(
-            "SELECT id,kind,spec,undo_info,status FROM ops ORDER BY id"
+            "SELECT id,kind,spec,undo_info,status FROM changes ORDER BY id"
         )
     ] == history_before
     current_after = migrated.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,base_producer_id,"
+        "SELECT origin_kind,origin_change_id,origin_run_id,base_producer_id,"
         "retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()

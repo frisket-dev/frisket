@@ -13,9 +13,20 @@ import sqlite3
 from uuid import uuid4
 from frisket.engine.store.schema import (
     BundleSchemaMismatch,
-    CURRENT_CELL_VALUES_SQL,
     SCHEMA,
     SCHEMA_DIGEST,
+)
+from frisket.upgrades.project._pre_changes_ddl import (
+    PRE_CHANGES_CHANGE_SCHEMA_SQL,
+    PRE_CHANGES_CONSUMED_SOURCE_SCHEMA_SQL,
+    PRE_CHANGES_COPIED_RESULTS_SCHEMA_SQL,
+    PRE_CHANGES_CURRENT_CELLS_TABLE_SQL,
+    PRE_CHANGES_CURRENT_CELL_VALUES_SQL,
+    PRE_CHANGES_DESCRIPTOR_SCHEMA_SQL,
+    PRE_CHANGES_JUDGMENT_SCHEMA_SQL,
+    PRE_CHANGES_PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+    PRE_CHANGES_STRUCTURAL_SCHEMA_SQL,
+    PRE_CHANGES_TRIGGERS_SQL,
 )
 from frisket.upgrades.project._step import execute_ddl, schema_digest, schema_step
 from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
@@ -239,13 +250,17 @@ def _rebuild_table(
         "run_output_generations",
     }:
         raise ValueError("Unknown domain table rebuild")
-    match = re.search(
-        r"CREATE TABLE IF NOT EXISTS " + table + r" \(.*?\n\)(?: WITHOUT ROWID)?;",
-        SCHEMA,
-        re.S,
-    )
-    if match is None:
-        raise RuntimeError(f"Missing current table definition: {table}")
+    if table == "current_cells":
+        table_ddl = PRE_CHANGES_CURRENT_CELLS_TABLE_SQL
+    else:
+        match = re.search(
+            r"CREATE TABLE IF NOT EXISTS " + table + r" \(.*?\n\)(?: WITHOUT ROWID)?;",
+            SCHEMA,
+            re.S,
+        )
+        if match is None:
+            raise RuntimeError(f"Missing current table definition: {table}")
+        table_ddl = match.group()
     original_columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
     high_water = db.execute(
         "SELECT seq FROM sqlite_sequence WHERE name=?", (table,)
@@ -259,7 +274,7 @@ def _rebuild_table(
         )
     ]
     replacement = f"domain_{table}_new"
-    db.execute(match.group().replace(f"IF NOT EXISTS {table}", replacement, 1))
+    db.execute(table_ddl.replace(f"IF NOT EXISTS {table}", replacement, 1))
     columns = [
         row[1]
         for row in db.execute(f"PRAGMA table_info({replacement})")
@@ -396,28 +411,17 @@ def _cut_over(db: sqlite3.Connection) -> None:
     from frisket.upgrades.project.blob_retention_migration import (
         migrate_blob_derivation_ownership,
     )
-    from frisket.engine.store.change_schema import CHANGE_SCHEMA_SQL
-    from frisket.engine.store.column_descriptors import DESCRIPTOR_SCHEMA_SQL
-    from frisket.engine.store.structural_changes import STRUCTURAL_SCHEMA_SQL
-    from frisket.engine.store.copied_results import COPIED_RESULTS_SCHEMA_SQL
     from frisket.upgrades.project.domain_alert_migration import migrate_alert_baselines
-    from frisket.engine.store.document_text import (
-        PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
-    )
     from frisket.upgrades.project.domain_document_text_migration import (
         adopt_legacy_document_text,
     )
     from frisket.upgrades.project.domain_identity_migration import (
         migrate_identity_high_water,
-    )
-    from frisket.engine.store.keyed_updates import KEYED_UPDATE_SCHEMA
-    from frisket.engine.store.consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
-    from frisket.engine.store.purge import PURGE_SCHEMA_SQL
-    from frisket.upgrades.project.domain_identity_migration import (
         migrate_materialized_lineage,
     )
+    from frisket.engine.store.keyed_updates import KEYED_UPDATE_SCHEMA
+    from frisket.engine.store.purge import PURGE_SCHEMA_SQL
     from frisket.upgrades.project.domain_view_migration import migrate_unified_views
-    from frisket.engine.store.review_judgments import JUDGMENT_SCHEMA_SQL
 
     migrate_identity_high_water(db)
     migrate_blob_derivation_ownership(db)
@@ -466,16 +470,16 @@ def _cut_over(db: sqlite3.Connection) -> None:
     # Replacement generations now publish progressively while active.
     _rebuild_table(db, "run_output_generations")
     _rebuild_table(db, "current_cells")
-    execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)
-    execute_ddl(db, CHANGE_SCHEMA_SQL)
-    execute_ddl(db, DESCRIPTOR_SCHEMA_SQL)
-    execute_ddl(db, STRUCTURAL_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_COPIED_RESULTS_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_CHANGE_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_DESCRIPTOR_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_STRUCTURAL_SCHEMA_SQL)
     migrate_materialized_lineage(db)
     migrate_alert_baselines(db)
     migrate_unified_views(db)
-    execute_ddl(db, JUDGMENT_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_JUDGMENT_SCHEMA_SQL)
     execute_ddl(db, KEYED_UPDATE_SCHEMA)
-    execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_CONSUMED_SOURCE_SCHEMA_SQL)
     execute_ddl(db, PURGE_SCHEMA_SQL)
     _retain_source_observations(db)
     # Reconciliation now owns the retained poll identities and baselines.
@@ -491,8 +495,8 @@ def _cut_over(db: sqlite3.Connection) -> None:
     )
     archive_history(db)
     db.execute("INSERT INTO meta(key,value) VALUES ('change_sequence','0')")
-    execute_ddl(db, CURRENT_CELL_VALUES_SQL)
-    execute_ddl(db, PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+    execute_ddl(db, PRE_CHANGES_CURRENT_CELL_VALUES_SQL)
+    execute_ddl(db, PRE_CHANGES_PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
     for name in (
         "trg_cell_result_heads_require_publishable_result",
         "trg_cell_result_heads_update_publishable_result",
@@ -500,12 +504,16 @@ def _cut_over(db: sqlite3.Connection) -> None:
         "trg_results_published_no_delete",
     ):
         db.execute(f"DROP TRIGGER IF EXISTS {name}")
-        trigger = re.search(
-            r"CREATE TRIGGER IF NOT EXISTS " + name + r"\b.*?END;", SCHEMA, re.S
-        )
-        if trigger is None:
-            raise RuntimeError(f"Missing new publication trigger {name}")
-        execute_ddl(db, trigger.group())
+        if name in PRE_CHANGES_TRIGGERS_SQL:
+            trigger_sql = PRE_CHANGES_TRIGGERS_SQL[name]
+        else:
+            trigger = re.search(
+                r"CREATE TRIGGER IF NOT EXISTS " + name + r"\b.*?END;", SCHEMA, re.S
+            )
+            if trigger is None:
+                raise RuntimeError(f"Missing new publication trigger {name}")
+            trigger_sql = trigger.group()
+        execute_ddl(db, trigger_sql)
     db.execute(
         "UPDATE current_cells SET outcome='failed' WHERE origin_kind='run_result' "
         "AND EXISTS (SELECT 1 FROM results r WHERE r.run_id=current_cells.origin_run_id "

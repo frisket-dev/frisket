@@ -91,7 +91,7 @@ def _mutate_receipt_ref(
     raise AssertionError(f"receipt ref {kind} not found")
 
 
-def _membership_rows(project: Project, op_id: int) -> list[dict[str, Any]]:
+def _membership_rows(project: Project, change_id: int) -> list[dict[str, Any]]:
     return [
         {
             "materialized_row_id": int(row["materialized_row_id"]),
@@ -101,9 +101,9 @@ def _membership_rows(project: Project, op_id: int) -> list[dict[str, Any]]:
         }
         for row in project.db.execute(
             "SELECT materialized_row_id, source_row_id, source_sheet_id, role "
-            "FROM materialized_row_sources WHERE op_id=? "
+            "FROM materialized_row_sources WHERE change_id=? "
             "ORDER BY materialized_row_id, source_row_id, role",
-            (op_id,),
+            (change_id,),
         ).fetchall()
     ]
 
@@ -187,7 +187,7 @@ def test_resolve_entities_writes_aggregate_membership_not_fake_parentage(
     ).fetchall()
     assert {row["parent_row_id"] for row in parentage} == {None}
 
-    membership = _membership_rows(project, result.op_ids[0])
+    membership = _membership_rows(project, result.change_ids[0])
     assert {row["role"] for row in membership} == {"aggregate_source"}
     source_variants_column = next(
         column
@@ -303,7 +303,7 @@ def test_reduce_group_summary_writes_aggregate_membership_and_replays_it(
     ).fetchall()
     assert {row["parent_row_id"] for row in parentage} == {None}
 
-    membership = _membership_rows(project, result.op_ids[0])
+    membership = _membership_rows(project, result.change_ids[0])
     assert {row["role"] for row in membership} == {"aggregate_source"}
     expected_pairs = {
         (group["summary_row_id"], source_row_id)
@@ -386,10 +386,10 @@ def test_reduce_group_summary_writes_aggregate_membership_and_replays_it(
     first_membership = membership[0]
     project.db.execute(
         "DELETE FROM materialized_row_sources "
-        "WHERE op_id=? AND materialized_row_id=? AND source_row_id=? "
+        "WHERE change_id=? AND materialized_row_id=? AND source_row_id=? "
         "AND role='aggregate_source'",
         (
-            result.op_ids[0],
+            result.change_ids[0],
             first_membership["materialized_row_id"],
             first_membership["source_row_id"],
         ),

@@ -247,7 +247,7 @@ CASES = [
             "sheets": 1,
             "columns": 3,
             "rows": 3,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,
@@ -697,11 +697,11 @@ def test_two_sided_membership_and_receipt_evidence(project: Project) -> None:
         ),
     )
     assert result.status == "completed", result.errors
-    op_id = result.op_ids[0]
+    change_id = result.change_ids[0]
     roles = [
         r["role"]
         for r in project.db.execute(
-            "SELECT role FROM materialized_row_sources WHERE op_id=?", (op_id,)
+            "SELECT role FROM materialized_row_sources WHERE change_id=?", (change_id,)
         ).fetchall()
     ]
     # both source and target membership roles present
@@ -711,8 +711,8 @@ def test_two_sided_membership_and_receipt_evidence(project: Project) -> None:
     source_sheets = {
         int(r["source_sheet_id"])
         for r in project.db.execute(
-            "SELECT DISTINCT source_sheet_id FROM materialized_row_sources WHERE op_id=?",
-            (op_id,),
+            "SELECT DISTINCT source_sheet_id FROM materialized_row_sources WHERE change_id=?",
+            (change_id,),
         ).fetchall()
     }
     assert source_sheets == {seed["left_sheet_id"], seed["right_sheet_id"]}

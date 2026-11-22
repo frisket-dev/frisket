@@ -164,7 +164,7 @@ def _action_kind_by_operation_id(receipts: list[dict[str, Any]]) -> dict[int, st
         action_kind = str(receipt.get("action_kind") or "")
         if not action_kind:
             continue
-        for operation_id in receipt.get("op_ids") or []:
+        for operation_id in receipt.get("change_ids") or []:
             try:
                 action_kind_by_id[int(operation_id)] = action_kind
             except (TypeError, ValueError):
@@ -246,7 +246,7 @@ def _markdown_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
             f"| {markdown_table_cell(receipt['id'])} | "
             f"{markdown_table_cell(receipt['action_kind'])} | "
             f"{markdown_table_cell(receipt['status'])} | "
-            f"{markdown_table_cell(', '.join(str(item) for item in receipt['op_ids']) or 'none')} | "
+            f"{markdown_table_cell(', '.join(str(item) for item in receipt['change_ids']) or 'none')} | "
             f"{markdown_table_cell(', '.join(receipt['outputs']) or 'none')} | "
             f"{markdown_table_cell(', '.join(receipt['records']) or 'none')} |"
         )
@@ -354,7 +354,7 @@ def _html_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
         rows.append(
             f"<tr><td>{_html_escape(receipt['id'])}</td><td>{_html_escape(receipt['action_kind'])}</td>"
             f"<td>{_html_escape(receipt['status'])}</td>"
-            f"<td>{_html_escape(', '.join(str(item) for item in receipt['op_ids']) or 'none')}</td>"
+            f"<td>{_html_escape(', '.join(str(item) for item in receipt['change_ids']) or 'none')}</td>"
             f"<td>{_html_escape(', '.join(receipt['outputs']) or 'none')}</td>"
             f"<td>{_html_escape(', '.join(receipt['records']) or 'none')}</td></tr>"
         )
@@ -463,7 +463,9 @@ def work_log_pdf_lines(payload: dict[str, Any]) -> list[str]:
     lines.extend(["", "Action Receipts"])
     if receipts:
         for receipt in receipts:
-            operation_ids = ", ".join(str(item) for item in receipt["op_ids"]) or "none"
+            operation_ids = (
+                ", ".join(str(item) for item in receipt["change_ids"]) or "none"
+            )
             outputs = ", ".join(receipt["outputs"]) or "none"
             records = ", ".join(receipt["records"]) or "none"
             lines.append(

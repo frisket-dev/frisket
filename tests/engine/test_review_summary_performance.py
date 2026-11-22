@@ -24,9 +24,9 @@ def _publish_managed_results(
     point_heads: bool = True,
 ) -> int:
     column_ids = list(columns)
-    op_id = project.append_change(action_kind, {"fixture": "review summary"})
+    change_id = project.append_change(action_kind, {"fixture": "review summary"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         action_kind,
         row_ids=row_ids,
@@ -36,7 +36,7 @@ def _publish_managed_results(
         from frisket.engine.store.changes import start_change
 
         project.db.execute("BEGIN IMMEDIATE")
-        start_change(project.db, op_id, writing=True)
+        start_change(project.db, change_id, writing=True)
     project.db.executemany(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"

@@ -63,7 +63,7 @@ def test_importing_sheet_mutations_are_http_conflicts(tmp_path) -> None:
     assert edited.status_code == 409, edited.text
 
     undone = post_operation_undo_as_v1_action(
-        client, project_id, expected_op_id=writer._op_id
+        client, project_id, expected_change_id=writer._op_id
     )
     assert undone.status_code == 409, undone.text
 

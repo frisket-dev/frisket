@@ -60,7 +60,7 @@ def test_reapplied_timestamped_transcript_retains_temporal_authority(
     ).fetchone()
     if change == "owner":
         project.db.execute(
-            "UPDATE citations SET op_id=(SELECT op_id FROM runs WHERE id=?) WHERE id=?",
+            "UPDATE citations SET change_id=(SELECT change_id FROM runs WHERE id=?) WHERE id=?",
             (run_id, link["id"]),
         )
     elif change == "run":
@@ -73,13 +73,13 @@ def test_reapplied_timestamped_transcript_retains_temporal_authority(
             (json.dumps(ref), link["id"]),
         )
     elif change == "source_undo":
-        from frisket.engine.store.op_log import step_operation
+        from frisket.engine.store.change_log import step_change
 
         op = project.db.execute(
-            "SELECT op_id FROM runs WHERE id=?", (run_id,)
+            "SELECT change_id FROM runs WHERE id=?", (run_id,)
         ).fetchone()[0]
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=op)
+            step_change(project, "revert", change_id=op)
     project.db.commit()
     resolved = resolve_timestamped_transcript(
         project,

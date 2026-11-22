@@ -58,9 +58,9 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         columns,
     )
 
-    op_id = project.append_change("map.score", {"output_column": "risk"})
+    change_id = project.append_change("map.score", {"output_column": "risk"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.score",
         total_rows=2,
@@ -76,8 +76,8 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
-    edit_op_id = project.apply_edits(
+        RunResultStore(project).point_column_at_run(change_id, columns["risk"], run_id)
+    edit_change_id = project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["age"], "value": 41}],
         label="correct age",
     )
@@ -115,7 +115,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
             row_id=row_ids[0],
             column_id=columns["risk"],
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
         )
 
     resolved = resolve_investigative_rowset(
@@ -128,7 +128,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         "id": sheet_id,
         "name": "People",
         "parent_sheet_id": None,
-        "parent_op_id": None,
+        "parent_change_id": None,
         "is_materialized": False,
     }
     assert [column["name"] for column in resolved["columns"]] == [
@@ -165,7 +165,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
     assert age_cell["value_ref"] == {
         "kind": "manual_edit",
         "outcome": "completed",
-        "op_id": edit_op_id,
+        "change_id": edit_change_id,
         "row_id": row_ids[0],
         "column_id": columns["age"],
         "run_id": None,
@@ -217,7 +217,7 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
     child_sheet_id = project.add_sheet(
         "Reviewed People",
         parent_sheet_id=source_sheet_id,
-        parent_op_id=derive_op_id,
+        parent_change_id=derive_op_id,
     )
     child_columns = {
         "caption": project.add_column(child_sheet_id, "caption", "text"),
@@ -245,7 +245,7 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
         "id": child_sheet_id,
         "name": "Reviewed People",
         "parent_sheet_id": source_sheet_id,
-        "parent_op_id": derive_op_id,
+        "parent_change_id": derive_op_id,
         "is_materialized": True,
     }
     assert [ref["row_id"] for ref in resolved["row_refs"]] == child_rows
@@ -267,7 +267,7 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
             "sheet_id": source_sheet_id,
             "row_id": source_rows[1],
         },
-        "parent_op_id": derive_op_id,
+        "parent_change_id": derive_op_id,
     }
     assert _cell_by_name(resolved["records"][0], "confidence")["source_cell_ref"] == {
         "kind": "cell",

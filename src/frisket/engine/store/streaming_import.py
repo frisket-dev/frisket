@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import Any, Iterable, Mapping, Self
 
 from frisket.contracts.action import ActionError, Receipt, ReceiptIO, ReceiptRecord
-from frisket.engine.store import op_log
+from frisket.engine.store import change_log
 from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
     bind_base_cell_producer,
@@ -50,7 +50,7 @@ class StreamingSheetPublication:
     sheet_id: int
     sheet_name: str
     row_count: int
-    op_id: int
+    change_id: int
     receipt_id: str
     receipt: Receipt
 
@@ -113,7 +113,7 @@ class StreamingSheetWriter:
         warnings: Iterable[str] = (),
         session_id: str | None = None,
         writer_authority: str | None = None,
-        op_id: int | None = None,
+        change_id: int | None = None,
         row_count: int = 0,
     ) -> None:
         self.project = project
@@ -135,7 +135,7 @@ class StreamingSheetWriter:
         self._publication: StreamingSheetPublication | None = None
         self._session_id = session_id
         self._writer_authority = writer_authority
-        self._op_id = op_id
+        self._op_id = change_id
 
     @classmethod
     def start(
@@ -247,7 +247,7 @@ class StreamingSheetWriter:
                     or stored_receipt.action_id != action_id
                     or stored_receipt.idempotency_key != idempotency_key
                     or stored_receipt.params_hash != params_hash
-                    or reserved_receipt.op_ids
+                    or reserved_receipt.change_ids
                 ):
                     raise ImportSessionConflict(
                         "reserved import receipt identity does not match"
@@ -271,7 +271,7 @@ class StreamingSheetWriter:
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
                 column_ids[name] = _insert_column(db, sheet_id, name, column, position)
-            op_id = op_log.append_change_in_transaction(
+            change_id = change_log.append_change_in_transaction(
                 project,
                 operation_kind or action_kind,
                 spec={
@@ -285,10 +285,10 @@ class StreamingSheetWriter:
                 label=f"import {requested_name}",
                 barrier=True,
             )
-            ChangeStore(project).start(op_id)
-            op_log.set_undo_info(project, op_id, {"created_sheets": [sheet_id]})
+            ChangeStore(project).start(change_id)
+            change_log.set_undo_info(project, change_id, {"created_sheets": [sheet_id]})
             producer_id = create_base_cell_producer(
-                db, stage_id=f"import-session:{session_id}", op_id=op_id
+                db, stage_id=f"import-session:{session_id}", change_id=change_id
             )
             if reserved_receipt is None:
                 receipt = Receipt(
@@ -296,7 +296,7 @@ class StreamingSheetWriter:
                     project_id=project_id,
                     action_id=action_id,
                     action_kind=action_kind,
-                    op_ids=[op_id],
+                    change_ids=[change_id],
                     idempotency_key=idempotency_key,
                     params_hash=params_hash,
                     status="running",
@@ -311,7 +311,7 @@ class StreamingSheetWriter:
                 receipt = reserved_receipt.model_copy(
                     update={
                         "status": "running",
-                        "op_ids": [op_id],
+                        "change_ids": [change_id],
                         "inputs": [
                             *reserved_receipt.inputs,
                             ReceiptIO(name="source", ref=dict(source_ref)),
@@ -324,13 +324,13 @@ class StreamingSheetWriter:
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
                 "INSERT INTO import_sessions "
-                "(id,sheet_id,producer_id,op_id,receipt_id,writer_authority,state) "
+                "(id,sheet_id,producer_id,change_id,receipt_id,writer_authority,state) "
                 "VALUES (?,?,?,?,?,?,'active')",
                 (
                     session_id,
                     sheet_id,
                     producer_id,
-                    op_id,
+                    change_id,
                     receipt_id,
                     writer_authority,
                 ),
@@ -350,7 +350,7 @@ class StreamingSheetWriter:
             producer_id=producer_id,
             session_id=session_id,
             writer_authority=writer_authority,
-            op_id=op_id,
+            change_id=change_id,
         )
 
     @classmethod
@@ -443,7 +443,7 @@ class StreamingSheetWriter:
                     or stored_receipt.action_id != action_id
                     or stored_receipt.idempotency_key != idempotency_key
                     or stored_receipt.params_hash != params_hash
-                    or reserved_receipt.op_ids
+                    or reserved_receipt.change_ids
                 ):
                     raise ImportSessionConflict(
                         "reserved import receipt identity does not match"
@@ -458,7 +458,7 @@ class StreamingSheetWriter:
                     )
 
             requested_name = str(sheet["name"])
-            op_id = op_log.append_change_in_transaction(
+            change_id = change_log.append_change_in_transaction(
                 project,
                 operation_kind or action_kind,
                 spec={
@@ -482,9 +482,9 @@ class StreamingSheetWriter:
                 },
             )
             if created_column_ids:
-                ChangeStore(project).start(op_id)
+                ChangeStore(project).start(change_id)
             producer_id = create_base_cell_producer(
-                db, stage_id=f"import-session:{session_id}", op_id=op_id
+                db, stage_id=f"import-session:{session_id}", change_id=change_id
             )
             if reserved_receipt is None:
                 receipt = Receipt(
@@ -492,7 +492,7 @@ class StreamingSheetWriter:
                     project_id=project_id,
                     action_id=action_id,
                     action_kind=action_kind,
-                    op_ids=[op_id],
+                    change_ids=[change_id],
                     idempotency_key=idempotency_key,
                     params_hash=params_hash,
                     status="running",
@@ -507,7 +507,7 @@ class StreamingSheetWriter:
                 receipt = reserved_receipt.model_copy(
                     update={
                         "status": "running",
-                        "op_ids": [op_id],
+                        "change_ids": [change_id],
                         "inputs": [
                             *reserved_receipt.inputs,
                             ReceiptIO(name="source", ref=dict(source_ref)),
@@ -520,13 +520,13 @@ class StreamingSheetWriter:
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
                 "INSERT INTO import_sessions "
-                "(id,sheet_id,producer_id,op_id,receipt_id,writer_authority,state) "
+                "(id,sheet_id,producer_id,change_id,receipt_id,writer_authority,state) "
                 "VALUES (?,?,?,?,?,?,'active')",
                 (
                     session_id,
                     int(sheet_id),
                     producer_id,
-                    op_id,
+                    change_id,
                     receipt_id,
                     writer_authority,
                 ),
@@ -546,7 +546,7 @@ class StreamingSheetWriter:
             producer_id=producer_id,
             session_id=session_id,
             writer_authority=writer_authority,
-            op_id=op_id,
+            change_id=change_id,
         )
 
     @classmethod
@@ -606,7 +606,7 @@ class StreamingSheetWriter:
             producer_id=session.producer_id,
             session_id=session.id,
             writer_authority=session.writer_authority,
-            op_id=session.op_id,
+            change_id=session.change_id,
             row_count=session.committed_rows,
         )
 
@@ -684,7 +684,7 @@ class StreamingSheetWriter:
                     blob_plan.bind_row_ordinals(row_ids),
                     sheet_id=self.sheet_id,
                     column_ids=self._column_ids,
-                    op_id=resumable.change_id,
+                    change_id=resumable.change_id,
                     receipt_id=self._receipt_id,
                     import_writer_authority=resumable.writer_authority,
                 )
@@ -757,7 +757,7 @@ class StreamingSheetWriter:
             if failure is not None:
                 receipt = receipt.model_copy(
                     update={
-                        "status": "partial" if receipt.op_ids else "failed",
+                        "status": "partial" if receipt.change_ids else "failed",
                         "errors": [*receipt.errors, failure],
                         "warnings": [
                             *receipt.warnings,
@@ -770,7 +770,9 @@ class StreamingSheetWriter:
             ):
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
             ChangeStore(self.project).close(resumable.change_id)
-            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (resumable.change_id,))
+            db.execute(
+                "UPDATE changes SET barrier=0 WHERE id=?", (resumable.change_id,)
+            )
             ImportSessionStore(self.project).finish(
                 session,
                 keep=keep_cancelled or failure is not None,
@@ -781,7 +783,7 @@ class StreamingSheetWriter:
             sheet_id=self.sheet_id,
             sheet_name=self._requested_sheet_name,
             row_count=session.committed_rows,
-            op_id=resumable.change_id,
+            change_id=resumable.change_id,
             receipt_id=self._receipt_id,
             receipt=receipt,
         )
@@ -802,11 +804,12 @@ class StreamingSheetWriter:
             self.prepare_removal(session)
             if (
                 db.execute(
-                    "SELECT change_order FROM ops WHERE id=?", (resumable.change_id,)
+                    "SELECT change_order FROM changes WHERE id=?",
+                    (resumable.change_id,),
                 ).fetchone()[0]
                 is not None
             ):
-                op_log.step_operation(
+                change_log.step_change(
                     self.project, "revert", change_id=resumable.change_id
                 )
         self._closed = True
@@ -831,7 +834,7 @@ class StreamingSheetWriter:
         ):
             raise ImportSessionConflict("import receipt cancellation lost its CAS")
         ChangeStore(self.project).close(self._op_id)
-        db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
+        db.execute("UPDATE changes SET barrier=0 WHERE id=?", (self._op_id,))
         ImportSessionStore(self.project).remove(session)
 
     def _completed_session_receipt(
@@ -848,7 +851,7 @@ class StreamingSheetWriter:
                 ref={
                     "kind": "materialized_sheet",
                     "sheet_id": self.sheet_id,
-                    "op_id": self._op_id,
+                    "change_id": self._op_id,
                     "row_count": row_count,
                     "columns": dict(self._column_ids),
                     "reads": [],
@@ -860,7 +863,7 @@ class StreamingSheetWriter:
                     "kind": "source_rows",
                     "sheet_id": self.sheet_id,
                     "row_count": row_count,
-                    "op_id": self._op_id,
+                    "change_id": self._op_id,
                 },
             ),
         ]
@@ -871,7 +874,7 @@ class StreamingSheetWriter:
                     "kind": "source_rows",
                     "sheet_id": self.sheet_id,
                     "row_count": row_count,
-                    "op_id": self._op_id,
+                    "change_id": self._op_id,
                 }
             ),
         ]
@@ -919,13 +922,13 @@ class StreamingSheetWriter:
             "SELECT COUNT(*) AS cells, COUNT(DISTINCT cell.row_id) AS rows, "
             "COALESCE(SUM(cell.value IS NULL),0) AS cleared "
             "FROM cells cell JOIN base_cell_producers producer ON producer.id=cell.producer_id "
-            "WHERE producer.op_id=?",
+            "WHERE producer.change_id=?",
             (self._op_id,),
         ).fetchone()
         ref = {
             "kind": "updated_import_rows",
             "sheet_id": self.sheet_id,
-            "op_id": self._op_id,
+            "change_id": self._op_id,
             "row_count": counts["rows"],
             "edit_count": counts["cells"],
             "cleared_cells": counts["cleared"],
@@ -933,14 +936,14 @@ class StreamingSheetWriter:
         }
         changed = (
             self.project.db.execute(
-                "SELECT change_order FROM ops WHERE id=?", (self._op_id,)
+                "SELECT change_order FROM changes WHERE id=?", (self._op_id,)
             ).fetchone()[0]
             is not None
         )
         return receipt.model_copy(
             update={
                 "status": status,
-                "op_ids": [self._op_id] if changed else [],
+                "change_ids": [self._op_id] if changed else [],
                 "outputs": [ReceiptIO(name="updated_rows", ref=ref)],
                 "records": [
                     *receipt.records,
@@ -1013,25 +1016,25 @@ class StreamingSheetWriter:
                         },
                     }
                 )
-                op_id = op_log.append_change_in_transaction(
+                change_id = change_log.append_change_in_transaction(
                     self.project,
                     self._action_kind,
                     spec=action_spec,
                     label=f"import {sheet_name}",
                     barrier=False,
                 )
-                op_log.set_undo_info(
+                change_log.set_undo_info(
                     self.project,
-                    op_id,
+                    change_id,
                     {"created_sheets": [self.sheet_id]},
                 )
-                bind_base_cell_producer(db, self._producer_id, op_id=op_id)
+                bind_base_cell_producer(db, self._producer_id, change_id=change_id)
                 receipt = Receipt(
                     receipt_id=self._receipt_id,
                     project_id=self._project_id,
                     action_id=self._action_id,
                     action_kind=self._action_kind,
-                    op_ids=[op_id],
+                    change_ids=[change_id],
                     idempotency_key=self._idempotency_key,
                     params_hash=self._params_hash,
                     status="completed",
@@ -1055,7 +1058,7 @@ class StreamingSheetWriter:
                             ref={
                                 "kind": "materialized_sheet",
                                 "sheet_id": self.sheet_id,
-                                "op_id": op_id,
+                                "change_id": change_id,
                                 "row_count": self._row_count,
                                 "columns": dict(self._column_ids),
                                 "reads": observed_reads,
@@ -1068,7 +1071,7 @@ class StreamingSheetWriter:
                                     "kind": "source_column",
                                     "sheet_id": self.sheet_id,
                                     "column_id": column_id,
-                                    "op_id": op_id,
+                                    "change_id": change_id,
                                 },
                             )
                             for name, column_id in self._column_ids.items()
@@ -1079,7 +1082,7 @@ class StreamingSheetWriter:
                                 "kind": "source_rows",
                                 "sheet_id": self.sheet_id,
                                 "row_count": self._row_count,
-                                "op_id": op_id,
+                                "change_id": change_id,
                             },
                         ),
                     ],
@@ -1089,7 +1092,7 @@ class StreamingSheetWriter:
                                 "kind": "source_rows",
                                 "sheet_id": self.sheet_id,
                                 "row_count": self._row_count,
-                                "op_id": op_id,
+                                "change_id": change_id,
                             }
                         ),
                         *(
@@ -1116,7 +1119,7 @@ class StreamingSheetWriter:
                                         "column_id": next(
                                             iter(self._column_ids.values())
                                         ),
-                                        "op_id": op_id,
+                                        "change_id": change_id,
                                     }
                                 )
                             ]
@@ -1132,11 +1135,11 @@ class StreamingSheetWriter:
                         blob_plan,
                         sheet_id=self.sheet_id,
                         column_ids=self._column_ids,
-                        op_id=op_id,
+                        change_id=change_id,
                         receipt_id=self._receipt_id,
                     )
                     receipt.records.extend(ReceiptRecord(ref=ref) for ref in published)
-                ChangeStore(self.project).close(op_id)
+                ChangeStore(self.project).close(change_id)
                 ReceiptStore(self.project).insert_completed(receipt)
                 updated = db.execute(
                     "UPDATE sheets SET name=?, hidden=0 WHERE id=? AND hidden=1",
@@ -1154,7 +1157,7 @@ class StreamingSheetWriter:
             sheet_id=self.sheet_id,
             sheet_name=sheet_name,
             row_count=self._row_count,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=self._receipt_id,
             receipt=receipt,
         )

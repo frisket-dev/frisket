@@ -434,7 +434,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("prepare.test")
+    change_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -443,7 +443,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
     )
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(
             PreparedPageDraft(1, "Harbor minutes and attendance."),
             PreparedPageDraft(2, "The council approved the bluewharf repair."),
@@ -491,7 +491,7 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
         {"File": file_column, "Notes": notes_column},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("prepare.test")
+    change_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -504,7 +504,7 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
     )
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(PreparedPageDraft(1, "originalanchor"),),
     )
     project.db.commit()
@@ -578,7 +578,7 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
         {"notes": notes},
     )[0]
     output_names = {"text": "OCR text", "blocks": "OCR positions"}
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.ocr", {"output_names": output_names}, label="OCR fixture"
     )
     with write_transaction(project.db):
@@ -591,12 +591,12 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
     project.db.execute("BEGIN IMMEDIATE")
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(PreparedPageDraft(1, phrase),),
     )
     project.db.commit()
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet,
         "media.ocr",
         params={"output_names": output_names},
@@ -660,7 +660,7 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
             sheet_id=sheet,
             row_id=row,
             column_id=ocr_text,
-            op_id=op_id,
+            change_id=change_id,
             link_role="media_ocr_grounding",
             producer={"action_kind": "media.ocr", "engine": "fixture"},
         )
@@ -1810,10 +1810,10 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
             link_role="primary_support",
         )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("import.pdf")
+    change_id = project.append_change_in_transaction("import.pdf")
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(PreparedPageDraft(1, "native imported text"),),
         page_number=1,
     )
@@ -1873,7 +1873,7 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     # prepared text result exists.
     drain_index(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.read_pdf_text")
+    change_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -1886,7 +1886,7 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     )
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(
             PreparedPageDraft(1, "searchable prepared text"),
             PreparedPageDraft(2, "different page text"),

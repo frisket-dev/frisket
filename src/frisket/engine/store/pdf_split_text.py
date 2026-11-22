@@ -67,41 +67,43 @@ def capture_pdf_split_text_identities(
     return source, text
 
 
-def _operation_is_text_owner(db: Any, op_id: int, parent_op_id: int) -> bool:
+def _operation_is_text_owner(db: Any, change_id: int, parent_change_id: int) -> bool:
     return (
-        op_id == parent_op_id
+        change_id == parent_change_id
         or db.execute(
-            "SELECT 1 FROM ops WHERE id=? AND kind='pdf.prepare_text' "
-            "AND json_extract(spec,'$.import_op_id')=?",
-            (op_id, parent_op_id),
+            "SELECT 1 FROM changes WHERE id=? AND kind='pdf.prepare_text' "
+            "AND json_extract(spec,'$.import_change_id')=?",
+            (change_id, parent_change_id),
         ).fetchone()
         is not None
     )
 
 
-def _text_owner_matches(db: Any, producer_id: int, parent_op_id: int) -> bool:
+def _text_owner_matches(db: Any, producer_id: int, parent_change_id: int) -> bool:
     owner = db.execute(
-        "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+        "SELECT change_id FROM base_cell_producers WHERE id=?", (producer_id,)
     ).fetchone()
-    return owner is not None and _operation_is_text_owner(db, owner[0], parent_op_id)
+    return owner is not None and _operation_is_text_owner(
+        db, owner[0], parent_change_id
+    )
 
 
 def _start_preparation_change(
     project: Any, binding: PdfSplitTextBinding, prepared_ref_id: int
 ) -> tuple[int, int]:
-    op_id = project.append_change_in_transaction(
+    change_id = project.append_change_in_transaction(
         "pdf.prepare_text",
         {
-            "import_op_id": binding.operation_id,
+            "import_change_id": binding.operation_id,
             "import_session_id": binding.session_id,
             "prepared_ref_id": prepared_ref_id,
         },
         label="Prepare PDF text",
     )
     producer = create_base_cell_producer(
-        project.db, stage_id=f"op:{op_id}", op_id=op_id
+        project.db, stage_id=f"op:{change_id}", change_id=change_id
     )
-    return op_id, producer
+    return change_id, producer
 
 
 def publish_pdf_split_pages(
@@ -139,7 +141,7 @@ def _publish_pdf_split_page(
         db,
         session_id=binding.session_id,
         writer_authority=binding.generation,
-        op_id=binding.operation_id,
+        change_id=binding.operation_id,
     ):
         return False
     session = ImportSessionStore(project).get(binding.session_id)
@@ -182,7 +184,7 @@ def _publish_pdf_split_page(
         source = {key: value for key, value in source.items() if key != "revision"}
     expected.pop("revision", None)
     edited = db.execute(
-        "SELECT 1 FROM edits WHERE row_id=? AND column_id IN (?,?) AND op_id>? LIMIT 1",
+        "SELECT 1 FROM edits WHERE row_id=? AND column_id IN (?,?) AND change_id>? LIMIT 1",
         (
             binding.row_id,
             binding.source_column_id,
@@ -232,7 +234,7 @@ def _publish_pdf_split_page(
     if text["value_kind"] == "prepared_content_ref":
         current_ref = int(text["stored_value"])
         owner = db.execute(
-            "SELECT content.source_artifact_id,content.producing_op_id,ref.page_number "
+            "SELECT content.source_artifact_id,content.producing_change_id,ref.page_number "
             "FROM prepared_content_refs ref JOIN prepared_content_sets content ON content.id=ref.set_id WHERE ref.id=?",
             (current_ref,),
         ).fetchone()
@@ -255,7 +257,7 @@ def _publish_pdf_split_page(
             change.extend(_start_preparation_change(project, binding, prepared_ref_id))
         ref = store.stage_replacement(
             base_ref_id=current_ref,
-            producing_op_id=change[0],
+            producing_change_id=change[0],
             replacements=[draft],
             allow_partial=True,
         )
@@ -266,7 +268,7 @@ def _publish_pdf_split_page(
             change.extend(_start_preparation_change(project, binding, prepared_ref_id))
         ref = store.stage_reference(
             source_artifact_id=binding.artifact_id,
-            producing_op_id=change[0],
+            producing_change_id=change[0],
             pages=[draft],
             allow_partial=True,
         )

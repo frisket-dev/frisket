@@ -211,12 +211,12 @@ class ReceiptStore:
             if stored is None or stored.status not in {"queued", "running"}:
                 raise RuntimeError("Python evaluation receipt is no longer active")
             receipt = stored.parsed()
-            op_id = db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (fence.run_id,)
+            change_id = db.execute(
+                "SELECT change_id FROM runs WHERE id=?", (fence.run_id,)
             ).fetchone()[0]
             ref = {
                 **ref,
-                "op_id": op_id,
+                "change_id": change_id,
                 "run_id": fence.run_id,
             }
             if not any(item.ref == ref for item in receipt.records):

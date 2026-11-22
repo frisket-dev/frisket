@@ -95,7 +95,11 @@ class AlertService:
         if row is None:
             raise AlertNotFound("alert not found")
         try:
-            evaluation = check_alert(project, row)
+            evaluation = check_alert(
+                project,
+                row,
+                embedding_encoder=self._workspace.embedding_runtime,
+            )
         except AlertBindingError as exc:
             if exc.code == "search_index_not_ready":
                 schedule = getattr(project, "_frisket_schedule_search_index", None)

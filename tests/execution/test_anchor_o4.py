@@ -128,7 +128,7 @@ def test_anchor_o4_compiles_region_promise_and_persists_route(make_project):
 
     project = make_project("o4")
     sheet_id = project.add_sheet("Media")
-    cur = project.db.execute("INSERT INTO ops (kind, spec) VALUES ('map','{}')")
+    cur = project.db.execute("INSERT INTO changes (kind, spec) VALUES ('map','{}')")
     project.db.commit()
     run_id = RunResultStore(project).start_run(
         int(cur.lastrowid), sheet_id, "media.transcribe"

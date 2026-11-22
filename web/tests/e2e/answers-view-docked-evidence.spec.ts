@@ -44,13 +44,13 @@ try:
     source_column_id = project.add_column(sheet_id, "Source", "file")
     transcript_column_id = project.add_column(sheet_id, "Transcript", "text", generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "hearing.wav"}], {"Source": source_column_id})[0]
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.transcribe",
         {"schema_version": "frisket.action.v2", "kind": "media.transcribe", "params": {"generated_column": "Transcript"}},
         label="transcribe hearing",
     )
     run_id = run_store.start_run(
-        op_id, sheet_id, "media.transcribe", model="local/faster_whisper",
+        change_id, sheet_id, "media.transcribe", model="local/faster_whisper",
         params={"generated_column": "Transcript"}, total_rows=1, row_ids=[row_id],
     )
     transcript_text = "PANEL DISCUSSION OPENING THE MERIDIAN REPORT CLOSING REMARKS"
@@ -61,7 +61,7 @@ try:
     )
     run_store.finish_run(run_id)
     with write_transaction(project.db):
-        run_store.point_column_at_run(op_id, transcript_column_id, run_id)
+        run_store.point_column_at_run(change_id, transcript_column_id, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, transcript_column_id, row_ids=[row_id])
     transcript_ref = refs[row_id]
 
@@ -85,7 +85,7 @@ try:
         link = record_citation(
             project, subject_kind="cell_value", subject_ref=transcript_ref,
             sheet_id=sheet_id, row_id=row_id, column_id=transcript_column_id,
-            run_id=run_id, op_id=op_id, receipt_id="receipt-transcribe",
+            run_id=run_id, change_id=change_id, receipt_id="receipt-transcribe",
             link_role="primary_support", confidence=0.88,
             producer={"action_kind": "media.transcribe", "model": "local/faster_whisper", "grounding_method": "temporal_segment"},
             spans=[

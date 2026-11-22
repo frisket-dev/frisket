@@ -250,10 +250,10 @@ def checkpointed_run(make_project):
         [{"source": "one"}],
         {"source": source_column_id},
     )[0]
-    op_id = project.append_change("map", {"action_kind": "map.classify"})
+    change_id = project.append_change("map", {"action_kind": "map.classify"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         row_ids=[row_id],

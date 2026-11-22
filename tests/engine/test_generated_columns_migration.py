@@ -17,10 +17,8 @@ from frisket.engine.store import evaluation as evaluation_store
 from frisket.engine.store.current_cells import register_current_cell_functions
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.schema import (
-    SCHEMA,
     SCHEMA_DIGEST,
     SCHEMA_DIGEST_META_KEY,
-    schema_digest,
 )
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._step import run_step
@@ -33,6 +31,11 @@ from frisket.upgrades.project.generated_columns_migration import (
 from frisket.upgrades.project.receipt_records_migration import (
     RECEIPT_RECORDS_TO_DIGEST,
 )
+from tests.engine.historical_schema import (
+    restore_pre_changes_schema,
+    restore_pre_feeds_tables,
+)
+from tests.engine.test_alerts_migration import _PRE_UPGRADE_WATCH_TABLES_SQL
 
 
 def _downgrade_generated_columns_schema(db: sqlite3.Connection) -> None:
@@ -81,170 +84,29 @@ def _downgrade_generated_columns_schema(db: sqlite3.Connection) -> None:
     )
 
 
-def _pre_upgrade_schema() -> str:
-    """Reconstruct the exact RECEIPT_RECORDS_TO_DIGEST DDL from current SCHEMA."""
-    return (
-        SCHEMA.replace(
-            "  generated INTEGER NOT NULL DEFAULT 0,",
-            "  ai_generated INTEGER NOT NULL DEFAULT 0,",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS generated_column_claims (",
-            "CREATE TABLE IF NOT EXISTS output_column_claims (",
-        )
-        .replace(
-            "idx_generated_column_claims_active_name",
-            "idx_output_claims_active_name",
-        )
-        .replace(
-            "idx_generated_column_claims_active_column",
-            "idx_output_claims_active_column",
-        )
-        .replace(
-            "idx_generated_column_claims_claim_token",
-            "idx_output_claims_claim_token",
-        )
-        .replace(
-            "idx_generated_column_claims_run",
-            "idx_output_claims_run",
-        )
-        .replace(
-            "idx_generated_column_claims_receipt",
-            "idx_output_claims_receipt",
-        )
-        .replace(
-            "idx_generated_column_claims_status_expiry",
-            "idx_output_claims_status_expiry",
-        )
-        .replace(
-            "ON generated_column_claims(",
-            "ON output_column_claims(",
-        )
-        .replace(
-            "NOT generated_column_claims:",
-            "NOT output_column_claims:",
-        )
-        .replace(
-            "generated_column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,",
-            "output_column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,",
-        )
-        .replace(
-            "PRIMARY KEY (sheet_id,row_id,expected_column_id,generated_column_id,",
-            "PRIMARY KEY (sheet_id,row_id,expected_column_id,output_column_id,",
-        )
-        .replace(
-            "generated_columns_json TEXT NOT NULL CHECK (json_valid(generated_columns_json)),",
-            "output_columns_json TEXT NOT NULL CHECK (json_valid(output_columns_json)),",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS alerts (",
-            "CREATE TABLE IF NOT EXISTS watches (",
-        )
-        .replace(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_view ON alerts(view_id);",
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_watches_view ON watches(view_id);",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS alert_checks (",
-            "CREATE TABLE IF NOT EXISTS watch_runs (",
-        )
-        .replace(
-            "  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,",
-            "  watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_checks_notification_pending ON alert_checks(id) WHERE notification_pending=1;",
-            "CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1;",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_checks_alert_started\n  ON alert_checks(alert_id, started_at DESC, id DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_runs_watch_started\n  ON watch_runs(watch_id, started_at DESC, id DESC);",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS alert_check_hits (\n  run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,",
-            "CREATE TABLE IF NOT EXISTS watch_run_hits (\n  run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_check_hits_run_rank\n  ON alert_check_hits(run_id, rank);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_run_hits_run_rank\n  ON watch_run_hits(run_id, rank);",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS alert_check_events (\n  id INTEGER PRIMARY KEY,\n  run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,",
-            "CREATE TABLE IF NOT EXISTS watch_run_events (\n  id INTEGER PRIMARY KEY,\n  run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_check_events_run_rank\n  ON alert_check_events(run_id, rank, id);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_run_events_run_rank\n  ON watch_run_events(run_id, rank, id);",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_check_events_alert_id\n  ON alert_check_events(alert_id, id);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_run_events_watch_id\n  ON watch_run_events(watch_id, id);",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_check_events_kind\n  ON alert_check_events(event_kind, run_id, rank);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_run_events_kind\n  ON watch_run_events(event_kind, run_id, rank);",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS alert_seen_rows (",
-            "CREATE TABLE IF NOT EXISTS watch_seen_rows (",
-        )
-        .replace(
-            "  PRIMARY KEY (alert_id, sheet_id, row_id)",
-            "  PRIMARY KEY (watch_id, sheet_id, row_id)",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_seen_rows_alert\n  ON alert_seen_rows(alert_id);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_seen_rows_watch\n  ON watch_seen_rows(watch_id);",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS alert_row_field_state (",
-            "CREATE TABLE IF NOT EXISTS watch_row_field_state (",
-        )
-        .replace(
-            "  last_observed_run_id INTEGER NOT NULL REFERENCES alert_checks(id) ON DELETE CASCADE,\n  PRIMARY KEY (alert_id, sheet_id, row_id, column_id)",
-            "  last_observed_run_id INTEGER NOT NULL REFERENCES watch_runs(id) ON DELETE CASCADE,\n  PRIMARY KEY (watch_id, sheet_id, row_id, column_id)",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_alert_row_field_state_alert\n  ON alert_row_field_state(alert_id, last_observed_run_id);",
-            "CREATE INDEX IF NOT EXISTS idx_watch_row_field_state_watch\n  ON watch_row_field_state(watch_id, last_observed_run_id);",
-        )
-        .replace(
-            "'artifact','alert_check','text_surface'",
-            "'artifact','watch_run','text_surface'",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS feeds (",
-            "CREATE TABLE IF NOT EXISTS sources (",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_feeds_sheet ON feeds(sheet_id);",
-            "CREATE INDEX IF NOT EXISTS idx_sources_sheet ON sources(sheet_id);",
-        )
-        .replace(
-            "CREATE TABLE IF NOT EXISTS feed_checks (\n  id INTEGER PRIMARY KEY,\n  feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,",
-            "CREATE TABLE IF NOT EXISTS source_runs (\n  id INTEGER PRIMARY KEY,\n  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_feed_checks_feed_started\n  ON feed_checks(feed_id, started_at DESC, id DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_source_runs_source_started\n  ON source_runs(source_id, started_at DESC, id DESC);",
-        )
-        .replace(
-            "CREATE INDEX IF NOT EXISTS idx_feed_checks_receipt ON feed_checks(receipt_id);",
-            "CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);",
-        )
-    )
-
-
 def _build_pre_upgrade_bundle(path: Path) -> dict[str, int]:
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "blobs").mkdir(exist_ok=True)
-    pre_ddl = _pre_upgrade_schema()
-    assert schema_digest(pre_ddl) == RECEIPT_RECORDS_TO_DIGEST
+    with closing(Project.create(path, name="Generated Columns Migration")):
+        pass
 
     db = sqlite3.connect(path / "project.db")
     try:
         register_current_cell_functions(db)
-        db.executescript(pre_ddl)
+        restore_pre_changes_schema(db)
+        restore_pre_feeds_tables(db)
+        db.execute("PRAGMA foreign_keys=OFF")
+        for tbl in (
+            "alert_row_field_state",
+            "alert_seen_rows",
+            "alert_check_events",
+            "alert_check_hits",
+            "alert_checks",
+            "alerts",
+            "project_purge_targets",
+        ):
+            db.execute(f"DROP TABLE IF EXISTS {tbl}")
+        db.executescript(_PRE_UPGRADE_WATCH_TABLES_SQL)
+        db.execute("BEGIN")
+        _downgrade_generated_columns_schema(db)
         db.execute(
             "INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)",
             (SCHEMA_DIGEST_META_KEY, RECEIPT_RECORDS_TO_DIGEST),
@@ -256,6 +118,7 @@ def _build_pre_upgrade_bundle(path: Path) -> dict[str, int]:
         db.execute(
             "INSERT OR REPLACE INTO meta(key,value) VALUES ('change_sequence','0')"
         )
+        db.commit()
 
         target_sheet = db.execute("INSERT INTO sheets(name) VALUES ('Docs')").lastrowid
         expected_sheet = db.execute(

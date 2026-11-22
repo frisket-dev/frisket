@@ -10,7 +10,9 @@ import json
 import sqlite3
 from typing import Any
 
-from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
+from frisket.upgrades.project._pre_changes_ddl import (
+    PRE_CHANGES_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+)
 from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.upgrades.project._step import execute_ddl
 
@@ -218,7 +220,7 @@ def migrate_citations(db: sqlite3.Connection) -> None:
     db.execute("DROP TABLE evidence_links")
     execute_ddl(db, _CITATIONS_INDEX_DDL)
     db.execute("DROP VIEW IF EXISTS current_document_text_selections")
-    execute_ddl(db, DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+    execute_ddl(db, PRE_CHANGES_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
     _migrate_ask_rows(db)
     for table in ("citations", "citation_spans"):
         violation = db.execute(f"PRAGMA foreign_key_check({table})").fetchone()

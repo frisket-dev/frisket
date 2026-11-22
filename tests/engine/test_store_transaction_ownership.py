@@ -47,9 +47,9 @@ def _sheet_id(project) -> int:
 
 
 def _running_run(project) -> int:
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
     return RunResultStore(project).start_run(
-        op_id, _sheet_id(project), "map.template", total_rows=0
+        change_id, _sheet_id(project), "map.template", total_rows=0
     )
 
 
@@ -195,11 +195,11 @@ def test_review_write_requires_caller_transaction(project, review_target, field)
 
 
 def test_start_run_in_transaction_requires_caller_transaction(project):
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
         RunResultStore(project).start_run_in_transaction(
-            op_id, _sheet_id(project), "map.template"
+            change_id, _sheet_id(project), "map.template"
         )
 
     assert not project.db.in_transaction
@@ -207,11 +207,11 @@ def test_start_run_in_transaction_requires_caller_transaction(project):
 
 
 def test_start_run_in_transaction_joins_caller_transaction(project):
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
     _open_caller_transaction(project)
 
     run_id = RunResultStore(project).start_run_in_transaction(
-        op_id, _sheet_id(project), "map.template"
+        change_id, _sheet_id(project), "map.template"
     )
 
     assert project.db.in_transaction
@@ -220,10 +220,10 @@ def test_start_run_in_transaction_joins_caller_transaction(project):
 
 
 def test_start_run_owns_its_transaction_when_none_is_open(project):
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
 
     run_id = RunResultStore(project).start_run(
-        op_id, _sheet_id(project), "map.template"
+        change_id, _sheet_id(project), "map.template"
     )
 
     assert not project.db.in_transaction
@@ -675,10 +675,10 @@ def test_request_cancel_owned_inside_caller_transaction_refuses(project):
 def test_point_column_at_run_requires_caller_transaction(project):
     run_id = _running_run(project)
     column_id = _value_column(project)
-    op_id = int(project.db.execute("SELECT op_id FROM runs").fetchone()[0])
+    change_id = int(project.db.execute("SELECT change_id FROM runs").fetchone()[0])
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, column_id, run_id)
 
     assert not project.db.in_transaction
 

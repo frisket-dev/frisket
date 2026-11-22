@@ -20,6 +20,7 @@ DETECTION_POLICY_ROW_CHANGED = "row_changed"
 DETECTION_POLICY_CONDITIONS = "conditions"
 EMBEDDING_SIMILARITY_KIND = "embedding_similarity"
 EMBEDDING_HYBRID_KIND = "embedding_hybrid"
+LOCAL_RETRIEVAL_SIMILARITY_KIND = "local_retrieval"
 # Legacy query-preview consumers may still request row-only anchors. Unified
 # Views permit prepared text and truthful single-column cell anchors as well.
 _ROW_ANCHOR_KINDS = {"row"}
@@ -126,6 +127,7 @@ def normalize_query_spec(
             "sheet.filter",
             EMBEDDING_SIMILARITY_KIND,
             EMBEDDING_HYBRID_KIND,
+            LOCAL_RETRIEVAL_SIMILARITY_KIND,
         }:
             raise ValueError(f"unsupported query kind: {kind}")
     if kind in {"fts", "search.fts"}:
@@ -138,9 +140,11 @@ def normalize_query_spec(
         )
     if kind == EMBEDDING_HYBRID_KIND:
         return _normalize_embedding_hybrid_query(query, scope=scope)
+    if kind == LOCAL_RETRIEVAL_SIMILARITY_KIND:
+        return _normalize_local_retrieval_similarity_query(query, scope=scope)
     raise ValueError(
         "watch query kind must be fts/search.fts, filter/sheet.filter, "
-        "embedding_similarity, or embedding_hybrid"
+        "embedding_similarity, embedding_hybrid, or local_retrieval"
     )
 
 
@@ -366,6 +370,303 @@ def _normalize_embedding_hybrid_query(
     }
     if query.get("k_rrf") is not None:
         normalized["k_rrf"] = _positive_int(query.get("k_rrf"), "k_rrf")
+    return normalized
+
+
+_LOCAL_RETRIEVAL_FIELDS = frozenset(
+    {
+        "schema_version",
+        "kind",
+        "scope",
+        "min_score",
+        "query_text",
+        "source_anchor",
+        "space_id",
+    }
+)
+
+
+def _require_nonempty_str(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _finite_number(value: Any, field: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise ValueError(f"{field} must be a finite number")
+    return float(value)
+
+
+def _normalize_source_revision(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("source_anchor.source must be an object")
+    unknown = set(raw) - {
+        "source_id",
+        "source_kind",
+        "version_kind",
+        "version_value",
+        "content_hash",
+    }
+    if unknown:
+        raise ValueError(
+            f"unknown source_anchor.source fields: {', '.join(sorted(unknown))}"
+        )
+    version_value = raw.get("version_value")
+    if isinstance(version_value, bool):
+        raise ValueError(
+            "source_anchor.source.version_value must be positive int or string"
+        )
+    if isinstance(version_value, int):
+        version_value = _positive_int(
+            version_value, "source_anchor.source.version_value"
+        )
+    elif isinstance(version_value, str):
+        version_value = _require_nonempty_str(
+            version_value, "source_anchor.source.version_value"
+        )
+    else:
+        raise ValueError(
+            "source_anchor.source.version_value must be a positive integer or string"
+        )
+    out: dict[str, Any] = {
+        "source_id": _require_nonempty_str(
+            raw.get("source_id"), "source_anchor.source.source_id"
+        ),
+        "source_kind": _require_nonempty_str(
+            raw.get("source_kind"), "source_anchor.source.source_kind"
+        ),
+        "version_kind": _require_nonempty_str(
+            raw.get("version_kind"), "source_anchor.source.version_kind"
+        ),
+        "version_value": version_value,
+    }
+    if raw.get("content_hash") is not None:
+        out["content_hash"] = _require_nonempty_str(
+            raw["content_hash"], "source_anchor.source.content_hash"
+        )
+    return out
+
+
+def _normalize_text_range(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("source_anchor.locator.text must be an object")
+    unknown = set(raw) - {
+        "text_surface_id",
+        "content_hash",
+        "start",
+        "end",
+        "offset_unit",
+    }
+    if unknown:
+        raise ValueError(f"unknown locator.text fields: {', '.join(sorted(unknown))}")
+    start = raw.get("start")
+    end = raw.get("end")
+    if (
+        isinstance(start, bool)
+        or isinstance(end, bool)
+        or not isinstance(start, int)
+        or not isinstance(end, int)
+        or start < 0
+        or end <= start
+    ):
+        raise ValueError("source_anchor.locator.text must satisfy 0 <= start < end")
+    unit = raw.get("offset_unit", "unicode_codepoint")
+    if unit != "unicode_codepoint":
+        raise ValueError(
+            "source_anchor.locator.text.offset_unit must be unicode_codepoint"
+        )
+    return {
+        "text_surface_id": _require_nonempty_str(
+            raw.get("text_surface_id"), "source_anchor.locator.text.text_surface_id"
+        ),
+        "content_hash": _require_nonempty_str(
+            raw.get("content_hash"), "source_anchor.locator.text.content_hash"
+        ),
+        "start": start,
+        "end": end,
+        "offset_unit": "unicode_codepoint",
+    }
+
+
+def _normalize_page_range(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict) or set(raw) - {"start", "end"}:
+        raise ValueError("source_anchor.locator.pages must be {start, end}")
+    start = _positive_int(raw.get("start"), "source_anchor.locator.pages.start")
+    end = _positive_int(raw.get("end"), "source_anchor.locator.pages.end")
+    if end < start:
+        raise ValueError("source_anchor.locator.pages.end must not be before start")
+    return {"start": start, "end": end}
+
+
+def _normalize_time_range(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict) or set(raw) - {"start_seconds", "end_seconds"}:
+        raise ValueError(
+            "source_anchor.locator.time must be {start_seconds, end_seconds}"
+        )
+    start = _finite_number(
+        raw.get("start_seconds"), "source_anchor.locator.time.start_seconds"
+    )
+    end = _finite_number(
+        raw.get("end_seconds"), "source_anchor.locator.time.end_seconds"
+    )
+    if start < 0 or end < start:
+        raise ValueError(
+            "source_anchor.locator.time must satisfy 0 <= start_seconds <= end_seconds"
+        )
+    return {"start_seconds": start, "end_seconds": end}
+
+
+def _normalize_source_locator(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("source_anchor.locator must be an object")
+    unknown = set(raw) - {"kind", "text", "pages", "time", "source_span_ids"}
+    if unknown:
+        raise ValueError(
+            f"unknown source_anchor.locator fields: {', '.join(sorted(unknown))}"
+        )
+    out: dict[str, Any] = {
+        "kind": _require_nonempty_str(raw.get("kind"), "source_anchor.locator.kind"),
+    }
+    if raw.get("text") is not None:
+        out["text"] = _normalize_text_range(raw["text"])
+    if raw.get("pages") is not None:
+        out["pages"] = _normalize_page_range(raw["pages"])
+    if raw.get("time") is not None:
+        out["time"] = _normalize_time_range(raw["time"])
+    if raw.get("source_span_ids") is not None:
+        spans = raw["source_span_ids"]
+        if not isinstance(spans, list):
+            raise ValueError("source_anchor.locator.source_span_ids must be a list")
+        out["source_span_ids"] = [
+            _require_nonempty_str(span, "source_anchor.locator.source_span_ids[]")
+            for span in spans
+        ]
+    return out
+
+
+def _normalize_scoped_binding(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("source_anchor.binding must be an object")
+    unknown = set(raw) - {
+        "binding_id",
+        "sheet_id",
+        "row_id",
+        "column_id",
+        "dependencies",
+    }
+    if unknown:
+        raise ValueError(
+            f"unknown source_anchor.binding fields: {', '.join(sorted(unknown))}"
+        )
+    out: dict[str, Any] = {
+        "binding_id": _require_nonempty_str(
+            raw.get("binding_id"), "source_anchor.binding.binding_id"
+        ),
+        "sheet_id": _positive_int(
+            raw.get("sheet_id"), "source_anchor.binding.sheet_id"
+        ),
+        "row_id": _positive_int(raw.get("row_id"), "source_anchor.binding.row_id"),
+    }
+    if raw.get("column_id") is not None:
+        out["column_id"] = _positive_int(
+            raw["column_id"], "source_anchor.binding.column_id"
+        )
+    if raw.get("dependencies") is not None:
+        deps = raw["dependencies"]
+        if not isinstance(deps, list):
+            raise ValueError("source_anchor.binding.dependencies must be a list")
+        normalized_deps: list[dict[str, int]] = []
+        for dep in deps:
+            if not isinstance(dep, dict) or set(dep) - {
+                "row_id",
+                "column_id",
+                "retrieval_revision",
+            }:
+                raise ValueError(
+                    "source_anchor.binding dependency must be {row_id, column_id, retrieval_revision}"
+                )
+            rev = dep.get("retrieval_revision")
+            if isinstance(rev, bool) or not isinstance(rev, int) or rev < 0:
+                raise ValueError("retrieval_revision must be a non-negative integer")
+            normalized_deps.append(
+                {
+                    "row_id": _positive_int(dep.get("row_id"), "dependency.row_id"),
+                    "column_id": _positive_int(
+                        dep.get("column_id"), "dependency.column_id"
+                    ),
+                    "retrieval_revision": rev,
+                }
+            )
+        out["dependencies"] = normalized_deps
+    return out
+
+
+def _normalize_source_anchor(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("local_retrieval source_anchor must be an object")
+    unknown = set(raw) - {"source", "locator", "binding", "exclude_exact"}
+    if unknown:
+        raise ValueError(
+            f"unknown local_retrieval source_anchor fields: {', '.join(sorted(unknown))}"
+        )
+    exclude_exact = raw.get("exclude_exact", True)
+    if not isinstance(exclude_exact, bool):
+        raise ValueError(
+            "local_retrieval source_anchor.exclude_exact must be a boolean"
+        )
+    out: dict[str, Any] = {
+        "source": _normalize_source_revision(raw.get("source")),
+        "locator": _normalize_source_locator(raw.get("locator")),
+        "exclude_exact": exclude_exact,
+    }
+    if raw.get("binding") is not None:
+        out["binding"] = _normalize_scoped_binding(raw["binding"])
+    return out
+
+
+def _normalize_local_retrieval_similarity_query(
+    query: dict[str, Any], *, scope: dict[str, Any] | None
+) -> dict[str, Any]:
+    unknown = set(query) - _LOCAL_RETRIEVAL_FIELDS
+    if unknown:
+        raise ValueError(
+            f"unknown local_retrieval similarity fields: {', '.join(sorted(unknown))}"
+        )
+    raw_min_score = query.get("min_score")
+    if raw_min_score is None:
+        raise ValueError(
+            "local_retrieval similarity requires an explicit min_score threshold in (0, 1]"
+        )
+    min_score = _finite_number(raw_min_score, "local_retrieval min_score")
+    if not 0.0 < min_score <= 1.0:
+        raise ValueError("local_retrieval min_score must be in (0, 1]")
+    query_text = query.get("query_text")
+    source_anchor = query.get("source_anchor")
+    if query_text is None and source_anchor is None:
+        raise ValueError(
+            "local_retrieval similarity requires query_text and/or source_anchor"
+        )
+    normalized: dict[str, Any] = {
+        "schema_version": QUERY_SPEC_VERSION,
+        "kind": LOCAL_RETRIEVAL_SIMILARITY_KIND,
+        "scope": _normalize_scope(query.get("scope") or scope, default_kind="project"),
+        "min_score": min_score,
+    }
+    if query_text is not None:
+        normalized["query_text"] = _require_nonempty_str(
+            query_text, "local_retrieval query_text"
+        )
+    if source_anchor is not None:
+        normalized["source_anchor"] = _normalize_source_anchor(source_anchor)
+    if query.get("space_id") is not None:
+        normalized["space_id"] = _require_nonempty_str(
+            query["space_id"], "local_retrieval space_id"
+        )
     return normalized
 
 

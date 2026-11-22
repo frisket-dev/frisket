@@ -76,7 +76,7 @@ const SHEET_LIST_WIRE = [1, 2].map((id) => ({
   id,
   name: `Sheet ${id}`,
   parent_sheet_id: null,
-  parent_op_id: null,
+  parent_change_id: null,
   rows: 2,
   title_column_id: null,
   cited_column_ids: [],
@@ -111,7 +111,7 @@ const SHEET_DATA_WIRE = {
 };
 
 const HISTORY_WIRE = {
-  ops: [],
+  changes: [],
   offset: 0,
   limit: 50,
   total: 0,
@@ -120,11 +120,11 @@ const HISTORY_WIRE = {
   prev_offset: null,
   next_offset: null,
   cursor_index: -1,
-  cursor_op: null,
-  cursor_op_loaded: true,
+  cursor_change: null,
+  cursor_change_loaded: true,
   undo_target: null,
   redo_target: null,
-  revision: { total: 0, max_op_id: 0, op_cursor: 0 },
+  revision: { total: 0, max_change_id: 0, change_cursor: 0 },
 };
 
 function installFetchStub() {
@@ -169,7 +169,7 @@ afterEach(() => {
 });
 
 describe('saved View asynchronous opening', () => {
-  const view = (id: number) => ({ id, name: `View ${id}`, sheet_id: 1, op_id: null, unavailable_reason: null,
+  const view = (id: number) => ({ id, name: `View ${id}`, sheet_id: 1, change_id: null, unavailable_reason: null,
     spec: { selection: { scope: { kind: 'sheet' as const, sheet_id: 1 }, filters: [], order: [], limit: id }, presentation: {} } });
   it('drops a definition released after a sheet switch', async () => {
     await readyWorkspace();

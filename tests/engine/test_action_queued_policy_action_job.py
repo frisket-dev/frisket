@@ -1185,7 +1185,7 @@ def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
         project_id="project-action-job-projection",
         action_id="act_action_job_projection",
         action_kind="test.action_job_projection",
-        op_ids=[17],
+        change_ids=[17],
         status="queued",
         records=[
             ReceiptRecord(
@@ -1207,7 +1207,7 @@ def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
     assert result.status == "queued"
     assert result.job_id == 91
     assert result.run_id is None
-    assert result.op_ids == [17]
+    assert result.change_ids == [17]
     assert "job_id" not in receipt.model_dump(mode="json")
 
 
@@ -1231,7 +1231,7 @@ def test_action_job_terminal_projection_keeps_outputs_warnings_and_coordinates(
             project_id=project_id,
             action_id="act_action_job_terminal_projection",
             action_kind=action_kind,
-            op_ids=[23],
+            change_ids=[23],
             status="running",
             outputs=[
                 ReceiptIO(
@@ -1275,7 +1275,7 @@ def test_action_job_terminal_projection_keeps_outputs_warnings_and_coordinates(
         assert projected.project_id == project_id
         assert projected.run_id is None
         assert projected.job_id == 92
-        assert projected.op_ids == [23]
+        assert projected.change_ids == [23]
         assert projected.warnings == ["terminal warning"]
         assert [(output.kind, output.row_ids) for output in projected.outputs] == [
             ("rows", [10, 11])

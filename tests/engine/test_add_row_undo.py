@@ -33,11 +33,11 @@ def _seed_generated_column(client: TestClient, pid: str, sheet_id: int) -> int:
     project = client.app.state.workspace.get(pid)
     source_row_id = project.visible_row_ids(sheet_id)[0]
     col_id = project.add_column(sheet_id, "summary", generated=True)
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="seed summary"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         params={"sheet_id": sheet_id},
@@ -51,7 +51,7 @@ def _seed_generated_column(client: TestClient, pid: str, sheet_id: int) -> int:
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, col_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, col_id, run_id)
     return col_id
 
 
@@ -75,11 +75,11 @@ def test_add_row_undo_hides_row_and_redo_restores_it(tmp_path: Path) -> None:
     assert add.status_code == 200, add.text
     add_body = add.json()
     added_row_id, total = _added_row_result(add_body)
-    add_op_id = add_body["op_ids"][0]
+    add_op_id = add_body["change_ids"][0]
     assert total == 2
     project = client.app.state.workspace.get(pid)
     op = project.db.execute(
-        "SELECT id, undo_info FROM ops WHERE kind='add_row' ORDER BY id DESC LIMIT 1"
+        "SELECT id, undo_info FROM changes WHERE kind='add_row' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert op["id"] == add_op_id
     assert json.loads(op["undo_info"]) == {"created_rows": [added_row_id]}
@@ -90,11 +90,11 @@ def test_add_row_undo_hides_row_and_redo_restores_it(tmp_path: Path) -> None:
     assert added["cells"]
     assert added["meta"][str(ai_col_id)]["state"] == "incomplete"
 
-    undo = post_operation_undo_as_v1_action(client, pid, expected_op_id=add_op_id)
+    undo = post_operation_undo_as_v1_action(client, pid, expected_change_id=add_op_id)
     assert undo.status_code == 200, undo.text
     assert undo.json()["schema_version"] == "frisket.action_result.v1"
     assert undo.json()["status"] == "completed"
-    assert undo.json()["op_ids"] == [add_op_id]
+    assert undo.json()["change_ids"] == [add_op_id]
 
     after_undo = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()
     assert after_undo["total"] == 1
@@ -145,11 +145,11 @@ def test_add_row_undo_hides_row_and_redo_restores_it(tmp_path: Path) -> None:
         ],
     )
     assert stale_edit.status_code == 400
-    redo = post_operation_redo_as_v1_action(client, pid, expected_op_id=add_op_id)
+    redo = post_operation_redo_as_v1_action(client, pid, expected_change_id=add_op_id)
     assert redo.status_code == 200, redo.text
     assert redo.json()["schema_version"] == "frisket.action_result.v1"
     assert redo.json()["status"] == "completed"
-    assert redo.json()["op_ids"] == [add_op_id]
+    assert redo.json()["change_ids"] == [add_op_id]
 
     after_redo = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()
     assert after_redo["total"] == 2

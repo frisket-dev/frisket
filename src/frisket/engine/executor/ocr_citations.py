@@ -128,7 +128,7 @@ def write_ocr_citations(
     *,
     batch,
     run_id,
-    op_id,
+    change_id,
     output_columns,
     ocr_columns: set[int],
     writer_attempt_id,
@@ -303,7 +303,7 @@ def write_ocr_citations(
             subject_ref={
                 "kind": "run_result",
                 "run_id": run_id,
-                "op_id": op_id,
+                "change_id": change_id,
                 "row_id": row_id,
                 "column_id": column_id,
                 **(
@@ -317,7 +317,7 @@ def write_ocr_citations(
             row_id=row_id,
             column_id=column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=receipt_id,
             link_role="media_ocr_grounding",
             producer={"action_kind": spec["action_kind"], "engine": engine},

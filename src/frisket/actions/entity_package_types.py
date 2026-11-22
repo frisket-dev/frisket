@@ -23,7 +23,7 @@ class ImportedEntitySheet(BaseModel):
 class ImportedEntityDataset(BaseModel):
     dataset_name: str | None
     sheets: tuple[ImportedEntitySheet, ...]
-    op_id: int
+    change_id: int
     diagnostics: tuple[dict[str, Any], ...]
 
 

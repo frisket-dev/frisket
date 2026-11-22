@@ -27,9 +27,9 @@ def _review_run(make_project) -> tuple[Project, int, list[int], int, int]:
     first = project.add_column(sheet_id, "first", generated=True)
     second = project.add_column(sheet_id, "second", generated=True)
     row_ids = project.add_rows(sheet_id, [{} for _ in range(8)], {})
-    op_id = project.append_change("map", {"fixture": "confidence ordering"})
+    change_id = project.append_change("map", {"fixture": "confidence ordering"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         params={"fields": [{"name": "first"}, {"name": "second"}]},

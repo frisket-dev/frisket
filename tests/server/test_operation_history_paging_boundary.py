@@ -17,9 +17,9 @@ def _seed_history(
     project.db.execute("INSERT INTO rows(sheet_id,position) VALUES (?,1)", (sheet_id,))
     row_id = project.db.execute("SELECT last_insert_rowid()").fetchone()[0]
     project.db.commit()
-    op_ids: list[int] = []
+    change_ids: list[int] = []
     for index in range(125):
-        op_ids.append(
+        change_ids.append(
             project.append_change(
                 "map" if index % 3 else "edit",
                 {"index": index},
@@ -29,18 +29,18 @@ def _seed_history(
         with project.transaction_scope():
             insert_edits(
                 project.db,
-                op_id=op_ids[-1],
+                change_id=change_ids[-1],
                 edits=[EditCellWrite(row_id, column_id, str(index))],
             )
     for _ in range(5):
         assert project.undo() is not None
-    return client, project_id, op_ids, project.op_cursor
+    return client, project_id, change_ids, project.change_cursor
 
 
 def test_operation_history_route_returns_bounded_page_with_cursor_targets(
     client: TestClient,
 ) -> None:
-    client, project_id, op_ids, cursor = _seed_history(client)
+    client, project_id, change_ids, cursor = _seed_history(client)
 
     default_page = client.get(
         f"/api/projects/{project_id}/history",
@@ -51,20 +51,20 @@ def test_operation_history_route_returns_bounded_page_with_cursor_targets(
     assert body["schema_version"] == "frisket.history_page.v1"
     assert body["order"] == "asc"
     assert body["limit"] == 20
-    assert body["total"] == len(op_ids)
-    assert len(body["ops"]) <= 20
-    assert body["cursor_index"] == op_ids.index(cursor)
-    assert body["cursor_op"]["id"] == cursor
-    assert body["cursor_op_loaded"] is True
+    assert body["total"] == len(change_ids)
+    assert len(body["changes"]) <= 20
+    assert body["cursor_index"] == change_ids.index(cursor)
+    assert body["cursor_change"]["id"] == cursor
+    assert body["cursor_change_loaded"] is True
     assert body["undo_target"]["id"] == cursor
     assert body["redo_target"]["id"] == cursor + 1
     assert body["revision"] == {
-        "total": len(op_ids),
-        "max_op_id": op_ids[-1],
-        "op_cursor": cursor,
+        "total": len(change_ids),
+        "max_change_id": change_ids[-1],
+        "change_cursor": cursor,
     }
-    assert all("index" in op for op in body["ops"])
-    assert body["ops"] == sorted(body["ops"], key=lambda op: op["index"])
+    assert all("index" in op for op in body["changes"])
+    assert body["changes"] == sorted(body["changes"], key=lambda op: op["index"])
 
     first_page = client.get(
         f"/api/projects/{project_id}/history",
@@ -77,9 +77,9 @@ def test_operation_history_route_returns_bounded_page_with_cursor_targets(
     assert first_body["has_more_after"] is True
     assert first_body["prev_offset"] is None
     assert first_body["next_offset"] == 20
-    assert first_body["cursor_op"]["id"] == cursor
-    assert first_body["cursor_op_loaded"] is False
-    assert [op["id"] for op in first_body["ops"]] == op_ids[:20]
+    assert first_body["cursor_change"]["id"] == cursor
+    assert first_body["cursor_change_loaded"] is False
+    assert [op["id"] for op in first_body["changes"]] == change_ids[:20]
 
     tail_page = client.get(
         f"/api/projects/{project_id}/history",
@@ -90,7 +90,7 @@ def test_operation_history_route_returns_bounded_page_with_cursor_targets(
     assert tail_body["offset"] == 120
     assert tail_body["has_more_after"] is False
     assert tail_body["next_offset"] is None
-    assert [op["id"] for op in tail_body["ops"]] == op_ids[120:]
+    assert [op["id"] for op in tail_body["changes"]] == change_ids[120:]
 
     for params in (
         {"offset": -1, "limit": 20},

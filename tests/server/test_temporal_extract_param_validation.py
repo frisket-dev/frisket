@@ -97,7 +97,7 @@ def test_extract_form_discovers_actual_outputs_before_names_or_effects(
     monkeypatch.setattr(CoreTemporalMediaMaterializer, "stage", no_render)
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("columns", "rows", "ops", "blobs", "receipts")
+        for table in ("columns", "rows", "changes", "blobs", "receipts")
     }
     result = service.validate_params(
         "project",

@@ -405,7 +405,7 @@ def test_preview_dedupes_sequential_references_without_populating_shared_cache(
     monkeypatch.setattr(reader_module, "extract_media_metadata", counted_extract)
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("columns", "ops", "runs", "results", "receipts")
+        for table in ("columns", "changes", "runs", "results", "receipts")
     }
 
     plan = build_typed_map_rows_plan(
@@ -1003,7 +1003,7 @@ def test_raw_maprunner_cannot_launch_metadata_without_action_lifecycle(
     )
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("columns", "ops", "runs", "receipts")
+        for table in ("columns", "changes", "runs", "receipts")
     }
 
     with pytest.raises(
@@ -1045,7 +1045,7 @@ def test_atomic_metadata_prepare_failure_rolls_back_family_op_and_run(
     sheet_id, row_id = _single_image_sheet(project)
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("columns", "ops", "runs", "receipts")
+        for table in ("columns", "changes", "runs", "receipts")
     }
 
     def fail_start_run(*_args: Any, **_kwargs: Any) -> int:
@@ -1678,9 +1678,9 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
             row_ids=[target_row],
         )
 
-        assert project.undo() == rerun.op_ids[0]
+        assert project.undo() == rerun.change_ids[0]
         assert live_snapshot() == before
-        assert project.redo() == rerun.op_ids[0]
+        assert project.redo() == rerun.change_ids[0]
         assert live_snapshot() == after
 
         later_manual_value = {"manual_overlay": "later target correction"}
@@ -2265,9 +2265,9 @@ def test_standard_receipt_undo_and_redo_own_output_lifecycle(
     ).fetchone()
     assert "meta" in {column["name"] for column in project.columns(sheet_id)}
 
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert "meta" not in {column["name"] for column in project.columns(sheet_id)}
-    assert project.redo() == result.op_ids[0]
+    assert project.redo() == result.change_ids[0]
     restored = _column(project, sheet_id, "meta")
     assert not bool(restored["hidden"])
     assert restored["current_run_id"] == result.run_id
@@ -2314,10 +2314,10 @@ def test_columns_mode_undo_and_redo_own_all_24_outputs(
     assert {row["name"] for row in created} == names
     assert {int(row["hidden"]) for row in created} == {0}
 
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert {int(row["hidden"]) for row in family_rows()} == {1}
 
-    assert project.redo() == result.op_ids[0]
+    assert project.redo() == result.change_ids[0]
     restored = family_rows()
     assert {int(row["hidden"]) for row in restored} == {0}
     assert {int(row["current_run_id"]) for row in restored} == {result.run_id}

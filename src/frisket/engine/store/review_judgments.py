@@ -9,24 +9,24 @@ from .transactions import require_transaction
 
 JUDGMENT_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS result_judgment_changes (
- op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
+ change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
  target TEXT NOT NULL,
  property TEXT NOT NULL CHECK(property IN ('state','decision','note')),
- PRIMARY KEY(target,property,op_id)
+ PRIMARY KEY(target,property,change_id)
 );
-CREATE INDEX IF NOT EXISTS idx_judgment_change_op ON result_judgment_changes(op_id);
+CREATE INDEX IF NOT EXISTS idx_result_judgment_changes_change ON result_judgment_changes(change_id);
 """
 
 
 def result_key(
-    run_id: int | None, copied_op_id: int | None, row_id: int, column_id: int
+    run_id: int | None, copied_change_id: int | None, row_id: int, column_id: int
 ) -> str:
-    if (run_id is None) == (copied_op_id is None):
-        raise ValueError("select exactly one run_id or copied_op_id")
+    if (run_id is None) == (copied_change_id is None):
+        raise ValueError("select exactly one run_id or copied_change_id")
     return (
         f"{run_id}:{row_id}:{column_id}"
         if run_id is not None
-        else f"copy:{copied_op_id}:{row_id}:{column_id}"
+        else f"copy:{copied_change_id}:{row_id}:{column_id}"
     )
 
 
@@ -47,7 +47,7 @@ def _value(info, target, field, after):
     return info["review_metadata" + suffix][target].get(field)
 
 
-def record_judgment_changes(db, op_id: int, info) -> None:
+def record_judgment_changes(db, change_id: int, info) -> None:
     require_transaction(db, "judgment change")
     for field in ("state", "decision", "note"):
         section = "review_states" if field == "state" else "review_metadata"
@@ -59,16 +59,17 @@ def record_judgment_changes(db, op_id: int, info) -> None:
             if field == "state" or field in info[section + "_after"][target]:
                 db.execute(
                     "INSERT OR IGNORE INTO result_judgment_changes VALUES (?,?,?)",
-                    (op_id, target, field),
+                    (change_id, target, field),
                 )
 
 
-def project_judgments(project: Any, op_id: int) -> None:
+def project_judgments(project: Any, change_id: int) -> None:
     """Recompute only targets touched by a Change, after its applicability changes."""
     db = project.db
     require_transaction(db, "judgment projection")
     targets = db.execute(
-        "SELECT DISTINCT target FROM result_judgment_changes WHERE op_id=?", (op_id,)
+        "SELECT DISTINCT target FROM result_judgment_changes WHERE change_id=?",
+        (change_id,),
     ).fetchall()
     for (target,) in targets:
         fields = {}
@@ -76,7 +77,7 @@ def project_judgments(project: Any, op_id: int) -> None:
             "WITH ordered AS (SELECT c.property,o.status,o.undo_info,"
             "FIRST_VALUE(o.undo_info) OVER (PARTITION BY c.property ORDER BY o.change_order) baseline,"
             "ROW_NUMBER() OVER (PARTITION BY c.property ORDER BY (o.status='applied') DESC,o.change_order DESC) rank "
-            "FROM result_judgment_changes c JOIN ops o ON o.id=c.op_id "
+            "FROM result_judgment_changes c JOIN changes o ON o.id=c.change_id "
             "WHERE c.target=? AND o.change_order IS NOT NULL) "
             "SELECT property,status,undo_info,baseline FROM ordered WHERE rank=1",
             (target,),
@@ -90,7 +91,7 @@ def project_judgments(project: Any, op_id: int) -> None:
         table, owner_field = (
             ("results", "run_id")
             if kind == "run"
-            else ("copied_result_outcomes", "op_id")
+            else ("copied_result_outcomes", "change_id")
         )
         before = db.execute(
             f"SELECT review_state,review_decision,review_note FROM {table} WHERE {owner_field}=? AND row_id=? AND column_id=?",
@@ -110,7 +111,7 @@ def project_judgments(project: Any, op_id: int) -> None:
             store.set_result_review_metadata(owner, row_id, column_id, decision, note)
         else:
             db.execute(
-                "UPDATE copied_result_outcomes SET review_state=?,review_decision=?,review_note=? WHERE op_id=? AND row_id=? AND column_id=?",
+                "UPDATE copied_result_outcomes SET review_state=?,review_decision=?,review_note=? WHERE change_id=? AND row_id=? AND column_id=?",
                 (state, decision, note, owner, row_id, column_id),
             )
     if targets:
@@ -142,8 +143,8 @@ def decision_scope_identity(
     for offset in range(0, len(rows), 500):
         for row in db.execute(
             "SELECT wanted.value row_id,cols.value column_id,result.review_state,result.review_decision,"
-            "coalesce((SELECT contribution.op_id FROM result_judgment_changes contribution "
-            "JOIN ops op ON op.id=contribution.op_id "
+            "coalesce((SELECT contribution.change_id FROM result_judgment_changes contribution "
+            "JOIN changes op ON op.id=contribution.change_id "
             "WHERE contribution.target=(?||':'||wanted.value||':'||cols.value) "
             "AND contribution.property='decision' AND op.status='applied' AND op.change_order IS NOT NULL "
             "ORDER BY op.change_order DESC LIMIT 1),0) owner "

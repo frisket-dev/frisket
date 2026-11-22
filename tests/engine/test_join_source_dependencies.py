@@ -21,7 +21,7 @@ def test_uncaptured_empty_table_keeps_dependencies_but_freshness_is_unknown(
     op = project.append_change(
         "derive.join", {"reads": [{"kind": kind, keys[0]: left, keys[1]: right}]}
     )
-    child = project.add_sheet("Empty joined", parent_sheet_id=left, parent_op_id=op)
+    child = project.add_sheet("Empty joined", parent_sheet_id=left, parent_change_id=op)
     assert project.visible_row_ids(child) == []
     assert compute_sync_states(project)[child]["sync_state"] == "unknown"
     for source in (left, right):
@@ -43,7 +43,7 @@ def test_real_empty_join_captures_both_actual_source_sides(
     tmp_path, make_project, semantic
 ):
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project = make_project("actual-empty")
     if semantic:
@@ -94,7 +94,7 @@ def test_real_empty_join_captures_both_actual_source_sides(
     edit = project.apply_edits([{"row_id": row, "column_id": column, "value": value}])
     assert compute_sync_states(project)[child]["sync_state"] == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=edit)
+        step_change(project, "revert", change_id=edit)
     assert compute_sync_states(project)[child]["sync_state"] == "synced"
     project.delete_sheet(right)
     assert child in {sheet["id"] for sheet in project.sheets()}

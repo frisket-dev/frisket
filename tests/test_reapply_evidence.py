@@ -107,7 +107,7 @@ def test_reapply_preserves_evidence_state_spans_and_undo_ownership(work):
             "reapplied_from": old["stable_id"],
         }
         assert json.loads(new["subject_ref_json"])["kind"] == "copied_result"
-        assert new["op_id"] is not None
+        assert new["change_id"] is not None
 
         def spans(link):
             return [

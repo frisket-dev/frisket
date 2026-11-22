@@ -194,7 +194,7 @@ def test_archive_round_trip_preserves_membership_table_and_indexes(
         assert {
             "idx_materialized_row_sources_source",
             "idx_materialized_row_sources_materialized",
-            "idx_materialized_row_sources_op",
+            "idx_materialized_row_sources_change",
         }.issubset(_index_names(restored))
 
 
@@ -241,14 +241,14 @@ def test_rowset_records_expose_active_aggregate_membership_without_fake_parent(
             "materialized_row_id": write.row_ids[0],
             "source_row_id": source_rows[0],
             "source_sheet_id": source_sheet,
-            "op_id": write.op_id,
+            "change_id": write.change_id,
             "role": "aggregate_source",
         },
         {
             "materialized_row_id": write.row_ids[0],
             "source_row_id": source_rows[1],
             "source_sheet_id": source_sheet,
-            "op_id": write.op_id,
+            "change_id": write.change_id,
             "role": "aggregate_source",
         },
     ]

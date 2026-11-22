@@ -204,7 +204,7 @@ def _record_text_layer_reading(
                 settings={"method": "pdf_text_layer", "reader": "pdfium"},
                 pages=documents,
                 status="completed",
-                change_ids=[int(session.op_id)],
+                change_ids=[int(session.change_id)],
             ),
             receipt_id=local_reading_receipt_id(
                 "media.read_pdf_text", session.receipt_id

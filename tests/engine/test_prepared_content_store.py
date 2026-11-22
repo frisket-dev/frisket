@@ -43,11 +43,11 @@ def test_exact_document_and_page_refs_keep_outputs_independent(make_project) -> 
     project = make_project("Prepared")
     artifact_id = _artifact(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.ocr")
+    change_id = project.append_change_in_transaction("media.ocr")
     store = PreparedContentStore(project)
     a = store.stage_reference(
         source_artifact_id=artifact_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=_pages(),
     )
     page_two = store.stage_selector(
@@ -55,7 +55,7 @@ def test_exact_document_and_page_refs_keep_outputs_independent(make_project) -> 
     )
     b = store.stage_reference(
         source_artifact_id=artifact_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=_pages("engine B"),
     )
     project.db.commit()
@@ -91,13 +91,13 @@ def test_sparse_replacement_reuses_versions_and_artifact_delete_keeps_text(
     first_op = project.append_change_in_transaction("media.ocr")
     first = store.stage_reference(
         source_artifact_id=artifact_id,
-        producing_op_id=first_op,
+        producing_change_id=first_op,
         pages=_pages("old"),
     )
     second_op = project.append_change_in_transaction("edit")
     second = store.stage_replacement(
         base_ref_id=first.ref_id,
-        producing_op_id=second_op,
+        producing_change_id=second_op,
         replacements=[PreparedPageDraft(2, "new")],
     )
     project.db.commit()
@@ -133,16 +133,16 @@ def test_stage_is_caller_owned_atomic_and_rejects_incomplete_documents(
     with pytest.raises(RuntimeError, match="caller transaction"):
         store.stage_reference(
             source_artifact_id=artifact_id,
-            producing_op_id=1,
+            producing_change_id=1,
             pages=_pages(),
         )
 
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.ocr")
+    change_id = project.append_change_in_transaction("media.ocr")
     with pytest.raises(ValueError, match="every artifact page"):
         store.stage_reference(
             source_artifact_id=artifact_id,
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             pages=_pages()[:-1],
         )
     assert (
@@ -150,7 +150,7 @@ def test_stage_is_caller_owned_atomic_and_rejects_incomplete_documents(
         == 0
     )
     project.db.rollback()
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
 
 
 def test_prepared_reference_codec_is_internal_and_strict() -> None:
@@ -167,10 +167,10 @@ def test_sql_view_plan_stays_scoped_to_the_requested_reference(make_project) -> 
     project = make_project("Plan")
     artifact_id = _artifact(project, pages=1000)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.ocr")
+    change_id = project.append_change_in_transaction("media.ocr")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(number, "x" * 2048) for number in range(1, 1001)],
     )
     project.db.commit()
@@ -195,10 +195,10 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
     child_id = _artifact(project, pages=3)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.ocr")
+    change_id = project.append_change_in_transaction("media.ocr")
     first = store.stage_reference(
         source_artifact_id=parent_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(2, "", positions=[{"x": 1}])],
         allow_partial=True,
     )
@@ -210,13 +210,13 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
         store.stage_selector(set_id=original.set_id, page_number=3)
     second = store.stage_replacement(
         base_ref_id=first.ref_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         replacements=[PreparedPageDraft(4, "four")],
         allow_partial=True,
     )
     third = store.stage_replacement(
         base_ref_id=second.ref_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         replacements=[PreparedPageDraft(2, "two"), PreparedPageDraft(3, "three")],
         allow_partial=True,
     )
@@ -225,7 +225,7 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
     assert store.resolve(third.ref_id).covered_pages == (2, 3, 4)
     completed = store.stage_replacement(
         base_ref_id=third.ref_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         replacements=[PreparedPageDraft(1, "one"), PreparedPageDraft(5, "")],
         allow_partial=True,
     )
@@ -237,7 +237,7 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
     child = store.stage_rebased(
         base_ref_id=second.ref_id,
         source_artifact_id=child_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         first_page=2,
         last_page=4,
         allow_partial=True,
@@ -257,7 +257,7 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
     selected_child = store.stage_rebased(
         base_ref_id=selected_ref.ref_id,
         source_artifact_id=child_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         first_page=2,
         last_page=4,
         allow_partial=True,
@@ -267,7 +267,7 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
     with pytest.raises(ValueError, match="every artifact page"):
         store.stage_replacement(
             base_ref_id=second.ref_id,
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             replacements=[PreparedPageDraft(2, "two")],
         )
     project.db.rollback()
@@ -281,10 +281,10 @@ def test_partial_rebase_without_available_pages_has_no_reference(
     child_id = _artifact(project, pages=2)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.ocr")
+    change_id = project.append_change_in_transaction("media.ocr")
     parent = store.stage_reference(
         source_artifact_id=parent_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(1, "known")],
         allow_partial=True,
     )
@@ -292,7 +292,7 @@ def test_partial_rebase_without_available_pages_has_no_reference(
         store.stage_rebased(
             base_ref_id=parent.ref_id,
             source_artifact_id=child_id,
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             first_page=3,
             last_page=4,
             allow_partial=True,
@@ -310,10 +310,10 @@ def test_rebase_and_page_resolution_do_not_load_unselected_text(make_project) ->
     child_id = _artifact(project, pages=1)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.ocr")
+    change_id = project.append_change_in_transaction("media.ocr")
     parent = store.stage_reference(
         source_artifact_id=parent_id,
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(i, "x" * 65536) for i in range(1, 129)],
     )
     page = store.stage_selector(
@@ -324,7 +324,7 @@ def test_rebase_and_page_resolution_do_not_load_unselected_text(make_project) ->
         rebased = store.stage_rebased(
             base_ref_id=parent.ref_id,
             source_artifact_id=child_id,
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             first_page=64,
             last_page=64,
         )

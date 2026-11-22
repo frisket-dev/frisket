@@ -71,7 +71,7 @@ function comparisonContext({
     source_rows: Object.fromEntries([11, 12, 13].map(id => [String(id), {
       story: {
         state: 'value', value: `Story ${id}`,
-        origin: { kind: 'source_cell', run_id: null, op_id: null, review_decision: null },
+        origin: { kind: 'source_cell', run_id: null, change_id: null, review_decision: null },
       },
     }])),
     generated_columns: [{
@@ -85,7 +85,7 @@ function comparisonContext({
     baseline_rows: runBasis ? Object.fromEntries([11, 12, 13].map(id => [String(id), {
       party: {
         state: 'value', value: `Party ${id}`,
-        origin: { kind: 'run_result', run_id: runId, op_id: id, review_decision: null },
+        origin: { kind: 'run_result', run_id: runId, change_id: id, review_decision: null },
       },
     }])) : null,
     origin_summary: {

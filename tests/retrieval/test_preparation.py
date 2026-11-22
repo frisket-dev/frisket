@@ -1343,7 +1343,7 @@ def test_source_file_edit_retires_pending_text(
             text_column_id=text_column,
         )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("prepare.test")
+    change_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -1356,7 +1356,7 @@ def test_source_file_edit_retires_pending_text(
     )
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(PreparedPageDraft(1, "authority original text"),),
     )
     project.db.commit()

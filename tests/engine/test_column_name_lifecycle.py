@@ -9,13 +9,13 @@ def test_undo_redo_preserves_internal_hidden_column(make_project):
     project = make_project("hidden")
     sheet_id = project.add_sheet("data")
     column_id = project.add_column(sheet_id, "internal", hidden=True)
-    op_id = project.append_change("fixture")
+    change_id = project.append_change("fixture")
     with write_transaction(project.db):
-        project.set_undo_info(op_id, {"created_columns": [column_id]})
-        start_change(project.db, op_id)
-    assert project.undo() == op_id
+        project.set_undo_info(change_id, {"created_columns": [column_id]})
+        start_change(project.db, change_id)
+    assert project.undo() == change_id
     assert project.get_column(column_id)["active"] == 0
-    assert project.redo() == op_id
+    assert project.redo() == change_id
     column = project.get_column(column_id)
     assert (column["active"], column["hidden"]) == (1, 1)
     assert project.columns(sheet_id) == []
@@ -28,10 +28,10 @@ def test_redo_cannot_take_name_reserved_by_queued_action(make_project):
     project = make_project("claimed")
     sheet_id = project.add_sheet("data")
     column_id = project.add_column(sheet_id, "summary")
-    op_id = project.append_change("fixture")
+    change_id = project.append_change("fixture")
     with write_transaction(project.db):
-        project.set_undo_info(op_id, {"created_columns": [column_id]})
-        start_change(project.db, op_id)
+        project.set_undo_info(change_id, {"created_columns": [column_id]})
+        start_change(project.db, change_id)
     project.undo()
     claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
@@ -47,10 +47,12 @@ def test_redo_cannot_take_name_reserved_by_queued_action(make_project):
         project.redo()
     assert project.get_column(column_id)["active"] == 0
     assert (
-        project.db.execute("SELECT status FROM ops WHERE id=?", (op_id,)).fetchone()[0]
+        project.db.execute(
+            "SELECT status FROM changes WHERE id=?", (change_id,)
+        ).fetchone()[0]
         == "undone"
     )
     with write_transaction(claims.db):
         claims.release(claim_token="pending-output")
-    assert project.redo() == op_id
+    assert project.redo() == change_id
     assert project.get_column(column_id)["active"] == 1

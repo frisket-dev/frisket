@@ -76,11 +76,11 @@ class _Fixture:
         """Create a run that generated `values` per row and point the column
         at it — the "fresh generated value" home."""
         store = RunResultStore(self.project)
-        op_id = self.project.append_change(
+        change_id = self.project.append_change(
             "run", {"kind": "map"}, label="generate labels"
         )
         run_id = store.start_run(
-            op_id,
+            change_id,
             self.sheet,
             "map.classify",
             model="anthropic/claude-haiku-4-5",
@@ -140,7 +140,7 @@ def _minimal_receipt(fx, run_id: int, value_hash: str):
         action_id="act-1",
         action_kind="map.classify",
         run_id=run_id,
-        op_ids=[],
+        change_ids=[],
         status="completed",
         outputs=[
             ReceiptIO(

@@ -85,7 +85,7 @@ def test_session_producer_can_append_but_base_removal_and_edits_are_blocked(
     with pytest.raises(ImportInProgress):
         insert_edits(
             project.db,
-            op_id=session.op_id,
+            change_id=session.change_id,
             edits=[EditCellWrite(row_id=row_id, column_id=column_id, value="edit")],
         )
     project.db.rollback()
@@ -130,7 +130,7 @@ def test_result_write_sheet_delete_blocked_but_undo_cancels_import(
     session = ImportSessionStore(project).get("import:guard")
     assert session is not None
     run_id = RunResultStore(project).start_run(
-        session.op_id, writer.sheet_id, "map.classify"
+        session.change_id, writer.sheet_id, "map.classify"
     )
 
     with pytest.raises(ImportInProgress):

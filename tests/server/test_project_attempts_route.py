@@ -58,13 +58,13 @@ def _seed_attempt_on_project(project, *, sheet_name: str = "S") -> tuple[int, st
             }
         ),
     )
-    op_id = project.db.execute(
-        "INSERT INTO ops (kind, spec) VALUES (?,?)", ("regex_extract", "{}")
+    change_id = project.db.execute(
+        "INSERT INTO changes (kind, spec) VALUES (?,?)", ("regex_extract", "{}")
     ).lastrowid
     run_id = int(
         project.db.execute(
-            "INSERT INTO runs (op_id, sheet_id, action_kind, params) VALUES (?,?,?,?)",
-            (op_id, sheet_id, "map.regex_extract", "{}"),
+            "INSERT INTO runs (change_id, sheet_id, action_kind, params) VALUES (?,?,?,?)",
+            (change_id, sheet_id, "map.regex_extract", "{}"),
         ).lastrowid
     )
     project.db.commit()

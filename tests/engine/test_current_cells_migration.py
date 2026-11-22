@@ -115,13 +115,13 @@ def test_migration_backfills_current_precedence_without_inventing_base_origins(
     }
     # Cutover assigns a version identity, but must not invent old authorship.
     producer = project.db.execute(
-        "SELECT producer.stage_id,producer.op_id FROM cells cell "
+        "SELECT producer.stage_id,producer.change_id FROM cells cell "
         "JOIN base_cell_producers producer ON producer.id=cell.producer_id "
         "WHERE cell.row_id=100 AND cell.column_id=10"
     ).fetchone()
     assert tuple(producer) == ("domain:legacy-unattributed", None)
     rows = project.db.execute(
-        "SELECT row_id,value,value_kind,origin_kind,origin_op_id,origin_run_id,"
+        "SELECT row_id,value,value_kind,origin_kind,origin_change_id,origin_run_id,"
         "base_producer_id FROM current_cell_values "
         "WHERE column_id=10 ORDER BY row_id"
     ).fetchall()

@@ -191,7 +191,7 @@ def _response(dispatch_id: str) -> ActionRunResponse:
             "project_id": "project-1",
             "run_id": 7,
             "job_id": 9,
-            "op_ids": [31],
+            "change_ids": [31],
             "outputs": [],
             "receipt_id": None,
             "warnings": [],
@@ -210,7 +210,7 @@ def _outcome(dispatch_id: str, record_dispatch) -> ChildRunOutcome:
         job_id=9,
         run_id=7,
         receipt_id=None,
-        op_ids=(31,),
+        change_ids=(31,),
     )
     record_dispatch(base_dispatch)
     dispatch = replace(base_dispatch, idempotency_key=dispatch_id)
@@ -669,8 +669,8 @@ async def test_replacement_respects_write_mode_at_frozen_target(
     greeting_column = project.add_column(
         sheet_id, "Greeting", type="text", generated=True
     )
-    op_id = project.append_change("map.template", {"output": "Greeting"})
-    run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.template")
+    change_id = project.append_change("map.template", {"output": "Greeting"})
+    run_id = RunResultStore(project).start_run(change_id, sheet_id, "map.template")
     project.db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"

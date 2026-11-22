@@ -45,7 +45,7 @@ _RAW_RUN_FIELDS = frozenset(
     {
         "id",
         "feed_id",
-        "op_id",
+        "change_id",
         "receipt_id",
         "status",
         "new_rows",
@@ -123,7 +123,7 @@ _HEALTH_RUN_FIELDS = frozenset(
         "started_at",
         "finished_at",
         "receipt_id",
-        "op_id",
+        "change_id",
         "new_rows",
         "skipped_rows",
         "changed_rows",
@@ -169,7 +169,7 @@ _SOURCE_NULLABLE_FIELDS = frozenset(
 )
 _RUN_NULLABLE_FIELDS = frozenset(
     {
-        "op_id",
+        "change_id",
         "receipt_id",
         "error",
         "cursor_before",
@@ -182,7 +182,7 @@ _HEALTH_SOURCE_NULLABLE_FIELDS = frozenset({"url", "schedule", "sheet_id"})
 _HEALTH_SUMMARY_NULLABLE_FIELDS = frozenset({"last_success_at", "last_failure_at"})
 _HEALTH_PAGE_NULLABLE_FIELDS = frozenset({"next_offset"})
 _HEALTH_RUN_NULLABLE_FIELDS = frozenset(
-    {"finished_at", "receipt_id", "op_id", "duration_ms", "error_summary"}
+    {"finished_at", "receipt_id", "change_id", "duration_ms", "error_summary"}
 )
 _HEALTH_JOB_NULLABLE_FIELDS = frozenset({"started_at", "finished_at", "error_summary"})
 
@@ -466,7 +466,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     run_annotations = {
         "id": int,
         "feed_id": int,
-        "op_id": int | None,
+        "change_id": int | None,
         "receipt_id": str | None,
         "status": str,
         "new_rows": int,
@@ -552,7 +552,7 @@ def test_project_source_dto_graph_freezes_every_current_raw_field() -> None:
     raw_run = {
         "id": 8,
         "feed_id": 7,
-        "op_id": None,
+        "change_id": None,
         "receipt_id": None,
         "status": "ok",
         "new_rows": 1,
@@ -714,7 +714,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "started_at": str,
         "finished_at": str | None,
         "receipt_id": str | None,
-        "op_id": int | None,
+        "change_id": int | None,
         "new_rows": int,
         "skipped_rows": int,
         "changed_rows": int,
@@ -843,7 +843,7 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
                 "started_at": "2026-08-10 00:00:00",
                 "finished_at": None,
                 "receipt_id": None,
-                "op_id": None,
+                "change_id": None,
                 "new_rows": 0,
                 "skipped_rows": 0,
                 "changed_rows": 0,
@@ -1155,7 +1155,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         assert {
             "id": raw_run["id"],
             "feed_id": raw_run["feed_id"],
-            "op_id": raw_run["op_id"],
+            "change_id": raw_run["change_id"],
             "receipt_id": raw_run["receipt_id"],
             "status": raw_run["status"],
             "new_rows": raw_run["new_rows"],
@@ -1173,7 +1173,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         } == {
             "id": run_id,
             "feed_id": detailed_source_id,
-            "op_id": None,
+            "change_id": None,
             "receipt_id": None,
             "status": "running",
             "new_rows": 0,
@@ -1262,7 +1262,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
                 "started_at": raw_run["started_at"],
                 "finished_at": None,
                 "receipt_id": None,
-                "op_id": None,
+                "change_id": None,
                 "new_rows": 0,
                 "skipped_rows": 0,
                 "changed_rows": 0,

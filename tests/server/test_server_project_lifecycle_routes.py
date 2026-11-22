@@ -94,9 +94,9 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
     column_id = project.add_column(sheet_id, "Title", type="text")
     sheets = client.get(f"/api/projects/{pid}/sheets")
     assert sheets.status_code == 200, sheets.text
-    # Workbench IA inc 7: the sheets payload gained parent_op_id (op kind/label +
+    # Workbench IA inc 7: the sheets payload gained parent_change_id (op kind/label +
     # syncState/stale_reason are added only for DERIVED sheets, so a root sheet
-    # carries just parent_op_id: None). sheet-title-column-v1: every entry also
+    # carries just parent_change_id: None). sheet-title-column-v1: every entry also
     # carries title_column_id (None until the '...' menu's "Use as row title"
     # sets it — PATCH /api/projects/{pid}/sheets/{sheet_id}). Every entry also
     # carries cited_column_ids (the columns
@@ -110,7 +110,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
             "id": sheet_id,
             "name": "Facts",
             "parent_sheet_id": None,
-            "parent_op_id": None,
+            "parent_change_id": None,
             "rows": 0,
             "title_column_id": None,
             "cited_column_ids": [],

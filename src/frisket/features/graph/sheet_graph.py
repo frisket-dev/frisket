@@ -14,7 +14,7 @@ LINK_ROLES = ("edge_source", "edge_target")
 JOIN_ROLES = ("join_left", "join_right")
 EDGE_ROLES = (*LINK_ROLES, *JOIN_ROLES)
 
-# ops.kind values whose output sheets carry edge/join membership.
+# changes.kind values whose output sheets carry edge/join membership.
 EDGE_OP_KINDS = {"derive.link_table"}
 JOIN_OP_KINDS = {"derive.join"}
 
@@ -36,7 +36,7 @@ def sheet_materialized_kind(
 ) -> str | None:
     """The sheet-shape availability signal: 'edge' | 'join' | None.
 
-    Honest gate = producing ``ops.kind`` in the edge/join families AND the
+    Honest gate = producing ``changes.kind`` in the edge/join families AND the
     presence of the matching membership roles for that sheet's rows. Op kind
     alone is not enough (a producer could in principle emit a non-edge output);
     membership alone is the substrate ground truth.
@@ -107,13 +107,13 @@ def build_sheet_graph(
     limit_edges = _clamp(int(config.limit_edges), 1, _MAX_LIMIT_EDGES)
 
     sheet = project.db.execute(
-        "SELECT id, name, parent_op_id FROM sheets WHERE id=? AND hidden=0",
+        "SELECT id, name, parent_change_id FROM sheets WHERE id=? AND hidden=0",
         (sheet_id,),
     ).fetchone()
     if sheet is None:
         raise SheetGraphError(404, "sheet_not_found", f"no sheet {sheet_id}")
 
-    materialized_kind = _materialized_kind(project, sheet["parent_op_id"])
+    materialized_kind = _materialized_kind(project, sheet["parent_change_id"])
     diagnostics: list[dict[str, Any]] = []
 
     all_edge_row_ids = project.visible_row_ids(sheet_id)
@@ -283,11 +283,11 @@ def _node_label(node: _NodeAccum) -> str:
     return _node_id(node.sheet_id, node.row_id)
 
 
-def _materialized_kind(project: Project, parent_op_id: Any) -> str | None:
-    if parent_op_id is None:
+def _materialized_kind(project: Project, parent_change_id: Any) -> str | None:
+    if parent_change_id is None:
         return None
-    meta = project.changes_meta([int(parent_op_id)])
-    op = meta.get(int(parent_op_id))
+    meta = project.changes_meta([int(parent_change_id)])
+    op = meta.get(int(parent_change_id))
     if op is None:
         return None
     kind = op.get("kind")

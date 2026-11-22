@@ -72,7 +72,7 @@ class RunDispatch:
 
     def check(self) -> None:
         live = self.project.db.execute(
-            "SELECT op.id FROM runs run JOIN ops op ON op.id=run.op_id "
+            "SELECT op.id FROM runs run JOIN changes op ON op.id=run.change_id "
             "JOIN execution_attempts attempt ON attempt.run_id=run.id "
             "WHERE run.id=? AND attempt.id=? AND attempt.state='dispatching' "
             "AND run.current_attempt_id=attempt.id AND run.status='running' "

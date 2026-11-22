@@ -163,7 +163,7 @@ def test_receipt_attempt_prices_actual_calls_and_estimated_rows_without_outputs(
     assert view["settlement"]["metered_quantity"] == "120"
     assert view["settlement"]["billable_quantity"] == "2"
     assert view["settlement"]["charged_quantity"] == "10"
-    for table in ("ops", "runs", "columns", "cells", "generated_column_claims"):
+    for table in ("changes", "runs", "columns", "cells", "generated_column_claims"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 

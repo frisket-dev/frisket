@@ -236,7 +236,7 @@ def test_csv_receipt_preserves_only_unambiguous_source_label(
         item.ref for item in receipt.records if item.ref.get("kind") == "import_source"
     )
     assert summary.get("label") == ("Original source 0" if source_count == 1 else None)
-    spec = json.loads(project.db.execute("SELECT spec FROM ops").fetchone()[0])
+    spec = json.loads(project.db.execute("SELECT spec FROM changes").fetchone()[0])
     assert [source["label"] for source in spec["params"]["sources"]] == [
         source["label"] for source in sources
     ]

@@ -64,7 +64,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.authoring.plugin_registry import default_registry
 
     del seeded
-    assert result.op_ids == [1]
+    assert result.change_ids == [1]
     importer_names = {item.name for item in default_registry().importer_specs()}
     assert "kml" in importer_names
 
@@ -99,7 +99,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert len(geometries[0]["coordinates"]) == 2
 
     # The typed operation preserves the authored request and import identity.
-    op = project.db.execute("SELECT * FROM ops WHERE id=1").fetchone()
+    op = project.db.execute("SELECT * FROM changes WHERE id=1").fetchone()
     assert op["kind"] == "import.kml"
     op_spec = json.loads(op["spec"])
     assert op_spec["action_id"] == "import.kml"
@@ -148,7 +148,13 @@ CASES = [
         ),
         seed=_seed,
         make_action=_make_action,
-        expect_counts={"sheets": 1, "columns": 3, "rows": 3, "ops": 1, "receipts": 1},
+        expect_counts={
+            "sheets": 1,
+            "columns": 3,
+            "rows": 3,
+            "changes": 1,
+            "receipts": 1,
+        },
         check_state=_check_state,
         request_style="typed",
     )

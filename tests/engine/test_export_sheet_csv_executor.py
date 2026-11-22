@@ -17,7 +17,7 @@ _COUNT_TABLES = (
     "rows",
     "runs",
     "results",
-    "ops",
+    "changes",
     "edits",
     "receipts",
 )
@@ -202,7 +202,7 @@ def _conflicting_destination_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == []
+    assert result.change_ids == []
     output_path: Path = seeded["out"]
     export_output = next(output for output in result.outputs if output.kind == "export")
     assert export_output.name == "sheet_csv"

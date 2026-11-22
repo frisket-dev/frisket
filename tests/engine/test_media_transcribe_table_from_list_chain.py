@@ -159,7 +159,15 @@ def _receipt(project: Project, receipt_id: str) -> Receipt:
 def _counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "runs", "results", "ops", "receipts")
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "runs",
+            "results",
+            "changes",
+            "receipts",
+        )
     }
 
 

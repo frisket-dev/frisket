@@ -250,13 +250,13 @@ try:
         {"Name": name_col, "Source": source_col},
     )
 
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.extract",
         {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"generated_column": "Summary"}},
         label="extract Summary",
     )
     run_id = run_store.start_run(
-        op_id, sheet_id, "map.extract", model="provider/model",
+        change_id, sheet_id, "map.extract", model="provider/model",
         params={"generated_column": "Summary"}, total_rows=len(row_ids), row_ids=row_ids,
     )
     summary_values = ["Revenue grew.", "Headcount doubled.", "Expanded markets."]
@@ -266,7 +266,7 @@ try:
     ])
     run_store.finish_run(run_id)
     with write_transaction(project.db):
-        run_store.point_column_at_run(op_id, summary_col, run_id)
+        run_store.point_column_at_run(change_id, summary_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, summary_col, row_ids=row_ids)
     with write_transaction(project.db):
         artifact = record_source_artifact(
@@ -278,7 +278,7 @@ try:
             )
             record_citation(
                 project, subject_kind="cell_value", subject_ref=refs[rid],
-                sheet_id=sheet_id, row_id=rid, column_id=summary_col, run_id=run_id, op_id=op_id,
+                sheet_id=sheet_id, row_id=rid, column_id=summary_col, run_id=run_id, change_id=change_id,
                 link_role="primary_support", confidence=0.9, spans=[{"span_id": span["id"], "rank": 0}],
             )
 

@@ -20,7 +20,7 @@ class _HasDb(Protocol):
 
 SMALL_WRITE_LIMIT = 512
 HEAD_COLUMNS = (
-    "column_id,row_id,retrieval_revision,origin_kind,origin_op_id,origin_run_id,"
+    "column_id,row_id,retrieval_revision,origin_kind,origin_change_id,origin_run_id,"
     "base_producer_id,validity,inline_value_kind,inline_value,outcome"
 )
 

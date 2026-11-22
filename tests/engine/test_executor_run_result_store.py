@@ -33,18 +33,18 @@ def _seed_project(
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_change("map", {"recipe": "score"}, label="score rows")
-    return project, sheet_id, columns, row_ids, op_id
+    change_id = project.append_change("map", {"recipe": "score"}, label="score rows")
+    return project, sheet_id, columns, row_ids, change_id
 
 
 def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
     make_project,
 ) -> None:
-    project, sheet_id, columns, row_ids, op_id = _seed_project(make_project)
+    project, sheet_id, columns, row_ids, change_id = _seed_project(make_project)
     store = RunResultStore(project)
 
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "test.score",
         params={"threshold": 7},
@@ -145,17 +145,17 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
     assert store.get_run(run_id)["status"] == "running"
     store.finish_run(run_id, fence=authority.fence())
     with write_transaction(store.db):
-        store.point_column_at_run(op_id, columns["score"], run_id)
+        store.point_column_at_run(change_id, columns["score"], run_id)
     assert project.get_column(columns["score"])["current_run_id"] == run_id
     project.undo()
     assert project.get_column(columns["score"])["current_run_id"] is None
 
 
 def test_pre_dispatch_undo_cannot_be_finished_as_completed(make_project) -> None:
-    project, sheet_id, _columns, row_ids, op_id = _seed_project(make_project)
+    project, sheet_id, _columns, row_ids, change_id = _seed_project(make_project)
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "test.score",
         params={},
@@ -163,9 +163,9 @@ def test_pre_dispatch_undo_cannot_be_finished_as_completed(make_project) -> None
         row_ids=row_ids,
     )
     project.db.execute("BEGIN IMMEDIATE")
-    ChangeStore(project).start(op_id, writing=True)
+    ChangeStore(project).start(change_id, writing=True)
     project.db.commit()
-    assert project.undo() == op_id
+    assert project.undo() == change_id
     # Cancellation targets this ordered execution, leaving the earlier
     # source-row import visible rather than falling through to undo it.
     assert project.visible_row_ids(sheet_id) == row_ids

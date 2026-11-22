@@ -35,7 +35,7 @@ from frisket.engine.store.staleness import sheet_is_stale
 from tests.engine.test_derive_link_table_executor import (
     _derive_link_action,
     _seed,
-    operation_action,
+    change_action,
 )
 
 
@@ -63,7 +63,7 @@ def _counts(project):
             "columns",
             "rows",
             "cells",
-            "ops",
+            "changes",
             "receipts",
             "materialized_row_sources",
         )
@@ -159,8 +159,8 @@ def test_empty_or_unmatched_links_retain_both_sheet_dependencies(
     rows = next(o.row_ids for o in result.outputs if o.kind == "rows")
     assert len(rows) == (3 if include_unmatched else 0)
     assert not project.db.execute(
-        "SELECT 1 FROM materialized_row_sources WHERE op_id=? AND role='edge_target'",
-        (result.op_ids[0],),
+        "SELECT 1 FROM materialized_row_sources WHERE change_id=? AND role='edge_target'",
+        (result.change_ids[0],),
     ).fetchone()
     for parent in (seed["source_sheet_id"], seed["target_sheet_id"]):
         assert child in {item["id"] for item in dependent_sheets(project, parent)}
@@ -241,7 +241,7 @@ def test_replay_revalidates_actual_matches_without_provider(semantic_project, mu
             ]
         )
         project.db.execute(
-            "UPDATE ops SET status='undone' WHERE id=?", (receipt.op_ids[0],)
+            "UPDATE changes SET status='undone' WHERE id=?", (receipt.change_ids[0],)
         )
         project.db.commit()
     before = _counts(project)
@@ -431,8 +431,8 @@ def test_materialized_link_undo_redo_and_preview_do_not_repeat_provider(
     assert result.status == "completed", result.errors
     undone = _run(
         project,
-        operation_action(
-            "operation.undo", key="undo-links", expected_op_id=result.op_ids[0]
+        change_action(
+            "change.undo", key="undo-links", expected_change_id=result.change_ids[0]
         ),
     )
     assert undone.status == "completed", undone.errors
@@ -441,8 +441,8 @@ def test_materialized_link_undo_redo_and_preview_do_not_repeat_provider(
     assert replay.errors[0].code == "stale_replay"
     redone = _run(
         project,
-        operation_action(
-            "operation.redo", key="redo-links", expected_op_id=result.op_ids[0]
+        change_action(
+            "change.redo", key="redo-links", expected_change_id=result.change_ids[0]
         ),
     )
     assert redone.status == "completed", redone.errors

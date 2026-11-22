@@ -178,8 +178,8 @@ function LineageNodeChip({
       {node.kind === 'generated_column' && node.model && (
         <div className="lineage-node-sub">{node.model}</div>
       )}
-      {node.kind === 'sheet' && node.op_kind && (
-        <div className="lineage-node-sub">{node.op_label || node.op_kind}</div>
+      {node.kind === 'sheet' && node.change_kind && (
+        <div className="lineage-node-sub">{node.change_label || node.change_kind}</div>
       )}
       {inbound.map((edge) => (
         <div

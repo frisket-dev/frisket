@@ -28,7 +28,7 @@ def _stage_document_and_page(
     project: Project,
 ) -> tuple[object, object]:
     project.db.execute("BEGIN IMMEDIATE")
-    producing_op_id = project.append_change_in_transaction(
+    producing_change_id = project.append_change_in_transaction(
         "prepare.test", {}, label="prepare test PDF"
     )
     artifact = record_source_artifact(
@@ -40,7 +40,7 @@ def _stage_document_and_page(
     store = PreparedContentStore(project)
     document_ref = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=producing_op_id,
+        producing_change_id=producing_change_id,
         pages=(
             PreparedPageDraft(
                 page_number=1,
@@ -113,7 +113,7 @@ def test_historical_result_readers_resolve_prepared_content(make_project) -> Non
     run_op_id = project.append_change_in_transaction("map.test", {}, label="map test")
     run_id = int(
         project.db.execute(
-            "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
+            "INSERT INTO runs (change_id,sheet_id,action_kind) VALUES (?,?,?)",
             (run_op_id, sheet_id, "map.test"),
         ).lastrowid
     )
@@ -191,7 +191,7 @@ def test_ask_source_reads_pin_exact_ref_and_reject_same_text_ref_change(
     )
     replacement_ref = PreparedContentStore(project).stage_replacement(
         base_ref_id=document_ref.ref_id,
-        producing_op_id=replacement_op_id,
+        producing_change_id=replacement_op_id,
         replacements=(PreparedPageDraft(page_number=1, text="alpha boundary-left"),),
     )
     project.db.execute(
@@ -275,7 +275,7 @@ def test_page_edit_stages_replacement_but_document_edit_stays_flat(
     assert edited.ref_id != page_ref.ref_id
     assert (
         project.db.execute(
-            "SELECT producing_op_id FROM prepared_content_sets WHERE id=?",
+            "SELECT producing_change_id FROM prepared_content_sets WHERE id=?",
             (edited.set_id,),
         ).fetchone()[0]
         == page_edit_op
@@ -283,7 +283,7 @@ def test_page_edit_stages_replacement_but_document_edit_stays_flat(
     assert tuple(
         project.db.execute(
             "SELECT value_kind,value FROM edits "
-            "WHERE op_id=? AND row_id=? AND column_id=?",
+            "WHERE change_id=? AND row_id=? AND column_id=?",
             (page_edit_op, page_row, body_id),
         ).fetchone()
     ) == ("prepared_content_ref", edited_ref_id)
@@ -329,7 +329,7 @@ def test_page_edit_stages_replacement_but_document_edit_stays_flat(
     assert document_values[document_row] == "flat derived markdown"
     assert "prepared_ref_id" not in document_refs[document_row]
     stored = project.db.execute(
-        "SELECT value_kind,value FROM edits WHERE op_id=? AND row_id=? AND column_id=?",
+        "SELECT value_kind,value FROM edits WHERE change_id=? AND row_id=? AND column_id=?",
         (document_edit_op, document_row, body_id),
     ).fetchone()
     assert tuple(stored) == ("text", "flat derived markdown")
@@ -362,7 +362,7 @@ def test_page_edit_after_source_deletion_falls_back_to_flat_text(
     project.db.execute("DELETE FROM source_artifacts WHERE id=?", (source_artifact_id,))
     project.db.commit()
 
-    op_id = project.apply_edits(
+    change_id = project.apply_edits(
         [
             {
                 "row_id": page_row,
@@ -376,7 +376,7 @@ def test_page_edit_after_source_deletion_falls_back_to_flat_text(
         page_row: "surviving flat correction"
     }
     stored = project.db.execute(
-        "SELECT value_kind,value FROM edits WHERE op_id=? AND row_id=? AND column_id=?",
-        (op_id, page_row, body_id),
+        "SELECT value_kind,value FROM edits WHERE change_id=? AND row_id=? AND column_id=?",
+        (change_id, page_row, body_id),
     ).fetchone()
     assert tuple(stored) == ("text", "surviving flat correction")

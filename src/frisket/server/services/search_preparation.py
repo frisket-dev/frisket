@@ -540,7 +540,7 @@ class SearchPreparationService:
             parent_current = False
             if session is not None:
                 try:
-                    ImportExecutionOwner(session.id, session.op_id).require_current(
+                    ImportExecutionOwner(session.id, session.change_id).require_current(
                         project.db
                     )
                 except ImportSessionConflict:
@@ -697,7 +697,7 @@ class SearchPreparationService:
                 receipt_id=receipt_id,
                 sheet_id=sheet_id,
                 sources=sources,
-                source_cutoff=int(project.op_cursor),
+                source_cutoff=int(project.change_cursor),
             )
         return self._complete_automatic_plan(pending)
 

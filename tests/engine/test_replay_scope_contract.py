@@ -54,11 +54,11 @@ class _Fixture:
         at it. Passing a strict subset of `self.row_ids` models a partial run:
         the sheet has more rows than this run produced results for."""
         store = RunResultStore(self.project)
-        op_id = self.project.append_change(
+        change_id = self.project.append_change(
             "run", {"kind": "map"}, label="generate labels"
         )
         run_id = store.start_run(
-            op_id,
+            change_id,
             self.sheet,
             "map.classify",
             model="anthropic/claude-haiku-4-5",
@@ -71,7 +71,7 @@ class _Fixture:
                 output_names=["label"],
                 action_kind="map.classify",
                 run_id=run_id,
-                op_id=op_id,
+                change_id=change_id,
                 claim_token=claim_token,
                 lease_seconds=6 * 60 * 60,
             )
@@ -158,7 +158,7 @@ class _Fixture:
             action_id="act-1",
             action_kind="map.classify",
             run_id=run_id,
-            op_ids=[],
+            change_ids=[],
             status="completed",
             outputs=[ReceiptIO(name="label", kind=_OUTPUT_KIND, ref=ref)],
         )

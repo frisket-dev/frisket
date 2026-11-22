@@ -205,7 +205,7 @@ class FollowTheMoneyImportCapability:
             result = ImportedEntityDataset(
                 dataset_name=dataset_name,
                 sheets=tuple(sheets),
-                op_id=applied.op_id,
+                change_id=applied.change_id,
                 diagnostics=tuple(plan["diagnostics"]),
             )
             invocation.context.check_cancelled()
@@ -213,7 +213,7 @@ class FollowTheMoneyImportCapability:
                 invocation.RecordUpdate(
                     inputs=tuple(inputs),
                     outputs=tuple(outputs),
-                    action_ids=(applied.op_id,),
+                    action_ids=(applied.change_id,),
                     records=(
                         ReceiptRecord(
                             ref={
@@ -398,7 +398,8 @@ def entity_effect_replay_error(project, receipt):
             continue
         dataset = supporting_record.ref["dataset"]
         if project.db.execute(
-            "SELECT 1 FROM ops WHERE id=? AND status='applied'", (dataset["op_id"],)
+            "SELECT 1 FROM changes WHERE id=? AND status='applied'",
+            (dataset["change_id"],),
         ).fetchone() is None or any(
             project.db.execute(
                 "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (sheet["sheet_id"],)

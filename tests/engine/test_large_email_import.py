@@ -131,7 +131,15 @@ def _deps(stream) -> ExecutorDeps:
 def _visible_counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "cells", "blobs", "ops", "receipts")
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "cells",
+            "blobs",
+            "changes",
+            "receipts",
+        )
     }
 
 
@@ -141,7 +149,7 @@ def _assert_hidden_stage(project: Project, *, rows: int) -> None:
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
     assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == rows
     assert project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == rows * 9
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
 
@@ -272,7 +280,7 @@ def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
     with project.blob_store.materialize(blob["hash"]) as stored:
         assert stored.read_bytes() == attachment_bytes
 
-    op = project.db.execute("SELECT undo_info FROM ops").fetchone()
+    op = project.db.execute("SELECT undo_info FROM changes").fetchone()
     receipt = project.db.execute("SELECT body FROM receipts").fetchone()
     assert op is not None and receipt is not None
     assert len(op["undo_info"]) < 8_192
@@ -327,7 +335,7 @@ def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(
         )
         assert all(not item.stream.closed for item in inputs.values())
 
-        op_raw = project.db.execute("SELECT spec FROM ops").fetchone()[0]
+        op_raw = project.db.execute("SELECT spec FROM changes").fetchone()[0]
         receipt_raw = project.db.execute("SELECT body FROM receipts").fetchone()[0]
         op, receipt = json.loads(op_raw), json.loads(receipt_raw)
         assert "sources" not in op["params"]
@@ -359,7 +367,7 @@ def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(
         replay = run_action_spec(project, action, project_id="many-email")
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
+        assert replay.change_ids == first.change_ids
         changed = {
             **action,
             "params": {"sources": [dict(source) for source in sources]},
@@ -387,7 +395,15 @@ def test_email_import_failure_after_staged_batches_publishes_nothing(
     reached_late_failure = False
     empty = {
         table: 0
-        for table in ("sheets", "columns", "rows", "cells", "blobs", "ops", "receipts")
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "cells",
+            "blobs",
+            "changes",
+            "receipts",
+        )
     }
 
     checkpoints = []

@@ -7,7 +7,7 @@ from frisket.engine.store.review_values import read_review_results
 from frisket.engine.store.current_value_windows import read_current_column
 
 
-def copied_review_fields(project, op_id):
+def copied_review_fields(project, change_id):
     return [
         dict(row)
         for row in project.db.execute(
@@ -19,31 +19,31 @@ def copied_review_fields(project, op_id):
           COALESCE(SUM(copy.review_decision IN ('reject','reject_clear')),0) incorrect_count,
           SUM(copy.review_state='unreviewed' AND copy.review_decision IS NULL) unreviewed_count,
           SUM(copy.confidence IS NOT NULL) confidence_count
-        FROM copied_result_values copy JOIN ops op ON op.id=copy.op_id JOIN columns col ON col.id=copy.column_id
+        FROM copied_result_values copy JOIN changes op ON op.id=copy.change_id JOIN columns col ON col.id=copy.column_id
         JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id
-        WHERE copy.op_id=? AND copy.outcome='completed' AND json_extract(binding.value,'$.review_role')='field'
+        WHERE copy.change_id=? AND copy.outcome='completed' AND json_extract(binding.value,'$.review_role')='field'
         GROUP BY copy.column_id ORDER BY col.position,copy.column_id
     """,
-            (op_id,),
+            (change_id,),
         )
     ]
 
 
-def copied_review_source(project, op_id):
+def copied_review_source(project, change_id):
     row = project.db.execute(
         """
-      SELECT op.id copied_op_id,NULL run_id,col.sheet_id,sheet.name sheet_name,
+      SELECT op.id copied_change_id,NULL run_id,col.sheet_id,sheet.name sheet_name,
         'run.reapply' action_kind,'Saved results' action_name,NULL model,
         op.created_at started_at,NULL review_completed_at,'open' review_status
-      FROM ops op JOIN copied_result_outcomes copy ON copy.op_id=op.id
+      FROM changes op JOIN copied_result_outcomes copy ON copy.change_id=op.id
       JOIN columns col ON col.id=copy.column_id JOIN sheets sheet ON sheet.id=col.sheet_id
       WHERE op.id=? AND op.status='applied' GROUP BY op.id,col.sheet_id
     """,
-        (op_id,),
+        (change_id,),
     ).fetchone()
     if row is None:
         return None
-    fields = copied_review_fields(project, op_id)
+    fields = copied_review_fields(project, change_id)
     return {
         **dict(row),
         "fields": fields,
@@ -56,7 +56,7 @@ def copied_review_source(project, op_id):
 
 def copied_review_page(
     project,
-    op_id,
+    change_id,
     *,
     offset=0,
     limit=25,
@@ -70,7 +70,7 @@ def copied_review_page(
     if order not in {"confidence", "row", "sample"}:
         raise ValueError("invalid review order")
     where = [
-        "copy.op_id=?",
+        "copy.change_id=?",
         "copy.outcome='completed'",
         "json_extract(binding.value,'$.review_role')='field'",
         "op.status='applied'",
@@ -78,13 +78,13 @@ def copied_review_page(
         "col.active=1",
         "sheet.hidden=0",
     ]
-    params = [op_id]
+    params = [change_id]
     if not include_reviewed:
         where.extend(["copy.review_state='unreviewed'", "copy.review_decision IS NULL"])
     if field_id is not None:
         where.append("copy.column_id=?")
         params.append(field_id)
-    joins = """FROM copied_result_values copy JOIN ops op ON op.id=copy.op_id
+    joins = """FROM copied_result_values copy JOIN changes op ON op.id=copy.change_id
       JOIN rows target ON target.id=copy.row_id JOIN columns col ON col.id=copy.column_id
       JOIN sheets sheet ON sheet.id=col.sheet_id
       JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id"""
@@ -139,13 +139,13 @@ def copied_review_page(
           copy.source_column_id,copy.review_state,copy.review_decision,copy.review_note,copy.error,copy.outcome,copy.confidence,
           col.name column_name,col.type column_type,col.format,col.semantic_type,col.sheet_id,sheet.name sheet_name,
           source_col.sheet_id source_sheet_id,binding.key output_key,json_extract(binding.value,'$.review_role') review_role
-          FROM copied_result_values copy JOIN ops op ON op.id=copy.op_id JOIN columns col ON col.id=copy.column_id
+          FROM copied_result_values copy JOIN changes op ON op.id=copy.change_id JOIN columns col ON col.id=copy.column_id
           JOIN sheets sheet ON sheet.id=col.sheet_id LEFT JOIN columns source_col ON source_col.id=copy.source_column_id
           JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id
-          WHERE copy.op_id=? AND copy.row_id IN ("""
+          WHERE copy.change_id=? AND copy.row_id IN ("""
             + ",".join("?" for _ in keys)
             + ") ORDER BY col.position,col.id",
-            (op_id, *keys),
+            (change_id, *keys),
         ).fetchall()
     coordinates = [
         (r["source_run_id"], r["source_row_id"], r["source_column_id"])
@@ -184,7 +184,7 @@ def copied_review_page(
             applied = bool(
                 current
                 and current.value_ref.get("kind") == "copied_result"
-                and current.value_ref.get("op_id") == op_id
+                and current.value_ref.get("change_id") == change_id
             )
             primary = r["review_role"] == "field" and r["outcome"] == "completed"
             bounded = (
@@ -195,7 +195,7 @@ def copied_review_page(
             items.append(
                 {
                     "run_id": None,
-                    "copied_op_id": op_id,
+                    "copied_change_id": change_id,
                     "row_id": row_id,
                     "column_id": r["column_id"],
                     "output_key": r["output_key"],
@@ -233,9 +233,9 @@ def copied_review_page(
         )
         bundles.append(
             {
-                "id": f"copy:{op_id}:{row_id}",
+                "id": f"copy:{change_id}:{row_id}",
                 "run_id": None,
-                "copied_op_id": op_id,
+                "copied_change_id": change_id,
                 "row_id": row_id,
                 "sheet_id": first["sheet_id"],
                 "sheet_name": first["sheet_name"],

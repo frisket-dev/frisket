@@ -46,14 +46,14 @@ def add_view(
         raise ValueError("view sheet_id does not match selection scope")
     sheet_id = derived_sheet
     with write_transaction(project.db, what="view add"):
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "view",
             {"name": name, "sheet_id": sheet_id, "spec": spec},
             label=f"view {name}",
         )
         cur = project.db.execute(
-            "INSERT INTO views (sheet_id, name, spec, op_id) VALUES (?,?,?,?)",
-            (sheet_id, name, json.dumps(spec), op_id),
+            "INSERT INTO views (sheet_id, name, spec, change_id) VALUES (?,?,?,?)",
+            (sheet_id, name, json.dumps(spec), change_id),
         )
     return inserted_rowid(cur)
 
@@ -72,7 +72,10 @@ def update_view(
         sets.append("name=?")
         vals.append(name)
     if spec is not None:
-        from frisket.engine.views.specs import normalize_view_spec
+        from frisket.engine.views.specs import (
+            normalize_view_spec,
+            validate_alert_selection,
+        )
 
         spec = normalize_view_spec(project, spec)
         sets.extend(["spec=?", "sheet_id=?"])
@@ -80,13 +83,20 @@ def update_view(
     if not sets:
         return
     with write_transaction(project.db, what="view update"):
-        op_id = project.append_change_in_transaction(
+        if (
+            spec is not None
+            and project.db.execute(
+                "SELECT 1 FROM alerts WHERE view_id=? LIMIT 1", (view_id,)
+            ).fetchone()
+        ):
+            validate_alert_selection(spec["selection"])
+        change_id = project.append_change_in_transaction(
             "view",
             {"view_id": view_id, "name": name, "spec": spec},
             label=f"update view {name or view_id}",
         )
-        sets.append("op_id=?")
-        vals.append(op_id)
+        sets.append("change_id=?")
+        vals.append(change_id)
         sets.append("updated_at=datetime('now')")
         vals.append(view_id)
         project.db.execute(f"UPDATE views SET {', '.join(sets)} WHERE id=?", vals)

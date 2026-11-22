@@ -8,8 +8,8 @@ def seed_empty_alert_baseline(project, alert_id):
     return project.record_alert_check(
         alert_id,
         hits=[],
-        op_cursor_before=project.op_cursor,
-        op_cursor_after=project.op_cursor,
+        change_cursor_before=project.change_cursor,
+        change_cursor_after=project.change_cursor,
         resolved_query_hash=resolution["resolved_query_hash"],
         resolved_query=resolution["resolved_query"],
     )

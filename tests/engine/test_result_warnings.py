@@ -39,10 +39,10 @@ def warning_run(make_project, request):
     row_ids = project.add_rows(
         sheet_id, [{"source": "scan"}, {"source": "blank"}], {"source": source_id}
     )
-    op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
+    change_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id, sheet_id, "map.regex_extract", row_ids=row_ids, total_rows=2
+        change_id, sheet_id, "map.regex_extract", row_ids=row_ids, total_rows=2
     )
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output_id}
@@ -85,7 +85,7 @@ def warning_run(make_project, request):
             )
         store.finish_run(run_id, fence=authority.fence())
         with write_transaction(store.db):
-            store.point_column_at_run(op_id, output_id, run_id)
+            store.point_column_at_run(change_id, output_id, run_id)
     yield project, sheet_id, source_id, output_id, row_ids, run_id
 
 
@@ -323,9 +323,9 @@ def test_warning_storage_is_bounded_and_redacts_secrets(make_project):
     sheet_id = project.add_sheet("Rows")
     column_id = project.add_column(sheet_id, "value")
     row_id = project.add_rows(sheet_id, [{"value": "x"}], {"value": column_id})[0]
-    op_id = project.append_change("map.regex_extract", {})
+    change_id = project.append_change("map.regex_extract", {})
     store = RunResultStore(project)
-    run_id = store.start_run(op_id, sheet_id, "map.regex_extract", row_ids=[row_id])
+    run_id = store.start_run(change_id, sheet_id, "map.regex_extract", row_ids=[row_id])
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={column_id}
     )

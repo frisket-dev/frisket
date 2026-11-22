@@ -28,11 +28,11 @@ def _seed_project(
         ],
         {"story": source_col},
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="classify"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         model="anthropic/test",
@@ -82,8 +82,8 @@ def _seed_project(
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
-    edit_op_id = project.apply_edits(
+        RunResultStore(project).point_column_at_run(change_id, output_col, run_id)
+    edit_change_id = project.apply_edits(
         [
             {
                 "row_id": row_ids[0],
@@ -100,13 +100,13 @@ def _seed_project(
         {"story": source_col, "topic": output_col},
         row_ids,
         run_id,
-        edit_op_id,
+        edit_change_id,
     )
 
 
 def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None:
-    client, project_id, sheet_id, columns, row_ids, run_id, edit_op_id = _seed_project(
-        client
+    client, project_id, sheet_id, columns, row_ids, run_id, edit_change_id = (
+        _seed_project(client)
     )
 
     response = client.get(
@@ -134,7 +134,7 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
     assert manual_ref == {
         "kind": "manual_edit",
         "outcome": "completed",
-        "op_id": edit_op_id,
+        "change_id": edit_change_id,
         "row_id": row_ids[0],
         "column_id": columns["topic"],
         "run_id": None,
@@ -143,14 +143,14 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
     generated_ref = rows[row_ids[1]]["meta"][topic_col]["current_value_ref"]
     generated_op_id = int(
         client.app.state.workspace.get(project_id)
-        .db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,))
-        .fetchone()["op_id"]
+        .db.execute("SELECT change_id FROM runs WHERE id=?", (run_id,))
+        .fetchone()["change_id"]
     )
     assert rows[row_ids[1]]["cells"][topic_col] == "ai-beta"
     assert generated_ref == {
         "kind": "run_result",
         "outcome": "completed",
-        "op_id": generated_op_id,
+        "change_id": generated_op_id,
         "row_id": row_ids[1],
         "column_id": columns["topic"],
         "run_id": run_id,
@@ -166,7 +166,7 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
     assert missing_ref == {
         "kind": "missing",
         "outcome": None,
-        "op_id": None,
+        "change_id": None,
         "row_id": row_ids[2],
         "column_id": columns["topic"],
         "run_id": None,
@@ -180,7 +180,7 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
     assert error_ref == {
         "kind": "run_result",
         "outcome": "failed",
-        "op_id": generated_op_id,
+        "change_id": generated_op_id,
         "row_id": row_ids[3],
         "column_id": columns["topic"],
         "run_id": run_id,
@@ -194,7 +194,7 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
     assert terminal_meta["current_value_ref"] == {
         "kind": "run_result",
         "outcome": "failed",
-        "op_id": generated_op_id,
+        "change_id": generated_op_id,
         "row_id": row_ids[4],
         "column_id": columns["topic"],
         "run_id": run_id,
@@ -213,14 +213,14 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
         "kind": "source_cell",
         "outcome": "completed",
         "producer_id": source_producer,
-        "op_id": None,
+        "change_id": None,
         "row_id": row_ids[0],
         "column_id": columns["story"],
         "run_id": None,
     }
 
     project = client.app.state.workspace.get(project_id)
-    assert project.undo() == edit_op_id
+    assert project.undo() == edit_change_id
     after_undo_response = client.get(
         f"/api/projects/{project_id}/sheets/{sheet_id}/data",
         params={"offset": 0, "limit": 1},
@@ -232,12 +232,12 @@ def test_sheet_data_exposes_typed_current_value_refs(client: TestClient) -> None
     assert after_undo["meta"][topic_col]["current_value_ref"] == {
         "kind": "run_result",
         "outcome": "completed",
-        "op_id": generated_op_id,
+        "change_id": generated_op_id,
         "row_id": row_ids[0],
         "column_id": columns["topic"],
         "run_id": run_id,
     }
-    assert project.redo() == edit_op_id
+    assert project.redo() == edit_change_id
     after_redo_response = client.get(
         f"/api/projects/{project_id}/sheets/{sheet_id}/data",
         params={"offset": 0, "limit": 1},

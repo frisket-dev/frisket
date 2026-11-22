@@ -387,7 +387,7 @@ def test_rename_proofing_generated_column_identified_by_run_not_name(
 def test_rename_proofing_renamed_media_source_resolves_safely_to_missing(
     make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Resolving ``ops.spec.input_columns[0]`` (a column NAME) against the
+    """Resolving ``changes.spec.input_columns[0]`` (a column NAME) against the
     CURRENT column list is the same live lookup the executor itself performs
     (SS1.2) — renaming the media column after its transcribe run means the
     stored name no longer matches any current column, the same class of

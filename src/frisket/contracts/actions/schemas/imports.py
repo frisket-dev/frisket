@@ -123,6 +123,6 @@ class ImportRowsOutput(ContractModel):
     sheet_id: int
     row_count: int
     column_ids: dict[str, int]
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
     receipt_id: str | None = None

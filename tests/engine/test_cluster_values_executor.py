@@ -196,7 +196,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 
     sheet_id = seeded["sheet_id"]
     row_ids = seeded["row_ids"]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert {output.kind for output in result.outputs} == {"column"}
     assert result.outputs[0].ref["kind"] == "map_result_column"
     column_output = result.outputs[0]
@@ -223,7 +223,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "cluster.values"
-    assert receipt.op_ids == list(result.op_ids)
+    assert receipt.change_ids == list(result.change_ids)
     refs = [
         item.ref
         for section in (receipt.inputs, receipt.outputs, receipt.records)
@@ -320,7 +320,7 @@ CASES = [
             "sheets": 0,
             "columns": 1,
             "rows": 0,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

@@ -232,7 +232,7 @@ def test_declared_named_output_ref_cannot_claim_another_schema(project):
         sheet_id=1,
         column_id=2,
         run_id=3,
-        op_id=4,
+        change_id=4,
         route="renamed",
         schema_name="items",
         schema_json=dict(field.schema),
@@ -245,7 +245,7 @@ def test_declared_named_output_ref_cannot_claim_another_schema(project):
         sheet_id=1,
         column_id=2,
         run_id=3,
-        op_id=4,
+        change_id=4,
         route="renamed",
         schema_name="items",
     )

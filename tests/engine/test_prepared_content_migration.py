@@ -236,7 +236,7 @@ def test_exact_prior_schema_preserves_values_and_starts_fresh_undo_history(
     assert project.undo() is None
     assert project.redo() is None
     assert all(
-        row[0] is None for row in project.db.execute("SELECT change_order FROM ops")
+        row[0] is None for row in project.db.execute("SELECT change_order FROM changes")
     )
     # Archived results remain; only changes made after upgrade are navigable.
     edit_op_id = project.apply_edits(

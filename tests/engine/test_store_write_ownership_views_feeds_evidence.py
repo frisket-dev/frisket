@@ -99,26 +99,26 @@ def _add_view(project, name: str = "Probe view") -> int:
 
 
 def test_view_whose_row_insert_fails_leaves_no_change(project):
-    before = _committed_count(project, "ops")
+    before = _committed_count(project, "changes")
     _refuse(project, "INSERT", "views")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         _add_view(project)
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "ops") == before
+    assert _committed_count(project, "changes") == before
 
 
 def test_view_whose_row_update_fails_leaves_no_change(project):
     view_id = _add_view(project)
-    before = _committed_count(project, "ops")
+    before = _committed_count(project, "changes")
     _refuse(project, "UPDATE", "views")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         project.update_view(view_id, name="Renamed")
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "ops") == before
+    assert _committed_count(project, "changes") == before
 
 
 def test_view_whose_row_delete_fails_keeps_its_alert(project):

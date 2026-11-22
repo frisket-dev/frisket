@@ -177,7 +177,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert prov["source_policy_hash"] and prov["dimension"] == 384
     spec = json.loads(
         project.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (out["op_id"],)
+            "SELECT spec FROM changes WHERE id=?", (out["change_id"],)
         ).fetchone()["spec"]
     )
     assert spec["params"] == {
@@ -258,7 +258,13 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"sheets": 1, "columns": 3, "rows": 3, "ops": 1, "receipts": 1},
+        expect_counts={
+            "sheets": 1,
+            "columns": 3,
+            "rows": 3,
+            "changes": 1,
+            "receipts": 1,
+        },
         check_state=_check_state,
         request_style="typed",
     )

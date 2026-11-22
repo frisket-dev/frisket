@@ -438,7 +438,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         assert "secret-author-detail-after-polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in run["error"]
         assert _table_count(project, "keyed_observations") == 0
-        assert _table_count(project, "ops") == 0
+        assert _table_count(project, "changes") == 0
         artifacts = next(
             item["ref"]
             for item in receipt["records"]
@@ -526,7 +526,7 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
             "sheets",
             "columns",
             "rows",
-            "ops",
+            "changes",
             "receipts",
         ):
             assert _table_count(project, table) == 0

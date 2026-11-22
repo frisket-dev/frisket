@@ -40,7 +40,7 @@ function rect(top: number, bottom: number): DOMRect {
 }
 
 const origin: ActionComparisonCell['origin'] = {
-  kind: 'run_result', run_id: 5, op_id: 7, review_decision: null,
+  kind: 'run_result', run_id: 5, change_id: 7, review_decision: null,
 };
 
 const cell = (value: string | null, patch: Partial<ActionComparisonCell> = {}): ActionComparisonCell => ({
@@ -73,7 +73,7 @@ function fixture(): ActionComparisonContext {
       { logical_key: 'note', current_name: 'note', column_id: 31 },
     ],
     baseline_rows: {
-      10: { party: cell('Acme', { origin: { kind: 'manual_edit', run_id: 5, op_id: 9, review_decision: 'edit' } }), note: cell('hidden') },
+      10: { party: cell('Acme', { origin: { kind: 'manual_edit', run_id: 5, change_id: 9, review_decision: 'edit' } }), note: cell('hidden') },
       11: { party: cell(null), note: cell('hidden') },
     },
     origin_summary: { mixed_runs: true, includes_manual_edits: true, includes_reject_clear: false },

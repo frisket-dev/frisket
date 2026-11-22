@@ -28,10 +28,10 @@ def _seed_precomputed_run(
         [{"source": "one"}, {"source": "two"}],
         {"source": source_column_id},
     )
-    op_id = project.append_change("map", {"recipe": "find"})
+    change_id = project.append_change("map", {"recipe": "find"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.find",
         row_ids=row_ids,
@@ -57,7 +57,7 @@ def _seed_precomputed_run(
             action_kind="map.find",
             receipt_id=receipt_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             claim_token=claim_token,
         )
     assert conflict is None

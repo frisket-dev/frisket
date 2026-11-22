@@ -458,7 +458,7 @@ def run_typed_backfill_action(
                 }
             )
             result.provider_use = producer.provider_use
-            result.op_ids = producer.op_ids
+            result.change_ids = producer.change_ids
             if producer.status == "failed" and result.status != "cancelled":
                 result.status = "failed"
                 result.errors = producer.errors

@@ -61,7 +61,7 @@ function v1ActionResultPayload(
     run_id: fixture.runId,
     ...(fixture.jobId !== undefined ? { job_id: fixture.jobId } : {}),
     receipt_id: fixture.receiptId ?? `receipt-${fixture.runId ?? 'direct'}`,
-    op_ids: [],
+    change_ids: [],
     outputs: fixture.outputs ?? [],
     warnings: fixture.warnings ?? [],
     errors: fixture.errors ?? [],

@@ -78,8 +78,8 @@ def _claimless_attempt(project, attempt_id: str, *, state: str) -> int:
         sheet_id = project.add_sheet("recovery")
     else:
         sheet_id = int(sheet[0])
-    op_id = project.append_change("map", {"recipe": "recovery"})
-    run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.recovery")
+    change_id = project.append_change("map", {"recipe": "recovery"})
+    run_id = RunResultStore(project).start_run(change_id, sheet_id, "map.recovery")
     project.db.execute(
         "INSERT INTO execution_attempts "
         "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "

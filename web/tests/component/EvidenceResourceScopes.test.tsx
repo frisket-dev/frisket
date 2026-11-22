@@ -32,7 +32,7 @@ function viewerPayload(label: string): CitationViewerPayload {
     schema_version: 'frisket.citation_viewer.v1', artifacts: [], warnings: [],
     link: {
       id: 1, stable_id: label, export_ref: label, subject_kind: 'cell', subject_ref: {},
-      sheet_id: 1, row_id: 3, column_id: 2, run_id: null, op_id: null, receipt_id: null,
+      sheet_id: 1, row_id: 3, column_id: 2, run_id: null, change_id: null, receipt_id: null,
       role: 'support', status: 'active', confidence: null, pinned: false, producer: {},
       stale_reason: null, stale_at: null, created_at: '2026-10-20T00:00:00Z', text_layer_hash_mismatch: false,
     },

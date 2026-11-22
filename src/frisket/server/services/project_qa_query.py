@@ -129,7 +129,7 @@ def _evaluate_query(
         "scope": effective,
         "row_ids": rowset.row_ids,
         "total": rowset.total,
-        "source_op_cursor": project.op_cursor,
+        "source_change_cursor": project.change_cursor,
     }
     if count_by is not None:
         if isinstance(count_by, bool) or not isinstance(count_by, int):

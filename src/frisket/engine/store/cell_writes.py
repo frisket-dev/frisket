@@ -44,12 +44,14 @@ class EditCellWrite:
     value: Any
 
 
-def _require_applied_op(db: sqlite3.Connection, op_id: int) -> None:
-    row = db.execute("SELECT status FROM ops WHERE id=?", (int(op_id),)).fetchone()
+def _require_applied_op(db: sqlite3.Connection, change_id: int) -> None:
+    row = db.execute(
+        "SELECT status FROM changes WHERE id=?", (int(change_id),)
+    ).fetchone()
     if row is None:
-        raise ValueError(f"unknown producing operation {int(op_id)}")
+        raise ValueError(f"unknown producing operation {int(change_id)}")
     if str(row[0]) != "applied":
-        raise ValueError(f"producing operation {int(op_id)} is not applied")
+        raise ValueError(f"producing operation {int(change_id)} is not applied")
 
 
 @overload
@@ -68,8 +70,8 @@ def _require_base_producer(
     db: sqlite3.Connection, producer_id: int, *, allow_pending: bool = False
 ) -> int | None:
     row = db.execute(
-        "SELECT producer.op_id,op.status FROM base_cell_producers producer "
-        "LEFT JOIN ops op ON op.id=producer.op_id WHERE producer.id=?",
+        "SELECT producer.change_id,op.status FROM base_cell_producers producer "
+        "LEFT JOIN changes op ON op.id=producer.change_id WHERE producer.id=?",
         (int(producer_id),),
     ).fetchone()
     if row is None:
@@ -88,7 +90,7 @@ def _require_base_producer(
 
 
 def create_base_cell_producer(
-    db: sqlite3.Connection, *, stage_id: str, op_id: int | None = None
+    db: sqlite3.Connection, *, stage_id: str, change_id: int | None = None
 ) -> int:
     """Create or recover one logical base-write producer.
 
@@ -101,17 +103,17 @@ def create_base_cell_producer(
     require_transaction(db, "cell write")
     if not isinstance(stage_id, str) or not stage_id.strip():
         raise ValueError("base-cell producer stage_id must be non-empty")
-    if op_id is not None:
-        op_id = int(op_id)
-        _require_applied_op(db, op_id)
+    if change_id is not None:
+        change_id = int(change_id)
+        _require_applied_op(db, change_id)
 
     existing = db.execute(
-        "SELECT id,op_id FROM base_cell_producers WHERE stage_id=?", (stage_id,)
+        "SELECT id,change_id FROM base_cell_producers WHERE stage_id=?", (stage_id,)
     ).fetchone()
     if existing is not None:
         producer_id = int(existing[0])
         existing_op_id = None if existing[1] is None else int(existing[1])
-        if op_id is None or existing_op_id == op_id:
+        if change_id is None or existing_op_id == change_id:
             return producer_id
         if existing_op_id is not None:
             raise ValueError(
@@ -119,19 +121,19 @@ def create_base_cell_producer(
                 f"{existing_op_id}"
             )
         db.execute(
-            "UPDATE base_cell_producers SET op_id=? WHERE id=? AND op_id IS NULL",
-            (op_id, producer_id),
+            "UPDATE base_cell_producers SET change_id=? WHERE id=? AND change_id IS NULL",
+            (change_id, producer_id),
         )
         return producer_id
 
     cursor = db.execute(
-        "INSERT INTO base_cell_producers (stage_id,op_id) VALUES (?,?)",
-        (stage_id, op_id),
+        "INSERT INTO base_cell_producers (stage_id,change_id) VALUES (?,?)",
+        (stage_id, change_id),
     )
     return inserted_rowid(cursor)
 
 
-def _replacement_producer(db: sqlite3.Connection, producing_op_id: int) -> int:
+def _replacement_producer(db: sqlite3.Connection, producing_change_id: int) -> int:
     """Each source replacement keeps previously consumed references immutable.
 
     A producer identifies a value version, not just a reusable import session.
@@ -139,27 +141,27 @@ def _replacement_producer(db: sqlite3.Connection, producing_op_id: int) -> int:
     belongs to that same Change but gets a distinct payload identity.
     """
     return create_base_cell_producer(
-        db, stage_id=f"source-version:{uuid4().hex}", op_id=producing_op_id
+        db, stage_id=f"source-version:{uuid4().hex}", change_id=producing_change_id
     )
 
 
 def bind_base_cell_producer(
-    db: sqlite3.Connection, producer_id: int, *, op_id: int
+    db: sqlite3.Connection, producer_id: int, *, change_id: int
 ) -> None:
     """Bind a pending producer once; same-operation replay is idempotent."""
 
     require_transaction(db, "cell write")
     producer_id = int(producer_id)
-    op_id = int(op_id)
-    _require_applied_op(db, op_id)
-    start_change(db, op_id, writing=True)
+    change_id = int(change_id)
+    _require_applied_op(db, change_id)
+    start_change(db, change_id, writing=True)
     row = db.execute(
-        "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+        "SELECT change_id FROM base_cell_producers WHERE id=?", (producer_id,)
     ).fetchone()
     if row is None:
         raise ValueError(f"unknown base-cell producer {producer_id}")
     existing_op_id = None if row[0] is None else int(row[0])
-    if existing_op_id == op_id:
+    if existing_op_id == change_id:
         return
     if existing_op_id is not None:
         raise ValueError(
@@ -167,8 +169,8 @@ def bind_base_cell_producer(
             f"{existing_op_id}"
         )
     db.execute(
-        "UPDATE base_cell_producers SET op_id=? WHERE id=? AND op_id IS NULL",
-        (op_id, producer_id),
+        "UPDATE base_cell_producers SET change_id=? WHERE id=? AND change_id IS NULL",
+        (change_id, producer_id),
     )
     refresh_current_cells(
         db,
@@ -190,7 +192,7 @@ def discard_pending_base_cell_producer(
     require_transaction(db, "cell write")
     producer_id = int(producer_id)
     row = db.execute(
-        "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+        "SELECT change_id FROM base_cell_producers WHERE id=?", (producer_id,)
     ).fetchone()
     if row is None:
         return
@@ -311,13 +313,14 @@ def _require_cell_targets_mutable(
             session = active_import_session(db, sheet_id)
             if session is not None:
                 owner = db.execute(
-                    "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+                    "SELECT change_id FROM base_cell_producers WHERE id=?",
+                    (producer_id,),
                 ).fetchone()
                 if (
                     session.state != "active"
                     or session.writer_authority != import_writer_authority
                     or owner is None
-                    or owner[0] != session.op_id
+                    or owner[0] != session.change_id
                 ):
                     raise ImportInProgress(session)
                 # Immutable replacements have fresh producer IDs; the same
@@ -336,14 +339,14 @@ def initialize_base_cells(
 
     require_transaction(db, "cell write")
     producer_id = int(producer_id)
-    producing_op_id = _require_base_producer(db, producer_id, allow_pending=True)
+    producing_change_id = _require_base_producer(db, producer_id, allow_pending=True)
     encoded = _encode_base_cells(cells)
     if not encoded:
         return 0
     _validate_cell_pairs(
         db,
         [(row_id, column_id) for row_id, column_id, _kind, _value in encoded],
-        require_hidden_sheet=producing_op_id is None,
+        require_hidden_sheet=producing_change_id is None,
     )
     _require_cell_targets_mutable(
         db,
@@ -368,8 +371,8 @@ def initialize_base_cells(
         "VALUES (?,?,?,?,?)",
         [(*cell, producer_id) for cell in encoded],
     )
-    if producing_op_id is not None:
-        start_change(db, producing_op_id, writing=True)
+    if producing_change_id is not None:
+        start_change(db, producing_change_id, writing=True)
         initialize_current_cell_pairs(
             db, {(row_id, column_id) for row_id, column_id, _kind, _value in encoded}
         )
@@ -388,7 +391,7 @@ def remove_base_cells(
     """Remove a deliberate base-cell region and refresh its visible winners."""
 
     require_transaction(db, "cell write")
-    producing_op_id = _require_base_producer(db, int(producer_id))
+    producing_change_id = _require_base_producer(db, int(producer_id))
     columns = sorted({int(column_id) for column_id in column_ids})
     rows = None if row_ids is None else sorted({int(row_id) for row_id in row_ids})
     if not columns or rows == []:
@@ -412,8 +415,8 @@ def remove_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    start_change(db, producing_op_id, writing=True)
-    version_producer_id = _replacement_producer(db, producing_op_id)
+    start_change(db, producing_change_id, writing=True)
+    version_producer_id = _replacement_producer(db, producing_change_id)
     cursor = db.execute(
         "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
         f"SELECT DISTINCT row_id,column_id,'null',NULL,? FROM cells WHERE {where}",
@@ -437,7 +440,7 @@ def replace_base_cells(
 
     require_transaction(db, "cell write")
     producer_id = int(producer_id)
-    producing_op_id = _require_base_producer(db, producer_id)
+    producing_change_id = _require_base_producer(db, producer_id)
     columns = sorted({int(column_id) for column_id in column_ids})
     rows = None if row_ids is None else sorted({int(row_id) for row_id in row_ids})
     if not columns or rows == []:
@@ -477,7 +480,7 @@ def replace_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    start_change(db, producing_op_id, writing=True)
+    start_change(db, producing_change_id, writing=True)
     provided = {(row_id, column_id) for row_id, column_id, _, _ in encoded}
     # Sparse replacement clears omitted existing coordinates, but keeps the
     # old producer-qualified versions available to history and baseline.
@@ -490,7 +493,7 @@ def replace_base_cells(
             if (int(row[0]), int(row[1])) not in provided
         )
     if encoded:
-        version_producer_id = _replacement_producer(db, producing_op_id)
+        version_producer_id = _replacement_producer(db, producing_change_id)
         db.executemany(
             "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
             "VALUES (?,?,?,?,?)",
@@ -507,7 +510,7 @@ def replace_base_cells(
 def insert_edits(
     db: sqlite3.Connection,
     *,
-    op_id: int,
+    change_id: int,
     edits: Iterable[EditCellWrite],
     close_change: bool = True,
 ) -> int:
@@ -519,13 +522,13 @@ def insert_edits(
     """
 
     require_transaction(db, "cell write")
-    op_id = int(op_id)
-    _require_applied_op(db, op_id)
+    change_id = int(change_id)
+    _require_applied_op(db, change_id)
     encoded = []
     for edit in edits:
         value_kind, value = encode_stored_value(edit.value)
         encoded.append(
-            (op_id, int(edit.row_id), int(edit.column_id), value_kind, value)
+            (change_id, int(edit.row_id), int(edit.column_id), value_kind, value)
         )
     if not encoded:
         return 0
@@ -537,9 +540,9 @@ def insert_edits(
         db,
         [(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded],
     )
-    start_change(db, op_id, writing=True)
+    start_change(db, change_id, writing=True)
     db.executemany(
-        "INSERT INTO edits (op_id,row_id,column_id,value_kind,value) "
+        "INSERT INTO edits (change_id,row_id,column_id,value_kind,value) "
         "VALUES (?,?,?,?,?)",
         encoded,
     )
@@ -553,5 +556,5 @@ def insert_edits(
         {(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded},
     )
     if close_change:
-        _close_change(db, op_id)
+        _close_change(db, change_id)
     return len(encoded)

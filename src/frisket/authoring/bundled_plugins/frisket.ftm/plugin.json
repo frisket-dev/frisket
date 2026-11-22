@@ -185,6 +185,10 @@
               }
             },
             "properties": {
+              "change_id": {
+                "title": "Change Id",
+                "type": "integer"
+              },
               "dataset_name": {
                 "anyOf": [
                   {
@@ -204,10 +208,6 @@
                 "title": "Diagnostics",
                 "type": "array"
               },
-              "op_id": {
-                "title": "Op Id",
-                "type": "integer"
-              },
               "sheets": {
                 "items": {
                   "$ref": "#/$defs/ImportedEntitySheet"
@@ -219,7 +219,7 @@
             "required": [
               "dataset_name",
               "sheets",
-              "op_id",
+              "change_id",
               "diagnostics"
             ],
             "title": "ImportedEntityDataset",

@@ -123,7 +123,7 @@ function completedReceipt() {
     action_id: 'action-completion-extract',
     action_kind: 'map.extract',
     run_id: 91,
-    op_ids: [17],
+    change_ids: [17],
     idempotency_key: 'completion-key-91',
     params_hash: 'sha256:completion-91',
     status: 'completed',

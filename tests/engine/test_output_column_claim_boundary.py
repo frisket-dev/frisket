@@ -98,11 +98,13 @@ def _column_set_type_action(*, column_id: int, key: str) -> dict[str, Any]:
     }
 
 
-def _operation_action(kind: str, *, expected_op_id: int, key: str) -> dict[str, Any]:
+def _operation_action(
+    kind: str, *, expected_change_id: int, key: str
+) -> dict[str, Any]:
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -391,8 +393,8 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
             project_id=PROJECT_ID,
         )
         assert generated.status == "completed"
-        assert generated.op_ids
-        map_op_id = generated.op_ids[0]
+        assert generated.change_ids
+        map_op_id = generated.change_ids[0]
         output_column_id = _generated_column_id(
             project, sheet_id=sheet_id, name="rendered_note"
         )
@@ -403,8 +405,8 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
         undo_map = run_action_spec(
             project,
             _operation_action(
-                "operation.undo",
-                expected_op_id=map_op_id,
+                "change.undo",
+                expected_change_id=map_op_id,
                 key="undo_claimed_map@sha256:v1",
             ),
             project_id=PROJECT_ID,
@@ -429,8 +431,8 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
             project_id=PROJECT_ID,
         )
         assert edit.status == "completed"
-        assert edit.op_ids
-        edit_op_id = edit.op_ids[0]
+        assert edit.change_ids
+        edit_change_id = edit.change_ids[0]
         _claim_output(
             project,
             sheet_id=sheet_id,
@@ -440,15 +442,15 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
         undo_edit = run_action_spec(
             project,
             _operation_action(
-                "operation.undo",
-                expected_op_id=edit_op_id,
+                "change.undo",
+                expected_change_id=edit_change_id,
                 key="undo_claimed_edit@sha256:v1",
             ),
             project_id=PROJECT_ID,
         )
         assert undo_edit.status == "completed", undo_edit.errors
         op = project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (edit_op_id,)
+            "SELECT status FROM changes WHERE id=?", (edit_change_id,)
         ).fetchone()
         assert op is not None
         assert op["status"] == "undone"

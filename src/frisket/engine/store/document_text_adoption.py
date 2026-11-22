@@ -66,7 +66,7 @@ def adopt_document_text_role(
     candidates = db.execute(
         f"""WITH candidate AS MATERIALIZED (
           SELECT head.row_id,? AS column_id,legacy_result.value AS value,
-                 content.producing_op_id
+                 content.producing_change_id
           FROM effective_current_cells head
           JOIN results legacy_result
             ON legacy_result.run_id=head.origin_run_id
@@ -76,7 +76,7 @@ def adopt_document_text_role(
           JOIN rows source_row ON source_row.id=head.row_id
           JOIN prepared_content_refs ref ON ref.id=legacy_result.value
           JOIN prepared_content_sets content ON content.id=ref.set_id
-          JOIN ops producer_op ON producer_op.id=content.producing_op_id
+          JOIN changes producer_op ON producer_op.id=content.producing_change_id
           WHERE legacy.sheet_id=? AND legacy.id<>?
             AND legacy.type='text' AND legacy.generated=1
             AND legacy.active=1 AND legacy.hidden=0
@@ -91,11 +91,11 @@ def adopt_document_text_role(
             )
         ), eligible AS MATERIALIZED (
           SELECT row_id,CAST(value AS INTEGER) AS prepared_ref_id,
-                 producing_op_id
+                 producing_change_id
           FROM candidate
           WHERE {matched}
         )
-        SELECT row_id,MIN(prepared_ref_id),MIN(producing_op_id)
+        SELECT row_id,MIN(prepared_ref_id),MIN(producing_change_id)
         FROM eligible
         GROUP BY row_id
         HAVING COUNT(DISTINCT prepared_ref_id)=1""",
@@ -123,7 +123,7 @@ def adopt_document_text_role(
             label="Adopt document text",
         )
         producer_id = create_base_cell_producer(
-            db, stage_id=f"op:{adoption_op}", op_id=adoption_op
+            db, stage_id=f"op:{adoption_op}", change_id=adoption_op
         )
         seeded_count = initialize_base_cells(db, producer_id=producer_id, cells=writes)
         close_change(db, adoption_op)

@@ -34,7 +34,7 @@ class _ProjectService:
             raise ProjectNotFound("no project 'missing'")
         return {
             "project_id": pid,
-            "op_cursor": 17,
+            "change_cursor": 17,
             "nodes": [
                 {
                     "id": "sheet:1",
@@ -102,7 +102,7 @@ def test_lineage_is_a_lossless_bodyless_get_with_ignored_unknown_query() -> None
     assert response.status_code == 200, response.text
     assert response.json() == {
         "project_id": "project-1",
-        "op_cursor": 17,
+        "change_cursor": 17,
         "nodes": [
             {
                 "id": "sheet:1",
@@ -219,7 +219,7 @@ def test_graph_lineage_openapi_uses_two_distinct_open_object_responses() -> None
     graph_component = document["components"]["schemas"]["SheetGraphResponse"]
     assert set(lineage_component["required"]) == {
         "project_id",
-        "op_cursor",
+        "change_cursor",
         "nodes",
         "edges",
     }
@@ -283,13 +283,13 @@ def test_graph_lineage_responses_refuse_non_object_values(model_name: str) -> No
     (
         (
             "ProjectLineageResponse",
-            {"project_id": "p1", "op_cursor": 1, "nodes": [], "edges": None},
+            {"project_id": "p1", "change_cursor": 1, "nodes": [], "edges": None},
         ),
         (
             "ProjectLineageResponse",
             {
                 "project_id": "p1",
-                "op_cursor": 1,
+                "change_cursor": 1,
                 "nodes": [{"id": "sheet:1", "kind": "future", "name": "Cases"}],
                 "edges": [],
             },

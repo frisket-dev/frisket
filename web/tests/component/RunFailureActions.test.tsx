@@ -39,7 +39,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); showError.mockClear(); });
 it('retries failures on the source sheet while a same-named column is selected elsewhere', async () => {
   const failed = { ...row({ '22': null }), id: '3', provenance: { '22': {
     runId: '9', model: '', actionName: '', cost: 0, confidence: null, justification: '',
-    currentValueRef: { kind: 'run_result' as const, runId: '9', rowId: '3', columnId: '22', opId: null },
+    currentValueRef: { kind: 'run_result' as const, runId: '9', rowId: '3', columnId: '22', changeId: null },
   } } };
   const getSheetData = vi.spyOn(api, 'getSheetData').mockResolvedValue({ rows: [failed], total: 1, columns: sheets[1].columns });
   const runAction = vi.spyOn(api, 'runAction').mockResolvedValue({ status: 'started', runId: '10' });
@@ -60,7 +60,7 @@ it('retries failures on the source sheet while a same-named column is selected e
 it('reports cancelled confirmation as unaccepted and permits a later request', async () => {
   const failed = { ...row({ '22': null }), id: '3', provenance: { '22': {
     runId: '9', model: '', actionName: '', cost: 0, confidence: null, justification: '',
-    currentValueRef: { kind: 'run_result' as const, runId: '9', rowId: '3', columnId: '22', opId: null },
+    currentValueRef: { kind: 'run_result' as const, runId: '9', rowId: '3', columnId: '22', changeId: null },
   } } };
   vi.spyOn(api, 'getSheetData').mockResolvedValue({ rows: [failed], total: 1, columns: sheets[1].columns });
   const runAction = vi.spyOn(api, 'runAction')
@@ -88,7 +88,7 @@ it('shows failures on the source sheet and binds the source column after route r
 it('keeps Retry accepted when a later original execution fails admission', async () => {
   const failed = (id: string, runId: string) => ({ ...row({ '22': null }), id, provenance: { '22': {
     runId, model: '', actionName: '', cost: 0, confidence: null, justification: '',
-    currentValueRef: { kind: 'run_result' as const, runId, rowId: id, columnId: '22', opId: null },
+    currentValueRef: { kind: 'run_result' as const, runId, rowId: id, columnId: '22', changeId: null },
   } } });
   vi.spyOn(api, 'getSheetData').mockResolvedValue({
     rows: [failed('3', '9'), failed('4', '11')], total: 2, columns: sheets[1].columns,

@@ -49,7 +49,7 @@ function mount(spec?: GeneratedActionDraft) {
       schema_version: 'frisket.action_result.v1',
       action: { kind: posts.at(-1)!.action_id, action_id: 'joined' },
       status: 'completed', project_id: projectId, run_id: null,
-      op_ids: [], outputs: [], errors: [], warnings: [],
+      change_ids: [], outputs: [], errors: [], warnings: [],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   }));
   const legacyRun = vi.fn();

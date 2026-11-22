@@ -82,8 +82,8 @@ def _eligible_key_query(
         JOIN rows rr ON rr.id=res.row_id AND rr.sheet_id=c.sheet_id
         JOIN runs ON runs.id=res.run_id
         WHERE res.run_id=?
-          AND EXISTS (SELECT 1 FROM ops review_op
-                      WHERE review_op.id=runs.op_id
+          AND EXISTS (SELECT 1 FROM changes review_op
+                      WHERE review_op.id=runs.change_id
                         AND review_op.status='applied')
           AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
           {review_filter}{field_filter}{row_filter}

@@ -46,14 +46,14 @@ def _add_timestamped_transcript(
     language: str | None = None,
 ):
     column_id = project.add_column(sheet_id, name, type_name, generated=True)
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": name}},
         label=f"transcribe {name}",
     )
     runs = RunResultStore(project)
     run_id = runs.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.transcribe",
         params={"output_name": name},
@@ -67,7 +67,7 @@ def _add_timestamped_transcript(
     )
     runs.finish_run(run_id)
     with write_transaction(runs.db):
-        runs.point_column_at_run(op_id, column_id, run_id)
+        runs.point_column_at_run(change_id, column_id, run_id)
 
     spans = []
     for index, (start, end, quote) in enumerate(span_values):
@@ -101,7 +101,7 @@ def _add_timestamped_transcript(
             row_id=row_id,
             column_id=column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata=metadata,
@@ -290,7 +290,7 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
             source_end_ms=5000,
             precision="exact",
         )
-    op_id = project.append_change("test", {}, label="test")
+    change_id = project.append_change("test", {}, label="test")
     project.db.execute("BEGIN IMMEDIATE")
     evidence = persist_projected_transcript_citations(
         project,
@@ -301,7 +301,7 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
         output_row_id=source.row_id,
         transcript_column_id=output_column_id,
         receipt_id="receipt-test",
-        op_id=op_id,
+        change_id=change_id,
     )
     project.db.commit()
     assert evidence is not None and evidence["span_count"] == 2

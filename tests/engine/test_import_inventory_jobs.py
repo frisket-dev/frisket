@@ -120,7 +120,7 @@ def test_destination_refusal_does_not_start_a_receipt_without_a_session(tmp_path
             assert (
                 ReceiptStore(project).find_by_id(envelope.receipt_id).status == "queued"
             )
-            assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
+            assert project.db.execute("SELECT count(*) FROM changes").fetchone()[0] == 0
         write_import_header(
             directory,
             replace(read_import_header(directory), destination_sheet_id=None),
@@ -153,7 +153,7 @@ def test_cancel_before_first_page_never_starts_an_import_session(tmp_path):
         assert (
             ReceiptStore(project).find_by_id(envelope.receipt_id).status == "cancelled"
         )
-        assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
+        assert project.db.execute("SELECT count(*) FROM changes").fetchone()[0] == 0
 
 
 def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_path):
@@ -478,7 +478,9 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
             before_retry = {
                 "rows": project.row_count(session.sheet_id),
                 "cells": project.db.execute("SELECT count(*) FROM cells").fetchone()[0],
-                "ops": project.db.execute("SELECT count(*) FROM ops").fetchone()[0],
+                "changes": project.db.execute(
+                    "SELECT count(*) FROM changes"
+                ).fetchone()[0],
                 "runs": project.db.execute("SELECT count(*) FROM runs").fetchone()[0],
             }
             cancelled = service.cancel("files", REF)
@@ -500,11 +502,13 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
             assert {
                 "rows": project.row_count(session.sheet_id),
                 "cells": project.db.execute("SELECT count(*) FROM cells").fetchone()[0],
-                "ops": project.db.execute("SELECT count(*) FROM ops").fetchone()[0],
+                "changes": project.db.execute(
+                    "SELECT count(*) FROM changes"
+                ).fetchone()[0],
                 "runs": project.db.execute("SELECT count(*) FROM runs").fetchone()[0],
             } == before_retry
             receipt = ReceiptStore(project).find_by_id(envelope.receipt_id)
-            assert receipt is not None and len(receipt.parsed().op_ids) == 1
+            assert receipt is not None and len(receipt.parsed().change_ids) == 1
 
             resolved = service.resolve("files", REF, decision=decision)
             assert resolved.state == ("kept" if decision == "keep" else "removed")
@@ -541,11 +545,11 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
                         limit=100,
                     )
                 assert unavailable.value.status_code == 404
-                from frisket.engine.store.op_log import step_operation
+                from frisket.engine.store.change_log import step_change
 
                 with project.db:
                     project.db.execute("BEGIN IMMEDIATE")
-                    step_operation(project, "restore", change_id=session.op_id)
+                    step_change(project, "restore", change_id=session.change_id)
                 assert project.row_count(session.sheet_id) == 512
                 assert (
                     len(

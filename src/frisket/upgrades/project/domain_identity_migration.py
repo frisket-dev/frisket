@@ -9,7 +9,10 @@ import json
 import re
 import sqlite3
 from collections.abc import Iterator
-from frisket.engine.store.materialized_lineage import MATERIALIZED_LINEAGE_SCHEMA_SQL
+from frisket.upgrades.project._pre_changes_ddl import (
+    PRE_CHANGES_MATERIALIZED_LINEAGE_SCHEMA_SQL,
+    PRE_CHANGES_SHEETS_TABLE_SQL,
+)
 
 
 IDENTITY_TABLES = (
@@ -223,16 +226,9 @@ def migrate_identity_high_water(db: sqlite3.Connection) -> dict[str, int]:
             raise RuntimeError(f"identity migration missing {table}")
         sql = str(original[0])
         if table == "sheets":
-            # This helper is the domain cutover: install its final sheet shape
-            # while assigning durable IDs, avoiding a second whole-table copy.
-            from frisket.engine.store.schema import SCHEMA
-
-            final = re.search(
-                r"CREATE TABLE IF NOT EXISTS sheets \(.*?\n\);", SCHEMA, re.S
-            )
-            if final is None:
-                raise RuntimeError("Missing final sheets schema")
-            sql = final.group()
+            # This helper is the domain cutover: install its frozen pre-changes
+            # sheet shape while assigning durable IDs.
+            sql = PRE_CHANGES_SHEETS_TABLE_SQL
         if table == "sheets" or not re.search(
             r"\bid\s+INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b", sql, re.IGNORECASE
         ):
@@ -309,7 +305,7 @@ def migrate_materialized_lineage(db):
             "idx_materialized_row_sources_op",
         ):
             db.execute(f"DROP INDEX IF EXISTS {name}")
-    for statement in MATERIALIZED_LINEAGE_SCHEMA_SQL.split(";"):
+    for statement in PRE_CHANGES_MATERIALIZED_LINEAGE_SCHEMA_SQL.split(";"):
         if statement.strip():
             db.execute(statement)
     if primary_key and len(primary_key) != 4:

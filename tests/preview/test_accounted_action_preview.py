@@ -129,7 +129,7 @@ def _outputs(project):
     return {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         for table in (
-            "ops",
+            "changes",
             "runs",
             "columns",
             "cells",

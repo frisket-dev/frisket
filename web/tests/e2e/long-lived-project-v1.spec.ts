@@ -111,22 +111,22 @@ async function runDebugClassify(
 async function history(request: APIRequestContext, pid: string): Promise<HistoryStep[]> {
   const res = await request.get(`/api/projects/${pid}/history?limit=50`);
   expect(res.ok()).toBeTruthy();
-  const body = await res.json() as { ops: HistoryStep[] };
-  return body.ops;
+  const body = await res.json() as { changes: HistoryStep[] };
+  return body.changes;
 }
 
 async function undoExpectedOperation(
   request: APIRequestContext,
   pid: string,
-  opId: number,
+  changeId: number,
 ): Promise<void> {
   const res = await request.post(`/api/projects/${pid}/actions/v1/run`, {
     data: {
-      action_id: 'operation.undo',
+      action_id: 'change.undo',
       scope: { kind: 'project' },
-      params: { expected_op_id: opId },
+      params: { expected_change_id: changeId },
       output_names: {},
-      idempotency_key: `long-lived-undo@sha256:${pid}-${opId}`,
+      idempotency_key: `long-lived-undo@sha256:${pid}-${changeId}`,
     },
   });
   expect(res.ok()).toBeTruthy();

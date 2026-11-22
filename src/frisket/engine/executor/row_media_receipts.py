@@ -86,7 +86,7 @@ def project_row_media_receipt(project, plan, facts, receipt):
             sheet_id=facts.sheet_id,
             column_id=column["column_id"],
             run_id=facts.run_id,
-            op_id=facts.op_id,
+            change_id=facts.change_id,
             route=column["name"],
             schema_name=schema_name,
             # Project the declared item model directly: copying list.items

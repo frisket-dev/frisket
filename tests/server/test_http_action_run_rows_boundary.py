@@ -34,10 +34,12 @@ def _seed_completed_run_with_failed_row(client: TestClient) -> tuple[str, int, i
     ).fetchall()
     output_col = project.add_column(sheet_id, "topic", generated=True)
     row_ids = [int(row["id"]) for row in rows]
-    op_id = project.append_change("map", {"action_kind": "map.classify"}, "seed rows")
+    change_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, "seed rows"
+    )
     run_store = RunResultStore(project)
     run_id = run_store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         model="anthropic/test",

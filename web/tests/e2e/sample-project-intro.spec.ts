@@ -104,10 +104,17 @@ test('Poke around dismisses the introduction and an ordinary project never opens
   const name = uniqueName('e2e-ordinary-project-no-sample-intro');
   const projectId = await createProject(request, name);
   try {
+    const catalogLoaded = page.waitForResponse(
+      (response) => response.url().includes(`/api/projects/${projectId}/actions/v1/catalog`),
+    );
+    const pluginsLoaded = page.waitForResponse(
+      (response) => response.url().includes(`/api/projects/${projectId}/workbench/plugins`),
+    );
     await page.goto(`/p/${projectId}`);
     await expect(page.getByTestId('grid').or(page.getByTestId('import-dropzone')).first()).toBeVisible({
       timeout: 20_000,
     });
+    await Promise.all([catalogLoaded, pluginsLoaded]);
     await expect(page.getByTestId('sample-project-intro')).toHaveCount(0);
     await expect(page.getByTestId('sample-guide-hint')).toHaveCount(0);
   } finally {

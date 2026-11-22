@@ -156,7 +156,7 @@ def materialize_enclosure_row(
         raise ValueError("enclosure URL changed during download")
     if err is not None:
         safe_error = redact_text(err)
-        op_id = _apply_row_state(
+        change_id = _apply_row_state(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -168,7 +168,7 @@ def materialize_enclosure_row(
             "status": "error",
             "row_id": row_id,
             "error": safe_error,
-            "op_id": op_id,
+            "change_id": change_id,
         }
 
     declared_mime = _declared_mime(project, sheet_id, cols, row_id)
@@ -189,7 +189,7 @@ def materialize_enclosure_row(
         )
     MediaBlobStore(project).replace_probe_metadata(digest, metadata)
     cell = media_cell(digest, mime=mime, filename=filename)
-    op_id = _apply_row_state(
+    change_id = _apply_row_state(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -198,7 +198,12 @@ def materialize_enclosure_row(
         error=None,
         expected_url=str(url),
     )
-    return {"status": "downloaded", "row_id": row_id, "media": cell, "op_id": op_id}
+    return {
+        "status": "downloaded",
+        "row_id": row_id,
+        "media": cell,
+        "change_id": change_id,
+    }
 
 
 def mark_enclosure_queued(project: Project, *, sheet_id: int, row_id: int) -> int:

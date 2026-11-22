@@ -796,7 +796,7 @@ def test_bulk_csv_publications_keep_one_reversible_op_and_receipt_per_output(
     ).fetchall()
     assert len(ops) == len(receipts) == len(created)
     created_sheet_ids = {item["sheet_id"] for item in created}
-    op_ids = {int(op["id"]) for op in ops}
+    change_ids = {int(op["id"]) for op in ops}
     for op in ops:
         assert op["kind"] == "import.csv"
         assert op["barrier"] == 0
@@ -816,10 +816,10 @@ def test_bulk_csv_publications_keep_one_reversible_op_and_receipt_per_output(
         receipt = json.loads(row["body"])
         assert receipt["action_kind"] == "import.csv"
         assert receipt["status"] == "completed"
-        assert len(receipt["op_ids"]) == 1
-        assert receipt["op_ids"][0] in op_ids
-        receipt_op_ids.add(receipt["op_ids"][0])
-    assert receipt_op_ids == op_ids
+        assert len(receipt["change_ids"]) == 1
+        assert receipt["change_ids"][0] in change_ids
+        receipt_op_ids.add(receipt["change_ids"][0])
+    assert receipt_op_ids == change_ids
 
     last_op_id = int(ops[-1]["id"])
     assert project.undo() == last_op_id

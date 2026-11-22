@@ -49,7 +49,7 @@ def test_cancel_after_last_row_before_terminal_transaction_keeps_results(
     assert project.get_values(sheet, source)[row] == "manual"
     assert (
         project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (manual_edits[0],)
+            "SELECT status FROM changes WHERE id=?", (manual_edits[0],)
         ).fetchone()[0]
         == "applied"
     )

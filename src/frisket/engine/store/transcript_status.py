@@ -24,10 +24,10 @@ def compute_transcript_statuses(
     }
 
     candidates = project.db.execute(
-        "SELECT ops.spec AS spec, runs.id AS run_id "
-        "FROM runs JOIN ops ON ops.id = runs.op_id "
+        "SELECT changes.spec AS spec, runs.id AS run_id "
+        "FROM runs JOIN changes ON changes.id = runs.change_id "
         "WHERE runs.sheet_id = ? AND runs.action_kind = 'media.transcribe' "
-        "AND ops.status != 'undone' "
+        "AND changes.status != 'undone' "
         "ORDER BY runs.id DESC",
         (sheet_id,),
     ).fetchall()

@@ -163,7 +163,7 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         assert [refs[row_id] for row_id in row_ids] == [
             {
                 "kind": "run_result",
-                "op_id": first.op_ids[0],
+                "change_id": first.change_ids[0],
                 "row_id": row_id,
                 "column_id": column_id,
                 "run_id": run_id,

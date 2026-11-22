@@ -24,13 +24,13 @@ from frisket.actions.types import (
 
 class ReviewTargetParams(ActionParams):
     run_id: int | None = Field(default=None, ge=1, strict=True)
-    copied_op_id: int | None = Field(default=None, ge=1, strict=True)
+    copied_change_id: int | None = Field(default=None, ge=1, strict=True)
     row_id: int = Field(ge=1, strict=True)
 
     @model_validator(mode="after")
     def _one_result_owner(self):
-        if (self.run_id is None) == (self.copied_op_id is None):
-            raise ValueError("select exactly one run_id or copied_op_id")
+        if (self.run_id is None) == (self.copied_change_id is None):
+            raise ValueError("select exactly one run_id or copied_change_id")
         return self
 
 
@@ -70,7 +70,7 @@ def decide_review(
 ) -> ReviewDecision:
     return reviews.decide(
         run_id=params.run_id,
-        copied_op_id=params.copied_op_id,
+        copied_change_id=params.copied_change_id,
         row_id=params.row_id,
         column_id=params.column_id,
         decision=params.decision,
@@ -82,7 +82,7 @@ def decide_review(
 def note_review(params: ReviewNoteParams, reviews: ReviewNoter) -> ReviewNote:
     return reviews.note(
         run_id=params.run_id,
-        copied_op_id=params.copied_op_id,
+        copied_change_id=params.copied_change_id,
         row_id=params.row_id,
         note=params.note,
     )
@@ -125,7 +125,7 @@ REVIEW_DECISION = action(
     examples=(
         ReviewDecisionParams(run_id=1, row_id=1, column_id=1, decision="accept"),
         ReviewDecisionParams(
-            copied_op_id=1, row_id=1, column_id=1, decision="reject_clear"
+            copied_change_id=1, row_id=1, column_id=1, decision="reject_clear"
         ),
     ),
     name="decision",

@@ -369,7 +369,7 @@ CASES = [
             "runs": 1,
             "results": 10,
             "model_calls": 2,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

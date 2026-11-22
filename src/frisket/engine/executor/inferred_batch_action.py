@@ -634,7 +634,7 @@ def _publish(
                 publish=True,
             )
             op = project.db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+                "SELECT undo_info FROM changes WHERE id=?", (run["change_id"],)
             ).fetchone()
             for column_id in json.loads(op["undo_info"] or "{}").get(
                 "created_columns", []

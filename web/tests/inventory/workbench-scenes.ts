@@ -296,7 +296,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     last_checked_at: timestamp, last_status: 'error', new_rows_total: 42, created_at: timestamp,
   };
   const sourceRun = {
-    id: 711, feed_id: sourceId, op_id: null, receipt_id: null, status: 'error',
+    id: 711, feed_id: sourceId, change_id: null, receipt_id: null, status: 'error',
     new_rows: 0, skipped_rows: 2, changed_rows: 0, revisions: 0, duration_ms: 180,
     warning_count: 1, cost_micro: 0, error: 'Synthetic fixture: the archive returned an incomplete response; previously imported records remain available.',
     cursor_before: null, cursor_after: null, summary_json: '{}', started_at: timestamp, finished_at: timestamp,
@@ -323,7 +323,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   // Wire shapes: alertsHttpContracts.test.ts. Both history outcomes are
   // presentation fixtures; the real Run control is never clicked.
   const alertCheck = {
-    id: 721, alert_id: alertId, status: 'ok', op_cursor_before: 0, op_cursor_after: 3,
+    id: 721, alert_id: alertId, status: 'ok', change_cursor_before: 0, change_cursor_after: 3,
     matched_rows: 12, new_rows: 2, error: null, error_code: null,
     resolved_query_hash: 'synthetic-planning-query', resolved_query: { kind: 'fts', q: 'planning budget' },
     started_at: timestamp, finished_at: timestamp,
@@ -333,7 +333,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     scope: 'project', sheet_id: sheetId,
     query: { kind: 'fts', q: 'planning applications housing budget amendments public committee reports', mode: 'keyword', rerank: 'off', limit: 50 },
     query_version: 'frisket.query.v1', query_hash: 'synthetic-planning-query', detection_policy: { kind: 'new_matches' },
-    enabled: false, last_evaluated_op: 3, last_run_id: alertCheck.id, last_status: 'ok',
+    enabled: false, last_evaluated_change: 3, last_run_id: alertCheck.id, last_status: 'ok',
     created_at: timestamp, updated_at: timestamp, latest_run: alertCheck,
   };
   const alertChecks = [alertCheck, {

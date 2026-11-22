@@ -55,5 +55,5 @@ def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(
     assert result.receipt_id is None
     assert store.body_by_id(receipt.receipt_id) == original_body
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-    for table in ("sheets", "rows", "columns", "blobs", "ops"):
+    for table in ("sheets", "rows", "columns", "blobs", "changes"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0

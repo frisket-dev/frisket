@@ -62,10 +62,10 @@ def test_manual_correction_starts_and_closes_its_own_change(make_project):
     with project.db:
         op = project.append_change_in_transaction("edit", {}, label="manual correction")
         insert_edits(
-            project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
+            project.db, change_id=op, edits=[EditCellWrite(row, column, "corrected")]
         )
     state = project.db.execute(
-        "SELECT change_order,publication_closed FROM ops WHERE id=?", (op,)
+        "SELECT change_order,publication_closed FROM changes WHERE id=?", (op,)
     ).fetchone()
     assert state[0] is not None
     assert state[1] == 1
@@ -84,7 +84,7 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
         column = project.add_column(sheet, "text")
         row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
         op = project.db.execute(
-            "SELECT producer.op_id FROM cells cell JOIN base_cell_producers producer "
+            "SELECT producer.change_id FROM cells cell JOIN base_cell_producers producer "
             "ON producer.id=cell.producer_id WHERE cell.row_id=? AND cell.column_id=?",
             (row, column),
         ).fetchone()[0]
@@ -94,12 +94,12 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
         with pytest.raises(ChangePublicationClosed):
             insert_edits(
                 project.db,
-                op_id=op,
+                change_id=op,
                 edits=[EditCellWrite(row, column, "too late")],
             )
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM edits WHERE op_id=?", (op,)
+                "SELECT COUNT(*) FROM edits WHERE change_id=?", (op,)
             ).fetchone()[0]
             == 0
         )
@@ -107,7 +107,7 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
 
         project.db.execute("BEGIN IMMEDIATE")
         with pytest.raises(ChangePublicationClosed):
-            project.add_sheet_in_transaction("Too late", parent_op_id=op)
+            project.add_sheet_in_transaction("Too late", parent_change_id=op)
         assert (
             project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0]
             == before_sheets
@@ -115,15 +115,16 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
         project.db.rollback()
 
         one_shot = project.append_change("derive.once", {}, label="one-shot")
-        created = project.add_sheet("One-shot child", parent_op_id=one_shot)
+        created = project.add_sheet("One-shot child", parent_change_id=one_shot)
         assert (
             project.db.execute(
-                "SELECT parent_op_id FROM sheets WHERE id=?", (created,)
+                "SELECT parent_change_id FROM sheets WHERE id=?", (created,)
             ).fetchone()[0]
             == one_shot
         )
         one_shot_state = project.db.execute(
-            "SELECT change_order,publication_closed FROM ops WHERE id=?", (one_shot,)
+            "SELECT change_order,publication_closed FROM changes WHERE id=?",
+            (one_shot,),
         ).fetchone()
         assert one_shot_state[0] is not None
         assert one_shot_state[1] == 1
@@ -149,24 +150,24 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_projec
         child_sheet = project.add_sheet_in_transaction(
             "Owned child",
             parent_sheet_id=sheet,
-            parent_op_id=op,
+            parent_change_id=op,
             close_change=False,
         )
         insert_edits(
             project.db,
-            op_id=op,
+            change_id=op,
             edits=[EditCellWrite(rows[0], column, "one edited")],
             close_change=False,
         )
         insert_edits(
             project.db,
-            op_id=op,
+            change_id=op,
             edits=[EditCellWrite(rows[1], column, "two edited")],
             close_change=False,
         )
         assert (
             project.db.execute(
-                "SELECT publication_closed FROM ops WHERE id=?", (op,)
+                "SELECT publication_closed FROM changes WHERE id=?", (op,)
             ).fetchone()[0]
             == 0
         )
@@ -174,13 +175,13 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_projec
         project.db.commit()
         assert (
             project.db.execute(
-                "SELECT publication_closed FROM ops WHERE id=?", (op,)
+                "SELECT publication_closed FROM changes WHERE id=?", (op,)
             ).fetchone()[0]
             == 1
         )
         assert (
             project.db.execute(
-                "SELECT parent_op_id FROM sheets WHERE id=?", (child_sheet,)
+                "SELECT parent_change_id FROM sheets WHERE id=?", (child_sheet,)
             ).fetchone()[0]
             == op
         )
@@ -248,7 +249,7 @@ def test_dirty_undo_finds_new_filter_matches_and_exports_before_bounded_repair(
     _release(project, run)
     _drain(project)
     before_revision = _revision(project, column)
-    assert project.undo() == run.op_id
+    assert project.undo() == run.change_id
     assert _revision(project, column) > before_revision
     assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
     # Establish that this is genuinely a dirty-cache test, not an eager path.
@@ -374,10 +375,10 @@ def test_output_family_and_evidence_publish_atomically(
     try:
         _publish_initial_generation(project, sheet, column, rows)
         evidence_column = project.add_column(sheet, "evidence", generated=True)
-        op_id = project.append_change("map.extract", label="two-output family")
+        change_id = project.append_change("map.extract", label="two-output family")
         store = RunResultStore(project)
         run_id = store.start_run(
-            op_id, sheet, "map.extract", row_ids=rows[:1], total_rows=1
+            change_id, sheet, "map.extract", row_ids=rows[:1], total_rows=1
         )
         authority = run_writer_authority_fixture(
             project, run_id, output_column_ids={column, evidence_column}
@@ -460,9 +461,9 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
     versions = [original_producer]
     project.db.execute("BEGIN")
     with project.db:
-        op_id = project.append_change_in_transaction("source.refresh")
+        change_id = project.append_change_in_transaction("source.refresh")
         producer = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_id}", op_id=op_id
+            project.db, stage_id=f"op:{change_id}", change_id=change_id
         )
     for value in ("replacement", "another"):
         project.db.execute("BEGIN")
@@ -503,7 +504,7 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
 
     project.db.execute("BEGIN")
     with project.db:
-        ChangeStore(project).close(op_id)
+        ChangeStore(project).close(change_id)
     project.db.execute("BEGIN")
     with project.db, pytest.raises(ChangePublicationClosed):
         replace_base_cells(

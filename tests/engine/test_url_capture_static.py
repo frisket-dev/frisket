@@ -185,7 +185,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             sheet_id=sheet_id,
             row_id=row_id,
             column_id=output_column_id,
-            op_id=first.op_ids[0],
+            change_id=first.change_ids[0],
         )
     first_evidence = list_cell_citations(
         project,
@@ -218,7 +218,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
     assert by_id[first_stable_id]["status"] == "stale"
     assert after_second["stale_count"] == 1
 
-    assert project.undo() == second.op_ids[0]
+    assert project.undo() == second.change_ids[0]
     after_undo = list_cell_citations(
         project,
         sheet_id=sheet_id,
@@ -230,7 +230,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
     assert restored[first_stable_id]["status"] == "active"
     assert after_undo["stale_count"] == 0
 
-    assert project.redo() == second.op_ids[0]
+    assert project.redo() == second.change_ids[0]
     after_redo = list_cell_citations(
         project,
         sheet_id=sheet_id,
@@ -343,7 +343,7 @@ def test_media_capture_url_static_contract_and_replay(
         project,
         (
             "columns",
-            "ops",
+            "changes",
             "receipts",
             "blobs",
             "edits",
@@ -447,7 +447,7 @@ def test_media_capture_url_static_contract_and_replay(
         project,
         (
             "columns",
-            "ops",
+            "changes",
             "receipts",
             "blobs",
             "edits",
@@ -479,7 +479,7 @@ def test_media_capture_url_static_contract_and_replay(
             project,
             (
                 "columns",
-                "ops",
+                "changes",
                 "receipts",
                 "blobs",
                 "edits",
@@ -748,7 +748,7 @@ def test_capture_page_rejects_static_warc_and_network_off_before_dispatch(
         raise AssertionError(f"unexpected fetch for {url}")
 
     project.set_network_policy(mode="off")
-    before = _counts(project, ("columns", "ops", "receipts", "blobs"))
+    before = _counts(project, ("columns", "changes", "receipts", "blobs"))
     for render_mode in ("static", "playwright"):
         action = _capture_action(
             sheet_id=sheet_id,
@@ -769,7 +769,7 @@ def test_capture_page_rejects_static_warc_and_network_off_before_dispatch(
         assert result.status == "failed"
         assert result.errors[0].code == "network_disabled"
     assert calls == []
-    assert _counts(project, ("columns", "ops", "receipts", "blobs")) == before
+    assert _counts(project, ("columns", "changes", "receipts", "blobs")) == before
     project.set_network_policy(mode="on")
 
     warc = _capture_action(

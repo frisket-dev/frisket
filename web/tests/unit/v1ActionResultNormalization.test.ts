@@ -20,7 +20,7 @@ describe('v1 action result normalization', () => {
   it('fills only session defaults while preserving generated response fields', () => {
     const raw = {
       ...actionResult({
-        op_ids: [3, 5],
+        change_ids: [3, 5],
         warnings: ['producer warning'],
         outputs: [{ kind: 'sheet', sheet_id: 7 }],
       }),
@@ -35,7 +35,7 @@ describe('v1 action result normalization', () => {
       name: null,
       sheet_id: 7,
     }]);
-    expect(normalized.op_ids).toEqual([3, 5]);
+    expect(normalized.change_ids).toEqual([3, 5]);
     expect(normalized.warnings).toEqual(['producer warning']);
     expect((normalized as unknown as Record<string, unknown>).producer_extension).toEqual({
       retained: true,

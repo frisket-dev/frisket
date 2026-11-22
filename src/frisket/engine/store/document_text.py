@@ -26,14 +26,14 @@ CREATE TABLE IF NOT EXISTS document_text_column_roles (
 ) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS document_text_manual_pins (
-  edit_op_id INTEGER NOT NULL,
+  edit_change_id INTEGER NOT NULL,
   row_id INTEGER NOT NULL,
   text_column_id INTEGER NOT NULL,
   prepared_ref_id INTEGER NOT NULL
     REFERENCES prepared_content_refs(id) ON DELETE RESTRICT,
-  PRIMARY KEY (edit_op_id,row_id,text_column_id),
-  FOREIGN KEY (edit_op_id,row_id,text_column_id)
-    REFERENCES edits(op_id,row_id,column_id) ON DELETE CASCADE
+  PRIMARY KEY (edit_change_id,row_id,text_column_id),
+  FOREIGN KEY (edit_change_id,row_id,text_column_id)
+    REFERENCES edits(change_id,row_id,column_id) ON DELETE CASCADE
 ) WITHOUT ROWID;
 """
 
@@ -86,7 +86,7 @@ JOIN current_cell_values text_live
  AND text_live.row_id=text_head.row_id
 LEFT JOIN document_text_manual_pins pin
   ON text_head.origin_kind='manual_edit'
- AND pin.edit_op_id=text_head.origin_op_id
+ AND pin.edit_change_id=text_head.origin_change_id
  AND pin.row_id=text_head.row_id
  AND pin.text_column_id=text_head.column_id
 JOIN prepared_content_refs ref
@@ -128,8 +128,8 @@ WHERE source_column.sheet_id=text_column.sheet_id
           AND source_span.page_start=ref.page_number
           AND source_span.page_end=ref.page_number
           AND source_link.status='active'
-          AND (source_link.op_id IS NULL OR EXISTS (SELECT 1 FROM ops citation_owner
-            WHERE citation_owner.id=source_link.op_id AND citation_owner.status='applied'))
+          AND (source_link.change_id IS NULL OR EXISTS (SELECT 1 FROM changes citation_owner
+            WHERE citation_owner.id=source_link.change_id AND citation_owner.status='applied'))
           AND source_link.link_role='primary_support'
           AND source_link.subject_kind='cell_value'
           AND source_link.sheet_id=source_column.sheet_id
@@ -139,27 +139,6 @@ WHERE source_column.sheet_id=text_column.sheet_id
     )
   );
 """
-
-# Post-domain upgrades prior to the citations cutover use effective_current_cells
-# while still joining the pre-cutover evidence_links / evidence_link_spans tables.
-PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
-    DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
-        "JOIN citation_spans linked", "JOIN evidence_link_spans linked"
-    )
-    .replace(
-        "JOIN citations source_link ON source_link.id=linked.citation_id",
-        "JOIN evidence_links source_link ON source_link.id=linked.link_id",
-    )
-    .replace("ops citation_owner", "ops evidence_owner")
-    .replace("citation_owner.", "evidence_owner.")
-)
-
-# Historical adoption upgrades run before ordered authority and citation tables exist.
-LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
-    PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
-        "effective_current_cells", "current_cells"
-    )
-)
 
 
 class DocumentTextRoleError(ValueError):
@@ -547,8 +526,8 @@ def inherit_document_text_manual_pins(
     if not designated:
         return
     targets = [
-        (op_id, row_id, column_id)
-        for op_id, row_id, column_id, kind, _ in encoded_edits
+        (change_id, row_id, column_id)
+        for change_id, row_id, column_id, kind, _ in encoded_edits
         if kind == "text" and column_id in designated
     ]
     # Read only predecessor metadata, in bounded batches; never hydrate bodies.
@@ -556,18 +535,18 @@ def inherit_document_text_manual_pins(
         batch = targets[offset : offset + 300]
         placeholders = ",".join("(?,?,?)" for _ in batch)
         db.execute(
-            f"""WITH targets(edit_op_id,row_id,text_column_id) AS (
+            f"""WITH targets(edit_change_id,row_id,text_column_id) AS (
                 VALUES {placeholders}
             )
             INSERT INTO document_text_manual_pins
-              (edit_op_id,row_id,text_column_id,prepared_ref_id)
-            SELECT target.edit_op_id,target.row_id,target.text_column_id,
+              (edit_change_id,row_id,text_column_id,prepared_ref_id)
+            SELECT target.edit_change_id,target.row_id,target.text_column_id,
                    COALESCE(live.prepared_ref_id,pin.prepared_ref_id)
             FROM targets target
             JOIN current_cell_values live
               ON live.row_id=target.row_id AND live.column_id=target.text_column_id
             LEFT JOIN document_text_manual_pins pin
-              ON live.origin_kind='manual_edit' AND pin.edit_op_id=live.origin_op_id
+              ON live.origin_kind='manual_edit' AND pin.edit_change_id=live.origin_change_id
              AND pin.row_id=live.row_id AND pin.text_column_id=live.column_id
             WHERE COALESCE(live.prepared_ref_id,pin.prepared_ref_id) IS NOT NULL""",
             tuple(value for target in batch for value in target),
@@ -619,9 +598,9 @@ def _prepared_result_matches_source_sql(result_alias: str) -> str:
                 AND source_span.page_start=ref.page_number
                 AND source_span.page_end=ref.page_number
                 AND source_link.status='active'
-                AND (source_link.op_id IS NULL OR EXISTS (
-                  SELECT 1 FROM ops citation_owner
-                  WHERE citation_owner.id=source_link.op_id
+                AND (source_link.change_id IS NULL OR EXISTS (
+                  SELECT 1 FROM changes citation_owner
+                  WHERE citation_owner.id=source_link.change_id
                     AND citation_owner.status='applied'))
                 AND source_link.link_role='primary_support'
                 AND source_link.subject_kind='cell_value'

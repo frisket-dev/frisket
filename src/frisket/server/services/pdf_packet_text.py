@@ -73,7 +73,7 @@ def read_prepared_page(project: Any, ref_id: int, page: int) -> PacketTextPage |
         sizes=(int(sizes[0]), int(sizes[1]), bool(sizes[2])),
     )
     origin = project.db.execute(
-        "SELECT EXISTS(SELECT 1 FROM prepared_content_refs ref JOIN prepared_content_set_pages member ON member.set_id=ref.set_id AND member.page_number=? JOIN prepared_page_versions version ON version.id=member.version_id WHERE ref.id=? AND (EXISTS(SELECT 1 FROM runs run WHERE run.op_id=version.producing_op_id AND run.action_kind='media.ocr') OR (json_extract(version.positions_json,'$.engine') IS NOT NULL AND json_extract(version.positions_json,'$.engine') NOT IN ('native','pdf_native','native_pdf_text'))))",
+        "SELECT EXISTS(SELECT 1 FROM prepared_content_refs ref JOIN prepared_content_set_pages member ON member.set_id=ref.set_id AND member.page_number=? JOIN prepared_page_versions version ON version.id=member.version_id WHERE ref.id=? AND (EXISTS(SELECT 1 FROM runs run WHERE run.change_id=version.producing_change_id AND run.action_kind='media.ocr') OR (json_extract(version.positions_json,'$.engine') IS NOT NULL AND json_extract(version.positions_json,'$.engine') NOT IN ('native','pdf_native','native_pdf_text'))))",
         (page, ref_id),
     ).fetchone()[0]
     return PacketTextPage(

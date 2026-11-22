@@ -216,21 +216,21 @@ def begin_purge(
             )
         remember(
             "change",
-            f"SELECT op_id id FROM copied_result_outcomes WHERE {cells} UNION SELECT op_id FROM runs WHERE id IN ({_targets('run')}) UNION SELECT op_id FROM edits WHERE {cells} UNION SELECT p.op_id FROM cells c JOIN base_cell_producers p ON p.id=c.producer_id WHERE {_scope(column='c.column_id', row='c.row_id')}",
+            f"SELECT change_id id FROM copied_result_outcomes WHERE {cells} UNION SELECT change_id FROM runs WHERE id IN ({_targets('run')}) UNION SELECT change_id FROM edits WHERE {cells} UNION SELECT p.change_id FROM cells c JOIN base_cell_producers p ON p.id=c.producer_id WHERE {_scope(column='c.column_id', row='c.row_id')}",
         )
         remember(
             "change",
-            "SELECT op_id id FROM structural_changes effect WHERE EXISTS (SELECT 1 "
+            "SELECT change_id id FROM structural_changes effect WHERE EXISTS (SELECT 1 "
             "FROM project_purge_targets target WHERE target.purge_id=:purge "
             "AND target.kind=effect.kind AND target.object_id=effect.object_id)",
         )
         remember(
             "change",
-            f"SELECT op_id id FROM column_descriptor_changes WHERE column_id IN ({_targets('column')})",
+            f"SELECT change_id id FROM column_descriptor_changes WHERE column_id IN ({_targets('column')})",
         )
         remember(
             "change",
-            f"SELECT op_id id FROM import_sessions WHERE id IN (SELECT session_id FROM project_purge_imports WHERE purge_id=:purge) UNION SELECT parent_op_id FROM sheets WHERE id IN ({_targets('sheet')})",
+            f"SELECT change_id id FROM import_sessions WHERE id IN (SELECT session_id FROM project_purge_imports WHERE purge_id=:purge) UNION SELECT parent_change_id FROM sheets WHERE id IN ({_targets('sheet')})",
         )
         for kind, key in (
             ("sheet", "created_sheets"),
@@ -243,7 +243,7 @@ def begin_purge(
         ):
             remember(
                 "change",
-                f"SELECT o.id FROM ops o JOIN json_each(o.undo_info,'$.{key}') target WHERE target.value IN ({_targets(kind)})",
+                f"SELECT o.id FROM changes o JOIN json_each(o.undo_info,'$.{key}') target WHERE target.value IN ({_targets(kind)})",
             )
         for kind, key in (
             ("sheet", "sheet_names"),
@@ -254,7 +254,7 @@ def begin_purge(
         ):
             remember(
                 "change",
-                f"SELECT o.id FROM ops o JOIN json_each(o.undo_info,'$.{key}') target WHERE CAST(target.key AS INTEGER) IN ({_targets(kind)})",
+                f"SELECT o.id FROM changes o JOIN json_each(o.undo_info,'$.{key}') target WHERE CAST(target.key AS INTEGER) IN ({_targets(kind)})",
             )
         remember(
             "artifact",
@@ -280,7 +280,7 @@ def begin_purge(
 
         changes = ChangeStore(project)
         for operation in db.execute(
-            f"SELECT id FROM ops WHERE publication_closed=0 AND status='applied' AND id IN ({_targets('change')})",
+            f"SELECT id FROM changes WHERE publication_closed=0 AND status='applied' AND id IN ({_targets('change')})",
             p,
         ):
             changes.close(int(operation[0]))
@@ -552,13 +552,13 @@ def _scrub_history(db, p, batch_size):
     """Erase selected effects, retaining each surviving object's undo data."""
     cursor = 0
     while operations := db.execute(
-        f"SELECT id,undo_info FROM ops WHERE id>:cursor AND (id IN ({_targets('change')}) "
-        f"OR id IN (SELECT op_id FROM result_judgment_changes WHERE {_judgment_scope()})) "
+        f"SELECT id,undo_info FROM changes WHERE id>:cursor AND (id IN ({_targets('change')}) "
+        f"OR id IN (SELECT change_id FROM result_judgment_changes WHERE {_judgment_scope()})) "
         "ORDER BY id LIMIT :batch",
         {**p, "cursor": cursor, "batch": batch_size},
     ).fetchall():
         with db:
-            for op_id, encoded in operations:
+            for change_id, encoded in operations:
                 info = json.loads(encoded or "{}")
                 for field, value in list(info.items()):
                     kind = next(
@@ -597,8 +597,8 @@ def _scrub_history(db, p, batch_size):
                         removed = {
                             item[0]
                             for item in db.execute(
-                                f"SELECT target FROM result_judgment_changes WHERE op_id=:op AND ({_judgment_scope()})",
-                                {**p, "op": op_id},
+                                f"SELECT target FROM result_judgment_changes WHERE change_id=:op AND ({_judgment_scope()})",
+                                {**p, "op": change_id},
                             )
                         }
                         info[field] = {
@@ -607,8 +607,8 @@ def _scrub_history(db, p, batch_size):
                             if key not in removed
                         }
                 db.execute(
-                    "UPDATE ops SET spec='{}',label=NULL,undo_info=? WHERE id=?",
-                    (json.dumps(info), op_id),
+                    "UPDATE changes SET spec='{}',label=NULL,undo_info=? WHERE id=?",
+                    (json.dumps(info), change_id),
                 )
         cursor = operations[-1][0]
 
@@ -904,10 +904,10 @@ def _delete_copied_results(db, p, *, project, batch_size):
     """Delete selected copies and only their newly orphaned purged sources."""
     while True:
         rows = db.execute(
-            "SELECT op_id,row_id,column_id,source_run_id,source_row_id,source_column_id "
+            "SELECT change_id,row_id,column_id,source_run_id,source_row_id,source_column_id "
             "FROM copied_result_outcomes WHERE "
             f"row_id IN ({_targets('row')}) OR column_id IN ({_targets('column')}) "
-            "ORDER BY op_id,row_id,column_id LIMIT :batch",
+            "ORDER BY change_id,row_id,column_id LIMIT :batch",
             {**p, "batch": batch_size},
         ).fetchall()
         if not rows:
@@ -915,8 +915,8 @@ def _delete_copied_results(db, p, *, project, batch_size):
         with write_transaction(db):
             for row in rows:
                 db.execute(
-                    "DELETE FROM copied_result_outcomes WHERE op_id=? AND row_id=? AND column_id=?",
-                    (row["op_id"], row["row_id"], row["column_id"]),
+                    "DELETE FROM copied_result_outcomes WHERE change_id=? AND row_id=? AND column_id=?",
+                    (row["change_id"], row["row_id"], row["column_id"]),
                 )
                 if row["source_run_id"] is not None:
                     source_key = (

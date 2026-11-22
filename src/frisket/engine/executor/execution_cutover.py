@@ -146,10 +146,10 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                 # not a user redo candidate.
                 from frisket.engine.store.changes import ChangeStore
 
-                ChangeStore(project).revert(int(run["op_id"]))
+                ChangeStore(project).revert(int(run["change_id"]))
                 db.execute(
-                    "UPDATE ops SET redo_eligible=0 WHERE id=?",
-                    (int(run["op_id"]),),
+                    "UPDATE changes SET redo_eligible=0 WHERE id=?",
+                    (int(run["change_id"]),),
                 )
             if stored is None:
                 # Direct local work may have no receipt or output-generation owner.

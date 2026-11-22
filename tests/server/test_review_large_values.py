@@ -25,11 +25,11 @@ def _seed_large_review(
     output_id = project.add_column(sheet_id, "summary", generated=True)
     large = "z" * _LARGE_BYTES
     [row_id] = project.add_rows(sheet_id, [{"story": large}], {"story": source_id})
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="Review large value"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         params={
@@ -53,7 +53,7 @@ def _seed_large_review(
         ],
     )
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, output_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, output_id, run_id)
     RunResultStore(project).finish_run(run_id, "completed")
     return (
         client,

@@ -629,7 +629,7 @@ def _project_model_keys(project: Project) -> dict[str, str]:
 def _deferred_publication(project: Project, run_id: int) -> bool:
     """Read the admitted preparation decision, not the mutable job payload."""
     row = project.db.execute(
-        "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
         (run_id,),
     ).fetchone()
     if row is None:

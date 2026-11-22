@@ -208,7 +208,7 @@ function OpenImportWorkspaceSession({
     });
   }, []);
   // SheetMeta.parent is populated only from the list wire's parent_sheet_id;
-  // imported roots may have a creation parent_op_id and remain appendable.
+  // imported roots may have a creation parent_change_id and remain appendable.
   const appendDestinationSheets = useMemo(
     () => destinationSheets.filter((sheet) => sheet.parent === undefined),
     [destinationSheets],

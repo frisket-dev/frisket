@@ -130,7 +130,7 @@ def retirement_owns_column(
 def retire_dropped_generated_columns(
     project: Project,
     *,
-    op_id: int,
+    change_id: int,
     program: ActionProgram,
     spec: dict,
     columns: list,
@@ -194,17 +194,19 @@ def retire_dropped_generated_columns(
             )
     if not retired:
         return []
-    op = project.db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()
+    op = project.db.execute(
+        "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ).fetchone()
     info = json.loads(op["undo_info"] or "{}") if op is not None else {}
     info["retired_output_columns"] = retired
     project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+        "UPDATE changes SET undo_info=? WHERE id=?", (json.dumps(info), change_id)
     )
     return [entry["column_id"] for entry in retired]
 
 
 def retire_unbound_created_columns(
-    project: Project, op_id: int, column_ids: frozenset[int]
+    project: Project, change_id: int, column_ids: frozenset[int]
 ) -> None:
     """Release fresh drafts after declaration fails, retaining failed-run history."""
     if not column_ids:
@@ -225,7 +227,7 @@ def retire_unbound_created_columns(
         if not retired:
             return
         op = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (op_id,)
+            "SELECT undo_info FROM changes WHERE id=?", (change_id,)
         ).fetchone()
         info = json.loads(op["undo_info"])
         # No output was published: replaying this failed operation must not
@@ -236,7 +238,7 @@ def retire_unbound_created_columns(
             if column_id not in retired
         ]
         project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+            "UPDATE changes SET undo_info=? WHERE id=?", (json.dumps(info), change_id)
         )
 
 
@@ -248,12 +250,12 @@ def is_empty_failed_output(project: Project, column_id: int) -> bool:
     Manual edits also protect it, including nulls and undone edits with redo.
     """
     owner = project.db.execute(
-        "SELECT ops.id,ops.undo_info FROM columns "
+        "SELECT changes.id,changes.undo_info FROM columns "
         "JOIN runs ON runs.id=columns.current_run_id "
-        "JOIN ops ON ops.id=runs.op_id "
+        "JOIN changes ON changes.id=runs.change_id "
         "WHERE columns.id=? AND columns.active=1 AND columns.hidden=1 "
         "AND columns.generated=1 "
-        "AND runs.status IN ('completed','partial','failed') AND ops.status='applied'",
+        "AND runs.status IN ('completed','partial','failed') AND changes.status='applied'",
         (column_id,),
     ).fetchone()
     if owner is None:
@@ -293,8 +295,8 @@ def retire_empty_failed_output(project: Project, column_id: int) -> bool:
     # Undo/redo of the failed producer must never reclaim the released name.
     # Its run, generation, results, and receipt still retain this column ID.
     creators = project.db.execute(
-        "SELECT DISTINCT ops.id,ops.undo_info FROM run_output_generations generation "
-        "JOIN runs ON runs.id=generation.run_id JOIN ops ON ops.id=runs.op_id "
+        "SELECT DISTINCT changes.id,changes.undo_info FROM run_output_generations generation "
+        "JOIN runs ON runs.id=generation.run_id JOIN changes ON changes.id=runs.change_id "
         "WHERE generation.column_id=?",
         (column_id,),
     ).fetchall()
@@ -309,7 +311,7 @@ def retire_empty_failed_output(project: Project, column_id: int) -> bool:
             set(creator_info.get("released_columns", ())) | {column_id}
         )
         project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
+            "UPDATE changes SET undo_info=? WHERE id=?",
             (json.dumps(creator_info), creator["id"]),
         )
     return True
@@ -317,13 +319,13 @@ def retire_empty_failed_output(project: Project, column_id: int) -> bool:
 
 def hide_zero_success_created_columns(
     project: Project,
-    op_id: int,
+    change_id: int,
     out_cols: dict[str, int],
     *,
     only_columns: set[int] | None = None,
 ) -> set[int]:
     """Hide the subset of ``out_cols`` this op created fresh (per
-    ``ops.undo_info.created_columns``), leaving reused/overwritten
+    ``changes.undo_info.created_columns``), leaving reused/overwritten
     columns untouched. Caller owns the transaction/commit. The column
     stays pointed at the run (``point_column_at_run`` already ran) — only
     its visibility changes, so receipt/replay lookups that key off
@@ -336,7 +338,9 @@ def hide_zero_success_created_columns(
     apply left its columns visible, which isn't true here). ``_unapply``
     needs no matching change: hiding an already-hidden column on undo is
     already a no-op."""
-    op = project.db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()
+    op = project.db.execute(
+        "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ).fetchone()
     if op is None:
         return set()
     info = json.loads(op["undo_info"] or "{}")
@@ -351,14 +355,14 @@ def hide_zero_success_created_columns(
     zero_success = set(info.get("zero_success_columns", [])) | to_hide
     info["zero_success_columns"] = sorted(zero_success)
     project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+        "UPDATE changes SET undo_info=? WHERE id=?", (json.dumps(info), change_id)
     )
     return to_hide
 
 
 def reveal_recovered_columns(
     project: Project,
-    op_id: int,
+    change_id: int,
     out_cols: dict[str, int],
     *,
     still_zero_success: set[int] | None = None,
@@ -371,7 +375,9 @@ def reveal_recovered_columns(
     zero_success_columns`` so it goes back to behaving like an ordinary
     created column (visible now, and on a later redo). A no-op unless
     this op actually hid one of ``out_cols`` before."""
-    op = project.db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()
+    op = project.db.execute(
+        "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ).fetchone()
     if op is None:
         return
     info = json.loads(op["undo_info"] or "{}")
@@ -385,5 +391,5 @@ def reveal_recovered_columns(
         project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (cid,))
     info["zero_success_columns"] = sorted(zero_success - to_reveal)
     project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+        "UPDATE changes SET undo_info=? WHERE id=?", (json.dumps(info), change_id)
     )

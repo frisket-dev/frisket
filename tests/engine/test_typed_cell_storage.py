@@ -17,7 +17,7 @@ from frisket.engine.store.cell_writes import (
     insert_edits,
 )
 from frisket.engine.store.current_cells import register_current_cell_functions
-from frisket.engine.store.op_log import append_change_in_transaction
+from frisket.engine.store.change_log import append_change_in_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
@@ -322,7 +322,7 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
     db.execute("BEGIN")
     source_op = append_change_in_transaction(_Project(db), "source.write")
     producer_id = create_base_cell_producer(
-        db, stage_id=f"op:{source_op}", op_id=source_op
+        db, stage_id=f"op:{source_op}", change_id=source_op
     )
     initialize_base_cells(
         db,
@@ -330,7 +330,7 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
         cells=[BaseCellWrite(100, 10, "0012"), BaseCellWrite(101, 10, 7)],
     )
     edit_op = append_change_in_transaction(_Project(db), "edit")
-    insert_edits(db, op_id=edit_op, edits=[EditCellWrite(101, 10, None)])
+    insert_edits(db, change_id=edit_op, edits=[EditCellWrite(101, 10, None)])
 
     rows = db.execute(
         "SELECT row_id,value_kind,value,typeof(value),origin_kind,validity "

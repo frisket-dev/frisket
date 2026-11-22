@@ -48,7 +48,7 @@ def feedable_named_result_ref(
     sheet_id: int,
     column_id: int,
     run_id: int,
-    op_id: int,
+    change_id: int,
     route: str,
     schema_name: str,
     schema_json: dict[str, Any],
@@ -62,7 +62,7 @@ def feedable_named_result_ref(
         "sheet_id": sheet_id,
         "column_id": column_id,
         "run_id": run_id,
-        "op_id": op_id,
+        "change_id": change_id,
         "route": route,
         "schema": schema_name,
         "schema_json": copy.deepcopy(schema_json),
@@ -85,7 +85,7 @@ def is_feedable_named_result_ref(
     sheet_id: int,
     column_id: int,
     run_id: int,
-    op_id: int,
+    change_id: int,
     route: str,
     schema_name: str,
     target: str = DERIVE_TABLE_FROM_LIST,
@@ -175,7 +175,7 @@ def is_feedable_named_result_ref(
         or ref.get("sheet_id") != sheet_id
         or ref.get("column_id") != column_id
         or ref.get("run_id") != run_id
-        or ref.get("op_id") != op_id
+        or ref.get("change_id") != change_id
         or ref.get("route") != route
         or ref.get("schema") != schema_name
     ):

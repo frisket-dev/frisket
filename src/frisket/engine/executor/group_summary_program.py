@@ -72,7 +72,7 @@ class GroupSummaryProgram(ActionProgram):
 
                     restore_derived_rows(
                         project.db,
-                        op_id=context["op_id"],
+                        change_id=context["change_id"],
                         sheet_id=context["sheet_id"],
                         row_ids=[row_id],
                     )

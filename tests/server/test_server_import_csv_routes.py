@@ -272,7 +272,7 @@ def test_direct_csv_publication_keeps_reversible_storage_and_public_receipt(
     receipt = json.loads(receipt_row["body"])
     assert receipt["action_kind"] == "import.csv"
     assert receipt["status"] == "completed"
-    assert receipt["op_ids"] == [op["id"]]
+    assert receipt["change_ids"] == [op["id"]]
 
     assert project.undo() == op["id"]
     assert client.get(f"/api/projects/{pid}/sheets").json() == []

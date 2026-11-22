@@ -53,7 +53,7 @@ def assert_pre_dispatch_failure_is_durable(
     """
 
     assert after["runs"] == before["runs"] + 1
-    assert after["ops"] == before["ops"] + 1
+    assert after["changes"] == before["changes"] + 1
     for table in ("results", "model_calls"):
         if table in before:
             assert after[table] == before[table]
@@ -239,11 +239,11 @@ class ExecutorCase:
     case_id: str | None = None
 
 
-def operation_action(kind: str, *, key: str, expected_op_id: int) -> dict[str, Any]:
+def change_action(kind: str, *, key: str, expected_change_id: int) -> dict[str, Any]:
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -507,7 +507,7 @@ def test_replay(
             assert replay.status == "completed", replay.errors
             assert replay.receipt_id == first.receipt_id
             assert replay.run_id == first.run_id
-            assert replay.op_ids == first.op_ids
+            assert replay.change_ids == first.change_ids
             # Replay reconstructs outputs from the stored receipt; ref dicts
             # round-trip with re-sorted keys, so compare identity not bytes.
             if case.replay_output_names:
@@ -637,10 +637,10 @@ def test_undo_rerun_reuse(
         first = env.run_primary()
         assert first.status == "completed", first.errors
         undo = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key=f"operation_undo_{env.case.kind.replace('.', '_')}@sha256:harness",
-                expected_op_id=first.op_ids[0],
+                expected_change_id=first.change_ids[0],
             )
         )
         assert undo.status == "completed", undo.errors

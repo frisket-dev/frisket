@@ -43,7 +43,7 @@ def _request(project, tmp_path, destination_kind):
 def _counts(project):
     return {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("ops", "receipts", "blobs")
+        for table in ("changes", "receipts", "blobs")
     }
 
 

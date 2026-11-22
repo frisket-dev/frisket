@@ -2247,7 +2247,7 @@ def test_import_handoff_projects_durable_pending_available_and_none(
         row_ids=[],
         force_ocr=False,
         plan={
-            "source_cutoff": project.op_cursor,
+            "source_cutoff": project.change_cursor,
             "items": [],
             "models": [],
             "groups": [],

@@ -8,7 +8,7 @@ const view = (id: number, name: string, sheetId = 1): View => ({
   sheet_id: sheetId,
   spec: { selection: { scope: { kind: 'sheet', sheet_id: sheetId }, filters: [{ column_id: 1, condition: { eq: 'open' } }], order: [], limit: null }, presentation: {} },
   unavailable_reason: null,
-  op_id: null,
+  change_id: null,
 });
 
 describe('createViewsStore', () => {

@@ -389,7 +389,7 @@ class RunResultStore:
 
     def start_run_in_transaction(
         self,
-        op_id: int,
+        change_id: int,
         sheet_id: int,
         action_kind: str,
         *,
@@ -408,12 +408,12 @@ class RunResultStore:
         stored_params = dict(params or {})
         stored_params.pop("execution_root_run_id", None)
         cur = self.db.execute(
-            "INSERT INTO runs (op_id, sheet_id, action_kind, action_version, "
+            "INSERT INTO runs (change_id, sheet_id, action_kind, action_version, "
             "model, prompt_hash, params, total_rows, "
             "cost_estimate,execution_root_run_id) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
-                op_id,
+                change_id,
                 sheet_id,
                 action_kind,
                 action_version,
@@ -432,7 +432,7 @@ class RunResultStore:
 
     def start_run(
         self,
-        op_id: int,
+        change_id: int,
         sheet_id: int,
         action_kind: str,
         *,
@@ -449,7 +449,7 @@ class RunResultStore:
             raise ValueError(f"action kind {action_kind!r} is not canonical")
         with write_transaction(self.db, what="start_run"):
             return self.start_run_in_transaction(
-                op_id,
+                change_id,
                 sheet_id,
                 action_kind,
                 action_version=action_version,
@@ -1391,7 +1391,7 @@ class RunResultStore:
                 "receipt.status AS receipt_status, receipt.run_id AS receipt_run_id, "
                 "receipt.params_hash, "
                 "receipt.action_kind AS receipt_action_kind, op.status AS op_status "
-                "FROM runs run JOIN ops op ON op.id=run.op_id "
+                "FROM runs run JOIN changes op ON op.id=run.change_id "
                 "JOIN receipts receipt ON receipt.id=? "
                 "WHERE run.id=?",
                 (receipt_id, run_id),
@@ -1451,7 +1451,7 @@ class RunResultStore:
             "run.sheet_id AS run_sheet_id, op.status AS op_status, "
             "receipt.status AS receipt_status, receipt.run_id AS receipt_run_id, "
             "receipt.action_kind AS receipt_action_kind, receipt.params_hash "
-            "FROM runs run JOIN ops op ON op.id=run.op_id "
+            "FROM runs run JOIN changes op ON op.id=run.change_id "
             "JOIN receipts receipt ON receipt.id=? "
             "WHERE run.id=?",
             (receipt_id, run_id),
@@ -3167,7 +3167,7 @@ class RunResultStore:
         require_transaction(self.db, "finish_run_in_transaction")
         run = self.db.execute(
             "SELECT run.status,run.current_attempt_id,run.cancel_requested_at "
-            "FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+            "FROM runs run JOIN changes op ON op.id=run.change_id WHERE run.id=?",
             (int(run_id),),
         ).fetchone()
         if run is None:
@@ -3382,7 +3382,7 @@ class RunResultStore:
                 "SELECT run.status,run.finished_at,run.params,run.cancel_requested_at, "
                 "run.halted_code,run.halted_reason,op.status AS change_status, "
                 "op.change_order,op.publication_closed "
-                "FROM runs run JOIN ops op ON op.id=run.op_id "
+                "FROM runs run JOIN changes op ON op.id=run.change_id "
                 "WHERE run.id=?",
                 (run_id,),
             ).fetchone()
@@ -3510,14 +3510,14 @@ class RunResultStore:
                 ),
             )
 
-    def point_column_at_run(self, op_id: int, column_id: int, run_id: int) -> None:
+    def point_column_at_run(self, change_id: int, column_id: int, run_id: int) -> None:
         """Move a column pointer in the caller's transaction, capturing prior state for undo."""
         require_transaction(self.db, "column run pointer")
         prev = self.db.execute(
             "SELECT current_run_id FROM columns WHERE id=?", (column_id,)
         ).fetchone()[0]
         change_row = self.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (op_id,)
+            "SELECT undo_info FROM changes WHERE id=?", (change_id,)
         ).fetchone()
         info = json.loads(change_row["undo_info"] or "{}") if change_row else {}
         # keep the FIRST prior pointer: repeat pointing within one op must
@@ -3525,7 +3525,7 @@ class RunResultStore:
         info.setdefault("column_pointers", {}).setdefault(str(column_id), prev)
         info.setdefault("column_pointers_after", {})[str(column_id)] = run_id
         self.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+            "UPDATE changes SET undo_info=? WHERE id=?", (json.dumps(info), change_id)
         )
         self.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, column_id)

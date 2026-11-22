@@ -33,7 +33,7 @@ from . import (
     cells,
     credentials,
     notifications,
-    op_log,
+    change_log,
     project_blobs,
     project_meta,
     sheet_lifecycle,
@@ -151,6 +151,11 @@ class ProjectReadSnapshot:
         self.db  # Refuse borrowing an already closed snapshot.
         return nullcontext(self)
 
+    def materialize_blob(self, digest: str) -> AbstractContextManager[Path]:
+        """Materialize a content-addressed blob for this read snapshot."""
+        self.db  # Refuse blob access after the snapshot lifetime ends.
+        return self.blob_store.materialize(digest)
+
     # ---------- cells: read-only sheet, column and value reads ----------
     pending_replay_values = cells.pending_replay_values
     pending_replay_count = cells.pending_replay_count
@@ -162,8 +167,10 @@ class ProjectReadSnapshot:
     visible_row_ids = cells.visible_row_ids
 
     @property
-    def op_cursor(self) -> int:
-        row = self.db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()
+    def change_cursor(self) -> int:
+        row = self.db.execute(
+            "SELECT value FROM meta WHERE key='change_cursor'"
+        ).fetchone()
         return int(row["value"] if row is not None else "0")
 
     def temporary_directory(self, *, prefix: str = "frisket-read-") -> Path:
@@ -315,7 +322,7 @@ class Project:
         db.executescript("BEGIN;\n" + SCHEMA)
         db.execute(
             "INSERT INTO meta (key, value) VALUES "
-            "('format_version', ?), ('name', ?), ('op_cursor', '0'), "
+            "('format_version', ?), ('name', ?), ('change_cursor', '0'), "
             "('sensitive', ?), ('project_kind', 'regular'), (?, ?), (?, ?), (?, ?)",
             (
                 str(FORMAT_VERSION),
@@ -497,7 +504,7 @@ class Project:
     dependent_sheets = sheet_lifecycle.dependent_sheets
     delete_sheet = sheet_lifecycle.delete_sheet
 
-    # ---------- op_log: operation history, undo / redo ----------
+    # ---------- change_log: operation history, undo / redo ----------
 
     def append_change(
         self,
@@ -508,10 +515,10 @@ class Project:
     ) -> int:
         if barrier:
             with write_transaction(self.db, what="change append"):
-                return op_log.append_change_in_transaction(
+                return change_log.append_change_in_transaction(
                     self, kind, spec, label, barrier=True
                 )
-        return op_log.append_change(self, kind, spec, label)
+        return change_log.append_change(self, kind, spec, label)
 
     def append_change_in_transaction(
         self,
@@ -520,22 +527,22 @@ class Project:
         label: str | None = None,
         barrier: bool = False,
     ) -> int:
-        return op_log.append_change_in_transaction(self, kind, spec, label, barrier)
+        return change_log.append_change_in_transaction(self, kind, spec, label, barrier)
 
-    set_undo_info = op_log.set_undo_info
-    history = op_log.history
-    history_page = op_log.history_page
-    history_total = op_log.history_total
-    history_cursor_index = op_log.history_cursor_index
-    undo = op_log.undo
-    redo = op_log.redo
-    _unapply = op_log._unapply
-    _reapply = op_log._reapply
-    changes_meta = op_log.changes_meta
+    set_undo_info = change_log.set_undo_info
+    history = change_log.history
+    history_page = change_log.history_page
+    history_total = change_log.history_total
+    history_cursor_index = change_log.history_cursor_index
+    undo = change_log.undo
+    redo = change_log.redo
+    _unapply = change_log._unapply
+    _reapply = change_log._reapply
+    changes_meta = change_log.changes_meta
 
     @property
-    def op_cursor(self) -> int:
-        return int(self.get_meta("op_cursor", "0"))
+    def change_cursor(self) -> int:
+        return int(self.get_meta("change_cursor", "0"))
 
     # ---------- project_blobs: content-addressed blobs ----------
 

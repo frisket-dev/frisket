@@ -49,7 +49,7 @@ def seed(project, *, count=1001):
 def snapshot(project):
     return {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "changes", "receipts")
     }
 
 

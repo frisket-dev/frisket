@@ -66,7 +66,7 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(make_project) -> 
     result = run_action_spec(project, _request(sheet_id, params), project_id="p")
     assert result.status == "completed", result.errors
     op = project.db.execute(
-        "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT spec FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     op_spec = json.loads(op["spec"])
     assert op_spec["scope"] == {"kind": "sheet_rows", "sheet_id": sheet_id}
@@ -81,9 +81,9 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(make_project) -> 
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alicia"
     assert project.get_values(sheet_id, columns["note"])[row_ids[0]] is None
     assert project.get_values(sheet_id, columns["name"])[row_ids[1]] == "Bob"
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alice"
-    assert project.redo() == result.op_ids[0]
+    assert project.redo() == result.change_ids[0]
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alicia"
 
     # Completed idempotency replay wins even though live target values changed.
@@ -118,7 +118,7 @@ def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
         project_id="p",
     )
     assert refused.status == "completed"
-    assert refused.op_ids == []
+    assert refused.change_ids == []
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == before
 
 
@@ -128,7 +128,7 @@ def test_keep_existing_blank_preserves_current_values(make_project) -> None:
     params = _params([{"id": "a", "name": "", "note": None}], keep=True)
     result = run_action_spec(project, _request(sheet_id, params), project_id="p")
     assert result.status == "completed"
-    assert result.op_ids == []
+    assert result.change_ids == []
     assert project.get_values(sheet_id, columns["name"])[row_ids[0]] == "Alice"
 
 
@@ -240,7 +240,7 @@ def test_custom_rows_updater_uses_same_publication_without_outer_transaction(
     assert result.action.kind == custom.action_id
     assert project.get_values(sheet, columns["name"])[rows[0]] == "new"
     assert project.get_values(sheet, columns["note"])[rows[0]] == "keep"
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert project.get_values(sheet, columns["name"])[rows[0]] == "Alice"
     replay = run_action_spec(project, request, project_id="p")
     assert replay.receipt_id == result.receipt_id
@@ -300,7 +300,7 @@ def test_rekey_then_delete_cannot_restore_row_under_old_source_key(make_project)
         ]
         == 1
     )
-    assert later.op_ids == []
+    assert later.change_ids == []
 
 
 def test_custom_updater_failure_after_publication_keeps_work_and_records_failure(
@@ -361,11 +361,11 @@ def test_custom_updater_failure_after_publication_keeps_work_and_records_failure
     assert receipt.status == "partial"
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?", (result.op_ids[0],)
+            "SELECT publication_closed FROM changes WHERE id=?", (result.change_ids[0],)
         ).fetchone()[0]
         == 1
     )
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert project.get_values(sheet, columns["name"])[rows[0]] == "Alice"
 
 
@@ -422,7 +422,7 @@ def test_direct_update_publication_failure_closes_its_reserved_receipt(
     )
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?", (result.op_ids[0],)
+            "SELECT publication_closed FROM changes WHERE id=?", (result.change_ids[0],)
         ).fetchone()[0]
         == 1
     )
@@ -468,7 +468,7 @@ def test_keyed_import_restores_only_changed_source_and_undo_hides_again(
     repeated = run_action_spec(
         project, _request(sheet, params, "repeat"), project_id="p"
     )
-    assert repeated.status == "completed" and repeated.op_ids == []
+    assert repeated.status == "completed" and repeated.change_ids == []
     params.rows = [{"id": "a", "name": "changed"}]
     params.update_policy = policy
     result = run_action_spec(
@@ -485,7 +485,7 @@ def test_keyed_import_restores_only_changed_source_and_undo_hides_again(
     assert hidden == (policy == "keep_changes")
     if policy == "incoming_wins":
         assert project.get_values(sheet, columns["name"])[rows[0]] == "changed"
-        assert project.undo() == result.op_ids[0]
+        assert project.undo() == result.change_ids[0]
         assert (
             project.db.execute(
                 "SELECT hidden FROM rows WHERE id=?", (rows[0],)
@@ -493,7 +493,7 @@ def test_keyed_import_restores_only_changed_source_and_undo_hides_again(
             == 1
         )
     else:
-        assert result.op_ids == []
+        assert result.change_ids == []
 
 
 def test_keyed_import_rechecks_target_identity_after_indexing(

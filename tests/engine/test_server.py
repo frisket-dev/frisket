@@ -645,22 +645,22 @@ class TestRuns:
 
     def test_undo_redo_history(self, client):
         pid, sheet_id = make_project_with_data(client)
-        hist = client.get(f"/api/projects/{pid}/history").json()["ops"]
+        hist = client.get(f"/api/projects/{pid}/history").json()["changes"]
         assert hist[-1]["kind"] == "import.csv" and hist[-1]["barrier"] is False
-        op_id = hist[-1]["id"]
+        change_id = hist[-1]["id"]
 
-        r = post_operation_undo_as_v1_action(client, pid, expected_op_id=op_id)
+        r = post_operation_undo_as_v1_action(client, pid, expected_change_id=change_id)
         assert r.status_code == 200
         body = r.json()
         assert body["schema_version"] == "frisket.action_result.v1"
         assert body["status"] == "completed"
-        assert body["op_ids"] == [op_id]
-        r = post_operation_redo_as_v1_action(client, pid, expected_op_id=op_id)
+        assert body["change_ids"] == [change_id]
+        r = post_operation_redo_as_v1_action(client, pid, expected_change_id=change_id)
         assert r.status_code == 200
         body = r.json()
         assert body["schema_version"] == "frisket.action_result.v1"
         assert body["status"] == "completed"
-        assert body["op_ids"] == [op_id]
+        assert body["change_ids"] == [change_id]
 
     def test_debug_dump_reflects_real_state(self, client):
         """The debug dump must mirror the project's
@@ -699,10 +699,10 @@ class TestRuns:
 
         body = client.get(f"/api/projects/{pid}/debug").json()
         # op log: import then the classify run, cursor on the latest op
-        kinds = [o["kind"] for o in body["ops"]]
+        kinds = [o["kind"] for o in body["changes"]]
         assert "import.csv" in kinds
-        assert body["ops"][-1]["at_cursor"] is True
-        assert body["op_cursor"] == body["ops"][-1]["id"]
+        assert body["changes"][-1]["at_cursor"] is True
+        assert body["change_cursor"] == body["changes"][-1]["id"]
         # runs: the real run row with live counts
         run = next(r for r in body["runs"] if r["run_id"] == run_id)
         assert run["status"] == "completed"
@@ -768,7 +768,7 @@ class TestViews:
         assert view["sheet_id"] == sheet_id
         assert view["spec"]["selection"] == spec["selection"]
         # the provenance contract: saving a view appends a 'view' op to history
-        hist = client.get(f"/api/projects/{pid}/history").json()["ops"]
+        hist = client.get(f"/api/projects/{pid}/history").json()["changes"]
         view_ops = [o for o in hist if o["kind"] == "view"]
         assert view_ops, "saving a view must be a logged op"
         assert view_ops[-1]["label"] == "view high-confidence"
@@ -802,7 +802,7 @@ class TestViews:
         before = len(
             [
                 o
-                for o in client.get(f"/api/projects/{pid}/history").json()["ops"]
+                for o in client.get(f"/api/projects/{pid}/history").json()["changes"]
                 if o["kind"] == "view"
             ]
         )
@@ -819,7 +819,7 @@ class TestViews:
         after = len(
             [
                 o
-                for o in client.get(f"/api/projects/{pid}/history").json()["ops"]
+                for o in client.get(f"/api/projects/{pid}/history").json()["changes"]
                 if o["kind"] == "view"
             ]
         )

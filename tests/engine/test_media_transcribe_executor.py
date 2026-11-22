@@ -336,8 +336,8 @@ def _go_stale(project: Project, seeded: dict[str, Any]) -> None:
     column_id = int(column["id"])
     project.db.execute("DELETE FROM cell_result_heads WHERE column_id=?", (column_id,))
     project.db.execute(
-        "UPDATE ops SET status='discarded' WHERE id IN ("
-        "SELECT run.op_id FROM runs run JOIN run_output_generations generation "
+        "UPDATE changes SET status='discarded' WHERE id IN ("
+        "SELECT run.change_id FROM runs run JOIN run_output_generations generation "
         "ON generation.run_id=run.id WHERE generation.column_id=?)",
         (column_id,),
     )
@@ -455,7 +455,7 @@ CASES = [
             "runs": 1,
             "results": 6,
             "model_calls": 2,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,
@@ -717,11 +717,11 @@ def test_over_cap_remote_transcription_is_refused_before_provider_egress(
         sheet_id = env.seeded["sheet_id"]
         row_id = env.seeded["row_ids"][0]
         column_id = int(_columns(project, sheet_id)["media"]["id"])
-        op_id = project.append_change(
+        change_id = project.append_change(
             "map", {"recipe": "prior_provider_spend"}, label="prior spend"
         )
         prior_run_id = RunResultStore(project).start_run(
-            op_id, sheet_id, "test.prior_provider_spend"
+            change_id, sheet_id, "test.prior_provider_spend"
         )
         write_claimless_test_model_calls(
             project,
@@ -880,7 +880,7 @@ def test_media_transcribe_rerun_replaces_prior_outputs_and_undo_restores_them(
     """A second visible run onto the same generated columns replaces the values;
     undoing it restores the FIRST run's values, segments, and language — the
     temporal layer, not just column visibility."""
-    from executor_harness import operation_action
+    from executor_harness import change_action
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         generation = {"value": 1}
@@ -963,10 +963,10 @@ def test_media_transcribe_rerun_replaces_prior_outputs_and_undo_restores_them(
         assert language_values == {row_ids[0]: "es", row_ids[1]: "es"}
 
         undo = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="operation_undo_media_transcribe@sha256:visible-rerun",
-                expected_op_id=second.op_ids[0],
+                expected_change_id=second.change_ids[0],
             )
         )
         assert undo.status == "completed", undo.errors

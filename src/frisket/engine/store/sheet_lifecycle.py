@@ -7,7 +7,7 @@ from typing import Any
 
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.changes import start_change
-from frisket.engine.store.op_log import append_change_in_transaction
+from frisket.engine.store.change_log import append_change_in_transaction
 from frisket.engine.store.structural_changes import note_row_membership_change
 from frisket.engine.store.transactions import write_transaction
 
@@ -27,7 +27,7 @@ def materialized_source_sheets(project: Any) -> dict[int, set[int]]:
     sources: dict[int, set[int]] = {}
     for row in project.db.execute(
         "SELECT child.id, op.spec FROM sheets child "
-        "JOIN ops op ON op.id=child.parent_op_id "
+        "JOIN changes op ON op.id=child.parent_change_id "
         "WHERE child.hidden=0 AND op.status='applied'"
     ):
         try:
@@ -79,7 +79,7 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
         SELECT DISTINCT child.id, child.name
         FROM run_output_generations generation
         JOIN runs owner ON owner.id=generation.run_id
-        JOIN ops owner_op ON owner_op.id=owner.op_id
+        JOIN changes owner_op ON owner_op.id=owner.change_id
         JOIN sheets child ON child.id=owner.sheet_id
         JOIN runs base ON base.id=generation.expected_base_run_id
         WHERE child.id<>? AND base.sheet_id=? AND owner_op.status<>'discarded'
@@ -109,14 +109,14 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
         if sheet is None:
             raise SheetDeleteNotFound(f"no sheet {sheet_id}")
         require_import_sheet_write(project.db, sheet_id)
-        op_id = append_change_in_transaction(
+        change_id = append_change_in_transaction(
             project,
             "sheet.delete",
             {"sheet_id": sheet_id},
             label=f"delete sheet {sheet['name']}",
             undo_info={"deleted_sheets": [sheet_id]},
         )
-        start_change(project.db, op_id)
+        start_change(project.db, change_id)
         project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
         from .source_dependencies import stop_direct_consumers
 

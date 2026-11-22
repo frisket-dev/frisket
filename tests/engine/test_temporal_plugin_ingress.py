@@ -176,7 +176,7 @@ def test_plugin_write_plan_rejects_invalid_temporal_anchor_with_zero_state(
     project, _sheet_id, _row_id, anchor = _seed_project(make_project)
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "cells", "ops")
+        for table in ("sheets", "columns", "rows", "cells", "changes")
     }
     with pytest.raises(WritePlanValidationError, match=reason):
         apply_write_plan(
@@ -191,6 +191,6 @@ def test_plugin_write_plan_rejects_invalid_temporal_anchor_with_zero_state(
         )
     after = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "cells", "ops")
+        for table in ("sheets", "columns", "rows", "cells", "changes")
     }
     assert after == before

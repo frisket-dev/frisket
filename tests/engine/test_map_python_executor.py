@@ -268,7 +268,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert run["failed_rows"] == 0
 
     op = project.db.execute(
-        "SELECT * FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT * FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert op["kind"] == "map"
@@ -437,7 +437,7 @@ CASES = [
             "runs": 1,
             # one result row per source row per output route (2 rows x 4)
             "results": 8,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

@@ -760,7 +760,7 @@ def _terminalize_unclaimed_prepared_run(
         _finalize_run_in_transaction(
             project,
             RunResultStore(project),
-            op_id=int(prepared_run.op_id),
+            change_id=int(prepared_run.change_id),
             run_id=run_id,
             status="failed",
             out_cols=dict(prepared_run.out_cols),

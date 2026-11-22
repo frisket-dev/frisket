@@ -272,7 +272,7 @@ def test_remote_refresh_over_allowance_requires_exact_confirmation_before_egress
     assert isinstance(token, str) and len(token) == 64
 
     before_jobs = client.app.state.workspace.queue.list_project_jobs(pid)
-    effect_tables = ("ops", "runs", "model_calls", "receipts", "effect_checkpoints")
+    effect_tables = ("changes", "runs", "model_calls", "receipts", "effect_checkpoints")
     before_counts = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
         for table in effect_tables

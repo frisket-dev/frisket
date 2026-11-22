@@ -26,9 +26,9 @@ def _seed_generation(
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
+    change_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
         row_ids=row_ids,
@@ -143,8 +143,10 @@ def test_compaction_preserves_run_id_and_row_effect_checkpoint(
     project: Project,
 ) -> None:
     sheet_id, _column_id, row_id, _other_row_id, run_id = _seed_generation(project)
-    op_id = int(
-        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[0]
+    change_id = int(
+        project.db.execute(
+            "SELECT change_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
     )
     project.db.execute(
         "INSERT INTO effect_checkpoints "
@@ -153,7 +155,7 @@ def test_compaction_preserves_run_id_and_row_effect_checkpoint(
         "'map.regex_extract','old-request','reserved')",
         (str(run_id), str(row_id)),
     )
-    project.db.execute("UPDATE ops SET status='discarded' WHERE id=?", (op_id,))
+    project.db.execute("UPDATE changes SET status='discarded' WHERE id=?", (change_id,))
     project.db.commit()
 
     project.compact(vacuum=False)
@@ -289,10 +291,12 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
         == "verified"
     )
 
-    op_id = int(
-        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[0]
+    change_id = int(
+        project.db.execute(
+            "SELECT change_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
     )
-    project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (op_id,))
+    project.db.execute("UPDATE changes SET status='undone' WHERE id=?", (change_id,))
     # Exact idempotent writes remain harmless even after the owning op moves;
     # no semantic payload or publication identity changes.
     project.db.execute(
@@ -487,10 +491,12 @@ def test_generation_binding_delete_requires_permanent_op_discard(
         state=generation_state,
         write_mode=write_mode,
     )
-    op_id = int(
-        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[0]
+    change_id = int(
+        project.db.execute(
+            "SELECT change_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
     )
-    project.db.execute("UPDATE ops SET status=? WHERE id=?", (op_status, op_id))
+    project.db.execute("UPDATE changes SET status=? WHERE id=?", (op_status, change_id))
 
     if deletable:
         project.db.execute(
@@ -507,7 +513,7 @@ def test_generation_binding_delete_requires_permanent_op_discard(
     else:
         with pytest.raises(
             sqlite3.IntegrityError,
-            match="output generation can be deleted only after op discard",
+            match="output generation can be deleted only after change discard",
         ):
             project.db.execute(
                 "DELETE FROM run_output_generations WHERE run_id=? AND column_id=?",
@@ -536,10 +542,12 @@ def test_discard_gc_must_remove_head_before_generation_and_result(
         "WHERE run_id=? AND column_id=?",
         (run_id, column_id),
     )
-    op_id = int(
-        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[0]
+    change_id = int(
+        project.db.execute(
+            "SELECT change_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
     )
-    project.db.execute("UPDATE ops SET status='discarded' WHERE id=?", (op_id,))
+    project.db.execute("UPDATE changes SET status='discarded' WHERE id=?", (change_id,))
 
     with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
         project.db.execute(

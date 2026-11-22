@@ -6,6 +6,11 @@ import json
 from collections.abc import Callable
 from typing import Any, TypedDict
 
+from frisket.contracts.query_spec import (
+    EMBEDDING_SIMILARITY_KIND,
+    LOCAL_RETRIEVAL_SIMILARITY_KIND,
+)
+from frisket.engine.jobs.search_index import index_work_marker, process_index_batches
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.alerts.service import (
@@ -21,7 +26,7 @@ class FeedPollMaterialization(TypedDict):
     feed_id: int
     feed_check_id: int
     sheet_id: int
-    op_id: int
+    change_id: int
     row_ids: list[int]
     materialized_rows: int
 
@@ -66,8 +71,15 @@ def feed_poll_materialization_from_receipt(
         feed_check.get("feed_check_id") or rows.get("feed_check_id")
     )
     sheet_id = _positive_int_or_none(feed_check.get("sheet_id") or rows.get("sheet_id"))
-    op_id = _positive_int_or_none(feed_check.get("op_id") or rows.get("op_id"))
-    if feed_id is None or feed_check_id is None or sheet_id is None or op_id is None:
+    change_id = _positive_int_or_none(
+        feed_check.get("change_id") or rows.get("change_id")
+    )
+    if (
+        feed_id is None
+        or feed_check_id is None
+        or sheet_id is None
+        or change_id is None
+    ):
         return None
     return {
         "kind": "feed_poll_materialized",
@@ -75,10 +87,31 @@ def feed_poll_materialization_from_receipt(
         "feed_id": feed_id,
         "feed_check_id": feed_check_id,
         "sheet_id": sheet_id,
-        "op_id": op_id,
+        "change_id": change_id,
         "row_ids": row_ids,
         "materialized_rows": materialized_rows,
     }
+
+
+def _drain_standalone_local_retrieval(project: Project, embedding_encoder: Any) -> None:
+    if embedding_encoder is None or not embedding_encoder.available():
+        return
+    for _ in range(32):
+        processed, complete = process_index_batches(
+            project, embedding_encoder=embedding_encoder
+        )
+        if complete or index_work_marker(project, include_preparation=True) is None:
+            break
+        if processed == 0:
+            break
+
+
+def _run_alert_check(
+    project: Project, alert: Any, embedding_encoder: Any
+) -> dict[str, Any]:
+    if embedding_encoder is None:
+        return check_alert(project, alert)
+    return check_alert(project, alert, embedding_encoder=embedding_encoder)
 
 
 def trigger_source_materialized_alerts(
@@ -87,28 +120,39 @@ def trigger_source_materialized_alerts(
     *,
     enqueue_keyword_alerts: Callable[[list[Any], FeedPollMaterialization], None]
     | None = None,
+    embedding_encoder: Any = None,
 ) -> list[dict[str, Any]]:
     if (
         materialization.get("kind") != "feed_poll_materialized"
-        or materialization.get("op_id") is None
+        or materialization.get("change_id") is None
         or not materialization.get("row_ids")
     ):
         return []
     alerts = affected_enabled_alerts(project, materialization)
-    keyword_alerts = [alert for alert in alerts if _is_keyword_alert(alert)]
-    if keyword_alerts and enqueue_keyword_alerts is not None:
-        enqueue_keyword_alerts(keyword_alerts, materialization)
-        alerts = [alert for alert in alerts if not _is_keyword_alert(alert)]
-    elif keyword_alerts:
+    indexed_alerts = [
+        alert
+        for alert in alerts
+        if _is_keyword_alert(alert) or _is_local_retrieval_alert(alert)
+    ]
+    if indexed_alerts and enqueue_keyword_alerts is not None:
+        enqueue_keyword_alerts(indexed_alerts, materialization)
+        alerts = [
+            alert
+            for alert in alerts
+            if not (_is_keyword_alert(alert) or _is_local_retrieval_alert(alert))
+        ]
+    elif indexed_alerts:
         # Standalone synchronous callers have no worker that could finish this
         # dependency; preserve their established complete-on-return contract.
         from frisket.search import drain_index
 
         drain_index(project)
+        if any(_is_local_retrieval_alert(alert) for alert in indexed_alerts):
+            _drain_standalone_local_retrieval(project, embedding_encoder)
     out: list[dict[str, Any]] = []
     for alert in alerts:
         try:
-            evaluation = check_alert(project, alert)
+            evaluation = _run_alert_check(project, alert, embedding_encoder)
         except AlertBindingError as exc:
             if exc.code != "search_index_not_ready" or not _is_keyword_alert(alert):
                 out.append(
@@ -125,14 +169,14 @@ def trigger_source_materialized_alerts(
             from frisket.search import drain_index
 
             drain_index(project)
-            evaluation = check_alert(project, alert)
+            evaluation = _run_alert_check(project, alert, embedding_encoder)
         evaluation.update(
             {
                 "trigger_kind": "feed_poll_materialized",
                 "feed_id": materialization["feed_id"],
                 "feed_check_id": materialization["feed_check_id"],
                 "sheet_id": materialization["sheet_id"],
-                "op_id": materialization["op_id"],
+                "change_id": materialization["change_id"],
                 "materialized_row_ids": list(materialization["row_ids"]),
             }
         )
@@ -147,6 +191,7 @@ def trigger_completed_feed_poll_alerts(
     receipt_id: str | None,
     enqueue_keyword_alerts: Callable[[list[Any], FeedPollMaterialization], None]
     | None = None,
+    embedding_encoder: Any = None,
 ) -> list[dict[str, Any]]:
     if not receipt_id:
         return []
@@ -161,6 +206,7 @@ def trigger_completed_feed_poll_alerts(
         project,
         materialization,
         enqueue_keyword_alerts=enqueue_keyword_alerts,
+        embedding_encoder=embedding_encoder,
     )
 
 
@@ -173,11 +219,9 @@ def affected_enabled_alerts(
     for alert in project.alerts():
         if not bool(alert["enabled"]) or alert["schedule"] is None:
             continue
-        # embedding_similarity alerts are evaluated AFTER their index refresh job
-        # completes (jobs/alerts.py), not inline on the source poll — evaluating
-        # them here would block on embedding_index_incomplete (rows not yet
-        # embedded) and never re-fire. Non-embedding alerts (fts/filter) still run
-        # inline.
+        # Named embedding_similarity alerts are evaluated AFTER their index
+        # refresh job completes (jobs/alerts.py), not inline on the source poll.
+        # Local retrieval and keyword/filter alerts remain affected here.
         if _is_embedding_similarity_alert(alert):
             continue
         if _alert_may_be_affected(alert, sheet_id=sheet_id):
@@ -185,11 +229,23 @@ def affected_enabled_alerts(
     return out
 
 
-def _is_embedding_similarity_alert(alert: Any) -> bool:
+def _alert_similarity_kind(alert: Any) -> str | None:
     try:
-        return bool(alert_query(alert).get("similarity"))
+        similarity = alert_query(alert).get("similarity")
     except AlertBindingError:
-        return False
+        return None
+    if isinstance(similarity, dict):
+        kind = similarity.get("kind")
+        return str(kind) if kind is not None else None
+    return None
+
+
+def _is_embedding_similarity_alert(alert: Any) -> bool:
+    return _alert_similarity_kind(alert) == EMBEDDING_SIMILARITY_KIND
+
+
+def _is_local_retrieval_alert(alert: Any) -> bool:
+    return _alert_similarity_kind(alert) == LOCAL_RETRIEVAL_SIMILARITY_KIND
 
 
 def _is_keyword_alert(alert: Any) -> bool:

@@ -16,7 +16,7 @@ from tests.engine.test_import_csv_executor import _import_csv_action
 def _counts(project: Project) -> dict[str, int]:
     return {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "cells", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "cells", "changes", "receipts")
     }
 
 
@@ -40,7 +40,7 @@ def test_csv_completed_replay_does_not_reopen_deleted_source(
     replay = run_action_spec(project, action, project_id="p")
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == first.receipt_id
-    assert replay.op_ids == first.op_ids
+    assert replay.change_ids == first.change_ids
     assert replay.outputs == first.outputs
     assert _counts(project) == before
 

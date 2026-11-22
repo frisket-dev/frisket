@@ -300,7 +300,7 @@ def test_scalar_migration_preserves_authority_values_history_and_reopen(
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 1
     assert [
         str(row["kind"])
-        for row in project.db.execute("SELECT kind FROM ops ORDER BY id")
+        for row in project.db.execute("SELECT kind FROM changes ORDER BY id")
     ] == [
         "add_rows",
         "map.regex_extract",

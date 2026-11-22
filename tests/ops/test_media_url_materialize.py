@@ -54,7 +54,7 @@ YOUTUBE_WATCH = "https://www.youtube.com/watch?v=fixture123"
 
 # The runs/results tables join the standard set: a reserved-MapRunner action
 # creates a run + a map op + per-row results, not a single edit op.
-_COUNT_TABLES = ("columns", "ops", "receipts", "blobs", "runs", "results")
+_COUNT_TABLES = ("columns", "changes", "receipts", "blobs", "runs", "results")
 
 
 def _fetch_url_action(

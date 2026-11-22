@@ -98,11 +98,11 @@ def _seed_project(
         [{"story": "alpha"}, {"story": "beta"}, {"story": "gamma"}],
         {"story": story_col},
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="classify"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         model="anthropic/test",
@@ -125,7 +125,7 @@ def _seed_project(
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+        RunResultStore(project).point_column_at_run(change_id, topic_col, run_id)
 
     sidecar = trace_path(project.path, run_id)
     sidecar.parent.mkdir(parents=True, exist_ok=True)

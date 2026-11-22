@@ -73,24 +73,25 @@ def _assert_refresh_request_confirmation_reaches_its_host_gate(tmp_path, registe
     seeded = _seed_join(tmp_path / "refresh-fanout.frisket")
     project, child_id = seeded["project"], seeded["child_id"]
     try:
-        parent_op_id = project.db.execute(
-            "SELECT parent_op_id FROM sheets WHERE id=?", (child_id,)
+        parent_change_id = project.db.execute(
+            "SELECT parent_change_id FROM sheets WHERE id=?", (child_id,)
         ).fetchone()[0]
         saved = json.loads(
             project.db.execute(
-                "SELECT spec FROM ops WHERE id=?", (parent_op_id,)
+                "SELECT spec FROM changes WHERE id=?", (parent_change_id,)
             ).fetchone()[0]
         )
         saved["params"]["max_output_rows"] = 1
         project.db.execute(
-            "UPDATE ops SET spec=? WHERE id=?", (json.dumps(saved), parent_op_id)
+            "UPDATE changes SET spec=? WHERE id=?",
+            (json.dumps(saved), parent_change_id),
         )
         # Even historical model metadata cannot introduce a second money token.
         project.db.execute(
             "INSERT INTO runs "
-            "(op_id, sheet_id, action_kind, status, model, total_rows, cost_estimate) "
+            "(change_id, sheet_id, action_kind, status, model, total_rows, cost_estimate) "
             "VALUES (?, ?, 'derive.join', 'completed', 'stub/model', 3, 0.42)",
-            (parent_op_id, child_id),
+            (parent_change_id, child_id),
         )
         project.db.commit()
         request = {

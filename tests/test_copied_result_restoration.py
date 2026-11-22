@@ -3,14 +3,14 @@
 import pytest
 
 import test_execution_lifecycle_recovery as recovery
-from frisket.engine.store.op_log import RestorationUnavailable, step_operation
+from frisket.engine.store.change_log import RestorationUnavailable, step_change
 
 work = recovery.work
 
 
-def _step(project, direction, op_id):
+def _step(project, direction, change_id):
     with project.transaction_scope():
-        return step_operation(project, direction, change_id=op_id)
+        return step_change(project, direction, change_id=change_id)
 
 
 def _copy_into_existing(work):
@@ -35,9 +35,9 @@ def _copy_into_existing(work):
         expected_generated_columns={"Copy": target},
     )
     assert copied.status == "completed", copied.errors
-    op = project.op_cursor
+    op = project.change_cursor
     assert project.db.execute(
-        "SELECT count(*) FROM copied_result_outcomes WHERE op_id=?", (op,)
+        "SELECT count(*) FROM copied_result_outcomes WHERE change_id=?", (op,)
     ).fetchone()[0] == len(rows)
     return original, target, op
 
@@ -79,19 +79,20 @@ def test_restore_copied_change_requires_original_destination(work, destination):
         assert deleted.status == "completed", deleted.errors
     elif destination == "column":
         creation = project.db.execute(
-            "SELECT MIN(op_id) FROM copied_result_outcomes WHERE column_id=?", (target,)
+            "SELECT MIN(change_id) FROM copied_result_outcomes WHERE column_id=?",
+            (target,),
         ).fetchone()[0]
         _step(project, "revert", creation)
     else:
         project.delete_sheet(sheet)
-    deletion = project.op_cursor
+    deletion = project.change_cursor
     with pytest.raises(RestorationUnavailable, match="destination.*unavailable"):
         _step(project, "restore", op)
     assert (
-        project.db.execute("SELECT status FROM ops WHERE id=?", (op,)).fetchone()[0]
+        project.db.execute("SELECT status FROM changes WHERE id=?", (op,)).fetchone()[0]
         == "undone"
     )
-    assert project.op_cursor == deletion
+    assert project.change_cursor == deletion
     if destination == "column":
         _step(project, "restore", creation)
     else:
@@ -116,7 +117,7 @@ def test_restore_copied_change_does_not_require_source_column(work):
     saved = dict(project.get_values(sheet, target))
     _step(project, "revert", op)
     source_op = project.db.execute(
-        "SELECT op_id FROM runs WHERE id=?", (original.run_id,)
+        "SELECT change_id FROM runs WHERE id=?", (original.run_id,)
     ).fetchone()[0]
     _step(project, "revert", source_op)
     assert "Answer" not in {column["name"] for column in project.columns(sheet)}

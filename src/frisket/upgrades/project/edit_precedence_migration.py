@@ -9,7 +9,7 @@ runtime change views and repairs the cells they now resolve differently.
 
 from __future__ import annotations
 import sqlite3
-from frisket.engine.store.change_schema import CHANGE_SCHEMA_SQL
+from frisket.upgrades.project._pre_changes_ddl import PRE_CHANGES_CHANGE_SCHEMA_SQL
 from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST
 from frisket.upgrades.project._step import execute_ddl
 from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
@@ -85,5 +85,5 @@ def apply_edit_precedence(db: sqlite3.Connection) -> None:
         )
     for view in _CHANGE_VIEWS:
         db.execute(f"DROP VIEW IF EXISTS {view}")
-    execute_ddl(db, CHANGE_SCHEMA_SQL)
+    execute_ddl(db, PRE_CHANGES_CHANGE_SCHEMA_SQL)
     _invalidate_hidden_edits(db)

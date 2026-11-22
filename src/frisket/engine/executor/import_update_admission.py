@@ -458,16 +458,16 @@ def run_rows_updater(
                 receipt, row_count=session.committed_rows, status="running"
             )
             ref = snapshot.outputs[0].ref
-            op_id = snapshot.op_ids[0] if snapshot.op_ids else None
+            change_id = snapshot.change_ids[0] if snapshot.change_ids else None
             row_ids = (
                 ()
-                if op_id is None
+                if change_id is None
                 else tuple(
                     int(row[0])
                     for row in project.db.execute(
                         "SELECT DISTINCT cell.row_id FROM cells cell JOIN base_cell_producers producer "
-                        "ON producer.id=cell.producer_id WHERE producer.op_id=? ORDER BY cell.row_id",
-                        (op_id,),
+                        "ON producer.id=cell.producer_id WHERE producer.change_id=? ORDER BY cell.row_id",
+                        (change_id,),
                     )
                 )
             )
@@ -475,7 +475,7 @@ def run_rows_updater(
                 int(bound.request.scope.sheet_id),
                 row_ids,
                 int(ref["edit_count"]),
-                op_id,
+                change_id,
                 dict(writer._column_ids),
                 {},
             )

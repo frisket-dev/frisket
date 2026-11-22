@@ -62,7 +62,7 @@ MALFORMED: tuple[tuple[str, str, tuple[str | int, ...], Any], ...] = (
     ("review-decision", "review.decision", ("decision",), "maybe"),
     ("review-note", "review.decision", ("note",), 3),
     ("review-missing", "review.decision", ("decision",), _DELETE),
-    ("review-cross", "review.decision", ("copied_op_id",), 2),
+    ("review-cross", "review.decision", ("copied_change_id",), 2),
     ("review-json", "review.decision", ("value",), object()),
     ("review-note-row", "review.note", ("row_id",), 0),
     ("review-note-coerced-run", "review.note", ("run_id",), "1"),
@@ -119,7 +119,7 @@ def test_malformed_mutations_stop_before_executor_and_database(
     del monkeypatch
 
     project = make_project("malformed")
-    tables = ("sheets", "columns", "rows", "runs", "results", "ops", "receipts")
+    tables = ("sheets", "columns", "rows", "runs", "results", "changes", "receipts")
 
     def counts() -> dict[str, int]:
         return {
@@ -156,13 +156,13 @@ def test_malformed_mutations_stop_before_executor_and_database(
                 "column_id": 3,
                 "decision": "accept",
                 "note": None,
-                "copied_op_id": None,
+                "copied_change_id": None,
             },
         ),
         (
             ReviewNoteParams,
             {"run_id": 1, "row_id": 2, "note": " Checked. "},
-            {"run_id": 1, "row_id": 2, "note": " Checked. ", "copied_op_id": None},
+            {"run_id": 1, "row_id": 2, "note": " Checked. ", "copied_change_id": None},
         ),
         (
             ReplayAcceptParams,
@@ -307,14 +307,14 @@ def test_cell_mutation_results_do_not_expose_host_receipt_facts() -> None:
         "column_name",
         "type_before",
         "type_after",
-        "op_id",
+        "change_id",
     }
-    assert {field.name for field in fields(EditedCells)} == {"op_id", "targets"}
+    assert {field.name for field in fields(EditedCells)} == {"change_id", "targets"}
     assert {field.name for field in fields(QueryEditedCells)} == {
         "sheet_id",
         "column_id",
         "column_name",
         "query_hash",
         "row_ids",
-        "op_id",
+        "change_id",
     }

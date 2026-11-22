@@ -38,7 +38,7 @@ class _MixedReaderFixture:
     first_op_id: int
     second_run_id: int
     second_op_id: int
-    edit_op_id: int
+    edit_change_id: int
 
 
 def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None:
@@ -53,9 +53,9 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None
         [{"source": "value"}, {"source": "failure"}],
         {"source": source_column_id},
     )
-    op_id = project.append_change("map", {"phase": "retired scalar fixture"})
+    change_id = project.append_change("map", {"phase": "retired scalar fixture"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "test.retired_scalar_fixture",
         row_ids=row_ids,
@@ -228,7 +228,7 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
     # must still retain the first head on the untargeted row.
     with write_transaction(runs.db):
         runs.point_column_at_run(second_op_id, output_column_id, second_run_id)
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [
             {
                 "row_id": row_ids[0],
@@ -249,7 +249,7 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
         first_op_id=first_op_id,
         second_run_id=second_run_id,
         second_op_id=second_op_id,
-        edit_op_id=edit_op_id,
+        edit_change_id=edit_change_id,
     )
     yield fixture
 
@@ -271,7 +271,7 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
     }
     assert refs[fixture.row_ids[0]] == {
         "kind": "manual_edit",
-        "op_id": fixture.edit_op_id,
+        "change_id": fixture.edit_change_id,
         "row_id": fixture.row_ids[0],
         "column_id": fixture.output_column_id,
         "run_id": None,
@@ -280,7 +280,7 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
     for row_id in fixture.row_ids[1:3]:
         assert refs[row_id] == {
             "kind": "run_result",
-            "op_id": fixture.second_op_id,
+            "change_id": fixture.second_op_id,
             "row_id": row_id,
             "column_id": fixture.output_column_id,
             "run_id": fixture.second_run_id,
@@ -288,7 +288,7 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
         }
     assert refs[fixture.row_ids[3]] == {
         "kind": "run_result",
-        "op_id": fixture.first_op_id,
+        "change_id": fixture.first_op_id,
         "row_id": fixture.row_ids[3],
         "column_id": fixture.output_column_id,
         "run_id": fixture.first_run_id,
@@ -379,7 +379,7 @@ def test_grid_filter_sort_and_export_follow_exact_heads(
     assert error_row["meta"][output_key]["outcome"] == "model_error"
     assert error_row["meta"][output_key]["current_value_ref"] == {
         "kind": "run_result",
-        "op_id": fixture.second_op_id,
+        "change_id": fixture.second_op_id,
         "row_id": fixture.row_ids[2],
         "column_id": fixture.output_column_id,
         "run_id": fixture.second_run_id,
@@ -484,10 +484,10 @@ def test_managed_sheet_grid_wire_separates_cell_authority_from_latest_family(
     }
     SheetData.model_validate(grid)
 
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     fixture.project.db.execute("BEGIN IMMEDIATE")
-    step_operation(fixture.project, "revert", change_id=fixture.first_op_id)
+    step_change(fixture.project, "revert", change_id=fixture.first_op_id)
     fixture.project.db.commit()
     single_origin_grid = _sheet_data_payload(
         fixture.project,
@@ -554,10 +554,10 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
     # Selectively revert the old generation, leaving the newer subset and
     # manual edit intact. Deleting a disposable head cannot change authority.
     # The compatibility scalar is either cleared or still points at the old run.
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "revert", change_id=fixture.first_op_id)
+    step_change(project, "revert", change_id=fixture.first_op_id)
     project.db.execute(
         "UPDATE columns SET current_run_id=? WHERE id=?",
         (
@@ -618,9 +618,9 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
         project_id="single-origin-replay",
     )
     assert result.status == "completed", result.errors
-    assert result.op_ids
+    assert result.change_ids
     accepted_op = project.db.execute(
-        "SELECT spec FROM ops WHERE id=?", (result.op_ids[-1],)
+        "SELECT spec FROM changes WHERE id=?", (result.change_ids[-1],)
     ).fetchone()
     assert accepted_op is not None
     assert json.loads(accepted_op["spec"])["source_run_id"] == fixture.second_run_id
@@ -637,7 +637,7 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
             ]
         )
         project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "revert", change_id=fixture.second_op_id)
+        step_change(project, "revert", change_id=fixture.second_op_id)
         project.db.commit()
         assert (
             project.pending_replay_values(fixture.sheet_id, fixture.output_column_id)
@@ -672,7 +672,9 @@ def test_replay_actions_refuse_mixed_origin_columns_before_mutation(
                 "run_id": fixture.second_run_id,
             }
         )
-    op_count = int(fixture.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
+    op_count = int(
+        fixture.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+    )
     result = executor_actions.run_action_spec(
         fixture.project,
         {
@@ -687,7 +689,7 @@ def test_replay_actions_refuse_mixed_origin_columns_before_mutation(
     assert [error.code for error in result.errors] == [
         "mixed_origin_column_unsupported"
     ]
-    assert fixture.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == (
+    assert fixture.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == (
         op_count
     )
     assert (

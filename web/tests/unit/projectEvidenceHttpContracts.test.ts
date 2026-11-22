@@ -29,7 +29,7 @@ const cellFixture = {
   row_id: 7,
   column_id: 5,
   current_value_ref: {
-    kind: 'run_result', row_id: 7, column_id: 5, run_id: 9, op_id: 10,
+    kind: 'run_result', row_id: 7, column_id: 5, run_id: 9, change_id: 10,
   },
   links: [linkSummary],
   stale_count: 0,
@@ -108,7 +108,7 @@ const viewerFixture = {
     row_id: 7,
     column_id: 5,
     run_id: 9,
-    op_id: 10,
+    change_id: 10,
     receipt_id: null,
     role: 'support',
     status: 'active',

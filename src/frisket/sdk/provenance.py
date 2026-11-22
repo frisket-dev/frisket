@@ -61,7 +61,7 @@ def build_receipt_from_provenance(
         action_id=action_id,
         action_kind=action_kind,
         run_id=facts.run_id,
-        op_ids=[facts.op_id],
+        change_ids=[facts.change_id],
         idempotency_key=idempotency_key,
         params_hash=facts.params_hash,
         status=provenance.status,

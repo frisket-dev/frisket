@@ -12,9 +12,9 @@ from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
-    OperationRedoer,
-    OperationTransition,
-    OperationUndoer,
+    ChangeRedoer,
+    ChangeTransition,
+    ChangeUndoer,
 )
 from frisket.contracts.action import (
     ActionError,
@@ -35,16 +35,16 @@ from frisket.engine.executor.action_lifecycle import (
 )
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import typed_request_hash
-from frisket.engine.store.op_log import (
-    ClaimedOperation,
-    CorruptOperation,
-    IrreversibleOperation,
-    OperationMismatch,
-    OperationUnavailable,
+from frisket.engine.store.change_log import (
+    ClaimedChange,
+    CorruptChange,
+    IrreversibleChange,
+    ChangeMismatch,
+    ChangeUnavailable,
     RestorationUnavailable,
-    operation_affected_refs,
-    operation_target,
-    step_operation,
+    change_affected_refs,
+    change_target,
+    step_change,
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.import_sessions import active_import_session, ImportInProgress
@@ -60,7 +60,7 @@ class _Refusal(Exception):
 
 
 @dataclass
-class _OperationInvocationState:
+class _ChangeInvocationState:
     """Post-commit facts from this invocation; receipt replay leaves defaults."""
 
     pending_review_count_unchanged: bool = False
@@ -89,62 +89,65 @@ def _text_hash(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-class _OperationStep:
+class _ChangeStep:
     direction: Literal["undo", "redo", "revert", "restore"]
 
     def __init__(self, project: Any, action: _TypedProjectEnvelope):
         self._project = project
         self._action = action
         self._called = False
-        self.result: OperationTransition | None = None
+        self.result: ChangeTransition | None = None
         self.target: Any = None
         self.undo_info: dict[str, Any] | None = None
         self.pending_review_count_unchanged = False
 
     def _step(
-        self, *, expected_op_id: int | None = None, op_id: int | None = None
-    ) -> OperationTransition:
+        self,
+        *,
+        expected_change_id: int | None = None,
+        change_id: int | None = None,
+    ) -> ChangeTransition:
         if self._called:
-            raise RuntimeError("operation capability may be called only once")
+            raise RuntimeError("change capability may be called only once")
         self._called = True
         try:
-            transition = step_operation(
+            transition = step_change(
                 self._project,
                 self.direction,
-                expected_change_id=expected_op_id,
-                change_id=op_id,
+                expected_change_id=expected_change_id,
+                change_id=change_id,
             )
-        except OperationUnavailable:
+        except ChangeUnavailable:
             _refuse(
-                "operation_unavailable",
-                f"No operation is available to {self.direction}",
+                "change_unavailable",
+                f"No change is available to {self.direction}",
                 action_kind=self._action.kind,
                 details={
                     "direction": self.direction,
-                    "cursor": self._project.op_cursor,
+                    "cursor": self._project.change_cursor,
                 },
             )
-        except OperationMismatch as exc:
+        except ChangeMismatch as exc:
             _refuse(
-                "operation_mismatch",
-                "Available operation does not match expected_op_id",
+                "change_mismatch",
+                "Available change does not match expected_change_id",
                 action_kind=self._action.kind,
-                field="params.expected_op_id",
+                field="params.expected_change_id",
                 details={
                     "direction": self.direction,
-                    "expected_op_id": exc.expected_op_id,
-                    "actual_op_id": exc.actual_op_id,
+                    "expected_change_id": exc.expected_change_id,
+                    "actual_change_id": exc.actual_change_id,
                 },
             )
-        except IrreversibleOperation as exc:
+        except IrreversibleChange as exc:
             target = exc.args[0]
             _refuse(
                 "irreversible_barrier",
-                "Target operation is an irreversible barrier",
+                "Target change is an irreversible barrier",
                 action_kind=self._action.kind,
                 details={
-                    "op_id": int(target["id"]),
-                    "operation_kind": target["kind"],
+                    "change_id": int(target["id"]),
+                    "change_kind": target["kind"],
                 },
             )
         except RestorationUnavailable as exc:
@@ -154,8 +157,8 @@ class _OperationStep:
                 action_kind=self._action.kind,
                 details={"direction": self.direction},
             )
-        except CorruptOperation as exc:
-            details: dict[str, Any] = {"op_id": exc.op_id}
+        except CorruptChange as exc:
+            details: dict[str, Any] = {"change_id": exc.change_id}
             if isinstance(exc.__cause__, json.JSONDecodeError):
                 details["error"] = str(exc.__cause__)
             _refuse(
@@ -164,16 +167,16 @@ class _OperationStep:
                 action_kind=self._action.kind,
                 details=details,
             )
-        except ClaimedOperation as exc:
+        except ClaimedChange as exc:
             claim = exc.claim
             _refuse(
                 "generated_column_busy",
-                "The target output column is claimed by a running action.",
+                "The target generated column is claimed by a running action.",
                 action_kind=self._action.kind,
-                field="params.expected_op_id",
+                field="params.expected_change_id",
                 details={
                     "direction": self.direction,
-                    "op_id": exc.op_id,
+                    "change_id": exc.change_id,
                     "column_id": claim["column_id"],
                     "output_name": claim["output_name"],
                     "run_id": claim["run_id"],
@@ -184,15 +187,15 @@ class _OperationStep:
                     "requires_recovery": True,
                 },
             )
-        result = OperationTransition(
-            op_id=int(transition.target["id"]),
-            operation_kind=str(transition.target["kind"]),
+        result = ChangeTransition(
+            change_id=int(transition.target["id"]),
+            change_kind=str(transition.target["kind"]),
             direction=transition.direction,
             status_before=transition.status_before,
             status_after=transition.status_after,
             cursor_before=transition.cursor_before,
             cursor_after=transition.cursor_after,
-            affected_refs=tuple(operation_affected_refs(transition.undo_info)),
+            affected_refs=tuple(change_affected_refs(transition.undo_info)),
         )
         self.target = transition.target
         self.undo_info = transition.undo_info
@@ -201,43 +204,43 @@ class _OperationStep:
         return result
 
 
-class _Undoer(_OperationStep):
+class _Undoer(_ChangeStep):
     direction = "undo"
 
-    def undo(self, *, expected_op_id: int | None) -> OperationTransition:
-        return self._step(expected_op_id=expected_op_id)
+    def undo(self, *, expected_change_id: int | None) -> ChangeTransition:
+        return self._step(expected_change_id=expected_change_id)
 
-    def revert(self, *, op_id: int) -> OperationTransition:
+    def revert(self, *, change_id: int) -> ChangeTransition:
         self.direction = "revert"
-        return self._step(op_id=op_id)
+        return self._step(change_id=change_id)
 
 
-class _Redoer(_OperationStep):
+class _Redoer(_ChangeStep):
     direction = "redo"
 
-    def redo(self, *, expected_op_id: int | None) -> OperationTransition:
-        return self._step(expected_op_id=expected_op_id)
+    def redo(self, *, expected_change_id: int | None) -> ChangeTransition:
+        return self._step(expected_change_id=expected_change_id)
 
-    def restore(self, *, op_id: int) -> OperationTransition:
+    def restore(self, *, change_id: int) -> ChangeTransition:
         self.direction = "restore"
-        return self._step(op_id=op_id)
+        return self._step(change_id=change_id)
 
 
-_CAPABILITY_IMPL = {OperationUndoer: _Undoer, OperationRedoer: _Redoer}
+_CAPABILITY_IMPL = {ChangeUndoer: _Undoer, ChangeRedoer: _Redoer}
 
 
-def supports_typed_operation_action(terminal: object) -> TypeGuard[_ProjectAction]:
+def supports_typed_change_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and any(
         terminal.capabilities == (cap,) for cap in _CAPABILITY_IMPL
     )
 
 
-def _transition_ref(transition: OperationTransition) -> dict[str, Any]:
+def _transition_ref(transition: ChangeTransition) -> dict[str, Any]:
     return {
-        "kind": "operation_status_transition",
+        "kind": "change_status_transition",
         "direction": transition.direction,
-        "op_id": transition.op_id,
-        "operation_kind": transition.operation_kind,
+        "change_id": transition.change_id,
+        "change_kind": transition.change_kind,
         "status_before": transition.status_before,
         "status_after": transition.status_after,
         "cursor_before": transition.cursor_before,
@@ -247,7 +250,7 @@ def _transition_ref(transition: OperationTransition) -> dict[str, Any]:
 
 
 def _result_and_receipt(
-    capability: _OperationStep,
+    capability: _ChangeStep,
     *,
     action: _TypedProjectEnvelope,
     project_id: str,
@@ -259,15 +262,15 @@ def _result_and_receipt(
     target = capability.target
     undo_info = capability.undo_info
     if transition is None or target is None or undo_info is None:
-        raise RuntimeError("operation capability did not produce receipt facts")
+        raise RuntimeError("change capability did not produce receipt facts")
     transition_ref = _transition_ref(transition)
-    output_name = f"{transition.direction}.{transition.op_id}"
+    output_name = f"{transition.direction}.{transition.change_id}"
     result = ActionResult(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",
         project_id=project_id,
-        op_ids=[transition.op_id],
-        outputs=[ActionOutput(kind="operation", name=output_name, ref=transition_ref)],
+        change_ids=[transition.change_id],
+        outputs=[ActionOutput(kind="change", name=output_name, ref=transition_ref)],
         receipt_id=receipt_id,
     )
     receipt = Receipt(
@@ -275,17 +278,17 @@ def _result_and_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[transition.op_id],
+        change_ids=[transition.change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
         inputs=[
             ReceiptIO(
-                name="target_operation",
+                name="target_change",
                 ref={
-                    "kind": "target_operation",
-                    "op_id": transition.op_id,
-                    "operation_kind": transition.operation_kind,
+                    "kind": "target_change",
+                    "change_id": transition.change_id,
+                    "change_kind": transition.change_kind,
                     "label": target["label"],
                     "barrier": bool(target["barrier"]),
                     "status_before": transition.status_before,
@@ -297,9 +300,9 @@ def _result_and_receipt(
         records=[
             ReceiptRecord(
                 ref={
-                    "kind": "operation_cursor",
+                    "kind": "change_cursor",
                     "direction": transition.direction,
-                    "op_id": transition.op_id,
+                    "change_id": transition.change_id,
                     "cursor_before": transition.cursor_before,
                     "cursor_after": transition.cursor_after,
                     "status_before": transition.status_before,
@@ -308,18 +311,18 @@ def _result_and_receipt(
             ),
             ReceiptRecord(
                 ref={
-                    "kind": "operation_undo_info",
-                    "op_id": transition.op_id,
-                    "operation_kind": transition.operation_kind,
+                    "kind": "change_undo_info",
+                    "change_id": transition.change_id,
+                    "change_kind": transition.change_kind,
                     "undo_info": undo_info,
                 },
                 retention="pinned",
             ),
             ReceiptRecord(
                 ref={
-                    "kind": "operation_snapshot",
-                    "op_id": transition.op_id,
-                    "operation_kind": transition.operation_kind,
+                    "kind": "change_snapshot",
+                    "change_id": transition.change_id,
+                    "change_kind": transition.change_kind,
                     "label": target["label"],
                     "barrier": bool(target["barrier"]),
                     "status_before": transition.status_before,
@@ -345,7 +348,7 @@ def _perform(
     receipt_id: str,
     params_hash: str,
     resolved: Any,
-    invocation: _OperationInvocationState,
+    invocation: _ChangeInvocationState,
 ) -> ActionResult:
     del cur, resolved
     capability = _CAPABILITY_IMPL[terminal.single_capability()](project, action)
@@ -354,7 +357,7 @@ def _perform(
     except _Refusal as exc:
         return ActionCtx(project_id, action.kind).failed(exc.error)
     if capability.result is None or returned != capability.result:
-        raise TypeError("operation handler must return its capability result")
+        raise TypeError("change handler must return its capability result")
     invocation.pending_review_count_unchanged = (
         capability.pending_review_count_unchanged
     )
@@ -370,20 +373,20 @@ def _perform(
     return result
 
 
-def run_typed_operation_action(
+def run_typed_change_action(
     project: Any, project_id: str, bound: BoundTypedActionRequest
 ) -> ActionResult:
     terminal = bound.action.definition.run
-    if not supports_typed_operation_action(terminal):
-        raise TypeError("typed operation executor requires undo or redo")
-    direction = bound.action.action_id.removeprefix("operation.")
-    target = operation_target(
-        project, direction, change_id=getattr(bound.params, "op_id", None)
+    if not supports_typed_change_action(terminal):
+        raise TypeError("typed change executor requires undo or redo")
+    direction = bound.action.action_id.removeprefix("change.")
+    target = change_target(
+        project, direction, change_id=getattr(bound.params, "change_id", None)
     )
-    expected = getattr(bound.params, "expected_op_id", None)
+    expected = getattr(bound.params, "expected_change_id", None)
     if target is not None and (expected is None or int(target["id"]) == expected):
         row = project.db.execute(
-            "SELECT sheet_id FROM import_sessions WHERE op_id=? "
+            "SELECT sheet_id FROM import_sessions WHERE change_id=? "
             "AND state IN ('active','paused','cancelled')",
             (int(target["id"]),),
         ).fetchone()
@@ -393,7 +396,7 @@ def run_typed_operation_action(
                 raise ImportInProgress(session)
     envelope = _typed_params_envelope(bound)
     params_hash = typed_request_hash(bound)
-    invocation = _OperationInvocationState()
+    invocation = _ChangeInvocationState()
     result = _run_typed_plain_action(
         project,
         bound,
@@ -413,7 +416,7 @@ def run_typed_operation_action(
         ),
         plain_exception_error_fn=lambda action: ActionError(
             code="project_write_failed",
-            message=f"{action.kind} could not write operation transition and receipt",
+            message=f"{action.kind} could not write change transition and receipt",
             action_kind=action.kind,
         ),
     )
@@ -422,10 +425,10 @@ def run_typed_operation_action(
             project.refresh_pending_review_summary()
         except Exception:
             logger.warning(
-                "operation_pending_review_refresh_failed",
+                "change_pending_review_refresh_failed",
                 exc_info=True,
                 extra={
-                    "event": "operation_pending_review_refresh_failed",
+                    "event": "change_pending_review_refresh_failed",
                     "action_kind": envelope.kind,
                     "project_id": project_id,
                 },

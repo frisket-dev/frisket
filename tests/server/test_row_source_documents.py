@@ -327,7 +327,7 @@ def test_convergent_fan_in_reaches_the_shared_original_document(make_project) ->
                 ],
             ),
         )
-        ChangeStore(project).close(write.op_id)
+        ChangeStore(project).close(write.change_id)
     aggregate_row = write.row_ids[0]
 
     payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
@@ -349,14 +349,14 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     right = _child_row(project, "Right rows", right_document[0], right_document[1])
     join_sheet, join_row = _join_row(project, left, right)
 
-    # Simulate a legacy partial FK-cascade state where last_verified_op_cursor
+    # Simulate a legacy partial FK-cascade state where last_verified_change_cursor
     # advanced and only one join side disappeared from materialized_row_sources.
     with write_transaction(project.db):
         refresh_op = project.append_change_in_transaction(
             "sheet.refresh", {"sheet_id": left[0]}
         )
         project.db.execute(
-            "UPDATE sheets SET last_verified_op_cursor=? WHERE id=?",
+            "UPDATE sheets SET last_verified_change_cursor=? WHERE id=?",
             (refresh_op, left[0]),
         )
         project.db.execute(
@@ -523,7 +523,7 @@ def test_source_membership_read_stops_at_the_row_budget_sentinel(
                 ],
             ),
         )
-        ChangeStore(project).close(write.op_id)
+        ChangeStore(project).close(write.change_id)
     derived_row = write.row_ids[0]
     statements: list[str] = []
     project.db.set_trace_callback(statements.append)

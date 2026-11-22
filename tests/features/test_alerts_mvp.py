@@ -102,7 +102,7 @@ def test_fts_alert_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     listed = listing.json()
     assert listed[0]["latest_run"]["id"] == third["run"]["id"]
     assert listed[0]["latest_run"]["new_rows"] == 1
-    assert listed[0]["last_evaluated_op"] > 0
+    assert listed[0]["last_evaluated_change"] > 0
 
     page = client.get(
         f"/api/projects/{pid}/alerts/{alert['id']}/checks",
@@ -290,7 +290,7 @@ def test_alert_patch_pause_resume_preserves_execution_state_and_manual_runs(
     for field in (
         "view_id",
         "enabled",
-        "last_evaluated_op",
+        "last_evaluated_change",
         "last_run_id",
     ):
         assert renamed.json()[field] == before[field]
@@ -301,7 +301,7 @@ def test_alert_patch_pause_resume_preserves_execution_state_and_manual_runs(
     assert paused.status_code == 200, paused.text
     assert paused.json()["enabled"] is False
     assert paused.json()["last_run_id"] == first_run["id"]
-    assert paused.json()["last_evaluated_op"] == before["last_evaluated_op"]
+    assert paused.json()["last_evaluated_change"] == before["last_evaluated_change"]
 
     # Pause affects automatic selection only. A deliberate Run now remains a
     # manual evaluation and extends, rather than replaces, history.
@@ -312,14 +312,14 @@ def test_alert_patch_pause_resume_preserves_execution_state_and_manual_runs(
         == 2
     )
 
-    paused_cursor = paused.json()["last_evaluated_op"]
+    paused_cursor = paused.json()["last_evaluated_change"]
     paused_history = manual_while_paused["id"]
     resumed = client.patch(
         f"/api/projects/{pid}/alerts/{alert['id']}", json={"enabled": True}
     )
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["enabled"] is True
-    assert resumed.json()["last_evaluated_op"] >= paused_cursor
+    assert resumed.json()["last_evaluated_change"] >= paused_cursor
     assert resumed.json()["last_run_id"] == paused_history
     # Resuming changes scheduling eligibility only; it never evaluates inline.
     assert (

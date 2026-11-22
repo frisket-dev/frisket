@@ -49,8 +49,8 @@ def _published_clusters(project: Any, receipt_id: str):
         )
     try:
         run = project.db.execute(
-            "SELECT runs.action_kind,runs.status,runs.op_id,ops.spec "
-            "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            "SELECT runs.action_kind,runs.status,runs.change_id,changes.spec "
+            "FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
             (receipt.run_id,),
         ).fetchone()
         facts = [
@@ -62,8 +62,8 @@ def _published_clusters(project: Any, receipt_id: str):
             run is None
             or run["action_kind"] != receipt.action_kind
             or run["status"] != "completed"
-            or run["op_id"] not in receipt.op_ids
-            or not _receipt_ops_are_applied(project, receipt.op_ids)
+            or run["change_id"] not in receipt.change_ids
+            or not _receipt_ops_are_applied(project, receipt.change_ids)
             or len(facts) != 1
         ):
             raise ValueError("Cluster publication identity changed")

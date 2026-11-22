@@ -151,7 +151,7 @@ def test_final_upload_pages_materialize_eight_pdfs_after_draft_cleanup_and_repla
     assert len(project.visible_row_ids(result.sheet_id)) == 8
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )
@@ -209,7 +209,7 @@ def test_final_upload_publishes_all_257_occurrences_across_inventory_pages(tmp_p
         assert len(PdfReader(path).pages) == 1
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )

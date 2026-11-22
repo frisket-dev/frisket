@@ -73,7 +73,7 @@ def test_missing_key_submission_recovers_settings_without_execution_authority(sc
         expected_generated_columns={"answer": None},
     )
     body["execution_context"] = {"api_key": "never-save-resolved-secret"}
-    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     response = client.post("/api/projects/history/actions/v1/run", json=body)
     assert response.json()["status"] == "failed", response.text
     assert response.json()["errors"][0]["code"] == "missing_provider_key"
@@ -93,7 +93,7 @@ def test_missing_key_submission_recovers_settings_without_execution_authority(sc
     assert set(saved) == {"action_id", "scope", "params", "output_names", "sheet_name"}
     raw = project.db.execute("SELECT draft_json FROM action_submissions").fetchone()[0]
     assert "never-save-resolved-secret" not in raw and "confirmation" not in raw
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     # A fresh HTTP client sees the same durable settings; no component-local draft is involved.
     assert history(TestClient(client.app)) == history(client)

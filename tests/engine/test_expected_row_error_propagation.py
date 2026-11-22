@@ -183,7 +183,9 @@ def test_expected_row_errors_keep_failed_counts_receipt_http_and_retry_facts(pro
     assert page["total"] == 16
     assert [row["row_id"] for row in page["rows"]] == row_ids
     assert all(row["status"] == "error" for row in page["rows"])
-    payload = _batch_history_op_run_payloads(project, [run["op_id"]])[run["op_id"]]
+    payload = _batch_history_op_run_payloads(project, [run["change_id"]])[
+        run["change_id"]
+    ]
     assert payload["row_errors"]["total_failed_rows"] == 16
     assert payload["row_errors"]["groups"] == [
         {

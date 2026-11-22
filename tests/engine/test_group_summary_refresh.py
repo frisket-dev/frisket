@@ -680,7 +680,7 @@ def test_undo_during_group_call_keeps_accounting_and_never_reopens_output(
         == 2
     )
     owner = project.db.execute(
-        "SELECT op.status,op.publication_closed FROM ops op JOIN runs r ON r.op_id=op.id WHERE r.id=?",
+        "SELECT op.status,op.publication_closed FROM changes op JOIN runs r ON r.change_id=op.id WHERE r.id=?",
         (run_id,),
     ).fetchone()
     assert tuple(owner) == ("undone", 1)

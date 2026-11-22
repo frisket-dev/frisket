@@ -99,7 +99,7 @@ def _create_entities(client, pid, receipt_id):
 def _counts(project):
     return tuple(
         project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "changes", "receipts")
     )
 
 

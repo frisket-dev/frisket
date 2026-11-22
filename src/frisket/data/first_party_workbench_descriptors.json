@@ -375,19 +375,19 @@
         },
         {
           "kind": "hostCapability",
-          "id": "operation.revert"
+          "id": "change.revert"
         },
         {
           "kind": "hostCapability",
-          "id": "operation.restore"
+          "id": "change.restore"
         },
         {
           "kind": "hostCapability",
-          "id": "operation.undo"
+          "id": "change.undo"
         },
         {
           "kind": "hostCapability",
-          "id": "operation.redo"
+          "id": "change.redo"
         }
       ]
     },
@@ -756,7 +756,7 @@
         },
         {
           "kind": "hostCapability",
-          "id": "operation.undo"
+          "id": "change.undo"
         }
       ]
     },

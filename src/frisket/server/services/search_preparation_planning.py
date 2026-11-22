@@ -239,7 +239,7 @@ def build_plan(
         elif capability == "semantic_search":
             models.append(requirement_dict(requirement, required=False))
     return {
-        "source_cutoff": int(project.op_cursor),
+        "source_cutoff": int(project.change_cursor),
         "force_ocr": force_ocr,
         "groups": [
             {"kind": kind, "count": counts[kind]}
@@ -405,8 +405,8 @@ def _current_prepared_result(
         "SELECT prepared_ref_id,page_count,has_text,coverage_complete,is_manual, "
         "(SELECT COALESCE(run.action_kind,op.kind) FROM prepared_content_refs ref "
         " JOIN prepared_content_sets content ON content.id=ref.set_id "
-        " JOIN ops op ON op.id=content.producing_op_id "
-        " LEFT JOIN runs run ON run.op_id=op.id "
+        " JOIN changes op ON op.id=content.producing_change_id "
+        " LEFT JOIN runs run ON run.change_id=op.id "
         " WHERE ref.id=current_prepared_sources.prepared_ref_id) AS preparation_kind "
         "FROM current_prepared_sources "
         "WHERE source_sheet_id=? AND source_row_id=? AND source_column_id=? "

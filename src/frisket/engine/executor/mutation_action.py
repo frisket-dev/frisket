@@ -194,7 +194,7 @@ class _ColumnPatcher(_CallOnce):
         require_import_sheet_write(self._project.db, int(row["sheet_id"]))
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         self._cur.execute("UPDATE columns SET format=? WHERE id=?", (format, column_id))
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind="column.patch",
             label=f"column.patch {row['column_name']} format {format or 'default'}",
@@ -213,7 +213,7 @@ class _ColumnPatcher(_CallOnce):
             column_type=str(row["type"]),
             format_before=row["format_before"],
             format_after=format,
-            op_id=op_id,
+            change_id=change_id,
         )
         self.result = result
         return result
@@ -323,7 +323,7 @@ class _ColumnCreator(_CallOnce):
             (sheet_id, name, column_type, new_position),
         )
         column_id = inserted_rowid(self._cur)
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind="add_column",
             label=f"add column {name}",
@@ -337,7 +337,7 @@ class _ColumnCreator(_CallOnce):
             name=name,
             column_type=column_type,
             position=new_position,
-            op_id=op_id,
+            change_id=change_id,
         )
         self.result = result
         return result
@@ -398,7 +398,7 @@ class _RowCreator(_CallOnce):
             (sheet_id, base + 1),
         )
         row_id = inserted_rowid(self._cur)
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind="add_row",
             label="add row",
@@ -406,7 +406,7 @@ class _RowCreator(_CallOnce):
             undo_info={"created_rows": [row_id]},
         )
         producer_id = create_base_cell_producer(
-            self._project.db, stage_id=f"op:{op_id}", op_id=op_id
+            self._project.db, stage_id=f"op:{change_id}", change_id=change_id
         )
         initialize_base_cells(
             self._project.db,
@@ -432,7 +432,7 @@ class _RowCreator(_CallOnce):
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
             ).fetchone()[0]
         )
-        result = CreatedRow(sheet_id, row_id, total, op_id, record, column_ids)
+        result = CreatedRow(sheet_id, row_id, total, change_id, record, column_ids)
         self.result = result
         return result
 
@@ -554,7 +554,7 @@ class _RowsAppender(_CallOnce):
             },
             "idempotency_key": self._action.idempotency_key,
         }
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind=self._action.kind,
             label="append imported rows",
@@ -562,7 +562,7 @@ class _RowsAppender(_CallOnce):
             undo_info={"created_rows": row_ids},
         )
         producer_id = create_base_cell_producer(
-            self._project.db, stage_id=f"op:{op_id}", op_id=op_id
+            self._project.db, stage_id=f"op:{change_id}", change_id=change_id
         )
         iterator = iter(rows)
         written_columns: set[int] = set()
@@ -631,19 +631,21 @@ class _RowsAppender(_CallOnce):
             )
         operation_spec["params"]["row_count"] = len(row_ids)
         self._cur.execute(
-            "UPDATE ops SET label=?, spec=?, undo_info=? WHERE id=?",
+            "UPDATE changes SET label=?, spec=?, undo_info=? WHERE id=?",
             (
                 f"append {len(row_ids)} imported rows",
                 json.dumps(operation_spec, sort_keys=True),
                 json.dumps({"created_rows": row_ids}, sort_keys=True),
-                op_id,
+                change_id,
             ),
         )
         from frisket.engine.store.structural_changes import note_row_membership_change
 
         from frisket.engine.store.structural_changes import record_structural_changes
 
-        record_structural_changes(self._project.db, op_id, {"created_rows": row_ids})
+        record_structural_changes(
+            self._project.db, change_id, {"created_rows": row_ids}
+        )
         note_row_membership_change(
             self._project.db, [sheet_id], already_refreshed_columns=written_columns
         )
@@ -653,7 +655,7 @@ class _RowsAppender(_CallOnce):
             ).fetchone()[0]
         )
         result = AppendedRows(
-            sheet_id, tuple(row_ids), total, op_id, column_ids, source
+            sheet_id, tuple(row_ids), total, change_id, column_ids, source
         )
         self.result = result
         return result
@@ -707,7 +709,7 @@ class _RowDeleter(_CallOnce):
             "UPDATE rows SET hidden=1 WHERE id=? AND sheet_id=?",
             [(row_id, sheet_id) for row_id in row_ids],
         )
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind="delete_rows",
             label="delete row" if len(row_ids) == 1 else "delete rows",
@@ -722,7 +724,7 @@ class _RowDeleter(_CallOnce):
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
             ).fetchone()[0]
         )
-        result = DeletedRows(sheet_id, row_ids, total, op_id)
+        result = DeletedRows(sheet_id, row_ids, total, change_id)
         self.result = result
         return result
 
@@ -879,7 +881,7 @@ class _ColumnTyper(_CallOnce):
         self._cur.execute(
             "UPDATE columns SET type=? WHERE id=?", (column_type, column_id)
         )
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind="column.set_type",
             label=f"column.set_type {column['column_name']} as {column_type}",
@@ -899,7 +901,7 @@ class _ColumnTyper(_CallOnce):
             str(column["column_name"]),
             type_before,
             column_type,
-            op_id,
+            change_id,
         )
         self._classified_row_ids = tuple(sorted(values))
         self._invalid_row_ids = tuple(
@@ -963,7 +965,7 @@ class _CellEditor(_CallOnce):
                 action_kind=self._action.kind,
                 field="params.edits",
             )
-        op_id = _write_edit_overlay(
+        change_id = _write_edit_overlay(
             self._project,
             self._cur,
             label="manual edit"
@@ -975,7 +977,7 @@ class _CellEditor(_CallOnce):
         edit_refs = tuple(
             {
                 "kind": "manual_edit_overlay",
-                "op_id": op_id,
+                "change_id": change_id,
                 "sheet_id": target["sheet_id"],
                 "row_id": target["row_id"],
                 "column_id": target["column_id"],
@@ -990,7 +992,7 @@ class _CellEditor(_CallOnce):
             for target in targets
         )
         result = EditedCells(
-            op_id,
+            change_id,
             tuple(
                 (int(target["row_id"]), int(target["column_id"])) for target in targets
             ),
@@ -1130,7 +1132,7 @@ class _QueryCellEditor(_CallOnce):
         }
         if len(row_ids) <= MAX_CELL_EDITS:
             spec["resolved"]["row_ids"] = row_ids
-        op_id = _write_edit_overlay(
+        change_id = _write_edit_overlay(
             self._project,
             self._cur,
             label="query edit" if len(targets) == 1 else f"query edit x{len(targets)}",
@@ -1142,7 +1144,7 @@ class _QueryCellEditor(_CallOnce):
             refs = (
                 {
                     "kind": "manual_edit_overlay",
-                    "op_id": op_id,
+                    "change_id": change_id,
                     "sheet_id": sheet_id,
                     "column_id": column_id,
                     "column_name": str(column["column_name"]),
@@ -1155,7 +1157,7 @@ class _QueryCellEditor(_CallOnce):
             refs = tuple(
                 {
                     "kind": "manual_edit_overlay",
-                    "op_id": op_id,
+                    "change_id": change_id,
                     "sheet_id": sheet_id,
                     "row_id": target["row_id"],
                     "column_id": column_id,
@@ -1173,7 +1175,7 @@ class _QueryCellEditor(_CallOnce):
             str(column["column_name"]),
             query_spec_hash(normalized),
             tuple(row_ids),
-            op_id,
+            change_id,
         )
         self._query = normalized
         self._row_count = len(row_ids)
@@ -1251,7 +1253,7 @@ def _require_mutation_targets_mutable(
         ReplayValueAcceptor,
         ReplayValueDismissor,
     }:
-        if params.get("copied_op_id") is not None:
+        if params.get("copied_change_id") is not None:
             run = project.db.execute(
                 "SELECT sheet_id FROM rows WHERE id=?", (int(params["row_id"]),)
             ).fetchone()
@@ -1302,7 +1304,7 @@ def _result_and_receipt(
             "changed_fields": ["format"],
             "format_before": returned.format_before,
             "format_after": returned.format_after,
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
         }
         output = ActionOutput(
             kind="column",
@@ -1334,7 +1336,7 @@ def _result_and_receipt(
                     "column_id": returned.column_id,
                     "format_before": returned.format_before,
                     "format_after": returned.format_after,
-                    "op_id": returned.op_id,
+                    "change_id": returned.change_id,
                 },
                 retention="pinned",
             )
@@ -1348,7 +1350,7 @@ def _result_and_receipt(
             "column_name": returned.name,
             "type": returned.column_type,
             "position": returned.position,
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
         }
         output = ActionOutput(
             kind="column",
@@ -1370,7 +1372,7 @@ def _result_and_receipt(
                     "kind": "added_column",
                     "sheet_id": returned.sheet_id,
                     "column_id": returned.column_id,
-                    "op_id": returned.op_id,
+                    "change_id": returned.change_id,
                 },
                 retention="pinned",
             )
@@ -1380,7 +1382,7 @@ def _result_and_receipt(
             "kind": "added_rows",
             "sheet_id": returned.sheet_id,
             "row_ids": [returned.row_id],
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
             "total": returned.total,
         }
         output = ActionOutput(
@@ -1403,7 +1405,7 @@ def _result_and_receipt(
                     "kind": "added_row",
                     "sheet_id": returned.sheet_id,
                     "row_id": returned.row_id,
-                    "op_id": returned.op_id,
+                    "change_id": returned.change_id,
                 },
                 retention="pinned",
             ),
@@ -1428,7 +1430,7 @@ def _result_and_receipt(
             **_compact_import_rowset_ref(
                 sheet_id=returned.sheet_id,
                 row_ids=row_ids,
-                op_id=returned.op_id,
+                change_id=returned.change_id,
             ),
             "total": returned.total,
         }
@@ -1455,7 +1457,7 @@ def _result_and_receipt(
             "sheet_id": returned.sheet_id,
             "row_ids": list(returned.row_ids),
             "deleted": len(returned.row_ids),
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
             "total": returned.total,
         }
         output = ActionOutput(
@@ -1478,7 +1480,7 @@ def _result_and_receipt(
                     "kind": "deleted_row",
                     "sheet_id": returned.sheet_id,
                     "row_id": row_id,
-                    "op_id": returned.op_id,
+                    "change_id": returned.change_id,
                 },
                 retention="pinned",
             )
@@ -1495,7 +1497,7 @@ def _result_and_receipt(
             "column_name": returned.column_name,
             "type_before": returned.type_before,
             "type_after": returned.type_after,
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
         }
         output = ActionOutput(
             kind="column",
@@ -1526,7 +1528,7 @@ def _result_and_receipt(
                     "column_id": returned.column_id,
                     "type_before": returned.type_before,
                     "type_after": returned.type_after,
-                    "op_id": returned.op_id,
+                    "change_id": returned.change_id,
                 },
                 retention="pinned",
             ),
@@ -1557,7 +1559,7 @@ def _result_and_receipt(
         ]
         ref = {
             "kind": "manual_edit_batch",
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
             "edit_count": len(returned.targets),
             "targets": target_refs,
         }
@@ -1572,7 +1574,7 @@ def _result_and_receipt(
                 name="target_cells",
                 ref={
                     "kind": "cell_edit_targets",
-                    "op_id": returned.op_id,
+                    "change_id": returned.change_id,
                     "edit_count": len(returned.targets),
                     "targets": target_refs,
                 },
@@ -1594,7 +1596,7 @@ def _result_and_receipt(
         ]
         ref = {
             "kind": "query_cell_edit_batch",
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
             "sheet_id": returned.sheet_id,
             "column_id": returned.column_id,
             "column_name": returned.column_name,
@@ -1620,7 +1622,7 @@ def _result_and_receipt(
         )
         target_ref = {
             "kind": "query_cell_edit_targets",
-            "op_id": returned.op_id,
+            "change_id": returned.change_id,
             "sheet_id": returned.sheet_id,
             "column_id": returned.column_id,
             "column_name": returned.column_name,
@@ -1690,7 +1692,7 @@ def _result_and_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[] if returned.op_id is None else [returned.op_id],
+        change_ids=[] if returned.change_id is None else [returned.change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -1703,7 +1705,7 @@ def _result_and_receipt(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",
         project_id=project_id,
-        op_ids=[] if returned.op_id is None else [returned.op_id],
+        change_ids=[] if returned.change_id is None else [returned.change_id],
         outputs=[output],
         receipt_id=receipt_id,
     )
@@ -1798,14 +1800,14 @@ def _perform(
     )
     from frisket.engine.store.changes import ChangeStore
 
-    for op_id in result.op_ids:
-        ChangeStore(project).close(op_id)
+    for change_id in result.change_ids:
+        ChangeStore(project).close(change_id)
     ReceiptStore(project).insert_completed(receipt)
     return result
 
 
 def _import_change_replay_error(project: Any, receipt: Receipt) -> ActionError | None:
-    if not _receipt_ops_are_applied(project, receipt.op_ids):
+    if not _receipt_ops_are_applied(project, receipt.change_ids):
         return ActionError(
             code="stale_replay",
             message="The imported row change was undone or reclaimed; use a new request key to apply it again.",

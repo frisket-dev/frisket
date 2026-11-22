@@ -183,7 +183,7 @@ def _case(kind, seed, make, patch, output_key, output_name, row_count, capabilit
             "runs": 1,
             "results": row_count,
             "model_calls": 0,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
             "blobs": 1,
         },

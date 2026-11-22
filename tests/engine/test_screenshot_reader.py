@@ -83,7 +83,7 @@ async def test_reused_capability_records_actual_derived_arguments_and_owned_sour
             "value": row.values["url"],
             "value_ref": {
                 "kind": "edit",
-                "op_id": 1,
+                "change_id": 1,
                 "row_id": 2,
                 "column_id": 3,
             },

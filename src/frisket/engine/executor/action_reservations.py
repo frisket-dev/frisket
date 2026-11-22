@@ -1346,8 +1346,10 @@ def _hide_deferred_created_columns(
         return
     from frisket.engine.runner.preparation import _created_generated_column_ids
 
-    row = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
-    created = _created_generated_column_ids(project, int(row["op_id"]))
+    row = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    created = _created_generated_column_ids(project, int(row["change_id"]))
     # Existing replacement targets retain their prior visible generation.
     project.db.executemany(
         "UPDATE columns SET hidden=1 WHERE id=?",
@@ -1807,8 +1809,8 @@ def _reserved_maprunner_result_from_existing(
             return False
         run_id = int(receipt.run_id)
         run = project.db.execute(
-            "SELECT runs.status,runs.current_attempt_id,runs.action_kind,ops.spec "
-            "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            "SELECT runs.status,runs.current_attempt_id,runs.action_kind,changes.spec "
+            "FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
             (run_id,),
         ).fetchone()
         if (

@@ -46,7 +46,7 @@ const jsonLeafPayload: CitationViewerPayload = {
     row_id: 2,
     column_id: 3,
     run_id: null,
-    op_id: null,
+    change_id: null,
     receipt_id: null,
     role: 'support',
     status: 'active',

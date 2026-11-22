@@ -29,7 +29,7 @@ interface CitationTarget {
 function currentCitationMatchesField(payload: CellCitationsPayload, field: Pick<ReviewBundleField, 'runId' | 'copiedChangeId'>): boolean {
   const ref = payload.current_value_ref;
   if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return false;
-  if (field.copiedChangeId) return (ref as Record<string, unknown>).kind === 'copied_result' && String((ref as Record<string, unknown>).op_id) === field.copiedChangeId;
+  if (field.copiedChangeId) return (ref as Record<string, unknown>).kind === 'copied_result' && String((ref as Record<string, unknown>).change_id) === field.copiedChangeId;
   const runId = (ref as Record<string, unknown>).run_id;
   return (ref as Record<string, unknown>).kind === 'run_result' && String(runId) === field.runId;
 }

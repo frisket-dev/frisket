@@ -65,8 +65,8 @@ def _seed(project: Project) -> tuple[int, int, list[int], int]:
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_change("map", {"recipe": "x"}, label="x")
-    return sheet_id, out, row_ids, op_id
+    change_id = project.append_change("map", {"recipe": "x"}, label="x")
+    return sheet_id, out, row_ids, change_id
 
 
 def test_outcome_constants_partition_failure_and_terminal() -> None:
@@ -102,10 +102,10 @@ def test_derive_shim_classifies_value_error_empty() -> None:
 
 def test_result_sink_stores_redacted_detail_without_prefix(project: Project) -> None:
     secret = "checkpoint1b-result-sink-secret"
-    sheet_id, out, row_ids, op_id = _seed(project)
+    sheet_id, out, row_ids, change_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
+        change_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
     )
     write_claimed_test_results(
         project,
@@ -224,10 +224,10 @@ def test_result_and_batch_error_boundaries_survive_hostile_stringification(
     assert cells["answer"]["error"] == "[UNPRINTABLE Evil]"
     assert secret not in cells["answer"]["error"]
 
-    sheet_id, out, row_ids, op_id = _seed(project)
+    sheet_id, out, row_ids, change_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
+        change_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
     )
     write_claimed_test_results(
         project,
@@ -252,10 +252,10 @@ def test_result_and_batch_error_boundaries_survive_hostile_stringification(
 def test_failed_rows_counts_only_failures_and_backfill_skips_terminal(
     project: Project,
 ) -> None:
-    sheet_id, out, row_ids, op_id = _seed(project)
+    sheet_id, out, row_ids, change_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
+        change_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
     )
 
     write_claimed_test_results(
@@ -337,10 +337,10 @@ def test_failed_rows_counts_only_failures_and_backfill_skips_terminal(
 def test_withhold_result_value_marks_terminal_without_failing(
     project: Project,
 ) -> None:
-    sheet_id, out, row_ids, op_id = _seed(project)
+    sheet_id, out, row_ids, change_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
+        change_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
     )
     # a value is written first (ok), then withheld on policy.
     write_claimed_test_results(

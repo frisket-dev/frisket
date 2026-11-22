@@ -135,7 +135,7 @@ def _counts(project: Project) -> dict[str, int]:
             "runs",
             "results",
             "model_calls",
-            "ops",
+            "changes",
             "receipts",
         )
     }

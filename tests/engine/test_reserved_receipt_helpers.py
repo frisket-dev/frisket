@@ -448,7 +448,7 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
         elif fault == "failed_result_child_sheet_finalization":
             assert env.counts() == {
                 **before,
-                "ops": before["ops"] + 1,
+                "changes": before["changes"] + 1,
                 "runs": before["runs"] + 1,
                 "model_calls": before["model_calls"] + 2,
                 "sheets": before["sheets"] + 1,
@@ -504,7 +504,7 @@ def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
         claimless_direct_effect=claimless,
     )
     _insert_receipt(
-        project, _receipt().model_copy(update={"run_id": run, "op_ids": [op]})
+        project, _receipt().model_copy(update={"run_id": run, "change_ids": [op]})
     )
     project.db.execute(
         "UPDATE receipts SET run_id=?,created_at='2000-01-01' WHERE id=?",

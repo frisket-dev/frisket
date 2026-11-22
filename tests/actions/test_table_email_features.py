@@ -78,7 +78,7 @@ def _assert_no_publication(project):
         "columns",
         "rows",
         "cells",
-        "ops",
+        "changes",
         "receipts",
         "blobs",
         "source_artifacts",
@@ -241,7 +241,7 @@ def test_final_warnings_are_consumed_once_after_row_close_before_publication(
             assert events == ["rows_closed"]
             events.append("warnings_read")
             assert not project.db.in_transaction
-            for table in ("blobs", "ops", "receipts"):
+            for table in ("blobs", "changes", "receipts"):
                 assert (
                     project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                     == 0

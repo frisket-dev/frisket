@@ -174,7 +174,7 @@ def test_materialized_publication_failure_rolls_back_all_writes(
         assert project.db.in_transaction
         assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1001
         assert project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 1001
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+        assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 1
         attempted.append(True)
         raise RuntimeError("receipt insertion failed after table writes")
 
@@ -190,7 +190,7 @@ def test_materialized_publication_failure_rolls_back_all_writes(
     assert statements.count("ROLLBACK") == 1
     assert "COMMIT" not in statements
     assert not project.db.in_transaction
-    for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+    for table in ("sheets", "columns", "rows", "cells", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -244,7 +244,7 @@ def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
             )
         assert len(acquired) == 1 and conflict is None
         for transition, expected_hidden in ((project.undo, 1), (project.redo, 0)):
-            assert transition() == result.op_ids[0]
+            assert transition() == result.change_ids[0]
             if expected_hidden:
                 # Release this writer before restoring the sheet; a fresh name
                 # reservation while it is absent is a real restoration conflict.
@@ -320,5 +320,5 @@ def test_late_producer_failure_removes_committed_hidden_batches(
         assert result.errors[0].code == "project_write_failed"
     assert closed == [True]
     assert appended == [500, 500]
-    for table in ("sheets", "rows", "cells", "ops", "receipts"):
+    for table in ("sheets", "rows", "cells", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0

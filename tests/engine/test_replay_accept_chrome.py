@@ -38,11 +38,11 @@ class _Fixture:
 
     def run_with_results(self, values: dict[int, Any]) -> int:
         store = RunResultStore(self.project)
-        op_id = self.project.append_change(
+        change_id = self.project.append_change(
             "run", {"kind": "map"}, label="generate labels"
         )
         run_id = store.start_run(
-            op_id,
+            change_id,
             self.sheet,
             "map.classify",
             model="anthropic/claude-haiku-4-5",
@@ -152,9 +152,9 @@ def test_replay_accept_writes_a_new_edit_op_with_provenance_spec(fx):
         "accepting one cell decrements the full-column chip count"
     )
 
-    assert result.op_ids, "accept reports the new edit op id"
+    assert result.change_ids, "accept reports the new edit op id"
     op = fx.project.db.execute(
-        "SELECT kind, spec FROM ops WHERE id=?", (result.op_ids[-1],)
+        "SELECT kind, spec FROM changes WHERE id=?", (result.change_ids[-1],)
     ).fetchone()
     assert op["kind"] == "edit", "accept is a normal, undoable edit op"
     spec = json.loads(op["spec"])
@@ -182,12 +182,12 @@ def test_replay_accept_column_is_one_batched_op(fx):
         "replay.accept_column must complete as a v1 action "
         f"(got {result.status}: {[e.code for e in result.errors]})"
     )
-    assert result.op_ids, "accept-all reports the single batch op id"
+    assert result.change_ids, "accept-all reports the single batch op id"
 
     edited_rows = {
         int(row["row_id"])
         for row in fx.project.db.execute(
-            "SELECT row_id FROM edits WHERE op_id=?", (result.op_ids[-1],)
+            "SELECT row_id FROM edits WHERE change_id=?", (result.change_ids[-1],)
         )
     }
     assert edited_rows == {r[0], r[1]}, (
@@ -263,9 +263,9 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
             "the same generated value stays suppressed across future runs"
         )
         # A newer generated value (new hash) re-surfaces the kept edit.
-        op_id = reopened.append_change("run", {"kind": "map"}, label="re-run")
+        change_id = reopened.append_change("run", {"kind": "map"}, label="re-run")
         new_run = store.start_run(
-            op_id,
+            change_id,
             fx.sheet,
             "map.classify",
             model="anthropic/claude-haiku-4-5",
@@ -379,9 +379,9 @@ def test_replay_accept_checks_claim_identity_and_supports_undo_redo(fx):
     accepted = fx.run_action(request)
     assert accepted.status == "completed"
     assert fx.project.get_values(fx.sheet, fx.col, row_ids=[row_id])[row_id] == "cat"
-    assert fx.project.undo() == accepted.op_ids[0]
+    assert fx.project.undo() == accepted.change_ids[0]
     assert fx.project.get_values(fx.sheet, fx.col, row_ids=[row_id])[row_id] == "feline"
-    assert fx.project.redo() == accepted.op_ids[0]
+    assert fx.project.redo() == accepted.change_ids[0]
     assert fx.project.get_values(fx.sheet, fx.col, row_ids=[row_id])[row_id] == "cat"
 
 

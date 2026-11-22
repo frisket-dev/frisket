@@ -237,7 +237,7 @@ try:
         column_id = columns.get(column_name)
         if column_id is None:
             column_id = project.add_column(sheet_id, column_name, "text", generated=True)
-        op_id = project.append_change(
+        change_id = project.append_change(
             producer_kind,
             {
                 "schema_version": "frisket.action.v2",
@@ -247,7 +247,7 @@ try:
             label=producer_kind,
         )
         run_id = run_store.start_run(
-            op_id,
+            change_id,
             sheet_id,
             producer_kind,
             model="fixture/model",
@@ -270,14 +270,14 @@ try:
         )
         run_store.finish_run(run_id)
         with write_transaction(project.db):
-            run_store.point_column_at_run(op_id, column_id, run_id)
+            run_store.point_column_at_run(change_id, column_id, run_id)
         _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
         subject_kind = "cell_value"
         subject_ref = refs[row_id]
     else:
         column_name = str(payload["column_name"])
         column_id = columns[column_name]
-        op_id = project.append_change(
+        change_id = project.append_change(
             producer_kind,
             {"schema_version": "frisket.action.v2", "kind": producer_kind, "params": {}},
             label=producer_kind,
@@ -317,7 +317,7 @@ try:
             row_id=row_id,
             column_id=column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=f"receipt-{producer_kind}",
             link_role="primary_support",
             confidence=0.9,

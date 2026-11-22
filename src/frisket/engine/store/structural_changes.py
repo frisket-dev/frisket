@@ -62,14 +62,14 @@ def note_row_additions(
 
 STRUCTURAL_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS structural_changes (
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
+  change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
   kind TEXT NOT NULL CHECK(kind IN ('row','column','sheet')),
   object_id INTEGER NOT NULL,
   before_visible INTEGER NOT NULL CHECK(before_visible IN (0,1)),
   after_visible INTEGER NOT NULL CHECK(after_visible IN (0,1)),
-  PRIMARY KEY(kind,object_id,op_id)
+  PRIMARY KEY(kind,object_id,change_id)
 );
-CREATE INDEX IF NOT EXISTS idx_structural_change_op ON structural_changes(op_id);
+CREATE INDEX IF NOT EXISTS idx_structural_changes_change ON structural_changes(change_id);
 """
 
 # These are existing undo facts, not a second authored mutation language.
@@ -84,7 +84,7 @@ _MEMBERSHIP_FIELDS = {
 }
 
 
-def record_structural_changes(db, op_id, info):
+def record_structural_changes(db, change_id, info):
     import json
 
     require_transaction(db, "structural change")
@@ -92,9 +92,9 @@ def record_structural_changes(db, op_id, info):
         if info.get(field):
             db.execute(
                 "INSERT OR IGNORE INTO structural_changes "
-                "(op_id,kind,object_id,before_visible,after_visible) "
+                "(change_id,kind,object_id,before_visible,after_visible) "
                 "SELECT ?,?,value,?,? FROM json_each(?)",
-                (op_id, kind, before, after, json.dumps(info[field])),
+                (change_id, kind, before, after, json.dumps(info[field])),
             )
 
     # Streaming imports already have a durable compact membership ledger.
@@ -102,24 +102,24 @@ def record_structural_changes(db, op_id, info):
     session = info.get("created_rows_import_session_id")
     if session is not None:
         db.execute(
-            "INSERT OR IGNORE INTO structural_changes (op_id,kind,object_id,before_visible,after_visible) "
+            "INSERT OR IGNORE INTO structural_changes (change_id,kind,object_id,before_visible,after_visible) "
             "SELECT ?, 'row', member.row_id, 0, 1 FROM import_session_rows member "
             "JOIN import_sessions session ON session.id=member.session_id "
-            "WHERE member.session_id=? AND session.op_id=?",
-            (op_id, session, op_id),
+            "WHERE member.session_id=? AND session.change_id=?",
+            (change_id, session, change_id),
         )
     replaced_session = info.get("replaced_rows_import_session_id")
     if replaced_session is not None:
         db.execute(
-            "INSERT OR IGNORE INTO structural_changes (op_id,kind,object_id,before_visible,after_visible) "
+            "INSERT OR IGNORE INTO structural_changes (change_id,kind,object_id,before_visible,after_visible) "
             "SELECT ?, 'row', source.row_id, 1, 0 FROM import_session_pdf_sources source "
             "JOIN import_sessions session ON session.id=source.session_id "
-            "WHERE source.session_id=? AND source.replaced=1 AND session.op_id=?",
-            (op_id, replaced_session, op_id),
+            "WHERE source.session_id=? AND source.replaced=1 AND session.change_id=?",
+            (change_id, replaced_session, change_id),
         )
 
 
-def project_structural_changes(db, op_id, *, object_ids=None):
+def project_structural_changes(db, change_id, *, object_ids=None):
     """Project only the touched identities from their winning active Change."""
     require_transaction(db, "structural projection")
     # Scope stays in SQLite, including a million-row import. A structural edit
@@ -130,8 +130,8 @@ def project_structural_changes(db, op_id, *, object_ids=None):
     kinds = {
         row[0]
         for row in db.execute(
-            "SELECT DISTINCT kind FROM structural_changes INDEXED BY idx_structural_change_op WHERE op_id BETWEEN ? AND ?",
-            (op_id, op_id),
+            "SELECT DISTINCT kind FROM structural_changes INDEXED BY idx_structural_changes_change WHERE change_id BETWEEN ? AND ?",
+            (change_id, change_id),
         )
     }
     for kind, table, field in (
@@ -155,17 +155,17 @@ def project_structural_changes(db, op_id, *, object_ids=None):
             scope_sql = " AND object_id IN (SELECT value FROM json_each(?))"
             scope_args = [json.dumps(list(object_ids))]
         db.execute(
-            "WITH touched AS (SELECT object_id FROM structural_changes WHERE op_id=? AND kind=?"
+            "WITH touched AS (SELECT object_id FROM structural_changes WHERE change_id=? AND kind=?"
             + scope_sql
             + "), "
             "ranked AS (SELECT effect.object_id,effect.after_visible,owner.status, "
             "FIRST_VALUE(effect.before_visible) OVER (PARTITION BY effect.object_id ORDER BY owner.change_order) AS baseline, "
             "ROW_NUMBER() OVER (PARTITION BY effect.object_id ORDER BY (owner.status='applied') DESC,owner.change_order DESC) AS rank "
-            "FROM touched JOIN structural_changes effect USING(object_id) JOIN ops owner ON owner.id=effect.op_id "
+            "FROM touched JOIN structural_changes effect USING(object_id) JOIN changes owner ON owner.id=effect.change_id "
             "WHERE effect.kind=? AND owner.change_order IS NOT NULL), "
             "winners AS (SELECT object_id,CASE WHEN status='applied' THEN after_visible ELSE baseline END AS visible "
             "FROM ranked WHERE rank=1) "
             f"UPDATE {table} SET {field}=(SELECT {visible} FROM winners WHERE winners.object_id={table}.id){hidden_update} "
             "WHERE id IN (SELECT object_id FROM winners)",
-            (op_id, kind, *scope_args, kind),
+            (change_id, kind, *scope_args, kind),
         )

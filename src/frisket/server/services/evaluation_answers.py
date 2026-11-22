@@ -245,10 +245,10 @@ def save_expected_answer(service, pid, raw):
         # The ordinary value mutation owns its newly-created structure too.
         # Nested typed edits and row creation retain this transaction.
         if created_sheets or created_columns:
-            owner = project.op_cursor
+            owner = project.change_cursor
             info = json.loads(
                 project.db.execute(
-                    "SELECT undo_info FROM ops WHERE id=?", (owner,)
+                    "SELECT undo_info FROM changes WHERE id=?", (owner,)
                 ).fetchone()[0]
                 or "{}"
             )

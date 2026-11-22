@@ -8,7 +8,7 @@ function payload(role: string, artifact: ReturnType<typeof evidenceArtifact>): C
     schema_version: 'frisket.citation_viewer.v1', warnings: [], artifacts: [artifact],
     link: {
       id: 1, stable_id: `link:${role}:${artifact.stable_id}`, export_ref: 'link', subject_kind: 'cell', subject_ref: null,
-      sheet_id: 1, row_id: 1, column_id: 1, run_id: 4, op_id: null, receipt_id: null, role, status: 'active',
+      sheet_id: 1, row_id: 1, column_id: 1, run_id: 4, change_id: null, receipt_id: null, role, status: 'active',
       confidence: null, pinned: false, producer: {}, stale_reason: null, stale_at: null,
       created_at: '2026-09-01T00:00:00Z', text_layer_hash_mismatch: false,
     },

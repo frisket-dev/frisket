@@ -36,7 +36,9 @@ def test_apply_edits_default_commit_preserves_ambient_transaction(
     )
     assert project.get_values(sheet_id, column_id) == {row_id: "original"}
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops WHERE kind='edit'").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM changes WHERE kind='edit'").fetchone()[
+            0
+        ]
         == 0
     )
 
@@ -66,7 +68,9 @@ def test_apply_edits_failure_rolls_back_only_its_savepoint(make_project) -> None
         == "Sentinel"
     )
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops WHERE kind='edit'").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM changes WHERE kind='edit'").fetchone()[
+            0
+        ]
         == 0
     )
     project.db.rollback()
@@ -107,7 +111,7 @@ def test_add_rows_in_transaction_preserves_ambient_transaction_and_owning_refuse
     )
     assert project.row_count(sheet_id) == 0
     assert project.get_values(sheet_id, column_id) == {}
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
 
 
 def test_delete_sheet_rejects_ambient_transaction_before_changes_or_gc(

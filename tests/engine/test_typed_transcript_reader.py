@@ -264,7 +264,7 @@ def _counts(project):
             "columns",
             "rows",
             "cells",
-            "ops",
+            "changes",
             "source_artifacts",
             "source_spans",
             "citations",
@@ -302,7 +302,7 @@ def test_late_projection_failure_rolls_back_every_output_and_finalizes_receipt(
     assert len(calls) == 2
     assert _counts(project) == before
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    assert receipt.status == "failed" and receipt.op_ids == []
+    assert receipt.status == "failed" and receipt.change_ids == []
 
 
 def test_reserved_worker_keeps_identity_job_evidence_and_no_read_redelivery(
@@ -624,7 +624,7 @@ def test_preview_and_refresh_stay_unsupported_and_undo_keeps_navigation_honest(
     assert (
         refresh.status == "failed" and refresh.errors[0].code == "refresh_unsupported"
     )
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     replay = run_action_spec(project, body, project_id="project-test")
     assert replay.status == "failed" and replay.errors[0].code == "stale_replay"
 

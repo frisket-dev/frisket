@@ -13,7 +13,7 @@ from executor_harness import (
     ExecutorCase,
     Gate,
     case_env,
-    operation_action,
+    change_action,
 )
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
@@ -191,10 +191,10 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     )
     assert undone_review.status == "completed", undone_review.errors
     undo_result = run(
-        operation_action(
-            "operation.undo",
+        change_action(
+            "change.undo",
             key="undo_undone_review_join_row_id@sha256:v1",
-            expected_op_id=undone_review.op_ids[0],
+            expected_change_id=undone_review.change_ids[0],
         ),
     )
     assert undo_result.status == "completed", undo_result.errors
@@ -288,7 +288,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 
     source_row_ids = seeded["source_row_ids"]
     target_row_ids = seeded["target_row_ids"]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert {output.kind for output in result.outputs} == {"sheet", "column", "rows"}
     child_sheet_id = next(
         output.sheet_id for output in result.outputs if output.kind == "sheet"
@@ -303,7 +303,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     ).fetchone()
     assert child["name"] == "Reviewed Semantic Links"
     assert child["parent_sheet_id"] == seeded["source_sheet_id"]
-    assert child["parent_op_id"] == result.op_ids[0]
+    assert child["parent_change_id"] == result.change_ids[0]
 
     child_columns = {
         column["name"]: column for column in project.columns(child_sheet_id)
@@ -354,7 +354,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row["run_id"] is None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "derive.link_table"
-    assert receipt.op_ids == result.op_ids
+    assert receipt.change_ids == result.change_ids
     input_ref = next(
         item.ref
         for item in receipt.inputs
@@ -463,7 +463,7 @@ CASES = [
             "columns": 6,
             "rows": 3,
             "edits": 0,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,
@@ -520,25 +520,25 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
     ) -> int:
         from frisket.engine.store.changes import ChangeStore, start_change
         from frisket.engine.store.review_judgments import record_judgment_changes
-        from frisket.engine.store.op_log import append_change
+        from frisket.engine.store.change_log import append_change
 
         target = f"{run_id}:{row_id}:{column_id}"
         info = {
             "review_metadata": {target: {"decision": None}},
             "review_metadata_after": {target: {"decision": "accept"}},
         }
-        op_id = append_change(project, "review.decision", undo_info=info)
+        change_id = append_change(project, "review.decision", undo_info=info)
         with project.transaction_scope():
-            start_change(project.db, op_id)
-            record_judgment_changes(project.db, op_id, info)
-            ChangeStore(project).close(op_id)
+            start_change(project.db, change_id)
+            record_judgment_changes(project.db, change_id, info)
+            ChangeStore(project).close(change_id)
         ReceiptStore(project).insert(
             Receipt(
                 receipt_id=receipt_id,
                 project_id="review-selection",
                 action_id=f"action-{receipt_id}",
                 action_kind="review.decision",
-                op_ids=[op_id],
+                change_ids=[change_id],
                 status="completed",
                 inputs=[
                     ReceiptIO(
@@ -554,7 +554,7 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
                 review={"decision": "accept"},
             )
         )
-        return op_id
+        return change_id
 
     exact_op = add_review("exact", run_id=7, row_id=100, column_id=10)
     add_review("same-row-wrong-run", run_id=8, row_id=100, column_id=10)
@@ -580,6 +580,6 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
             "row_id": 100,
             "column_id": 10,
             "decision": "accept",
-            "op_ids": [exact_op],
+            "change_ids": [exact_op],
         }
     ]

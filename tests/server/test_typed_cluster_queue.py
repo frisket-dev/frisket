@@ -49,7 +49,7 @@ def test_cluster_http_queue_publishes_reviewed_values_and_replays(tmp_path, empt
             ),
             "op": dict(
                 project.db.execute(
-                    "SELECT ops.* FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+                    "SELECT ops.* FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
                     (result["run_id"],),
                 ).fetchone()
             ),

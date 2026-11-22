@@ -56,9 +56,9 @@ def test_aggregate_membership_ref_uses_the_stored_relation(make_project) -> None
     project, sheet_id, row_ids = _source_project(make_project)
     write = _write_aggregate(project, sheet_id, row_ids)
     ref = write.materialized_row_sources_ref
-    stored = load_materialized_row_sources_for_op(project.db, op_id=write.op_id)
+    stored = load_materialized_row_sources_for_op(project.db, change_id=write.change_id)
 
-    assert set(ref) == {"kind", "op_id", "row_count", "sha256", "storage"}
+    assert set(ref) == {"kind", "change_id", "row_count", "sha256", "storage"}
     assert ref["storage"] == "normalized_relation_v1"
     assert ref["row_count"] == len(row_ids)
     assert materialized_row_sources_ref_matches(ref, stored)
@@ -72,11 +72,13 @@ def test_compact_aggregate_ref_rejects_stored_membership_tamper(
     ref = write.materialized_row_sources_ref
     project.db.execute(
         "UPDATE materialized_row_sources SET role='edge_source' "
-        "WHERE op_id=? AND source_row_id=?",
-        (write.op_id, row_ids[0]),
+        "WHERE change_id=? AND source_row_id=?",
+        (write.change_id, row_ids[0]),
     )
     project.db.commit()
-    changed = load_materialized_row_sources_for_op(project.db, op_id=write.op_id)
+    changed = load_materialized_row_sources_for_op(
+        project.db, change_id=write.change_id
+    )
 
     assert not materialized_row_sources_ref_matches(ref, changed)
 
@@ -86,7 +88,9 @@ def test_old_embedded_refs_stay_strict_and_contributor_refs_keep_rows(
 ) -> None:
     project, sheet_id, row_ids = _source_project(make_project)
     aggregate = _write_aggregate(project, sheet_id, row_ids)
-    stored = load_materialized_row_sources_for_op(project.db, op_id=aggregate.op_id)
+    stored = load_materialized_row_sources_for_op(
+        project.db, change_id=aggregate.change_id
+    )
     old_ref = {**aggregate.materialized_row_sources_ref, "rows": stored}
     old_ref.pop("storage")
     assert materialized_row_sources_ref_matches(old_ref, stored)
@@ -122,5 +126,7 @@ def test_old_embedded_refs_stay_strict_and_contributor_refs_keep_rows(
     assert contributor.materialized_row_sources_ref["rows"]
     assert materialized_row_sources_ref_matches(
         contributor.materialized_row_sources_ref,
-        load_materialized_row_sources_for_op(project.db, op_id=contributor.op_id),
+        load_materialized_row_sources_for_op(
+            project.db, change_id=contributor.change_id
+        ),
     )

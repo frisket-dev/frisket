@@ -84,7 +84,8 @@ def test_import_append_rows_is_atomic_idempotent_and_refuses_incompatible_mappin
     sheet_id = int(created.outputs[0].sheet_id)
     # A root sheet may retain its creation op without being derived.
     project.db.execute(
-        "UPDATE sheets SET parent_op_id=? WHERE id=?", (created.op_ids[0], sheet_id)
+        "UPDATE sheets SET parent_change_id=? WHERE id=?",
+        (created.change_ids[0], sheet_id),
     )
     project.db.commit()
     appended = run_action_spec(
@@ -100,12 +101,12 @@ def test_import_append_rows_is_atomic_idempotent_and_refuses_incompatible_mappin
     assert "appended" not in output_schema["properties"]
     assert appended.outputs[0].ref["row_count"] == 1
     destination = project.db.execute(
-        "SELECT parent_sheet_id,parent_op_id FROM sheets WHERE id=?", (sheet_id,)
+        "SELECT parent_sheet_id,parent_change_id FROM sheets WHERE id=?", (sheet_id,)
     ).fetchone()
     assert destination["parent_sheet_id"] is None
-    assert destination["parent_op_id"] == created.op_ids[0]
+    assert destination["parent_change_id"] == created.change_ids[0]
     append_change = project.db.execute(
-        "SELECT kind,spec FROM ops WHERE id=?", (appended.op_ids[0],)
+        "SELECT kind,spec FROM changes WHERE id=?", (appended.change_ids[0],)
     ).fetchone()
     assert append_change["kind"] == "import.append_rows"
     append_spec = json.loads(append_change["spec"])
@@ -128,7 +129,7 @@ def test_import_append_rows_is_atomic_idempotent_and_refuses_incompatible_mappin
     assert refused.status == "failed"
     assert refused.errors[0].code == "incompatible_append_mapping"
     assert project.row_count(sheet_id) == 3
-    assert project.undo() == appended.op_ids[0]
+    assert project.undo() == appended.change_ids[0]
     assert project.row_count(sheet_id) == 2
     undone_replay = run_action_spec(
         project, _append_rows_action(sheet_id), project_id="project"
@@ -176,18 +177,18 @@ def test_import_append_rows_refuses_derived_destination_before_writing(project):
     sheet_id = created.outputs[0].sheet_id
     parent_id = project.add_sheet("Parent")
     project.db.execute(
-        "UPDATE sheets SET parent_sheet_id=?,parent_op_id=? WHERE id=?",
-        (parent_id, created.op_ids[0], sheet_id),
+        "UPDATE sheets SET parent_sheet_id=?,parent_change_id=? WHERE id=?",
+        (parent_id, created.change_ids[0], sheet_id),
     )
     project.db.commit()
-    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     refused = run_action_spec(
         project, _append_rows_action(sheet_id), project_id="project"
     )
     assert refused.status == "failed"
     assert refused.errors[0].code == "derived_append_unsupported"
     assert project.row_count(sheet_id) == 2
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before
 
 
 def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
@@ -218,7 +219,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert result.run_id is None
     assert result.job_id is None
     assert result.receipt_id.startswith("receipt_")
-    assert result.op_ids == [1]
+    assert result.change_ids == [1]
     assert [output.kind for output in result.outputs] == [
         "sheet",
         "column",
@@ -249,7 +250,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "https://example.com/story/2",
     ]
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=1").fetchone()
+    op = project.db.execute("SELECT * FROM changes WHERE id=1").fetchone()
     assert op is not None
     assert op["kind"] == "import.rows"
     op_spec = json.loads(op["spec"])
@@ -317,7 +318,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.schema_version == "frisket.receipt.v1"
     assert receipt.receipt_id == result.receipt_id
     assert receipt.action_kind == "import.rows"
-    assert receipt.op_ids == [1]
+    assert receipt.change_ids == [1]
     assert receipt.idempotency_key == "import_rows@sha256:stable"
     assert receipt.outputs[0].ref["kind"] == "materialized_sheet"
     assert receipt.outputs[0].ref["sheet_id"] == sheet["id"]
@@ -374,7 +375,13 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"sheets": 1, "columns": 3, "rows": 2, "ops": 1, "receipts": 1},
+        expect_counts={
+            "sheets": 1,
+            "columns": 3,
+            "rows": 2,
+            "changes": 1,
+            "receipts": 1,
+        },
         check_state=_check_state,
         request_style="typed",
     )
@@ -488,7 +495,7 @@ def test_import_rows_default_allows_more_than_10000_rows(make_project) -> None:
     assert len(body.encode("utf-8")) < 100_000
     assert "Record 10000" not in body
     op = project.db.execute(
-        "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT spec FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert json.loads(op["spec"])["import_row_count"] == 10_001
@@ -537,5 +544,5 @@ def test_import_rows_hosted_limit_is_injected_and_never_partially_publishes(
     assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
     assert project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 6
     assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 1
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1

@@ -28,7 +28,7 @@ _EMPTY_FENCE = WriterFence()
 class RunFinalization(TypedDict):
     """Keywords every caller of the finalize entry points supplies."""
 
-    op_id: int
+    change_id: int
     status: str
     out_cols: dict[str, int]
     keep_zero_success_generated_columns: NotRequired[bool]
@@ -53,7 +53,7 @@ def _finalize_run_in_transaction(
     project: Project,
     run_store: RunResultStore,
     *,
-    op_id: int,
+    change_id: int,
     run_id: int,
     status: str,
     out_cols: dict[str, int],
@@ -80,7 +80,7 @@ def _finalize_run_in_transaction(
     does, and the run stays ``running`` for the next attempt.
 
     The zero-success rollback is purely a VISIBILITY fix layered on top:
-    for each generated column THIS op created fresh (``ops.undo_info.
+    for each generated column THIS op created fresh (``changes.undo_info.
     created_columns`` — the same list undo/redo already hide/reveal), hide
     it only when the finished run has zero successful result cells for
     that column. Successful sibling outputs stay visible even if every row
@@ -162,7 +162,7 @@ def _finalize_run_in_transaction(
     never_point = {int(column_id) for column_id in never_point_column_ids}
     if never_point:
         undo_row = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (int(op_id),)
+            "SELECT undo_info FROM changes WHERE id=?", (int(change_id),)
         ).fetchone()
         info = json.loads(undo_row["undo_info"] or "{}") if undo_row is not None else {}
         prior_pointers = info.get("column_pointers", {})
@@ -182,8 +182,8 @@ def _finalize_run_in_transaction(
         if changed_pointer_journal:
             info["column_pointers_after"] = after_pointers
             project.db.execute(
-                "UPDATE ops SET undo_info=? WHERE id=?",
-                (json.dumps(info), int(op_id)),
+                "UPDATE changes SET undo_info=? WHERE id=?",
+                (json.dumps(info), int(change_id)),
             )
     if status != "cancelled":
         zero_success_columns = (
@@ -193,7 +193,7 @@ def _finalize_run_in_transaction(
                 project,
                 run_store,
                 run_id,
-                op_id,
+                change_id,
                 # Managed columns stay eligible on purpose (doc 14 owner
                 # decision: fresh-column visibility keeps the CURRENT product
                 # zero-success policy in this slice). Hiding is
@@ -206,7 +206,7 @@ def _finalize_run_in_transaction(
         if zero_success_columns:
             hide_zero_success_created_columns(
                 project,
-                op_id,
+                change_id,
                 out_cols,
                 only_columns=zero_success_columns,
             )
@@ -215,7 +215,7 @@ def _finalize_run_in_transaction(
         # zero-success.
         reveal_recovered_columns(
             project,
-            op_id,
+            change_id,
             out_cols,
             still_zero_success=zero_success_columns,
         )
@@ -292,7 +292,7 @@ def zero_success_created_columns_for_run(
     project: Project,
     run_store: RunResultStore,
     run_id: int,
-    op_id: int,
+    change_id: int,
     out_cols: dict[str, int],
 ) -> set[int]:
     run = run_store.get_run(run_id)
@@ -301,7 +301,9 @@ def zero_success_created_columns_for_run(
     total_rows = int(run["total_rows"] or 0)
     if total_rows <= 0:
         return set()
-    op = project.db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()
+    op = project.db.execute(
+        "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ).fetchone()
     if op is None:
         return set()
     info = json.loads(op["undo_info"] or "{}")

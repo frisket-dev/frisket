@@ -14,7 +14,7 @@ const view: View = {
   sheet_id: 1,
   spec: { selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [{ column_id: 2, condition: { eq: 'open' } }], order: [], limit: null }, presentation: {} },
   unavailable_reason: null,
-  op_id: null,
+  change_id: null,
 };
 
 const originalShowModal = Object.getOwnPropertyDescriptor(

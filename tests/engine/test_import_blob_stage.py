@@ -10,7 +10,7 @@ import pytest
 from frisket.actions.types import PdfDocument, PdfPage, StagedFile, TableError
 from frisket.engine.executor import import_blob_stage
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-from frisket.engine.store import op_log
+from frisket.engine.store import change_log
 from frisket.engine.store.blob_backend import BlobIntegrityError
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 from frisket.engine.store.media_blobs import MediaBlobStore
@@ -40,13 +40,13 @@ def _sheet(project, rows=2):
 
 
 def _publish(project, plan, sheet, columns):
-    op_id = op_log.append_change_in_transaction(project, "import.pdf", spec={})
+    change_id = change_log.append_change_in_transaction(project, "import.pdf", spec={})
     return publish_import_blobs(
         project,
         plan,
         sheet_id=sheet,
         column_ids=columns,
-        op_id=op_id,
+        change_id=change_id,
         receipt_id="receipt-import",
     )
 
@@ -254,9 +254,11 @@ def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(make_proj
         )
 
         project.db.execute("BEGIN IMMEDIATE")
-        op_id = op_log.append_change_in_transaction(project, "import.pdf", spec={})
+        change_id = change_log.append_change_in_transaction(
+            project, "import.pdf", spec={}
+        )
         producer_id = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_id}", op_id=op_id
+            project.db, stage_id=f"op:{change_id}", change_id=change_id
         )
         initialize_base_cells(
             project.db,
@@ -271,7 +273,7 @@ def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(make_proj
             prepared,
             sheet_id=sheet,
             column_ids=columns,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id="receipt-import",
         )
         project.db.commit()
@@ -314,7 +316,7 @@ def test_native_pdf_page_reference_refuses_duplicate_staged_bytes(make_project):
 def test_stage_mutation_refuses_promotion_and_caller_rolls_back(make_project):
     project = make_project("mutation")
     sheet, columns, row_ids = _sheet(project)
-    before_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before_ops = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     with AdmittedImportBlobStager() as stager:
         handle = _stage(stager)
         plan = stager.publication_plan([(row_ids[0], "Renamed", handle)])
@@ -323,7 +325,8 @@ def test_stage_mutation_refuses_promotion_and_caller_rolls_back(make_project):
             _prepare(project, plan)
         assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
         assert (
-            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+            project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+            == before_ops
         )
 
 
@@ -360,7 +363,7 @@ def test_publication_requires_transaction_and_wrapper_pins_digest(make_project):
                 _prepare(project, plan),
                 sheet_id=sheet,
                 column_ids=columns,
-                op_id=1,
+                change_id=1,
                 receipt_id="none",
             )
         with pytest.raises(BlobIntegrityError):

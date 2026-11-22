@@ -426,8 +426,8 @@ def write_row_file_evidence(
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.row_files import record_row_file_calls
 
-    op_id = project.db.execute(
-        "SELECT op_id FROM runs WHERE id=?", (run_id,)
+    change_id = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?", (run_id,)
     ).fetchone()[0]
     fence = WriterFence(
         run_id=run_id,
@@ -462,7 +462,7 @@ def write_row_file_evidence(
                 output_key=descriptor.output_key,
                 item_path=descriptor.item_path,
                 run_id=run_id,
-                op_id=op_id,
+                change_id=change_id,
             )
             publication = None
             if kind == "screenshot":

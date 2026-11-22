@@ -58,7 +58,7 @@ def test_standalone_index_race_retries_only_failed_keyword_alert(monkeypatch):
         "feed_id": 1,
         "feed_check_id": 2,
         "sheet_id": 3,
-        "op_id": 4,
+        "change_id": 4,
         "row_ids": [5],
         "materialized_rows": 1,
     }
@@ -214,7 +214,7 @@ def test_completed_source_poll_evaluates_affected_enabled_alerts(
     assert materialized is not None
     assert materialized["feed_id"] == source_id
     assert materialized["sheet_id"] == sheet_id
-    assert materialized["op_id"] is not None
+    assert materialized["change_id"] is not None
     assert materialized["materialized_rows"] == 1
     assert len(materialized["row_ids"]) == 1
 

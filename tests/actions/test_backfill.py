@@ -80,7 +80,7 @@ def seeded(tmp_path, monkeypatch):
 def _counts(project):
     return tuple(
         project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("runs", "receipts", "ops", "rows")
+        for table in ("runs", "receipts", "changes", "rows")
     )
 
 

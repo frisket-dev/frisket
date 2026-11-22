@@ -25,10 +25,10 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
     """
     sync_states = compute_sync_states(project)
     sheets = project.sheets()
-    parent_op_ids = [
-        int(s["parent_op_id"]) for s in sheets if s["parent_op_id"] is not None
+    parent_change_ids = [
+        int(s["parent_change_id"]) for s in sheets if s["parent_change_id"] is not None
     ]
-    ops_by_id = project.changes_meta(parent_op_ids)
+    ops_by_id = project.changes_meta(parent_change_ids)
     run_rows = {
         int(r["id"]): r
         for r in project.db.execute(
@@ -83,17 +83,19 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
             "name": sheet["name"],
             "sheet_id": sheet_id,
             "parent_sheet_id": sheet["parent_sheet_id"],
-            "parent_op_id": sheet["parent_op_id"],
+            "parent_change_id": sheet["parent_change_id"],
             "derived": sheet["parent_sheet_id"] is not None,
             "syncState": state["sync_state"] if state is not None else None,
             "stale_reason": state["stale_reason"] if state is not None else None,
         }
         parent_op = ops_by_id.get(
-            int(sheet["parent_op_id"]) if sheet["parent_op_id"] is not None else -1
+            int(sheet["parent_change_id"])
+            if sheet["parent_change_id"] is not None
+            else -1
         )
         if parent_op is not None:
-            node["op_kind"] = parent_op["kind"]
-            node["op_label"] = parent_op["label"]
+            node["change_kind"] = parent_op["kind"]
+            node["change_label"] = parent_op["label"]
         nodes.append(node)
 
         if (
@@ -167,7 +169,7 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
         )
 
     return {
-        "op_cursor": project.op_cursor,
+        "change_cursor": project.change_cursor,
         "nodes": nodes,
         "edges": edges,
     }

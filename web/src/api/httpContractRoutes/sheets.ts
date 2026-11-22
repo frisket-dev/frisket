@@ -80,7 +80,7 @@ function mapSheetList(wire: SheetListWire): SheetMeta[] {
       meta.parent = {
         sheetId: String(parent.id),
         sheetName: parent.name,
-        viaAction: sheet.op_label || sheet.op_kind || 'derive',
+        viaAction: sheet.change_label || sheet.change_kind || 'derive',
       };
     }
     return meta;
@@ -138,7 +138,7 @@ function mapCellValueRef(
     rowId: String(wire.row_id),
     columnId: String(wire.column_id),
     runId: wire.run_id == null ? null : String(wire.run_id),
-    opId: wire.op_id == null ? null : String(wire.op_id),
+    changeId: wire.change_id == null ? null : String(wire.change_id),
   };
 }
 
@@ -190,7 +190,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
               rowId: String(row.id),
               columnId,
               runId: null,
-              opId: null,
+              changeId: null,
             },
             model: '',
             actionName: column?.generated ? 'AI run' : '',

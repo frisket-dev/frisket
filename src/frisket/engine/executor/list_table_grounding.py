@@ -14,7 +14,7 @@ def propagate_list_item_citations(
     project: Project,
     *,
     sheet_id: int,
-    op_id: int,
+    change_id: int,
     child_row_ids: Sequence[int],
     sources: Sequence[RowSource],
     item_associations: Mapping[RowSource, Mapping[str, Any]],
@@ -54,7 +54,7 @@ def propagate_list_item_citations(
             sheet_id=sheet_id,
             row_id=child_row_id,
             column_id=None,
-            op_id=op_id,
+            change_id=change_id,
             link_role="primary_support",
             producer={
                 "source_action_kind": "derive.table_from_list",

@@ -9,7 +9,7 @@ class GroupRefreshTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     sheet_id: int
-    parent_op_id: int
+    parent_change_id: int
     policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
 
 

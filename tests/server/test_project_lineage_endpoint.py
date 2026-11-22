@@ -86,7 +86,7 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(client) -> None:
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["project_id"] == pid
-    assert "op_cursor" in body
+    assert "change_cursor" in body
 
     nodes = {n["id"]: n for n in body["nodes"]}
     vendors_id = int(
@@ -102,7 +102,7 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(client) -> None:
     assert child_node["derived"] is True
     assert child_node["syncState"] == "synced"
     # HOW IT'S MADE: the real op kind is carried, not a hardcoded 'derive'.
-    assert child_node["op_kind"] == "derive.table_from_list"
+    assert child_node["change_kind"] == "derive.table_from_list"
 
     edges = body["edges"]
     derive_edge = next(
@@ -124,11 +124,11 @@ def test_lineage_endpoint_reports_unknown_sources_without_refresh_capability(
 ) -> None:
     pid, parent_id, _, _ = _build(client)
     project = client.app.state.workspace.get(pid)
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.extract_document", {"action_id": "media.extract_document"}
     )
     snapshot_id = project.add_sheet(
-        "Extracted once", parent_sheet_id=parent_id, parent_op_id=op_id
+        "Extracted once", parent_sheet_id=parent_id, parent_change_id=change_id
     )
     project.db.commit()
 
@@ -218,12 +218,12 @@ def test_retained_output_reports_stale_sources_when_recipe_is_unavailable(
     project = client.app.state.workspace.get(pid)
     owner = project.append_change("uninstalled_plugin.derive", {})
     child = project.add_sheet(
-        "Retained output", parent_sheet_id=parent_id, parent_op_id=owner
+        "Retained output", parent_sheet_id=parent_id, parent_change_id=owner
     )
     _, _, capture = read_consumed_source(project, parent_id, [column_id])
     with project.transaction_scope():
         start_change(project.db, owner)
-        store_capture(project, capture, owner_op_id=owner, output_sheet_id=child)
+        store_capture(project, capture, owner_change_id=owner, output_sheet_id=child)
         close_change(project.db, owner)
     project.apply_edits(
         [{"row_id": rows[0], "column_id": column_id, "value": [{"vendor": "Changed"}]}]

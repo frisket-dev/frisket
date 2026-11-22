@@ -47,7 +47,7 @@ class JoinRefreshAdmission:
     action_kind: str
     request_hash: str
     sheet_id: int
-    parent_op_id: int
+    parent_change_id: int
     confirmation: str | None
 
 
@@ -268,7 +268,7 @@ class AdmittedJoinedTablesReader:
             else {
                 "request_hash": refresh_admission.request_hash,
                 "sheet_id": refresh_admission.sheet_id,
-                "parent_op_id": refresh_admission.parent_op_id,
+                "parent_change_id": refresh_admission.parent_change_id,
                 "join": request_identity,
             }
         )

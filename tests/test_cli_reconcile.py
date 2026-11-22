@@ -38,10 +38,12 @@ def _live_run_id(project: Project) -> int:
     """A real runs row so a row_effect group has a live referent."""
 
     sheet = project.add_sheet("data")
-    op_id = project.db.execute("INSERT INTO ops (kind) VALUES ('map')").lastrowid
+    change_id = project.db.execute(
+        "INSERT INTO changes (kind) VALUES ('map')"
+    ).lastrowid
     run_id = project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind) VALUES (?, ?, 'map.classify')",
-        (op_id, sheet),
+        "INSERT INTO runs (change_id, sheet_id, action_kind) VALUES (?, ?, 'map.classify')",
+        (change_id, sheet),
     ).lastrowid
     project.db.commit()
     return int(run_id)
@@ -833,13 +835,13 @@ def _stuck_probe_receipt(
         params_hash="sha256:probe-stuck-params",
         status="running",
         run_id=run_id,
-        op_ids=[run_id],
+        change_ids=[run_id],
         records=[
             ReceiptRecord(
                 ref={
                     "kind": "embedding_dimension_probe_egress_reservation",
                     "run_id": 1,
-                    "op_id": 1,
+                    "change_id": 1,
                     "attempt_id": attempt_id,
                     "provider_id": "openai",
                     "requested_model": "text-embedding-3-small",
@@ -957,13 +959,13 @@ def test_reconcile_never_prints_probe_receipt_body_secrets(tmp_path, capsys):
             params_hash="sha256:probe-secret-params",
             status="running",
             run_id=run_id,
-            op_ids=[run_id],
+            change_ids=[run_id],
             records=[
                 ReceiptRecord(
                     ref={
                         "kind": "embedding_dimension_probe_egress_reservation",
                         "run_id": 1,
-                        "op_id": 1,
+                        "change_id": 1,
                         "attempt_id": "attempt_probe_secret1",
                         "provider_id": "openai",
                         "requested_model": FAKE_SECRET,

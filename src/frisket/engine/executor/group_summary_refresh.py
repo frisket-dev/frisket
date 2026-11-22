@@ -13,7 +13,7 @@ def validate_target(project, params):
     sheet = project.db.execute(
         "SELECT * FROM sheets WHERE id=? AND hidden=0", (target.sheet_id,)
     ).fetchone()
-    if sheet is None or sheet["parent_op_id"] != target.parent_op_id:
+    if sheet is None or sheet["parent_change_id"] != target.parent_change_id:
         return ActionError(
             code="invalid_input_ref",
             message="The grouped sheet is unavailable or its derivation changed",
@@ -38,7 +38,7 @@ def validate_target(project, params):
             action_kind=params.action_kind,
         )
     parent = project.db.execute(
-        "SELECT * FROM ops WHERE id=?", (target.parent_op_id,)
+        "SELECT * FROM changes WHERE id=?", (target.parent_change_id,)
     ).fetchone()
     config = refresh_config(parent)
     names = {
@@ -82,7 +82,7 @@ def prepare_refresh(project, sheet, parent_op, request, outer_bound, *, edition=
 
     target = GroupRefreshTarget(
         sheet_id=int(sheet["id"]),
-        parent_op_id=int(parent_op["id"]),
+        parent_change_id=int(parent_op["id"]),
         policy=getattr(outer_bound.params, "update_policy", "keep_changes"),
     )
     request = request.model_copy(

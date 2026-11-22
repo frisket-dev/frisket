@@ -91,7 +91,7 @@ def test_http_v1_action_catalog_and_import_rows_executor_binding(
     assert result.status == "completed"
     assert result.action.kind == "import.rows"
     assert result.receipt_id is not None
-    assert result.op_ids == [1]
+    assert result.change_ids == [1]
     assert [output.kind for output in result.outputs] == [
         "sheet",
         "column",
@@ -138,7 +138,7 @@ def test_http_v1_action_catalog_and_import_rows_executor_binding(
         "sheets": _table_count(client, project_id, "sheets"),
         "columns": _table_count(client, project_id, "columns"),
         "rows": _table_count(client, project_id, "rows"),
-        "ops": _table_count(client, project_id, "ops"),
+        "changes": _table_count(client, project_id, "changes"),
         "receipts": _table_count(client, project_id, "receipts"),
     }
     replay_response = client.post(
@@ -148,12 +148,12 @@ def test_http_v1_action_catalog_and_import_rows_executor_binding(
     assert replay_response.status_code == 200, replay_response.text
     replay_result = ActionResult.model_validate(replay_response.json())
     assert replay_result.receipt_id == result.receipt_id
-    assert replay_result.op_ids == result.op_ids
+    assert replay_result.change_ids == result.change_ids
     assert {
         "sheets": _table_count(client, project_id, "sheets"),
         "columns": _table_count(client, project_id, "columns"),
         "rows": _table_count(client, project_id, "rows"),
-        "ops": _table_count(client, project_id, "ops"),
+        "changes": _table_count(client, project_id, "changes"),
         "receipts": _table_count(client, project_id, "receipts"),
     } == before
 

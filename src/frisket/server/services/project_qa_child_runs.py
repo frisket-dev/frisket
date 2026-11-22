@@ -43,7 +43,7 @@ class ChildRunDispatch:
     job_id: int | None
     run_id: int | None
     receipt_id: str | None
-    op_ids: tuple[int, ...]
+    change_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,7 @@ class ProjectQAChildRunService:
             job_id=initial.job_id,
             run_id=initial.run_id,
             receipt_id=initial.receipt_id,
-            op_ids=tuple(initial.op_ids),
+            change_ids=tuple(initial.change_ids),
         )
         initial_receipt: dict[str, Any] | None = None
         dispatch_recorded = False
