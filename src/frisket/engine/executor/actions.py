@@ -13,9 +13,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from functools import partial, wraps
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from pydantic import ValidationError
+
+if TYPE_CHECKING:
+    from frisket.engine.executor.column_transform_action import (
+        ColumnTransformPreviewPlan,
+    )
 
 from frisket.contracts.action import (
     ActionError,
@@ -232,7 +237,7 @@ def resolve_map_preview(
     *,
     router: Any | None = None,
     deps: _runtime_inventory.ExecutorDeps | None = None,
-) -> "MapPreviewPlan | ActionError":
+) -> "MapPreviewPlan | ColumnTransformPreviewPlan | ActionError":
     """Validate a v1 action envelope and run the SAME resolve+precheck the run
     path uses, returning a ``MapPreviewPlan`` or
     the first ``ActionError``. Only reserved-maprunner (map.*) actions support
@@ -371,8 +376,8 @@ def _executor_deps_with_defaults(
 ) -> _runtime_inventory.ExecutorDeps:
     base = deps or _runtime_inventory.ExecutorDeps()
     execution_composition = base.execution_composition
-    map_runner_factory = base.map_runner_factory
-    if map_runner_factory is None:
+    map_runner_factory: _runtime_inventory._MapRunnerFactory
+    if base.map_runner_factory is None:
         map_runner_factory = (
             partial(
                 _default_map_runner_factory,
@@ -383,21 +388,27 @@ def _executor_deps_with_defaults(
         )
     elif execution_composition is not None:
         map_runner_factory = _composition_bound_map_runner_factory(
-            map_runner_factory,
+            base.map_runner_factory,
             execution_composition,
         )
+    else:
+        map_runner_factory = base.map_runner_factory
     browser_renderer = url_capture_browser or base.url_capture_browser
     if base.consent_coverage is not None:
         consent_factory = map_runner_factory
 
-        def map_runner_factory(project, router):
+        def _with_consent_coverage(project: Any, router: Any) -> Any:
             runner = consent_factory(project, router)
             return _bind_runner_consent_coverage(runner, base.consent_coverage)
 
-    if browser_renderer is not None:
-        base_factory = map_runner_factory
+        map_runner_factory = _with_consent_coverage
 
-        def map_runner_factory(project, router, _factory=base_factory):
+    if browser_renderer is not None:
+        browser_base_factory = map_runner_factory
+
+        def _with_browser_renderer(
+            project: Any, router: Any, _factory: Any = browser_base_factory
+        ) -> Any:
             runner = _factory(project, router)
             runner.action_context_extras = {
                 **runner.action_context_extras,
@@ -405,16 +416,22 @@ def _executor_deps_with_defaults(
             }
             return runner
 
-    if base.search_service_factory is not None:
-        base_factory = map_runner_factory
+        map_runner_factory = _with_browser_renderer
 
-        def map_runner_factory(project, router, _factory=base_factory):
+    if base.search_service_factory is not None:
+        search_base_factory = map_runner_factory
+
+        def _with_search_service_factory(
+            project: Any, router: Any, _factory: Any = search_base_factory
+        ) -> Any:
             runner = _factory(project, router)
             runner.action_context_extras = {
                 **runner.action_context_extras,
                 "search_service_factory": base.search_service_factory,
             }
             return runner
+
+        map_runner_factory = _with_search_service_factory
 
     return replace(
         base,
@@ -584,7 +601,7 @@ def run_action_spec(
                     code=getattr(exc, "code", "import_in_progress"),
                     message=str(exc),
                     action_kind=typed.action.action_id,
-                    details=getattr(exc, "details", None),
+                    details=dict(getattr(exc, "details", None) or {}),
                 ),
             )
     if isinstance(typed.action.definition.run, GoogleSheetsExport):
@@ -773,6 +790,7 @@ def run_action_spec(
                 edition=product_edition_from_snapshot(edition_run_context),
             )
         if owners[0] == "backfill":
+            assert executor_deps.map_runner_factory is not None
             return run_typed_backfill_action(
                 project,
                 project_id,
@@ -806,6 +824,7 @@ def run_action_spec(
             executor_deps.router,
             executor_deps.map_runner_factory,
         )
+    assert executor_deps.map_runner_factory is not None
     return run_typed_map_rows_action(
         project,
         project_id,

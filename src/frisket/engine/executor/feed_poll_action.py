@@ -576,12 +576,12 @@ def _materialize_registered_feed_poll_in_txn(
     )
     if policy not in ("keep_changes", "incoming_wins"):
         raise ValueError("unknown feed update policy")
-    change_id = None
-    producer_id = None
+    change_id: int | None = None
+    producer_id: int | None = None
 
-    def writer():
+    def writer() -> tuple[int, int]:
         nonlocal change_id, producer_id
-        if change_id is None:
+        if change_id is None or producer_id is None:
             change_id = append_change_in_transaction(
                 project,
                 "feed.poll",

@@ -93,7 +93,7 @@ def _terminal(bound: BoundTypedActionRequest) -> ColumnTransform[Any, Any]:
         raise TypeError("column_transform must own the complete visible row scope")
     if require_sheet_rows(bound.request.scope).row_ids is not None:
         raise ValueError("column_transform does not accept selected rows")
-    if len(bound.output_fields) != 1:
+    if bound.output_fields is None or len(bound.output_fields) != 1:
         raise TypeError("column_transform must declare exactly one output")
     references = discover_references(bound.params)
     if len(references) != 1:
@@ -368,6 +368,7 @@ def preflight_column_transform_request(
     source = _source_descriptor(project, bound)
     if isinstance(source, ActionError):
         return source
+    assert bound.output_fields is not None
     [field] = bound.output_fields
     output_name = bound.request.output_names.get(field.key, field.key)
     gate = _preview_output_gate(
@@ -617,6 +618,7 @@ def run_typed_column_transform_action(
         if isinstance(source, ActionError):
             project.db.rollback()
             return _failed(project_id, source)
+        assert bound.output_fields is not None
         output_key = bound.output_fields[0].key
         output_name = bound.request.output_names.get(output_key, output_key)
         gate = _output_gate(
@@ -802,6 +804,7 @@ def build_column_transform_preview_plan(
                 (source["sheet_id"],),
             ).fetchone()[0]
         )
+    assert bound.output_fields is not None
     [field] = bound.output_fields
     output_name = bound.request.output_names.get(field.key, field.key)
 
