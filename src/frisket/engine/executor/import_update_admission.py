@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from frisket.actions.system import typed_action_for_request
@@ -53,7 +54,10 @@ def _records(params: Any, kind: str, deps: Any):
     else:
         from frisket.actions.import_xlsx import import_xlsx as producer
     with open_local_file_reader(deps.local_file_sources) as reader:
-        yield from (row.output.root for row in producer(params, reader).rows)
+        table_rows = producer(params, reader).rows
+        if not isinstance(table_rows, Iterable):
+            raise TypeError(f"{kind} must produce a synchronous row iterable")
+        yield from (row.output.root for row in table_rows)
 
 
 def _existing_result(
@@ -508,7 +512,7 @@ def run_rows_updater(
             )
         if updater.replay is not None:
             return updater.replay
-        if updater.frozen is None:
+        if updater.frozen is None or updater.envelope is None:
             return ActionCtx(project_id, bound.request.action_id).failed(
                 failure
                 or ActionError(

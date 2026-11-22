@@ -16,13 +16,12 @@ from frisket.ops.integrations.translate_common import TranslateEngineError
 
 @pytest.mark.parametrize("engine", ["opus_mt", "hy_mt2"])
 def test_local_translation_receipt_keeps_actual_pinned_artifact_without_rereading(
-    tmp_path, monkeypatch, engine
+    make_project, monkeypatch, engine
 ):
     from frisket.ai.llm import ModelRouter
     from frisket.ai.models import artifact_manifest
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor.action_inventory import ExecutorDeps
-    from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.execution.provider import (
         ExecutionCompositionContext,
@@ -58,61 +57,58 @@ def test_local_translation_receipt_keeps_actual_pinned_artifact_without_rereadin
     monkeypatch.setattr(implementation, "translate_texts", translate)
     monkeypatch.setattr(artifact_manifest, "lookup", lookup)
     monkeypatch.setattr(artifact_manifest, "hy_mt2_artifact", lookup)
-    project = Project.create(tmp_path / f"{engine}.frisket")
-    try:
-        sheet = project.add_sheet("Text")
-        column = project.add_column(sheet, "text")
-        project.add_rows(sheet, [{"text": "Hello"}], {"text": column})
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={},
-            use_env_keys=False,
-            cache=None,
-            cache_mode="off",
+    project = make_project(engine)
+    sheet = project.add_sheet("Text")
+    column = project.add_column(sheet, "text")
+    project.add_rows(sheet, [{"text": "Hello"}], {"text": column})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={},
+        use_env_keys=False,
+        cache=None,
+        cache_mode="off",
+    )
+    deps = ExecutorDeps(
+        execution_composition=open_execution_composition(
+            project, router, ExecutionCompositionContext.direct()
         )
-        deps = ExecutorDeps(
-            execution_composition=open_execution_composition(
-                project, router, ExecutionCompositionContext.direct()
-            )
-        )
-        request = {
-            "action_id": "map.translate",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {
-                "source": ["text"],
-                "engine": engine,
-                "target_language": "Spanish",
-                **({"language": ["en"]} if engine == "opus_mt" else {}),
-            },
-            "idempotency_key": "actual-local-artifact",
-        }
-        result = run_action_spec(
-            project, request, project_id="translate", router=router, deps=deps
-        )
-        assert result.status == "completed", result.errors
-        assert translated and captured
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        artifacts = [
-            item
-            for item in receipt.evidence
-            if item.ref.get("kind") == "map_translate_artifact"
-        ]
-        assert len(artifacts) == 1
-        assert artifacts[0].retention == "pinned"
-        assert artifacts[0].ref == {
-            "kind": "map_translate_artifact",
-            **vars(pinned),
-            "run_id": result.run_id,
-            "op_id": project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (result.run_id,)
-            ).fetchone()[0],
-        }
-        replay = run_action_spec(
-            project, request, project_id="translate", router=router, deps=deps
-        )
-        assert replay.status == "completed" and replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    )
+    request = {
+        "action_id": "map.translate",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {
+            "source": ["text"],
+            "engine": engine,
+            "target_language": "Spanish",
+            **({"language": ["en"]} if engine == "opus_mt" else {}),
+        },
+        "idempotency_key": "actual-local-artifact",
+    }
+    result = run_action_spec(
+        project, request, project_id="translate", router=router, deps=deps
+    )
+    assert result.status == "completed", result.errors
+    assert translated and captured
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    artifacts = [
+        item
+        for item in receipt.records
+        if item.ref.get("kind") == "map_translate_artifact"
+    ]
+    assert len(artifacts) == 1
+    assert artifacts[0].retention == "pinned"
+    assert artifacts[0].ref == {
+        "kind": "map_translate_artifact",
+        **vars(pinned),
+        "run_id": result.run_id,
+        "op_id": project.db.execute(
+            "SELECT op_id FROM runs WHERE id=?", (result.run_id,)
+        ).fetchone()[0],
+    }
+    replay = run_action_spec(
+        project, request, project_id="translate", router=router, deps=deps
+    )
+    assert replay.status == "completed" and replay.receipt_id == result.receipt_id
 
 
 @pytest.mark.parametrize(

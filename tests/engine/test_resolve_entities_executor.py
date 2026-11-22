@@ -86,7 +86,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
         item.ref
         for item in ReceiptStore(project)
         .parsed_by_id(cluster_result.receipt_id)
-        .evidence
+        .records
         if item.ref.get("kind") == "value_clusters"
     )
     return {
@@ -224,7 +224,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         for item in (
             *source_receipt.inputs,
             *source_receipt.outputs,
-            *source_receipt.evidence,
+            *source_receipt.records,
         )
     ]
     cluster_preview = next(
@@ -274,7 +274,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use == []
     refs = [
         item.ref
-        for section in (receipt.inputs, receipt.outputs, receipt.evidence)
+        for section in (receipt.inputs, receipt.outputs, receipt.records)
         for item in section
     ]
     assert {
@@ -432,7 +432,7 @@ def test_resolve_entities_stale_replay_rungs(
         original_body = json.loads(receipt_row["body"])
 
         malformed_body = json.loads(receipt_row["body"])
-        for section in ("outputs", "evidence"):
+        for section in ("outputs", "records"):
             for item in malformed_body.get(section) or []:
                 ref = item.get("ref") if isinstance(item, dict) else None
                 if isinstance(ref, dict) and ref.get("kind") == "materialized_rows":

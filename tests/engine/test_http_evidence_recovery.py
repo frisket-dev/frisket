@@ -3,13 +3,13 @@ from __future__ import annotations
 import hashlib
 
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
 )
-from frisket.server.services import project_evidence as project_evidence_service
+from frisket.server.services import project_citations as project_citations_service
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -23,7 +23,7 @@ def _counts(project) -> tuple[int, ...]:
             "SELECT "
             "(SELECT COUNT(*) FROM source_artifacts),"
             "(SELECT COUNT(*) FROM source_spans),"
-            "(SELECT COUNT(*) FROM evidence_links),"
+            "(SELECT COUNT(*) FROM citations),"
             "(SELECT COUNT(*) FROM citation_texts)"
         ).fetchone()
     )
@@ -99,13 +99,14 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
             ],
             quote="Ada",
         )
-    link = record_citation(
-        project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": text_span["id"]}, {"span_id": media_span["id"]}],
-    )
-    endpoint = f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": text_span["id"]}, {"span_id": media_span["id"]}],
+        )
+    endpoint = f"/api/projects/{project_id}/citations/{link['stable_id']}/viewer"
 
     project.apply_edits(
         [
@@ -119,7 +120,7 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
     counts_before = _counts(project)
 
     ordinary = client.get(endpoint)
-    resolve_viewer = project_evidence_service.resolve_citation_viewer
+    resolve_viewer = project_citations_service.resolve_citation_viewer
 
     def resolve_then_edit(snapshot, *args, **kwargs):
         viewer = resolve_viewer(snapshot, *args, **kwargs)
@@ -130,7 +131,7 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
 
     with monkeypatch.context() as race:
         race.setattr(
-            project_evidence_service, "resolve_citation_viewer", resolve_then_edit
+            project_citations_service, "resolve_citation_viewer", resolve_then_edit
         )
         located = client.get(endpoint, params={"locate_current": "true"})
 
@@ -174,7 +175,7 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
     assert _counts(project) == counts_before
     assert (
         project.db.execute(
-            "SELECT status FROM evidence_links WHERE id=?", (link["id"],)
+            "SELECT status FROM citations WHERE id=?", (link["id"],)
         ).fetchone()[0]
         == "active"
     )

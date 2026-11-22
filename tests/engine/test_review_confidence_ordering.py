@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import sqlite3
 from pathlib import Path
@@ -20,11 +21,11 @@ from helpers import write_claimed_test_results
 from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
 
 
-def _review_run(tmp_path: Path) -> tuple[Project, int, list[int], int, int]:
-    project = Project.create(tmp_path / "confidence.frisket")
+def _review_run(make_project) -> tuple[Project, int, list[int], int, int]:
+    project = make_project("confidence")
     sheet_id = project.add_sheet("Rows")
-    first = project.add_column(sheet_id, "first", ai_generated=True)
-    second = project.add_column(sheet_id, "second", ai_generated=True)
+    first = project.add_column(sheet_id, "first", generated=True)
+    second = project.add_column(sheet_id, "second", generated=True)
     row_ids = project.add_rows(sheet_id, [{} for _ in range(8)], {})
     op_id = project.append_change("map", {"fixture": "confidence ordering"})
     run_id = RunResultStore(project).start_run(
@@ -62,72 +63,66 @@ def _review_run(tmp_path: Path) -> tuple[Project, int, list[int], int, int]:
 
 
 def test_confidence_pages_merge_field_streams_by_exact_row_minimum(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, run_id, row_ids, _first, second = _review_run(tmp_path)
-    try:
-        first_page = review_bundles(project, run_id=run_id, limit=2, offset=0)
-        second_page = review_bundles(project, run_id=run_id, limit=2, offset=2)
-        assert [item["row_id"] for item in first_page + second_page] == [
-            row_ids[2],
-            row_ids[0],
-            row_ids[1],
-            row_ids[3],
-        ]
-        assert [item["confidence"] for item in first_page + second_page] == [
-            0.1,
-            0.2,
-            0.2,
-            None,
-        ]
+    project, run_id, row_ids, _first, second = _review_run(make_project)
+    first_page = review_bundles(project, run_id=run_id, limit=2, offset=0)
+    second_page = review_bundles(project, run_id=run_id, limit=2, offset=2)
+    assert [item["row_id"] for item in first_page + second_page] == [
+        row_ids[2],
+        row_ids[0],
+        row_ids[1],
+        row_ids[3],
+    ]
+    assert [item["confidence"] for item in first_page + second_page] == [
+        0.1,
+        0.2,
+        0.2,
+        None,
+    ]
 
-        one_field = review_bundles(
-            project,
-            run_id=run_id,
-            field_id=second,
-            limit=4,
-            offset=0,
-        )
-        assert [item["row_id"] for item in one_field] == [
-            row_ids[0],
-            row_ids[1],
-            row_ids[2],
-            row_ids[3],
-        ]
-        assert [item["confidence"] for item in one_field] == [0.2, 0.8, None, None]
-    finally:
-        project.close()
+    one_field = review_bundles(
+        project,
+        run_id=run_id,
+        field_id=second,
+        limit=4,
+        offset=0,
+    )
+    assert [item["row_id"] for item in one_field] == [
+        row_ids[0],
+        row_ids[1],
+        row_ids[2],
+        row_ids[3],
+    ]
+    assert [item["confidence"] for item in one_field] == [0.2, 0.8, None, None]
 
 
 def test_confidence_candidates_apply_pending_filter_before_ranking(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, run_id, row_ids, first, second = _review_run(tmp_path)
-    try:
-        store = RunResultStore(project)
-        with write_transaction(project.db):
-            for column_id in (first, second):
-                store.set_result_review_state(run_id, row_ids[2], column_id, "verified")
-                store.set_result_review_metadata(
-                    run_id, row_ids[2], column_id, "accept", None
-                )
+    project, run_id, row_ids, first, second = _review_run(make_project)
+    store = RunResultStore(project)
+    with write_transaction(project.db):
+        for column_id in (first, second):
+            store.set_result_review_state(run_id, row_ids[2], column_id, "verified")
+            store.set_result_review_metadata(
+                run_id, row_ids[2], column_id, "accept", None
+            )
 
-        pending = review_bundles(project, run_id=run_id, limit=3)
-        assert [item["row_id"] for item in pending] == [
-            row_ids[0],
-            row_ids[1],
-            row_ids[3],
-        ]
-        including_reviewed = review_bundles(
-            project, run_id=run_id, limit=3, include_reviewed=True
-        )
-        assert [item["row_id"] for item in including_reviewed] == [
-            row_ids[2],
-            row_ids[0],
-            row_ids[1],
-        ]
-    finally:
-        project.close()
+    pending = review_bundles(project, run_id=run_id, limit=3)
+    assert [item["row_id"] for item in pending] == [
+        row_ids[0],
+        row_ids[1],
+        row_ids[3],
+    ]
+    including_reviewed = review_bundles(
+        project, run_id=run_id, limit=3, include_reviewed=True
+    )
+    assert [item["row_id"] for item in including_reviewed] == [
+        row_ids[2],
+        row_ids[0],
+        row_ids[1],
+    ]
 
 
 def test_prior_review_schema_adds_confidence_ordering_index_on_open(
@@ -154,8 +149,7 @@ def test_prior_review_schema_adds_confidence_ordering_index_on_open(
             (REVIEW_CONFIDENCE_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
         )
 
-    migrated = Project(path)
-    try:
+    with closing(Project(path)) as migrated:
         assert REVIEW_CONFIDENCE_TO_DIGEST == SCALAR_CURRENT_VALUES_FROM_DIGEST
         assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         index_columns = {
@@ -168,5 +162,3 @@ def test_prior_review_schema_adds_confidence_ordering_index_on_open(
             for row in migrated.db.execute("PRAGMA index_list(results)")
         }
         assert ("run_id", "column_id", "confidence", "row_id") in index_columns
-    finally:
-        migrated.close()

@@ -6,7 +6,7 @@ import frisket.retrieval.service as retrieval_service
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -50,10 +50,8 @@ def _cell(read: dict, name: str) -> dict:
 def _seed_grounded_ocr(project: Project) -> dict[str, object]:
     sheet = project.add_sheet("Scans")
     source_column = project.add_column(sheet, "document", type="file")
-    text_column = project.add_column(sheet, "ocr_text", type="text", ai_generated=True)
-    blocks_column = project.add_column(
-        sheet, "ocr_blocks", type="json", ai_generated=True
-    )
+    text_column = project.add_column(sheet, "ocr_text", type="text", generated=True)
+    blocks_column = project.add_column(sheet, "ocr_blocks", type="json", generated=True)
     json_column = project.add_column(sheet, "review_metadata", type="json")
     blob = project.add_blob(
         b"%PDF-1.4\n% grounded Ask fixture\n",
@@ -148,22 +146,23 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
             bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
         )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row],
-        spans=[
-            {"span_id": int(heading_span["id"])},
-            {"span_id": int(phrase_span["id"])},
-        ],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=text_column,
-        run_id=run,
-        op_id=op,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": "rapidocr"},
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row],
+            spans=[
+                {"span_id": int(heading_span["id"])},
+                {"span_id": int(phrase_span["id"])},
+            ],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=text_column,
+            run_id=run,
+            op_id=op,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr", "engine": "rapidocr"},
+        )
     return {
         "sheet": sheet,
         "row": row,
@@ -190,7 +189,7 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
     tools = ProjectQATools(project, turn, store)
 
     hits = tools.search_cells("turquoise lighthouse", int(seeded["sheet"]))["hits"]
-    hit = next(item for item in hits if item["navigation"]["kind"] == "evidence")
+    hit = next(item for item in hits if item["navigation"]["kind"] == "citation")
     assert hit["navigation"]["span_id"] == seeded["phrase_span"]["stable_id"]
     assert hit["navigation"]["span_id"] != seeded["heading_span"]["stable_id"]
     opened = tools.open_source(hit["citation_id"])
@@ -214,7 +213,7 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
     assert whole_cell["source_kind"] == "cell"
     assert (
         not {
-            "evidence_link_id",
+            "citation_id",
             "artifact_id",
             "span_id",
             "navigation",
@@ -239,11 +238,11 @@ def test_search_then_row_read_keeps_grounded_ocr_sources_and_hides_only_blocks(
     resolved = resolve_citation(project, turn["thread_id"], hit["citation_id"])
     assert resolved["status"] == "current"
     assert resolved["target"] == {
-        "kind": "evidence",
+        "kind": "cell_citation",
         "sheet_id": seeded["sheet"],
         "row_id": seeded["row"],
         "column_id": seeded["text_column"],
-        "evidence_link_id": seeded["link"]["stable_id"],
+        "citation_id": seeded["link"]["stable_id"],
         "artifact_id": seeded["artifact"]["stable_id"],
         "span_id": hit["navigation"]["span_id"],
     }
@@ -375,15 +374,16 @@ def test_file_scope_attaches_prepared_search_source_only_to_its_file_cell(make_p
             quote="The council approved the bluewharf repair.",
         )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row],
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=text_column,
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=text_column,
+        )
     scope = {
         "kind": "sources",
         "sources": [
@@ -479,7 +479,7 @@ def test_ask_keeps_all_search_phrase_highlights(make_project):
     hit = next(
         hit
         for hit in tools.search_cells("China trade", sheet)["hits"]
-        if hit["navigation"]["kind"] == "evidence"
+        if hit["navigation"]["kind"] == "citation"
     )
     expected = hit["navigation"]["span_ids"]
     assert len(expected) == 2

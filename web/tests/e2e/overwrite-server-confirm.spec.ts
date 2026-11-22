@@ -12,14 +12,14 @@ import { exposeReplayModel, prepareOwnModelReplay } from './replayModelScenario'
 
 // A run that would write into an existing generated column must offer a
 // confirm prompt, even when the form's column list is stale: the server's
-// output_column_exists rejection (HTTP 409) opens the same replace-confirm
+// generated_column_exists rejection (HTTP 409) opens the same replace-confirm
 // modal the form uses, and confirming resubmits with replace_existing. The
 // drawer also refreshes the sheet's columns when it opens.
 //
 // The first spec creates the column through the API while the extract form
 // is open, so only the server knows about it.
 
-test('a server-side output_column_exists rejection converts into an overwrite-confirm modal, and accepting relaunches with overwrite:true', async ({
+test('a server-side generated_column_exists rejection converts into an overwrite-confirm modal, and accepting relaunches with overwrite:true', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-overwrite-server-confirm'));

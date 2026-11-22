@@ -31,7 +31,7 @@ class PdfPacketOcrEstimate:
         return {
             "public": dict(self.public),
             "binding_hash": self.binding_hash,
-            "quoted": dict(self.estimated),
+            "estimated": dict(self.estimated),
             "native_files": {
                 key: {
                     str(page): str(path.resolve().relative_to(root.resolve()))
@@ -57,7 +57,7 @@ class PdfPacketOcrEstimate:
         return cls(
             dict(value["public"]),
             str(value["binding_hash"]),
-            dict(value["quoted"]),
+            dict(value["estimated"]),
             files,
         )
 
@@ -428,7 +428,7 @@ class PdfPacketOcrCoordinator:
             # confirmed superset. Derive only the unchanged remaining children.
             with PdfSplitPreparationStore(self.inventory_path) as store:
                 saved = store.db.execute(
-                    "SELECT grant_json FROM pdf_split_page_quotes WHERE plan_token=?",
+                    "SELECT grant_json FROM pdf_split_page_estimates WHERE plan_token=?",
                     (binding_hash,),
                 ).fetchone()
                 encoded = json.dumps(

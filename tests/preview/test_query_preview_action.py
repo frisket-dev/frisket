@@ -152,7 +152,7 @@ def test_query_preview_route_and_action_share_rowset_and_receipt_replays(
     assert receipt.run_id is None
     assert receipt.op_ids == []
     assert receipt.outputs[0].ref == output_ref
-    ref_kinds = {item.ref["kind"] for item in receipt.evidence}
+    ref_kinds = {item.ref["kind"] for item in receipt.records}
     assert ref_kinds == {"query_preview_rowset"}
     assert result.value == preview_payload
     assert receipt.value == preview_payload

@@ -33,6 +33,7 @@ from frisket.engine.jobs import RUN_PROJECT_KIND
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.output_families import OutputFamilyStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.execution_routes import instance_principal
 from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.actions.registry import ACTION_REGISTRY
@@ -43,8 +44,8 @@ from helpers import replace_test_source_cell
 from frisket.sdk.ops import transcribe_engines
 from frisket.engine.runner import CostGate
 from frisket.sdk.replay import (
-    output_column_result_value_hash,
-    output_column_value_hash,
+    generated_column_result_value_hash,
+    generated_column_value_hash,
 )
 from frisket.server.app import create_app
 from http_test_helpers import (
@@ -457,7 +458,7 @@ def test_v1_queued_prepare_failures_use_action_specific_error_policy(
     )
     assert (
         markdown_project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -1775,7 +1776,7 @@ def test_v1_action_run_queues_map_translate_and_worker_finalizes_receipt(
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
     input_kinds = {item["ref"]["kind"] for item in receipt_body["inputs"]}
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert "model_rows_input_column" in input_kinds
     assert {item["ref"]["name"] for item in receipt_body["inputs"]} == {
         "statement",
@@ -1789,7 +1790,7 @@ def test_v1_action_run_queues_map_translate_and_worker_finalizes_receipt(
     } <= evidence_kinds
     request = next(
         item["ref"]
-        for item in receipt_body["evidence"]
+        for item in receipt_body["records"]
         if item["ref"]["kind"] == "typed_action_request"
     )
     assert job.payload["spec"]["params"]["target_language"] == "English"
@@ -1909,7 +1910,7 @@ def test_v1_action_run_queues_map_judge_and_worker_finalizes_receipt(
     input_refs = [item["ref"] for item in receipt_body["inputs"]]
     output_kinds = {item["ref"]["kind"] for item in receipt_body["outputs"]}
     output_roles = {item["ref"]["role"] for item in receipt_body["outputs"]}
-    evidence_by_kind = {item["ref"]["kind"]: item for item in receipt_body["evidence"]}
+    evidence_by_kind = {item["ref"]["kind"]: item for item in receipt_body["records"]}
     assert {
         ("model_rows_input_column", "source"),
         ("model_rows_input_column", "judged_output"),
@@ -2194,7 +2195,7 @@ def test_v1_action_run_queues_map_ner_and_worker_finalizes_receipt(
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
     output_kinds = {item["ref"]["kind"] for item in receipt_body["outputs"]}
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert "map_result_column" in output_kinds
     assert {
         "typed_action_request",
@@ -2202,7 +2203,7 @@ def test_v1_action_run_queues_map_ner_and_worker_finalizes_receipt(
     } <= evidence_kinds
     request = next(
         item["ref"]
-        for item in receipt_body["evidence"]
+        for item in receipt_body["records"]
         if item["ref"]["kind"] == "typed_action_request"
     )
     assert request["params"]["engine"] == "gliner"
@@ -2388,7 +2389,7 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
     assert completed_receipt["action_kind"] == "research.web_search"
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert evidence_kinds == {
         "typed_action_request",
         "map_rows_run_counts",
@@ -2461,7 +2462,7 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
     ]
     observations = [
         item["ref"]
-        for item in backfill_receipt["evidence"]
+        for item in backfill_receipt["records"]
         if item["ref"].get("kind") == "web_search_call"
     ]
     assert len(observations) == 1
@@ -2680,7 +2681,7 @@ def test_v1_action_run_queues_research_answer_and_worker_finalizes_receipt(
     assert completed_receipt["action_kind"] == "research.answer"
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert {
         "typed_action_request",
         "model_rows_model_calls",
@@ -2762,14 +2763,14 @@ def test_v1_action_run_queues_media_metadata_and_worker_finalizes_receipt(
     assert completed_receipt["action_kind"] == "media.extract_metadata"
     assert completed_receipt["status"] == "completed"
     body = json.loads(completed_receipt["body"])
-    assert {item["ref"]["kind"] for item in body["evidence"]} >= {
+    assert {item["ref"]["kind"] for item in body["records"]} >= {
         "typed_action_request",
         "map_rows_run_counts",
     }
     assert [item["name"] for item in body["outputs"]] == ["meta"]
     counts = next(
         item["ref"]
-        for item in body["evidence"]
+        for item in body["records"]
         if item["ref"]["kind"] == "map_rows_run_counts"
     )
     assert (counts["total_rows"], counts["completed_rows"], counts["failed_rows"]) == (
@@ -2885,7 +2886,7 @@ def test_v1_queued_cancelled_metadata_outputs_allow_explicit_new_key_replacement
     assert any(
         evidence["ref"].get("kind") == "queued_action_run_prepared"
         and evidence["ref"].get("run_id") == first.run_id
-        for evidence in cancelled_receipt["evidence"]
+        for evidence in cancelled_receipt["records"]
     )
 
     second_response = client.post(
@@ -3108,7 +3109,7 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     assert input_rows["ref"]["row_ids"] == [target_row]
     counts = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"]["kind"] == "map_rows_run_counts"
     )
     assert counts["failed_rows"] == 0
@@ -3117,14 +3118,14 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     details_ref = next(
         item["ref"] for item in receipt["outputs"] if item["name"] == details_name
     )
-    assert details_ref["value_hash"] == output_column_result_value_hash(
+    assert details_ref["value_hash"] == generated_column_result_value_hash(
         project,
         run_id=new_run_id,
         sheet_id=sheet_id,
         column_id=details_id,
         row_ids=[target_row],
     )
-    assert details_ref["value_hash"] != output_column_value_hash(
+    assert details_ref["value_hash"] != generated_column_value_hash(
         project,
         sheet_id=sheet_id,
         column_id=details_id,
@@ -3219,7 +3220,7 @@ def test_v1_queued_metadata_rerun_rechecks_output_identity_after_claim_acquisiti
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -3288,7 +3289,7 @@ def test_v1_queued_post_claim_preparation_exception_cleans_claim_and_reservation
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -3419,7 +3420,7 @@ def test_v1_action_run_queues_media_transcribe_and_worker_finalizes_receipt(
     assert completed_receipt["action_kind"] == "media.transcribe"
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert {
         "typed_action_request",
         "map_rows_run_counts",
@@ -3573,7 +3574,7 @@ def test_v1_action_run_queues_media_ocr_and_worker_finalizes_receipt(
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
     output_kinds = {item["ref"]["kind"] for item in receipt_body["outputs"]}
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert "map_result_column" in output_kinds
     assert {
         "typed_action_request",
@@ -3691,7 +3692,7 @@ def test_v1_action_run_queues_media_to_markdown_and_worker_finalizes_receipt(
     assert completed_receipt["status"] == "completed"
     receipt_body = json.loads(completed_receipt["body"])
     output_refs = [item["ref"] for item in receipt_body["outputs"]]
-    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["evidence"]}
+    evidence_kinds = {item["ref"]["kind"] for item in receipt_body["records"]}
     assert output_refs[0]["value_hash"].startswith("sha256:")
     assert output_refs == [
         {
@@ -3713,7 +3714,7 @@ def test_v1_action_run_queues_media_to_markdown_and_worker_finalizes_receipt(
     } <= evidence_kinds
     request_evidence = next(
         item["ref"]
-        for item in receipt_body["evidence"]
+        for item in receipt_body["records"]
         if item["ref"]["kind"] == "typed_action_request"
     )
     assert request_evidence["params"] == {"source": "doc", "engine": "markitdown"}
@@ -3814,10 +3815,11 @@ def _materialize_reserved_output_family(
 ) -> None:
     """Mirror prepare_run's output-family step before testing enqueue replay."""
 
-    OutputFamilyStore(project).create_or_reuse(
-        sheet_id=sheet_id,
-        fields=reserved["output_fields"],
-    )
+    with write_transaction(project.db):
+        OutputFamilyStore(project).create_or_reuse(
+            sheet_id=sheet_id,
+            fields=reserved["output_fields"],
+        )
 
 
 def test_v1_media_queued_adapter_replay_before_enqueue_is_retryable_then_pollable(

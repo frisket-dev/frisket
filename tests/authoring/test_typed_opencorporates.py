@@ -289,7 +289,7 @@ def test_actual_typed_child_requires_exact_estimate_and_records_host_responses(
         len(
             [
                 item
-                for item in receipt.evidence
+                for item in receipt.records
                 if item.ref["kind"] == "opencorporates_request"
             ]
         )
@@ -583,7 +583,7 @@ def test_new_row_backfill_retains_successor_provider_facts_and_replay(installed)
     assert receipt.provider_use[0]["cost_actual"] is None
     evidence = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "opencorporates_request"
     ]
     assert len(evidence) == 1

@@ -62,11 +62,11 @@ class TableProducer:
         if self.cancelled():
             raise TableError("action_cancelled", "Table production was cancelled.")
 
-    async def _produce(self):
+    async def _produce(self, pending: asyncio.Queue):
         # A generator's context managers must enter, resume and exit in the
         # same task/context, including aclose after a bounded preview.
         while True:
-            awaitable, started, result = await self.pending.get()
+            awaitable, started, result = await pending.get()
             started.set_result(None)
             try:
                 value = await awaitable
@@ -78,9 +78,9 @@ class TableProducer:
                     result.set_result(value)
 
     async def _wait(self, awaitable, *, cancellable):
-        if self.worker is None or self.worker.done():
+        if self.worker is None or self.worker.done() or self.pending is None:
             self.pending = asyncio.Queue()
-            self.worker = asyncio.create_task(self._produce())
+            self.worker = asyncio.create_task(self._produce(self.pending))
         result = asyncio.get_running_loop().create_future()
         started = asyncio.get_running_loop().create_future()
         self.pending.put_nowait((awaitable, started, result))

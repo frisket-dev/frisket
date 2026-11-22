@@ -75,7 +75,7 @@ type ReceiptLookup = {
   status?: string;
   inputs?: Array<{ ref?: Record<string, unknown> }>;
   outputs?: Array<{ kind?: string; name?: string | null; ref?: Record<string, unknown> }>;
-  evidence?: Array<{ ref?: Record<string, unknown> }>;
+  records?: Array<{ ref?: Record<string, unknown> }>;
 };
 
 type StarRow = {
@@ -230,7 +230,7 @@ function receiptContainsSourceMembership(
   expect(sourceRead?.source_values_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(sourceRead).not.toHaveProperty('rows');
 
-  const membership = receipt.evidence?.find((item) => (
+  const membership = receipt.records?.find((item) => (
     item.ref?.kind === 'materialized_row_sources'
   ))?.ref;
   const membershipRows = membership?.rows as Array<Record<string, unknown>> | undefined;

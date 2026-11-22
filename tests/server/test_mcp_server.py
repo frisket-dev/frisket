@@ -9,6 +9,8 @@ local FastAPI app over httpx.ASGITransport, so the thin-client mapping
 live server or network.
 """
 
+from contextlib import closing
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -31,7 +33,7 @@ from frisket.ai.llm import (
 from frisket.contracts.action import Receipt
 from frisket.engine.jobs import Worker
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.execution_routes import RouteStore
@@ -257,8 +259,7 @@ def test_public_tool_materializes_typed_table_with_generic_sheet_name(tmp_path, 
     )
     assert result["status"] == "completed", result
     assert result["done"] is True
-    project = Project(root / "demo.frisket")
-    try:
+    with closing(Project(root / "demo.frisket")) as project:
         sheet = project.db.execute(
             "SELECT id FROM sheets WHERE name=? AND hidden=0", (sheet_name,)
         ).fetchone()
@@ -269,8 +270,6 @@ def test_public_tool_materializes_typed_table_with_generic_sheet_name(tmp_path, 
         assert receipt.action_kind == kind
         assert receipt.outputs[0].ref["sheet_id"] == sheet["id"]
         assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("name", [None, "  New sheet  ", "", "   ", 123, True])
@@ -1274,8 +1273,7 @@ class TestRunAction:
 
         assert result["status"] == "started"
         assert result["done"] is True
-        project = Project(root / "demo.frisket")
-        try:
+        with closing(Project(root / "demo.frisket")) as project:
             output = next(
                 column
                 for column in project.columns(sheet)
@@ -1285,8 +1283,6 @@ class TestRunAction:
                 "alpha!",
                 "beta!",
             ]
-        finally:
-            project.close()
 
     def test_local_typed_action_executes_through_the_canonical_registry(
         self, tmp_path
@@ -1515,15 +1511,12 @@ class TestRunAction:
 
     def test_queued_run_keeps_request_allowance_at_worker(self, tmp_path):
         sheet = seed_workspace(tmp_path / "ws", ["small paid request"])
-        project = Project(tmp_path / "ws" / "demo.frisket")
-        try:
+        with closing(Project(tmp_path / "ws" / "demo.frisket")) as project:
             row_id = int(
                 project.db.execute(
                     "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
                 ).fetchone()["id"]
             )
-        finally:
-            project.close()
         action = classify_action(sheet, row_ids=[row_id])
         adapter = _FlakyAdapter(fail_marker=None)
         router = ModelRouter(
@@ -1566,15 +1559,12 @@ class TestRunAction:
 
         root = tmp_path / "ws"
         sheet = seed_workspace(root, ["small paid request"])
-        project = Project(root / "demo.frisket")
-        try:
+        with closing(Project(root / "demo.frisket")) as project:
             row_id = int(
                 project.db.execute(
                     "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
                 ).fetchone()["id"]
             )
-        finally:
-            project.close()
         action = classify_action(sheet, row_ids=[row_id])
         action["idempotency_key"] = "mcp-quote-drift@sha256:stable"
         adapter = _FlakyAdapter(fail_marker=None)
@@ -1725,7 +1715,7 @@ class TestRunAction:
             idempotency_key="mcp-canonical-authority@sha256:stable",
         )
         writes: list[dict[str, object]] = []
-        original_write_results = RunResultStore.write_results
+        original_write_results = RunResultStore.write_results_in_transaction
 
         def record_authority(
             store,
@@ -1733,16 +1723,19 @@ class TestRunAction:
             batch,
             **kwargs,
         ):
+            fence = kwargs["fence"]
             writes.append(
                 {
                     "run_id": run_id,
-                    "writer_attempt_id": kwargs.get("writer_attempt_id"),
-                    "claim_token": kwargs.get("claim_token"),
+                    "writer_attempt_id": fence.writer_attempt_id,
+                    "claim_token": fence.claim_token,
                 }
             )
             return original_write_results(store, run_id, batch, **kwargs)
 
-        monkeypatch.setattr(RunResultStore, "write_results", record_authority)
+        monkeypatch.setattr(
+            RunResultStore, "write_results_in_transaction", record_authority
+        )
 
         def prepared_refs(run_id: int) -> list[dict]:
             body = json.loads(
@@ -1755,7 +1748,7 @@ class TestRunAction:
             )
             return [
                 evidence["ref"]
-                for evidence in body["evidence"]
+                for evidence in body["records"]
                 if evidence["ref"].get("kind") == "queued_action_run_prepared"
             ]
 
@@ -1765,7 +1758,7 @@ class TestRunAction:
             # so read it while the receipt is still queued: finalization
             # replaces the body's evidence with the op's own provenance, and
             # the durable authority moves to execution_attempts /
-            # output_column_claims, both asserted below.
+            # generated_column_claims, both asserted below.
             prepared = prepared_refs(started["run_id"])
             while backend._tasks:  # noqa: SLF001 - await the owned worker
                 await asyncio.gather(*tuple(backend._tasks))  # noqa: SLF001
@@ -1784,7 +1777,7 @@ class TestRunAction:
         assert int(prepared[0]["run_id"]) == int(started["run_id"])
         claim_token = f"output-claim:{receipt_row['id']}"
         claims = project.db.execute(
-            "SELECT * FROM output_column_claims WHERE run_id=?",
+            "SELECT * FROM generated_column_claims WHERE run_id=?",
             (started["run_id"],),
         ).fetchall()
         assert claims
@@ -1829,7 +1822,7 @@ class TestRunAction:
             )
         )
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet,
                 output_names=["uppercase"],
                 action_kind="map.python",
@@ -1843,7 +1836,7 @@ class TestRunAction:
                 0
             ],
             "claims": project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims"
+                "SELECT COUNT(*) FROM generated_column_claims"
             ).fetchone()[0],
             "columns": project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0],
             "ops": project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0],
@@ -1853,7 +1846,7 @@ class TestRunAction:
             idempotency_key="mcp-competing-authority@sha256:stable",
         )
 
-        with pytest.raises(ValueError, match="output_column_busy"):
+        with pytest.raises(ValueError, match="generated_column_busy"):
             asyncio.run(backend.run_action("demo", action, confirmed=True))
 
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
@@ -1867,13 +1860,13 @@ class TestRunAction:
                 0
             ],
             "claims": project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims"
+                "SELECT COUNT(*) FROM generated_column_claims"
             ).fetchone()[0],
             "columns": project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0],
             "ops": project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0],
         } == baseline
         active_claim = project.db.execute(
-            "SELECT claim_token, run_id, status FROM output_column_claims"
+            "SELECT claim_token, run_id, status FROM generated_column_claims"
         ).fetchone()
         assert active_claim is not None
         assert tuple(active_claim) == (

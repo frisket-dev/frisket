@@ -15,12 +15,12 @@ from frisket.team.uow import TeamUnitOfWork
 def _claimed_database(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'control.sqlite3'}"
     engine = sa.create_engine(database_url, future=True)
-    org_id = initialize_team_schema_and_organization(
+    organization_id = initialize_team_schema_and_organization(
         engine, organization_name="Frisket"
     )
     claim_first_owner(
         engine,
-        org_id=org_id,
+        organization_id=organization_id,
         claim_token="setup-code",
         expected_claim_token="setup-code",
         workspace_name="Investigations",
@@ -33,10 +33,12 @@ def _claimed_database(tmp_path):
 
 def _sign_in_password(engine, *, email: str, password: str) -> None:
     with engine.connect() as cx:
-        org_id = cx.exec_driver_sql("SELECT id FROM orgs").scalar_one()
-    IdentityAuthService(lambda: TeamUnitOfWork(engine, org_id=org_id)).sign_in_password(
-        email=email, password=password
-    )
+        organization_id = cx.exec_driver_sql(
+            "SELECT id FROM organizations"
+        ).scalar_one()
+    IdentityAuthService(
+        lambda: TeamUnitOfWork(engine, organization_id=organization_id)
+    ).sign_in_password(email=email, password=password)
 
 
 def test_owner_reset_reads_stdin_revokes_sessions_and_changes_password(

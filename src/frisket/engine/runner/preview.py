@@ -44,6 +44,7 @@ from frisket.engine.runner.row_inputs import row_values
 from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.transactions import roll_back_failed_work
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.execution.pricing_policy import PricingPolicy
@@ -510,8 +511,8 @@ async def run_preview(
         run_store.write_returned_call_accounting(
             None,
             batch,
+            fence=WriterFence.claimless(run_id=None, attempt_id=attempt.attempt_id),
             receipt_id=attempt.receipt_id,
-            writer_attempt_id=attempt.attempt_id,
         )
         # The UI may discard a cancelled preview, but returned work keeps its
         # actual outcome for billing. Cancellation does not undo provider calls.
@@ -649,9 +650,9 @@ async def run_preview(
                             request_id=(f"preview:{attempt.receipt_id}:row:{row_id}"),
                             group_key=f"preview:{attempt.receipt_id}:row:{row_id}",
                             action_kind=spec["action_kind"],
-                            run_id=None,
-                            claim_token=None,
-                            claimless_direct_effect=True,
+                            fence=WriterFence.claimless(
+                                run_id=None, attempt_id=attempt.attempt_id
+                            ),
                         )
                         if (
                             cloud_binding is not None

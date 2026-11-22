@@ -244,8 +244,8 @@ def test_continuation_preserves_claimed_organization_not_payload_identity(
         {
             "project_id": "wrong",
             "workspace_root": "/wrong",
-            "storage_org_id": 99,
-            "org_id": 99,
+            "storage_organization_id": 99,
+            "organization_id": 99,
             CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
         },
         JobHandlerContext.from_claimed_job(trusted_organization_id=8),
@@ -255,8 +255,8 @@ def test_continuation_preserves_claimed_organization_not_payload_identity(
     payload = call.args[1]
     assert payload["project_id"] == "files"
     assert payload["workspace_root"] == str(root)
-    assert payload["storage_org_id"] == 7
-    assert payload["org_id"] == 8
+    assert payload["storage_organization_id"] == 7
+    assert payload["organization_id"] == 8
     assert CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY not in payload
 
 

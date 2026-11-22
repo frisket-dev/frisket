@@ -8,8 +8,10 @@ Clean cut, then migrations
 The identity/commerce split was a pre-release clean cut: a database that
 predates it (identity and commerce fused on one `orgs` table) is still
 REJECTED rather than guessed at.  Once the split schema exists, however,
-versioned upgrades preserve its data.  In particular, v6 → v7 adds the
-user-owned cost pre-approval preference in place.
+versioned upgrades preserve its data in place (v6 -> v7 adds the user
+allowance column; v7 -> v8 renames it to `allowance_usd`; v8 -> v9 renames
+the organization tables and foreign-key columns to `organizations` /
+`organization_id`).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
 external hosted composition runs it too, via its own bootstrap module, so
@@ -27,7 +29,7 @@ from frisket.team.schema import metadata
 # Bumped only when the identity schema changes shape in a way that an existing
 # database cannot serve. The split itself is version 1: there is no version 0
 # to upgrade from, because pre-split databases are dropped, not migrated.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 
 TEAM_EDITION = "team"
 
@@ -59,34 +61,128 @@ class PreSplitSchemaError(RuntimeError):
     commerce policy."""
 
 
-def _upgrade_v6_to_v7(engine: sa.Engine, *, edition: str | None) -> bool:
-    """Add the user-owned pre-approval field without losing identity data."""
+def _apply_v6_to_v7(cx: sa.Connection) -> None:
+    """Add the user-owned allowance field without losing identity data."""
+    columns = {column["name"] for column in sa.inspect(cx).get_columns("users")}
+    if "cost_preapproval_usd" not in columns and "allowance_usd" not in columns:
+        cx.execute(
+            sa.text("ALTER TABLE users ADD COLUMN cost_preapproval_usd NUMERIC(18, 6)")
+        )
 
+
+def _apply_v7_to_v8(cx: sa.Connection) -> None:
+    """Rename the user allowance column in place without losing identity data."""
+    columns = {column["name"] for column in sa.inspect(cx).get_columns("users")}
+    if "allowance_usd" not in columns:
+        if "cost_preapproval_usd" in columns:
+            cx.execute(
+                sa.text(
+                    "ALTER TABLE users "
+                    "RENAME COLUMN cost_preapproval_usd TO allowance_usd"
+                )
+            )
+        else:
+            cx.execute(
+                sa.text("ALTER TABLE users ADD COLUMN allowance_usd NUMERIC(18, 6)")
+            )
+
+
+_V8_TO_V9_TABLE_RENAMES: tuple[tuple[str, str], ...] = (
+    ("orgs", "organizations"),
+    ("org_keys", "organization_keys"),
+    ("org_env_vars", "organization_env_vars"),
+)
+
+_V8_TO_V9_COLUMN_RENAMES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    ("users", (("default_org_id", "default_organization_id"),)),
+    ("memberships", (("org_id", "organization_id"),)),
+    (
+        "projects",
+        (
+            ("org_id", "organization_id"),
+            ("storage_org_id", "storage_organization_id"),
+        ),
+    ),
+    ("pending_invites", (("org_id", "organization_id"),)),
+    ("project_invites", (("org_id", "organization_id"),)),
+    ("project_roles", (("org_id", "organization_id"),)),
+    ("project_creation_intents", (("org_id", "organization_id"),)),
+    ("api_tokens", (("org_id", "organization_id"),)),
+    ("operator_tokens", (("org_id", "organization_id"),)),
+    ("audit_log", (("org_id", "organization_id"),)),
+    ("client_errors", (("org_id", "organization_id"),)),
+    ("organization_keys", (("org_id", "organization_id"),)),
+    ("organization_env_vars", (("org_id", "organization_id"),)),
+    ("oauth_connections", (("org_id", "organization_id"),)),
+)
+
+
+def _apply_v8_to_v9(cx: sa.Connection, tables: set[str]) -> None:
+    """Rename organization tables and columns in place without losing data."""
+    for old_table, new_table in _V8_TO_V9_TABLE_RENAMES:
+        if old_table in tables and new_table not in tables:
+            cx.execute(sa.text(f"ALTER TABLE {old_table} RENAME TO {new_table}"))
+            tables.remove(old_table)
+            tables.add(new_table)
+    for table, renames in _V8_TO_V9_COLUMN_RENAMES:
+        if table not in tables:
+            continue
+        columns = {column["name"] for column in sa.inspect(cx).get_columns(table)}
+        for old_col, new_col in renames:
+            if old_col in columns and new_col not in columns:
+                cx.execute(
+                    sa.text(f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col}")
+                )
+                columns.remove(old_col)
+                columns.add(new_col)
+
+
+def _upgrade_identity_schema_to_current(
+    engine: sa.Engine, *, edition: str | None
+) -> bool:
+    """Apply supported in-place identity upgrades inside one serialized transaction.
+
+    SQLite opens an explicit ``BEGIN IMMEDIATE`` write transaction before any
+    DDL so multi-statement renames commit or roll back atomically. Non-SQLite
+    dialects lock ``schema_marker`` with ``FOR UPDATE`` before inspecting
+    ``schema_version`` or table structure.
+    """
     with engine.begin() as cx:
-        marker = cx.execute(sa.select(schema_marker)).all()
+        if cx.dialect.name == "sqlite":
+            cx.exec_driver_sql("BEGIN IMMEDIATE")
+        marker_query = sa.select(schema_marker)
+        if cx.dialect.name != "sqlite":
+            marker_query = marker_query.with_for_update()
+        markers = cx.execute(marker_query).all()
         if (
-            len(marker) != 1
-            or marker[0].id != 1
-            or marker[0].schema_version != 6
-            or (edition is not None and marker[0].edition != edition)
+            len(markers) != 1
+            or markers[0].id != 1
+            or (edition is not None and markers[0].edition != edition)
         ):
+            return False
+        version = markers[0].schema_version
+        if version == SCHEMA_VERSION:
+            return True
+        if version not in (6, 7, 8):
             return False
         tables = set(sa.inspect(cx).get_table_names())
         if "users" not in tables:
             return False
-        columns = {column["name"] for column in sa.inspect(cx).get_columns("users")}
-        if "cost_preapproval_usd" not in columns:
-            cx.execute(
-                sa.text(
-                    "ALTER TABLE users ADD COLUMN cost_preapproval_usd NUMERIC(18, 6)"
-                )
-            )
+        if version == 6:
+            _apply_v6_to_v7(cx)
+            version = 7
+        if version == 7:
+            _apply_v7_to_v8(cx)
+            version = 8
+        if version == 8:
+            _apply_v8_to_v9(cx, tables)
+            version = 9
         cx.execute(
             schema_marker.update()
             .where(schema_marker.c.id == 1)
-            .values(schema_version=SCHEMA_VERSION, stamped_at=datetime.now(UTC))
+            .values(schema_version=version, stamped_at=datetime.now(UTC))
         )
-    return True
+        return version == SCHEMA_VERSION
 
 
 def ensure_clean_control_plane_schema(
@@ -110,18 +206,15 @@ def ensure_clean_control_plane_schema(
         if (
             len(markers) == 1
             and markers[0].id == 1
-            and markers[0].schema_version == SCHEMA_VERSION
             and (edition is None or markers[0].edition == edition)
         ):
-            return
-        if (
-            len(markers) == 1
-            and markers[0].id == 1
-            and markers[0].schema_version == 6
-            and (edition is None or markers[0].edition == edition)
-            and _upgrade_v6_to_v7(engine, edition=edition)
-        ):
-            return
+            version = markers[0].schema_version
+            if version == SCHEMA_VERSION:
+                return
+            if version in (6, 7, 8) and _upgrade_identity_schema_to_current(
+                engine, edition=edition
+            ):
+                return
     raise PreSplitSchemaError(
         "control-plane database was not created by the current schema "
         f"(missing or incompatible {schema_marker.name!r}; expected "

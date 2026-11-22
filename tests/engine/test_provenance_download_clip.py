@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_source_artifact, record_source_span
 from frisket.engine.store.media_clip import (
     MAX_CLIP_DURATION_MS,
     ClipError,
@@ -98,7 +98,7 @@ def test_clip_endpoint_streams_a_real_ffmpeg_cut_with_default_padding(
     )
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/spans/{span_id}/clip")
+    response = client.get(f"/api/projects/{pid}/citations/spans/{span_id}/clip")
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "audio/wav"
@@ -124,7 +124,7 @@ def test_clip_endpoint_honors_pad_ms_query_param(tmp_path: Path) -> None:
     project.close()
 
     response = client.get(
-        f"/api/projects/{pid}/evidence/spans/{span_id}/clip", params={"pad_ms": 0}
+        f"/api/projects/{pid}/citations/spans/{span_id}/clip", params={"pad_ms": 0}
     )
 
     assert response.status_code == 200, response.text
@@ -147,7 +147,7 @@ def test_clip_guard_rejects_non_temporal_span(tmp_path: Path) -> None:
     span_id = _seed_temporal_span(project, blob_hash=blob_hash, span_kind="page_range")
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/spans/{span_id}/clip")
+    response = client.get(f"/api/projects/{pid}/citations/spans/{span_id}/clip")
 
     assert response.status_code == 400
     assert response.json()["code"] == "not_temporal"
@@ -169,7 +169,7 @@ def test_clip_guard_rejects_non_av_artifact(tmp_path: Path) -> None:
     )
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/spans/{span_id}/clip")
+    response = client.get(f"/api/projects/{pid}/citations/spans/{span_id}/clip")
 
     assert response.status_code == 400
     assert response.json()["code"] == "not_av"
@@ -178,7 +178,7 @@ def test_clip_guard_rejects_non_av_artifact(tmp_path: Path) -> None:
 def test_clip_guard_404s_unknown_span(tmp_path: Path) -> None:
     client, pid, _ws = _client_and_project(tmp_path)
 
-    response = client.get(f"/api/projects/{pid}/evidence/spans/does-not-exist/clip")
+    response = client.get(f"/api/projects/{pid}/citations/spans/does-not-exist/clip")
 
     assert response.status_code == 404
     assert response.json()["code"] == "span_not_found"
@@ -193,7 +193,7 @@ def test_clip_guard_404s_when_blob_missing_from_disk(tmp_path: Path) -> None:
     span_id = _seed_temporal_span(project, blob_hash="deadbeef" * 8)
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/spans/{span_id}/clip")
+    response = client.get(f"/api/projects/{pid}/citations/spans/{span_id}/clip")
 
     assert response.status_code == 404
     assert response.json()["code"] == "blob_missing"
@@ -214,7 +214,7 @@ def test_clip_rejects_over_cap_duration_instead_of_truncating(tmp_path: Path) ->
     )
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/spans/{span_id}/clip")
+    response = client.get(f"/api/projects/{pid}/citations/spans/{span_id}/clip")
 
     assert response.status_code == 400
     assert response.json()["code"] == "clip_too_long"

@@ -111,7 +111,10 @@ describe('resolveRibbonTabs placement invariants', () => {
     });
     const research = resolveRibbonTabs(actionTemplatesFromCatalog(catalog), EMPTY_CONTEXT)
       .find(tab => tab.id === 'research')?.groups.find(group => group.caption === 'RESEARCH');
-    const actions = research?.items.filter(item => item.kind === 'action' && kinds.includes(item.launcherKind));
+    const actions = research?.items.filter(
+      (item): item is Extract<typeof item, { kind: 'action' }> =>
+        item.kind === 'action' && kinds.includes(item.launcherKind),
+    );
     expect(actions?.map(item => item.launcherKind)).toEqual(kinds);
     expect(actions?.map(item => item.label)).toEqual(['Quick search', 'Agent Research', 'Structured research']);
     expect(new Set(kinds.map(kind => ACTION_ICON_BY_KIND[kind])).size).toBe(3);
@@ -331,7 +334,11 @@ describe('semantic action placement', () => {
       expect.objectContaining({ kind: 'action', launcherKind: 'map.classify' }),
     ]));
     expect((convert?.items ?? []).map((item) => (
-      item.kind === 'action' ? item.launcherKind : item.command
+      item.kind === 'action'
+        ? item.launcherKind
+        : item.kind === 'command'
+          ? item.command
+          : item.contributionId
     ))).toEqual(expect.arrayContaining([
       'map.translate',
       'translate-compare',

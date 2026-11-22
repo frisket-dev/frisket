@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from frisket.actions.media_types import OcrText
@@ -15,7 +16,13 @@ from frisket.execution.provider import enforce_pdf_page_limit
 
 
 class AdmittedNativePdfTextReader:
-    def __init__(self, project, *, cancelled=None, execution_limits=None):
+    def __init__(
+        self,
+        project,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+        execution_limits=None,
+    ):
         self._project = project
         self._cancelled = cancelled
         self._execution_limits = execution_limits
@@ -43,7 +50,9 @@ class AdmittedNativePdfTextReader:
 
 
 class _BoundNativePdfTextReader:
-    def __init__(self, owner, row, sheet_id, row_id, sources):
+    def __init__(
+        self, owner: AdmittedNativePdfTextReader, row, sheet_id, row_id, sources
+    ):
         self._owner = owner
         self._row = row
         self._sheet_id = sheet_id
@@ -116,7 +125,7 @@ class _BoundNativePdfTextReader:
 
     async def read(self, row: Row, source: ColumnRef) -> OcrText:
         source_ref = self._source(row, source)
-        if callable(self._owner._cancelled) and self._owner._cancelled():
+        if self._owner._cancelled is not None and self._owner._cancelled():
             raise RowError("action_cancelled", "PDF text reading was cancelled")
         from frisket.engine.pdf_text import (
             PdfTextCancelled,
@@ -206,7 +215,7 @@ class _BoundNativePdfTextReader:
 
         if len(prepared_pages) != (1 if selected_page is not None else page_count):
             raise RowError("pdf_text_failed", "PDF text extraction was incomplete")
-        if callable(self._owner._cancelled) and self._owner._cancelled():
+        if self._owner._cancelled is not None and self._owner._cancelled():
             raise RowError("action_cancelled", "PDF text reading was cancelled")
         text = "\n\n".join(page["text"] for page in prepared_pages)
         source_ref["page_count"] = page_count

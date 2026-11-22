@@ -229,7 +229,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -242,7 +242,7 @@ try:
     sheet_id = project.add_sheet("Docs")
     name_col = project.add_column(sheet_id, "Name", "text")
     source_col = project.add_column(sheet_id, "Source", "file")
-    summary_col = project.add_column(sheet_id, "Summary", "text", ai_generated=True)
+    summary_col = project.add_column(sheet_id, "Summary", "text", generated=True)
     names = ["Acme Corp", "Beta LLC", "Gamma Inc"]
     row_ids = project.add_rows(
         sheet_id,
@@ -252,12 +252,12 @@ try:
 
     op_id = project.append_change(
         "map.extract",
-        {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"output_column": "Summary"}},
+        {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"generated_column": "Summary"}},
         label="extract Summary",
     )
     run_id = run_store.start_run(
         op_id, sheet_id, "map.extract", model="provider/model",
-        params={"output_column": "Summary"}, total_rows=len(row_ids), row_ids=row_ids,
+        params={"generated_column": "Summary"}, total_rows=len(row_ids), row_ids=row_ids,
     )
     summary_values = ["Revenue grew.", "Headcount doubled.", "Expanded markets."]
     write_claimed_test_results(project, run_id, [
@@ -265,7 +265,8 @@ try:
         for rid, v in zip(row_ids, summary_values)
     ])
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, summary_col, run_id)
+    with write_transaction(project.db):
+        run_store.point_column_at_run(op_id, summary_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, summary_col, row_ids=row_ids)
     with write_transaction(project.db):
         artifact = record_source_artifact(

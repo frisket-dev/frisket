@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
 
 test('organization settings manage provider keys and secrets without leaking values', async ({ page }) => {
-  let keys = [
+  let keys: Array<{
+    provider: string;
+    hint: string;
+    spend_cap_usd: number | null;
+    spent_usd: number;
+    over_cap: boolean;
+  }> = [
     {
       provider: 'anthropic',
       hint: '...old1',
@@ -22,7 +28,7 @@ test('organization settings manage provider keys and secrets without leaking val
     contentType: 'application/json',
     body: '[]',
   }));
-  await page.route('**/api/org/provider-catalog', (route) => route.fulfill({
+  await page.route('**/api/organization/provider-catalog', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -33,7 +39,7 @@ test('organization settings manage provider keys and secrets without leaking val
       ],
     }),
   }));
-  await page.route('**/api/org/keys', async (route) => {
+  await page.route('**/api/organization/keys', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(keys) });
       return;
@@ -45,12 +51,12 @@ test('organization settings manage provider keys and secrets without leaking val
     ];
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, provider: body.provider }) });
   });
-  await page.route('**/api/org/keys/*', async (route) => {
+  await page.route('**/api/organization/keys/*', async (route) => {
     const provider = route.request().url().split('/').pop() ?? '';
     keys = keys.filter((key) => key.provider !== provider);
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, deleted: true }) });
   });
-  await page.route('**/api/org/env', async (route) => {
+  await page.route('**/api/organization/env', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(envVars) });
       return;
@@ -62,7 +68,7 @@ test('organization settings manage provider keys and secrets without leaking val
     ];
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, name: body.name.toUpperCase() }) });
   });
-  await page.route('**/api/org/env/*', async (route) => {
+  await page.route('**/api/organization/env/*', async (route) => {
     const name = decodeURIComponent(route.request().url().split('/').pop() ?? '');
     envVars = envVars.filter((item) => item.name !== name);
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, deleted: true }) });
@@ -73,10 +79,10 @@ test('organization settings manage provider keys and secrets without leaking val
   const organizationProviders = page.getByTestId('organization-ai-providers-settings');
   await expect(organizationProviders).toContainText('anthropic');
   // The key form sits behind the explicit 'Add new key' affordance now, and
-  // Save is validation-gated: a successful Test (POST /api/org/keys/validate,
+  // Save is validation-gated: a successful Test (POST /api/organization/keys/validate,
   // validation_token) must precede Save (settings revamp:
   // OrganizationAiProvidersSettings form.adding + providerFormCanSave).
-  await page.route('**/api/org/keys/validate', (route) => route.fulfill({
+  await page.route('**/api/organization/keys/validate', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ ok: true, provider: 'anthropic', validation_token: 'tok-e2e', message: 'Key OK' }),

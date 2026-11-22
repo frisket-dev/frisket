@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,7 +9,7 @@ import pytest
 from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,
@@ -68,8 +67,8 @@ def _ocr_action(
     return action
 
 
-def _seed_image_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(tmp_path / "ocr-reprocess.frisket", name="OCR reprocess")
+def _seed_image_project(make_project) -> dict[str, Any]:
+    project = make_project("OCR reprocess")
     sheet_id = project.add_sheet("Scans")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -157,10 +156,10 @@ def _text_column_id(project: Project, sheet_id: int) -> int:
 
 
 def test_reocr_with_different_engine_marks_prior_link_stale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    seeded = _seed_image_project(tmp_path)
+    seeded = _seed_image_project(make_project)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_id = seeded["row_ids"][0]
@@ -174,127 +173,121 @@ def test_reocr_with_different_engine_marks_prior_link_stale(
     # liveness is a real config read now.
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
-    try:
-        first = run_action_spec(
-            project,
-            _ocr_action(
-                sheet_id=sheet_id,
-                row_ids=[row_id],
-                engine="rapidocr",
-                idempotency_key="media_ocr@sha256:reprocess-rapidocr",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed", first.errors
-
-        text_column_id = _text_column_id(project, sheet_id)
-        first_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=text_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(first_evidence["links"]) == 1
-        first_stable_id = first_evidence["links"][0]["stable_id"]
-        assert first_evidence["links"][0]["status"] == "active"
-
-        # Re-OCR the SAME cell with a DIFFERENT engine (rapidocr -> the dots.mocr
-        # sidecar engine): distinct params -> distinct params_hash -> a
-        # genuine re-execution (not an idempotency replay), producing a
-        # brand-new active evidence link.
-        second_action = _ocr_action(
+    first = run_action_spec(
+        project,
+        _ocr_action(
             sheet_id=sheet_id,
             row_ids=[row_id],
-            engine="dots.mocr",
-            idempotency_key="media_ocr@sha256:reprocess-dots.mocr",
-            overwrite_existing=True,
-        )
-        second = run_action_spec(project, second_action, project_id=PROJECT_ID)
-        assert second.status == "completed", second.errors
+            engine="rapidocr",
+            idempotency_key="media_ocr@sha256:reprocess-rapidocr",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed", first.errors
 
-        all_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=text_column_id,
-            include_stale=True,
-            project_id=PROJECT_ID,
-        )
-        by_stable_id = {link["stable_id"]: link for link in all_evidence["links"]}
-        assert len(by_stable_id) == 2
-        # the FIRST engine's link is superseded by the re-OCR -- stale, not
-        # silently kept "active" and not deleted (still resolvable/visible).
-        assert by_stable_id[first_stable_id]["status"] == "stale"
-        assert all_evidence["stale_count"] == 1
-        active_links = [
-            link for link in all_evidence["links"] if link["status"] == "active"
-        ]
-        assert len(active_links) == 1
-        assert active_links[0]["stable_id"] != first_stable_id
+    text_column_id = _text_column_id(project, sheet_id)
+    first_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=text_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(first_evidence["links"]) == 1
+    first_stable_id = first_evidence["links"][0]["stable_id"]
+    assert first_evidence["links"][0]["status"] == "active"
 
-        # the stale link is still resolvable (viewable), never deleted.
-        stale_viewer = resolve_citation_viewer(
-            project, first_stable_id, project_id=PROJECT_ID
-        )
-        assert stale_viewer["link"]["status"] == "stale"
-        assert stale_viewer["link"]["stale_reason"]
-    finally:
-        project.close()
+    # Re-OCR the SAME cell with a DIFFERENT engine (rapidocr -> the dots.mocr
+    # sidecar engine): distinct params -> distinct params_hash -> a
+    # genuine re-execution (not an idempotency replay), producing a
+    # brand-new active evidence link.
+    second_action = _ocr_action(
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        engine="dots.mocr",
+        idempotency_key="media_ocr@sha256:reprocess-dots.mocr",
+        overwrite_existing=True,
+    )
+    second = run_action_spec(project, second_action, project_id=PROJECT_ID)
+    assert second.status == "completed", second.errors
+
+    all_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=text_column_id,
+        include_stale=True,
+        project_id=PROJECT_ID,
+    )
+    by_stable_id = {link["stable_id"]: link for link in all_evidence["links"]}
+    assert len(by_stable_id) == 2
+    # the FIRST engine's link is superseded by the re-OCR -- stale, not
+    # silently kept "active" and not deleted (still resolvable/visible).
+    assert by_stable_id[first_stable_id]["status"] == "stale"
+    assert all_evidence["stale_count"] == 1
+    active_links = [
+        link for link in all_evidence["links"] if link["status"] == "active"
+    ]
+    assert len(active_links) == 1
+    assert active_links[0]["stable_id"] != first_stable_id
+
+    # the stale link is still resolvable (viewable), never deleted.
+    stale_viewer = resolve_citation_viewer(
+        project, first_stable_id, project_id=PROJECT_ID
+    )
+    assert stale_viewer["link"]["status"] == "stale"
+    assert stale_viewer["link"]["stale_reason"]
 
 
 def test_reocr_with_unchanged_params_replay_leaves_link_fresh(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_image_project(tmp_path)
+    seeded = _seed_image_project(make_project)
     project: Project = seeded["project"]
     sheet_id = seeded["sheet_id"]
     row_id = seeded["row_ids"][0]
     monkeypatch.setattr(OcrEngines, "_page_images", _fake_page_images())
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", _fake_engine("invoice total 42"))
     stub_rapidocr_run_scope(monkeypatch)
-    try:
-        action = _ocr_action(
-            sheet_id=sheet_id,
-            row_ids=[row_id],
-            engine="rapidocr",
-            idempotency_key="media_ocr@sha256:no-change-replay",
-        )
-        first = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert first.status == "completed", first.errors
+    action = _ocr_action(
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        engine="rapidocr",
+        idempotency_key="media_ocr@sha256:no-change-replay",
+    )
+    first = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert first.status == "completed", first.errors
 
-        text_column_id = _text_column_id(project, sheet_id)
-        before = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=text_column_id,
-            include_stale=True,
-            project_id=PROJECT_ID,
-        )
-        assert len(before["links"]) == 1
-        stable_id = before["links"][0]["stable_id"]
+    text_column_id = _text_column_id(project, sheet_id)
+    before = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=text_column_id,
+        include_stale=True,
+        project_id=PROJECT_ID,
+    )
+    assert len(before["links"]) == 1
+    stable_id = before["links"][0]["stable_id"]
 
-        # SAME action, SAME idempotency key -> idempotency replay, never
-        # re-enters the evidence writer. The existing link must stay fresh.
-        replay = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
+    # SAME action, SAME idempotency key -> idempotency replay, never
+    # re-enters the evidence writer. The existing link must stay fresh.
+    replay = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
 
-        after = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=text_column_id,
-            include_stale=True,
-            project_id=PROJECT_ID,
-        )
-        assert len(after["links"]) == 1
-        assert after["links"][0]["stable_id"] == stable_id
-        assert after["links"][0]["status"] == "active"
-        assert after["stale_count"] == 0
-    finally:
-        project.close()
+    after = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=text_column_id,
+        include_stale=True,
+        project_id=PROJECT_ID,
+    )
+    assert len(after["links"]) == 1
+    assert after["links"][0]["stable_id"] == stable_id
+    assert after["links"][0]["status"] == "active"
+    assert after["stale_count"] == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -302,13 +295,11 @@ def test_reocr_with_unchanged_params_replay_leaves_link_fresh(
 # --------------------------------------------------------------------------- #
 
 
-def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any]:
-    project = Project.create(tmp_path / "hash-mismatch.frisket", name="Hash mismatch")
+def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
+    project = make_project("Hash mismatch")
     sheet_id = project.add_sheet("Docs")
     source_col = project.add_column(sheet_id, "source", type="file")
-    output_col = project.add_column(
-        sheet_id, "markdown", type="text", ai_generated=True
-    )
+    output_col = project.add_column(sheet_id, "markdown", type="text", generated=True)
     row_id = project.add_rows(
         sheet_id, [{"source": "doc.pdf"}], {"source": source_col}
     )[0]
@@ -323,7 +314,8 @@ def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any
         [{"row_id": row_id, "column_id": output_col, "value": initial_text}],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(run_store.db):
+        run_store.point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
 
     with write_transaction(project.db):
@@ -355,18 +347,19 @@ def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any
             text_layer_hash=text_hash,
             text_surface_id=surface["id"],
         )
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=output_col,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_to_markdown_grounding",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_col,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_to_markdown_grounding",
+        )
     return {
         "project": project,
         "sheet_id": sheet_id,
@@ -385,70 +378,65 @@ def _text_hash(text: str) -> str:
 
 
 def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_staleness_marking(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    seeded = _seed_text_layer_link(tmp_path, initial_text="# Original heading")
+    seeded = _seed_text_layer_link(make_project, initial_text="# Original heading")
     project: Project = seeded["project"]
-    try:
-        # sanity: unmodified cell resolves with no mismatch.
-        viewer = resolve_citation_viewer(
-            project, seeded["link"]["stable_id"], project_id=PROJECT_ID
-        )
-        assert viewer["link"]["text_layer_hash_mismatch"] is False
+    # sanity: unmodified cell resolves with no mismatch.
+    viewer = resolve_citation_viewer(
+        project, seeded["link"]["stable_id"], project_id=PROJECT_ID
+    )
+    assert viewer["link"]["text_layer_hash_mismatch"] is False
 
-        # Simulate a producer that reprocesses the SAME cell (a second run
-        # overwrites the markdown column) WITHOUT going through
-        # `mark_citations_stale_for_cell_refs` -- exactly the documented gap
-        # ("fires from only 2 of many mutation sites"). The render path must
-        # independently catch the drift via the stored text_layer_hash.
-        run_store: RunResultStore = seeded["run_store"]
-        second_op_id = project.append_change("media.to_markdown")
-        second_run_id = run_store.start_run(
-            second_op_id,
-            seeded["sheet_id"],
-            "media.to_markdown",
-            total_rows=1,
-            row_ids=[seeded["row_id"]],
-        )
-        write_claimed_test_results(
-            project,
-            second_run_id,
-            [
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": seeded["output_col"],
-                    "value": "# Re-extracted heading (different engine)",
-                }
-            ],
-        )
-        run_store.finish_run(second_run_id)
+    # Simulate a producer that reprocesses the SAME cell (a second run
+    # overwrites the markdown column) WITHOUT going through
+    # `mark_citations_stale_for_cell_refs` -- exactly the documented gap
+    # ("fires from only 2 of many mutation sites"). The render path must
+    # independently catch the drift via the stored text_layer_hash.
+    run_store: RunResultStore = seeded["run_store"]
+    second_op_id = project.append_change("media.to_markdown")
+    second_run_id = run_store.start_run(
+        second_op_id,
+        seeded["sheet_id"],
+        "media.to_markdown",
+        total_rows=1,
+        row_ids=[seeded["row_id"]],
+    )
+    write_claimed_test_results(
+        project,
+        second_run_id,
+        [
+            {
+                "row_id": seeded["row_id"],
+                "column_id": seeded["output_col"],
+                "value": "# Re-extracted heading (different engine)",
+            }
+        ],
+    )
+    run_store.finish_run(second_run_id)
+    with write_transaction(run_store.db):
         run_store.point_column_at_run(second_op_id, seeded["output_col"], second_run_id)
 
-        mismatched_viewer = resolve_citation_viewer(
-            project, seeded["link"]["stable_id"], project_id=PROJECT_ID
-        )
-        # the link's own status is untouched by this direct simulation (proving
-        # the flag is an INDEPENDENT check, not a re-derivation of `status`);
-        # a flag the viewer can show, not a silent hide, not a delete.
-        assert mismatched_viewer["link"]["status"] == "active"
-        assert mismatched_viewer["link"]["text_layer_hash_mismatch"] is True
-        # additive: existing consumers of the span-level payload are unaffected.
-        assert mismatched_viewer["artifacts"][0]["spans"][0]["quote"] == (
-            "# Original heading"
-        )
-    finally:
-        project.close()
+    mismatched_viewer = resolve_citation_viewer(
+        project, seeded["link"]["stable_id"], project_id=PROJECT_ID
+    )
+    # the link's own status is untouched by this direct simulation (proving
+    # the flag is an INDEPENDENT check, not a re-derivation of `status`);
+    # a flag the viewer can show, not a silent hide, not a delete.
+    assert mismatched_viewer["link"]["status"] == "active"
+    assert mismatched_viewer["link"]["text_layer_hash_mismatch"] is True
+    # additive: existing consumers of the span-level payload are unaffected.
+    assert mismatched_viewer["artifacts"][0]["spans"][0]["quote"] == (
+        "# Original heading"
+    )
 
 
 def test_text_layer_hash_matches_when_cell_never_reprocessed(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    seeded = _seed_text_layer_link(tmp_path, initial_text="# Stable heading")
+    seeded = _seed_text_layer_link(make_project, initial_text="# Stable heading")
     project: Project = seeded["project"]
-    try:
-        viewer = resolve_citation_viewer(
-            project, seeded["link"]["stable_id"], project_id=PROJECT_ID
-        )
-        assert viewer["link"]["text_layer_hash_mismatch"] is False
-    finally:
-        project.close()
+    viewer = resolve_citation_viewer(
+        project, seeded["link"]["stable_id"], project_id=PROJECT_ID
+    )
+    assert viewer["link"]["text_layer_hash_mismatch"] is False

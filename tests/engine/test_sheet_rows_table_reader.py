@@ -246,7 +246,7 @@ def test_sheet_rows_reader_previews_and_materializes_selected_aggregate_lineage(
     assert "values" not in read.ref
     membership = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "materialized_row_sources"
     )
     assert {row["source_row_id"] for row in membership["rows"]} == set(row_ids[:3])

@@ -16,7 +16,7 @@ def queue_feed_poll(
     project: Any, project_id: str, body: dict, ctx: Any
 ) -> ActionResult | None:
     bound = typed_action_for_request(body)
-    feed_id = bound.params.source
+    feed_id = getattr(bound.params, "source", None)
     if type(feed_id) is not int:
         return None
     feed = FeedStore(project).get_feed(feed_id)
@@ -41,7 +41,9 @@ def queue_feed_poll(
         for status in ("queued", "running")
         for job in ctx.queue.list_project_jobs(
             project_id,
-            storage_org_id=ctx.queue_payload_extra.get("storage_org_id"),
+            storage_organization_id=ctx.queue_payload_extra.get(
+                "storage_organization_id"
+            ),
             status=status,
             kind="source.poll",
             source_id=feed_id,

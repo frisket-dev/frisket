@@ -138,7 +138,7 @@ def test_queued_worker_preserves_expected_generated_columns(tmp_path: Path) -> N
     body = {
         **_regex_request(sheet_id),
         "idempotency_key": "typed-regex-queue@expected-output",
-        "expected_output_columns": {"phone": None},
+        "expected_generated_columns": {"phone": None},
     }
 
     response = ActionResult.model_validate(
@@ -148,15 +148,15 @@ def test_queued_worker_preserves_expected_generated_columns(tmp_path: Path) -> N
     assert response.job_id is not None
     job = client.app.state.workspace.queue.get(response.job_id)
     assert job is not None
-    assert job.payload["v1_action"]["expected_output_columns"] == {"phone": None}
-    assert job.payload["spec"]["expected_output_columns"] == {"phone": None}
+    assert job.payload["v1_action"]["expected_generated_columns"] == {"phone": None}
+    assert job.payload["spec"]["expected_generated_columns"] == {"phone": None}
     envelope = queued_v1_payload_envelope(job.payload)
     assert envelope is not None
     reconstructed = bound_typed_program_request_from_runner_spec(
         job.payload["spec"], project=client.app.state.workspace.get(project_id)
     )
     assert reconstructed is not None
-    assert reconstructed.request.expected_output_columns == {"phone": None}
+    assert reconstructed.request.expected_generated_columns == {"phone": None}
 
     drain_queue(client)
 
@@ -234,7 +234,7 @@ def test_queued_replacement_snapshots_new_sibling_output_after_prepare(
             "blocks": "Search positions",
         },
         "replace_existing": True,
-        "expected_output_columns": {
+        "expected_generated_columns": {
             "Search text": int(existing_text["id"]),
             "Search positions": None,
         },
@@ -408,7 +408,7 @@ def test_typed_worker_refuses_persisted_run_identity_drift(
     assert receipt["status"] == "failed"
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE receipt_id=? AND status='active'",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE receipt_id=? AND status='active'",
             (result.receipt_id,),
         ).fetchone()[0]
         == 0
@@ -437,7 +437,7 @@ def test_typed_queue_claim_conflict_points_to_output_names(tmp_path: Path) -> No
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_busy"
+    assert result.errors[0].code == "generated_column_busy"
     assert result.errors[0].field == "output_names"
 
 
@@ -463,7 +463,7 @@ def test_typed_queue_prepare_collision_points_to_output_names(
     assert response.status_code == 409, response.text
     result = ActionResult.model_validate(response.json())
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert result.errors[0].field == "output_names"
     project = client.app.state.workspace.get(project_id)
     assert (
@@ -475,7 +475,7 @@ def test_typed_queue_prepare_collision_points_to_output_names(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -572,7 +572,7 @@ def test_typed_prepared_recovery_rejects_recreated_source(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE receipt_id=? AND status='active'",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE receipt_id=? AND status='active'",
             (receipt_id,),
         ).fetchone()[0]
         == 0
@@ -602,7 +602,7 @@ def test_typed_queued_cancel_terminalizes_receipt_and_claim(tmp_path: Path) -> N
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE receipt_id=? AND status='active'",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE receipt_id=? AND status='active'",
             (queued.receipt_id,),
         ).fetchone()[0]
         == 0

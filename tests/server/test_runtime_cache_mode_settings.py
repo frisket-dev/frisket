@@ -2,13 +2,25 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
+from contextlib import closing
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
+from frisket.local_runtime_config import (
+    InvalidLocalRuntimeConfigError,
+    resolve_local_allowance_usd,
+)
 from frisket.server.app import create_app
-from frisket.server.runtime_settings import runtime_settings_path
+from frisket.server.runtime_settings import (
+    InvalidRuntimeSettingsError,
+    resolve_workspace_allowance_usd,
+    runtime_settings_path,
+    save_workspace_allowance_usd,
+    save_workspace_cache_mode,
+)
 
 
 def test_local_preferences_change_persists_and_updates_new_routers(
@@ -31,11 +43,8 @@ def test_local_preferences_change_persists_and_updates_new_routers(
     assert json.loads(runtime_settings_path(root).read_text()) == {
         "cache_mode": "replay_strict"
     }
-    project = Project.create(root / "sample.frisket", name="sample")
-    try:
+    with closing(Project.create(root / "sample.frisket", name="sample")) as project:
         assert app.state.workspace.router_for(project).cache_mode == "replay_strict"
-    finally:
-        project.close()
 
     # The explicit UI choice is the persisted authority after restart, rather
     # than the environment silently undoing what Preferences reported saved.
@@ -50,23 +59,72 @@ def test_local_allowance_persists_without_auth(tmp_path, monkeypatch) -> None:
     client = TestClient(create_app(root))
 
     initial = client.get("/api/config").json()
-    assert initial["cost_preapproval_usd"] == "1.5"
-    assert initial["cost_preapproval_editable"] is True
+    assert initial["allowance_usd"] == "1.5"
+    assert initial["allowance_editable"] is True
 
-    response = client.patch("/api/config", json={"cost_preapproval_usd": "3.25"})
+    response = client.patch("/api/config", json={"allowance_usd": "3.25"})
     assert response.status_code == 200, response.text
-    assert response.json()["cost_preapproval_usd"] == "3.25"
+    assert response.json()["allowance_usd"] == "3.25"
     assert json.loads(runtime_settings_path(root).read_text()) == {
-        "cost_preapproval_usd": "3.25"
+        "allowance_usd": "3.25"
     }
     assert (
-        TestClient(create_app(root)).get("/api/config").json()["cost_preapproval_usd"]
+        TestClient(create_app(root)).get("/api/config").json()["allowance_usd"]
         == "3.25"
     )
 
     for amount in ("NaN", "1000000000000", "0.0000001"):
-        invalid = client.patch("/api/config", json={"cost_preapproval_usd": amount})
+        invalid = client.patch("/api/config", json={"allowance_usd": amount})
         assert invalid.status_code == 422
+
+
+def test_local_allowance_settings_migrates_legacy_key_safely(tmp_path) -> None:
+    root = tmp_path / "workspace"
+    settings_file = runtime_settings_path(root)
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Reading a pre-cutover workspace with only the legacy key preserves the value.
+    settings_file.write_text(
+        json.dumps({"cost_preapproval_usd": "4.50"}) + "\n", encoding="utf-8"
+    )
+    assert resolve_local_allowance_usd(root) == "4.5"
+    assert resolve_workspace_allowance_usd(root) == "4.5"
+    assert TestClient(create_app(root)).get("/api/config").json()["allowance_usd"] == (
+        "4.5"
+    )
+
+    # Saving another runtime setting migrates the file to the canonical key.
+    save_workspace_cache_mode(root, "replay_strict")
+    assert json.loads(settings_file.read_text(encoding="utf-8")) == {
+        "cache_mode": "replay_strict",
+        "allowance_usd": "4.5",
+    }
+
+    # Reading the canonical key returns its normalized value.
+    assert resolve_local_allowance_usd(root) == "4.5"
+    assert resolve_workspace_allowance_usd(root) == "4.5"
+
+    # Both keys with equivalent normalized values are accepted and canonicalized on write.
+    settings_file.write_text(
+        json.dumps({"allowance_usd": "2.00", "cost_preapproval_usd": "2"}) + "\n",
+        encoding="utf-8",
+    )
+    assert resolve_local_allowance_usd(root) == "2"
+    assert resolve_workspace_allowance_usd(root) == "2"
+    assert save_workspace_allowance_usd(root, "7.00") == "7"
+    assert json.loads(settings_file.read_text(encoding="utf-8")) == {
+        "allowance_usd": "7"
+    }
+
+    # Conflicting values fail loudly rather than silently choosing one.
+    settings_file.write_text(
+        json.dumps({"allowance_usd": "2", "cost_preapproval_usd": "5"}) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(InvalidLocalRuntimeConfigError, match="conflicting"):
+        resolve_local_allowance_usd(root)
+    with pytest.raises(InvalidRuntimeSettingsError, match="conflicting"):
+        resolve_workspace_allowance_usd(root)
 
 
 def test_enabling_live_calls_requires_confirmation(tmp_path, monkeypatch) -> None:

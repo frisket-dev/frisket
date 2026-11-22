@@ -302,10 +302,10 @@ def _annotated_text_column(
         FROM text_surfaces ts
         JOIN source_spans sp
           ON sp.text_surface_id = ts.id AND sp.span_kind = 'text'
-        JOIN evidence_link_spans els
+        JOIN citation_spans els
           ON els.span_id = sp.id AND els.span_role = 'annotation'
-        JOIN evidence_links el
-          ON el.id = els.link_id
+        JOIN citations el
+          ON el.id = els.citation_id
         JOIN columns c
           ON c.id = ts.text_column_id AND c.sheet_id = ts.text_sheet_id AND c.hidden = 0
         WHERE ts.surface_kind = 'cell'
@@ -431,7 +431,7 @@ def resolve_entity_mention_occurrences(
     layers = [
         layer
         for layer in resolved["layers"]
-        if int(layer["output_column"]["id"]) == effective_column_id
+        if int(layer["generated_column"]["id"]) == effective_column_id
     ]
     if not isinstance(cell_text, str) or not layers:
         return base

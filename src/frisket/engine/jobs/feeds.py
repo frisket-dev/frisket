@@ -208,7 +208,7 @@ def register_feed_poll_handler(
                 project=project,
                 project_id=project_id,
                 workspace_root=project_root,
-                storage_org_id=_coerce_storage_organization_id(payload),
+                storage_organization_id=_coerce_storage_organization_id(payload),
                 feed=feed_after,
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=list(summary.get("enclosure_row_ids") or []),
@@ -232,7 +232,9 @@ def register_feed_poll_handler(
                         alerts=alerts,
                         project_id=project_id,
                         workspace_root=project_root,
-                        storage_org_id=_coerce_storage_organization_id(payload),
+                        storage_organization_id=_coerce_storage_organization_id(
+                            payload
+                        ),
                         trigger_ref={"source_run_id": materialization["source_run_id"]},
                     )
 
@@ -250,7 +252,9 @@ def register_feed_poll_handler(
                         queue,
                         workspace_root=project_root,
                         project_id=project_id,
-                        storage_org_id=_coerce_storage_organization_id(payload),
+                        storage_organization_id=_coerce_storage_organization_id(
+                            payload
+                        ),
                         result=evaluation["notification"],
                         project_opener=project_opener,
                     )
@@ -261,7 +265,7 @@ def register_feed_poll_handler(
                 project=project,
                 project_id=project_id,
                 workspace_root=project_root,
-                storage_org_id=_coerce_storage_organization_id(payload),
+                storage_organization_id=_coerce_storage_organization_id(payload),
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=[int(r) for r in summary.get("row_ids") or []],
                 trigger_ref={
@@ -317,7 +321,7 @@ def _feed_poll_action(
 
 
 def _coerce_storage_organization_id(payload: dict[str, Any]) -> int | None:
-    value = payload.get("storage_org_id")
+    value = payload.get("storage_organization_id")
     try:
         return None if value is None else int(value)
     except (TypeError, ValueError):
@@ -340,7 +344,7 @@ def _feed_poll_job_identity(queue: JobQueue | None, payload: dict[str, Any]) -> 
                 FEED_POLL_KIND,
                 statuses=("running",),
                 project_id=project_id,
-                storage_org_id=_coerce_storage_organization_id(payload),
+                storage_organization_id=_coerce_storage_organization_id(payload),
                 source_id=feed_id,
                 workspace_root=workspace_root,
             )
@@ -372,7 +376,7 @@ def _feed_poll_summary_from_result(
     receipt = json.loads(body)
     refs = [
         item.get("ref") or {}
-        for item in [*receipt.get("outputs", []), *receipt.get("evidence", [])]
+        for item in [*receipt.get("outputs", []), *receipt.get("records", [])]
         if isinstance(item, dict)
     ]
     feed_check = next(
@@ -455,7 +459,7 @@ def enqueue_enclosure_downloads(
     project: Project,
     project_id: str,
     workspace_root: Path,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     feed: dict[str, Any],
     sheet_id: int,
     row_ids: list[int],
@@ -468,7 +472,7 @@ def enqueue_enclosure_downloads(
         if queue.find_job_by_refs(
             ENCLOSURE_DOWNLOAD_KIND,
             project_id=project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             sheet_id=sheet_id,
             row_id=row_id,
             workspace_root=str(workspace_root),
@@ -484,8 +488,8 @@ def enqueue_enclosure_downloads(
             {
                 "project_id": project_id,
                 **(
-                    {"storage_org_id": storage_org_id}
-                    if storage_org_id is not None
+                    {"storage_organization_id": storage_organization_id}
+                    if storage_organization_id is not None
                     else {}
                 ),
                 "sheet_id": sheet_id,
@@ -505,7 +509,7 @@ def enqueue_enclosure_downloads(
                 SearchPreparationStore(
                     queue, workspace_root=str(workspace_root)
                 ).create_pending_materialization(
-                    storage_org_id=storage_org_id,
+                    storage_organization_id=storage_organization_id,
                     project_id=project_id,
                     job_id=job_id,
                     sheet_id=sheet_id,
@@ -593,7 +597,7 @@ def enqueue_due_feed_polls(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     now: datetime | None = None,
     max_attempts: int = 3,
     project_opener: ProjectOpener | None = None,
@@ -621,7 +625,7 @@ def enqueue_due_feed_polls(
                 queue.find_job_by_refs(
                     FEED_POLL_KIND,
                     project_id=project_id,
-                    storage_org_id=storage_org_id,
+                    storage_organization_id=storage_organization_id,
                     source_id=feed_id,
                     workspace_root=str(root),
                 )
@@ -642,8 +646,8 @@ def enqueue_due_feed_polls(
                 {
                     "project_id": project_id,
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                     "source_id": feed_id,
@@ -665,7 +669,7 @@ def enqueue_due_feed_polls(
 
     scan_projects(
         project_bundle_paths(root, require_slug=project_opener is not None),
-        bundle_opener(Project, project_opener, storage_org_id),
+        bundle_opener(Project, project_opener, storage_organization_id),
         visit,
         failure_event="source_project_schedule_failed",
     )

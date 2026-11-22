@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol, TypedDict
 
@@ -139,7 +139,11 @@ class _AdmissionBlocked(Exception):
 async def _await_launch_result(awaitable: Awaitable[Any]) -> tuple[Any, bool]:
     """Keep a canonical launch result available when its caller is cancelled."""
 
-    task = asyncio.create_task(awaitable)
+    async def _run() -> Any:
+        return await awaitable
+
+    coro = awaitable if isinstance(awaitable, Coroutine) else _run()
+    task = asyncio.create_task(coro)
     cancelled = False
     while True:
         try:
@@ -169,19 +173,19 @@ def _request_action_id(authority: Mapping[str, Any]) -> str:
 
 
 def _promise_set_hash(authority: Mapping[str, Any]) -> str | None:
-    estimate_response = authority.get("quote")
+    estimate_response = authority.get("estimate")
     estimate = (
         estimate_response.get("estimate")
         if isinstance(estimate_response, Mapping)
         else None
     )
     if not isinstance(estimate, Mapping):
-        raise ProjectQAExecutionRefused("prepared action has no current quote")
+        raise ProjectQAExecutionRefused("prepared action has no current estimate")
     if not estimate.get("requires_confirmation"):
         return None
     promise = estimate.get("promise_set_hash")
     if not isinstance(promise, str) or not promise:
-        raise ProjectQAExecutionRefused("prepared action quote has no promise")
+        raise ProjectQAExecutionRefused("prepared action estimate has no promise")
     return promise
 
 
@@ -360,7 +364,7 @@ class ProjectQAExecutionService:
                     "scope": dict(authority.get("scope") or {}),
                     "effects": dict(authority.get("effects") or {}),
                     "catalog_effects": list(effects),
-                    "estimate": dict(authority["quote"]["estimate"]),
+                    "estimate": dict(authority["estimate"]["estimate"]),
                     "reason": reason,
                 },
                 authority,

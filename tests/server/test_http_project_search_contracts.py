@@ -54,7 +54,7 @@ def _coverage() -> dict[str, object]:
             {
                 "channel": "semantic",
                 "state": "unavailable",
-                "recipe_id": None,
+                "slice_id": None,
                 "eligible_count": None,
                 "prepared_count": None,
                 "failed_count": None,
@@ -87,7 +87,7 @@ def _location() -> dict[str, object]:
 def _hit() -> dict[str, object]:
     return {
         "column_name": "body",
-        "ai_generated": False,
+        "generated": False,
         "snippet": "budget",
         "score": 0.8,
         "source": {
@@ -100,7 +100,7 @@ def _hit() -> dict[str, object]:
         "part": {
             "part_id": "part:cell:2:3",
             "part_kind": "text",
-            "producer_recipe_id": "recipe:text-v1",
+            "producer_slice_id": "slice:text-v1",
         },
         "binding": {
             "binding_id": "cell:2:3",

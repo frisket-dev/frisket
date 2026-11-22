@@ -24,7 +24,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.executor.ocr_citations import write_ocr_citations
 from frisket.engine.runner import MapRunner
-from frisket.engine.store.evidence import resolve_citation_viewer
+from frisket.engine.store.citations import resolve_citation_viewer
 from frisket.engine.store.media_blobs import MediaBlobStore, media_cell
 from frisket.engine.store.ocr_word_stream import (
     resolve_current_ocr_citation,
@@ -141,7 +141,7 @@ def setup(make_project, monkeypatch):
             published_read = copy.deepcopy(read)
             prepared_pages = published_read.pop("prepared_pages", None)
             if prepared_pages is not None:
-                from frisket.engine.store.evidence import record_source_artifact
+                from frisket.engine.store.citations import record_source_artifact
                 from frisket.engine.store.prepared_content import (
                     PreparedContentStore,
                     PreparedPageDraft,
@@ -245,7 +245,7 @@ def test_exact_text_only_custom_output_publishes_original_geometry_and_page_imag
     assert MediaBlobStore(project).blob_row(image["blob_hash"]) is None
     result = run()
     assert result.status == "completed", result.errors
-    [link] = project.db.execute("SELECT * FROM evidence_links").fetchall()
+    [link] = project.db.execute("SELECT * FROM citations").fetchall()
     assert (
         project.db.execute(
             "SELECT name FROM columns WHERE id=?", (link["column_id"],)
@@ -383,8 +383,7 @@ def test_reprocessing_replaces_current_grounding_and_retains_stale_link(setup):
     result = run("second", replace=True)
     assert result.status == "completed", result.errors
     assert [
-        row[0]
-        for row in project.db.execute("SELECT status FROM evidence_links ORDER BY id")
+        row[0] for row in project.db.execute("SELECT status FROM citations ORDER BY id")
     ] == ["stale", "active"]
 
 
@@ -425,7 +424,7 @@ def test_late_evidence_failure_rolls_back_page_registration_and_geometry(
         "cell_result_heads",
         "source_artifacts",
         "source_spans",
-        "evidence_links",
+        "citations",
     ):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
     before = tuple(project.db.iterdump())

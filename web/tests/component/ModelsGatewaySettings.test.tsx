@@ -29,7 +29,7 @@ it('uses status authority to show read-only environment instructions without a t
   expect(await screen.findByText(/FRISKET_MODELS_URL/)).toBeInTheDocument();
   expect(screen.queryByLabelText('Gateway token')).not.toBeInTheDocument();
   expect(request).toHaveBeenCalledOnce();
-  expect(request).toHaveBeenCalledWith('outer.get_org_models_gateway.get', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(request).toHaveBeenCalledWith('outer.get_organization_models_gateway.get', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 });
 
 it('reuses the validated gateway form in Settings and refreshes status after receipt save', async () => {
@@ -45,7 +45,7 @@ it('reuses the validated gateway form in Settings and refreshes status after rec
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
   await userEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(4));
-  expect(request).toHaveBeenNthCalledWith(3, 'outer.set_org_models_gateway.put', expect.objectContaining({ body: { origin: stored.origin, token: 'replacement-token', validation_token: 'settings-receipt' } }));
-  expect(request).toHaveBeenNthCalledWith(4, 'outer.get_org_models_gateway.get', expect.anything());
+  expect(request).toHaveBeenNthCalledWith(3, 'outer.set_organization_models_gateway.put', expect.objectContaining({ body: { origin: stored.origin, token: 'replacement-token', validation_token: 'settings-receipt' } }));
+  expect(request).toHaveBeenNthCalledWith(4, 'outer.get_organization_models_gateway.get', expect.anything());
   expect(screen.getByLabelText('Gateway token')).toHaveValue('');
 });

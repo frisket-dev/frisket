@@ -532,13 +532,13 @@ def test_atomic_map_preparation_failure_rolls_back_receipt_and_claims(
             assert project.db.execute("SELECT 1 FROM receipts").fetchone()
             if current != "reserve":
                 assert project.db.execute(
-                    "SELECT 1 FROM output_column_claims"
+                    "SELECT 1 FROM generated_column_claims"
                 ).fetchone()
             raise error
 
     def reserve(project, action, *, params_hash, project_id):
         assert project.db.in_transaction
-        ReceiptStore(project).insert_running(
+        ReceiptStore(project).insert_running_in_transaction(
             Receipt(
                 receipt_id="receipt-interrupted",
                 project_id=project_id,
@@ -548,7 +548,6 @@ def test_atomic_map_preparation_failure_rolls_back_receipt_and_claims(
                 params_hash=params_hash,
                 status="running",
             ),
-            commit=False,
         )
         fail_at("reserve")
         return {"action_id": "act-interrupted", "receipt_id": "receipt-interrupted"}

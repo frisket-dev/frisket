@@ -6,7 +6,7 @@ const variant = (key: string, rows: EvaluationVariant['rows'], verdicts: Evaluat
   key, label: key, source: { kind: 'current' }, settings: {}, rows, verdicts, source_fingerprints: {}, scores: {},
 });
 function response(): EvaluationResponse {
-  return { sheet_id: 7, action_id: 'map.extract', link: null, row_ids: [1, 2, 3], output_columns: [], expected: {}, rule_previews: {}, best: { answer: ['B'] },
+  return { sheet_id: 7, action_id: 'map.extract', link: null, row_ids: [1, 2, 3], generated_columns: [], expected: {}, rule_previews: {}, best: { answer: ['B'] },
     variants: [
       variant('A', { 1: { answer: { state: 'value', value: 'wrong' } }, 2: { answer: { state: 'error', error: 'Provider failed' } } },
         { 1: { answer: 'miss' }, 2: { answer: 'miss' }, 3: { answer: 'not_run' } }),

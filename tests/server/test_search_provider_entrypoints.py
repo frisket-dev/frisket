@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.ai.research.search import (
     SearchHit,
@@ -17,8 +16,8 @@ from frisket.ai.research.search import (
     SearchUsageUnit,
 )
 from frisket.server import provider_config
-from frisket.server.app import create_app
 from frisket.server.mcp import LocalBackend
+from helpers import make_client
 from http_test_helpers import (
     drain_queue,
     post_row_add_as_v1_action,
@@ -82,12 +81,13 @@ def test_local_mcp_backfill_uses_the_workspace_search_provider(
                 provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
                 units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 
     monkeypatch.setattr(SearchService, "search", fake_search)
-    with TestClient(create_app(root)) as client:
+    with make_client(tmp_path) as client:
+        root = client.app.state.workspace.root
         provider_config.save_local_provider_key(root, provider, f"{provider}-test-key")
         provider_config.save_search_provider(root, provider)
         project_id = client.post("/api/projects", json={"name": "Demo"}).json()["id"]

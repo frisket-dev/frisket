@@ -8,10 +8,11 @@ afterEach(cleanup);
 
 const selection: PdfImportOcrSelection = { kind: 'engine_model', engine: 'remote-ocr', model: 'vision-v1' };
 const previewEstimate: PdfImportPreviewEstimate = {
+  schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'file-7', page: 3,
   ocr_action_params: { engine: 'remote-ocr', model: 'vision-v1' }, cached: false,
   estimate: { cost: 0.1, rows: 1, requires_confirmation: true, promise_set_hash: 'quoted-token' },
 };
-const snapshot = (ocr = selection, draftId = 'draft-1') => ({
+const snapshot = (ocr: PdfImportOcrSelection = selection, draftId = 'draft-1') => ({
   draft_id: draftId, choices: { ocr_selection: ocr }, preview_jobs: [],
 }) as unknown as PdfImportSnapshot;
 

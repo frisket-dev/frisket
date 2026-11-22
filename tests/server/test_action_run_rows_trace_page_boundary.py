@@ -36,7 +36,7 @@ def _seed_run_with_trace_only_error(client: TestClient) -> tuple[str, int, list[
         "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
     ).fetchall()
     row_ids = [int(row["id"]) for row in rows]
-    output_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    output_col = project.add_column(sheet_id, "topic", generated=True)
     project.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'seed rows')")
     op_id = project.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
     cursor = project.db.execute(
@@ -100,7 +100,7 @@ def _seed_run_with_trace_edge_cases(client: TestClient) -> tuple[str, int, list[
         "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
     ).fetchall()
     row_ids = [int(row["id"]) for row in rows]
-    output_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    output_col = project.add_column(sheet_id, "topic", generated=True)
     project.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'edge rows')")
     op_id = project.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
     cursor = project.db.execute(

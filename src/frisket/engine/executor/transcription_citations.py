@@ -5,15 +5,19 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from frisket.engine.store.artifact_timeline import ensure_media_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.artifact_timeline import (
+    MediaTimelineSpec,
+    ensure_media_timeline_in_transaction,
+)
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_artifact,
     record_source_span,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _milliseconds(value: Any) -> int | None:
@@ -113,14 +117,14 @@ def write_transcription_citations(
     }
     if not reads or not transcript_columns:
         return
-    OutputColumnClaimStore.require_current_writer(
-        project.db,
+    fence = WriterFence(
         run_id=run_id,
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
     )
+    GeneratedColumnClaimStore.require_current_writer(project.db, fence=fence)
     receipt_id = project.db.execute(
-        "SELECT DISTINCT receipt_id FROM output_column_claims "
+        "SELECT DISTINCT receipt_id FROM generated_column_claims "
         "WHERE run_id=? AND claim_token=? AND status='active'",
         (run_id, claim_token),
     ).fetchone()[0]
@@ -144,7 +148,7 @@ def write_transcription_citations(
             continue
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='media_transcribe_temporal' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()
@@ -171,7 +175,9 @@ def write_transcription_citations(
                 project, artifact_kind="av", **artifact_kwargs
             )
         else:
-            timeline = ensure_media_timeline(project, **artifact_kwargs)
+            timeline = ensure_media_timeline_in_transaction(
+                project, MediaTimelineSpec(**artifact_kwargs)
+            )
             artifact = {
                 "id": timeline.artifact_id,
                 "stable_id": timeline.artifact_stable_id,
@@ -222,7 +228,5 @@ def write_transcription_citations(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

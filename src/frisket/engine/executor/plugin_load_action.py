@@ -15,7 +15,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
@@ -168,7 +168,7 @@ def run_typed_plugin_load_action(
             status="completed",
             inputs=[ReceiptIO(name="manifest", ref=ref)],
             outputs=[ReceiptIO(name="plugin_manifest", ref=ref)],
-            evidence=[ReceiptEvidence(ref=ref, retention="compactable")],
+            records=[ReceiptRecord(ref=ref, retention="compactable")],
         )
         ReceiptStore(project_).insert_completed(receipt)
         return ActionResult(

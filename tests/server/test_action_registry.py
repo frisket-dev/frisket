@@ -7,21 +7,19 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
 from frisket.server.services import saved_actions
+from helpers import make_client
 
 
 RECIPE_RE = re.compile(r"recipe", re.IGNORECASE)
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
-        create_app(
-            tmp_path,
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
 

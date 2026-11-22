@@ -138,7 +138,10 @@ def _find_key(headers: list[str], *needles: str) -> str | None:
 
 
 def _provider_accounting(
-    ctx: ActionContext, credential_source: str, *, units: dict[str, int | str]
+    ctx: ActionContext,
+    credential_source: str,
+    *,
+    units: Mapping[str, float | int | str | bool | None],
 ) -> dict[str, Any]:
     """One host-observed row or HTTP invocation's known-zero provider fact.
 
@@ -159,7 +162,7 @@ def _provider_accounting(
         provider_reported_cost_usd=None,
         provider_cost_usd=per_row["cost"],
         cost_source=str(per_row.get("cost_source") or "unknown"),
-        units=units,
+        units=dict(units),
         duration_ms=None,
     ).as_dict()
     admission = routed_admission_in_scope(ctx.extras)
@@ -310,13 +313,19 @@ class AdmittedCensusDemographics:
             raise ActionProgramInvocationHalt(
                 "promise_violation", "Set CENSUS_API_KEY for Census data access"
             )
+        credential_context = ctx.credential_use_context
+        if credential_context is None:
+            raise ActionProgramInvocationHalt(
+                "promise_violation",
+                "Census lookup requires a consented credential context",
+            )
         cost_posture = admission.route.cost_posture
         try:
             require_consented_credential(
                 cost_posture=cost_posture,
                 selected_source=credential.source,
                 selected_owner=credential.owner,
-                context=ctx.credential_use_context,
+                context=credential_context,
                 effect="the US Census API call",
             )
         except CredentialUseRefusal as exc:

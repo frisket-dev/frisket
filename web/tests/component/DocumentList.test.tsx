@@ -9,9 +9,9 @@ import { LIST_ITEM_HEIGHT } from '../../src/workbench/useWindowedRowList';
 afterEach(cleanup);
 
 function fixture() {
-  const items = Array.from({ length: 100 }, (_, index) => ({
-    rowId: String(index), ordinal: index, title: `Document ${index}`, titleTruncated: false,
-    sourceKind: 'pdf' as const, sourceLabel: 'report.pdf', sourceLabelTruncated: false,
+  const items: ComponentProps<typeof DocumentList>['browse']['windowRows'] = Array.from({ length: 100 }, (_, index) => ({
+    id: String(index), rowId: String(index), ordinal: index, title: `Document ${index}`, titleTruncated: false,
+    sourceKind: 'pdf', sourceLabel: 'report.pdf', sourceLabelTruncated: false,
     sourcePresent: true, characterCount: null,
   }));
   const browse: ComponentProps<typeof DocumentList>['browse'] = {
@@ -21,7 +21,7 @@ function fixture() {
     listBodyRef: { current: null }, onListScroll: vi.fn(), onListKeyDown: vi.fn(), loadMore: vi.fn(),
   };
   return { browse, activeRowId: '21', onSelect: vi.fn(), onOpen: vi.fn(),
-    describe: (item: typeof items[number]) => ({ secondary: `Details ${item.rowId}` }) };
+    describe: (item: ComponentProps<typeof DocumentList>['browse']['windowRows'][number]) => ({ secondary: `Details ${item.rowId}` }) };
 }
 
 it('renders only the window, preserving selection, offsets and host callbacks', () => {

@@ -1,9 +1,9 @@
-"""Typed public HTTP projections for project-evidence reads.
+"""Typed public HTTP projections for project-citation reads.
 
 The route envelopes are closed: an unexpected producer/store field is a
 contract mismatch, not data we silently relay.  A small number of explicitly
 producer-owned leaves remain recursive JSON because their contents are part of
-the evidence payload rather than a stable HTTP envelope (metadata, selectors,
+the citation payload rather than a stable HTTP envelope (metadata, selectors,
 geometry, previews, raw provider data, and value references).
 """
 
@@ -17,39 +17,39 @@ from frisket.contracts.action import ActionError
 from frisket.contracts.http.models import HttpError, WireModel
 
 
-class EvidenceLinkSummary(WireModel):
+class CitationSummary(WireModel):
     id: int
     stable_id: str
     export_ref: str
     status: str
     role: str
-    evidence_kind: str
+    citation_kind: str
     span_count: int
     artifact_count: int
     snippet: str | None
     viewer_href: str
 
 
-class CellEvidenceResponse(WireModel):
-    schema_version: Literal["frisket.cell_evidence.v1"]
+class CellCitationsResponse(WireModel):
+    schema_version: Literal["frisket.cell_citations.v1"]
     sheet_id: int
     row_id: int
     column_id: int
     current_value_ref: JsonValue | None
-    links: list[EvidenceLinkSummary]
+    links: list[CitationSummary]
     stale_count: int
 
 
-class ColumnEvidenceRow(WireModel):
+class ColumnCitationsRow(WireModel):
     row_id: int
-    links: list[EvidenceLinkSummary]
+    links: list[CitationSummary]
 
 
-class ColumnEvidenceResponse(WireModel):
-    schema_version: Literal["frisket.column_evidence_batch.v1"]
+class ColumnCitationsResponse(WireModel):
+    schema_version: Literal["frisket.column_citations_batch.v1"]
     sheet_id: int
     column_id: int
-    rows: list[ColumnEvidenceRow]
+    rows: list[ColumnCitationsRow]
 
 
 class RowSourceDocument(WireModel):
@@ -73,11 +73,11 @@ class RowSourceDocumentsResponse(WireModel):
     lineage_freshness: Literal["synced", "stale", "unknown", "checking"] | None = None
     unavailable_source_count: int = Field(ge=0)
     truncated: bool
-    evidence_links: list[EvidenceLinkSummary]
+    citations: list[CitationSummary]
     documents: list[RowSourceDocument]
 
 
-class TextAnnotationOutputColumn(WireModel):
+class TextAnnotationGeneratedColumn(WireModel):
     id: int
     name: str | None
 
@@ -116,7 +116,7 @@ class TextAnnotationSpan(WireModel):
     quote_truncated: bool = False
 
 
-class EvidenceTextWindow(WireModel):
+class CitationTextWindow(WireModel):
     """Absolute Unicode codepoint coordinates for one bounded text passage."""
 
     start: int = Field(ge=0)
@@ -134,7 +134,7 @@ class TextAnnotationLayer(WireModel):
     toggle_key: str
     layer_family: str
     producer: TextAnnotationProducer
-    output_column: TextAnnotationOutputColumn
+    generated_column: TextAnnotationGeneratedColumn
     positioned: bool
     counts: TextAnnotationCounts | None = None
     spans: list[TextAnnotationSpan] | None = None
@@ -149,27 +149,27 @@ class CellTextAnnotationsResponse(WireModel):
     offset_unit: Literal["utf16_code_unit"]
     text: str | None
     layers: list[TextAnnotationLayer]
-    window: EvidenceTextWindow | None = None
+    window: CitationTextWindow | None = None
 
 
-class EvidenceBlobReference(WireModel):
+class CitationBlobReference(WireModel):
     hash: str
     url: str
     filename: str | None
 
 
-class EvidenceArtifactReference(WireModel):
+class CitationArtifactReference(WireModel):
     kind: Literal["source_artifact"]
     stable_id: str
     artifact_kind: str
     media_type: str
-    blob: EvidenceBlobReference | None
+    blob: CitationBlobReference | None
     source_url: str | None
     external_ref: JsonValue
 
 
-class EvidenceProducer(WireModel):
-    """Known evidence-link producer keys emitted by current writers."""
+class CitationProducer(WireModel):
+    """Known citation producer keys emitted by current writers."""
 
     schema_version: str | None = None
     value_hash: str | None = None
@@ -194,7 +194,7 @@ class EvidenceProducer(WireModel):
     repointed_from_row_id: int | None = None
 
 
-class EvidenceViewerLink(WireModel):
+class CitationViewerLink(WireModel):
     id: int
     stable_id: str
     export_ref: str
@@ -211,21 +211,21 @@ class EvidenceViewerLink(WireModel):
     status: str
     confidence: float | None
     pinned: bool
-    producer: EvidenceProducer
+    producer: CitationProducer
     stale_reason: str | None
     stale_at: str | None
     created_at: str
     text_layer_hash_mismatch: bool
 
 
-class EvidencePageImage(WireModel):
+class CitationPageImage(WireModel):
     blob_hash: str
     url: str
     width: int | None
     height: int | None
 
 
-class EvidencePageRegion(WireModel):
+class CitationPageRegion(WireModel):
     id: int
     stable_id: str
     bbox: JsonValue
@@ -233,15 +233,15 @@ class EvidencePageRegion(WireModel):
     raw: JsonValue
 
 
-class EvidenceViewerPage(WireModel):
+class CitationViewerPage(WireModel):
     page: int
-    image: EvidencePageImage | None
+    image: CitationPageImage | None
     render_url: str | None = None
     text: str | None
-    regions: list[EvidencePageRegion]
+    regions: list[CitationPageRegion]
 
 
-class EvidenceTemporalRun(WireModel):
+class CitationTemporalRun(WireModel):
     index: int
     start_ms: int
     end_ms: int
@@ -249,7 +249,7 @@ class EvidenceTemporalRun(WireModel):
     clip_url: str | None
 
 
-class EvidenceViewerSpan(WireModel):
+class CitationViewerSpan(WireModel):
     id: int
     stable_id: str
     export_ref: str
@@ -273,13 +273,13 @@ class EvidenceViewerSpan(WireModel):
     run_index: int | None
 
 
-class EvidenceSourceCell(WireModel):
+class CitationSourceCell(WireModel):
     sheet_id: int | None
     row_id: int | None
     column_id: int | None
 
 
-class EvidenceTextRange(WireModel):
+class CitationTextRange(WireModel):
     span_id: str
     start: int
     end: int
@@ -287,7 +287,7 @@ class EvidenceTextRange(WireModel):
     source_end: int | None = Field(default=None, ge=0)
 
 
-class EvidenceTranscriptSegment(WireModel):
+class CitationTranscriptSegment(WireModel):
     span_id: str
     start: int
     end: int
@@ -298,27 +298,27 @@ class EvidenceTranscriptSegment(WireModel):
     source_end: int | None = Field(default=None, ge=0)
 
 
-class EvidenceTranscriptContext(WireModel):
+class CitationTranscriptContext(WireModel):
     schema_version: Literal["frisket.timestamped_text_context.v1"]
     evidence_link_stable_id: str
     artifact_stable_id: str
     offset_unit: Literal["utf16_code_unit"]
-    segments: list[EvidenceTranscriptSegment]
+    segments: list[CitationTranscriptSegment]
 
 
-class EvidenceTextContext(WireModel):
+class CitationTextContext(WireModel):
     text: str
     offset_unit: Literal["utf16_code_unit"]
-    ranges: list[EvidenceTextRange]
-    transcript: EvidenceTranscriptContext | None = None
-    window: EvidenceTextWindow | None = None
+    ranges: list[CitationTextRange]
+    transcript: CitationTranscriptContext | None = None
+    window: CitationTextWindow | None = None
     content_hash: str | None = None
-    evidence_link_id: str | None = None
+    citation_id: str | None = None
     artifact_stable_id: str | None = None
     recovered: bool = False
 
 
-class EvidenceViewerArtifact(WireModel):
+class CitationViewerArtifact(WireModel):
     id: int
     stable_id: str
     export_ref: str
@@ -330,30 +330,30 @@ class EvidenceViewerArtifact(WireModel):
     duration_ms: int | None
     source_url: str | None
     canonical_url: str | None
-    source_cell: EvidenceSourceCell | None
+    source_cell: CitationSourceCell | None
     external_ref: JsonValue
-    artifact_ref: EvidenceArtifactReference
+    artifact_ref: CitationArtifactReference
     metadata: JsonValue
-    text_context: EvidenceTextContext | None = None
+    text_context: CitationTextContext | None = None
     text_context_status: Literal["available", "stale"] | None = None
     recovery_status: (
         Literal["located", "not_found", "unsupported", "incomplete"] | None
     ) = None
     recovery_scanned_characters: int | None = Field(default=None, ge=0)
     recovery_notice: str | None = None
-    spans: list[EvidenceViewerSpan]
-    pages: list[EvidenceViewerPage]
-    runs: list[EvidenceTemporalRun]
+    spans: list[CitationViewerSpan]
+    pages: list[CitationViewerPage]
+    runs: list[CitationTemporalRun]
 
 
-class EvidenceViewerResponse(WireModel):
-    schema_version: Literal["frisket.evidence_viewer.v1"]
-    link: EvidenceViewerLink
-    artifacts: list[EvidenceViewerArtifact]
+class CitationViewerResponse(WireModel):
+    schema_version: Literal["frisket.citation_viewer.v1"]
+    link: CitationViewerLink
+    artifacts: list[CitationViewerArtifact]
     warnings: list[str]
 
 
-PROJECT_EVIDENCE_ERROR_RESPONSES = {
+PROJECT_CITATIONS_ERROR_RESPONSES = {
     400: {"model": ActionError},
     409: {"model": HttpError},
     # Project lookup is detail-wrapped; per-cell/link/column misses are the
@@ -363,31 +363,34 @@ PROJECT_EVIDENCE_ERROR_RESPONSES = {
 
 
 __all__ = [
-    "CellEvidenceResponse",
+    "CellCitationsResponse",
     "CellTextAnnotationsResponse",
-    "ColumnEvidenceResponse",
-    "EvidenceArtifactReference",
-    "EvidenceBlobReference",
-    "EvidenceLinkSummary",
-    "EvidencePageImage",
-    "EvidencePageRegion",
-    "EvidenceProducer",
-    "EvidenceSourceCell",
-    "EvidenceTemporalRun",
-    "EvidenceTextContext",
-    "EvidenceTextWindow",
-    "EvidenceTextRange",
-    "EvidenceTranscriptContext",
-    "EvidenceTranscriptSegment",
-    "EvidenceViewerArtifact",
-    "EvidenceViewerLink",
-    "EvidenceViewerPage",
-    "EvidenceViewerResponse",
-    "EvidenceViewerSpan",
-    "PROJECT_EVIDENCE_ERROR_RESPONSES",
+    "CitationArtifactReference",
+    "CitationBlobReference",
+    "CitationPageImage",
+    "CitationPageRegion",
+    "CitationProducer",
+    "CitationSourceCell",
+    "CitationSummary",
+    "CitationTemporalRun",
+    "CitationTextContext",
+    "CitationTextRange",
+    "CitationTextWindow",
+    "CitationTranscriptContext",
+    "CitationTranscriptSegment",
+    "CitationViewerArtifact",
+    "CitationViewerLink",
+    "CitationViewerPage",
+    "CitationViewerResponse",
+    "CitationViewerSpan",
+    "ColumnCitationsResponse",
+    "ColumnCitationsRow",
+    "PROJECT_CITATIONS_ERROR_RESPONSES",
+    "RowSourceDocument",
+    "RowSourceDocumentsResponse",
     "TextAnnotationCounts",
     "TextAnnotationLayer",
-    "TextAnnotationOutputColumn",
+    "TextAnnotationGeneratedColumn",
     "TextAnnotationProducer",
     "TextAnnotationSpan",
     "TextAnnotationSpanMetadata",

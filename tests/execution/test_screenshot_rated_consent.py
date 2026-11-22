@@ -117,12 +117,12 @@ def test_screenshot_uses_rated_consent_and_persisted_rating(
             drain_queue(client)
             assert calls == ["https://example.test/story"]
             stored = project.db.execute(
-                "SELECT quote_json FROM consents WHERE subject_kind='run'"
+                "SELECT estimate_json FROM consents WHERE subject_kind='run'"
             ).fetchall()
             if billed == 0:
                 assert stored == []
             else:
                 assert len(stored) == 1
-                assert json.loads(stored[0]["quote_json"])["billed_cost"] == billed
+                assert json.loads(stored[0]["estimate_json"])["billed_cost"] == billed
     finally:
         _reset_pricing_policy_for_tests()

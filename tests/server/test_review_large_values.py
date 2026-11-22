@@ -1,28 +1,28 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.runs import RunResultStore
-from frisket.server.app import create_app
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 _LARGE_BYTES = 20 * 1024 * 1024
 
 
-def _seed_large_review(tmp_path: Path) -> tuple[TestClient, str, Any, dict[str, int]]:
-    client = TestClient(create_app(tmp_path / "ws"))
+def _seed_large_review(
+    client: TestClient,
+) -> tuple[TestClient, str, Any, dict[str, int]]:
     project_id = client.post("/api/projects", json={"name": "Bounded Review"}).json()[
         "id"
     ]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("stories")
     source_id = project.add_column(sheet_id, "story")
-    output_id = project.add_column(sheet_id, "summary", ai_generated=True)
+    output_id = project.add_column(sheet_id, "summary", generated=True)
     large = "z" * _LARGE_BYTES
     [row_id] = project.add_rows(sheet_id, [{"story": large}], {"story": source_id})
     op_id = project.append_change(
@@ -52,7 +52,8 @@ def _seed_large_review(tmp_path: Path) -> tuple[TestClient, str, Any, dict[str, 
             }
         ],
     )
-    RunResultStore(project).point_column_at_run(op_id, output_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_id, run_id)
     RunResultStore(project).finish_run(run_id, "completed")
     return (
         client,
@@ -102,9 +103,9 @@ def _assert_bounded_bundle(bundle: dict[str, Any]) -> str:
 
 
 def test_review_get_and_post_bound_large_values_before_full_decode(
-    tmp_path: Path, monkeypatch
+    client: TestClient, monkeypatch
 ) -> None:
-    client, project_id, project, ids = _seed_large_review(tmp_path)
+    client, project_id, project, ids = _seed_large_review(client)
 
     def full_decode_forbidden(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("Review bundle hydration must use bounded reads")
@@ -163,9 +164,9 @@ def test_review_get_and_post_bound_large_values_before_full_decode(
 
 
 def test_manual_edit_does_not_replace_review_saved_answer_when_later_run_skips_row(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, project, ids = _seed_large_review(tmp_path)
+    client, project_id, project, ids = _seed_large_review(client)
     _values, refs = project.get_values_with_refs(
         ids["sheet_id"], ids["output_id"], row_ids=[ids["row_id"]]
     )
@@ -209,9 +210,10 @@ def test_manual_edit_does_not_replace_review_saved_answer_when_later_run_skips_r
         total_rows=1,
         row_ids=[ids["row_id"]],
     )
-    RunResultStore(project).point_column_at_run(
-        later_op_id, ids["output_id"], later_run_id
-    )
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(
+            later_op_id, ids["output_id"], later_run_id
+        )
     RunResultStore(project).finish_run(later_run_id, "completed")
     project.db.execute(
         "DELETE FROM cell_result_heads WHERE run_id=? AND row_id=? AND column_id=?",

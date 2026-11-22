@@ -5,11 +5,11 @@ import { comparisonRequest } from './comparisonEvaluation';
 import { isExpectedLinkAvailable } from '../../workspace/expectedLinkAvailability';
 import { useAction } from '../../hooks/useAction';
 
-function matchingShelf(items: SavedSummary[], columns: ActionCompareSessionSnapshot['context']['output_columns']) {
-  const signature = (outputs: typeof columns | SavedSummary['output_columns']) => outputs
+function matchingShelf(items: SavedSummary[], columns: ActionCompareSessionSnapshot['context']['generated_columns']) {
+  const signature = (outputs: typeof columns | SavedSummary['generated_columns']) => outputs
     .map((column) => `${column.logical_key}:${column.column_id ?? `name:${column.current_name}`}`).sort().join('\0');
   const outputs = signature(columns);
-  return items.filter((item) => signature(item.output_columns) === outputs);
+  return items.filter((item) => signature(item.generated_columns) === outputs);
 }
 
 export function useComparisonEvaluation(api: EvaluationApi | undefined, state: ActionCompareSessionSnapshot, dataRevision = 0) {
@@ -21,10 +21,10 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   const sequence = useRef(0);
   const actionId = state.context.draft.action_id;
   const sheetId = state.context.sheet.id;
-  const generatedColumns = state.context.output_columns;
+  const generatedColumns = state.context.generated_columns;
   const outputIds = useMemo(() => new Set(generatedColumns.flatMap((column) => column.column_id ? [column.column_id] : [])), [generatedColumns]);
   const matchesOutputs = (candidate: EvaluationLink) => candidate.action_id === actionId
-    && candidate.fields.some((field) => outputIds.has(field.output_column_id));
+    && candidate.fields.some((field) => outputIds.has(field.generated_column_id));
   const available = isExpectedLinkAvailable;
   const link = links.find((candidate) => matchesOutputs(candidate) && available(candidate)) ?? links.find(matchesOutputs) ?? null;
   const requestKey = JSON.stringify(comparisonRequest(state, link && available(link) ? link.id : null));

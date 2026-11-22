@@ -183,17 +183,14 @@ def test_permissive_to_markdown_engines_carry_no_license_field():
 
 
 def test_chandra_listed_in_action_catalog(tmp_path):
-    from fastapi.testclient import TestClient
+    from helpers import make_client
 
-    from frisket.server.app import create_app
-
-    app = create_app(
-        tmp_path / "ws",
+    client = make_client(
+        tmp_path,
         router=ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         ),
     )
-    client = TestClient(app)
     entries = {
         entry["kind"]: entry
         for entry in client.get("/api/actions/v1/catalog").json()["actions"]
@@ -268,8 +265,7 @@ def test_estimate_only_prices_available_unbilled_engines_free(
     tmp_path, monkeypatch, engine, configured
 ):
     """Unavailable routes refuse; a configured gateway remains operator-borne."""
-    from fastapi.testclient import TestClient
-    from frisket.server.app import create_app
+    from helpers import make_client
 
     for name in ("DATALAB_API_KEY", "FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"):
         monkeypatch.delenv(name, raising=False)
@@ -279,7 +275,7 @@ def test_estimate_only_prices_available_unbilled_engines_free(
         else:
             monkeypatch.setenv("FRISKET_MODELS_URL", "http://models.invalid")
             monkeypatch.setenv("FRISKET_MODELS_TOKEN", "test-token")
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+    with make_client(tmp_path) as client:
         pid = client.post("/api/projects", json={"name": "Estimate"}).json()["id"]
         if engine in {"datalab", "docling", "chandra"}:
             route_response = client.patch(

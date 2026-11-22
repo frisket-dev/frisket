@@ -6,6 +6,7 @@ from __future__ import annotations
 from helpers import write_claimed_test_results
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_sheet(project: Project) -> int:
@@ -82,7 +83,7 @@ def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY id", (sheet_id,)
         ).fetchall()
     ]
-    column_id = project.add_column(sheet_id, "translated", ai_generated=True)
+    column_id = project.add_column(sheet_id, "translated", generated=True)
     store = RunResultStore(project)
     first_op = project.append_change(
         "map", {"action_kind": "map.extract"}, label="first"
@@ -103,7 +104,8 @@ def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
         ],
     )
     store.finish_run(first_run)
-    store.point_column_at_run(first_op, column_id, first_run)
+    with write_transaction(store.db):
+        store.point_column_at_run(first_op, column_id, first_run)
 
     second_op = project.append_change(
         "map", {"action_kind": "map.summarize"}, label="second"
@@ -126,7 +128,7 @@ def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
     store.finish_run(second_run)
 
     dag = build_lineage_dag(project)
-    node = next(node for node in dag["nodes"] if node["kind"] == "ai_column")
+    node = next(node for node in dag["nodes"] if node["kind"] == "generated_column")
     assert node["current_run_id"] == second_run
     assert node["action_kind"] == "map.summarize"
     assert project.get_column(column_id)["current_run_id"] == first_run

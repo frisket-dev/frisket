@@ -172,7 +172,7 @@ def test_expected_row_errors_keep_failed_counts_receipt_http_and_retry_facts(pro
     receipt = stored.parsed()
     counts = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "map_rows_run_counts"
     )
     assert counts["failed_row_ids"] == row_ids

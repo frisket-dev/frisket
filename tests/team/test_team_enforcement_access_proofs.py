@@ -20,14 +20,14 @@ from frisket.team.invite_service import InviteConflict, InviteForbidden, InviteS
 from frisket.team.schema import (
     memberships,
     metadata,
-    orgs,
+    organizations,
     project_roles,
     projects,
     users,
 )
 
 
-ACTOR = {"id": 7, "email": "admin@example.com", "org_id": 1, "auth": "session"}
+ACTOR = {"id": 7, "email": "admin@example.com", "organization_id": 1, "auth": "session"}
 ROLE_ORDER = ("viewer", "reviewer", "editor", "owner")
 
 
@@ -41,10 +41,10 @@ class _RecordingProjectAccess:
         user_id: int,
         slug: str,
         *,
-        preferred_org_id: int | None = None,
-        scope_org_id: int | None = None,
+        preferred_organization_id: int | None = None,
+        scope_organization_id: int | None = None,
     ) -> dict[str, Any] | None:
-        return {"org_id": 1, "storage_org_id": 1, "slug": slug}
+        return {"organization_id": 1, "storage_organization_id": 1, "slug": slug}
 
     def can_on_project(self, org_id: int, slug: str, user_id: int, need: str) -> bool:
         self.required_roles.append(need)
@@ -267,22 +267,24 @@ def test_invite_service_editor_gate_uses_injected_project_access(
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'invite-access.db'}", future=True)
     metadata.create_all(engine)
     with engine.begin() as connection:
-        connection.execute(orgs.insert().values(id=1, name="Proof org"))
+        connection.execute(organizations.insert().values(id=1, name="Proof org"))
         connection.execute(
             users.insert().values(
                 id=ACTOR["id"],
                 email=ACTOR["email"],
-                default_org_id=1,
+                default_organization_id=1,
             )
         )
         connection.execute(
-            memberships.insert().values(user_id=ACTOR["id"], org_id=1, role="owner")
+            memberships.insert().values(
+                user_id=ACTOR["id"], organization_id=1, role="owner"
+            )
         )
         connection.execute(
             projects.insert().values(
                 id=1,
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug="proof",
                 name="Proof",
                 sensitive=False,
@@ -291,7 +293,7 @@ def test_invite_service_editor_gate_uses_injected_project_access(
         )
 
     access = _RecordingProjectAccess("viewer")
-    service = InviteService(engine, org_id=1, access=access)
+    service = InviteService(engine, organization_id=1, access=access)
     try:
         with pytest.raises(InviteForbidden, match="project editor required"):
             service.list_project_invites(actor_user_id=int(ACTOR["id"]), slug="proof")
@@ -305,12 +307,12 @@ def test_invite_creation_role_ladder_uses_real_project_access(tmp_path: Path) ->
     metadata.create_all(engine)
     roles = ("viewer", "reviewer", "editor", "owner")
     with engine.begin() as connection:
-        connection.execute(orgs.insert().values(id=1, name="Proof org"))
+        connection.execute(organizations.insert().values(id=1, name="Proof org"))
         connection.execute(
             projects.insert().values(
                 id=1,
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug="proof",
                 name="Proof",
                 sensitive=False,
@@ -322,19 +324,23 @@ def test_invite_creation_role_ladder_uses_real_project_access(tmp_path: Path) ->
                 users.insert().values(
                     id=user_id,
                     email=f"{role}@example.com",
-                    default_org_id=1,
+                    default_organization_id=1,
                 )
             )
             connection.execute(
-                memberships.insert().values(user_id=user_id, org_id=1, role="member")
+                memberships.insert().values(
+                    user_id=user_id, organization_id=1, role="member"
+                )
             )
             connection.execute(
                 project_roles.insert().values(
-                    org_id=1, slug="proof", user_id=user_id, role=role
+                    organization_id=1, slug="proof", user_id=user_id, role=role
                 )
             )
 
-    service = InviteService(engine, org_id=1, access=TeamProjectAccess(engine, 1))
+    service = InviteService(
+        engine, organization_id=1, access=TeamProjectAccess(engine, 1)
+    )
     try:
         for user_id, role in enumerate(roles, start=1):
             if role in {"viewer", "reviewer"}:
@@ -362,22 +368,22 @@ def test_project_invite_replay_and_stale_inviter_are_refused(tmp_path: Path) -> 
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'invite-state.db'}", future=True)
     metadata.create_all(engine)
     with engine.begin() as connection:
-        connection.execute(orgs.insert().values(id=1, name="Proof org"))
+        connection.execute(organizations.insert().values(id=1, name="Proof org"))
         connection.execute(
             users.insert().values(
                 id=1,
                 email="editor@example.com",
-                default_org_id=1,
+                default_organization_id=1,
             )
         )
         connection.execute(
-            memberships.insert().values(user_id=1, org_id=1, role="member")
+            memberships.insert().values(user_id=1, organization_id=1, role="member")
         )
         connection.execute(
             projects.insert().values(
                 id=1,
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug="proof",
                 name="Proof",
                 sensitive=False,
@@ -386,11 +392,13 @@ def test_project_invite_replay_and_stale_inviter_are_refused(tmp_path: Path) -> 
         )
         connection.execute(
             project_roles.insert().values(
-                org_id=1, slug="proof", user_id=1, role="editor"
+                organization_id=1, slug="proof", user_id=1, role="editor"
             )
         )
 
-    service = InviteService(engine, org_id=1, access=TeamProjectAccess(engine, 1))
+    service = InviteService(
+        engine, organization_id=1, access=TeamProjectAccess(engine, 1)
+    )
     try:
         _, replay_token = service.create_project_invite(
             actor_user_id=1,
@@ -420,7 +428,7 @@ def test_project_invite_replay_and_stale_inviter_are_refused(tmp_path: Path) -> 
             connection.execute(
                 project_roles.update()
                 .where(
-                    project_roles.c.org_id == 1,
+                    project_roles.c.organization_id == 1,
                     project_roles.c.slug == "proof",
                     project_roles.c.user_id == 1,
                 )
@@ -450,7 +458,10 @@ def test_organization_role_port_takes_priority_over_server_admin_fallback(
     with TestClient(with_port, raise_server_exceptions=False) as client:
         refused = client.get("/api/spend")
     assert refused.status_code == 403, refused.text
-    assert refused.json()["detail"] == "only an org owner or admin can view org spend"
+    assert (
+        refused.json()["detail"]
+        == "only an organization owner or admin can view organization spend"
+    )
 
     with TestClient(without_port, raise_server_exceptions=False) as client:
         allowed = client.get("/api/spend")
@@ -490,7 +501,8 @@ def test_spend_requires_organization_owner_or_admin_for_session_and_pat(
     assert access.required_roles == []
     if expected == 403:
         assert (
-            response.json()["detail"] == "only an org owner or admin can view org spend"
+            response.json()["detail"]
+            == "only an organization owner or admin can view organization spend"
         )
 
 
@@ -519,22 +531,24 @@ def test_organization_owner_fallback_satisfies_the_strongest_base_project_role(
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'roles.db'}", future=True)
     metadata.create_all(engine)
     with engine.begin() as connection:
-        connection.execute(orgs.insert().values(id=1, name="Proof org"))
+        connection.execute(organizations.insert().values(id=1, name="Proof org"))
         connection.execute(
             users.insert().values(
                 id=ACTOR["id"],
                 email=ACTOR["email"],
-                default_org_id=1,
+                default_organization_id=1,
             )
         )
         connection.execute(
-            memberships.insert().values(user_id=ACTOR["id"], org_id=1, role="owner")
+            memberships.insert().values(
+                user_id=ACTOR["id"], organization_id=1, role="owner"
+            )
         )
         connection.execute(
             projects.insert().values(
                 id=1,
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug="proof",
                 name="Proof",
                 sensitive=False,
@@ -542,7 +556,7 @@ def test_organization_owner_fallback_satisfies_the_strongest_base_project_role(
             )
         )
 
-    access = TeamProjectAccess(engine, org_id=1)
+    access = TeamProjectAccess(engine, organization_id=1)
     try:
         assert access.can_on_project(1, "proof", int(ACTOR["id"]), "owner")
     finally:

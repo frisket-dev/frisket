@@ -205,7 +205,7 @@ def test_repeated_destination_parent_alias_supersedes_current_not_history(source
     assert len(result.outputs) == len(receipt.exports) == 1
     assert receipt.exports[0]["path"] == str(folder / "real" / "out.csv")
     artifacts = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "export_artifact"
+        item.ref for item in receipt.records if item.ref["kind"] == "export_artifact"
     ]
     assert len(artifacts) == 2 and artifacts[0]["sha256"] != artifacts[1]["sha256"]
     assert artifacts[0]["path"] == artifacts[1]["path"]

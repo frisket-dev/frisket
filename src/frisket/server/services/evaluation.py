@@ -39,7 +39,7 @@ def _summary(item):
             "label",
             "sheet_id",
             "action_id",
-            "output_columns",
+            "generated_columns",
             "row_count",
             "saved_at",
             "kept",
@@ -280,8 +280,8 @@ class EvaluationService:
                 incoming is None
                 or target["sheet_id"] != result["sheet_id"]
                 or target["action_id"] != result["action_id"]
-                or scoring._signature(target["output_columns"])
-                != scoring._signature(result["output_columns"])
+                or scoring._signature(target["generated_columns"])
+                != scoring._signature(result["generated_columns"])
                 or scoring.settings_key(target["settings"])
                 != scoring.settings_key(incoming["settings"])
             ):
@@ -327,7 +327,7 @@ class EvaluationService:
                         sheet_id=result["sheet_id"],
                         action_id=result["action_id"],
                         label=variant["label"],
-                        output_columns=result["output_columns"],
+                        generated_columns=result["generated_columns"],
                         settings=variant["settings"],
                         rows={
                             rid: cells
@@ -393,7 +393,7 @@ class EvaluationService:
         result = self._score_full(pid, body["comparison"])
         rid, key = str(body["row_id"]), body["logical_key"]
         if body["row_id"] not in result["row_ids"] or key not in {
-            column["logical_key"] for column in result["output_columns"]
+            column["logical_key"] for column in result["generated_columns"]
         }:
             raise RouteError(422, "Choose a comparison row and output field")
         if body["variant_key"] == "expected":

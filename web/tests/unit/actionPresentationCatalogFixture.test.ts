@@ -228,7 +228,7 @@ describe('catalog-derived action-presentation completeness', () => {
       const payload: ActionCatalogPayload = {
         ...catalog,
         actions: catalog.actions.map((entry) => entry.kind === kind
-          ? { ...entry, authoring_contract_version: 0 }
+          ? Object.assign(structuredClone(entry), { authoring_contract_version: 0 })
           : entry),
       };
 
@@ -239,10 +239,7 @@ describe('catalog-derived action-presentation completeness', () => {
   it('rejects a resolved-template version that disagrees with its catalog entry', () => {
     const templates = templatesFor(catalog).map((template) => (
       template.actionKind === 'map.clean_column'
-        ? {
-            ...template,
-            authoringContractVersion: 0,
-          } as ActionTemplate
+        ? Object.assign(structuredClone(template), { authoringContractVersion: 0 })
         : template
     ));
 

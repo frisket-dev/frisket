@@ -43,7 +43,7 @@ class ProjectSearchSource(WireModel):
 class ProjectSearchPart(WireModel):
     part_id: str
     part_kind: str
-    producer_recipe_id: str
+    producer_slice_id: str
 
 
 class ProjectSearchTextRange(WireModel):
@@ -189,7 +189,7 @@ class ProjectSearchSetup(WireModel):
 class ProjectSearchChannelCoverage(WireModel):
     channel: str
     state: Literal["ready", "pending", "failed", "unavailable"]
-    recipe_id: str | None
+    slice_id: str | None
     eligible_count: int | None = Field(default=None, ge=0)
     prepared_count: int | None = Field(default=None, ge=0)
     failed_count: int | None = Field(default=None, ge=0)
@@ -209,9 +209,9 @@ class ProjectSearchCoverage(WireModel):
     rerank_unavailable_reason: str | None = None
 
 
-class ProjectSearchEvidenceNavigation(WireModel):
-    kind: Literal["evidence"]
-    evidence_link_id: str
+class ProjectSearchCitationNavigation(WireModel):
+    kind: Literal["citation"]
+    citation_id: str
     span_id: str
     span_ids: list[str] = Field(default_factory=list)
 
@@ -234,7 +234,7 @@ class ProjectSearchCellNavigation(WireModel):
 
 
 ProjectSearchNavigation = Annotated[
-    ProjectSearchEvidenceNavigation
+    ProjectSearchCitationNavigation
     | ProjectSearchDocumentNavigation
     | ProjectSearchCellNavigation,
     Field(discriminator="kind"),
@@ -246,7 +246,7 @@ class ProjectSearchHit(WireModel):
 
     column_name: str | None
     source_name: str | None = None
-    ai_generated: bool
+    generated: bool
     snippet: str
     score: float
     rerank_score: float | None = None

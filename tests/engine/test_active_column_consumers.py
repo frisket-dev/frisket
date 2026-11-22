@@ -9,7 +9,7 @@ from frisket.engine.executor.page_capture import (
 )
 from frisket.contracts.action import ActionError
 from frisket.engine.store.changes import start_change
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.output_families import OutputFamilyStore
 from frisket.engine.store.op_log import append_change
 from frisket.engine.store.runs import RunResultStore
@@ -17,7 +17,7 @@ from frisket.engine.store.transactions import write_transaction
 
 
 def _undone_column(project, sheet, name, *, type="text"):
-    old = project.add_column(sheet, name, type=type, ai_generated=True)
+    old = project.add_column(sheet, name, type=type, generated=True)
     op = append_change(project, "add_column", undo_info={"created_columns": [old]})
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
@@ -29,7 +29,7 @@ def _undone_column(project, sheet, name, *, type="text"):
 def test_output_claims_bind_only_current_identity(project):
     sheet = project.add_sheet("Data")
     old = _undone_column(project, sheet, "result")
-    store = OutputColumnClaimStore(project)
+    store = GeneratedColumnClaimStore(project)
     with write_transaction(store.db):
         claims, conflict = store.acquire(
             sheet_id=sheet,
@@ -41,7 +41,7 @@ def test_output_claims_bind_only_current_identity(project):
     assert claims[0]["column_id"] is None
     assert store.active_for_columns([old]) is None
 
-    current = project.add_column(sheet, "result", ai_generated=True, hidden=True)
+    current = project.add_column(sheet, "result", generated=True, hidden=True)
     assert current != old
     assert store.active_for_columns([current])["id"] == claims[0]["id"]
     op = append_change(project, "map", undo_info={"created_columns": [current]})
@@ -56,10 +56,11 @@ def test_output_claims_bind_only_current_identity(project):
 def test_output_family_ignores_inactive_history_even_with_different_type(project):
     sheet = project.add_sheet("Data")
     old = _undone_column(project, sheet, "result")
-    columns, created = OutputFamilyStore(project).create_or_reuse(
-        sheet_id=sheet,
-        fields=[{"name": "result", "column_type": "json"}],
-    )
+    with write_transaction(project.db):
+        columns, created = OutputFamilyStore(project).create_or_reuse(
+            sheet_id=sheet,
+            fields=[{"name": "result", "column_type": "json"}],
+        )
     assert columns["result"] != old
     assert created == [columns["result"]]
     assert project.get_column(old)["type"] == "text"
@@ -100,7 +101,7 @@ def test_capture_distinguishes_live_hidden_from_undone_name(project, undone):
         assert project.get_column(old)["active"] == 0
     else:
         assert isinstance(resolved, ActionError)
-        assert resolved.code == "output_column_exists"
+        assert resolved.code == "generated_column_exists"
         with pytest.raises(ValueError, match="reserved by a hidden column"):
             _web_capture_page_add_generated_column(project, plan)
         assert project.get_column(old)["hidden"] == 1

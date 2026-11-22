@@ -454,7 +454,7 @@ def _scrub_content(project, p, batch_size):
         ("import_session_pdf_sources", scope),
         ("replay_edit_dismissals", cell),
         ("column_descriptor_changes", _scope(column="column_id")),
-        ("evidence_links", scope),
+        ("citations", scope),
         ("alert_row_field_state", scope),
         ("alert_seen_rows", _scope(sheet="sheet_id", row="row_id")),
         (
@@ -590,7 +590,7 @@ def _scrub_history(db, p, batch_size):
                         "review_states_after",
                         "review_metadata",
                         "review_metadata_after",
-                    ):
+                    ) and isinstance(value, dict):
                         removed = {
                             item[0]
                             for item in db.execute(

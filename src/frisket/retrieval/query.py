@@ -91,7 +91,7 @@ class SemanticQueryVectors:
 class _Candidate:
     source: SourceRevision
     part_id: str
-    producer_recipe_id: str
+    producer_slice_id: str
     part_kind: str
     locator: SourceLocator
     binding: ScopedBinding
@@ -837,7 +837,7 @@ class RetrievalQueryService:
           JOIN chosen_groups USING (group_partition)
         )
         SELECT part.part_id,source.source_id,source.version_kind,
-               source.version_value,source.version_type,part.recipe_id,
+               source.version_value,source.version_type,part.slice_id,
                part.part_kind,part.locator_json,source.source_kind,
                source.content_hash,retrieval_binding.binding_id,
                retrieval_binding.sheet_id,retrieval_binding.row_id,
@@ -994,9 +994,9 @@ def _material_preparation_coverage(
                  OR lower(blob.mime) LIKE 'video/%')
             AND NOT (lower(blob.mime) LIKE 'image/%' AND EXISTS (
               SELECT 1
-              FROM main.evidence_links AS image_link
-              JOIN main.evidence_link_spans AS image_linked
-                ON image_linked.link_id=image_link.id
+              FROM main.citations AS image_link
+              JOIN main.citation_spans AS image_linked
+                ON image_linked.citation_id=image_link.id
               JOIN main.source_spans AS image_span
                 ON image_span.id=image_linked.span_id
               JOIN main.source_artifacts AS pdf_artifact
@@ -1048,7 +1048,7 @@ def _material_preparation_coverage(
                    LIMIT 1
                  ) OR EXISTS (
                    SELECT 1
-                   FROM main.evidence_links AS link
+                   FROM main.citations AS link
                    JOIN main.current_cell_values AS current
                      ON current.row_id=link.row_id
                     AND current.column_id=link.column_id
@@ -1076,12 +1076,12 @@ def _material_preparation_coverage(
                          current.origin_run_id
                      AND EXISTS (
                        SELECT 1
-                       FROM main.evidence_link_spans AS linked_span
+                       FROM main.citation_spans AS linked_span
                        JOIN main.source_spans AS span
                          ON span.id=linked_span.span_id
                        JOIN main.source_artifacts AS artifact
                          ON artifact.id=span.artifact_id
-                       WHERE linked_span.link_id=link.id
+                       WHERE linked_span.citation_id=link.id
                          AND artifact.source_sheet_id=eligible.sheet_id
                          AND artifact.source_row_id=eligible.row_id
                          AND artifact.source_column_id=eligible.column_id
@@ -1299,7 +1299,7 @@ def read_preparation_sheet_names(project: Any, *, limit: int) -> tuple[str, ...]
               FROM idx.preparation
               WHERE status IN ('pending','preparing')
               ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
-                       source_id,recipe_id,channel
+                       source_id,slice_id,channel
               LIMIT ?
             )
             SELECT sheet.name
@@ -1329,7 +1329,7 @@ def read_preparation_sheet_names(project: Any, *, limit: int) -> tuple[str, ...]
 
 
 def read_pdf_indexing_progress(
-    project: Any, *, space_id: str, recipe_id: str, limit: int
+    project: Any, *, space_id: str, slice_id: str, limit: int
 ) -> tuple[tuple[PdfIndexingProgress, ...], bool]:
     """Read bounded committed PDF checkpoints through current visible bindings."""
     if limit < 1:
@@ -1350,14 +1350,14 @@ def read_pdf_indexing_progress(
              AND source.version_value=preparation.target_version_value
              AND source.version_type=preparation.target_version_type
             JOIN main.blobs AS blob ON blob.hash=source.version_value
-            WHERE preparation.recipe_id=? AND preparation.channel='pdf_page'
+            WHERE preparation.slice_id=? AND preparation.channel='pdf_page'
               AND preparation.space_id=? AND preparation.status='preparing'
               AND source.source_kind='blob' AND source.version_kind='blob_digest'
               AND source.version_type='text' AND source.source_id='blob:'||blob.hash
               AND blob.mime='application/pdf'
               AND json_extract(preparation.cursor_json,'$.kind')='pdf_pages'
               AND json_extract(preparation.cursor_json,'$.source_id')=source.source_id
-              AND json_extract(preparation.cursor_json,'$.recipe_id')=preparation.recipe_id
+              AND json_extract(preparation.cursor_json,'$.slice_id')=preparation.slice_id
               AND json_type(preparation.cursor_json,'$.next_page')='integer'
               AND json_type(preparation.cursor_json,'$.page_count')='integer'
               AND json_extract(preparation.cursor_json,'$.next_page')>=1
@@ -1373,7 +1373,7 @@ def read_pdf_indexing_progress(
                   AND {_binding_is_current("retrieval_binding")}
               )
             ORDER BY preparation.source_id LIMIT ?""",
-            (*scope.params, recipe_id, space_id, limit + 1),
+            (*scope.params, slice_id, space_id, limit + 1),
         ).fetchall()
     return (
         tuple(PdfIndexingProgress(**dict(row)) for row in rows[:limit]),
@@ -1547,7 +1547,7 @@ def _lexical_candidate(row: sqlite3.Row) -> _Candidate:
         part_id=identity_digest(
             "lexical_source_part", {"source": source, "locator": locator}
         ),
-        producer_recipe_id="frisket.lexical.whole-source.v1",
+        producer_slice_id="frisket.lexical.whole-source.v1",
         part_kind="lexical_source",
         locator=locator,
         binding=_binding(row),
@@ -1568,7 +1568,7 @@ def _semantic_candidate(row: sqlite3.Row) -> _Candidate:
     return _Candidate(
         source=_source_revision(row),
         part_id=str(row["part_id"]),
-        producer_recipe_id=str(row["recipe_id"]),
+        producer_slice_id=str(row["slice_id"]),
         part_kind=str(row["part_kind"]),
         locator=_locator_from_json(str(row["locator_json"])),
         binding=_binding(row),
@@ -1956,7 +1956,7 @@ def _located_hit(candidate: _Candidate, *, rank: int, rank_score: float) -> Loca
         part=IndexedPart(
             part_id=candidate.part_id,
             source=candidate.source,
-            producer_recipe_id=candidate.producer_recipe_id,
+            producer_slice_id=candidate.producer_slice_id,
             part_kind=candidate.part_kind,
             locator=candidate.locator,
         ),

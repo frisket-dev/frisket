@@ -89,7 +89,7 @@ def _text_owner_matches(db: Any, producer_id: int, parent_op_id: int) -> bool:
 def _start_preparation_change(
     project: Any, binding: PdfSplitTextBinding, prepared_ref_id: int
 ) -> tuple[int, int]:
-    op_id = project.append_change(
+    op_id = project.append_change_in_transaction(
         "pdf.prepare_text",
         {
             "import_op_id": binding.operation_id,
@@ -97,7 +97,6 @@ def _start_preparation_change(
             "prepared_ref_id": prepared_ref_id,
         },
         label="Prepare PDF text",
-        commit=False,
     )
     producer = create_base_cell_producer(
         project.db, stage_id=f"op:{op_id}", op_id=op_id
@@ -192,9 +191,10 @@ def _publish_pdf_split_page(
         ),
     ).fetchone()
     if (
-        source != expected
-        or edited is not None
+        source is None
         or text is None
+        or source != expected
+        or edited is not None
         or source["origin_kind"] != "source_cell"
         or text["origin_kind"] != "source_cell"
         or source["producer_id"] != session.producer_id
@@ -215,9 +215,11 @@ def _publish_pdf_split_page(
         (original_artifact_id, original.source_artifact_id),
     ).fetchall()
     hashes = {int(row[0]): str(row[1]).removeprefix("sha256:") for row in artifacts}
-    if hashes.get(original_artifact_id) is None or hashes.get(
-        original_artifact_id
-    ) != hashes.get(original.source_artifact_id):
+    if (
+        original.source_artifact_id is None
+        or hashes.get(original_artifact_id) is None
+        or hashes.get(original_artifact_id) != hashes.get(original.source_artifact_id)
+    ):
         raise ValueError("finished page belongs to another original PDF")
     pin = original.pins[0]
     positions = dict(pin.positions or {})

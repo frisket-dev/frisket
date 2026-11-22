@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -43,7 +43,7 @@ def test_exact_document_and_page_refs_keep_outputs_independent(make_project) -> 
     project = make_project("Prepared")
     artifact_id = _artifact(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.ocr", commit=False)
+    op_id = project.append_change_in_transaction("media.ocr")
     store = PreparedContentStore(project)
     a = store.stage_reference(
         source_artifact_id=artifact_id,
@@ -88,13 +88,13 @@ def test_sparse_replacement_reuses_versions_and_artifact_delete_keeps_text(
     artifact_id = _artifact(project)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    first_op = project.append_change("media.ocr", commit=False)
+    first_op = project.append_change_in_transaction("media.ocr")
     first = store.stage_reference(
         source_artifact_id=artifact_id,
         producing_op_id=first_op,
         pages=_pages("old"),
     )
-    second_op = project.append_change("edit", commit=False)
+    second_op = project.append_change_in_transaction("edit")
     second = store.stage_replacement(
         base_ref_id=first.ref_id,
         producing_op_id=second_op,
@@ -138,7 +138,7 @@ def test_stage_is_caller_owned_atomic_and_rejects_incomplete_documents(
         )
 
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.ocr", commit=False)
+    op_id = project.append_change_in_transaction("media.ocr")
     with pytest.raises(ValueError, match="every artifact page"):
         store.stage_reference(
             source_artifact_id=artifact_id,
@@ -167,7 +167,7 @@ def test_sql_view_plan_stays_scoped_to_the_requested_reference(make_project) -> 
     project = make_project("Plan")
     artifact_id = _artifact(project, pages=1000)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.ocr", commit=False)
+    op_id = project.append_change_in_transaction("media.ocr")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact_id,
         producing_op_id=op_id,
@@ -195,7 +195,7 @@ def test_partial_coverage_successors_and_child_rebase(make_project) -> None:
     child_id = _artifact(project, pages=3)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.ocr", commit=False)
+    op_id = project.append_change_in_transaction("media.ocr")
     first = store.stage_reference(
         source_artifact_id=parent_id,
         producing_op_id=op_id,
@@ -281,7 +281,7 @@ def test_partial_rebase_without_available_pages_has_no_reference(
     child_id = _artifact(project, pages=2)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.ocr", commit=False)
+    op_id = project.append_change_in_transaction("media.ocr")
     parent = store.stage_reference(
         source_artifact_id=parent_id,
         producing_op_id=op_id,
@@ -310,7 +310,7 @@ def test_rebase_and_page_resolution_do_not_load_unselected_text(make_project) ->
     child_id = _artifact(project, pages=1)
     store = PreparedContentStore(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.ocr", commit=False)
+    op_id = project.append_change_in_transaction("media.ocr")
     parent = store.stage_reference(
         source_artifact_id=parent_id,
         producing_op_id=op_id,

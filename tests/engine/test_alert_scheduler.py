@@ -12,6 +12,7 @@ from frisket.engine.jobs.alerts import (
 )
 from frisket.engine.store import Project
 from tests.alert_helpers import add_alert
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -112,14 +113,15 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
         op, sheet, "map.ask", row_ids=[row], total_rows=1
     )
     authority = run_writer_authority_fixture(p, run_id, output_column_ids={col})
-    ResultGenerationStore(p).declare(
-        run_id,
-        col,
-        output_role="answer",
-        compatibility_key="sha256:test",
-        write_mode="replace_scope",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(p.db):
+        ResultGenerationStore(p).declare(
+            run_id,
+            col,
+            output_role="answer",
+            compatibility_key="sha256:test",
+            write_mode="replace_scope",
+            claim_token=authority.claim_token,
+        )
     failed = run(scene, datetime.now(UTC) + timedelta(hours=2))
     assert failed["status"] == "error"
     assert failed["error_code"] == "alert_inputs_unavailable"
@@ -178,7 +180,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         "alert.evaluate",
         {
             "project_id": "alerts",
-            "storage_org_id": 9,
+            "storage_organization_id": 9,
             "dedupe_key": "alert:1:eval:a_b%:next",
         },
     )
@@ -186,7 +188,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         queue.find_job_by_refs(
             "alert.evaluate",
             project_id="alerts",
-            storage_org_id=9,
+            storage_organization_id=9,
             dedupe_key_prefix="alert:1:eval:a_b%:",
         )
         is not None
@@ -195,7 +197,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         queue.find_job_by_refs(
             "alert.evaluate",
             project_id="alerts",
-            storage_org_id=8,
+            storage_organization_id=8,
             dedupe_key_prefix="alert:1:eval:",
         )
         is None
@@ -204,7 +206,7 @@ def test_queue_prefix_is_literal_and_organization_scoped(scene):
         queue.find_job_by_refs(
             "alert.evaluate",
             project_id="alerts",
-            storage_org_id=9,
+            storage_organization_id=9,
             dedupe_key_prefix="alert:1:eval:a_b_:",
         )
         is None
@@ -245,7 +247,7 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
     opened = []
 
     def opener(key, path):
-        opened.append((key.storage_org_id, key.project_slug, path))
+        opened.append((key.storage_organization_id, key.project_slug, path))
         return Project(path)
 
     assert (
@@ -257,7 +259,7 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
         queue.find_job_by_refs(
             "alert.evaluate",
             project_id="alerts",
-            storage_org_id=84,
+            storage_organization_id=84,
             dedupe_key_prefix=f"alert:{alert}:eval:",
         )
         is not None
@@ -377,7 +379,7 @@ def test_one_broken_project_does_not_stop_other_scheduled_alerts(
     result = enqueue_due_alert_evaluations(
         workspace_root=p.path.parent,
         queue=queue,
-        storage_org_id=23 if scoped else None,
+        storage_organization_id=23 if scoped else None,
         project_opener=scoped_opener if scoped else None,
     )
     assert opened == ["a-broken", "alerts"]

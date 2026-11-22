@@ -28,7 +28,7 @@ from frisket.engine.store.result_generations import (
     RunOutputGeneration,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction
 
 PREPARED_ATOMIC_GENERATED_COLUMNS_KEY = "prepared_atomic_output_columns"
 
@@ -102,7 +102,7 @@ def prepared_atomic_generated_columns_for_resume(
 
     placeholders = ",".join("?" for _ in prepared)
     rows = project.db.execute(
-        "SELECT id,sheet_id,name,type,format,ai_generated,hidden FROM columns "
+        "SELECT id,sheet_id,name,type,format,generated,hidden FROM columns "
         f"WHERE active=1 AND id IN ({placeholders})",
         tuple(prepared.values()),
     ).fetchall()
@@ -115,7 +115,7 @@ def prepared_atomic_generated_columns_for_resume(
             or int(row["sheet_id"]) != sheet_id
             or str(row["name"]) != name
             or bool(row["hidden"])
-            or not bool(row["ai_generated"])
+            or not bool(row["generated"])
             or str(row["type"]) != str(field["column_type"])
             or row["format"] != field.get("format")
         ):
@@ -149,7 +149,7 @@ def _validate_managed_resume(
     column_ids = sorted(binding.column_id for binding in bindings)
     placeholders = ",".join("?" for _ in column_ids)
     rows = project.db.execute(
-        "SELECT id,sheet_id,name,type,format,semantic_type,ai_generated,hidden "
+        "SELECT id,sheet_id,name,type,format,semantic_type,generated,hidden "
         "FROM columns "
         f"WHERE active=1 AND id IN ({placeholders}) ORDER BY id",
         column_ids,
@@ -214,7 +214,7 @@ def _validate_managed_resume(
             }
         if field is None or (
             int(row["sheet_id"]) != int(sheet_id)
-            or not bool(row["ai_generated"])
+            or not bool(row["generated"])
             or not descriptor_matches
             or bool(row["hidden"])
             != (int(row["id"]) in staged_columns or bool(field.get("hidden", False)))
@@ -250,7 +250,7 @@ def _require_compatible_hidden_managed_revival(
     """Refuse a hidden managed name before ``add_column`` can mutate it."""
 
     row = project.db.execute(
-        "SELECT id,type,format,semantic_type,ai_generated FROM columns "
+        "SELECT id,type,format,semantic_type,generated FROM columns "
         "WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
         (int(sheet_id), str(field["name"])),
     ).fetchone()
@@ -272,7 +272,7 @@ def _require_compatible_hidden_managed_revival(
 
     expected_key = _compatibility_key(field=field)
     if (
-        not bool(row["ai_generated"])
+        not bool(row["generated"])
         or str(row["type"]) != str(field["column_type"])
         or row["format"] != field.get("format")
         or row["semantic_type"] != field.get("semantic_type")
@@ -295,7 +295,7 @@ def is_generation_free_document_text_output(
     action_kind: str,
     params: Mapping[str, Any],
     output_names: Mapping[str, str],
-    expected_output_columns: Mapping[str, int | None] | None,
+    expected_generated_columns: Mapping[str, int | None] | None,
     output_name: str,
     column_id: int,
 ) -> bool:
@@ -304,9 +304,9 @@ def is_generation_free_document_text_output(
     if (
         action_kind not in {"media.read_pdf_text", "media.ocr"}
         or output_names.get("text") != output_name
-        or expected_output_columns is None
-        or type(expected_output_columns.get(output_name)) is not int
-        or expected_output_columns[output_name] != column_id
+        or expected_generated_columns is None
+        or type(expected_generated_columns.get(output_name)) is not int
+        or expected_generated_columns[output_name] != column_id
         or not isinstance(params.get("source"), str)
     ):
         return False
@@ -345,7 +345,7 @@ def _require_existing_ai_generation_history(
     placeholders = ",".join("?" for _ in names)
     rows = project.db.execute(
         "SELECT id,name,current_run_id FROM columns "
-        f"WHERE sheet_id=? AND active=1 AND ai_generated=1 AND name IN ({placeholders})",
+        f"WHERE sheet_id=? AND active=1 AND generated=1 AND name IN ({placeholders})",
         (int(sheet_id), *names),
     ).fetchall()
     for row in rows:
@@ -362,7 +362,7 @@ def _require_existing_ai_generation_history(
             and field["column_type"] == "text"
             and isinstance(spec.get("params"), Mapping)
             and isinstance(spec.get("output_names"), Mapping)
-            and isinstance(spec.get("expected_output_columns"), Mapping)
+            and isinstance(spec.get("expected_generated_columns"), Mapping)
             and isinstance(spec.get("output_target_preconditions"), Mapping)
             and spec["output_target_preconditions"].get(row["name"]) == int(row["id"])
             and is_generation_free_document_text_output(
@@ -371,7 +371,7 @@ def _require_existing_ai_generation_history(
                 action_kind=spec["action_kind"],
                 params=spec["params"],
                 output_names=spec["output_names"],
-                expected_output_columns=spec["expected_output_columns"],
+                expected_generated_columns=spec["expected_generated_columns"],
                 output_name=str(row["name"]),
                 column_id=int(row["id"]),
             )
@@ -400,8 +400,8 @@ def prepare_validated(
     *,
     validated: _ValidatedSpec,
     resume_run_id: int | None,
-    defer_commits: bool,
 ) -> PreparedRun:
+    require_transaction(project.db, "prepare_validated")
     program = validated.program
     est = validated.est
     sheet_id = validated.sheet_id
@@ -541,16 +541,15 @@ def prepare_validated(
                     field=f,
                     allow_empty_retirement=False,
                 )
-                revived_column_id = project.add_column(
+                revived_column_id = project.add_column_in_transaction(
                     sheet_id,
                     output_name,
                     type=f["column_type"],
-                    ai_generated=True,
+                    generated=True,
                     format=f.get("format"),
                     hidden=bool(f.get("hidden", False)),
                     default_hidden=bool(f.get("default_hidden", False)),
                     semantic_type=f.get("semantic_type"),
-                    commit=not defer_commits,
                 )
                 if revived_column_id != expected_column_id:
                     raise ValueError(
@@ -578,7 +577,7 @@ def prepare_validated(
         if existing:
             # Source columns are never an output target, whatever the caller's
             # overwrite intent: only a generated column may be reused.
-            if not existing["ai_generated"]:
+            if not existing["generated"]:
                 raise ValueError(
                     f"output name '{f['name']}' collides with a source "
                     "column — AI output would hide original data. "
@@ -632,24 +631,22 @@ def prepare_validated(
             # Unmanaged reused outputs converge to the declared descriptor.
             if (
                 not generation_managed
-                and existing["ai_generated"]
+                and existing["generated"]
                 and existing["type"] != f["column_type"]
             ):
                 project.set_column_type(
                     existing["id"],
                     f["column_type"],
-                    commit=not defer_commits,
                 )
             declared_format = f.get("format")
             if (
                 not generation_managed
-                and existing["ai_generated"]
+                and existing["generated"]
                 and existing["format"] != declared_format
             ):
                 project.set_column_format(
                     existing["id"],
                     declared_format,
-                    commit=not defer_commits,
                 )
             declared_semantic_type = f.get("semantic_type")
             existing_semantic_type = (
@@ -658,14 +655,13 @@ def prepare_validated(
                 else None
             )
             if (
-                existing["ai_generated"]
+                existing["generated"]
                 and not generation_managed
                 and existing_semantic_type != declared_semantic_type
             ):
                 project.set_column_semantic_type(
                     existing["id"],
                     declared_semantic_type,
-                    commit=not defer_commits,
                 )
         else:
             _require_compatible_hidden_managed_revival(
@@ -673,16 +669,15 @@ def prepare_validated(
                 sheet_id=sheet_id,
                 field=f,
             )
-            cid = project.add_column(
+            cid = project.add_column_in_transaction(
                 sheet_id,
                 f["name"],
                 type=f["column_type"],
-                ai_generated=True,
+                generated=True,
                 format=f.get("format"),
                 hidden=bool(f.get("hidden", False)),
                 default_hidden=bool(f.get("default_hidden", False)),
                 semantic_type=f.get("semantic_type"),
-                commit=not defer_commits,
             )
             out_cols[f["name"]] = cid
             created_columns.append(cid)
@@ -711,11 +706,8 @@ def prepare_validated(
             if has_stored_run_scope and explicit_resume_scope is not None:
                 assert stored_run_scope_count is not None
                 if len(row_ids) != stored_run_scope_count:
-                    with write_transaction(
-                        project.db, commit=not defer_commits, what="resumed run scope"
-                    ):
-                        run_store.record_run_row_scope(run_id, row_ids)
-                        run_store.set_total_rows(run_id, len(row_ids))
+                    run_store.record_run_row_scope(run_id, row_ids)
+                    run_store.set_total_rows(run_id, len(row_ids))
             if row_ids:
                 row_ids = [r for r in row_ids if r not in done_rows]
             if (
@@ -723,10 +715,7 @@ def prepare_validated(
                 and row_ids
                 and run_row["completed_rows"] >= run_row["total_rows"]
             ):
-                with write_transaction(
-                    project.db, commit=not defer_commits, what="resumed run total"
-                ):
-                    run_store.increment_total_rows(run_id, len(row_ids))
+                run_store.increment_total_rows(run_id, len(row_ids))
     else:
         persisted_spec = persistable_spec(spec)
         from frisket.engine.store.source_dependencies import (
@@ -744,11 +733,10 @@ def prepare_validated(
                 column_ids=[col_map[name] for name in program.source_columns(spec)],
             )
         )
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "map",
             operation_spec,
             label=f"{program.name}: {', '.join(out_cols)}",
-            commit=not defer_commits,
         )
         undo_info: dict[str, Any] = {}
         if program.atomic_output_columns:
@@ -757,11 +745,8 @@ def prepare_validated(
         if created_columns:
             undo_info["created_columns"] = created_columns
         if undo_info:
-            with write_transaction(
-                project.db, commit=not defer_commits, what="change undo info"
-            ):
-                project.set_undo_info(op_id, undo_info)
-        run_id = run_store.start_run(
+            project.set_undo_info(op_id, undo_info)
+        run_id = run_store.start_run_in_transaction(
             op_id,
             sheet_id,
             spec["action_kind"],
@@ -773,43 +758,32 @@ def prepare_validated(
             total_rows=len(row_ids),
             cost_estimate=est["cost"] if est is not None else None,
             row_ids=row_ids,
-            commit=not defer_commits,
         )
         # Point only fresh columns early for streaming; reused columns retain
         # their prior values until terminal publication.
         if created_columns:
-            with write_transaction(
-                project.db, commit=not defer_commits, what="fresh column pointers"
-            ):
-                for created_cid in created_columns:
-                    # Managed history publishes its compatibility pointer
-                    # atomically.
-                    has_managed_history = (
-                        project.db.execute(
-                            "SELECT 1 FROM run_output_generations "
-                            "WHERE column_id=? LIMIT 1",
-                            (int(created_cid),),
-                        ).fetchone()
-                        is not None
-                    )
-                    if not has_managed_history:
-                        run_store.point_column_at_run(
-                            op_id, created_cid, run_id, commit=False
-                        )
+            for created_cid in created_columns:
+                # Managed history publishes its compatibility pointer
+                # atomically.
+                has_managed_history = (
+                    project.db.execute(
+                        "SELECT 1 FROM run_output_generations "
+                        "WHERE column_id=? LIMIT 1",
+                        (int(created_cid),),
+                    ).fetchone()
+                    is not None
+                )
+                if not has_managed_history:
+                    run_store.point_column_at_run(op_id, created_cid, run_id)
         # Retire dropped output roles instead of exposing stale values.
-        with write_transaction(
-            project.db,
-            commit=not defer_commits,
-            what="retire dropped generated columns",
-        ):
-            retire_dropped_generated_columns(
-                project,
-                op_id=op_id,
-                program=program,
-                spec=spec,
-                columns=columns,
-                current_output_names=set(out_cols),
-            )
+        retire_dropped_generated_columns(
+            project,
+            op_id=op_id,
+            program=program,
+            spec=spec,
+            columns=columns,
+            current_output_names=set(out_cols),
+        )
     run_scope_run_id = run_id if run_store.has_run_row_scope(run_id) else None
     if run_scope_run_id is not None and resume_run_id is not None and not row_ids:
         row_count = run_store.pending_run_row_scope_count(

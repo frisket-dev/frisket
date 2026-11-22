@@ -136,14 +136,14 @@ def test_actual_receipt_can_feed_match_reader(case):
     receipt = ReceiptStore(case.project).parsed_by_id(result.receipt_id)
     thresholds = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "semantic_join_thresholds"
     )
     assert thresholds["match_threshold"] == 0.7
     assert thresholds["confident_threshold"] == 0.85
     backend = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "semantic_join_embedding_backend"
     )
     assert backend["model"] == "fastembed/test"
@@ -225,7 +225,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     class ProcessDeath(BaseException):
         pass
 
-    write = RunResultStore.write_results
+    write = RunResultStore.write_results_in_transaction
     run = MapRunner.run
     admitted = {}
 
@@ -236,11 +236,13 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     def die_before_results(*args, **kwargs):
         raise ProcessDeath("after response checkpoint")
 
-    monkeypatch.setattr(RunResultStore, "write_results", die_before_results)
+    monkeypatch.setattr(
+        RunResultStore, "write_results_in_transaction", die_before_results
+    )
     monkeypatch.setattr(MapRunner, "run", remember_queue_request)
     with pytest.raises(ProcessDeath):
         case.run()
-    monkeypatch.setattr(RunResultStore, "write_results", write)
+    monkeypatch.setattr(RunResultStore, "write_results_in_transaction", write)
     monkeypatch.setattr(MapRunner, "run", run)
     checkpoint = case.project.db.execute(
         "SELECT payload,authorized_attempt_id FROM effect_checkpoints WHERE family='row_effect' AND state='returned'"
@@ -261,7 +263,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     # action route correctly reports an in-progress receipt until rows finish.
     stored = case.project.db.execute(
         "SELECT runs.id,ops.spec,c.claim_token FROM runs JOIN ops ON ops.id=runs.op_id "
-        "JOIN output_column_claims c ON c.run_id=runs.id WHERE c.status='active' LIMIT 1"
+        "JOIN generated_column_claims c ON c.run_id=runs.id WHERE c.status='active' LIMIT 1"
     ).fetchone()
     runner = _default_map_runner_factory(case.project, None)
     runner.allow_action_lifecycle_only_programs = True
@@ -380,7 +382,7 @@ def test_changed_input_during_matching_aborts_without_permanent_claim(
     assert case.run().receipt_id == result.receipt_id
     assert (
         case.project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -406,7 +408,7 @@ def test_source_pin_refusal_at_execution_start_closes_receipt(case, monkeypatch)
     assert result.errors[0].code == "promise_violation"
     assert case.run().receipt_id == result.receipt_id
     assert not case.project.db.execute(
-        "SELECT 1 FROM output_column_claims WHERE status='active'"
+        "SELECT 1 FROM generated_column_claims WHERE status='active'"
     ).fetchone()
     assert not case.project.db.execute("SELECT 1 FROM cell_result_heads").fetchone()
     assert not any(sheet["name"] == "Matches" for sheet in case.project.sheets())
@@ -483,7 +485,7 @@ def test_final_child_failure_publishes_no_source_heads(case, monkeypatch):
         (run_id,),
     )
     case.project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' "
+        "UPDATE generated_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' "
         "WHERE run_id=? AND status='active'",
         (run_id,),
     )
@@ -492,14 +494,14 @@ def test_final_child_failure_publishes_no_source_heads(case, monkeypatch):
 
     with write_transaction(case.project.db):
         assert abandon_stale_dispatching_attempts(case.project, run_id) == 1
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     for claim in case.project.db.execute(
-        "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
+        "SELECT id FROM generated_column_claims WHERE run_id=? AND status='active'",
         (run_id,),
     ).fetchall():
         with write_transaction(case.project.db):
-            OutputColumnClaimStore(case.project).release_stale(
+            GeneratedColumnClaimStore(case.project).release_stale(
                 claim_id=claim["id"], reason="test: explicitly abandoned writer"
             )
     retried = case.run()

@@ -115,8 +115,8 @@ def _composition(
     posture = cost_posture_for(funding)
     return ExecutionComposition(
         facts=CompositionFacts(
-            edition="open" if isinstance(funding, OperatorBorne) else "hosted",
-            org_id=None if isinstance(funding, OperatorBorne) else "org-test",
+            edition="open" if isinstance(funding, OperatorBorne) else "cloud",
+            organization_id=None if isinstance(funding, OperatorBorne) else "org-test",
             funding=funding,
         ),
         provider=provider,
@@ -282,8 +282,8 @@ def test_empty_platform_provider_has_no_fallback_estimate(project) -> None:
     project.add_rows(sheet, [{"audio": "/missing.wav"}], {"audio": column})
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
-            org_id="org-empty-provider",
+            edition="cloud",
+            organization_id="org-empty-provider",
             funding=PlatformMetered(),
         ),
         provider=_EmptyProvider(),

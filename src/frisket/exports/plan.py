@@ -334,6 +334,8 @@ def _cell_for_column(
     if column.source_column_id is None:
         return None
     if column.role in ("media_display", "media_ref"):
+        if column.media_field is None:
+            return None
         reference = ref_by_src[column.source_column_id]
         return reference.get(column.media_field)
     return values_by_col[column.source_column_id].get(row_id)

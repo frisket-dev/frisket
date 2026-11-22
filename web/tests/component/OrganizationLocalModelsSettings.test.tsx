@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The organization (team-tier) local model server card renders inside
-// OrganizationAiProvidersSettings, backed by GET /api/org/local-endpoints.
+// OrganizationAiProvidersSettings, backed by GET /api/organization/local-endpoints.
 // Covers: an empty endpoint collection hides the card, installed models,
 // the unenforced auth
 // state renders a warning-tone chip with the "check your front door" copy,

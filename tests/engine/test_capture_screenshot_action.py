@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import threading
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -65,10 +64,8 @@ def _action(
     }
 
 
-def _seed_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(
-        tmp_path / "capture-screenshot.frisket", name="Capture Screenshot"
-    )
+def _seed_project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("Capture Screenshot")
     sheet_id = project.add_sheet("Links")
     url_column_id = project.add_column(sheet_id, "url", type="link")
     row_ids = project.add_rows(
@@ -117,12 +114,12 @@ def test_omitted_and_explicit_default_viewports_have_one_canonical_identity() ->
 
 @pytest.mark.parametrize("full_page", [False, True])
 def test_capture_screenshot_writes_png_image_uses_browser_and_replays(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
     full_page: bool,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, row_ids = _seed_project(make_project)
     action = _action(sheet_id=sheet_id, row_ids=row_ids, full_page=full_page)
     browser_calls: list[tuple[str, int, int, bool, bool, int, int]] = []
     static_calls: list[str] = []
@@ -164,70 +161,67 @@ def test_capture_screenshot_writes_png_image_uses_browser_and_replays(
             resources=[],
         )
 
-    try:
-        entry = ACTION_REGISTRY.get("web.capture_screenshot").catalog_entry()
-        assert "external:browser_render" in entry["required_capabilities"]
-        assert validate_root_action(action).ok is True
-        result = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                url_capture_fetcher=unexpected_static_fetch,
-                url_capture_browser=fake_browser,
-            ),
-        )
-        assert result.status == "completed", result.errors
-        assert browser_calls == [(STORY_URL, 25_000, 2345, full_page, True, 1280, 720)]
-        assert static_calls == []
+    entry = ACTION_REGISTRY.get("web.capture_screenshot").catalog_entry()
+    assert "external:browser_render" in entry["required_capabilities"]
+    assert validate_root_action(action).ok is True
+    result = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            url_capture_fetcher=unexpected_static_fetch,
+            url_capture_browser=fake_browser,
+        ),
+    )
+    assert result.status == "completed", result.errors
+    assert browser_calls == [(STORY_URL, 25_000, 2345, full_page, True, 1280, 720)]
+    assert static_calls == []
 
-        columns = _columns(project, sheet_id)
-        assert columns["image"]["type"] == "image"
-        values = project.get_values(sheet_id, int(columns["image"]["id"]))
-        image = values[row_ids[0]]
-        assert image["mime"] == "image/png"
-        assert project.read_blob(image["blob"]) == SCREENSHOT_BYTES
-        receipt_row = project.db.execute(
-            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-        ).fetchone()
-        assert receipt_row is not None
-        receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
-        assert receipt.action_kind == "web.capture_screenshot"
-        artifact = project.db.execute(
-            "SELECT * FROM source_artifacts WHERE artifact_kind='capture_screenshot'"
-        ).fetchone()
-        assert artifact["source_url"] == FINAL_URL
-        assert artifact["blob_hash"] == image["blob"]
-        capture_facts = json.loads(artifact["metadata"])
-        assert capture_facts["render_mode"] == "playwright"
-        assert capture_facts["full_page"] is full_page
-        assert capture_facts["viewport"] == {"width": 1280, "height": 720}
-        assert capture_facts["network_metadata"]["method"] == "GET"
+    columns = _columns(project, sheet_id)
+    assert columns["image"]["type"] == "image"
+    values = project.get_values(sheet_id, int(columns["image"]["id"]))
+    image = values[row_ids[0]]
+    assert image["mime"] == "image/png"
+    assert project.read_blob(image["blob"]) == SCREENSHOT_BYTES
+    receipt_row = project.db.execute(
+        "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    assert receipt_row is not None
+    receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
+    assert receipt.action_kind == "web.capture_screenshot"
+    artifact = project.db.execute(
+        "SELECT * FROM source_artifacts WHERE artifact_kind='capture_screenshot'"
+    ).fetchone()
+    assert artifact["source_url"] == FINAL_URL
+    assert artifact["blob_hash"] == image["blob"]
+    capture_facts = json.loads(artifact["metadata"])
+    assert capture_facts["render_mode"] == "playwright"
+    assert capture_facts["full_page"] is full_page
+    assert capture_facts["viewport"] == {"width": 1280, "height": 720}
+    assert capture_facts["network_metadata"]["method"] == "GET"
 
-        replay = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                url_capture_fetcher=unexpected_static_fetch,
-                url_capture_browser=lambda *args, **kwargs: (_ for _ in ()).throw(
-                    AssertionError("browser must not run during replay")
-                ),
+    replay = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            url_capture_fetcher=unexpected_static_fetch,
+            url_capture_browser=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("browser must not run during replay")
             ),
-        )
-        assert replay.status == "completed", replay.errors
-        assert browser_calls == [(STORY_URL, 25_000, 2345, full_page, True, 1280, 720)]
-        assert static_calls == []
-    finally:
-        project.close()
+        ),
+    )
+    assert replay.status == "completed", replay.errors
+    assert browser_calls == [(STORY_URL, 25_000, 2345, full_page, True, 1280, 720)]
+    assert static_calls == []
 
 
 def test_capture_screenshot_custom_viewport_is_provenanced_and_idempotent(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, row_ids = _seed_project(make_project)
     action = _action(
         sheet_id=sheet_id,
         row_ids=row_ids,
@@ -261,42 +255,39 @@ def test_capture_screenshot_custom_viewport_is_provenanced_and_idempotent(
             resources=[],
         )
 
-    try:
-        result = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_browser=fake_browser),
-        )
-        assert result.status == "completed", result.errors
-        assert browser_calls == [(1365, 777)]
+    result = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_browser=fake_browser),
+    )
+    assert result.status == "completed", result.errors
+    assert browser_calls == [(1365, 777)]
 
-        artifact = project.db.execute(
-            "SELECT metadata FROM source_artifacts WHERE artifact_kind='capture_screenshot'"
-        ).fetchone()
-        assert artifact is not None
-        metadata = json.loads(artifact["metadata"])
-        assert metadata["viewport"] == {"width": 1365, "height": 777}
-        assert metadata["full_page"] is False
+    artifact = project.db.execute(
+        "SELECT metadata FROM source_artifacts WHERE artifact_kind='capture_screenshot'"
+    ).fetchone()
+    assert artifact is not None
+    metadata = json.loads(artifact["metadata"])
+    assert metadata["viewport"] == {"width": 1365, "height": 777}
+    assert metadata["full_page"] is False
 
-        conflict_action = _action(
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            viewport_width=1366,
-            viewport_height=777,
-            idempotency_key=action["idempotency_key"],
-        )
-        conflict = run_action_spec(
-            project,
-            conflict_action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_browser=fake_browser),
-        )
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-        assert browser_calls == [(1365, 777)]
-    finally:
-        project.close()
+    conflict_action = _action(
+        sheet_id=sheet_id,
+        row_ids=row_ids,
+        viewport_width=1366,
+        viewport_height=777,
+        idempotency_key=action["idempotency_key"],
+    )
+    conflict = run_action_spec(
+        project,
+        conflict_action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_browser=fake_browser),
+    )
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
+    assert browser_calls == [(1365, 777)]
 
 
 @pytest.fixture
@@ -451,7 +442,7 @@ def test_late_evidence_failure_rolls_back_only_its_row(screenshot_client, monkey
 
 @pytest.mark.parametrize(
     "table",
-    ["source_artifacts", "source_spans", "evidence_links", "evidence_link_spans"],
+    ["source_artifacts", "source_spans", "citations", "citation_spans"],
 )
 def test_screenshot_replay_refuses_missing_published_evidence(screenshot_client, table):
     client, pid, project, sheet, rows, calls = screenshot_client

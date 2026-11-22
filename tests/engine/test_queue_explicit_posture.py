@@ -12,18 +12,20 @@ from frisket.engine.store.transactions import write_transaction
 _ISO = "2020-01-01T00:00:00.000000+00:00"
 
 
-def _insert_legacy_project_row(db_path: Path, *, storage_org_id: object) -> None:
+def _insert_legacy_project_row(
+    db_path: Path, *, storage_organization_id: object
+) -> None:
     con = sqlite3.connect(db_path)
     try:
         con.execute(
-            "INSERT INTO jobs (kind, payload, project_id, storage_org_id, status,"
+            "INSERT INTO jobs (kind, payload, project_id, storage_organization_id, status,"
             " attempts, max_attempts, available_at, created_at)"
             " VALUES (?, ?, ?, ?, 'queued', 0, 3, ?, ?)",
             (
                 PROJECT_RUN_KIND,
                 '{"project_id": "legacy"}',
                 "legacy",
-                storage_org_id,
+                storage_organization_id,
                 _ISO,
                 _ISO,
             ),
@@ -38,7 +40,7 @@ def test_declared_hosted_posture_enforces_storage_identity_on_a_sqlite_engine(
 ):
     hosted_dir = tmp_path / "hosted"
     hosted_dir.mkdir()
-    hosted_queue = open_queue(workspace=hosted_dir, hosted=True)
+    hosted_queue = open_queue(workspace=hosted_dir, cloud=True)
     try:
         # Fail-closed ProjectStorageKey at enqueue: a project job with no storage
         # identity is rejected on a SQLite engine BECAUSE posture is declared
@@ -47,7 +49,9 @@ def test_declared_hosted_posture_enforces_storage_identity_on_a_sqlite_engine(
             hosted_queue.enqueue(PROJECT_RUN_KIND, {"project_id": "proj"})
 
         # A NULL-storage-identity project row is unclaimable under hosted posture.
-        _insert_legacy_project_row(hosted_dir / QUEUE_DB_NAME, storage_org_id=None)
+        _insert_legacy_project_row(
+            hosted_dir / QUEUE_DB_NAME, storage_organization_id=None
+        )
         assert hosted_queue.claim("hosted-worker") is None, (
             "a NULL-storage-identity project row must be unclaimable under "
             "declared hosted posture (fail closed), even on a SQLite engine"
@@ -56,7 +60,7 @@ def test_declared_hosted_posture_enforces_storage_identity_on_a_sqlite_engine(
         # A well-formed identity enqueues, claims, and carries a storage key.
         hosted_queue.enqueue(
             PROJECT_RUN_KIND,
-            {"project_id": "realslug", "storage_org_id": 42},
+            {"project_id": "realslug", "storage_organization_id": 42},
         )
         claimed = hosted_queue.claim("hosted-worker")
         assert claimed is not None and claimed.project_id == "realslug", (
@@ -124,14 +128,14 @@ def test_hosted_terminalization_routes_by_declared_root_not_ambient_env(
     finally:
         project.close()
 
-    queue = open_queue(workspace=tmp_path / "queue", hosted=True)
+    queue = open_queue(workspace=tmp_path / "queue", cloud=True)
     try:
         register_queue_terminalization(queue, workspace_root=projects_root)
         jid = queue.enqueue(
             ACTION_RUN_KIND,
             {
                 "project_id": "slug",
-                "storage_org_id": 42,
+                "storage_organization_id": 42,
                 "v1_receipt_id": "r-hosted",
                 "action_kind": "test.hosted",
             },
@@ -184,7 +188,7 @@ def test_hosted_terminalization_fails_closed_for_foreign_organization_scoped_roo
     finally:
         project.close()
 
-    queue = open_queue(workspace=tmp_path / "queue", hosted=True)
+    queue = open_queue(workspace=tmp_path / "queue", cloud=True)
     try:
         # Registration declares the root as organization 7's storage directory; the
         # job's claim names organization 42 — resolution must fail closed.
@@ -197,7 +201,7 @@ def test_hosted_terminalization_fails_closed_for_foreign_organization_scoped_roo
             ACTION_RUN_KIND,
             {
                 "project_id": "slug",
-                "storage_org_id": 42,
+                "storage_organization_id": 42,
                 "v1_receipt_id": "r-foreign",
                 "action_kind": "test.hosted",
             },

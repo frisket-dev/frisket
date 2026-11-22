@@ -28,7 +28,7 @@ services:
 
   app:
     image: "${FRISKET_IMAGE:?Set FRISKET_IMAGE to the published Frisket image digest}"
-    command: ["uvicorn", "frisket.team.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+    command: ["uvicorn", "frisket.team.asgi:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--loop", "asyncio"]
     restart: unless-stopped
     environment:
       FRISKET_BASE_URL: "${FRISKET_BASE_URL:?Set FRISKET_BASE_URL}"

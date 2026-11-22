@@ -123,7 +123,7 @@ def test_native_hosted_selector_distinguishes_platform_and_byok_credentials(tmp_
         )
         return HostedComposition(
             facts=CompositionFacts(
-                edition="hosted", org_id="org-choices", funding=funding
+                edition="cloud", organization_id="org-choices", funding=funding
             ),
             provider=StaticExecutionTargetProvider(
                 env={},

@@ -122,7 +122,7 @@ def test_team_skill_save_requires_current_admin_and_project_access(
         connection.execute(
             memberships.update()
             .where(
-                memberships.c.org_id == app.state.team_organization_id,
+                memberships.c.organization_id == app.state.team_organization_id,
                 memberships.c.user_id == user_ids["editor@example.com"],
             )
             .values(role="owner")
@@ -130,7 +130,7 @@ def test_team_skill_save_requires_current_admin_and_project_access(
         connection.execute(
             memberships.update()
             .where(
-                memberships.c.org_id == app.state.team_organization_id,
+                memberships.c.organization_id == app.state.team_organization_id,
                 memberships.c.user_id == user_ids["owner@example.com"],
             )
             .values(role="member")

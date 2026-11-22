@@ -16,7 +16,7 @@ from frisket.actions.system import (
 )
 from frisket.ops.capture import url as capture_url
 from frisket.contracts.action import Receipt
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,
@@ -88,8 +88,8 @@ def _capture_action(
     return action
 
 
-def _seed_project(tmp_path: Path) -> tuple[Project, int, list[int], int]:
-    project = Project.create(tmp_path / "url-capture.frisket", name="URL Capture")
+def _seed_project(make_project) -> tuple[Project, int, list[int], int]:
+    project = make_project("URL Capture")
     sheet_id = project.add_sheet("Links")
     url_column_id = project.add_column(sheet_id, "url", type="link")
     title_column_id = project.add_column(sheet_id, "label", type="text")
@@ -130,13 +130,13 @@ def _staged_blob_files(project: Project) -> list[Path]:
 
 
 def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     from frisket.ops.capture.url import StaticUrlFetchResult
 
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids, _url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, _url_column_id = _seed_project(make_project)
     row_id = row_ids[0]
     bodies = [HTML_BYTES, HTML_BYTES.replace(b"river cleanup", b"school repairs")]
 
@@ -151,33 +151,32 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             redirects=[],
         )
 
-    try:
-        first = run_action_spec(
+    first = run_action_spec(
+        project,
+        _capture_action(sheet_id=sheet_id, row_ids=[row_id]),
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert first.status == "completed", first.errors
+    output_column_id = int(_columns(project, sheet_id)["page"]["id"])
+    _values, refs = project.get_values_with_refs(
+        sheet_id, output_column_id, row_ids=[row_id]
+    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
             project,
-            _capture_action(sheet_id=sheet_id, row_ids=[row_id]),
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+            artifact_kind="row",
+            media_type="application/vnd.frisket.row+json",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
         )
-        assert first.status == "completed", first.errors
-        output_column_id = int(_columns(project, sheet_id)["page"]["id"])
-        _values, refs = project.get_values_with_refs(
-            sheet_id, output_column_id, row_ids=[row_id]
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="whole",
+            snippet="first capture evidence",
         )
-        with write_transaction(project.db):
-            artifact = record_source_artifact(
-                project,
-                artifact_kind="row",
-                media_type="application/vnd.frisket.row+json",
-                source_sheet_id=sheet_id,
-                source_row_id=row_id,
-            )
-        with write_transaction(project.db):
-            span = record_source_span(
-                project,
-                artifact_id=int(artifact["id"]),
-                span_kind="whole",
-                snippet="first capture evidence",
-            )
         attached = record_citation(
             project,
             subject_kind="cell_value",
@@ -188,62 +187,60 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             column_id=output_column_id,
             op_id=first.op_ids[0],
         )
-        first_evidence = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=output_column_id,
-        )
-        assert len(first_evidence["links"]) == 1
-        first_stable_id = attached["stable_id"]
+    first_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=output_column_id,
+    )
+    assert len(first_evidence["links"]) == 1
+    first_stable_id = attached["stable_id"]
 
-        second = run_action_spec(
-            project,
-            _capture_action(
-                sheet_id=sheet_id,
-                row_ids=[row_id],
-                idempotency_key="web_capture_page@sha256:replacement",
-            ),
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
-        )
-        assert second.status == "completed", second.errors
-        after_second = list_cell_citations(
-            project,
+    second = run_action_spec(
+        project,
+        _capture_action(
             sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=output_column_id,
-            include_stale=True,
-        )
-        by_id = {item["stable_id"]: item for item in after_second["links"]}
-        assert by_id[first_stable_id]["status"] == "stale"
-        assert after_second["stale_count"] == 1
+            row_ids=[row_id],
+            idempotency_key="web_capture_page@sha256:replacement",
+        ),
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert second.status == "completed", second.errors
+    after_second = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=output_column_id,
+        include_stale=True,
+    )
+    by_id = {item["stable_id"]: item for item in after_second["links"]}
+    assert by_id[first_stable_id]["status"] == "stale"
+    assert after_second["stale_count"] == 1
 
-        assert project.undo() == second.op_ids[0]
-        after_undo = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=output_column_id,
-            include_stale=True,
-        )
-        restored = {item["stable_id"]: item for item in after_undo["links"]}
-        assert restored[first_stable_id]["status"] == "active"
-        assert after_undo["stale_count"] == 0
+    assert project.undo() == second.op_ids[0]
+    after_undo = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=output_column_id,
+        include_stale=True,
+    )
+    restored = {item["stable_id"]: item for item in after_undo["links"]}
+    assert restored[first_stable_id]["status"] == "active"
+    assert after_undo["stale_count"] == 0
 
-        assert project.redo() == second.op_ids[0]
-        after_redo = list_cell_citations(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=output_column_id,
-            include_stale=True,
-        )
-        redone = {item["stable_id"]: item for item in after_redo["links"]}
-        assert redone[first_stable_id]["status"] == "stale"
-        assert after_redo["stale_count"] == 1
-    finally:
-        project.close()
+    assert project.redo() == second.op_ids[0]
+    after_redo = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=output_column_id,
+        include_stale=True,
+    )
+    redone = {item["stable_id"]: item for item in after_redo["links"]}
+    assert redone[first_stable_id]["status"] == "stale"
+    assert after_redo["stale_count"] == 1
 
 
 def test_extract_html_links_uses_first_valid_base_for_every_anchor() -> None:
@@ -272,7 +269,7 @@ def test_extract_html_links_uses_first_valid_base_for_every_anchor() -> None:
 
 
 def test_media_capture_url_static_contract_and_replay(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
@@ -294,7 +291,7 @@ def test_media_capture_url_static_contract_and_replay(
         "idempotency_in_progress",
     }
 
-    project, sheet_id, row_ids, url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, url_column_id = _seed_project(make_project)
     action = _capture_action(sheet_id=sheet_id, row_ids=row_ids)
     params = CapturePageParams.model_validate(action["params"])
     assert params.source.name == "url"
@@ -342,8 +339,143 @@ def test_media_capture_url_static_contract_and_replay(
             ],
         )
 
-    try:
-        before = _counts(
+    before = _counts(
+        project,
+        (
+            "columns",
+            "ops",
+            "receipts",
+            "blobs",
+            "edits",
+            "source_artifacts",
+            "source_spans",
+            "citations",
+        ),
+    )
+    result = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert result.status == "partial", result.errors
+    assert result.action.kind == "web.capture_page"
+    assert result.receipt_id is not None
+    assert calls == [(STORY_URL, 4096, 1234)]
+
+    columns = _columns(project, sheet_id)
+    assert columns["page"]["type"] == "file"
+    for old_name in {
+        "capture_status",
+        "capture_error",
+        "capture_final_url",
+        "capture_canonical_url",
+        "capture_title",
+        "capture_author",
+        "capture_published_at",
+        "capture_captured_at",
+        "capture_html_blob",
+        "capture_markdown_blob",
+        "capture_network_metadata",
+    }:
+        assert old_name not in columns
+
+    values = project.get_values(sheet_id, int(columns["page"]["id"]))
+    good_row, bad_row = row_ids
+    html_ref = values[good_row]
+    assert values.get(bad_row) is None
+    assert html_ref["mime"] == "text/html"
+    assert html_ref["filename"] == "page-row-1.html"
+    assert html_ref["kind"] == "web_page_capture"
+    assert html_ref["final_url"] == FINAL_URL
+    assert html_ref["canonical_url"] == CANONICAL_URL
+    assert html_ref["title"] == "County Contract Memo"
+    assert html_ref["author"] == "Jane Reporter"
+    assert html_ref["published_at"] == "2026-06-20"
+    assert html_ref["captured_at"].endswith("Z")
+    assert project.read_blob(html_ref["blob"]) == HTML_BYTES
+    assert "markdown_preview" not in html_ref
+
+    network = html_ref["network"]
+    assert network["method"] == "GET"
+    assert network["render_mode"] == "static"
+    assert network["status_code"] == 200
+    assert network["byte_count"] == len(HTML_BYTES)
+    assert network["content_type"] == "text/html"
+    assert network["redirects"] == [
+        {
+            "status_code": 302,
+            "url_hash": "sha256:redirect-source",
+            "location_hash": "sha256:redirect-target",
+        }
+    ]
+    assert "headers" not in network
+
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.status == "partial"
+    assert receipt.provider_use
+    provider = receipt.provider_use[0]
+    assert provider["provider"] == "url_capture"
+    assert provider["method"] == "GET"
+    assert provider["render_mode"] == "static"
+    assert provider["request_count"] == 1
+    provider_row = provider["rows"][0]
+    assert provider_row["host"] == "example.test"
+    assert provider_row["url_hash"].startswith("sha256:")
+    assert provider_row["final_url_hash"].startswith("sha256:")
+    assert provider_row["status_code"] == 200
+    assert provider_row["byte_count"] == len(HTML_BYTES)
+    assert provider_row["html_blob_hash"] == html_ref["blob"]
+    assert "markdown_blob_hash" not in provider_row
+    receipt_json = json.dumps(receipt.model_dump(mode="json"), sort_keys=True)
+    assert "<html" not in receipt_json
+    assert "river cleanup contract" not in receipt_json
+    assert "SECRET" not in receipt_json
+    assert "set-cookie" not in receipt_json.lower()
+
+    cell_evidence = list_cell_citations(
+        project,
+        sheet_id=sheet_id,
+        row_id=good_row,
+        column_id=url_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert cell_evidence["links"]
+    assert cell_evidence["links"][0]["artifact_count"] == 1
+
+    after_first = _counts(
+        project,
+        (
+            "columns",
+            "ops",
+            "receipts",
+            "blobs",
+            "edits",
+            "source_artifacts",
+            "source_spans",
+            "citations",
+        ),
+    )
+    assert after_first["columns"] == before["columns"] + 1
+    assert after_first["receipts"] == before["receipts"] + 1
+    assert after_first["blobs"] == before["blobs"] + 1
+    assert after_first["source_artifacts"] == before["source_artifacts"] + 1
+    assert after_first["source_spans"] == before["source_spans"] + 1
+    assert after_first["citations"] == before["citations"] + 1
+    assert _staged_blob_files(project) == []
+
+    calls.clear()
+    replay = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert replay.status == "partial"
+    assert replay.receipt_id == result.receipt_id
+    assert calls == []
+    assert (
+        _counts(
             project,
             (
                 "columns",
@@ -353,175 +485,37 @@ def test_media_capture_url_static_contract_and_replay(
                 "edits",
                 "source_artifacts",
                 "source_spans",
-                "evidence_links",
+                "citations",
             ),
         )
-        result = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
-        )
-        assert result.status == "partial", result.errors
-        assert result.action.kind == "web.capture_page"
-        assert result.receipt_id is not None
-        assert calls == [(STORY_URL, 4096, 1234)]
+        == after_first
+    )
 
-        columns = _columns(project, sheet_id)
-        assert columns["page"]["type"] == "file"
-        for old_name in {
-            "capture_status",
-            "capture_error",
-            "capture_final_url",
-            "capture_canonical_url",
-            "capture_title",
-            "capture_author",
-            "capture_published_at",
-            "capture_captured_at",
-            "capture_html_blob",
-            "capture_markdown_blob",
-            "capture_network_metadata",
-        }:
-            assert old_name not in columns
-
-        values = project.get_values(sheet_id, int(columns["page"]["id"]))
-        good_row, bad_row = row_ids
-        html_ref = values[good_row]
-        assert values.get(bad_row) is None
-        assert html_ref["mime"] == "text/html"
-        assert html_ref["filename"] == "page-row-1.html"
-        assert html_ref["kind"] == "web_page_capture"
-        assert html_ref["final_url"] == FINAL_URL
-        assert html_ref["canonical_url"] == CANONICAL_URL
-        assert html_ref["title"] == "County Contract Memo"
-        assert html_ref["author"] == "Jane Reporter"
-        assert html_ref["published_at"] == "2026-06-20"
-        assert html_ref["captured_at"].endswith("Z")
-        assert project.read_blob(html_ref["blob"]) == HTML_BYTES
-        assert "markdown_preview" not in html_ref
-
-        network = html_ref["network"]
-        assert network["method"] == "GET"
-        assert network["render_mode"] == "static"
-        assert network["status_code"] == 200
-        assert network["byte_count"] == len(HTML_BYTES)
-        assert network["content_type"] == "text/html"
-        assert network["redirects"] == [
-            {
-                "status_code": 302,
-                "url_hash": "sha256:redirect-source",
-                "location_hash": "sha256:redirect-target",
-            }
-        ]
-        assert "headers" not in network
-
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.status == "partial"
-        assert receipt.provider_use
-        provider = receipt.provider_use[0]
-        assert provider["provider"] == "url_capture"
-        assert provider["method"] == "GET"
-        assert provider["render_mode"] == "static"
-        assert provider["request_count"] == 1
-        provider_row = provider["rows"][0]
-        assert provider_row["host"] == "example.test"
-        assert provider_row["url_hash"].startswith("sha256:")
-        assert provider_row["final_url_hash"].startswith("sha256:")
-        assert provider_row["status_code"] == 200
-        assert provider_row["byte_count"] == len(HTML_BYTES)
-        assert provider_row["html_blob_hash"] == html_ref["blob"]
-        assert "markdown_blob_hash" not in provider_row
-        receipt_json = json.dumps(receipt.model_dump(mode="json"), sort_keys=True)
-        assert "<html" not in receipt_json
-        assert "river cleanup contract" not in receipt_json
-        assert "SECRET" not in receipt_json
-        assert "set-cookie" not in receipt_json.lower()
-
-        cell_evidence = list_cell_citations(
-            project,
+    conflict = run_action_spec(
+        project,
+        _capture_action(
             sheet_id=sheet_id,
-            row_id=good_row,
-            column_id=url_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert cell_evidence["links"]
-        assert cell_evidence["links"][0]["artifact_count"] == 1
+            row_ids=row_ids,
+            idempotency_key="web_capture_page@sha256:first",
+            output_name="other_page",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
 
-        after_first = _counts(
-            project,
-            (
-                "columns",
-                "ops",
-                "receipts",
-                "blobs",
-                "edits",
-                "source_artifacts",
-                "source_spans",
-                "evidence_links",
-            ),
-        )
-        assert after_first["columns"] == before["columns"] + 1
-        assert after_first["receipts"] == before["receipts"] + 1
-        assert after_first["blobs"] == before["blobs"] + 1
-        assert after_first["source_artifacts"] == before["source_artifacts"] + 1
-        assert after_first["source_spans"] == before["source_spans"] + 1
-        assert after_first["evidence_links"] == before["evidence_links"] + 1
-        assert _staged_blob_files(project) == []
-
-        calls.clear()
-        replay = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
-        )
-        assert replay.status == "partial"
-        assert replay.receipt_id == result.receipt_id
-        assert calls == []
-        assert (
-            _counts(
-                project,
-                (
-                    "columns",
-                    "ops",
-                    "receipts",
-                    "blobs",
-                    "edits",
-                    "source_artifacts",
-                    "source_spans",
-                    "evidence_links",
-                ),
-            )
-            == after_first
-        )
-
-        conflict = run_action_spec(
-            project,
-            _capture_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="web_capture_page@sha256:first",
-                output_name="other_page",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-
-        local_blob_path(project, html_ref["blob"]).unlink()
-        stale = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
+    local_blob_path(project, html_ref["blob"]).unlink()
+    stale = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert stale.status == "failed"
+    assert stale.errors[0].code == "stale_replay"
 
 
 def test_capture_page_links_mode_materializes_absolute_link_rows_with_lineage(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids, _url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, _url_column_id = _seed_project(make_project)
     action = _capture_action(
         sheet_id=sheet_id,
         row_ids=[row_ids[0]],
@@ -550,145 +544,142 @@ def test_capture_page_links_mode_materializes_absolute_link_rows_with_lineage(
             body=html,
         )
 
-    try:
-        result = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
-        )
-        assert result.status == "completed", result.errors
-        assert not project.db.execute(
-            "SELECT 1 FROM columns WHERE sheet_id=? AND name='page' AND hidden=0",
-            (sheet_id,),
-        ).fetchone()
-        sheet = project.db.execute(
-            "SELECT id, parent_sheet_id FROM sheets WHERE name='Harvested Links' AND hidden=0"
-        ).fetchone()
-        assert sheet is not None
-        assert int(sheet["parent_sheet_id"]) == sheet_id
-        child_sheet_id = int(sheet["id"])
-        columns = _columns(project, child_sheet_id)
-        assert {name: column["type"] for name, column in columns.items()} == {
-            "url": "link",
-            "anchor_text": "text",
-            "source_url": "link",
-        }
-        child_rows = project.db.execute(
-            "SELECT id, parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
-            (child_sheet_id,),
-        ).fetchall()
-        assert [int(row["parent_row_id"]) for row in child_rows] == [row_ids[0]] * 3
-        child_row_ids = [int(row["id"]) for row in child_rows]
-        urls = project.get_values(
-            child_sheet_id, int(columns["url"]["id"]), row_ids=child_row_ids
-        )
-        labels = project.get_values(
-            child_sheet_id,
-            int(columns["anchor_text"]["id"]),
-            row_ids=child_row_ids,
-        )
-        sources = project.get_values(
-            child_sheet_id,
-            int(columns["source_url"]["id"]),
-            row_ids=child_row_ids,
-        )
-        assert list(urls.values()) == [
-            "https://example.test/reports/contract.pdf",
-            "https://example.test/agenda",
-            "https://records.example.org/index",
-        ]
-        assert list(labels.values()) == [
-            "Contract PDF",
-            "Agenda 2026",
-            "External records",
-        ]
-        assert set(sources.values()) == {FINAL_URL}
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
+    result = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert result.status == "completed", result.errors
+    assert not project.db.execute(
+        "SELECT 1 FROM columns WHERE sheet_id=? AND name='page' AND hidden=0",
+        (sheet_id,),
+    ).fetchone()
+    sheet = project.db.execute(
+        "SELECT id, parent_sheet_id FROM sheets WHERE name='Harvested Links' AND hidden=0"
+    ).fetchone()
+    assert sheet is not None
+    assert int(sheet["parent_sheet_id"]) == sheet_id
+    child_sheet_id = int(sheet["id"])
+    columns = _columns(project, child_sheet_id)
+    assert {name: column["type"] for name, column in columns.items()} == {
+        "url": "link",
+        "anchor_text": "text",
+        "source_url": "link",
+    }
+    child_rows = project.db.execute(
+        "SELECT id, parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [int(row["parent_row_id"]) for row in child_rows] == [row_ids[0]] * 3
+    child_row_ids = [int(row["id"]) for row in child_rows]
+    urls = project.get_values(
+        child_sheet_id, int(columns["url"]["id"]), row_ids=child_row_ids
+    )
+    labels = project.get_values(
+        child_sheet_id,
+        int(columns["anchor_text"]["id"]),
+        row_ids=child_row_ids,
+    )
+    sources = project.get_values(
+        child_sheet_id,
+        int(columns["source_url"]["id"]),
+        row_ids=child_row_ids,
+    )
+    assert list(urls.values()) == [
+        "https://example.test/reports/contract.pdf",
+        "https://example.test/agenda",
+        "https://records.example.org/index",
+    ]
+    assert list(labels.values()) == [
+        "Contract PDF",
+        "Agenda 2026",
+        "External records",
+    ]
+    assert set(sources.values()) == {FINAL_URL}
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
 
-        replay = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM sheets WHERE name='Harvested Links'"
-            ).fetchone()[0]
-            == 1
-        )
-
-        first_child_row_id = child_row_ids[0]
-        url_column_id = int(columns["url"]["id"])
-        stored_url = project.get_values(
-            child_sheet_id,
-            url_column_id,
-            row_ids=[first_child_row_id],
-        )[first_child_row_id]
-        replace_test_source_cell(
-            project,
-            row_id=first_child_row_id,
-            column_id=url_column_id,
-            value="https://changed.example.test/",
-        )
-        changed_value = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert changed_value.status == "failed"
-        assert changed_value.errors[0].code == "stale_replay"
-        replace_test_source_cell(
-            project,
-            row_id=first_child_row_id,
-            column_id=url_column_id,
-            value=stored_url,
-        )
-        assert run_action_spec(project, action, project_id=PROJECT_ID).status == (
-            "completed"
-        )
-
+    replay = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
+    assert (
         project.db.execute(
-            "UPDATE rows SET parent_row_id=? WHERE id=?",
-            (row_ids[1], first_child_row_id),
-        )
-        project.db.commit()
-        changed_parent = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert changed_parent.status == "failed"
-        assert changed_parent.errors[0].code == "stale_replay"
-        project.db.execute(
-            "UPDATE rows SET parent_row_id=? WHERE id=?",
-            (row_ids[0], first_child_row_id),
-        )
-        project.db.commit()
-        assert run_action_spec(project, action, project_id=PROJECT_ID).status == (
-            "completed"
-        )
+            "SELECT COUNT(*) FROM sheets WHERE name='Harvested Links'"
+        ).fetchone()[0]
+        == 1
+    )
 
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (first_child_row_id,))
-        project.db.commit()
-        deleted_row = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert deleted_row.status == "failed"
-        assert deleted_row.errors[0].code == "stale_replay"
-        project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (first_child_row_id,))
-        project.db.commit()
+    first_child_row_id = child_row_ids[0]
+    url_column_id = int(columns["url"]["id"])
+    stored_url = project.get_values(
+        child_sheet_id,
+        url_column_id,
+        row_ids=[first_child_row_id],
+    )[first_child_row_id]
+    replace_test_source_cell(
+        project,
+        row_id=first_child_row_id,
+        column_id=url_column_id,
+        value="https://changed.example.test/",
+    )
+    changed_value = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert changed_value.status == "failed"
+    assert changed_value.errors[0].code == "stale_replay"
+    replace_test_source_cell(
+        project,
+        row_id=first_child_row_id,
+        column_id=url_column_id,
+        value=stored_url,
+    )
+    assert run_action_spec(project, action, project_id=PROJECT_ID).status == (
+        "completed"
+    )
 
-        project.db.execute(
-            "UPDATE sheets SET name='Renamed Links' WHERE id=?", (child_sheet_id,)
-        )
-        project.db.commit()
-        stale = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
+    project.db.execute(
+        "UPDATE rows SET parent_row_id=? WHERE id=?",
+        (row_ids[1], first_child_row_id),
+    )
+    project.db.commit()
+    changed_parent = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert changed_parent.status == "failed"
+    assert changed_parent.errors[0].code == "stale_replay"
+    project.db.execute(
+        "UPDATE rows SET parent_row_id=? WHERE id=?",
+        (row_ids[0], first_child_row_id),
+    )
+    project.db.commit()
+    assert run_action_spec(project, action, project_id=PROJECT_ID).status == (
+        "completed"
+    )
+
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (first_child_row_id,))
+    project.db.commit()
+    deleted_row = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert deleted_row.status == "failed"
+    assert deleted_row.errors[0].code == "stale_replay"
+    project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (first_child_row_id,))
+    project.db.commit()
+
+    project.db.execute(
+        "UPDATE sheets SET name='Renamed Links' WHERE id=?", (child_sheet_id,)
+    )
+    project.db.commit()
+    stale = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert stale.status == "failed"
+    assert stale.errors[0].code == "stale_replay"
 
 
 def test_capture_page_playwright_links_does_not_capture_a_screenshot(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids, _url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, _url_column_id = _seed_project(make_project)
     action = _capture_action(
         sheet_id=sheet_id,
         row_ids=[row_ids[0]],
@@ -719,19 +710,16 @@ def test_capture_page_playwright_links_does_not_capture_a_screenshot(
             html='<a href="/records">Records</a>',
         )
 
-    try:
-        result = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_browser=fake_browser),
-        )
+    result = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_browser=fake_browser),
+    )
 
-        assert result.status == "completed", result.errors
-        assert calls == [False]
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert calls == [False]
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
 
 
 def test_capture_page_links_mode_rejects_warc_output() -> None:
@@ -748,82 +736,79 @@ def test_capture_page_links_mode_rejects_warc_output() -> None:
 
 
 def test_capture_page_rejects_static_warc_and_network_off_before_dispatch(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids, _url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, _url_column_id = _seed_project(make_project)
     calls: list[str] = []
 
     def unexpected_fetch(url: str, **kwargs: Any) -> Any:
         calls.append(url)
         raise AssertionError(f"unexpected fetch for {url}")
 
-    try:
-        project.set_network_policy(mode="off")
-        before = _counts(project, ("columns", "ops", "receipts", "blobs"))
-        for render_mode in ("static", "playwright"):
-            action = _capture_action(
-                sheet_id=sheet_id,
-                row_ids=[row_ids[0]],
-                render_mode=render_mode,
-                idempotency_key=f"capture-network-off-{render_mode}",
-            )
-            assert validate_root_action(action).ok is True
-            result = run_action_spec(
-                project,
-                action,
-                project_id=PROJECT_ID,
-                deps=ExecutorDeps(
-                    url_capture_fetcher=unexpected_fetch,
-                    url_capture_browser=unexpected_fetch,
-                ),
-            )
-            assert result.status == "failed"
-            assert result.errors[0].code == "network_disabled"
-        assert calls == []
-        assert _counts(project, ("columns", "ops", "receipts", "blobs")) == before
-        project.set_network_policy(mode="on")
-
-        warc = _capture_action(
+    project.set_network_policy(mode="off")
+    before = _counts(project, ("columns", "ops", "receipts", "blobs"))
+    for render_mode in ("static", "playwright"):
+        action = _capture_action(
             sheet_id=sheet_id,
             row_ids=[row_ids[0]],
-            include_warc=True,
-            idempotency_key="media_capture_url@sha256:warc",
+            render_mode=render_mode,
+            idempotency_key=f"capture-network-off-{render_mode}",
         )
-        with pytest.raises(
-            ValidationError, match="WARC requires page output with browser rendering"
-        ):
-            CapturePageParams.model_validate(warc["params"])
-        warc_validation = validate_root_action(warc)
-        assert warc_validation.ok is False
-        assert warc_validation.error is not None
-        assert (
-            "WARC requires page output with browser rendering"
-            in warc_validation.error.message
-        )
-        warc_result = run_action_spec(
+        assert validate_root_action(action).ok is True
+        result = run_action_spec(
             project,
-            warc,
+            action,
             project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=unexpected_fetch),
+            deps=ExecutorDeps(
+                url_capture_fetcher=unexpected_fetch,
+                url_capture_browser=unexpected_fetch,
+            ),
         )
-        assert warc_result.status == "failed"
-        assert (
-            "WARC requires page output with browser rendering"
-            in warc_result.errors[0].message
-        )
-        assert calls == []
-    finally:
-        project.close()
+        assert result.status == "failed"
+        assert result.errors[0].code == "network_disabled"
+    assert calls == []
+    assert _counts(project, ("columns", "ops", "receipts", "blobs")) == before
+    project.set_network_policy(mode="on")
+
+    warc = _capture_action(
+        sheet_id=sheet_id,
+        row_ids=[row_ids[0]],
+        include_warc=True,
+        idempotency_key="media_capture_url@sha256:warc",
+    )
+    with pytest.raises(
+        ValidationError, match="WARC requires page output with browser rendering"
+    ):
+        CapturePageParams.model_validate(warc["params"])
+    warc_validation = validate_root_action(warc)
+    assert warc_validation.ok is False
+    assert warc_validation.error is not None
+    assert (
+        "WARC requires page output with browser rendering"
+        in warc_validation.error.message
+    )
+    warc_result = run_action_spec(
+        project,
+        warc,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=unexpected_fetch),
+    )
+    assert warc_result.status == "failed"
+    assert (
+        "WARC requires page output with browser rendering"
+        in warc_result.errors[0].message
+    )
+    assert calls == []
 
 
 def test_web_capture_page_finalize_failure_does_not_refetch_or_commit_blob_metadata(
-    tmp_path: Path,
+    make_project,
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(capture_url, "url_is_safe", lambda url: True)
-    project, sheet_id, row_ids, _url_column_id = _seed_project(tmp_path)
+    project, sheet_id, row_ids, _url_column_id = _seed_project(make_project)
     action = _capture_action(
         sheet_id=sheet_id,
         row_ids=[row_ids[0]],
@@ -856,43 +841,38 @@ def test_web_capture_page_finalize_failure_does_not_refetch_or_commit_blob_metad
         "_WEB_CAPTURE_PAGE_FAIL_AFTER_STAGING_FOR_TEST",
         True,
     )
-    try:
-        failed = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
-        )
-        assert failed.status == "failed"
-        assert failed.errors[0].code == "project_write_failed"
-        assert calls == [STORY_URL]
-        assert int(project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]) == 0
-        assert _staged_blob_files(project) == []
+    failed = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
+    )
+    assert failed.status == "failed"
+    assert failed.errors[0].code == "project_write_failed"
+    assert calls == [STORY_URL]
+    assert int(project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]) == 0
+    assert _staged_blob_files(project) == []
 
-        monkeypatch.setattr(
-            executor_capture,
-            "_WEB_CAPTURE_PAGE_FAIL_AFTER_STAGING_FOR_TEST",
-            False,
-        )
-        replay = run_action_spec(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            deps=ExecutorDeps(
-                url_capture_fetcher=lambda *args, **kwargs: (_ for _ in ()).throw(
-                    AssertionError(
-                        "capture must not refetch after staged finalize failure"
-                    )
-                )
-            ),
-        )
-        assert replay.status == "failed"
-        assert replay.receipt_id == failed.receipt_id
-        assert calls == [STORY_URL]
-        assert int(project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]) == 0
-        assert _staged_blob_files(project) == []
-    finally:
-        project.close()
+    monkeypatch.setattr(
+        executor_capture,
+        "_WEB_CAPTURE_PAGE_FAIL_AFTER_STAGING_FOR_TEST",
+        False,
+    )
+    replay = run_action_spec(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        deps=ExecutorDeps(
+            url_capture_fetcher=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("capture must not refetch after staged finalize failure")
+            )
+        ),
+    )
+    assert replay.status == "failed"
+    assert replay.receipt_id == failed.receipt_id
+    assert calls == [STORY_URL]
+    assert int(project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]) == 0
+    assert _staged_blob_files(project) == []
 
 
 def test_capture_static_url_rejects_unsafe_url_before_injected_fetch(

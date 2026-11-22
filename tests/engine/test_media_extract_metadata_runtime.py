@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import asyncio
 import copy
@@ -26,8 +27,8 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
 from frisket.sdk.replay import (
-    output_column_result_value_hash,
-    output_column_value_hash,
+    generated_column_result_value_hash,
+    generated_column_value_hash,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
@@ -35,7 +36,7 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import (
     GenerationStateError,
     ResultGenerationStore,
@@ -177,7 +178,7 @@ def test_receipt_counts_and_published_envelopes_retain_row_diagnostics(
     )
     counts = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"]["kind"] == "map_rows_run_counts"
     )
     assert counts["total_rows"] == 2
@@ -916,7 +917,7 @@ def test_columns_mode_rejects_unrelated_ai_sibling_even_with_overwrite_intent(
         sheet_id,
         "meta_title",
         type="number",
-        ai_generated=True,
+        generated=True,
         format="filesize",
     )
     action = _action(
@@ -935,7 +936,7 @@ def test_columns_mode_rejects_unrelated_ai_sibling_even_with_overwrite_intent(
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert result.errors[0].details == {"columns": ["meta_title"]}
     sibling = project.get_column(sibling_id)
     assert sibling["type"] == "number"
@@ -998,7 +999,7 @@ def test_raw_maprunner_cannot_launch_metadata_without_action_lifecycle(
         sheet_id,
         "meta",
         type="json",
-        ai_generated=True,
+        generated=True,
     )
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -1050,7 +1051,7 @@ def test_atomic_metadata_prepare_failure_rolls_back_family_op_and_run(
     def fail_start_run(*_args: Any, **_kwargs: Any) -> int:
         raise RuntimeError("forced metadata run preparation failure")
 
-    monkeypatch.setattr(RunResultStore, "start_run", fail_start_run)
+    monkeypatch.setattr(RunResultStore, "start_run_in_transaction", fail_start_run)
     result = run_action_spec(
         project,
         _action(
@@ -1071,7 +1072,7 @@ def test_atomic_metadata_prepare_failure_rolls_back_family_op_and_run(
     assert [column["name"] for column in project.columns(sheet_id)] == ["asset"]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -1101,7 +1102,7 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
         authority=UnroutedOnlyAuthority(project),
     )
     claim_token = "claim:metadata-resume"
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         acquired, conflict = claims.acquire(
             sheet_id=sheet_id,
@@ -1358,8 +1359,9 @@ def test_same_prefix_new_key_requires_explicit_replacement_of_complete_family(
     mode: str,
     refresh: bool,
 ) -> None:
-    project = Project.create(tmp_path / f"family-rerun-{mode}.frisket", name="metadata")
-    try:
+    with closing(
+        Project.create(tmp_path / f"family-rerun-{mode}.frisket", name="metadata")
+    ) as project:
         sheet_id, row_id = _single_image_sheet(project)
         _stub_successful_image_adapter(monkeypatch)
         first = run_action_spec(
@@ -1399,7 +1401,7 @@ def test_same_prefix_new_key_requires_explicit_replacement_of_complete_family(
             project_id=f"metadata-family-{mode}",
         )
         assert refused.status == "failed"
-        assert refused.errors[0].code == "output_column_exists"
+        assert refused.errors[0].code == "generated_column_exists"
 
         rerun = run_action_spec(
             project,
@@ -1422,8 +1424,6 @@ def test_same_prefix_new_key_requires_explicit_replacement_of_complete_family(
             assert int(column["id"]) == column_id
             assert generations.latest_applied_run_id(column_id) == rerun.run_id
             assert rerun.run_id != prior_run_id
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("mode", ["object", "columns"])
@@ -1432,10 +1432,11 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
 ) -> None:
-    project = Project.create(
-        tmp_path / f"targeted-family-rerun-{mode}.frisket", name="metadata"
-    )
-    try:
+    with closing(
+        Project.create(
+            tmp_path / f"targeted-family-rerun-{mode}.frisket", name="metadata"
+        )
+    ) as project:
         sheet_id = project.add_sheet("Assets")
         input_id = project.add_column(sheet_id, "asset", type="image")
         digest = project.add_blob(
@@ -1654,7 +1655,7 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
         assert input_rows["ref"]["row_ids"] == [target_row]
         counts = next(
             item["ref"]
-            for item in receipt["evidence"]
+            for item in receipt["records"]
             if item["ref"]["kind"] == "map_rows_run_counts"
         )
         assert counts["failed_rows"] == 0
@@ -1663,14 +1664,14 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
         details_ref = next(
             item["ref"] for item in receipt["outputs"] if item["name"] == details_name
         )
-        assert details_ref["value_hash"] == output_column_result_value_hash(
+        assert details_ref["value_hash"] == generated_column_result_value_hash(
             project,
             run_id=new_run_id,
             sheet_id=sheet_id,
             column_id=details_id,
             row_ids=[target_row],
         )
-        assert details_ref["value_hash"] != output_column_value_hash(
+        assert details_ref["value_hash"] != generated_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=details_id,
@@ -1706,8 +1707,6 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
             project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == run_count
         )
         assert live_snapshot()[details_name][target_row] == later_manual_value
-    finally:
-        project.close()
 
 
 def test_metadata_replay_rejects_declared_output_format_drift(
@@ -1729,7 +1728,8 @@ def test_metadata_replay_rejects_declared_output_format_drift(
 
     size_column = _column(project, sheet_id, "meta_size_bytes")
     assert size_column["format"] == "filesize"
-    project.set_column_format(int(size_column["id"]), None)
+    with write_transaction(project.db):
+        project.set_column_format(int(size_column["id"]), None)
 
     run_count = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
     replay = run_action_spec(project, action, project_id="metadata-format-drift")
@@ -1751,8 +1751,9 @@ def test_changed_family_does_not_implicitly_authorize_replacement(
     monkeypatch: pytest.MonkeyPatch,
     damage: str,
 ) -> None:
-    project = Project.create(tmp_path / f"family-{damage}.frisket", name="metadata")
-    try:
+    with closing(
+        Project.create(tmp_path / f"family-{damage}.frisket", name="metadata")
+    ) as project:
         sheet_id, row_id = _single_image_sheet(project)
         _stub_successful_image_adapter(monkeypatch)
         first = run_action_spec(
@@ -1794,12 +1795,10 @@ def test_changed_family_does_not_implicitly_authorize_replacement(
         )
 
         assert rerun.status == "failed"
-        assert rerun.errors[0].code == "output_column_exists"
+        assert rerun.errors[0].code == "generated_column_exists"
         assert int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]) == (
             run_count
         )
-    finally:
-        project.close()
 
 
 def test_mixed_family_does_not_implicitly_authorize_replacement(
@@ -1843,7 +1842,7 @@ def test_mixed_family_does_not_implicitly_authorize_replacement(
     )
 
     assert rerun.status == "failed"
-    assert rerun.errors[0].code == "output_column_exists"
+    assert rerun.errors[0].code == "generated_column_exists"
 
 
 def test_different_source_does_not_implicitly_authorize_replacement(
@@ -1881,7 +1880,7 @@ def test_different_source_does_not_implicitly_authorize_replacement(
     )
 
     assert rerun.status == "failed"
-    assert rerun.errors[0].code == "output_column_exists"
+    assert rerun.errors[0].code == "generated_column_exists"
 
 
 @pytest.mark.parametrize(
@@ -1898,10 +1897,11 @@ def test_same_key_replay_rejects_tampered_output_identity(
     tampered_field: str,
     tampered_value: Any,
 ) -> None:
-    project = Project.create(
-        tmp_path / f"family-tampered-{tampered_field}.frisket", name="metadata"
-    )
-    try:
+    with closing(
+        Project.create(
+            tmp_path / f"family-tampered-{tampered_field}.frisket", name="metadata"
+        )
+    ) as project:
         sheet_id, row_id = _single_image_sheet(project)
         _stub_successful_image_adapter(monkeypatch)
         first = run_action_spec(
@@ -1942,8 +1942,6 @@ def test_same_key_replay_rejects_tampered_output_identity(
 
         assert rerun.status == "failed"
         assert rerun.errors[0].code == "stale_replay"
-    finally:
-        project.close()
 
 
 def test_explicit_replacement_is_not_authorized_by_an_unrelated_newer_receipt(
@@ -2073,7 +2071,7 @@ def test_direct_rerun_rechecks_output_identity_after_claim_acquisition(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -2112,7 +2110,7 @@ def test_post_claim_preparation_failure_cleans_claim_and_reservation(
     assert acquired == [True]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -2137,7 +2135,7 @@ def test_explicit_replacement_rejects_unmanaged_matching_columns(
             str(field["name"]),
             type=str(field["column_type"]),
             format=field.get("format"),
-            ai_generated=True,
+            generated=True,
         )
     action = _action(
         sheet_id=sheet_id,
@@ -2155,7 +2153,7 @@ def test_explicit_replacement_rejects_unmanaged_matching_columns(
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert result.errors[0].details["columns"] == [fields[0]["name"]]
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     assert len(project.columns(sheet_id)) == len(fields) + 1

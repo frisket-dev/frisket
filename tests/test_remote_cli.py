@@ -80,7 +80,9 @@ def live_server(tmp_path_factory) -> Any:
         )
     )
     claim_server(app, origin=base, workspace_name="Ops Desk")
-    raw, _ = mint_operator_token(app.state.control_engine, org_id=1, label="laptop")
+    raw, _ = mint_operator_token(
+        app.state.control_engine, organization_id=1, label="laptop"
+    )
     recorder = _RequestRecorder(app)
     server = uvicorn.Server(
         uvicorn.Config(recorder, host="127.0.0.1", port=port, log_level="error")
@@ -184,7 +186,7 @@ def test_server_resolution_precedence(monkeypatch) -> None:
 def test_link_status_list_and_default(linked, capsys) -> None:
     assert remote_command(["status"]) == 0
     status = capsys.readouterr().out
-    assert "org: Ops Desk" in status
+    assert "organization: Ops Desk" in status
     assert linked["token"] not in status
     assert remote_command(["list", "--json"]) == 0
     listed = json.loads(capsys.readouterr().out)
@@ -222,7 +224,7 @@ def test_users_verbs_round_trip(linked, capsys) -> None:
     assert listed["schema_version"] == "frisket.admin_users.v1"
     invites = {
         row["email"]: row
-        for organization in listed["orgs"]
+        for organization in listed["organizations"]
         for row in organization["pending_invites"]
     }
     assert invites["cli-a@example.com"]["role"] == "member"
@@ -260,7 +262,7 @@ def test_token_rotate_updates_the_store(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.delenv("FRISKET_SERVER", raising=False)
     rotating_raw, _ = mint_operator_token(
-        live_server["app"].state.control_engine, org_id=1, label="rotating"
+        live_server["app"].state.control_engine, organization_id=1, label="rotating"
     )
     assert (
         remote_command(

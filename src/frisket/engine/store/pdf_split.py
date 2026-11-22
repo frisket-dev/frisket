@@ -308,12 +308,11 @@ class PdfSplitWriter(StreamingSheetWriter):
             if len(batch) != source["child_count"]:
                 raise ValueError("split child count differs from the frozen source")
             self._validate_source(source)
-            row_ids = self.project.add_rows(
+            row_ids = self.project.add_rows_in_transaction(
                 self.sheet_id,
                 batch,
                 self._column_ids,
                 producer_id=self._producer_id,
-                commit=False,
             )
             db.executemany(
                 "UPDATE rows SET position=? WHERE id=?",
@@ -482,8 +481,8 @@ class PdfSplitWriter(StreamingSheetWriter):
                     ],
                 }
             )
-            if not ReceiptStore(self.project).update_body_status(
-                receipt, require_status="running", commit=False
+            if not ReceiptStore(self.project).update_body_status_in_transaction(
+                receipt, require_status="running"
             ):
                 raise ImportSessionConflict("split receipt finalization lost its CAS")
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (resumable.change_id,))

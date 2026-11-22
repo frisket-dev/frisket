@@ -306,11 +306,10 @@ def test_reduce_terminalizer_joins_materialization_transaction(
         key="reduce_effects@sha256:terminal-transaction-join",
     )
 
-    real_terminalize = reduces.terminalize_project_run
+    real_terminalize = reduces.terminalize_project_run_in_transaction
 
     def cut_after_join(*args, **kwargs):
         assert project.db.in_transaction
-        assert kwargs["commit"] is False
         terminalization = real_terminalize(*args, **kwargs)
         assert terminalization.disposition == "terminalized"
         assert terminalization.receipt_disposition == "updated"
@@ -343,7 +342,9 @@ def test_reduce_terminalizer_joins_materialization_transaction(
             "injected after joined reduce terminalization, before outer commit"
         )
 
-    monkeypatch.setattr(reduces, "terminalize_project_run", cut_after_join)
+    monkeypatch.setattr(
+        reduces, "terminalize_project_run_in_transaction", cut_after_join
+    )
 
     result = _run(project, action, router)
     assert result.status == "failed"
@@ -402,7 +403,7 @@ def test_reduce_terminalizer_joins_materialization_transaction(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE run_id=?", (run_id,)
+            "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
         == 1
     )
@@ -569,7 +570,7 @@ raise RuntimeError('death hook was not reached')
             (run_id,),
         )
         reopened.db.execute(
-            "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+            "UPDATE generated_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
             (run_id,),
         )
         reopened.db.execute(

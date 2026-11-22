@@ -140,13 +140,13 @@ def _project(client: TestClient) -> tuple[str, int]:
 
 def _save_organization_key(client: TestClient, *, key: str = SECRET) -> None:
     validated = client.post(
-        "/api/org/keys/validate", json={"provider": "openai", "key": key}
+        "/api/organization/keys/validate", json={"provider": "openai", "key": key}
     )
     assert validated.status_code == 200, validated.text
     receipt = validated.json()["validation_token"]
     assert isinstance(receipt, str) and receipt
     saved = client.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={
             "provider": "openai",
             "key": key,
@@ -197,7 +197,7 @@ def _reduce_action(sheet_id: int, key: str) -> dict[str, Any]:
 def _project_state(project: Any) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("columns", "runs", "receipts", "output_column_claims")
+        for table in ("columns", "runs", "receipts", "generated_column_claims")
     }
 
 

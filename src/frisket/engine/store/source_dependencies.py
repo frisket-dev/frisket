@@ -96,7 +96,7 @@ def stop_direct_consumers(
             or columns.intersection(binding.get("column_ids", ()))
         ):
             continue
-        RunResultStore(project).request_cancel(int(row["id"]), commit=False)
+        RunResultStore(project).request_cancel_in_transaction(int(row["id"]))
         close_run_change(project, int(row["id"]))
         stopped.append(int(row["id"]))
     # PDF page imports already persist their admitted row/column source IDs.

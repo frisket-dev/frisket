@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
+
+from frisket.engine.store.writer_fence import WriterFence
 
 
 class DispatchControl(Protocol):
@@ -80,7 +82,9 @@ class RunDispatch:
         ).fetchone()
         if live is None or (self.cancelled is not None and self.cancelled()):
             raise asyncio.CancelledError
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
         from frisket.engine.store.source_dependencies import (
             ExecutionSourceUnavailable,
             require_execution_sources,
@@ -89,12 +93,14 @@ class RunDispatch:
 
         try:
             require_execution_sources(self.project, int(live[0]))
-            OutputColumnClaimStore.require_current_writer(
+            GeneratedColumnClaimStore.require_current_writer(
                 self.project.db,
-                run_id=self.run_id,
-                writer_attempt_id=self.attempt_id,
-                claim_token=self.claim_token,
-                claimless_direct_effect=self.claim_token is None,
+                fence=WriterFence(
+                    run_id=self.run_id,
+                    writer_attempt_id=self.attempt_id,
+                    claim_token=self.claim_token,
+                    claimless_direct_effect=self.claim_token is None,
+                ),
             )
         except (StaleAttemptWriter, ExecutionSourceUnavailable):
             raise asyncio.CancelledError from None
@@ -120,7 +126,7 @@ def dispatch_for_context(ctx: Any) -> DispatchControl:
         cancelled = ctx.extras.get("cancelled")
         if not callable(cancelled):
             raise RuntimeError("Preview dispatch requires its cancellation owner")
-        return TransientDispatch(cancelled)
+        return TransientDispatch(cast(Callable[[], bool], cancelled))
     if ctx.project is None and ctx.extras.get("standalone_dispatch") is STANDALONE:
         return STANDALONE
     raise RuntimeError("Model dispatch requires a run or explicit preview context")

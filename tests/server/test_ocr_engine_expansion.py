@@ -11,7 +11,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.ops.ocr_engines import (
@@ -37,7 +36,7 @@ from frisket.server.action_catalog_hints import (
     project_action_catalog_launcher_hints,
 )
 from frisket.engine.store import Project
-from frisket.server.app import create_app
+from helpers import make_client
 
 _PYTESSERACT = importlib.util.find_spec("pytesseract") is not None
 _UNCONFIGURED_SIDECAR = {
@@ -155,13 +154,11 @@ def test_tesseract_is_a_recognized_local_free_engine(tmp_path):
     cost)."""
     assert "tesseract" in LOCAL_ENGINES
     assert ENGINE_ALIASES.get("tess") == "tesseract"
-    with TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
+    with make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     ) as client:
         pid = client.post("/api/projects", json={"name": "OCR estimate"}).json()["id"]
         project = client.app.state.workspace.get(pid)

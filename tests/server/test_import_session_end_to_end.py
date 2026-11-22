@@ -106,7 +106,7 @@ def test_http_import_worker_and_user_resolution(
     if enabled_late:
         assert (
             service.store.for_receipt(
-                storage_org_id=None,
+                storage_organization_id=None,
                 project_id=pid,
                 receipt_id=receipt_id,
                 include_pending=True,
@@ -134,7 +134,7 @@ def test_http_import_worker_and_user_resolution(
         assert terminal.json()["search_preparation_batch_id"] is None
         assert terminal.json()["search_preparation_status"] == "pending"
         pending = service.store.for_receipt(
-            storage_org_id=None,
+            storage_organization_id=None,
             project_id=pid,
             receipt_id=receipt_id,
             include_pending=True,
@@ -253,7 +253,7 @@ def test_disabled_preparation_and_empty_import_publish_no_preparation(
     assert status.json()["search_preparation_status"] == "none"
     preparation = SearchPreparationService(ws)
     preparation.recover()
-    assert preparation.store.list_active_page(storage_org_id=None) == []
+    assert preparation.store.list_active_page(storage_organization_id=None) == []
     assert client.get(f"/api/projects/{pid}/search-preparation").json()["batches"] == []
     assert client.get("/api/providers/models/pulls").json()["pulls"] == []
     assert not any(job.kind == "action.run" for job in ws.queue.list_jobs())

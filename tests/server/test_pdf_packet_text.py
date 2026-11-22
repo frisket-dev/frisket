@@ -18,7 +18,7 @@ def test_quality_distinguishes_missing_suspicious_and_completed_empty_ocr():
 
 
 def test_stored_pages_reused_without_native_sampling(tmp_path, monkeypatch):
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.prepared_content import (
         PreparedContentStore,
         PreparedPageDraft,
@@ -72,7 +72,7 @@ def test_stored_pages_reused_without_native_sampling(tmp_path, monkeypatch):
 
 
 def test_empty_ocr_page_is_retained_without_resampling(tmp_path, monkeypatch):
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.prepared_content import (
         PreparedContentStore,
         PreparedPageDraft,
@@ -127,7 +127,7 @@ def test_empty_ocr_page_is_retained_without_resampling(tmp_path, monkeypatch):
 
 def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
     from frisket.engine.store.document_text import ensure_document_text_role
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.prepared_content import (
         PreparedContentStore,
         PreparedPageDraft,
@@ -141,7 +141,7 @@ def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
     project = workspace.get(project_id)
     sheet = project.add_sheet("Rows")
     file_column = project.add_column(sheet, "File", type="file")
-    text_column = project.add_column(sheet, "Text", type="text", ai_generated=True)
+    text_column = project.add_column(sheet, "Text", type="text", generated=True)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
     value = {"blob": blob}
     row = project.add_rows(sheet, [{"File": value}], {"File": file_column})[0]
@@ -248,7 +248,7 @@ def test_known_native_page_is_used_for_classification_without_second_read(
 
 
 def test_retained_ocr_from_import_keeps_ocr_provenance(tmp_path):
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.prepared_content import (
         PreparedContentStore,
         PreparedPageDraft,

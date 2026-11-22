@@ -32,7 +32,7 @@ def _seed_completed_run_with_failed_row(client: TestClient) -> tuple[str, int, i
     rows = project.db.execute(
         "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
     ).fetchall()
-    output_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    output_col = project.add_column(sheet_id, "topic", generated=True)
     row_ids = [int(row["id"]) for row in rows]
     op_id = project.append_change("map", {"action_kind": "map.classify"}, "seed rows")
     run_store = RunResultStore(project)

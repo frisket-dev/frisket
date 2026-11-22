@@ -549,7 +549,7 @@ class TestRuns:
 
         data = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()
         cols = {c["name"]: c for c in data["columns"]}
-        assert cols["beat"]["ai_generated"] is True
+        assert cols["beat"]["generated"] is True
         beats = [row["cells"][str(cols["beat"]["id"])] for row in data["rows"]]
         assert beats == ["corruption", "transit"]
         # provenance meta rides along
@@ -721,7 +721,7 @@ class TestRuns:
         # lineage: the generated column points back at its producing run + inputs
         sheet = next(s for s in body["lineage"] if s["sheet_id"] == sheet_id)
         beat = next(c for c in sheet["columns"] if c["name"] == "beat")
-        assert beat["ai_generated"] is True
+        assert beat["generated"] is True
         assert beat["derived_from"]["run_id"] == run_id
         assert beat["derived_from"]["action_kind"] == "map.classify"
         assert beat["derived_from"]["action_kind"] == "map.classify"
@@ -1071,7 +1071,7 @@ class TestCancelRun:
                 == "dispatching"
             )
             active_claims = project.db.execute(
-                "SELECT status FROM output_column_claims WHERE run_id=? ORDER BY id",
+                "SELECT status FROM generated_column_claims WHERE run_id=? ORDER BY id",
                 (rid,),
             ).fetchall()
             assert active_claims
@@ -1105,7 +1105,7 @@ class TestCancelRun:
             (attempt_id,),
         ).fetchone()
         terminal_claims = project.db.execute(
-            "SELECT status, released_at FROM output_column_claims "
+            "SELECT status, released_at FROM generated_column_claims "
             "WHERE run_id=? ORDER BY id",
             (rid,),
         ).fetchall()
@@ -1157,7 +1157,7 @@ class TestCancelRun:
             [
                 tuple(row)
                 for row in project.db.execute(
-                    "SELECT status, released_at FROM output_column_claims "
+                    "SELECT status, released_at FROM generated_column_claims "
                     "WHERE run_id=? ORDER BY id",
                     (rid,),
                 ).fetchall()
@@ -1207,8 +1207,8 @@ class TestCancelRun:
         rows = p.db.execute(
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         ).fetchall()
-        out_col = p.add_column(sheet_id, "beat", ai_generated=True)
-        note_col = p.add_column(sheet_id, "beat_note", ai_generated=True)
+        out_col = p.add_column(sheet_id, "beat", generated=True)
+        note_col = p.add_column(sheet_id, "beat_note", generated=True)
         row_ids = [rows[0]["id"], rows[1]["id"]]
         runs = RunResultStore(p)
         run_id = runs.start_run(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -62,9 +63,9 @@ from frisket.engine.runner.validation import (
 )
 from frisket.local_provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.execution.attempt import STALE_DISPATCHING_AGE
 from frisket.engine.executor.action_jobs import merge_queue_payload
 from frisket.operability.structured_logging import correlation_log_payload
@@ -226,13 +227,12 @@ class QueuedV1ActionRunContext:
     request_executor_deps: Callable[[], ExecutorDeps] = ExecutorDeps
 
 
-def attach_run_edition_run_context(
+def attach_run_edition_run_context_in_transaction(
     project: Project,
     run_id: int,
     snapshot: Mapping[str, Any] | None,
-    *,
-    commit: bool = True,
 ) -> None:
+    require_transaction(project.db, "attach_run_edition_run_context")
     if not snapshot:
         return
     # The edition context lands on its own column, not
@@ -249,8 +249,15 @@ def attach_run_edition_run_context(
         "UPDATE runs SET edition_run_context=? WHERE id=?",
         (json.dumps(dict(snapshot), sort_keys=True), run_id),
     )
-    if commit:
-        project.db.commit()
+
+
+def attach_run_edition_run_context(
+    project: Project,
+    run_id: int,
+    snapshot: Mapping[str, Any] | None,
+) -> None:
+    with write_transaction(project.db, what="attach_run_edition_run_context"):
+        attach_run_edition_run_context_in_transaction(project, run_id, snapshot)
 
 
 def _prepared_run_progress(project: Project, run_id: int) -> RunProgress:
@@ -323,8 +330,7 @@ def _queue_v1_project_run_request(
         from frisket.engine.store.execution_routes import instance_principal
 
         instance_principal(project)
-        project.db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(project.db) if atomic_publication else nullcontext():
         reserve_fn = (
             request.entry.reserve_action_in_transaction
             if atomic_publication
@@ -339,120 +345,96 @@ def _queue_v1_project_run_request(
             router=router,
             program=request.program,
         )
-    except Exception:
-        if atomic_publication:
-            project.db.rollback()
-        raise
-    if isinstance(reservation, ActionResult):
-        if atomic_publication:
-            project.db.rollback()
-        return reservation
-    runner_spec = request.entry.mark_runner_spec(
-        reservation["runner_spec"],
-        receipt_id=reservation["receipt_id"],
-        action_id=reservation["action_id"],
-        params_hash=reservation["params_hash"],
-    )
-    runner_spec.pop("deferred_publication", None)
-    if getattr(request.program, "defer_generation_seal", False) is True:
-        runner_spec["deferred_publication"] = True
-    reservation_snapshot = (
-        {codec.key: reservation[codec.key] for codec in request.entry.payload_codecs}
-        if request.program is not None
-        else None
-    )
-
-    def abort_prepare(
-        error: ActionError,
-        *,
-        status: ActionResultStatus = "failed",
-    ) -> ActionResult:
-        """Close a failed pre-enqueue preparation without changing ownership.
-
-        Atomic publication owns an open caller transaction and rolls it back as
-        one unit.  The ordinary path owns a committed reservation and deletes
-        it through the entry's lifecycle adapter, which transactionally
-        discards its output claim before deleting the reservation.
-        """
-
-        if atomic_publication:
-            project.db.rollback()
-        else:
-            request.entry.cleanup_reservation(
-                project,
-                receipt_id=reservation["receipt_id"],
-            )
-        return ActionResult(
-            action=ActionIdentity(
-                kind=request.action.kind, action_id=reservation["action_id"]
-            ),
-            status=status,
-            project_id=project_id,
-            errors=[error],
-        )
-
-    prepared_run_id = reservation.get("prepared_run_id")
-    if isinstance(prepared_run_id, int) and not isinstance(prepared_run_id, bool):
-        progress = _prepared_run_progress(project, prepared_run_id)
-    else:
-        runner = MapRunner(
-            project,
-            router,
-            consent_coverage=consent_coverage,
-            allow_action_lifecycle_only_programs=True,
-            authority=(
-                build_attempt_authority(
-                    project,
-                    composition=execution_composition,
-                    consent_coverage=consent_coverage,
-                )
-                if atomic_publication
-                else UnroutedOnlyAuthority(project)
-            ),
-            execution_composition=execution_composition,
-        )
-        try:
-            # A reservation payload without a "confirmed" key is NOT consent:
-            # default False, matching the sibling
-            # needs_confirmation checks. Kinds that thread confirmation put
-            # the real value in the payload (_queued_action_reservation_
-            # payload); free kinds never trip the gate at $0.
-            attempt_id: str | None = None
+        if isinstance(reservation, ActionResult):
             if atomic_publication:
-                prepared, admitted_attempt = runner.prepare_admitted_run(
-                    runner_spec,
-                    program=request.program,
-                    confirmed=bool(reservation.get("confirmed", False)),
-                    output_fields=reservation["output_fields"],
-                )
-                progress = RunProgress(
-                    run_id=prepared.run_id,
-                    total=prepared.row_count,
-                )
-                attempt_id = admitted_attempt.attempt_id
-                request.entry.mark_prepared(
+                project.db.rollback()
+            return reservation
+        runner_spec = request.entry.mark_runner_spec(
+            reservation["runner_spec"],
+            receipt_id=reservation["receipt_id"],
+            action_id=reservation["action_id"],
+            params_hash=reservation["params_hash"],
+        )
+        runner_spec.pop("deferred_publication", None)
+        if getattr(request.program, "defer_generation_seal", False) is True:
+            runner_spec["deferred_publication"] = True
+        reservation_snapshot = (
+            {
+                codec.key: reservation[codec.key]
+                for codec in request.entry.payload_codecs
+            }
+            if request.program is not None
+            else None
+        )
+
+        def abort_prepare(
+            error: ActionError,
+            *,
+            status: ActionResultStatus = "failed",
+        ) -> ActionResult:
+            """Close a failed pre-enqueue preparation without changing ownership.
+
+            Atomic publication owns an open caller transaction and rolls it back as
+            one unit.  The ordinary path owns a committed reservation and deletes
+            it through the entry's lifecycle adapter, which transactionally
+            discards its output claim before deleting the reservation.
+            """
+
+            if atomic_publication:
+                project.db.rollback()
+            else:
+                request.entry.cleanup_reservation(
                     project,
                     receipt_id=reservation["receipt_id"],
-                    run_id=progress.run_id,
-                    attempt_id=attempt_id,
-                    output_fields=reservation["output_fields"],
-                    program=request.program,
-                    reservation_snapshot=reservation_snapshot,
                 )
-                attach_run_edition_run_context(
-                    project,
-                    progress.run_id,
-                    execution_context.edition_snapshot,
-                    commit=False,
-                )
-                project.db.commit()
-            else:
-                progress = runner.prepare_run(
-                    runner_spec,
-                    program=request.program,
-                    confirmed=bool(reservation.get("confirmed", False)),
-                )
-                with write_transaction(project.db):
+            return ActionResult(
+                action=ActionIdentity(
+                    kind=request.action.kind, action_id=reservation["action_id"]
+                ),
+                status=status,
+                project_id=project_id,
+                errors=[error],
+            )
+
+        prepared_run_id = reservation.get("prepared_run_id")
+        if isinstance(prepared_run_id, int) and not isinstance(prepared_run_id, bool):
+            progress = _prepared_run_progress(project, prepared_run_id)
+        else:
+            runner = MapRunner(
+                project,
+                router,
+                consent_coverage=consent_coverage,
+                allow_action_lifecycle_only_programs=True,
+                authority=(
+                    build_attempt_authority(
+                        project,
+                        composition=execution_composition,
+                        consent_coverage=consent_coverage,
+                    )
+                    if atomic_publication
+                    else UnroutedOnlyAuthority(project)
+                ),
+                execution_composition=execution_composition,
+            )
+            try:
+                # A reservation payload without a "confirmed" key is NOT consent:
+                # default False, matching the sibling
+                # needs_confirmation checks. Kinds that thread confirmation put
+                # the real value in the payload (_queued_action_reservation_
+                # payload); free kinds never trip the gate at $0.
+                attempt_id: str | None = None
+                if atomic_publication:
+                    prepared, admitted_attempt = runner.prepare_admitted_run(
+                        runner_spec,
+                        program=request.program,
+                        confirmed=bool(reservation.get("confirmed", False)),
+                        output_fields=reservation["output_fields"],
+                    )
+                    progress = RunProgress(
+                        run_id=prepared.run_id,
+                        total=prepared.row_count,
+                    )
+                    attempt_id = admitted_attempt.attempt_id
                     request.entry.mark_prepared(
                         project,
                         receipt_id=reservation["receipt_id"],
@@ -462,60 +444,76 @@ def _queue_v1_project_run_request(
                         program=request.program,
                         reservation_snapshot=reservation_snapshot,
                     )
-                attach_run_edition_run_context(
-                    project,
-                    progress.run_id,
-                    execution_context.edition_snapshot,
-                )
-        except CostGate as exc:
-            error = request.entry.prepare_cost_gate_error(request.action, exc)
-            return abort_prepare(
-                error,
-                status=(
-                    "needs_confirmation"
-                    if error.needs_confirmation
-                    or error.code == "model_cost_requires_confirmation"
-                    else "failed"
-                ),
-            )
-        except TrustedConsentRefused as exc:
-            return abort_prepare(
-                ActionError(
-                    code="derived_consent_refused",
-                    message=str(exc),
-                    action_kind=request.action.kind,
-                )
-            )
-        except (
-            ProviderKeyRefusal,
-            NetworkDisabled,
-            OutputColumnExists,
-            InvalidTargetSheet,
-            InvalidTargetRows,
-            EmptyInputColumns,
-            RowError,
-        ) as exc:
-            # Refused before any job is queued or row work is staged.
-            return abort_prepare(
-                refusal_error(
-                    exc,
-                    RefusalSite(
-                        action_kind=request.action.kind,
-                        has_row_scope=request.action.row_scope is not None,
+                    attach_run_edition_run_context_in_transaction(
+                        project,
+                        progress.run_id,
+                        execution_context.edition_snapshot,
+                    )
+                else:
+                    progress = runner.prepare_run(
+                        runner_spec,
                         program=request.program,
-                        output_claim_field=request.entry.output_claim_error_field,
+                        confirmed=bool(reservation.get("confirmed", False)),
+                    )
+                    with write_transaction(project.db):
+                        request.entry.mark_prepared(
+                            project,
+                            receipt_id=reservation["receipt_id"],
+                            run_id=progress.run_id,
+                            attempt_id=attempt_id,
+                            output_fields=reservation["output_fields"],
+                            program=request.program,
+                            reservation_snapshot=reservation_snapshot,
+                        )
+                    attach_run_edition_run_context(
+                        project,
+                        progress.run_id,
+                        execution_context.edition_snapshot,
+                    )
+            except CostGate as exc:
+                error = request.entry.prepare_cost_gate_error(request.action, exc)
+                return abort_prepare(
+                    error,
+                    status=(
+                        "needs_confirmation"
+                        if error.needs_confirmation
+                        or error.code == "model_cost_requires_confirmation"
+                        else "failed"
                     ),
                 )
-            )
-        except (ValueError, RuntimeError) as exc:
-            error = request.entry.prepare_run_error(request.action, exc)
-            return abort_prepare(error)
-        except BaseException:
-            if atomic_publication and project.db.in_transaction:
-                project.db.rollback()
-            raise
-    if isinstance(prepared_run_id, int) and not isinstance(prepared_run_id, bool):
-        try:
+            except TrustedConsentRefused as exc:
+                return abort_prepare(
+                    ActionError(
+                        code="derived_consent_refused",
+                        message=str(exc),
+                        action_kind=request.action.kind,
+                    )
+                )
+            except (
+                ProviderKeyRefusal,
+                NetworkDisabled,
+                OutputColumnExists,
+                InvalidTargetSheet,
+                InvalidTargetRows,
+                EmptyInputColumns,
+                RowError,
+            ) as exc:
+                # Refused before any job is queued or row work is staged.
+                return abort_prepare(
+                    refusal_error(
+                        exc,
+                        RefusalSite(
+                            action_kind=request.action.kind,
+                            has_row_scope=request.action.row_scope is not None,
+                            program=request.program,
+                            output_claim_field=request.entry.output_claim_error_field,
+                        ),
+                    )
+                )
+            except (ValueError, RuntimeError) as exc:
+                error = request.entry.prepare_run_error(request.action, exc)
+                return abort_prepare(error)
+        if isinstance(prepared_run_id, int) and not isinstance(prepared_run_id, bool):
             if atomic_publication and reservation.get("replace_abandoned_attempt"):
                 runner = MapRunner(
                     project,
@@ -530,7 +528,7 @@ def _queue_v1_project_run_request(
                 )
                 claim_token = f"output-claim:{reservation['receipt_id']}"
                 output_column_ids = list(
-                    OutputColumnClaimStore(project).active_column_ids(
+                    GeneratedColumnClaimStore(project).active_column_ids(
                         claim_token=claim_token,
                         run_id=progress.run_id,
                     )
@@ -553,7 +551,7 @@ def _queue_v1_project_run_request(
                         )
                     ),
                 )
-                renewed = OutputColumnClaimStore(project).renew(
+                renewed = GeneratedColumnClaimStore(project).renew(
                     claim_token=claim_token,
                     run_id=progress.run_id,
                     lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
@@ -572,23 +570,17 @@ def _queue_v1_project_run_request(
                     reservation_snapshot=reservation_snapshot,
                 )
             if atomic_publication:
-                attach_run_edition_run_context(
+                attach_run_edition_run_context_in_transaction(
                     project,
                     progress.run_id,
                     execution_context.edition_snapshot,
-                    commit=False,
                 )
-                project.db.commit()
             else:
                 attach_run_edition_run_context(
                     project,
                     progress.run_id,
                     execution_context.edition_snapshot,
                 )
-        except BaseException:
-            if atomic_publication and project.db.in_transaction:
-                project.db.rollback()
-            raise
     authoritative_payload = {
         "project_id": project_id,
         "run_id": progress.run_id,

@@ -99,7 +99,7 @@ def register_project_lifecycle_routes(
         )
 
     @app.get(
-        "/api/org/provider-catalog",
+        "/api/organization/provider-catalog",
         response_model=OrganizationProviderCatalog,
         responses=http_error_responses(401, 500),
     )

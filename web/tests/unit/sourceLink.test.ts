@@ -10,7 +10,7 @@ import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support
 
 function payload(): CitationViewerPayload {
   return {
-    schema_version: 'frisket.evidence_viewer.v1',
+    schema_version: 'frisket.citation_viewer.v1',
     link: { id: 1, stable_id: 'link:one', role: 'source_provenance' },
     artifacts: [evidenceArtifact({
       media_type: 'application/pdf', page_count: 8,
@@ -52,19 +52,19 @@ describe('source links', () => {
     const evidence = payload();
     const row = { id: '4', index: 0, cells: { '6': JSON.stringify({ blob: state === 'changed' ? 'new-blob' : 'blob-hash', mime: 'application/pdf', ...(state === 'changed_page' ? { page: 7 } : {}) }) }, provenance: {} } satisfies Row;
     const api = {
-      getEvidenceViewer: vi.fn().mockResolvedValue(evidence),
+      getCitationViewer: vi.fn().mockResolvedValue(evidence),
       getSheetRows: vi.fn().mockResolvedValue({ rows: state === 'hidden' ? [] : [row] }),
     };
     const navigation = { isCurrent: () => true, openOriginal: vi.fn(), openEvidence: vi.fn() };
     await openSourceLink({ projectId: 'p1', evidenceLinkId: 'link:one', page: 3 }, api, navigation);
-    expect(api.getEvidenceViewer).toHaveBeenCalledTimes(1);
+    expect(api.getCitationViewer).toHaveBeenCalledTimes(1);
     expect(api.getSheetRows).toHaveBeenCalledTimes(1);
     if (state === 'visible') expect(navigation.openOriginal).toHaveBeenCalledWith('2', '4', '6', 3);
     else expect(navigation.openEvidence).toHaveBeenCalledWith(evidence, 3);
   });
 
   it('does not navigate after another source supersedes the request', async () => {
-    const api = { getEvidenceViewer: vi.fn().mockResolvedValue(payload()), getSheetRows: vi.fn() };
+    const api = { getCitationViewer: vi.fn().mockResolvedValue(payload()), getSheetRows: vi.fn() };
     const navigation = { isCurrent: () => false, openOriginal: vi.fn(), openEvidence: vi.fn() };
     await openSourceLink({ projectId: 'p1', evidenceLinkId: 'link:one' }, api, navigation);
     expect(api.getSheetRows).not.toHaveBeenCalled();

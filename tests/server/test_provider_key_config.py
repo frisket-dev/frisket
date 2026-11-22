@@ -18,18 +18,17 @@ import json
 import os
 
 import httpx
-from fastapi.testclient import TestClient
 
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.llm.pricing import model_price
 from frisket.project_settings import read_project_settings
 from frisket import local_provider_config
 from frisket.server import provider_config
-from frisket.server.app import create_app
 from frisket.server.services.project_model_routes import (
     ProjectModelRouteError,
     ProjectModelRoutesService,
 )
+from helpers import make_client
 
 SECRET = "sk-openai-supersecret-1234"
 
@@ -280,7 +279,7 @@ def test_providers_catalog_live_listing_prices_installed_models_too(
     endpoint = provider_config.create_local_endpoint(
         root, name="Ollama workstation", url="http://127.0.0.1:11434"
     )
-    client = TestClient(create_app(root))
+    client = make_client(tmp_path)
     resp = client.get("/api/providers")
     assert resp.status_code == 200, resp.text
     ollama = next(
@@ -315,8 +314,8 @@ def test_set_key_route_redacts_and_router_uses_it(tmp_path, monkeypatch) -> None
             "detail": None,
         },
     )
-    app = create_app(tmp_path / "ws")
-    client = TestClient(app)
+    client = make_client(tmp_path)
+    app = client.app
 
     validated = client.post("/api/providers/openai/validate", json={"key": SECRET})
     assert validated.status_code == 200, validated.text
@@ -344,8 +343,8 @@ def test_set_key_route_redacts_and_router_uses_it(tmp_path, monkeypatch) -> None
 def test_delete_workspace_key_pins_existing_project_routes_first(tmp_path) -> None:
     root = tmp_path / "ws"
     provider_config.save_local_provider_key(root, "openai", SECRET)
-    app = create_app(root)
-    client = TestClient(app)
+    client = make_client(tmp_path)
+    app = client.app
     project_id = client.post(
         "/api/projects",
         json={"name": "Pin before workspace key delete"},
@@ -376,7 +375,7 @@ def test_workspace_key_mutations_report_route_pinning_refusal(
         )
 
     monkeypatch.setattr(ProjectModelRoutesService, "pin_all_projects", refuse_pin)
-    client = TestClient(create_app(root))
+    client = make_client(tmp_path)
 
     saved = client.put(
         "/api/providers/keys/openai",
@@ -456,7 +455,7 @@ def test_catalog_payload_never_echoes_the_configured_token(
 ) -> None:
     root = tmp_path / "ws"
     endpoint = _configure_canary_tokens(root, monkeypatch)
-    client = TestClient(create_app(root))
+    client = make_client(tmp_path)
 
     resp = client.get("/api/providers")
     assert resp.status_code == 200, resp.text
@@ -474,7 +473,7 @@ def test_diagnose_payload_never_echoes_the_configured_token(
 ) -> None:
     root = tmp_path / "ws"
     _configure_canary_tokens(root, monkeypatch)
-    client = TestClient(create_app(root))
+    client = make_client(tmp_path)
 
     resp = client.get("/api/diagnose")
     assert resp.status_code == 200, resp.text
@@ -490,7 +489,7 @@ def test_pull_dto_never_carries_a_token_field(tmp_path, monkeypatch) -> None:
     tests/test_model_pull_handler.py's canary tests.)"""
     root = tmp_path / "ws"
     endpoint = _configure_canary_tokens(root, monkeypatch)
-    client = TestClient(create_app(root))
+    client = make_client(tmp_path)
 
     resp = client.post(
         "/api/providers/models/pull",

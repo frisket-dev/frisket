@@ -19,10 +19,11 @@ from frisket.engine.executor.extract_citations import (
     _span_is_usable,
     _text_hash,
 )
-from frisket.engine.store.evidence import record_citation
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.citations import record_citation
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _captured_transcript(project, sources, *, sheet_id, row_id):
@@ -67,8 +68,8 @@ def _captured_transcript(project, sources, *, sheet_id, row_id):
             artifact_id, span_ids = anchor["artifact_id"], anchor["span_ids"]
         elif ref.get("kind") == "run_result" and ref.get("run_id") is not None:
             spans = project.db.execute(
-                "SELECT s.id, s.artifact_id FROM evidence_links l "
-                "JOIN evidence_link_spans ls ON ls.link_id=l.id "
+                "SELECT s.id, s.artifact_id FROM citations l "
+                "JOIN citation_spans ls ON ls.citation_id=l.id "
                 "JOIN source_spans s ON s.id=ls.span_id "
                 # A transcription's segment-list output shares the text output's
                 # evidence. Resolve through the captured producing run, not through
@@ -334,14 +335,14 @@ class ExtractResultCitations:
         **kwargs,
     ):
         del kwargs
-        OutputColumnClaimStore.require_current_writer(
-            project.db,
+        fence = WriterFence(
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
         )
+        GeneratedColumnClaimStore.require_current_writer(project.db, fence=fence)
         receipt_id = project.db.execute(
-            "SELECT DISTINCT receipt_id FROM output_column_claims "
+            "SELECT DISTINCT receipt_id FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()[0]
@@ -560,15 +561,13 @@ class ExtractResultCitations:
                             for code in failures
                         ],
                     },
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
+                    fence=fence,
                 )
 
 
 def finalize_extract_receipt(receipt):
     """Surface persisted publication decisions without rerunning any grounding."""
-    for supporting_record in receipt.evidence:
+    for supporting_record in receipt.records:
         fact = supporting_record.ref
         if fact.get("kind") != "map_extract_grounding_links":
             continue

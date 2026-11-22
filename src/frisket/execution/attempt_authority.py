@@ -36,6 +36,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.writer_fence import WriterFence
+
 from pydantic import ValidationError
 
 from frisket.engine.store.transactions import require_transaction, write_transaction
@@ -48,6 +50,7 @@ from frisket.execution.attempt import (
     cost_basis_from_promises,
     open_attempt,
     set_attempt_state,
+    set_attempt_state_in_transaction,
     _attempt_owner,
 )
 from frisket.execution.promise_compiler import PricedCostBasis
@@ -288,7 +291,7 @@ class AttemptAuthority:
                 receipt_id=None,
             )
         except ActionProgramInvocationHalt:
-            set_attempt_state(self.project, attempt_id, "halted", commit=False)
+            set_attempt_state_in_transaction(self.project, attempt_id, "halted")
             raise
         commitment = self._commitment_from_admission(
             opened,
@@ -441,7 +444,7 @@ class AttemptAuthority:
         precisely so the hash stays stable — the rating is still read back,
         not recomputed.
 
-        A candidate whose ``quote_json`` is missing or does not decode proves
+        A candidate whose ``estimate_json`` is missing or does not decode proves
         nothing and is skipped; if that leaves nothing proving, the caller
         raises the modeled ``consent_missing``. There is no default rating and
         no fallback to an unrated hash — an unverifiable consent authorizes
@@ -467,13 +470,13 @@ class AttemptAuthority:
                 continue
             if echoed_hash is not None and consent.promise_set_hash != str(echoed_hash):
                 continue
-            if consent.quote_json is None:
-                # No persisted quote: nothing to reconstruct the rated half
+            if consent.estimate_json is None:
+                # No persisted estimate: nothing to reconstruct the rated half
                 # from. Fails closed by proving nothing.
                 continue
             try:
                 persisted = ConsentEstimate.model_validate(
-                    json.loads(consent.quote_json)
+                    json.loads(consent.estimate_json)
                 )
                 if persisted.policy_id != installed_policy_id:
                     # The price list moved under an approved run. Skipped
@@ -797,8 +800,12 @@ def mint_direct_effect_attempt(
     claim(
         project,
         commitment,
-        claim_token=claim_token,
-        claimless_direct_effect=claim_token is None,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=commitment.attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=claim_token is None,
+        ),
     )
     return commitment
 

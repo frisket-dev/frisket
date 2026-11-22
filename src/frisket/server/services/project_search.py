@@ -135,7 +135,7 @@ def _display_filename(value: object) -> str | None:
     return value.replace("\\", "/").rsplit("/", 1)[-1] or None
 
 
-def _evidence_navigation(
+def _citation_navigation(
     project: Any, hit: LocatedHit
 ) -> tuple[dict[str, Any], str | None] | None:
     binding = hit.binding
@@ -144,18 +144,18 @@ def _evidence_navigation(
     cell = (binding.sheet_id, binding.row_id, binding.column_id)
     rows = project.db.execute(
         "SELECT cast(requested.key AS INTEGER) AS requested_rank,"
-        "l.stable_id AS evidence_link_id,sp.stable_id AS span_id,"
+        "l.stable_id AS citation_id,sp.stable_id AS span_id,"
         "sp.page_start,sp.page_end,sp.start_ms,sp.end_ms,a.filename,"
         "coalesce(sp.quote,sp.snippet) AS span_text "
         "FROM json_each(?) requested "
         "JOIN source_spans sp ON sp.stable_id=requested.value "
         "JOIN source_artifacts a ON a.id=sp.artifact_id "
-        "JOIN evidence_link_spans els ON els.span_id=sp.id "
-        "JOIN evidence_links l ON l.id=els.link_id "
+        "JOIN citation_spans cs ON cs.span_id=sp.id "
+        "JOIN citations l ON l.id=cs.citation_id "
         "WHERE requested.type='text' AND l.status='active' "
         "AND ((a.source_sheet_id=? AND a.source_row_id=? "
         "AND a.source_column_id=?) OR (l.sheet_id=? AND l.row_id=? "
-        "AND l.column_id=?)) ORDER BY requested_rank,els.rank,l.id",
+        "AND l.column_id=?)) ORDER BY requested_rank,cs.rank,l.id",
         (json.dumps(hit.part.locator.source_span_ids), *cell, *cell),
     ).fetchall()
     candidates = []
@@ -218,16 +218,16 @@ def _evidence_navigation(
             candidates = [row for score, row in scored if score == best]
 
     row = candidates[0]
-    navigation = {
-        "kind": "evidence",
-        "evidence_link_id": str(row["evidence_link_id"]),
+    navigation: dict[str, Any] = {
+        "kind": "citation",
+        "citation_id": str(row["citation_id"]),
         "span_id": str(row["span_id"]),
     }
     span_ids = list(
         dict.fromkeys(
             str(match["span_id"])
             for match in matching
-            if match["evidence_link_id"] == row["evidence_link_id"]
+            if match["citation_id"] == row["citation_id"]
         )
     )
     if len(span_ids) > 1:
@@ -238,9 +238,9 @@ def _evidence_navigation(
 def _navigation_payload(
     project: Any, hit: LocatedHit, *, column: dict[str, Any] | None
 ) -> tuple[dict[str, Any], str | None]:
-    evidence = _evidence_navigation(project, hit)
-    if evidence is not None:
-        return evidence
+    citation = _citation_navigation(project, hit)
+    if citation is not None:
+        return citation
     binding = hit.binding
     locator = hit.part.locator
     if binding.column_id is not None and (
@@ -296,14 +296,14 @@ def _search_hit_payload(
     return {
         "column_name": str(column["name"]) if column is not None else None,
         "source_name": source_name,
-        "ai_generated": bool(column["ai_generated"]) if column is not None else False,
+        "generated": bool(column["generated"]) if column is not None else False,
         "snippet": hit.snippet or "",
         "score": hit.rank_score,
         "source": _source_payload(hit.part.source),
         "part": {
             "part_id": hit.part.part_id,
             "part_kind": hit.part.part_kind,
-            "producer_recipe_id": hit.part.producer_recipe_id,
+            "producer_slice_id": hit.part.producer_slice_id,
         },
         "binding": _binding_payload(hit.binding),
         "location": _location_payload(hit),
@@ -343,7 +343,7 @@ def _coverage_payload(
             {
                 "channel": channel.channel,
                 "state": channel.state,
-                "recipe_id": channel.recipe_id,
+                "slice_id": channel.slice_id,
                 "eligible_count": channel.eligible_count,
                 "prepared_count": channel.prepared_count,
                 "failed_count": channel.failed_count,

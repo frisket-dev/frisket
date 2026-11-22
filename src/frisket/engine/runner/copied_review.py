@@ -215,7 +215,7 @@ def copied_review_page(
                     "review_state": r["review_state"],
                     "review_decision": r["review_decision"],
                     "review_note": r["review_note"],
-                    "role": "field" if primary else "evidence",
+                    "role": "field" if primary else "supporting",
                     "chore": primary
                     and r["review_state"] == "unreviewed"
                     and r["review_decision"] is None,
@@ -251,7 +251,7 @@ def copied_review_page(
                     (r["review_note"] for r in records if r["review_note"]), None
                 ),
                 "fields": [r for r in items if r["role"] == "field"],
-                "evidence": [r for r in items if r["role"] == "evidence"],
+                "supporting_columns": [r for r in items if r["role"] == "supporting"],
                 "items": items,
             }
         )

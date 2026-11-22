@@ -155,15 +155,15 @@ export function useEmbeddingsPanelController({
     (!remoteSelected || form.allowRemote) &&
     (!autoRefreshOn || (form.confirmRemote && maxCostValue > 0));
 
-  // A create is metadata-only and instant (space + index rows, no provider
-  // call — `_run_index_create`); the actual (possibly long) embedding work
-  // is the refresh that follows. Both the manual "Refresh" button AND a
-  // just-created index route through this one queue-aware path: launch
-  // (embedding.index_refresh is a QUEUED_ACTION_JOB), poll the job to a
-  // terminal status if one was minted, then reload the indexes list. This
-  // controller is the only consumer of its own state — no cross-panel
-  // broadcast needed. NOT done if this still blocks the caller or leaves
-  // the list stale after completion.
+  // Curated creates are metadata-only (space + index rows); custom remote
+  // creates may run a confirmed dimension-discovery probe. The actual
+  // (possibly long) embedding work is the refresh that follows. Both the
+  // manual "Refresh" button AND a just-created index route through this one
+  // queue-aware path: launch (embedding.index_refresh is a QUEUED_ACTION_JOB),
+  // poll the job to a terminal status if one was minted, then reload the
+  // indexes list. This controller is the only consumer of its own state — no
+  // cross-panel broadcast needed. NOT done if this still blocks the caller or
+  // leaves the list stale after completion.
   const runRefresh = useCallback(
     async (indexId: string, mode: 'incremental' | 'full') => {
       const generation = scopeGeneration.current;
@@ -222,7 +222,7 @@ export function useEmbeddingsPanelController({
       const generation = scopeGeneration.current;
       setCreating(true);
       try {
-        const indexId = await apiPort.createEmbeddingIndex({
+        const input = {
           sheetId,
           sourceColumns: form.sourceColumns,
           modality: EMBEDDING_TEXT_MODALITY,
@@ -231,8 +231,34 @@ export function useEmbeddingsPanelController({
           allowRemote: remoteSelected ? form.allowRemote : false,
           allowRemoteAutomaticRefresh: autoRefreshOn,
           maxCostUsdPerRefresh: autoRefreshOn ? maxCostValue : null,
-        });
+        };
+        let confirmation: string | undefined;
+        let indexId: string;
+        for (;;) {
+          try {
+            indexId = confirmation === undefined
+              ? await apiPort.createEmbeddingIndex(input)
+              : await apiPort.createEmbeddingIndex(input, { confirmation });
+            break;
+          } catch (caught) {
+            if (
+              !(caught instanceof ConfirmationRequiredError)
+              || !caught.estimate.promise_set_hash
+              || !requestCostConfirmation
+            ) {
+              throw caught;
+            }
+            if (!isCurrentScope(generation)) return;
+            const confirmed = await requestCostConfirmation(
+              caught.estimate,
+              caught.message,
+            );
+            if (!confirmed || !isCurrentScope(generation)) return;
+            confirmation = caught.estimate.promise_set_hash;
+          }
+        }
         if (!isCurrentScope(generation)) return;
+        setError(null);
         setAdding(false);
         await load();
         if (!isCurrentScope(generation)) return;
@@ -259,6 +285,7 @@ export function useEmbeddingsPanelController({
       apiPort,
       isCurrentScope,
       load,
+      requestCostConfirmation,
       runRefresh,
     ],
   );

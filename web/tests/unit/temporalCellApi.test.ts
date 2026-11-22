@@ -22,7 +22,7 @@ describe('temporal sheet-data values', () => {
         id: 7,
         name: 'cuts',
         type: 'timeline_points',
-        ai_generated: true,
+        generated: true,
         format: null,
         current_run_id: 9,
         transcript_status: null,
@@ -55,7 +55,6 @@ describe('temporal sheet-data values', () => {
       'project-id',
       1,
       { offset: 0, limit: 1 },
-      (status) => new Error(`HTTP ${status}`),
     );
 
     expect(page.rows[0]?.cells['7']).toEqual(temporalValue);

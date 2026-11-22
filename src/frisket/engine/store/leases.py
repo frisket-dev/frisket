@@ -9,7 +9,7 @@ before any "T"-separated isoformat of the same instant, turning a live lease
 into an "expired" one (double-run) or vice versa (stuck-forever). This module
 owns the PARSED, format-tolerant comparison and the acquire/release CAS.
 
-Left alone by design (genuinely different models): OutputColumnClaimStore,
+Left alone by design (genuinely different models): GeneratedColumnClaimStore,
 the plugin bootstrap claim, and the declarative IdempotencyPolicy.
 """
 
@@ -132,8 +132,8 @@ def release_lease(
         + [f"{column}=?" for column in extra]
         + list(set_sql)
     )
-    db.execute(
-        f"UPDATE {table} SET {assignments} WHERE {id_column}=? AND {token_column}=?",
-        (*extra.values(), id_value, token),
-    )
-    db.commit()
+    with write_transaction(db, what=f"release lease on {table}"):
+        db.execute(
+            f"UPDATE {table} SET {assignments} WHERE {id_column}=? AND {token_column}=?",
+            (*extra.values(), id_value, token),
+        )

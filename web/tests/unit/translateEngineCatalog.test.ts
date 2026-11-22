@@ -38,7 +38,7 @@ describe('mergeEnginesWithFallback', () => {
     const live: EngineOption = {
       id: 'llm',
       label: 'LLM (live label)',
-      tier: 'hosted',
+      tier: 'remote',
       available: true,
       // no `language` field — a stale catalog
     };
@@ -68,15 +68,15 @@ describe('mergeEnginesWithFallback', () => {
   });
 
   it('passes a live-only engine (no fallback twin) through unchanged', () => {
-    const live: EngineOption = { id: 'brand_new', label: 'New', tier: 'hosted', available: true };
+    const live: EngineOption = { id: 'brand_new', label: 'New', tier: 'remote', available: true };
     const [merged] = mergeEnginesWithFallback([live], TRANSLATE_ENGINE_FALLBACK);
     expect(merged).toEqual(live);
   });
 
   it('keeps the live set authoritative on which engines exist and their order', () => {
     const live: EngineOption[] = [
-      { id: 'deepl', label: 'DeepL', tier: 'hosted', available: true },
-      { id: 'llm', label: 'LLM', tier: 'hosted', available: true },
+      { id: 'deepl', label: 'DeepL', tier: 'remote', available: true },
+      { id: 'llm', label: 'LLM', tier: 'remote', available: true },
     ];
     const merged = mergeEnginesWithFallback(live, TRANSLATE_ENGINE_FALLBACK);
     expect(merged.map((e) => e.id)).toEqual(['deepl', 'llm']);
@@ -90,7 +90,7 @@ describe('translateEnginesFromCatalog', () => {
 
   it('merges live entries over the fallback so a stale `language` is preserved', () => {
     const catalog = catalogWith([
-      { id: 'llm', label: 'LLM', tier: 'hosted', available: true },
+      { id: 'llm', label: 'LLM', tier: 'remote', available: true },
     ]);
     const [llm] = translateEnginesFromCatalog(catalog);
     expect(llm.language).toEqual(fallbackLlm.language);

@@ -17,7 +17,7 @@ class ProjectTimingService:
         project = self._workspace.get(project_id)
         jobs = self._workspace.queue.list_project_jobs(
             project_id,
-            storage_org_id=self._workspace.queue_storage_organization_id,
+            storage_organization_id=self._workspace.queue_storage_organization_id,
             limit=5000,
         )
         return project_timing_payload(project, jobs, now=datetime.now(UTC))

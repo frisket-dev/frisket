@@ -417,7 +417,7 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
     pid = client.post("/api/projects", json={"name": "Live precedence"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet_id = project.add_sheet("rows")
-    tags = project.add_column(sheet_id, "tags", type="json", ai_generated=True)
+    tags = project.add_column(sheet_id, "tags", type="json", generated=True)
     head_row, edit_row, malformed_edit_row = project.add_rows(
         sheet_id,
         [

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     CITATION_RUN_GAP_TOLERANCE_MS,
     citation_temporal_runs,
     record_citation,
@@ -95,32 +95,33 @@ def _seed_two_run_link(
             end_ms=run1_start + 1000,
             quote="a distinct, later thing",
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
-        spans=[
-            {
-                "span_id": span_a["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            },
-            {
-                "span_id": span_b["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            },
-            {
-                "span_id": span_c["id"],
-                "rank": 1,
-                "span_role": "support",
-                "required": True,
-            },
-        ],
-        producer={"source_action_kind": "test"},
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
+            spans=[
+                {
+                    "span_id": span_a["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                },
+                {
+                    "span_id": span_b["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                },
+                {
+                    "span_id": span_c["id"],
+                    "rank": 1,
+                    "span_role": "support",
+                    "required": True,
+                },
+            ],
+            producer={"source_action_kind": "test"},
+        )
     project.db.commit()
     return {
         "link": link,
@@ -138,10 +139,8 @@ def _seed_two_run_link(
 
 
 def test_citation_temporal_runs_merges_within_tolerance_and_splits_beyond_it(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs.frisket", name="Runs")
     blob_hash = project.add_blob(
         _wav_bytes(20.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -159,17 +158,14 @@ def test_citation_temporal_runs_merges_within_tolerance_and_splits_beyond_it(
     assert runs[1]["start_ms"] == seeded["run1_start"]
     assert runs[1]["end_ms"] == seeded["run1_start"] + 1000
     assert runs[1]["span_stable_ids"] == [seeded["span_c"]["stable_id"]]
-    project.close()
 
 
 def test_citation_temporal_runs_gap_exactly_at_tolerance_still_merges(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     """The gap check is <=, not <: a gap of EXACTLY the tolerance is still
     "same thought", matching the real data's wide (14,750ms) margin either
     side of the chosen 1500ms -- the boundary itself merges."""
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-boundary.frisket", name="Runs Boundary")
     blob_hash = project.add_blob(
         _wav_bytes(10.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -182,12 +178,9 @@ def test_citation_temporal_runs_gap_exactly_at_tolerance_still_merges(
     assert len(runs) == 1
     assert runs[0]["start_ms"] == 1000
     assert runs[0]["end_ms"] == seeded["run1_start"] + 1000
-    project.close()
 
 
-def test_citation_temporal_runs_ignores_uncited_spans(tmp_path: Path) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-uncited.frisket", name="Runs Uncited")
+def test_citation_temporal_runs_ignores_uncited_spans(project: Project) -> None:
     blob_hash = project.add_blob(
         _wav_bytes(10.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -218,48 +211,43 @@ def test_citation_temporal_runs_ignores_uncited_spans(tmp_path: Path) -> None:
             end_ms=2900,
             quote="context, not cited",
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
-        spans=[
-            {
-                "span_id": cited["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            },
-            {
-                "span_id": uncited["id"],
-                "rank": 1,
-                "span_role": "support",
-                "required": False,
-            },
-        ],
-        producer={"source_action_kind": "test"},
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
+            spans=[
+                {
+                    "span_id": cited["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                },
+                {
+                    "span_id": uncited["id"],
+                    "rank": 1,
+                    "span_role": "support",
+                    "required": False,
+                },
+            ],
+            producer={"source_action_kind": "test"},
+        )
     project.db.commit()
 
     runs = citation_temporal_runs(project, link["stable_id"])
 
     assert len(runs) == 1
     assert runs[0]["span_stable_ids"] == [cited["stable_id"]]
-    project.close()
 
 
 def test_citation_temporal_runs_raises_keyerror_for_unknown_link(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-missing.frisket", name="Runs Missing")
     with pytest.raises(KeyError):
         citation_temporal_runs(project, "evidence_link:does-not-exist")
-    project.close()
 
 
-def test_viewer_payload_attaches_run_index_and_clip_urls(tmp_path: Path) -> None:
-    ws = tmp_path / "ws"
-    project = Project.create(ws / "runs-viewer.frisket", name="Runs Viewer")
+def test_viewer_payload_attaches_run_index_and_clip_urls(project: Project) -> None:
     blob_hash = project.add_blob(
         _wav_bytes(20.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -279,12 +267,11 @@ def test_viewer_payload_attaches_run_index_and_clip_urls(tmp_path: Path) -> None
     assert len(runs) == 2
     link_stable_id = seeded["link"]["stable_id"]
     assert runs[0]["clip_url"] == (
-        f"/api/projects/proj/evidence/links/{link_stable_id}/runs/0/clip"
+        f"/api/projects/proj/citations/{link_stable_id}/runs/0/clip"
     )
     assert runs[1]["clip_url"] == (
-        f"/api/projects/proj/evidence/links/{link_stable_id}/runs/1/clip"
+        f"/api/projects/proj/citations/{link_stable_id}/runs/1/clip"
     )
-    project.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -302,7 +289,7 @@ def test_run_clip_endpoint_streams_a_real_ffmpeg_cut_per_run(tmp_path: Path) -> 
     link_id = seeded["link"]["stable_id"]
     project.close()
 
-    run0 = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/0/clip")
+    run0 = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/0/clip")
     assert run0.status_code == 200, run0.text
     assert run0.headers["content-type"] == "audio/wav"
     assert "attachment" in run0.headers["content-disposition"]
@@ -311,7 +298,7 @@ def test_run_clip_endpoint_streams_a_real_ffmpeg_cut_per_run(tmp_path: Path) -> 
         seconds0 = clipped.getnframes() / clipped.getframerate()
     assert abs(seconds0 - 3.5) < 0.1
 
-    run1 = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/1/clip")
+    run1 = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/1/clip")
     assert run1.status_code == 200, run1.text
     # run 1 is a single 1000ms span; padded -> 2.0s.
     with wave.open(io.BytesIO(run1.content)) as clipped:
@@ -333,7 +320,7 @@ def test_run_clip_endpoint_honors_pad_ms(tmp_path: Path) -> None:
     project.close()
 
     response = client.get(
-        f"/api/projects/{pid}/evidence/links/{link_id}/runs/1/clip",
+        f"/api/projects/{pid}/citations/{link_id}/runs/1/clip",
         params={"pad_ms": 0},
     )
     assert response.status_code == 200, response.text
@@ -352,7 +339,7 @@ def test_run_clip_endpoint_404s_unknown_run_index(tmp_path: Path) -> None:
     link_id = seeded["link"]["stable_id"]
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/2/clip")
+    response = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/2/clip")
 
     assert response.status_code == 404
     assert response.json()["code"] == "run_not_found"
@@ -362,11 +349,11 @@ def test_run_clip_endpoint_404s_unknown_link(tmp_path: Path) -> None:
     client, pid, _ws = _client_and_project(tmp_path)
 
     response = client.get(
-        f"/api/projects/{pid}/evidence/links/evidence_link:does-not-exist/runs/0/clip"
+        f"/api/projects/{pid}/citations/evidence_link:does-not-exist/runs/0/clip"
     )
 
     assert response.status_code == 404
-    assert response.json()["code"] == "evidence_link_not_found"
+    assert response.json()["code"] == "citation_not_found"
 
 
 def test_run_clip_endpoint_404s_when_blob_missing_from_disk(tmp_path: Path) -> None:
@@ -379,7 +366,7 @@ def test_run_clip_endpoint_404s_when_blob_missing_from_disk(tmp_path: Path) -> N
     link_id = seeded["link"]["stable_id"]
     project.close()
 
-    response = client.get(f"/api/projects/{pid}/evidence/links/{link_id}/runs/0/clip")
+    response = client.get(f"/api/projects/{pid}/citations/{link_id}/runs/0/clip")
 
     assert response.status_code == 404
     assert response.json()["code"] == "blob_missing"

@@ -36,7 +36,7 @@ function saved(hiddenOnly = false): GeneratedActionDraft {
           target: { kind: 'column', type: 'integer' } }]),
         { name: 'entities', path: '$.items', target: { kind: 'named_result',
           schema: 'entity_list', may_feed: ['derive.table_from_list'] } },
-        { name: 'proof', path: '$', target: { kind: 'receipt_evidence', retention: 'pinned' } },
+        { name: 'proof', path: '$', target: { kind: 'receipt_record', retention: 'pinned' } },
       ],
     }, output_names: hiddenOnly ? {} : { length: 'Measured length' },
   };
@@ -61,7 +61,7 @@ describe('typed Python consumer boundary', () => {
     const returnSchema = { type: 'object', properties: { count: { type: 'integer' } } };
     const outputRoutes = [
       { name: 'count', path: '$.count', target: { kind: 'column', type: 'integer' } },
-      { name: 'proof', path: '$', target: { kind: 'receipt_evidence', retention: 'pinned' } },
+      { name: 'proof', path: '$', target: { kind: 'receipt_record', retention: 'pinned' } },
     ];
     fireEvent.change(schemaField, { target: { value: JSON.stringify(returnSchema) } });
     fireEvent.change(routesField, { target: { value: '[' } });
@@ -124,7 +124,7 @@ describe('typed Python consumer boundary', () => {
           onExecuteRegisteredAction={onExecute}
           inspectProposal={{ seq: 1, title: 'Saved Python', spec: draft }} />
       </WorkspaceStoresContext.Provider>);
-      expect(await screen.findByTestId('field-code')).toHaveValue(draft.params.code);
+      expect(await screen.findByTestId('field-code')).toHaveValue(String(draft.params.code));
       await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
       if (!hiddenOnly) {
         expect(screen.getByTestId('field-output-length')).toHaveValue('Measured length');

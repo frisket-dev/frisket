@@ -9,7 +9,7 @@ from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -35,18 +35,17 @@ from tests.engine.test_bundle_schema_fence import _remove_document_text_authorit
 from frisket.engine.store.transactions import write_transaction
 
 
-def _current_cell_project(tmp_path: Path) -> tuple[Project, int, int, int]:
-    project = Project.create(tmp_path / "project", name="retrieval-lifecycle")
+def _seed_current_cell_project(project: Project) -> tuple[int, int, int]:
     sheet_id = project.add_sheet("Sheet")
     column_id = project.add_column(sheet_id, "Text")
     row_id = project.add_rows(sheet_id, [{"Text": "first"}], {"Text": column_id})[0]
-    return project, sheet_id, row_id, column_id
+    return sheet_id, row_id, column_id
 
 
 def test_projection_repair_preserves_revision_until_source_writer_changes_value(
-    tmp_path,
+    project: Project,
 ) -> None:
-    project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
+    _sheet_id, row_id, column_id = _seed_current_cell_project(project)
     before = project.db.execute(
         "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
@@ -90,8 +89,10 @@ def test_projection_repair_preserves_revision_until_source_writer_changes_value(
     assert int(after[3]) == latest_revision(project.db)
 
 
-def test_revision_allocation_and_projection_roll_back_together(tmp_path) -> None:
-    project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
+def test_revision_allocation_and_projection_roll_back_together(
+    project: Project,
+) -> None:
+    _sheet_id, row_id, column_id = _seed_current_cell_project(project)
     before_revision = read_binding_revision(
         project.db, row_id=row_id, column_id=column_id
     )
@@ -121,8 +122,10 @@ def test_revision_allocation_and_projection_roll_back_together(tmp_path) -> None
     assert latest_revision(project.db) == before_high_water
 
 
-def test_read_and_touch_binding_revisions_are_exact_and_indexed(tmp_path) -> None:
-    project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
+def test_read_and_touch_binding_revisions_are_exact_and_indexed(
+    project: Project,
+) -> None:
+    _sheet_id, row_id, column_id = _seed_current_cell_project(project)
     assert read_binding_revisions(
         project.db,
         [(row_id, column_id), (row_id + 999, column_id)],
@@ -151,8 +154,8 @@ def test_read_and_touch_binding_revisions_are_exact_and_indexed(tmp_path) -> Non
     )
 
 
-def test_binding_revision_read_requires_positive_ids(tmp_path) -> None:
-    project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
+def test_binding_revision_read_requires_positive_ids(project: Project) -> None:
+    _sheet_id, row_id, column_id = _seed_current_cell_project(project)
     with pytest.raises(ValueError, match="row_id"):
         read_binding_revision(project.db, row_id=0, column_id=column_id)
     with pytest.raises(ValueError, match="column_id"):
@@ -161,8 +164,10 @@ def test_binding_revision_read_requires_positive_ids(tmp_path) -> None:
         touch_binding_revisions(project.db, [(row_id, column_id)])
 
 
-def test_retrieval_evidence_publication_touches_its_current_binding(tmp_path) -> None:
-    project, sheet_id, row_id, column_id = _current_cell_project(tmp_path)
+def test_retrieval_evidence_publication_touches_its_current_binding(
+    project: Project,
+) -> None:
+    sheet_id, row_id, column_id = _seed_current_cell_project(project)
     with write_transaction(project.db):
         artifact = record_source_artifact(
             project,
@@ -183,27 +188,31 @@ def test_retrieval_evidence_publication_touches_its_current_binding(tmp_path) ->
         )
     before = read_binding_revision(project.db, row_id=row_id, column_id=column_id)
 
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref={"kind": "source_cell", "row_id": row_id, "column_id": column_id},
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        link_role="media_transcribe_temporal",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref={
+                "kind": "source_cell",
+                "row_id": row_id,
+                "column_id": column_id,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            link_role="media_transcribe_temporal",
+        )
 
     assert (
         read_binding_revision(project.db, row_id=row_id, column_id=column_id) > before
     )
 
 
-def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path) -> None:
-    path = tmp_path / "migration.frisket"
-    project, _sheet_id, row_id, column_id = _current_cell_project(path)
-    # _current_cell_project nests its conventional project directory.
-    bundle_path = project.path
+def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "migration.frisket"
+    project = Project.create(bundle_path, name="retrieval-lifecycle")
+    _sheet_id, row_id, column_id = _seed_current_cell_project(project)
     restore_pre_domain_schema(project.db)
     history_before = [
         tuple(row)
@@ -254,9 +263,9 @@ def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path) -> None
 
 
 def test_migration_rolls_back_column_revision_and_work_on_failed_stamp(
-    tmp_path,
+    project: Project,
 ) -> None:
-    project, _sheet_id, _row_id, _column_id = _current_cell_project(tmp_path)
+    _seed_current_cell_project(project)
     db = project.db
     restore_pre_domain_schema(db)
     _remove_document_text_authority(db)

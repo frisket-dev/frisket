@@ -24,7 +24,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
@@ -45,7 +45,7 @@ from frisket.engine.store.keyed_publication import (
     index_keyed_targets,
     publish_keyed_records,
 )
-from frisket.engine.store.op_log import append_change, set_undo_info
+from frisket.engine.store.op_log import append_change_in_transaction, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
 from frisket.feeds.rss import (
@@ -364,7 +364,7 @@ def _perform_feed_poll_in_txn(
         )
         # Insert the failed receipt before linking the error source_run to it
         # (source_runs.receipt_id carries a FK to receipts.id).
-        ReceiptStore(project).insert_finished(receipt, commit=False)
+        ReceiptStore(project).insert_finished_in_transaction(receipt)
         feed_store.finish_feed_check(
             feed_check_id,
             status="error",
@@ -442,7 +442,7 @@ def _perform_feed_poll_in_txn(
 
     for op_id in receipt.op_ids:
         ChangeStore(project).close(op_id)
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
     feed_store.finish_feed_check(
         feed_check_id,
         status="ok",
@@ -580,12 +580,11 @@ def _materialize_registered_feed_poll_in_txn(
     def writer():
         nonlocal op_id, producer_id
         if op_id is None:
-            op_id = append_change(
+            op_id = append_change_in_transaction(
                 project,
                 "source.poll",
                 {"source_id": feed_id, "source_run_id": feed_check_id},
                 label=f"source poll {feed_before['name']}",
-                commit=False,
             )
             producer_id = create_base_cell_producer(
                 project.db, stage_id=f"op:{op_id}", op_id=op_id
@@ -593,12 +592,11 @@ def _materialize_registered_feed_poll_in_txn(
         return op_id, producer_id
 
     def create_rows(ordinals, producer):
-        return project.add_rows(
+        return project.add_rows_in_transaction(
             sheet_id,
             [records[ordinal - 1] for ordinal in ordinals],
             column_ids,
             producer_id=producer,
-            commit=False,
         )
 
     with ValidatedKeyedInput() as staged:
@@ -824,13 +822,13 @@ def _insert_feed_poll_column_in_txn(
     ).fetchone()
     if existing_hidden:
         cur.execute(
-            "UPDATE columns SET hidden=0, type=?, ai_generated=0, default_hidden=?, "
+            "UPDATE columns SET hidden=0, type=?, generated=0, default_hidden=?, "
             "current_run_id=NULL WHERE id=?",
             (type, int(default_hidden), existing_hidden["id"]),
         )
         return int(existing_hidden["id"])
     cur.execute(
-        "INSERT INTO columns (sheet_id, name, type, ai_generated, format, hidden, "
+        "INSERT INTO columns (sheet_id, name, type, generated, format, hidden, "
         "default_hidden, position) VALUES (?, ?, ?, 0, NULL, 0, ?, "
         "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
         (sheet_id, name, type, int(default_hidden), sheet_id),
@@ -1110,10 +1108,10 @@ def _feed_poll_receipt(
             ReceiptIO(name="rows", ref=refs["rows"]),
         ],
         provider_use=provider_use,
-        evidence=[
-            ReceiptEvidence(ref=refs["cursor"]),
-            ReceiptEvidence(ref=refs["artifacts"]),
-            ReceiptEvidence(ref=refs["enclosures"]),
+        records=[
+            ReceiptRecord(ref=refs["cursor"]),
+            ReceiptRecord(ref=refs["artifacts"]),
+            ReceiptRecord(ref=refs["enclosures"]),
         ],
         warnings=warnings,
         errors=errors,

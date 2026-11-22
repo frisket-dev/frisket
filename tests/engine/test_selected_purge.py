@@ -22,6 +22,7 @@ from frisket.engine.store.purge import (
     require_restore_available,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.effect_checkpoints import row_effect_ref
 
 
 @pytest.fixture
@@ -55,11 +56,11 @@ def publish_bindings(project, store, revision, locations):
             dependencies=(BindingDependency(row, column, cell_revision),),
         )
 
-    store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+    store.begin_preparation(revision, slice_id="passages:v1", channel="text")
     assert store.publish_source(
         SourcePublication(
             source_revision=revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             parts=(),
             bindings=tuple(
@@ -126,7 +127,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_change("test.edit", commit=False)
+            op_id = project.append_change_in_transaction("test.edit")
             insert_edits(
                 project.db,
                 op_id=op_id,
@@ -137,7 +138,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     retained_sheet, retained_column, retained_row = add(project, "retained", "keep")
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        retained_edit = project.append_change("test.edit", commit=False)
+        retained_edit = project.append_change_in_transaction("test.edit")
         insert_edits(
             project.db,
             op_id=retained_edit,
@@ -156,22 +157,21 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
         {"doomed": doomed, "safe": safe},
     )[0]
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_change
+    from frisket.engine.store.op_log import append_change_in_transaction
 
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        column_op = append_change(
+        column_op = append_change_in_transaction(
             project,
             "test.created_column",
             undo_info={"created_columns": [doomed]},
-            commit=False,
         )
         start_change(project.db, column_op)
     finish_purge(project, begin_purge(project, column_ids=[doomed]))
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_change("test.edit", commit=False)
+            op_id = project.append_change_in_transaction("test.edit")
             insert_edits(
                 project.db,
                 op_id=op_id,
@@ -202,8 +202,8 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
         sheet, [{"value": "old one"}, {"value": "old two"}], {"value": column}
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_change(
-        "source.refresh", {}, label="source refresh", commit=False
+    op = project.append_change_in_transaction(
+        "source.refresh", {}, label="source refresh"
     )
     producer = create_base_cell_producer(project.db, stage_id=f"op:{op}", op_id=op)
     replace_base_cells(
@@ -267,7 +267,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
 
     source_sheet = project.add_sheet("source")
     source_column = project.add_column(
-        source_sheet, "generated", type="text", ai_generated=True
+        source_sheet, "generated", type="text", generated=True
     )
     source_row = project.add_rows(
         source_sheet, [{"generated": "input"}], {"generated": source_column}
@@ -281,14 +281,15 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         project, source_run, output_column_ids={source_column}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        source_run,
-        source_column,
-        output_role="saved",
-        compatibility_key="sha256:independent-saved-output",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            source_run,
+            source_column,
+            output_role="saved",
+            compatibility_key="sha256:independent-saved-output",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     runs.write_results(
         source_run,
         [
@@ -301,19 +302,16 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        source_run,
-        {source_column},
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
-    runs.finish_run(
-        source_run,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            source_run,
+            {source_column},
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
+    runs.finish_run(source_run, fence=authority.fence())
     destination = project.add_sheet("copies")
-    output = project.add_column(destination, "saved", type="text", ai_generated=True)
+    output = project.add_column(destination, "saved", type="text", generated=True)
     first, second = project.add_rows(
         destination,
         [{"saved": None}, {"saved": None}],
@@ -365,7 +363,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
 
     sheet = project.add_sheet("source-cohort")
     source = project.add_column(sheet, "source", type="text")
-    output = project.add_column(sheet, "generated", type="text", ai_generated=True)
+    output = project.add_column(sheet, "generated", type="text", generated=True)
     first, second = project.add_rows(
         sheet,
         [{"source": "remove"}, {"source": "retain"}],
@@ -378,14 +376,15 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         project, run_id, output_column_ids={output}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output,
-        output_role="answer",
-        compatibility_key="sha256:source-cohort-answer-v1",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output,
+            output_role="answer",
+            compatibility_key="sha256:source-cohort-answer-v1",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     runs.write_results(
         run_id,
         [
@@ -399,23 +398,18 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [output],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
-    runs.finish_run(
-        run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [output],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
+    runs.finish_run(run_id, fence=authority.fence())
     # The independently retained outcome on the row being purged keeps its
     # source result alive while that source row itself is removed.
     saved_sheet = project.add_sheet("independent-copy")
-    saved_column = project.add_column(
-        saved_sheet, "saved", type="text", ai_generated=True
-    )
+    saved_column = project.add_column(saved_sheet, "saved", type="text", generated=True)
     [saved_row] = project.add_rows(saved_sheet, [{}], {})
     from frisket.engine.store.changes import ChangeStore, start_change
     from frisket.engine.store.current_cells import refresh_current_cells
@@ -482,7 +476,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
 
     sheet = project.add_sheet("published-results")
     source = project.add_column(sheet, "source", type="text")
-    output = project.add_column(sheet, "generated", type="text", ai_generated=True)
+    output = project.add_column(sheet, "generated", type="text", generated=True)
     unowned, shared = project.add_rows(
         sheet,
         [{"source": "unowned"}, {"source": "shared"}],
@@ -497,14 +491,15 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         project, run_id, output_column_ids={output}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output,
-        output_role="answer",
-        compatibility_key="sha256:purge-owned-result-v1",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output,
+            output_role="answer",
+            compatibility_key="sha256:purge-owned-result-v1",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     runs.write_results(
         run_id,
         [
@@ -518,17 +513,14 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [output],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
-    runs.finish_run(
-        run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [output],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
+    runs.finish_run(run_id, fence=authority.fence())
 
     # The global immutability backstop remains active without exact purge scope.
     with pytest.raises(sqlite3.IntegrityError, match="published result is immutable"):
@@ -539,9 +531,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
             )
 
     saved_sheet = project.add_sheet("independent-owner")
-    saved_column = project.add_column(
-        saved_sheet, "saved", type="text", ai_generated=True
-    )
+    saved_column = project.add_column(saved_sheet, "saved", type="text", generated=True)
     [saved_row] = project.add_rows(saved_sheet, [{}], {})
     copy_op = project.append_change("run.reapply", {"action_kind": "run.reapply"})
     # Reapply only copies onto the source row; a copy owned by a row in
@@ -860,7 +850,7 @@ def test_late_result_refusal_keeps_paid_usage(project):
 
     sheet = project.add_sheet("late-provider")
     source = project.add_column(sheet, "source")
-    output = project.add_column(sheet, "generated", ai_generated=True)
+    output = project.add_column(sheet, "generated", generated=True)
     row = project.add_rows(sheet, [{"source": "paid request"}], {"source": source})[0]
     op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)", "output": "generated"}
@@ -874,15 +864,16 @@ def test_late_result_refusal_keeps_paid_usage(project):
     )
     token = authority.claim_token
     assert token is not None
-    ResultGenerationStore(project).declare(
-        run_id,
-        output,
-        output_role="match",
-        compatibility_key="sha256:purge-late-response",
-        write_mode="create",
-        claim_token=token,
-        defer_publication=True,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run_id,
+            output,
+            output_role="match",
+            compatibility_key="sha256:purge-late-response",
+            write_mode="create",
+            claim_token=token,
+            defer_publication=True,
+        )
     # begin_purge refuses while this run is active; a purge recorded under the
     # open generation stands in for the provider response that outlives it.
     with project.db:
@@ -937,15 +928,16 @@ def test_late_result_refusal_keeps_paid_usage(project):
         == 0
     )
     generations = ResultGenerationStore(project)
-    assert (
-        generations.seal(
-            run_id,
-            [output],
-            claim_token=token,
-            terminal_disposition="cancelled",
+    with write_transaction(project.db):
+        assert (
+            generations.seal(
+                run_id,
+                [output],
+                claim_token=token,
+                terminal_disposition="cancelled",
+            )
+            == 0
         )
-        == 0
-    )
     assert generations.get_binding(run_id, output).state == "sealed"
 
 
@@ -1089,7 +1081,7 @@ def test_column_purge_preserves_unselected_source_baseline_fields(project):
 
 
 def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(project):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_source_artifact,
         record_source_span,
         record_text_surface,
@@ -1158,22 +1150,21 @@ def test_active_or_unaccounted_work_must_resolve_before_purge(project):
         begin_purge(project, sheet_ids=[first[0]])
     assert project.db.execute("SELECT count(*) FROM project_purges").fetchone()[0] == 0
     RunResultStore(project).finish_run(run)
+
     checkpoints = EffectCheckpointStore(project.db)
-    unit = {
-        "family": "row_effect",
-        "group_key": str(run),
-        "unit_key": "1",
-        "action_kind": "test.run",
-        "identity": "fingerprint",
-    }
-    assert checkpoints.reserve("checkpoint", **unit)
-    checkpoints.complete("checkpoint", **unit, payload={})
+    ref = row_effect_ref(
+        "checkpoint",
+        run_id=run,
+        row_id=1,
+        action_kind="test.run",
+        identity="fingerprint",
+    )
+    assert checkpoints.reserve(ref)
+    checkpoints.complete(ref, payload={})
     with pytest.raises(ValueError, match="unrecorded usage"):
         begin_purge(project, sheet_ids=[first[0]])
     with write_transaction(checkpoints.db):
-        checkpoints.account_returned(
-            "checkpoint", **unit, payload={"secret": 42}, accrue=lambda _: 0.0
-        )
+        checkpoints.account_returned(ref, payload={"secret": 42}, accrue=lambda _: 0.0)
     finish_purge(project, begin_purge(project, sheet_ids=[first[0]]))
     checkpoint = project.db.execute(
         "SELECT id,state,accounting_persisted,payload FROM effect_checkpoints"
@@ -1235,7 +1226,7 @@ def test_purge_preserves_shared_descriptor_authority_for_other_columns(project):
     }
     with project.db:
         project.db.execute("BEGIN")
-        operation = project.append_change("column.format", commit=False)
+        operation = project.append_change_in_transaction("column.format")
         start_change(project.db, operation)
         project.set_undo_info(operation, info)
         record_descriptor_changes(project.db, operation, info)
@@ -1264,7 +1255,7 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
 ):
     from pathlib import Path
     from frisket.engine.store.blob_backend import BlobNotFoundError
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.project_blobs import reclaim_local_blobs
     from frisket.retrieval.store import RetrievalStore
 
@@ -1350,7 +1341,7 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
 
 def test_citation_snapshot_failure_restores_immutability_and_reruns(project):
     import sqlite3
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
 
     source = add(project, "source", "original text")
     with write_transaction(project.db):

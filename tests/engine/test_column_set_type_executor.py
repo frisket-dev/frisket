@@ -190,7 +190,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     assert receipt.outputs[0].name == "published"
     assert receipt.outputs[0].ref["kind"] == "column_type_update"
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     assert {"column_type_transition", "classified_column_values"} <= set(evidence)
     assert evidence["classified_column_values"] == {
         "kind": "classified_column_values",
@@ -244,7 +244,7 @@ CASES = [
                     "timeline_duration_required",
                     "ambiguous_time_mapping",
                     "range_out_of_bounds",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
@@ -395,11 +395,10 @@ def test_set_type_requires_plugin_enablement_then_accepts_valid_values(
         assert enabled.status == "completed", enabled.errors
         assert _column_type(project, column_id) == plugin_type
     finally:
-        project.close()
         column_types.unregister_column_type(plugin_type)
 
 
-def test_set_type_validates_plugin_stars_values(tmp_path: Path) -> None:
+def test_set_type_validates_plugin_stars_values(tmp_path: Path, make_project) -> None:
     column_types.register_column_type(
         "stars",
         validate=lambda value: (
@@ -412,8 +411,7 @@ def test_set_type_validates_plugin_stars_values(tmp_path: Path) -> None:
         plugin="demo.stars",
     )
     try:
-        project_path = tmp_path / "stars-column-type.frisket"
-        project = Project.create(project_path, name="Stars Column Type")
+        project = make_project("Stars Column Type")
         sheet_id = project.add_sheet("Ratings")
         rating_id = project.add_column(sheet_id, "rating", type="number")
         row_ids = project.add_rows(
@@ -452,12 +450,11 @@ def test_set_type_validates_plugin_stars_values(tmp_path: Path) -> None:
             row_ids[0]: 4.5,
             row_ids[1]: 6.0,
         }
-        project.close()
     finally:
         column_types.unregister_column_type("stars")
 
 
-def test_set_type_validates_plugin_case_id_values(tmp_path: Path) -> None:
+def test_set_type_validates_plugin_case_id_values(tmp_path: Path, make_project) -> None:
     column_types.register_column_type(
         "case_id",
         validate=lambda value: (
@@ -476,8 +473,7 @@ def test_set_type_validates_plugin_case_id_values(tmp_path: Path) -> None:
         plugin="demo.case_files",
     )
     try:
-        project_path = tmp_path / "case-id-column-type.frisket"
-        project = Project.create(project_path, name="Case ID Column Type")
+        project = make_project("Case ID Column Type")
         sheet_id = project.add_sheet("Cases")
         case_id = project.add_column(sheet_id, "case_id", type="text")
         row_ids = project.add_rows(
@@ -516,7 +512,6 @@ def test_set_type_validates_plugin_case_id_values(tmp_path: Path) -> None:
             row_ids[0]: "CASE-0001",
             row_ids[1]: "case-0002",
         }
-        project.close()
     finally:
         column_types.unregister_column_type("case_id")
 

@@ -11,6 +11,7 @@ from the list items; the caller declares neither item_schema nor columns.
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -165,8 +166,7 @@ def test_derive_table_from_column_materializes_json_list_cells_without_model(
     )
     assert seed.returncode == 0, seed.stderr
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = int(
             project.db.execute("SELECT id FROM sheets WHERE name='Filings'").fetchone()[
                 "id"
@@ -186,8 +186,6 @@ def test_derive_table_from_column_materializes_json_list_cells_without_model(
             ).fetchall()
         ]
         counts_before = _counts(project)
-    finally:
-        project.close()
 
     action = _derive_column_action(sheet_id=sheet_id, column_id=column_id)
     validation = validate_root_action(action)
@@ -218,8 +216,7 @@ def test_derive_table_from_column_materializes_json_list_cells_without_model(
     # 3 items total across the two source rows -> 3 child rows.
     assert len(child_row_ids) == 3
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         child = project.db.execute(
             "SELECT * FROM sheets WHERE id=?", (child_sheet_id,)
         ).fetchone()
@@ -263,12 +260,10 @@ def test_derive_table_from_column_materializes_json_list_cells_without_model(
         assert input_ref["kind"] == "column"
         assert input_ref["sheet_id"] == sheet_id
         assert input_ref["column_id"] == column_id
-        evidence_kinds = {item.ref["kind"] for item in receipt.evidence}
+        evidence_kinds = {item.ref["kind"] for item in receipt.records}
         assert read["source_row_ids"] == source_row_ids
         assert read["item_count"] == 3
         assert "lineage_parent_rows" in evidence_kinds
-    finally:
-        project.close()
 
 
 def test_derive_column_source_rejects_declared_projection() -> None:
@@ -296,8 +291,7 @@ def _seed_and_ids(tmp_path: Path, project_path: Path) -> tuple[int, int, list[in
         str(seed_path),
     )
     assert seed.returncode == 0, seed.stderr
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = int(
             project.db.execute("SELECT id FROM sheets WHERE name='Filings'").fetchone()[
                 "id"
@@ -316,8 +310,6 @@ def _seed_and_ids(tmp_path: Path, project_path: Path) -> tuple[int, int, list[in
                 (sheet_id,),
             ).fetchall()
         ]
-    finally:
-        project.close()
     return sheet_id, column_id, source_row_ids
 
 
@@ -361,8 +353,7 @@ def test_derive_column_source_include_columns_projects_only_listed_keys(
     child_sheet_id = next(
         output.sheet_id for output in result.outputs if output.kind == "sheet"
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         columns = [
             row["name"]
             for row in project.db.execute(
@@ -393,8 +384,6 @@ def test_derive_column_source_include_columns_projects_only_listed_keys(
             source_row_ids[0],
             source_row_ids[0],
         ]
-    finally:
-        project.close()
 
 
 def test_derive_column_source_include_columns_unknown_key_fails_loudly(
@@ -478,8 +467,7 @@ def test_derive_column_source_homogeneous_file_envelopes_materialize_attachment_
     )
     assert seed.returncode == 0, seed.stderr
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = int(
             project.db.execute("SELECT id FROM sheets WHERE name='Filings'").fetchone()[
                 "id"
@@ -497,8 +485,6 @@ def test_derive_column_source_homogeneous_file_envelopes_materialize_attachment_
                 "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
             ).fetchall()
         ]
-    finally:
-        project.close()
 
     spec_path = _write_spec(
         tmp_path,
@@ -526,8 +512,7 @@ def test_derive_column_source_homogeneous_file_envelopes_materialize_attachment_
         output.sheet_id for output in result.outputs if output.kind == "sheet"
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         columns = project.db.execute(
             "SELECT id, name, type FROM columns WHERE sheet_id=? ORDER BY position",
             (child_sheet_id,),
@@ -546,8 +531,6 @@ def test_derive_column_source_homogeneous_file_envelopes_materialize_attachment_
         ]
         attachment_values = project.get_values(child_sheet_id, int(columns[0]["id"]))
         assert [attachment_values[int(row["id"])] for row in child_rows] == attachments
-    finally:
-        project.close()
 
     projected_spec_path = _write_spec(
         tmp_path,
@@ -576,8 +559,7 @@ def test_derive_column_source_homogeneous_file_envelopes_materialize_attachment_
         output.sheet_id for output in projected_result.outputs if output.kind == "sheet"
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         columns = project.db.execute(
             "SELECT id, name, type FROM columns WHERE sheet_id=? ORDER BY position",
             (projected_sheet_id,),
@@ -591,8 +573,6 @@ def test_derive_column_source_homogeneous_file_envelopes_materialize_attachment_
         assert [filenames[int(row["id"])] for row in child_rows] == [
             attachment["filename"] for attachment in attachments
         ]
-    finally:
-        project.close()
 
 
 def test_derive_column_source_noncanonical_objects_keep_generic_key_union(
@@ -635,8 +615,7 @@ def test_derive_column_source_noncanonical_objects_keep_generic_key_union(
     )
     assert seed.returncode == 0, seed.stderr
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = int(
             project.db.execute("SELECT id FROM sheets WHERE name='Filings'").fetchone()[
                 "id"
@@ -647,8 +626,6 @@ def test_derive_column_source_noncanonical_objects_keep_generic_key_union(
                 "SELECT id FROM columns WHERE sheet_id=? AND name='items'", (sheet_id,)
             ).fetchone()["id"]
         )
-    finally:
-        project.close()
 
     spec_path = _write_spec(
         tmp_path,
@@ -676,8 +653,7 @@ def test_derive_column_source_noncanonical_objects_keep_generic_key_union(
         output.sheet_id for output in result.outputs if output.kind == "sheet"
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         columns = project.db.execute(
             "SELECT id, name, type FROM columns WHERE sheet_id=? ORDER BY position",
             (child_sheet_id,),
@@ -723,5 +699,3 @@ def test_derive_column_source_noncanonical_objects_keep_generic_key_union(
                 **list_items[2],
             },
         ]
-    finally:
-        project.close()

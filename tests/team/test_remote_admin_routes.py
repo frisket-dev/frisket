@@ -18,7 +18,7 @@ from frisket.team.operator_service import mint_operator_token
 from frisket.team.schema import (
     audit_log,
     memberships,
-    org_keys,
+    organization_keys,
     pending_invites,
     users,
 )
@@ -46,7 +46,9 @@ def _claimed_app(tmp_path: Path, **overrides: Any) -> tuple[Any, TestClient]:
 
 
 def _operator(app) -> dict[str, str]:
-    raw, _ = mint_operator_token(app.state.control_engine, org_id=1, label="laptop")
+    raw, _ = mint_operator_token(
+        app.state.control_engine, organization_id=1, label="laptop"
+    )
     return {"Authorization": f"Bearer {raw}"}
 
 
@@ -67,7 +69,7 @@ def test_ping_and_rotate_require_the_operator_channel(tmp_path: Path) -> None:
     ping = operator_client.get("/api/admin/ping", headers=bearer)
     assert ping.status_code == 200, ping.text
     payload = ping.json()
-    assert payload["org"] == "Ops Desk"
+    assert payload["organization"] == "Ops Desk"
     assert payload["token_label"] == "laptop"
     assert isinstance(payload["server_version"], str) and payload["server_version"]
 
@@ -86,7 +88,7 @@ def test_ping_and_rotate_require_the_operator_channel(tmp_path: Path) -> None:
 
 def test_pat_never_reaches_the_admin_api(tmp_path: Path) -> None:
     app, owner = _claimed_app(tmp_path)
-    pat = owner.post("/api/org/tokens", json={"name": "probe"}).json()["token"]
+    pat = owner.post("/api/organization/tokens", json={"name": "probe"}).json()["token"]
     client = TestClient(app)
     response = client.get("/api/admin/ping", headers={"Authorization": f"Bearer {pat}"})
     assert response.status_code == 403
@@ -205,7 +207,7 @@ def test_users_add_validation_and_audit_attribution(tmp_path: Path) -> None:
         actor_email = cx.execute(
             sa.select(users.c.email)
             .select_from(audit_log.join(users, users.c.id == audit_log.c.user_id))
-            .where(audit_log.c.action == "org_invite_set")
+            .where(audit_log.c.action == "organization_invite_set")
             .order_by(audit_log.c.id.desc())
             .limit(1)
         ).scalar_one()
@@ -221,7 +223,7 @@ def test_users_list_uses_the_canonical_user_and_invite_envelope(tmp_path: Path) 
     assert listed.status_code == 200, listed.text
     payload = listed.json()
     assert payload["schema_version"] == "frisket.admin_users.v1"
-    organization = payload["orgs"][0]
+    organization = payload["organizations"][0]
     by_email = {row["email"]: row for row in organization["users"]}
     owner_row = by_email["owner@example.com"]
     assert owner_row["role"] == "owner"
@@ -232,7 +234,7 @@ def test_users_list_uses_the_canonical_user_and_invite_envelope(tmp_path: Path) 
         if row["email"] == "new@example.com"
     )
     assert invited_row["role"] == "member"
-    assert set(invited_row) == {"email", "org_id", "role", "expires_at"}
+    assert set(invited_row) == {"email", "organization_id", "role", "expires_at"}
     assert "operator@frisket.invalid" not in by_email
 
 
@@ -368,11 +370,11 @@ def test_email_role_update_rechecks_stale_browser_owner_inside_membership_lock(
         nonlocal revoked
         scopes.append(lock_scope)
         with original_lock(engine, lock_scope=lock_scope) as cx:
-            if not revoked and lock_scope == ("org-membership", 1):
+            if not revoked and lock_scope == ("organization-membership", 1):
                 cx.execute(
                     memberships.update()
                     .where(
-                        memberships.c.org_id == 1,
+                        memberships.c.organization_id == 1,
                         memberships.c.user_id == ids["owner@example.com"],
                     )
                     .values(role="member")
@@ -388,12 +390,12 @@ def test_email_role_update_rechecks_stale_browser_owner_inside_membership_lock(
     )
 
     assert denied.status_code == 403, denied.text
-    assert scopes == [("org-membership", 1)]
+    assert scopes == [("organization-membership", 1)]
     with app.state.control_engine.connect() as cx:
         assert (
             cx.execute(
                 sa.select(memberships.c.role).where(
-                    memberships.c.org_id == 1,
+                    memberships.c.organization_id == 1,
                     memberships.c.user_id == ids["target@example.com"],
                 )
             ).scalar_one()
@@ -479,7 +481,9 @@ def test_admin_secrets_bridge_and_its_denials(tmp_path: Path) -> None:
     assert stored.json()["hint"] == "...1234"
     with app.state.control_engine.connect() as cx:
         encrypted = cx.execute(
-            sa.select(org_keys.c.encrypted).where(org_keys.c.provider == "anthropic")
+            sa.select(organization_keys.c.encrypted).where(
+                organization_keys.c.provider == "anthropic"
+            )
         ).scalar_one()
     assert "sk-ant-test-1234" not in encrypted
 
@@ -675,9 +679,9 @@ def test_organization_media_proxy_status_is_member_readable_and_boolean_only(
     member = _member_client(app)
 
     # Anonymous requests are refused; members read booleans only.
-    assert client.get("/api/org/media-proxy/status").status_code == 401
+    assert client.get("/api/organization/media-proxy/status").status_code == 401
 
-    unset = member.get("/api/org/media-proxy/status")
+    unset = member.get("/api/organization/media-proxy/status")
     assert unset.status_code == 200
     assert unset.json() == {
         "configured": False,
@@ -699,12 +703,12 @@ def test_organization_media_proxy_status_is_member_readable_and_boolean_only(
     )
     media_proxy_config._probe_cache.clear()
 
-    connected = member.get("/api/org/media-proxy/status")
+    connected = member.get("/api/organization/media-proxy/status")
     assert connected.status_code == 200
     body = connected.json()
     assert body == {"configured": True, "connected": True, "can_configure": False}
     assert "url" not in body
     assert "socks5" not in connected.text
 
-    as_owner = owner.get("/api/org/media-proxy/status").json()
+    as_owner = owner.get("/api/organization/media-proxy/status").json()
     assert as_owner["can_configure"] is True

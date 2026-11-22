@@ -175,11 +175,11 @@ class NotificationService:
                 self._workspace.queue,
                 workspace_root=self._workspace.root,
                 project_id=project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 result=result,
                 project_opener=self._workspace.project_opener,
             )
-            return result
+            return dict(result)
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
 
@@ -440,7 +440,7 @@ class NotificationService:
                 self._workspace.queue,
                 workspace_root=self._workspace.root,
                 project_id=project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 request_id=int(created["id"]),
                 project_opener=self._workspace.project_opener,
             )

@@ -22,6 +22,7 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _drain(project):
@@ -59,7 +60,7 @@ def test_manual_correction_starts_and_closes_its_own_change(make_project):
     row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
     project.db.execute("BEGIN")
     with project.db:
-        op = project.append_change("edit", {}, label="manual correction", commit=False)
+        op = project.append_change_in_transaction("edit", {}, label="manual correction")
         insert_edits(
             project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
         )
@@ -106,7 +107,7 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
 
         project.db.execute("BEGIN IMMEDIATE")
         with pytest.raises(ChangePublicationClosed):
-            project.add_sheet("Too late", parent_op_id=op, commit=False)
+            project.add_sheet_in_transaction("Too late", parent_op_id=op)
         assert (
             project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0]
             == before_sheets
@@ -129,7 +130,6 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        project.close()
 
 
 def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_project):
@@ -144,13 +144,12 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_projec
             sheet, [{"text": "one"}, {"text": "two"}], {"text": column}
         )
         project.db.execute("BEGIN IMMEDIATE")
-        op = project.append_change("edit", {}, label="multi-write", commit=False)
+        op = project.append_change_in_transaction("edit", {}, label="multi-write")
         start_change(project.db, op, writing=True)
-        child_sheet = project.add_sheet(
+        child_sheet = project.add_sheet_in_transaction(
             "Owned child",
             parent_sheet_id=sheet,
             parent_op_id=op,
-            commit=False,
             close_change=False,
         )
         insert_edits(
@@ -192,7 +191,6 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_projec
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        project.close()
 
 
 def test_dirty_large_text_reads_stay_bounded(make_project):
@@ -231,84 +229,83 @@ def test_dirty_undo_finds_new_filter_matches_and_exports_before_bounded_repair(
     tmp_path,
 ):
     project, sheet, column, rows = _seed_project(tmp_path, row_count=520)
-    try:
-        _publish_initial_generation(project, sheet, column, rows)
-        run = _run(project, sheet, column, rows)
-        _write(
-            project,
-            run,
-            [
-                {
-                    "row_id": row,
-                    "column_id": column,
-                    "value": "replacement",
-                    "publication_effect": "publish_value",
-                }
-                for row in rows
-            ],
-        )
-        _seal(ResultGenerationStore(project), run, column)
-        _release(project, run)
-        _drain(project)
-        before_revision = _revision(project, column)
-        assert project.undo() == run.op_id
-        assert _revision(project, column) > before_revision
-        assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
-        # Establish that this is genuinely a dirty-cache test, not an eager path.
-        assert (
-            project.db.execute(
-                "SELECT inline_value FROM current_cells WHERE column_id=? AND row_id=?",
-                (column, rows[-1]),
-            ).fetchone()[0]
-            == "replacement"
-        )
+    _publish_initial_generation(project, sheet, column, rows)
+    run = _run(project, sheet, column, rows)
+    _write(
+        project,
+        run,
+        [
+            {
+                "row_id": row,
+                "column_id": column,
+                "value": "replacement",
+                "publication_effect": "publish_value",
+            }
+            for row in rows
+        ],
+    )
+    _seal(ResultGenerationStore(project), run, column)
+    _release(project, run)
+    _drain(project)
+    before_revision = _revision(project, column)
+    assert project.undo() == run.op_id
+    assert _revision(project, column) > before_revision
+    assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
+    # Establish that this is genuinely a dirty-cache test, not an eager path.
+    assert (
+        project.db.execute(
+            "SELECT inline_value FROM current_cells WHERE column_id=? AND row_id=?",
+            (column, rows[-1]),
+        ).fetchone()[0]
+        == "replacement"
+    )
 
-        def check_readers():
-            selected = resolve_sheet_filter_rows(
-                project,
-                sheet,
-                filter_=json.dumps({"generated": {"eq": "first:519"}}),
-            )
-            assert selected.row_ids == [rows[-1]]
-            assert selected.total == 1
-            plan = build_sheet_export_plan(project, sheet)
-            output_index = plan.column_names.index("generated")
-            values = [
-                record[output_index]
-                for batch in iter_export_row_batches(project, plan, batch_size=101)
-                for record in batch.rows
-            ]
-            assert values == [f"first:{index}" for index in range(520)]
-
-        check_readers()
-        revision = _revision(project, column)
-        assert repair_current_cells(project, limit=7) <= 7
-        assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
-        assert _revision(project, column) == revision, "repair is not a new mutation"
-        check_readers()
-        # A newer write must survive both the old repair remainder and later reads.
-        project.apply_edits(
-            [
-                {
-                    "row_id": rows[-1],
-                    "column_id": column,
-                    "value": "newer edit",
-                }
-            ]
-        )
-        _drain(project)
-        assert project.get_values(sheet, column)[rows[-1]] == "newer edit"
-        assert resolve_sheet_filter_rows(
+    def check_readers():
+        selected = resolve_sheet_filter_rows(
             project,
             sheet,
-            filter_=json.dumps({"generated": {"eq": "newer edit"}}),
-        ).row_ids == [rows[-1]]
-    finally:
-        project.close()
+            filter_=json.dumps({"generated": {"eq": "first:519"}}),
+        )
+        assert selected.row_ids == [rows[-1]]
+        assert selected.total == 1
+        plan = build_sheet_export_plan(project, sheet)
+        output_index = plan.column_names.index("generated")
+        values = [
+            record[output_index]
+            for batch in iter_export_row_batches(project, plan, batch_size=101)
+            for record in batch.rows
+        ]
+        assert values == [f"first:{index}" for index in range(520)]
+
+    check_readers()
+    revision = _revision(project, column)
+    assert repair_current_cells(project, limit=7) <= 7
+    assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
+    assert _revision(project, column) == revision, "repair is not a new mutation"
+    check_readers()
+    # A newer write must survive both the old repair remainder and later reads.
+    project.apply_edits(
+        [
+            {
+                "row_id": rows[-1],
+                "column_id": column,
+                "value": "newer edit",
+            }
+        ]
+    )
+    _drain(project)
+    assert project.get_values(sheet, column)[rows[-1]] == "newer edit"
+    assert resolve_sheet_filter_rows(
+        project,
+        sheet,
+        filter_=json.dumps({"generated": {"eq": "newer edit"}}),
+    ).row_ids == [rows[-1]]
 
 
-def test_existing_read_snapshot_does_not_mix_new_invalidation_with_old_values(tmp_path):
-    project, sheet, column, rows = _seed_project(tmp_path)
+def test_existing_read_snapshot_does_not_mix_new_invalidation_with_old_values(
+    make_project, tmp_path
+):
+    project, sheet, column, rows = _seed_project(make_project)
     _publish_initial_generation(project, sheet, column, rows)
     other = Project(tmp_path / "result-generations.frisket")
     try:
@@ -331,54 +328,52 @@ def test_existing_read_snapshot_does_not_mix_new_invalidation_with_old_values(tm
         assert _revision(project, column) > revision
     finally:
         other.close()
-        project.close()
 
 
 def test_unpublished_checkpoint_never_becomes_visible_through_dirty_canonical_read(
     tmp_path,
 ):
     project, sheet, column, rows = _seed_project(tmp_path, row_count=520)
-    try:
-        _publish_initial_generation(project, sheet, column, rows)
-        run = _run(project, sheet, column, rows)
-        RunResultStore(project).write_results(
-            run.run_id,
-            [
-                {
-                    "row_id": rows[0],
-                    "column_id": column,
-                    "value": "not yet published",
-                    "publication_effect": "publish_value",
-                }
-            ],
-            project_heads=False,
-            **run.authority.kwargs(),
-        )
-        assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
-        assert project.get_values(sheet, column)[rows[0]] is None
-        assert (
-            resolve_sheet_filter_rows(
-                project,
-                sheet,
-                filter_=json.dumps({"generated": {"eq": "not yet published"}}),
-            ).total
-            == 0
-        )
-        _drain(project)
-        assert project.get_values(sheet, column)[rows[0]] is None
-        _seal(ResultGenerationStore(project), run, column)
-        assert project.get_values(sheet, column)[rows[0]] == "not yet published"
-    finally:
-        project.close()
+    _publish_initial_generation(project, sheet, column, rows)
+    run = _run(project, sheet, column, rows)
+    RunResultStore(project).write_results(
+        run.run_id,
+        [
+            {
+                "row_id": rows[0],
+                "column_id": column,
+                "value": "not yet published",
+                "publication_effect": "publish_value",
+            }
+        ],
+        project_heads=False,
+        **run.authority.kwargs(),
+    )
+    assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
+    assert project.get_values(sheet, column)[rows[0]] is None
+    assert (
+        resolve_sheet_filter_rows(
+            project,
+            sheet,
+            filter_=json.dumps({"generated": {"eq": "not yet published"}}),
+        ).total
+        == 0
+    )
+    _drain(project)
+    assert project.get_values(sheet, column)[rows[0]] is None
+    _seal(ResultGenerationStore(project), run, column)
+    assert project.get_values(sheet, column)[rows[0]] == "not yet published"
 
 
 @pytest.mark.parametrize("fail_evidence", [False, True])
-def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
-    project, sheet, column, rows = _seed_project(tmp_path)
+def test_output_family_and_evidence_publish_atomically(
+    make_project, tmp_path, fail_evidence
+):
+    project, sheet, column, rows = _seed_project(make_project)
     other = None
     try:
         _publish_initial_generation(project, sheet, column, rows)
-        evidence_column = project.add_column(sheet, "evidence", ai_generated=True)
+        evidence_column = project.add_column(sheet, "evidence", generated=True)
         op_id = project.append_change("map.extract", label="two-output family")
         store = RunResultStore(project)
         run_id = store.start_run(
@@ -389,14 +384,15 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
         )
         generations = ResultGenerationStore(project)
         for output, role in ((column, "answer"), (evidence_column, "evidence")):
-            generations.declare(
-                run_id,
-                output,
-                output_role=role,
-                compatibility_key="sha256:regex-text-v1",
-                write_mode="replace_scope" if output == column else "create",
-                claim_token=authority.claim_token,
-            )
+            with write_transaction(generations.db):
+                generations.declare(
+                    run_id,
+                    output,
+                    output_role=role,
+                    compatibility_key="sha256:regex-text-v1",
+                    write_mode="replace_scope" if output == column else "create",
+                    claim_token=authority.claim_token,
+                )
         other = Project(tmp_path / "result-generations.frisket")
         before_revision = _revision(project, column)
 
@@ -423,7 +419,7 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
                         (evidence_column, "citation"),
                     )
                 ],
-                evidence_writer=evidence_writer,
+                citation_writer=evidence_writer,
                 **authority.kwargs(),
             )
 
@@ -443,7 +439,6 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
     finally:
         if other is not None:
             other.close()
-        project.close()
 
 
 def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear(
@@ -465,7 +460,7 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
     versions = [original_producer]
     project.db.execute("BEGIN")
     with project.db:
-        op_id = project.append_change("source.refresh", commit=False)
+        op_id = project.append_change_in_transaction("source.refresh")
         producer = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )

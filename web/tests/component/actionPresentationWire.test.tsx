@@ -44,7 +44,7 @@ const SHEET_DATA_WIRE = {
       id: 11,
       name: 'source',
       type: 'text',
-      ai_generated: false,
+      generated: false,
       format: null,
       current_run_id: null,
       transcript_status: null,

@@ -238,7 +238,7 @@ class IdentityAuthService:
         if audit_action is not None:
             uow.audit.append(
                 user_id=int(user["id"]),
-                org_id=int(user["org_id"]),
+                organization_id=int(user["organization_id"]),
                 action=audit_action,
             )
         return TeamSignIn(user=user, session=session)

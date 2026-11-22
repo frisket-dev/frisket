@@ -3,11 +3,10 @@
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import httpx
-from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import drain_queue
 
 
@@ -41,9 +40,7 @@ def test_geocode_queue_and_replay(tmp_path, monkeypatch):
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
     )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    with TestClient(
-        create_app(tmp_path / "workspace", router=router, run_status_grace_seconds=3600)
-    ) as client:
+    with make_client(tmp_path, router=router, run_status_grace_seconds=3600) as client:
         project_id = client.post("/api/projects", json={"name": "Geocode"}).json()["id"]
         project = client.app.state.workspace.get(project_id)
         sheet_id = project.add_sheet("Places")

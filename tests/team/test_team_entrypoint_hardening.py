@@ -28,9 +28,9 @@ from frisket.team.schema import (
     client_errors,
     memberships,
     oidc_identities,
-    org_env_vars,
-    org_keys,
-    orgs,
+    organization_env_vars,
+    organization_keys,
+    organizations,
     project_creation_intents,
     project_invites,
     project_roles,
@@ -223,10 +223,14 @@ def test_member_project_visibility_and_pat_inventory_are_actor_scoped(
     listed = ProjectList.model_validate(alice.get("/api/projects").json()).root
     assert {row.id: row.role for row in listed} == {alice_project: "owner"}
     assert bob.get(f"/api/projects/{owner_project}").status_code == 403
-    alice.post("/api/org/tokens", json={"name": "alice"})
-    bob.post("/api/org/tokens", json={"name": "bob"})
-    assert [row["name"] for row in alice.get("/api/org/tokens").json()] == ["alice"]
-    assert [row["name"] for row in bob.get("/api/org/tokens").json()] == ["bob"]
+    alice.post("/api/organization/tokens", json={"name": "alice"})
+    bob.post("/api/organization/tokens", json={"name": "bob"})
+    assert [row["name"] for row in alice.get("/api/organization/tokens").json()] == [
+        "alice"
+    ]
+    assert [row["name"] for row in bob.get("/api/organization/tokens").json()] == [
+        "bob"
+    ]
     with app.state.control_engine.connect() as cx:
         assert (
             cx.execute(sa.select(sa.func.count()).select_from(api_tokens)).scalar_one()
@@ -249,34 +253,40 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
         owner_id = cx.execute(
             users.insert().values(
                 email="owner@example.com",
-                default_org_id=1,
+                default_organization_id=1,
             )
         ).inserted_primary_key[0]
         cx.execute(
-            memberships.insert().values(user_id=owner_id, org_id=1, role="owner")
+            memberships.insert().values(
+                user_id=owner_id, organization_id=1, role="owner"
+            )
         )
         cx.execute(
             projects.insert().values(
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug=project_id,
                 name="Org fence proof",
                 sensitive=False,
                 network="inherit",
             )
         )
-        cx.execute(orgs.insert().values(id=2, name="Other org"))
+        cx.execute(organizations.insert().values(id=2, name="Other org"))
         user_id = cx.execute(
             users.insert().values(
                 email="other-org@example.com",
-                default_org_id=2,
+                default_organization_id=2,
             )
         ).inserted_primary_key[0]
         # This membership is essential: resolve_token already joins through it.
-        cx.execute(memberships.insert().values(user_id=user_id, org_id=2, role="owner"))
+        cx.execute(
+            memberships.insert().values(
+                user_id=user_id, organization_id=2, role="owner"
+            )
+        )
         cx.execute(
             api_tokens.insert().values(
-                org_id=2,
+                organization_id=2,
                 user_id=user_id,
                 name="cross-org",
                 token_hash=hashlib.sha256(token.encode()).hexdigest(),
@@ -394,7 +404,7 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
     with app.state.control_engine.begin() as cx:
         cx.execute(
             api_tokens.insert().values(
-                org_id=1,
+                organization_id=1,
                 user_id=owner_id,
                 name="in-scope",
                 token_hash=hashlib.sha256(in_scope_token.encode()).hexdigest(),
@@ -421,23 +431,23 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
     app.state.workspace.create("Dual-member invite target", project_id=target_project)
     token = "frisket_pat_dual_member_org_two"
     with app.state.control_engine.begin() as cx:
-        cx.execute(orgs.insert().values(id=2, name="Other org"))
+        cx.execute(organizations.insert().values(id=2, name="Other org"))
         user_id = cx.execute(
             users.insert().values(
                 email="dual-member@example.com",
-                default_org_id=2,
+                default_organization_id=2,
             )
         ).inserted_primary_key[0]
         cx.execute(
             memberships.insert(),
             (
-                {"user_id": user_id, "org_id": 1, "role": "member"},
-                {"user_id": user_id, "org_id": 2, "role": "member"},
+                {"user_id": user_id, "organization_id": 1, "role": "member"},
+                {"user_id": user_id, "organization_id": 2, "role": "member"},
             ),
         )
         cx.execute(
             api_tokens.insert().values(
-                org_id=2,
+                organization_id=2,
                 user_id=user_id,
                 name="dual-member-org-two",
                 token_hash=hashlib.sha256(token.encode()).hexdigest(),
@@ -446,8 +456,8 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
         )
         cx.execute(
             projects.insert().values(
-                org_id=1,
-                storage_org_id=1,
+                organization_id=1,
+                storage_organization_id=1,
                 slug=target_project,
                 name="Dual-member invite target",
                 sensitive=False,
@@ -456,7 +466,7 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
         )
         cx.execute(
             project_roles.insert().values(
-                org_id=1,
+                organization_id=1,
                 slug=target_project,
                 user_id=user_id,
                 role="editor",
@@ -533,38 +543,46 @@ def test_secret_upsert_delete_validation_and_diagnostic_redaction(
     client = TestClient(app)
     _login(client, app, "owner@example.com")
     assert (
-        client.post("/api/org/keys", json={"provider": "bogus", "key": "x"}).status_code
+        client.post(
+            "/api/organization/keys", json={"provider": "bogus", "key": "x"}
+        ).status_code
         == 400
     )
     assert (
         client.post(
-            "/api/org/keys", json={"provider": "openai", "key": "sk-first-secret"}
+            "/api/organization/keys",
+            json={"provider": "openai", "key": "sk-first-secret"},
         ).status_code
         == 400
     )
     for secret in ("sk-first-secret", "sk-second-secret"):
         candidate = {"provider": "openai", "key": secret}
-        validation = client.post("/api/org/keys/validate", json=candidate)
+        validation = client.post("/api/organization/keys/validate", json=candidate)
         assert validation.status_code == 200
         assert validation.json()["ok"] is True
         receipt = validation.json()["validation_token"]
         assert receipt
         assert (
             client.post(
-                "/api/org/keys", json={**candidate, "validation_token": receipt}
+                "/api/organization/keys",
+                json={**candidate, "validation_token": receipt},
             ).status_code
             == 200
         )
-    assert client.get("/api/org/keys").json() == [
+    assert client.get("/api/organization/keys").json() == [
         {"provider": "openai", "hint": "...cret"}
     ]
     assert (
-        client.post("/api/org/env", json={"name": "1BAD", "value": "x"}).status_code
+        client.post(
+            "/api/organization/env", json={"name": "1BAD", "value": "x"}
+        ).status_code
         == 400
     )
-    client.post("/api/org/env", json={"name": "REPORT_FROM", "value": "one"})
-    client.post("/api/org/env", json={"name": "REPORT_FROM", "value": "two"})
-    assert client.delete("/api/org/env/REPORT_FROM").json() == {"deleted": True}
+    client.post("/api/organization/env", json={"name": "REPORT_FROM", "value": "one"})
+    client.post("/api/organization/env", json={"name": "REPORT_FROM", "value": "two"})
+    assert client.delete("/api/organization/env/REPORT_FROM").json() == {
+        "deleted": True
+    }
     client.post(
         "/api/client-errors",
         json={
@@ -578,12 +596,14 @@ def test_secret_upsert_delete_validation_and_diagnostic_redaction(
     assert feed["schema_version"] == "frisket.admin_errors.v1"
     with app.state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(org_keys)).scalar_one()
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organization_keys)
+            ).scalar_one()
             == 1
         )
         assert (
             cx.execute(
-                sa.select(sa.func.count()).select_from(org_env_vars)
+                sa.select(sa.func.count()).select_from(organization_env_vars)
             ).scalar_one()
             == 0
         )
@@ -614,7 +634,7 @@ def test_membership_admin_preserves_last_owner(tmp_path: Path) -> None:
     def set_role(user_id: int, role: str) -> int:
         return owner.patch(
             f"/api/admin/browser/users/{user_id}/role",
-            json={"org_id": org_id, "role": role},
+            json={"organization_id": org_id, "role": role},
         ).status_code
 
     assert set_role(owner_id, "member") == 409
@@ -810,7 +830,10 @@ def test_concurrent_cold_boot_converges_to_one_organization(tmp_path: Path) -> N
         apps = list(pool.map(lambda _index: boot(), range(2)))
     with apps[0].state.control_engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(orgs)).scalar_one() == 1
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organizations)
+            ).scalar_one()
+            == 1
         )
 
 
@@ -871,7 +894,10 @@ def test_independent_process_boots_converge_to_one_organization(tmp_path: Path) 
     engine = sa.create_engine(url)
     with engine.connect() as cx:
         assert (
-            cx.execute(sa.select(sa.func.count()).select_from(orgs)).scalar_one() == 1
+            cx.execute(
+                sa.select(sa.func.count()).select_from(organizations)
+            ).scalar_one()
+            == 1
         )
 
 
@@ -886,7 +912,7 @@ def test_marker_version_is_exact_and_project_intent_recovers(tmp_path: Path) -> 
         cx.execute(
             project_creation_intents.insert().values(
                 slug="recover-me-123",
-                org_id=1,
+                organization_id=1,
                 creator_user_id=user_id,
                 name="Recovered",
             )
@@ -945,33 +971,39 @@ def test_exact_catalog_paths_audits_key_files_and_safe_hints(tmp_path: Path) -> 
     }
     assert ("PATCH", "/api/admin/browser/users/{user_id}/role") in paths
     assert ("DELETE", "/api/projects/{pid}/members/{email}") in paths
-    assert ("POST", "/api/org/keys/validate") in paths
+    assert ("POST", "/api/organization/keys/validate") in paths
     candidate = {"provider": "openai", "key": "sk-secret-value"}
-    validation = client.post("/api/org/keys/validate", json=candidate)
+    validation = client.post("/api/organization/keys/validate", json=candidate)
     assert validation.status_code == 200
     assert validation.json()["ok"] is True
     receipt = validation.json()["validation_token"]
     assert receipt
     assert (
         client.post(
-            "/api/org/keys", json={**candidate, "validation_token": receipt}
+            "/api/organization/keys", json={**candidate, "validation_token": receipt}
         ).status_code
         == 200
     )
     assert (
-        client.post("/api/org/keys/validate", json={"provider": "openai"}).json()["ok"]
+        client.post(
+            "/api/organization/keys/validate", json={"provider": "openai"}
+        ).json()["ok"]
         is True
     )
     assert validated == [("openai", "sk-secret-value")] * 2
     assert (
-        client.post("/api/org/env", json={"name": "TINY", "value": "desk"}).json()[
-            "hint"
-        ]
+        client.post(
+            "/api/organization/env", json={"name": "TINY", "value": "desk"}
+        ).json()["hint"]
         == "..."
     )
     with app.state.control_engine.connect() as cx:
         actions = set(cx.execute(sa.select(audit_log.c.action)).scalars())
-    assert {"org_key_set", "org_key_validation_requested", "org_env_set"} <= actions
+    assert {
+        "organization_key_set",
+        "organization_key_validation_requested",
+        "organization_env_set",
+    } <= actions
     other_dir = tmp_path / "other-data"
     other_db = tmp_path / "other.db"
     _app(tmp_path / "other", database_url=f"sqlite:///{other_db}", data_dir=other_dir)

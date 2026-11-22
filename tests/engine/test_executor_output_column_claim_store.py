@@ -4,7 +4,7 @@ from pathlib import Path
 
 from frisket.contracts.action import Receipt
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
@@ -35,7 +35,7 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
             status="running",
         )
     )
-    store = OutputColumnClaimStore(project)
+    store = GeneratedColumnClaimStore(project)
 
     with write_transaction(store.db):
         claims, conflict = store.acquire(
@@ -114,7 +114,7 @@ def test_generated_column_claim_store_releases_by_receipt_and_claim_token(
             status="running",
         )
     )
-    store = OutputColumnClaimStore(project)
+    store = GeneratedColumnClaimStore(project)
 
     with write_transaction(store.db):
         claims, conflict = store.acquire(

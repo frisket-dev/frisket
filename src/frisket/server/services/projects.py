@@ -20,7 +20,7 @@ from frisket.ops.egress_policy import (
 from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
 from frisket.project_settings import patch_project_settings, read_project_settings
-from frisket.retrieval.content import TextChunkRecipe, TranscriptChunkRecipe
+from frisket.retrieval.content import TextSliceSpec, TranscriptChunkRecipe
 from frisket.retrieval.media import (
     AudioWindowRecipe,
     FixedClipRecipe,
@@ -42,7 +42,7 @@ from frisket.engine.store.sheet_lifecycle import (
 )
 from frisket.features.graph.sheet_graph import sheet_materialized_kind
 from frisket.engine.store.document_text import document_text_column_ids_by_sheet
-from frisket.engine.store.evidence import sheet_cited_column_ids
+from frisket.engine.store.citations import sheet_cited_column_ids
 from frisket.engine.store.lineage import build_lineage_dag
 from frisket.engine.store.text_annotations import annotated_text_column_ids
 from frisket.engine.store.staleness import compute_sync_states
@@ -108,7 +108,8 @@ def _network_policy_response(project: Any) -> dict[str, Any]:
     policy = project.network_policy()
     return {
         "schemaVersion": NETWORK_POLICY_SCHEMA_VERSION,
-        **policy,
+        "mode": policy["mode"],
+        "organization_default": policy["organization_default"],
         # The resolved two-state value the gate actually reads, so the UI can
         # honestly say what "inherit" currently means for this project.
         "effective": project.effective_network_policy(),
@@ -181,7 +182,7 @@ def _updated_retrieval_policy(
 ) -> PreparationPolicy:
     updates: dict[str, Any] = {}
     if "text_enabled" in patch:
-        updates["text_recipe"] = TextChunkRecipe() if patch["text_enabled"] else None
+        updates["text_recipe"] = TextSliceSpec() if patch["text_enabled"] else None
     if "transcript_enabled" in patch:
         updates["transcript_recipe"] = (
             TranscriptChunkRecipe() if patch["transcript_enabled"] else None
@@ -756,8 +757,8 @@ class ProjectLifecycleService:
         encrypted = encrypt_secret(key)
         hint = key_hint(key)
         with project.transaction_scope():
-            self._model_routes.pin_ready_routes(
-                project_id, commit=False, request_context=request_context
+            self._model_routes.pin_ready_routes_in_transaction(
+                project_id, request_context=request_context
             )
             project.set_provider_key(
                 provider=normalized_provider,
@@ -812,8 +813,8 @@ class ProjectLifecycleService:
         normalized_provider = _normalize_provider(provider)
         project = self._workspace.get(project_id)
         with project.transaction_scope():
-            self._model_routes.pin_ready_routes(
-                project_id, commit=False, request_context=request_context
+            self._model_routes.pin_ready_routes_in_transaction(
+                project_id, request_context=request_context
             )
             deleted = project.delete_provider_key(normalized_provider)
         return {
@@ -974,7 +975,7 @@ class ProjectLifecycleService:
         # while executable code may still own it.
         if self._workspace.queue.has_active_project_handler(
             project_id,
-            storage_org_id=self._workspace.queue_storage_organization_id,
+            storage_organization_id=self._workspace.queue_storage_organization_id,
         ):
             return True
         # Queue rows cover unclaimed work plus ordinary live claims. The
@@ -982,7 +983,7 @@ class ProjectLifecycleService:
         return any(
             self._workspace.queue.list_project_jobs(
                 project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 status=status,
                 limit=1,
             )
@@ -1000,7 +1001,7 @@ class ProjectLifecycleService:
         while True:
             queued = self._workspace.queue.list_project_jobs(
                 project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 status="queued",
                 limit=100,
             )
@@ -1046,7 +1047,7 @@ class ProjectLifecycleService:
             for status in ("queued", "running"):
                 while jobs := self._workspace.queue.list_project_jobs(
                     project_id,
-                    storage_org_id=self._workspace.queue_storage_organization_id,
+                    storage_organization_id=self._workspace.queue_storage_organization_id,
                     kind=kind,
                     status=status,
                     limit=100,

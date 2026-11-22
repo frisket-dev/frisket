@@ -49,12 +49,12 @@ users = sa.Table(
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("email", sa.String, unique=True, nullable=False),
     sa.Column("name", sa.String),
-    # Null means the user has not yet answered the first-login spend prompt.
-    sa.Column("cost_preapproval_usd", sa.Numeric(18, 6)),
+    # Null means the user has not yet answered the first-login allowance prompt.
+    sa.Column("allowance_usd", sa.Numeric(18, 6)),
     # Null for identities authenticated only by an optional external channel.
     # Fresh server setup writes an Argon2id hash for its local owner.
     sa.Column("password_hash", sa.String),
-    sa.Column("default_org_id", sa.Integer, sa.ForeignKey("orgs.id")),
+    sa.Column("default_organization_id", sa.Integer, sa.ForeignKey("organizations.id")),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),
@@ -77,8 +77,8 @@ oidc_identities = sa.Table(
 
 # Identity/branding only. Credits, grace, and quota policy are commerce state
 # and live outside this tree, in a deployment's own accounting.
-orgs = sa.Table(
-    "orgs",
+organizations = sa.Table(
+    "organizations",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("name", sa.String, nullable=False),
@@ -91,7 +91,7 @@ orgs = sa.Table(
     sa.Column("support_contact", sa.String),
     # Organization-wide network default for projects whose network mode is "inherit":
     # "on" | "off"; NULL means "on". Materialized into each project bundle
-    # (Project.set_network_policy org_default) the same way `sensitive`
+    # (Project.set_network_policy organization_default) the same way `sensitive`
     # syncs, because the gate reads bundle-side.
     sa.Column("network_default", sa.String),
 )
@@ -100,7 +100,12 @@ memberships = sa.Table(
     "memberships",
     metadata,
     sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), primary_key=True),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        primary_key=True,
+    ),
     sa.Column("role", sa.String, nullable=False, default="owner"),
 )
 
@@ -110,8 +115,13 @@ projects = sa.Table(
     "projects",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
-    sa.Column("storage_org_id", sa.Integer, sa.ForeignKey("orgs.id")),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
+    sa.Column("storage_organization_id", sa.Integer, sa.ForeignKey("organizations.id")),
     sa.Column("slug", sa.String, nullable=False),
     sa.Column("name", sa.String, nullable=False),
     sa.Column("description", sa.String),
@@ -122,7 +132,7 @@ projects = sa.Table(
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),
-    sa.UniqueConstraint("org_id", "slug"),
+    sa.UniqueConstraint("organization_id", "slug"),
 )
 
 sessions = sa.Table(
@@ -179,7 +189,12 @@ pending_invites = sa.Table(
     "pending_invites",
     metadata,
     sa.Column("email", sa.String, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     # Organization role granted on acceptance: "member" (default) or "owner".
     sa.Column(
         "role",
@@ -195,7 +210,12 @@ project_invites = sa.Table(
     "project_invites",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("slug", sa.String, nullable=False),
     sa.Column("email", sa.String, nullable=False),
     sa.Column("role", sa.String, nullable=False),
@@ -214,7 +234,7 @@ project_invites = sa.Table(
 
 # Per-project RBAC: editor / reviewer / viewer scoped to a single project,
 # distinct from the organization-level owner/member membership. A row
-# grants `user_id` the role `role` on (org_id, slug). Absence of a row means
+# grants `user_id` the role `role` on (organization_id, slug). Absence of a row means
 # the user falls back to their organization default (owner => owner, otherwise no project
 # access). The project roles form a strict capability ladder:
 #   viewer   - read only (GET)
@@ -224,7 +244,12 @@ project_invites = sa.Table(
 project_roles = sa.Table(
     "project_roles",
     metadata,
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), primary_key=True),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        primary_key=True,
+    ),
     sa.Column("slug", sa.String, primary_key=True),
     sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), primary_key=True),
     sa.Column("role", sa.String, nullable=False),
@@ -237,7 +262,12 @@ project_creation_intents = sa.Table(
     "project_creation_intents",
     metadata,
     sa.Column("slug", sa.String, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("creator_user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
     sa.Column("name", sa.String, nullable=False),
     sa.Column(
@@ -264,7 +294,12 @@ api_tokens = sa.Table(
     "api_tokens",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
     sa.Column("name", sa.String, nullable=False),
     sa.Column("token_hash", sa.String, unique=True, nullable=False),
@@ -287,7 +322,12 @@ operator_tokens = sa.Table(
     "operator_tokens",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("label", sa.String),
     sa.Column("token_hash", sa.String, unique=True, nullable=False),
     sa.Column(
@@ -318,7 +358,7 @@ audit_log = sa.Table(
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("user_id", sa.Integer),
-    sa.Column("org_id", sa.Integer),
+    sa.Column("organization_id", sa.Integer),
     sa.Column("action", sa.String, nullable=False),
     sa.Column("detail", sa.String),
     sa.Column(
@@ -331,14 +371,17 @@ def record_audit(
     cx: sa.Connection,
     *,
     user_id: int | None,
-    org_id: int | None,
+    organization_id: int | None,
     action: str,
     detail: str | None = None,
 ) -> None:
     """Append one audit row on ``cx``; it commits or rolls back with the caller."""
     cx.execute(
         audit_log.insert().values(
-            user_id=user_id, org_id=org_id, action=action, detail=detail
+            user_id=user_id,
+            organization_id=organization_id,
+            action=action,
+            detail=detail,
         )
     )
 
@@ -350,7 +393,7 @@ client_errors = sa.Table(
     "client_errors",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer),
+    sa.Column("organization_id", sa.Integer),
     sa.Column("user_id", sa.Integer),
     sa.Column("source", sa.String, nullable=False, default="browser"),
     sa.Column("severity", sa.String, nullable=False, default="error"),
@@ -374,42 +417,57 @@ client_errors = sa.Table(
 # plaintext is write-only - stored encrypted, never read back over the API.
 # Metered spend caps against a key are commerce policy and live outside this
 # tree, in a deployment's own accounting.
-org_keys = sa.Table(
-    "org_keys",
+organization_keys = sa.Table(
+    "organization_keys",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("provider", sa.String, nullable=False),
     sa.Column("encrypted", sa.Text, nullable=False),
     sa.Column("hint", sa.String, nullable=False),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),
-    sa.UniqueConstraint("org_id", "provider"),
+    sa.UniqueConstraint("organization_id", "provider"),
 )
 
 # Custom organization environment variables: write-only encrypted metadata separate
 # from provider API keys. These are NOT injected into sandboxed Python by
 # default; future trusted integrations can opt in explicitly.
-org_env_vars = sa.Table(
-    "org_env_vars",
+organization_env_vars = sa.Table(
+    "organization_env_vars",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("name", sa.String, nullable=False),
     sa.Column("encrypted", sa.Text, nullable=False),
     sa.Column("hint", sa.String, nullable=False),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),
-    sa.UniqueConstraint("org_id", "name"),
+    sa.UniqueConstraint("organization_id", "name"),
 )
 
 oauth_connections = sa.Table(
     "oauth_connections",
     metadata,
     sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+    sa.Column(
+        "organization_id",
+        sa.Integer,
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
     sa.Column("provider", sa.String, nullable=False),
     sa.Column("connection_id", sa.String, nullable=False),
     sa.Column("external_subject", sa.String, nullable=False),
@@ -423,6 +481,6 @@ oauth_connections = sa.Table(
     ),
     sa.Column("updated_at", sa.DateTime(timezone=True)),
     sa.Column("revoked_at", sa.DateTime(timezone=True)),
-    sa.UniqueConstraint("org_id", "provider", "connection_id"),
-    sa.UniqueConstraint("org_id", "provider", "external_subject"),
+    sa.UniqueConstraint("organization_id", "provider", "connection_id"),
+    sa.UniqueConstraint("organization_id", "provider", "external_subject"),
 )

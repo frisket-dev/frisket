@@ -6,7 +6,7 @@ import pytest
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -182,7 +182,7 @@ def test_prepared_pdf_result_must_match_current_page_selector(
         {"document": document},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.read_pdf_text", commit=False)
+    op_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -422,21 +422,22 @@ def test_imported_pdf_page_image_is_not_planned_beside_its_pdf_page(
             page_end=1,
             preview={"blob_hash": image_hash, "mime": "image/png"},
         )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            "kind": "source_cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": page_image,
-        },
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=page_image,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": page_image,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=page_image,
+            link_role="primary_support",
+        )
 
     async def blank_page(_path, **_kwargs):
         return PdfTextSample("", 1, 1, False)
@@ -480,7 +481,7 @@ def test_transcript_result_requires_exact_current_output_value_ref(
     )
     # Preserve the historical marker to prove status alone is insufficient.
     project.db.execute(
-        "UPDATE evidence_links SET status='active',stale_reason=NULL,stale_at=NULL "
+        "UPDATE citations SET status='active',stale_reason=NULL,stale_at=NULL "
         "WHERE stable_id=?",
         (seeded["evidence_stable_id"],),
     )
@@ -511,7 +512,7 @@ def test_pdf_preview_uses_latest_current_prepared_output(
         "page_count": 1,
     }
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.read_pdf_text", commit=False)
+    op_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -631,7 +632,7 @@ def test_prepared_pdf_preview_reads_bounded_exact_page_with_nul(
         {"document": document},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.read_pdf_text", commit=False)
+    op_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -702,7 +703,7 @@ def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
             project, source_column_id=document, text_column_id=output
         )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_change("media.read_pdf_text", commit=False)
+    op = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -810,7 +811,7 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
         {"document": document},
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_change("media.read_pdf_text", commit=False)
+    op = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -924,7 +925,7 @@ def test_empty_native_text_allows_one_ocr_preparation_pass(
 
     artifact = project.db.execute("SELECT id FROM source_artifacts").fetchone()[0]
     with write_transaction(project.db):
-        op = project.append_change("media.ocr", commit=False)
+        op = project.append_change_in_transaction("media.ocr")
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact,
             producing_op_id=op,

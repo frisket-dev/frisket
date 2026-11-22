@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -197,7 +197,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(make_project) -> 
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -221,8 +221,8 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(make_project) -> 
             PreparedPageDraft(2, "newer two"),
         ),
     )
-    row_id = project.add_rows(
-        sheet_id, [{"body": selected}], {"body": column_id}, commit=False
+    row_id = project.add_rows_in_transaction(
+        sheet_id, [{"body": selected}], {"body": column_id}
     )[0]
     project.db.commit()
 

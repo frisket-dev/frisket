@@ -3,8 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
-import type { CanonicalActionDraft } from '../../src/actions/canonicalActionDraft';
-import { isGeneratedActionCatalogEntry, type ActionCatalogPayload } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type ActionCatalogPayload, type JsonValue } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -18,7 +17,7 @@ const SHEET = sheetMeta([
 ], { id: '7', name: 'Stories', rowCount: 2 });
 const MODEL = 'anthropic/claude-haiku-4-5';
 const TEMPLATE = { text: 'Literal text and {{body}}' };
-const cases: Array<{ kind: string; field: string; params: CanonicalActionDraft }> = [
+const cases: Array<{ kind: string; field: string; params: Record<string, JsonValue> }> = [
   { kind: 'map.template', field: 'template', params: { template: TEMPLATE } },
   { kind: 'research.web_search', field: 'query', params: { query: TEMPLATE, model: MODEL, max_results: 3 } },
   { kind: 'map.ask', field: 'source', params: { source: TEMPLATE, model: MODEL,

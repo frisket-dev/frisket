@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { ComponentProps } from 'react';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
-import { isGeneratedActionCatalogEntry } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type ActionParamResolution } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { servedActionCatalog } from './servedActionCatalog';
 import { actionFormProjectApi } from './renderActionForm';
@@ -28,7 +28,7 @@ export function renderJoinForm(props: Partial<Props> = {}, actionId = 'derive.jo
   const raw = catalog.actions.find((entry) => entry.kind === actionId);
   if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing typed join catalog');
   const onExecute = vi.fn();
-  const resolveParams = vi.fn<Props['resolveParams']>(async ({ params }) => {
+  const resolveParams = vi.fn<Props['resolveParams']>(async ({ params }): Promise<ActionParamResolution> => {
     if (actionId === 'join.semantic') {
       const target = params.target as { sheet_id?: number; column?: string } | undefined;
       const carry = params.carry as string[] | undefined;

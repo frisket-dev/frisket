@@ -146,6 +146,8 @@ def transcribe_language_declaration(
             detects=capabilities.detects_language,
         )
     if capabilities.language_mode == "fixed":
+        if not capabilities.fixed_language:
+            raise ValueError("fixed language mode requires fixed_language")
         return LanguageDeclaration(
             mode="fixed",
             default=capabilities.fixed_language,

@@ -8,7 +8,7 @@ from typing import Any, Literal, Protocol
 from pydantic import Field, JsonValue, field_validator
 
 from frisket.actions.types import ActionParams
-from frisket.contracts.actions.schemas._base import EvidenceRetention
+from frisket.contracts.actions.schemas._base import RecordRetention
 
 
 class PythonEvaluator(Protocol):
@@ -38,15 +38,15 @@ class NamedResultTarget(ActionParams):
     may_feed: list[str] = Field(default_factory=list)
 
 
-class ReceiptEvidenceTarget(ActionParams):
-    kind: Literal["receipt_evidence"]
-    retention: EvidenceRetention = "compactable"
+class ReceiptRecordTarget(ActionParams):
+    kind: Literal["receipt_record"]
+    retention: RecordRetention = "compactable"
 
 
 class PythonOutputRoute(ActionParams):
     name: str = Field(min_length=1)
     path: str = Field(min_length=1)
-    target: ColumnTarget | NamedResultTarget | ReceiptEvidenceTarget = Field(
+    target: ColumnTarget | NamedResultTarget | ReceiptRecordTarget = Field(
         discriminator="kind"
     )
 
@@ -69,6 +69,6 @@ class RoutedOutput:
         safe = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in logical)
         if self.route.target.kind == "named_result":
             return f"__result_{safe}"
-        if self.route.target.kind == "receipt_evidence":
-            return f"__evidence_{safe}"
+        if self.route.target.kind == "receipt_record":
+            return f"__record_{safe}"
         return logical

@@ -26,7 +26,7 @@ from frisket.engine.executor.recordsets import (
     is_feedable_named_result_ref,
     json_schema_equal,
 )
-from frisket.engine.store.evidence import find_item_citation
+from frisket.engine.store.citations import find_item_citation
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -41,7 +41,7 @@ class AdmittedListTableReader:
         )
         self._stages = []
         self.parent_sheet_id: int | None = None
-        self.source_ai_generated = False
+        self.source_generated = False
         self.copied_columns: tuple[ListCopiedColumn, ...] = ()
         self.facts: list[dict[str, Any]] = []
         self.require_complete = False
@@ -106,7 +106,7 @@ class AdmittedListTableReader:
                 copied_columns, copied_source_facts = [], []
                 for requested in parent_columns:
                     parent_column = project.db.execute(
-                        "SELECT id,name,type,format,ai_generated FROM columns WHERE id=? AND sheet_id=? AND active=1",
+                        "SELECT id,name,type,format,generated FROM columns WHERE id=? AND sheet_id=? AND active=1",
                         (requested.column_id, source.sheet_id),
                     ).fetchone()
                     if parent_column is None or requested.column_id == source.column_id:
@@ -120,7 +120,7 @@ class AdmittedListTableReader:
                             name=requested.output_name,
                             type=str(parent_column["type"]),
                             format=parent_column["format"],
-                            ai_generated=bool(parent_column["ai_generated"]),
+                            generated=bool(parent_column["generated"]),
                         )
                     )
                     copied_source_facts.append(
@@ -129,11 +129,12 @@ class AdmittedListTableReader:
                             "source_name": str(parent_column["name"]),
                             "type": str(parent_column["type"]),
                             "format": parent_column["format"],
-                            "ai_generated": bool(parent_column["ai_generated"]),
+                            "generated": bool(parent_column["generated"]),
                         }
                     )
                 receipt_id, source_ref = None, None
                 if isinstance(source, NamedListSource):
+                    assert item_schema is not None
                     row_ids, receipt_id, source_ref = self._named_source(
                         project, source, item_schema
                     )
@@ -265,7 +266,7 @@ class AdmittedListTableReader:
                     "source_row_ids": row_ids,
                     "item_count": len(stage),
                     "source_values_hash": "sha256:" + source_digest.hexdigest(),
-                    "source_ai_generated": bool(column["ai_generated"]),
+                    "source_generated": bool(column["generated"]),
                 }
                 if parent_columns:
                     fact.update(
@@ -273,12 +274,12 @@ class AdmittedListTableReader:
                         parent_source_row_ids=row_ids,
                         parent_values_hash="sha256:" + parent_digest.hexdigest(),
                     )
-                if receipt_id is not None:
+                if receipt_id is not None and source_ref is not None:
                     fact.update(
                         source_receipt_id=receipt_id, named_result=dict(source_ref)
                     )
                 self.parent_sheet_id = source.sheet_id
-                self.source_ai_generated = bool(column["ai_generated"])
+                self.source_generated = bool(column["generated"])
                 self.copied_columns = tuple(copied_columns)
                 self.facts.append(fact)
             stage.seal()
@@ -353,7 +354,7 @@ class AdmittedListTableReader:
                 continue
             producer_kind = candidate.action_kind
             producer_params_hash = candidate.params_hash
-            for item in candidate.evidence:
+            for item in candidate.records:
                 if (
                     item.ref.get("kind") == "backfill_source_generation"
                     and item.ref.get("successor_run_id") == source.run_id

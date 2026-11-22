@@ -111,7 +111,7 @@ def test_a_future_resolves_to_row_still_rewrites_at_execution(
         EngineDeclaration(
             id="placement-word",
             label="Placement word (executes on a hosted model)",
-            tier="hosted",
+            tier="remote",
             provider="synthetic",
             resolves_to="synthetic/model-1",
         ),

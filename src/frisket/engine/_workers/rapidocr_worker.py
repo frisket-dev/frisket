@@ -20,6 +20,7 @@ import re
 import stat
 import sys
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from importlib import metadata
 from pathlib import Path, PurePosixPath
@@ -117,7 +118,7 @@ def _shared_ort_session_options(
     original = getattr(ort_session_class, "_init_sess_opts", None)
     set_global_pool = getattr(ort, "set_global_thread_pool_sizes", None)
     session_options_class = getattr(ort, "SessionOptions", None)
-    installed_wrapper = False
+    restore_original: Callable[..., object] | None = None
 
     if (
         callable(original)
@@ -134,8 +135,8 @@ def _shared_ort_session_options(
 
             def shared_options(cfg: Any) -> Any:
                 options = original(cfg)
-                options.use_per_session_threads = False
-                if options.use_per_session_threads is not False:
+                setattr(options, "use_per_session_threads", False)
+                if getattr(options, "use_per_session_threads") is not False:
                     raise RuntimeError("RapidOCR session kept a private thread pool")
                 configuration["sessions_verified"] += 1
                 return options
@@ -155,7 +156,7 @@ def _shared_ort_session_options(
                         "RapidOCR session-option factory could not be restored"
                     )
             else:
-                installed_wrapper = True
+                restore_original = original
                 configuration = {
                     "mode": "shared_global",
                     "intra": intra_threads,
@@ -169,15 +170,15 @@ def _shared_ort_session_options(
                     # raising.  Never construct private pools in that unknown
                     # state or report a clean fallback.
                     ort_session_class._init_sess_opts = staticmethod(original)
-                    installed_wrapper = False
+                    restore_original = None
                     raise RuntimeError(
                         "ONNX Runtime global thread-pool setup failed"
                     ) from error
     try:
         yield configuration
     finally:
-        if installed_wrapper:
-            ort_session_class._init_sess_opts = staticmethod(original)
+        if restore_original is not None:
+            ort_session_class._init_sess_opts = staticmethod(restore_original)
 
 
 def _configure_opencv(cv2: Any, requested_threads: int) -> dict[str, Any]:

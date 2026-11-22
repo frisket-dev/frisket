@@ -5,6 +5,8 @@ import json
 import copy
 from pydantic import BaseModel, ConfigDict, Field
 
+from frisket.engine.store.writer_fence import WriterFence
+
 
 class RowFileBlob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -55,7 +57,7 @@ def register_returned_row_files(project, results):
                 MediaBlobStore(project).merge_metadata(blob.blob_hash, blob.metadata)
 
 
-def record_row_file_calls(project, batch, *, run_id, writer_attempt_id, claim_token):
+def record_row_file_calls(project, batch, *, fence: WriterFence):
     """Observed calls survive cancellation even when their output is withheld."""
     from frisket.engine.store.receipts import ReceiptStore
 
@@ -71,7 +73,5 @@ def record_row_file_calls(project, batch, *, run_id, writer_attempt_id, claim_to
                     "kind": "row_file_call",
                     "row_id": result["row_id"],
                 },
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
+                fence=fence,
             )

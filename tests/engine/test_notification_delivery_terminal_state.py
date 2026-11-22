@@ -3,6 +3,7 @@
 import pytest
 
 from frisket.engine.store.notifications import TERMINAL_REQUEST_STATUSES
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -22,16 +23,22 @@ def delivery_request(make_project):
 def test_late_delivery_paths_preserve_terminal_result(delivery_request, terminal):
     project, identity = delivery_request
     project.claim_notification_delivery_request(identity, job_id=42)
-    project.terminalize_notification_delivery_request(
-        identity, status=terminal, provider_ref="original", last_error="original detail"
-    )
+    with write_transaction(project.db):
+        project.terminalize_notification_delivery_request(
+            identity,
+            status=terminal,
+            provider_ref="original",
+            last_error="original detail",
+        )
     saved = dict(project.notification_delivery_request(identity))
     for later in TERMINAL_REQUEST_STATUSES:
-        project.terminalize_notification_delivery_request(
-            identity, status=later, provider_ref="late", last_error="late detail"
-        )
+        with write_transaction(project.db):
+            project.terminalize_notification_delivery_request(
+                identity, status=later, provider_ref="late", last_error="late detail"
+            )
     project.set_notification_delivery_request_job_id(identity, 999)
-    project.record_notification_delivery_request_error(identity, last_error="retry")
+    with write_transaction(project.db):
+        project.record_notification_delivery_request_error(identity, last_error="retry")
     project.mark_notification_delivery_request_queued(identity, last_error="retry")
     assert project.claim_notification_delivery_request(identity, job_id=42) is None
     assert dict(project.notification_delivery_request(identity)) == saved
@@ -60,9 +67,10 @@ def test_stale_terminal_worker_records_no_attempt_or_health_failure(
     project.claim_notification_delivery_request(identity, job_id=42)
     stale = project.notification_delivery_request(identity)
     channel = project.notification_channel(stale["channel_id"])
-    project.terminalize_notification_delivery_request(
-        identity, status="sent", provider_ref="already-delivered"
-    )
+    with write_transaction(project.db):
+        project.terminalize_notification_delivery_request(
+            identity, status="sent", provider_ref="already-delivered"
+        )
     health = []
     monkeypatch.setattr(
         worker,
@@ -195,9 +203,10 @@ def test_late_transient_provider_response_does_not_append_retry_outcome(
     )
 
     def send(message, *, channel):
-        project.terminalize_notification_delivery_request(
-            request["id"], status="sent", provider_ref="winner"
-        )
+        with write_transaction(project.db):
+            project.terminalize_notification_delivery_request(
+                request["id"], status="sent", provider_ref="winner"
+            )
         return DeliveryProviderResult(
             status="failed",
             error="late failure",

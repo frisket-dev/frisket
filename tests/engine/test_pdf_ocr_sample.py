@@ -48,7 +48,7 @@ def test_sample_publishes_receipt_owned_ocr_and_undo_redo(make_project):
     assert project.get_values(sheet, result["text_column_id"], [row])[row] == "Page two"
     assert ReceiptStore(project).parsed_by_id(receipt_id).run_id == result["run_id"]
     evidence = project.db.execute(
-        "SELECT link_role,receipt_id FROM evidence_links WHERE run_id=?",
+        "SELECT link_role,receipt_id FROM citations WHERE run_id=?",
         (result["run_id"],),
     ).fetchone()
     assert tuple(evidence) == ("media_ocr_grounding", receipt_id)

@@ -71,13 +71,15 @@ def _sign_in(
     assert callback.status_code == 302, callback.text
     with engine.connect() as connection:
         user = connection.execute(
-            sa.select(users.c.id, users.c.default_org_id).where(users.c.email == email)
+            sa.select(users.c.id, users.c.default_organization_id).where(
+                users.c.email == email
+            )
         ).one()
-    assert user.default_org_id is not None
+    assert user.default_organization_id is not None
     if shared:
         account = create_selected_shared_funding_account(engine, int(user.id), "Desk")
         return int(user.id), int(account["id"])
-    return int(user.id), int(user.default_org_id)
+    return int(user.id), int(user.default_organization_id)
 
 
 def _hosted_app(
@@ -121,12 +123,12 @@ def _control_state(
             for row in connection.execute(
                 sa.select(
                     projects.c.id,
-                    projects.c.org_id,
-                    projects.c.storage_org_id,
+                    projects.c.organization_id,
+                    projects.c.storage_organization_id,
                     projects.c.slug,
                     projects.c.name,
                 )
-                .where(projects.c.org_id == org_id)
+                .where(projects.c.organization_id == org_id)
                 .order_by(projects.c.id)
             )
         ]
@@ -134,12 +136,12 @@ def _control_state(
             dict(row._mapping)
             for row in connection.execute(
                 sa.select(
-                    project_roles.c.org_id,
+                    project_roles.c.organization_id,
                     project_roles.c.slug,
                     project_roles.c.user_id,
                     project_roles.c.role,
                 )
-                .where(project_roles.c.org_id == org_id)
+                .where(project_roles.c.organization_id == org_id)
                 .order_by(project_roles.c.slug, project_roles.c.user_id)
             )
         ]
@@ -155,7 +157,7 @@ def _control_project_metadata(
     with engine.connect() as connection:
         row = connection.execute(
             sa.select(projects.c.name, projects.c.sensitive).where(
-                projects.c.org_id == org_id,
+                projects.c.organization_id == org_id,
                 projects.c.slug == project_id,
             )
         ).one()
@@ -318,7 +320,7 @@ def test_operation_replay_completes_one_lifetime_and_new_operation_allocates_nex
             failures.append("same-key replay did not retain one original bundle")
         expected_replay_roles = [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": _ORIGINAL_ALIAS,
                 "user_id": owner_id,
                 "role": "owner",
@@ -358,7 +360,7 @@ def test_operation_replay_completes_one_lifetime_and_new_operation_allocates_nex
             failures.append("two operation keys did not retain exactly two bundles")
         expected_final_roles = [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": alias,
                 "user_id": owner_id,
                 "role": "owner",
@@ -428,7 +430,7 @@ def test_operation_key_is_scoped_to_the_authenticated_actor(
     engine = app.state.control_engine
     try:
         owner_id, org_id = _sign_in(client, engine, shared=True)
-        invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
+        invited = client.post("/api/organization/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
 
         created = _post_project(
@@ -472,13 +474,13 @@ def test_operation_key_is_scoped_to_the_authenticated_actor(
         ], snapshot
         assert role_rows == [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": "member-project",
                 "user_id": member_id,
                 "role": "owner",
             },
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": "owner-project",
                 "user_id": owner_id,
                 "role": "owner",
@@ -580,7 +582,7 @@ def test_operation_replay_survives_failure_immediately_after_bundle_create(
             failures.append("retry did not register only the original alias")
         if role_rows != [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": _ORIGINAL_ALIAS,
                 "user_id": owner_id,
                 "role": "owner",
@@ -687,7 +689,7 @@ def test_completed_operation_refuses_a_different_lifetime_at_the_same_slug(
     project_id = "replaced-mapping"
     try:
         owner_id, org_id = _sign_in(client, engine, shared=True)
-        invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
+        invited = client.post("/api/organization/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
         original = _post_project(
             client,
@@ -724,7 +726,7 @@ def test_completed_operation_refuses_a_different_lifetime_at_the_same_slug(
         assert [row["slug"] for row in before_projects] == [project_id]
         assert before_roles == [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": project_id,
                 "user_id": member_id,
                 "role": "owner",
@@ -846,7 +848,7 @@ def test_completed_operation_replay_preserves_newer_project_role(
     project_id = "role-replay"
     try:
         owner_id, org_id = _sign_in(client, engine, shared=True)
-        invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
+        invited = client.post("/api/organization/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
 
         client.cookies.clear()
@@ -880,13 +882,13 @@ def test_completed_operation_replay_preserves_newer_project_role(
         before_projects, before_roles = _control_state(engine, org_id=org_id)
         assert before_roles == [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": project_id,
                 "user_id": owner_id,
                 "role": "owner",
             },
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": project_id,
                 "user_id": member_id,
                 "role": "viewer",
@@ -967,7 +969,7 @@ def test_operation_key_rejects_a_different_creation_payload(
         assert metadata_before == {"name": project_name, "sensitive": True}
         assert roles_before == [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": project_id,
                 "user_id": owner_id,
                 "role": "owner",
@@ -1049,7 +1051,7 @@ def test_operation_replay_refuses_a_conflicting_cloud_completion_receipt(
             receipt = connection.execute(
                 sa.select(audit_log.c.id, audit_log.c.detail).where(
                     audit_log.c.user_id == owner_id,
-                    audit_log.c.org_id == org_id,
+                    audit_log.c.organization_id == org_id,
                     audit_log.c.action == _CREATION_RECEIPT_ACTION,
                 )
             ).one()
@@ -1086,7 +1088,7 @@ def test_operation_replay_refuses_a_conflicting_cloud_completion_receipt(
         assert [row["slug"] for row in projects_before] == [project_id]
         assert roles_before == [
             {
-                "org_id": org_id,
+                "organization_id": org_id,
                 "slug": project_id,
                 "user_id": owner_id,
                 "role": "owner",

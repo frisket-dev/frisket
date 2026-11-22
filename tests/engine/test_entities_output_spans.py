@@ -1,7 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from pathlib import Path
 from typing import Any
 
 from frisket.ai.llm import ModelRouter
@@ -13,7 +12,7 @@ from frisket.ops.entities import (
     canonicalize_entity_type,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-ner-spans"
@@ -244,19 +243,15 @@ def _router() -> ModelRouter:
     return router
 
 
-def _seed_project(project_path: Path) -> tuple[int, int]:
-    project = Project.create(project_path, name="NER Spans")
-    try:
-        sheet_id = project.add_sheet("Transcripts")
-        body_col = project.add_column(sheet_id, "body", type="text")
-        project.add_rows(
-            sheet_id,
-            [{"body": "Ada Lovelace wrote notes for Babbage."}],
-            {"body": body_col},
-        )
-        return sheet_id, body_col
-    finally:
-        project.close()
+def _seed_project(project: Project) -> tuple[int, int]:
+    sheet_id = project.add_sheet("Transcripts")
+    body_col = project.add_column(sheet_id, "body", type="text")
+    project.add_rows(
+        sheet_id,
+        [{"body": "Ada Lovelace wrote notes for Babbage."}],
+        {"body": body_col},
+    )
+    return sheet_id, body_col
 
 
 def _map_ner_action(sheet_id: int, *, idempotency_key: str) -> dict[str, Any]:
@@ -273,84 +268,77 @@ def _map_ner_action(sheet_id: int, *, idempotency_key: str) -> dict[str, Any]:
 
 
 def test_map_ner_writes_unified_type_key_and_evidence_spans(
-    tmp_path: Path, monkeypatch
+    project: Project, monkeypatch
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
 
-    project_path = tmp_path / "ner-spans.frisket"
-    sheet_id, body_col = _seed_project(project_path)
+    sheet_id, body_col = _seed_project(project)
 
-    project = Project(project_path)
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _map_ner_action(sheet_id, idempotency_key="map_ner_spans@sha256:stable"),
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert result.status == "completed", result.errors
+    result = executor_actions.run_action_spec(
+        project,
+        _map_ner_action(sheet_id, idempotency_key="map_ner_spans@sha256:stable"),
+        project_id=PROJECT_ID,
+        router=_router(),
+    )
+    assert result.status == "completed", result.errors
 
-        entities_col = next(
-            c for c in project.columns(sheet_id) if c["name"] == "entities"
-        )
-        values = project.get_values(sheet_id, entities_col["id"])
-        (row_id, entities) = next(iter(values.items()))
-        # entity canonicalization: label -> type, canonicalized -- no "label" key survives.
-        assert entities == [
-            {
-                "text": "Ada Lovelace",
-                "type": "person",
-                "start": 0,
-                "end": 12,
-                "score": 0.98,
-                "fingerprint": "ada lovelace",
-            },
-            {
-                "text": "Babbage",
-                "type": "person",
-                "start": 29,
-                "end": 36,
-                "score": 0.9,
-                "fingerprint": "babbage",
-            },
-        ]
+    entities_col = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    values = project.get_values(sheet_id, entities_col["id"])
+    (row_id, entities) = next(iter(values.items()))
+    # entity canonicalization: label -> type, canonicalized -- no "label" key survives.
+    assert entities == [
+        {
+            "text": "Ada Lovelace",
+            "type": "person",
+            "start": 0,
+            "end": 12,
+            "score": 0.98,
+            "fingerprint": "ada lovelace",
+        },
+        {
+            "text": "Babbage",
+            "type": "person",
+            "start": 29,
+            "end": 36,
+            "score": 0.9,
+            "fingerprint": "babbage",
+        },
+    ]
 
-        # capability refinement: entities are now Source-QA retrievable -- an evidence link
-        # exists on the entities cell with one span per entity.
-        evidence = list_cell_citations(
-            project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
-        )
-        assert evidence["links"], (
-            "map.ner must write an evidence link for its entities cell"
-        )
-        link = evidence["links"][0]
-        assert link["span_count"] == 2
+    # capability refinement: entities are now Source-QA retrievable -- an evidence link
+    # exists on the entities cell with one span per entity.
+    evidence = list_cell_citations(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
+    )
+    assert evidence["links"], (
+        "map.ner must write an evidence link for its entities cell"
+    )
+    link = evidence["links"][0]
+    assert link["span_count"] == 2
 
-        viewer = resolve_citation_viewer(project, link["id"])
-        assert len(viewer["artifacts"]) == 1
-        artifact = viewer["artifacts"][0]
-        assert artifact["artifact_kind"] == "text"
-        spans = artifact["spans"]
-        assert len(spans) == 2
-        quotes = {span["quote"] for span in spans}
-        assert quotes == {"Ada Lovelace", "Babbage"}
-        # every span shares the SAME text_layer_hash -- one shared text
-        # surface (the row's assembled input text), consistent char offsets.
-        hashes = {span["text_layer_hash"] for span in spans}
-        assert len(hashes) == 1
-        assert next(iter(hashes)).startswith("sha256:")
-        for span in spans:
-            assert span["selector"]["char_start"] is not None
-            assert span["selector"]["char_end"] is not None
-    finally:
-        project.close()
+    viewer = resolve_citation_viewer(project, link["id"])
+    assert len(viewer["artifacts"]) == 1
+    artifact = viewer["artifacts"][0]
+    assert artifact["artifact_kind"] == "text"
+    spans = artifact["spans"]
+    assert len(spans) == 2
+    quotes = {span["quote"] for span in spans}
+    assert quotes == {"Ada Lovelace", "Babbage"}
+    # every span shares the SAME text_layer_hash -- one shared text
+    # surface (the row's assembled input text), consistent char offsets.
+    hashes = {span["text_layer_hash"] for span in spans}
+    assert len(hashes) == 1
+    assert next(iter(hashes)).startswith("sha256:")
+    for span in spans:
+        assert span["selector"]["char_start"] is not None
+        assert span["selector"]["char_end"] is not None
 
 
 def test_map_ner_writes_no_spans_when_no_entities_found(
-    tmp_path: Path, monkeypatch
+    project: Project, monkeypatch
 ) -> None:
     """A row with zero entities gets no artifact/span/link -- span-writing is
     entity-driven, not a blanket per-row artifact regardless of content."""
@@ -359,35 +347,22 @@ def test_map_ner_writes_no_spans_when_no_entities_found(
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
 
-    project_path = tmp_path / "ner-spans-empty.frisket"
-    project = Project.create(project_path, name="NER Spans Empty")
-    try:
-        sheet_id = project.add_sheet("Transcripts")
-        body_col = project.add_column(sheet_id, "body", type="text")
-        project.add_rows(
-            sheet_id, [{"body": "Nothing notable happened."}], {"body": body_col}
-        )
-    finally:
-        project.close()
+    sheet_id = project.add_sheet("Transcripts")
+    body_col = project.add_column(sheet_id, "body", type="text")
+    project.add_rows(
+        sheet_id, [{"body": "Nothing notable happened."}], {"body": body_col}
+    )
 
-    project = Project(project_path)
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _map_ner_action(
-                sheet_id, idempotency_key="map_ner_spans_empty@sha256:stable"
-            ),
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert result.status == "completed", result.errors
-        entities_col = next(
-            c for c in project.columns(sheet_id) if c["name"] == "entities"
-        )
-        (row_id,) = project.get_values(sheet_id, entities_col["id"]).keys()
-        evidence = list_cell_citations(
-            project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
-        )
-        assert evidence["links"] == []
-    finally:
-        project.close()
+    result = executor_actions.run_action_spec(
+        project,
+        _map_ner_action(sheet_id, idempotency_key="map_ner_spans_empty@sha256:stable"),
+        project_id=PROJECT_ID,
+        router=_router(),
+    )
+    assert result.status == "completed", result.errors
+    entities_col = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    (row_id,) = project.get_values(sheet_id, entities_col["id"]).keys()
+    evidence = list_cell_citations(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
+    )
+    assert evidence["links"] == []

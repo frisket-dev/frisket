@@ -133,7 +133,7 @@ def test_stored_connection_and_export_runs_end_to_end(tmp_path: Path) -> None:
     app = create_team_app(config, google_sheets_client=fake_client)
     browser = claim_server(app)  # returns an authenticated owner session
 
-    org_id = app.state.team_organization_id
+    organization_id = app.state.team_organization_id
     with app.state.control_engine.connect() as cx:
         owner_id = cx.execute(
             sa.select(users.c.id).where(users.c.email == "owner@example.com")
@@ -151,7 +151,7 @@ def test_stored_connection_and_export_runs_end_to_end(tmp_path: Path) -> None:
     )
     connection_id = TeamOAuthConnectionService.google_connection_id("google-user-1")
     service.connect_google_account(
-        org_id=org_id,
+        organization_id=organization_id,
         user_id=owner_id,
         external_subject="google-user-1",
         refresh_token="refresh-secret-1",
@@ -257,7 +257,7 @@ def test_revoked_connection_fails_not_found_before_any_checkpoint(
     app = create_team_app(config, google_sheets_client=fake_client)
     browser = claim_server(app)
 
-    org_id = app.state.team_organization_id
+    organization_id = app.state.team_organization_id
     with app.state.control_engine.connect() as cx:
         owner_id = cx.execute(
             sa.select(users.c.id).where(users.c.email == "owner@example.com")
@@ -269,7 +269,7 @@ def test_revoked_connection_fails_not_found_before_any_checkpoint(
     )
     connection_id = TeamOAuthConnectionService.google_connection_id("google-user-2")
     service.connect_google_account(
-        org_id=org_id,
+        organization_id=organization_id,
         user_id=owner_id,
         external_subject="google-user-2",
         refresh_token="refresh-secret-2",
@@ -277,7 +277,7 @@ def test_revoked_connection_fails_not_found_before_any_checkpoint(
         scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
     revoked = service.revoke_connection(
-        org_id, "google", connection_id, user_id=owner_id
+        organization_id, "google", connection_id, user_id=owner_id
     )
     assert revoked is True
 

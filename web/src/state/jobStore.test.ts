@@ -131,7 +131,7 @@ function actionReceipt(overrides: Partial<V1Receipt> = {}): V1Receipt {
     inputs: [],
     outputs: [],
     providerUse: [],
-    evidence: [],
+    records: [],
     errors: [],
     ...overrides,
   };
@@ -188,7 +188,7 @@ describe('createJobStore — defaults (parity with the pre-migration hook state)
       actionJobs: { error: null, jobs: [], loading: false },
       costGate: null,
       // The SAME confirm/cancel-pair
-      // shape costGate uses, for a server-side output_column_exists 409.
+      // shape costGate uses, for a server-side generated_column_exists 409.
       generatedColumnCollision: null,
     });
   });
@@ -702,7 +702,7 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
 
   it('forwards immutable project plus signal and clears collision/consent without confirming on dispose', async () => {
     const runAction = vi.fn().mockRejectedValue(
-      new ApiError(409, 'collision', 'output_column_exists', { columns: ['result'] }),
+      new ApiError(409, 'collision', 'generated_column_exists', { columns: ['result'] }),
     );
     const jobs = createJobStore('project-a', projectPort({ runAction }));
     jobs.start(noopDeps());
@@ -2193,7 +2193,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     vi.spyOn(api, 'runAction').mockRejectedValue(new ApiError(
       409,
       'Replacement collision',
-      'output_column_exists',
+      'generated_column_exists',
       { columns: ['result'] },
     ));
     jobs.start(noopDeps());
@@ -2232,7 +2232,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     vi.spyOn(api, 'runAction').mockRejectedValue(new ApiError(
       409,
       'Replacement collision',
-      'output_column_exists',
+      'generated_column_exists',
       { columns: ['replacement'] },
     ));
     jobs.start(noopDeps());
@@ -2354,7 +2354,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
       .mockRejectedValueOnce(new ApiError(
         409,
         'Collision',
-        'output_column_exists',
+        'generated_column_exists',
         { columns: ['result'] },
       ))
       .mockResolvedValueOnce({ runId: 'must-not-launch' });
@@ -2460,7 +2460,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
       .mockRejectedValueOnce(new ApiError(
         409,
         'Stale collision',
-        'output_column_exists',
+        'generated_column_exists',
         { columns: ['result'] },
       ))
       .mockResolvedValueOnce({ runId: 'must-not-launch' });
@@ -3010,7 +3010,7 @@ describe('createJobStore — canonical extraction composite consent', () => {
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
     const runAction = vi.spyOn(api, 'runAction')
-      .mockRejectedValueOnce(new ApiError(409, 'collision', 'output_column_exists', { columns: ['findings'] }))
+      .mockRejectedValueOnce(new ApiError(409, 'collision', 'generated_column_exists', { columns: ['findings'] }))
       .mockResolvedValueOnce({ runId: '88' } as RunActionLaunchResult);
     jobs.start(deps);
     jobs.startRun(request, { id: '7', rowCount: 2 } as never);
@@ -3029,11 +3029,11 @@ describe('createJobStore — canonical extraction composite consent', () => {
 describe('createJobStore — startRun / output-column collision replacement', () => {
   const req = runRequest({ actionKind: 'map.extract', targetColumnId: 'officials' });
 
-  it('a 409 output_column_exists ApiError sets generatedColumnCollision instead of showError', async () => {
+  it('a 409 generated_column_exists ApiError sets generatedColumnCollision instead of showError', async () => {
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
     vi.spyOn(api, 'runAction').mockRejectedValueOnce(
-      new ApiError(409, "'map.extract' outputs would overwrite existing columns", 'output_column_exists', {
+      new ApiError(409, "'map.extract' outputs would overwrite existing columns", 'generated_column_exists', {
         columns: ['officials'],
       }),
     );
@@ -3053,7 +3053,7 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     const deps = noopDeps();
     vi.spyOn(api, 'runAction')
       .mockRejectedValueOnce(
-        new ApiError(409, 'collision', 'output_column_exists', { columns: ['officials'] }),
+        new ApiError(409, 'collision', 'generated_column_exists', { columns: ['officials'] }),
       )
       .mockResolvedValueOnce({ runId: 'run-b' } as RunActionLaunchResult);
     vi.spyOn(api, 'listActionJobs').mockResolvedValue({ jobs: [] } as never);
@@ -3081,13 +3081,13 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     const deps = noopDeps();
     vi.spyOn(api, 'runAction')
       .mockRejectedValueOnce(
-        new ApiError(409, 'collision', 'output_column_exists', { columns: ['officials'] }),
+        new ApiError(409, 'collision', 'generated_column_exists', { columns: ['officials'] }),
       )
       .mockRejectedValueOnce(
         new ApiError(
           409,
           'protected output column',
-          'output_column_exists',
+          'generated_column_exists',
           { columns: ['officials'] },
         ),
       );
@@ -3117,7 +3117,7 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
     vi.spyOn(api, 'runAction').mockRejectedValueOnce(
-      new ApiError(409, 'collision', 'output_column_exists', { columns: ['officials'] }),
+      new ApiError(409, 'collision', 'generated_column_exists', { columns: ['officials'] }),
     );
     jobs.start(deps);
 
@@ -3142,7 +3142,7 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
     vi.spyOn(api, 'runAction').mockRejectedValueOnce(
-      new ApiError(409, 'collision', 'output_column_exists', { columns: ['generated_text'] }),
+      new ApiError(409, 'collision', 'generated_column_exists', { columns: ['generated_text'] }),
     );
     jobs.start(deps);
 
@@ -3160,10 +3160,10 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     const deps = noopDeps();
     vi.spyOn(api, 'runAction')
       .mockRejectedValueOnce(
-        new ApiError(409, 'collision', 'output_column_exists', { columns: ['generated_text'] }),
+        new ApiError(409, 'collision', 'generated_column_exists', { columns: ['generated_text'] }),
       )
       .mockRejectedValueOnce(
-        new ApiError(409, 'protected output', 'output_column_exists', {
+        new ApiError(409, 'protected output', 'generated_column_exists', {
           columns: ['generated_text'],
         }),
       );

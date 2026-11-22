@@ -4,6 +4,7 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
+from contextlib import closing
 import pickle
 from pathlib import Path
 
@@ -366,7 +367,7 @@ def test_formula_queued_target_refusal_keeps_terminal_receipt(make_project) -> N
     envelope = reserve_typed_action_job(project, "p", bound)
     result = run_action_run_job(project, {"action_job": envelope.to_json()})
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
     assert stored is not None and stored.status == "failed"
     replay = run_action_run_job(project, {"action_job": envelope.to_json()})
@@ -409,7 +410,7 @@ def test_formula_queued_postrun_exception_closes_attached_run(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -457,7 +458,7 @@ def test_formula_cancel_after_prepare_closes_run_without_output(
     assert receipt.status == "cancelled" and receipt.run_id is not None
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -576,8 +577,7 @@ def test_formula_expired_worker_lease_closes_attached_run(
             )
         project.close()
         assert reconcile_exhausted_action_run_jobs(queue, workspace_root=root) == 1
-        reopened = Project(root / "p.frisket")
-        try:
+        with closing(Project(root / "p.frisket")) as reopened:
             receipt = ReceiptStore(reopened).find_by_id(envelope.receipt_id).parsed()
             assert receipt.status == "failed" and receipt.run_id is not None
             assert (
@@ -588,7 +588,7 @@ def test_formula_expired_worker_lease_closes_attached_run(
             )
             assert (
                 reopened.db.execute(
-                    "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+                    "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
                 ).fetchone()[0]
                 == 0
             )
@@ -598,8 +598,6 @@ def test_formula_expired_worker_lease_closes_attached_run(
                 ).fetchone()[0]
                 == 0
             )
-        finally:
-            reopened.close()
     finally:
         queue.close()
 
@@ -647,7 +645,7 @@ def test_formula_late_staged_scope_loss_never_publishes_earlier_batch(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -804,7 +802,7 @@ def test_formula_inline_claim_refusal_cleans_its_own_reservation(
 
     def refuse_claim(*_args, **_kwargs):
         return ActionError(
-            code="output_column_exists",
+            code="generated_column_exists",
             message="injected claim conflict",
             action_kind="map.formula",
         )
@@ -813,7 +811,9 @@ def test_formula_inline_claim_refusal_cleans_its_own_reservation(
         action_lifecycle, "_acquire_output_claims_for_runner", refuse_claim
     )
     result = _run(project, sheet, "=1")
-    assert result.status == "failed" and result.errors[0].code == "output_column_exists"
+    assert (
+        result.status == "failed" and result.errors[0].code == "generated_column_exists"
+    )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM receipts WHERE idempotency_key='formula-1'"
@@ -844,7 +844,7 @@ def test_formula_queued_claim_refusal_keeps_worker_receipt(
 
     def refuse_claim(*_args, **_kwargs):
         return ActionError(
-            code="output_column_exists",
+            code="generated_column_exists",
             message="injected claim conflict",
             action_kind="map.formula",
         )
@@ -853,7 +853,9 @@ def test_formula_queued_claim_refusal_keeps_worker_receipt(
         action_lifecycle, "_acquire_output_claims_for_runner", refuse_claim
     )
     result = run_action_run_job(project, {"action_job": envelope.to_json()})
-    assert result.status == "failed" and result.errors[0].code == "output_column_exists"
+    assert (
+        result.status == "failed" and result.errors[0].code == "generated_column_exists"
+    )
     assert ReceiptStore(project).find_by_id(envelope.receipt_id).status == "failed"
 
 

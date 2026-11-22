@@ -283,7 +283,7 @@ describe('AnnotatedTextReader — the [!] replay affordance', () => {
 
     fireEvent.click(screen.getByTestId('annotation-replay-7:12:entities'));
     // The generated column, not the toggle key: that is where the stored action
-    // is found; replay starts at output_column.id.
+    // is found; replay starts at generated_column.id.
     expect(replayed).toEqual(['12']);
   });
 

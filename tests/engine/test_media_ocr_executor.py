@@ -268,7 +268,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["engine"] == "rapidocr"
     assert receipt.provider_use[0]["model_call_count"] == 2
 
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     ref_kinds = {ref["kind"] for ref in refs}
     assert {
         "source_column",
@@ -347,7 +347,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "external_cost_requires_confirmation",
                     "external_rows_failed",
                     "stale_replay",
@@ -370,9 +370,9 @@ CASES = [
             Gate("invalid_input_ref", _multi_input_action, "invalid_action_request"),
             Gate("invalid_ocr_engine", _bad_engine_action, "invalid_action_request"),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _source_collision_action,
-                "output_column_exists",
+                "generated_column_exists",
             ),
         ),
         expect_counts={
@@ -453,7 +453,7 @@ def test_media_ocr_replay_preserves_identity_rejections_and_dual_defect_priority
     from frisket.contracts.action import (
         Receipt,
     )
-    from frisket.sdk.replay import output_columns_replay_error
+    from frisket.sdk.replay import generated_columns_replay_error
 
     expected_messages = {
         "invalid_ref": "media.ocr replay receipt has invalid output refs",
@@ -479,7 +479,7 @@ def test_media_ocr_replay_preserves_identity_rejections_and_dual_defect_priority
                     for item in body["outputs"]
                     if item["ref"]["kind"] != "map_result_column"
                 ]
-                body["evidence"].append({"ref": {"kind": "media_ocr_searchable_pdf"}})
+                body["records"].append({"ref": {"kind": "media_ocr_searchable_pdf"}})
             else:
                 ref = next(
                     item["ref"]
@@ -498,7 +498,7 @@ def test_media_ocr_replay_preserves_identity_rejections_and_dual_defect_priority
                     assert defect == "run_changed"
                     ref["run_id"] += 1
 
-            error = output_columns_replay_error(
+            error = generated_columns_replay_error(
                 env.project,
                 Receipt.model_validate(body),
                 output_kind="map_result_column",

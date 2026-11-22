@@ -26,6 +26,7 @@ function Harness() {
   const [params, setParams] = useState<ListParams>(saved);
   return <>
     <ListTableParamsBody sheet={sheet} params={params} setParams={setParams}
+      request={{ scope: { kind: 'sheet_rows', sheet_id: 7 }, output_names: {} }}
       errors={{}} Field={() => null} />
     <output data-testid="canonical-params">{JSON.stringify(params)}</output>
     <button onClick={() => setParams(saved)}>Reset saved parameters</button>

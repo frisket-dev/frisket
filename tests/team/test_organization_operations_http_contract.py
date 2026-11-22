@@ -88,8 +88,11 @@ def test_organization_operations_preserve_public_bytes_and_accept_browser_and_pa
 
     # Missing or unknown-only payloads are malformed transport requests, not
     # domain-level invalid environment-variable values.
-    assert client.post("/api/org/env", json={}).status_code == 422
-    assert client.post("/api/org/env", json={"unrelated": "value"}).status_code == 422
+    assert client.post("/api/organization/env", json={}).status_code == 422
+    assert (
+        client.post("/api/organization/env", json={"unrelated": "value"}).status_code
+        == 422
+    )
     request_schema = app.openapi()["components"]["schemas"][
         "OrganizationEnvSaveRequest"
     ]
@@ -97,41 +100,45 @@ def test_organization_operations_preserve_public_bytes_and_accept_browser_and_pa
     assert request_schema["additionalProperties"] is False
 
     browser_saved = client.post(
-        "/api/org/env",
+        "/api/organization/env",
         json={"name": " client_secret ", "value": "browser-secret"},
     )
     assert browser_saved.status_code == 200, browser_saved.text
     assert browser_saved.json() == {"name": "CLIENT_SECRET", "hint": "...cret"}
-    assert client.get("/api/org/env").json() == [
+    assert client.get("/api/organization/env").json() == [
         {"name": "CLIENT_SECRET", "hint": "...cret"}
     ]
-    assert client.get("/api/org/media-proxy/status").json() == {
+    assert client.get("/api/organization/media-proxy/status").json() == {
         "configured": False,
         "connected": None,
         "can_configure": True,
     }
-    assert client.delete("/api/org/env/CLIENT_SECRET").json() == {"deleted": True}
+    assert client.delete("/api/organization/env/CLIENT_SECRET").json() == {
+        "deleted": True
+    }
 
-    created = client.post("/api/org/tokens", json={"name": "automation"})
+    created = client.post("/api/organization/tokens", json={"name": "automation"})
     assert created.status_code == 200, created.text
     bearer = {"Authorization": f"Bearer {created.json()['token']}"}
     client.cookies.clear()
 
     pat_saved = client.post(
-        "/api/org/env",
+        "/api/organization/env",
         json={"name": "automation_token", "value": "pat-secret"},
         headers=bearer,
     )
     assert pat_saved.status_code == 200, pat_saved.text
     assert pat_saved.json() == {"name": "AUTOMATION_TOKEN", "hint": "...cret"}
-    assert client.get("/api/org/env", headers=bearer).json() == [
+    assert client.get("/api/organization/env", headers=bearer).json() == [
         {"name": "AUTOMATION_TOKEN", "hint": "...cret"}
     ]
-    assert client.get("/api/org/media-proxy/status", headers=bearer).json() == {
+    assert client.get(
+        "/api/organization/media-proxy/status", headers=bearer
+    ).json() == {
         "configured": False,
         "connected": None,
         "can_configure": True,
     }
-    assert client.delete("/api/org/env/AUTOMATION_TOKEN", headers=bearer).json() == {
-        "deleted": True
-    }
+    assert client.delete(
+        "/api/organization/env/AUTOMATION_TOKEN", headers=bearer
+    ).json() == {"deleted": True}

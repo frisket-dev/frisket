@@ -17,9 +17,9 @@ from executor_harness import (
     operation_action,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page, review_runs_page
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,
@@ -294,7 +294,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "review_state_after": "verified",
         "note": None,
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "target_result_cell",
         "review_state_transition",
     }
@@ -334,7 +334,7 @@ CASES = [
                     "invalid_action_request",
                     "review_target_not_found",
                     "review_complete",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
@@ -409,7 +409,7 @@ CASES = [
                     "invalid_action_request",
                     "review_target_not_found",
                     "review_complete",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
@@ -526,8 +526,8 @@ def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
 
     project = make_project("review-error-sibling")
     sheet_id = project.add_sheet("Rows")
-    answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
-    error_id = project.add_column(sheet_id, "other", ai_generated=True)
+    answer_id = project.add_column(sheet_id, "answer", generated=True)
+    error_id = project.add_column(sheet_id, "other", generated=True)
     row_id = project.add_rows(sheet_id, [{}], {})[0]
     op_id = project.append_change("map", {"fixture": "mixed review outcomes"})
     run_id = RunResultStore(project).start_run(
@@ -554,7 +554,7 @@ def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
     page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
     [bundle] = page["bundles"]
     assert [item["column_id"] for item in bundle["fields"]] == [answer_id]
-    assert [item["column_id"] for item in bundle["evidence"]] == [error_id]
+    assert [item["column_id"] for item in bundle["supporting_columns"]] == [error_id]
     [review_run] = review_runs_page(project, run_id=run_id)["runs"]
     assert [field["column_id"] for field in review_run["fields"]] == [answer_id]
 
@@ -988,7 +988,7 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
         assert edit_receipt.action_kind == "cell.edit"
         assert not any(
             item.ref["kind"] == "review_state_transition"
-            for item in edit_receipt.evidence
+            for item in edit_receipt.records
         )
 
         undo = env.run(
@@ -1163,21 +1163,22 @@ def _attach_cell_evidence(
             span_kind="whole",
             snippet="reviewable map result evidence",
         )
-    return record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=seeded["sheet_id"],
-        row_id=row_id,
-        column_id=seeded["risk_column_id"],
-        run_id=seeded["run_id"],
-        op_id=seeded["map_op_id"],
-        producer={
-            "source_action_kind": "map.python",
-            "field": "risk",
-        },
-    )
+    with write_transaction(project.db):
+        return record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=seeded["sheet_id"],
+            row_id=row_id,
+            column_id=seeded["risk_column_id"],
+            run_id=seeded["run_id"],
+            op_id=seeded["map_op_id"],
+            producer={
+                "source_action_kind": "map.python",
+                "field": "risk",
+            },
+        )
 
 
 def test_review_decision_edit_and_reject_clear_stale_active_evidence(
@@ -1339,7 +1340,7 @@ def test_review_note_undo_does_not_mutate_claimed_values(
         noted = env.run_primary()
         assert noted.status == "completed", noted.errors
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=seeded["sheet_id"],
                 output_names=["risk"],
                 action_kind="map.python",

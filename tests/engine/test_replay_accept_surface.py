@@ -60,16 +60,14 @@ def _value_hash(value: Any) -> str:
 
 
 # --------------------------------------------------------------------------
-# fixture: an ai_generated column with a current run + a human edit overlay
+# fixture: an generated column with a current run + a human edit overlay
 # --------------------------------------------------------------------------
 class _Fixture:
     def __init__(self, project: Project) -> None:
         self.project = project
         self.sheet = project.add_sheet("stories")
         self.src = project.add_column(self.sheet, "story")
-        self.col = project.add_column(
-            self.sheet, "label", type="text", ai_generated=True
-        )
+        self.col = project.add_column(self.sheet, "label", type="text", generated=True)
         rows = [{"story": f"story {i}"} for i in range(6)]
         project.add_rows(self.sheet, rows, {"story": self.src})
         self.row_ids = project.visible_row_ids(self.sheet)
@@ -166,21 +164,21 @@ def _minimal_receipt(fx, run_id: int, value_hash: str):
 def test_edited_cell_no_longer_hard_errors_but_structural_staleness_does(fx):
     _require_policy_is_surface()
     from frisket.sdk.replay import (
-        output_column_value_hash,
-        output_columns_replay_error,
+        generated_column_value_hash,
+        generated_columns_replay_error,
     )
 
     fresh = {rid: f"gen-{i}" for i, rid in enumerate(fx.row_ids)}
     run_id = fx.run_with_results(fresh)
     # value_hash captured at write time (no edits yet) == the raw-result hash.
-    expected = output_column_value_hash(
+    expected = generated_column_value_hash(
         fx.project, sheet_id=fx.sheet, column_id=fx.col, row_ids=list(fx.row_ids)
     )
     receipt = _minimal_receipt(fx, run_id, expected)
 
     # A human edit changes the LIVE (overlay) hash but not the underlying result.
     fx.edit(fx.row_ids[0], "hand-fixed")
-    result_hash_fn = _require_replay_export("output_column_result_value_hash")
+    result_hash_fn = _require_replay_export("generated_column_result_value_hash")
     assert (
         result_hash_fn(
             fx.project,
@@ -194,7 +192,7 @@ def test_edited_cell_no_longer_hard_errors_but_structural_staleness_does(fx):
 
     # Under REPLAY_EDIT_POLICY == "surface" the edited-cell value mismatch is
     # surfaced, NOT a hard stale_replay error.
-    err = output_columns_replay_error(
+    err = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind="test_map_output",
@@ -209,7 +207,7 @@ def test_edited_cell_no_longer_hard_errors_but_structural_staleness_does(fx):
     # STRUCTURAL staleness (a renamed generated column) stays a real stale_replay.
     fx.project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (fx.col,))
     fx.project.db.commit()
-    structural = output_columns_replay_error(
+    structural = generated_columns_replay_error(
         fx.project,
         receipt,
         output_kind="test_map_output",

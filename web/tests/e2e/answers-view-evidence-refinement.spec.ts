@@ -53,7 +53,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -65,7 +65,7 @@ try:
     run_store = RunResultStore(project)
     sheet_id = project.add_sheet("Hearings")
     source_col = project.add_column(sheet_id, "Source", "file")
-    finding_col = project.add_column(sheet_id, "Finding", "text", ai_generated=True)
+    finding_col = project.add_column(sheet_id, "Finding", "text", generated=True)
     row_a = project.add_rows(sheet_id, [{"Source": "hearingA.wav"}], {"Source": source_col})[0]
     row_b = project.add_rows(sheet_id, [{"Source": "hearingB.wav"}], {"Source": source_col})[0]
 
@@ -87,7 +87,8 @@ try:
         ],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, finding_col, run_id)
+    with write_transaction(project.db):
+        run_store.point_column_at_run(op_id, finding_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, finding_col, row_ids=[row_a, row_b])
 
     media_bytes = base64.b64decode(media_b64)

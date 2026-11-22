@@ -55,7 +55,7 @@ def _unbound_ocr_action(workspace: Workspace):
     service = SearchPreparationService(workspace)
     plan = service._plan(project, sheet_id=sheet_id, row_ids=None, force_ocr=False)
     batch = service.store.create(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id=project_id,
         trigger_receipt_id=None,
         sheet_id=sheet_id,
@@ -220,20 +220,20 @@ def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
         for source, next_page, page_count in zip(sources, (3, 1897), (10, 24909)):
             store.begin_preparation(
                 source,
-                recipe_id=PDF_PAGE_RECIPE_ID,
+                slice_id=PDF_PAGE_RECIPE_ID,
                 channel="pdf_page",
                 space_id=DEFAULT_TEXT_SPACE.identity,
             )
             assert store.advance_preparation(
                 source,
-                recipe_id=PDF_PAGE_RECIPE_ID,
+                slice_id=PDF_PAGE_RECIPE_ID,
                 channel="pdf_page",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 cursor_json=json.dumps(
                     {
                         "kind": "pdf_pages",
                         "source_id": source.source_id,
-                        "recipe_id": PDF_PAGE_RECIPE_ID,
+                        "slice_id": PDF_PAGE_RECIPE_ID,
                         "next_page": next_page,
                         "page_count": page_count,
                     }
@@ -254,14 +254,14 @@ def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
     with RetrievalStore(project) as store:
         assert store.advance_preparation(
             sources[1],
-            recipe_id=PDF_PAGE_RECIPE_ID,
+            slice_id=PDF_PAGE_RECIPE_ID,
             channel="pdf_page",
             space_id=DEFAULT_TEXT_SPACE.identity,
             cursor_json=json.dumps(
                 {
                     "kind": "pdf_pages",
                     "source_id": sources[1].source_id,
-                    "recipe_id": PDF_PAGE_RECIPE_ID,
+                    "slice_id": PDF_PAGE_RECIPE_ID,
                     "next_page": 1905,
                     "page_count": 24909,
                 }
@@ -291,7 +291,7 @@ def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
 ) -> None:
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
     workspace = Workspace(
-        tmp_path / "workspace", queue_payload_extra={"storage_org_id": 17}
+        tmp_path / "workspace", queue_payload_extra={"storage_organization_id": 17}
     )
     project_id = workspace.create("Indexing continuation")["id"]
     project = workspace.get(project_id)
@@ -304,12 +304,12 @@ def test_preparation_indexing_prefers_running_claim_over_queued_continuation(
     assert claimed is not None and claimed.id == running_id
     refs = {
         "project_id": project_id,
-        "storage_org_id": 17,
+        "storage_organization_id": 17,
         "workspace_root": str(workspace.root),
     }
     for name, value in (
         ("project_id", "another-project"),
-        ("storage_org_id", 18),
+        ("storage_organization_id", 18),
         ("workspace_root", str(tmp_path / "another-workspace")),
     ):
         unrelated_id = queue.enqueue("search.index", {**refs, name: value})
@@ -655,7 +655,7 @@ def test_trusted_automatic_ready_media_still_admits_without_downloads(
             service.create_after_materialization(
                 project_id, sheet_id=sheet, row_ids=rows
             )
-        [pending] = service.store.list_active_page(storage_org_id=None)
+        [pending] = service.store.list_active_page(storage_organization_id=None)
         assert pending.plan is None
         assert pending.captured_sources is not None
         batch_id = pending.id
@@ -694,7 +694,7 @@ def test_trusted_automatic_ready_media_still_admits_without_downloads(
         == []
     )
     planned = service.store.get(
-        batch_id, project_id=project_id, storage_org_id=None
+        batch_id, project_id=project_id, storage_organization_id=None
     ).plan
     assert {(item["row_id"], item["column_id"]) for item in planned["items"]} == {
         (rows[0], column)
@@ -768,7 +768,7 @@ def test_optional_setup_permission_is_consistent_on_every_plan_response(
     assert no_download.status_code == 403
     assert (
         service.store.get(
-            batch["id"], project_id=project_id, storage_org_id=None
+            batch["id"], project_id=project_id, storage_organization_id=None
         ).decision
         is None
     )
@@ -921,7 +921,7 @@ def test_legacy_pdf_action_is_adopted_before_the_review_guard(tmp_path, monkeypa
     # An upgrade must still adopt an action admitted by the previous process
     # before it could bind the receipt to its reserved child.
     legacy = service.store.create(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id=project_id,
         trigger_receipt_id=None,
         sheet_id=sheet,
@@ -1024,7 +1024,7 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
         {"kind": "ocr", "count": 20, "status": "needs_consent"}
     ]
     stored = service.store.get(
-        replacement["id"], project_id=project_id, storage_org_id=None
+        replacement["id"], project_id=project_id, storage_organization_id=None
     )
     assert {(item["row_id"], item["column_id"]) for item in stored.plan["items"]} == {
         (row, column) for row in rows for column in (document, image)
@@ -1046,7 +1046,7 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
         == 409
     )
     refreshed = service.store.get(
-        replacement["id"], project_id=project_id, storage_org_id=None
+        replacement["id"], project_id=project_id, storage_organization_id=None
     )
     assert {
         (item["row_id"], item["column_id"]) for item in refreshed.plan["items"]
@@ -1063,7 +1063,7 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
         ("ocr", 10),
     ]
     stored_kept = service.store.get(
-        kept["id"], project_id=project_id, storage_org_id=None
+        kept["id"], project_id=project_id, storage_organization_id=None
     )
     child = preparation_module._planned_children(stored_kept.plan)[0]
     service.store.reserve_child(kept["id"], child_key=child.child_key, kind=child.kind)
@@ -1076,7 +1076,7 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
     )
     assert (
         service.store.get(
-            kept["id"], project_id=project_id, storage_org_id=None
+            kept["id"], project_id=project_id, storage_organization_id=None
         ).stop_requested_at
         is None
     )
@@ -1157,7 +1157,7 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
     service = SearchPreparationService(workspace)
     project = workspace.get(project_id)
     original = service.store.get(
-        batch["id"], project_id=project_id, storage_org_id=None
+        batch["id"], project_id=project_id, storage_organization_id=None
     )
     sources = original.plan["sources"]
     original_cells = {(item["row_id"], item["column_id"]) for item in sources}
@@ -1188,7 +1188,7 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
         assert batch["status"] == "needs_consent"
         assert batch["jobs"] == []
         stored = service.store.get(
-            batch["id"], project_id=project_id, storage_org_id=None
+            batch["id"], project_id=project_id, storage_organization_id=None
         )
         assert {
             (item["row_id"], item["column_id"]) for item in stored.plan["sources"]
@@ -1224,7 +1224,9 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
     batch = client.get(f"{base}/{batch['id']}").json()
     assert batch["status"] == "needs_consent"
     assert batch["warnings"] == ([] if repair_skipped_pdf else [expected_warning])
-    stored = service.store.get(batch["id"], project_id=project_id, storage_org_id=None)
+    stored = service.store.get(
+        batch["id"], project_id=project_id, storage_organization_id=None
+    )
     assert {
         (item["row_id"], item["column_id"]) for item in stored.plan["sources"]
     } == original_cells
@@ -1378,7 +1380,7 @@ def test_identical_decision_replays_after_setup_facts_change(
     first = service.store.decide(
         batch.id,
         project_id=project_id,
-        storage_org_id=None,
+        storage_organization_id=None,
         plan_hash=batch.plan_hash,
         decision="not_now",
         selected_setup_refs=[],
@@ -1434,11 +1436,13 @@ def test_manual_undecided_batch_does_not_admit_when_engine_becomes_ready(
         )
         assert (
             service.store.get(
-                batch.id, project_id=project_id, storage_org_id=None
+                batch.id, project_id=project_id, storage_organization_id=None
             ).plan["admission_policy"]
             == "manual_review"
         )
-    assert service.store.list_active_page(storage_org_id=None)[0].id == batch.id
+    assert (
+        service.store.list_active_page(storage_organization_id=None)[0].id == batch.id
+    )
 
     requirements[0] = replace(requirements[0], weights_ready=True)
     service.recover()
@@ -1500,7 +1504,7 @@ def test_server_reconciles_completed_enclosure_from_separate_worker(
     )
     store = SearchPreparationStore(workspace.queue, workspace_root=str(workspace.root))
     pending = store.create_pending_materialization(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id=project_id,
         job_id=job_id,
         sheet_id=sheet_id,
@@ -1517,7 +1521,9 @@ def test_server_reconciles_completed_enclosure_from_separate_worker(
 
     SearchPreparationService(workspace).recover()
 
-    hydrated = store.get(pending.id, project_id=project_id, storage_org_id=None)
+    hydrated = store.get(
+        pending.id, project_id=project_id, storage_organization_id=None
+    )
     assert hydrated.plan is not None
     assert hydrated.plan["items"][0]["row_id"] == row_id
     assert store.children(pending.id)[0].receipt_id is not None
@@ -1537,7 +1543,7 @@ def test_recovery_retires_automatic_intent_with_invalid_page_selector(
     )
     store = SearchPreparationStore(workspace.queue, workspace_root=str(workspace.root))
     store.create_pending_materialization(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id=project_id,
         job_id=job_id,
         sheet_id=sheet_id,
@@ -1554,7 +1560,7 @@ def test_recovery_retires_automatic_intent_with_invalid_page_selector(
     monkeypatch.setattr(service, "_recover_pending", reject_invalid_page)
     service.recover()
 
-    assert store.list_active_page(storage_org_id=None) == []
+    assert store.list_active_page(storage_organization_id=None) == []
 
 
 def test_eligible_ocr_consent_is_not_blocked_by_unavailable_transcription_runtime(
@@ -1868,7 +1874,7 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
     run_id = int(queued.payload["run_id"])
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE receipt_id=? AND status='active'",
             (receipt_id,),
         ).fetchone()[0]
@@ -1892,7 +1898,7 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE receipt_id=? AND status='active'",
             (receipt_id,),
         ).fetchone()[0]
@@ -1901,7 +1907,7 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
 
 
 @pytest.mark.parametrize(
-    "error_code", ["idempotency_in_progress", "output_column_busy"]
+    "error_code", ["idempotency_in_progress", "generated_column_busy"]
 )
 def test_raced_action_reservation_defers_without_poisoning_batch(
     tmp_path, monkeypatch, error_code
@@ -1952,7 +1958,9 @@ def test_raced_action_reservation_defers_without_poisoning_batch(
     assert batch.errors == []
     [child] = service.store.children(batch.id)
     assert child.job_id is None and child.receipt_id is None
-    assert service.store.list_active_page(storage_org_id=None)[0].id == batch.id
+    assert (
+        service.store.list_active_page(storage_organization_id=None)[0].id == batch.id
+    )
 
 
 def test_recovery_observes_setup_completed_by_another_process(
@@ -2213,7 +2221,7 @@ def test_import_handoff_projects_durable_pending_available_and_none(
     service = SearchPreparationService(workspace)
     assert service.handoff_for_receipt(project_id, "receipt:absent") == ("none", None)
     pending = service.store.create_pending_import(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id=project_id,
         receipt_id="receipt:pending",
         import_ref="session:pending",
@@ -2226,11 +2234,13 @@ def test_import_handoff_projects_durable_pending_available_and_none(
     patch_project_settings(project, {"prepare_new_files_automatically": False})
     assert service.handoff_for_receipt(project_id, "receipt:pending") == ("none", None)
     patch_project_settings(project, {"prepare_new_files_automatically": True})
-    service.store.mark_settled(pending.id, project_id=project_id, storage_org_id=None)
+    service.store.mark_settled(
+        pending.id, project_id=project_id, storage_organization_id=None
+    )
     assert service.handoff_for_receipt(project_id, "receipt:pending") == ("none", None)
     sheet = project.add_sheet("Files")
     failed = service.store.create(
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id=project_id,
         trigger_receipt_id="receipt:failed",
         sheet_id=sheet,
@@ -2416,13 +2426,17 @@ def test_turning_off_automatic_transcription_retires_unadmitted_work(
     )
     assert batch_id is not None
     assert (
-        service.store.get(batch_id, project_id=pid, storage_org_id=None).settled_at
+        service.store.get(
+            batch_id, project_id=pid, storage_organization_id=None
+        ).settled_at
         is None
     )
     patch_project_settings(project, {"transcribe_new_files_automatically": False})
     service.recover()
     assert (
-        service.store.get(batch_id, project_id=pid, storage_org_id=None).settled_at
+        service.store.get(
+            batch_id, project_id=pid, storage_organization_id=None
+        ).settled_at
         is not None
     )
     assert service.store.children(batch_id) == []

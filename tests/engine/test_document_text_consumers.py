@@ -7,7 +7,7 @@ from frisket.engine.executor.find_plan import FindOperation
 from frisket.engine.executor.map_find_source import resolve_find_sources
 from frisket.contracts.action import ActionError
 from frisket.engine.store.document_text import ensure_document_text_role
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -30,7 +30,7 @@ from frisket.server.services.project_qa_sources import (
 
 def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
     with write_transaction(project.db):
-        op = project.append_change("test.document_text", commit=False)
+        op = project.append_change_in_transaction("test.document_text")
         artifact = record_source_artifact(
             project,
             artifact_kind="document",
@@ -64,16 +64,17 @@ def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
             page_end=page or len(pages),
             quote=pages[page - 1] if page else "\n\n".join(pages),
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[source_cell[1]],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=source_cell[0],
-        row_id=source_cell[1],
-        column_id=text_column,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[source_cell[1]],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=source_cell[0],
+            row_id=source_cell[1],
+            column_id=text_column,
+            link_role="primary_support",
+        )
     return ref.ref_id, artifact["id"], span, link
 
 
@@ -217,29 +218,31 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
                 ],
             )
         _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[cell[1]],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=text,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.read_pdf_text"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=text,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.read_pdf_text"},
+            )
         _, alternatives = project.get_values_with_refs(cell[0], _other, [cell[1]])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=alternatives[cell[1]],
-            spans=[{"span_id": _alternative[2]["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=_other,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.ocr"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=alternatives[cell[1]],
+                spans=[{"span_id": _alternative[2]["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=_other,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.ocr"},
+            )
     params = FindOperation(
         action_kind="map.find",
         request={},
@@ -301,7 +304,7 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
     make_project, source_column, copied_grounding
 ):
     from frisket.actions.types import ActionRequest
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         list_row_citations,
         resolve_citation_viewer,
     )
@@ -321,17 +324,18 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
     span = chosen[2]
     if copied_grounding:
         _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[cell[1]],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=text,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.read_pdf_text"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=text,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.read_pdf_text"},
+            )
     else:
         # Use the actual producer descriptor: a complete page snippet,
         # with no quote and no copied cell grounding link.
@@ -494,7 +498,7 @@ def test_ask_requested_link_must_match_selected_text(make_project):
             project,
             cell,
             expected_version=read_source_text(project, cell)["version"],
-            evidence_link_id=alternative[3]["stable_id"],
+            citation_id=alternative[3]["stable_id"],
         )
         is None
     )
@@ -503,7 +507,7 @@ def test_ask_requested_link_must_match_selected_text(make_project):
             project,
             cell,
             expected_version=read_source_text(project, cell)["version"],
-            evidence_link_id="missing-link",
+            citation_id="missing-link",
         )
         is None
     )
@@ -511,11 +515,11 @@ def test_ask_requested_link_must_match_selected_text(make_project):
         project,
         cell,
         expected_version=read_source_text(project, cell)["version"],
-        evidence_link_id=chosen[3]["stable_id"],
+        citation_id=chosen[3]["stable_id"],
     )
     assert selected is not None
     assert selected["cell"] == (cell[0], cell[1], text)
-    assert selected["evidence_link_id"] == chosen[3]["stable_id"]
+    assert selected["citation_id"] == chosen[3]["stable_id"]
 
 
 def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
@@ -543,7 +547,7 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
         project, cell, expected_version=read_source_text(project, cell)["version"]
     )
     assert selected is not None
-    assert selected["evidence_link_id"] is None
+    assert selected["citation_id"] is None
     store = ProjectQAStore(project)
     thread = store.create_thread(title="Ask")
     turn = store.submit_turn(
@@ -632,16 +636,17 @@ def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(make_pr
             selector=anchors[2]["selector"],
         )
     _, refs = project.get_values_with_refs(cell[0], other, [cell[1]])
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[cell[1]],
-        spans=[{"span_id": partial["id"]}],
-        sheet_id=cell[0],
-        row_id=cell[1],
-        column_id=other,
-        producer={"action_kind": "map.extract"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[cell[1]],
+            spans=[{"span_id": partial["id"]}],
+            sheet_id=cell[0],
+            row_id=cell[1],
+            column_id=other,
+            producer={"action_kind": "map.extract"},
+        )
     request = ActionRequest(
         action_id="map.find",
         scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},
@@ -695,7 +700,7 @@ def test_page_selection_requires_applied_owner_of_primary_support(make_project):
             page_end=2,
         )
     with project.transaction_scope():
-        op = project.append_change("evidence.attach", commit=False)
+        op = project.append_change_in_transaction("evidence.attach")
         ChangeStore(project).start(op)
         record_citation(
             project,

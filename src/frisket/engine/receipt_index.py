@@ -15,7 +15,7 @@ from typing import Any, Iterable
 from frisket.engine.store.receipts import ReceiptStore
 
 
-RECEIPT_INDEX_VERSION = 1
+RECEIPT_INDEX_VERSION = 2
 
 
 def receipt_index_path(project: Any) -> Path:
@@ -125,10 +125,10 @@ def _receipt_projection(row: Any, body: dict[str, Any]) -> dict[str, Any]:
         "available": True,
         "action_kind": row["action_kind"],
         "status": row["status"],
-        "evidence_refs": len(body.get("evidence") or []),
+        "record_refs": len(body.get("records") or []),
         "input_refs": len(body.get("inputs") or []),
         "output_refs": len(body.get("outputs") or []),
-        "evidence": _ref_kind_set(body, "evidence"),
+        "records": _ref_kind_set(body, "records"),
         "inputs": _ref_kind_set(body, "inputs"),
         "outputs": _ref_kind_set(body, "outputs"),
         "op_ids": _op_ids(body),
@@ -197,37 +197,6 @@ def receipt_metadata_rows(
     return out
 
 
-def receipt_artifacts(
-    project: Any,
-    *,
-    receipt_ids: Iterable[str] | None = None,
-) -> list[dict[str, Any]]:
-    wanted_ids = {str(receipt_id) for receipt_id in receipt_ids or []}
-    artifacts = []
-    for item in _load_receipt_index(project).get("receipts") or []:
-        if not isinstance(item, dict):
-            continue
-        if wanted_ids and str(item.get("receipt_id")) not in wanted_ids:
-            continue
-        artifacts.append(
-            {
-                "receipt_id": str(item.get("receipt_id")),
-                "available": bool(item.get("available", True)),
-                "action_kind": item.get("action_kind"),
-                "status": item.get("status"),
-                "evidence_refs": int(item.get("evidence_refs") or 0),
-            }
-        )
-    return artifacts
-
-
-def receipt_evidence_counts(project: Any) -> dict[str, int]:
-    return {
-        artifact["receipt_id"]: int(artifact.get("evidence_refs") or 0)
-        for artifact in receipt_artifacts(project)
-    }
-
-
 def receipt_bodies_by_id(
     project: Any,
     receipt_ids: Iterable[str],
@@ -285,7 +254,7 @@ def work_log_receipt_summaries(project: Any) -> list[dict[str, Any]]:
                 "status": item.get("status"),
                 "op_ids": item.get("op_ids") or [],
                 "outputs": item.get("outputs") or [],
-                "evidence": item.get("evidence") or [],
+                "records": item.get("records") or [],
                 "created_at": metadata.get("created_at"),
             }
         )

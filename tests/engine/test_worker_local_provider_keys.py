@@ -7,12 +7,12 @@ Root cause: UI-entered workspace keys (<ws>/.frisket/provider_keys.json) are res
 (server/workspace.py::router_for via provider_config.resolve_effective_keys).
 Queued action runs execute in the WORKER process (frisket.cli worker), whose
 handler (jobs/runs.py::handle) resolves keys only for the hosted organization-BYOK
-branch (org_id + control DB) and leaves ``keys=None`` in the local tier — so
+branch (organization_id + control DB) and leaves ``keys=None`` in the local tier — so
 the run router is env-only and the per-row calls raise the missing-key
 remediation the user saw.
 
 DONE means (white-box jobs/runs.py):
-- ``resolve_run_keys(root, org_id=None, ...)`` returns workspace-file hosted
+- ``resolve_run_keys(root, organization_id=None, ...)`` returns workspace-file hosted
   provider keys (env still wins), labeled ``"local"``; local endpoints travel
   through the separate plural endpoint authority. The hosted branch keeps resolving
   through the credentials port labeled ``"org_byok"``.
@@ -23,6 +23,7 @@ DONE means (white-box jobs/runs.py):
 """
 
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
@@ -49,7 +50,7 @@ def test_local_tier_resolves_workspace_file_keys(tmp_path, monkeypatch) -> None:
     _seed_workspace(root)
 
     keys, source = run_jobs.resolve_run_keys(
-        root, org_id=None, credentials=None, control_database_url=None
+        root, organization_id=None, credentials=None, control_database_url=None
     )
 
     assert source == "local"
@@ -65,7 +66,7 @@ def test_local_tier_env_still_wins_over_the_file(tmp_path, monkeypatch) -> None:
     _seed_workspace(root)
 
     keys, _source = run_jobs.resolve_run_keys(
-        root, org_id=None, credentials=None, control_database_url=None
+        root, organization_id=None, credentials=None, control_database_url=None
     )
 
     # env-owned provider dropped from the file layer; router falls back to env
@@ -74,14 +75,14 @@ def test_local_tier_env_still_wins_over_the_file(tmp_path, monkeypatch) -> None:
 
 def test_hosted_branch_keeps_the_credentials_port(tmp_path) -> None:
     class _Port:
-        def provider_keys(self, *, org_id: int, control_database_url: str):
-            assert org_id == 7
+        def provider_keys(self, *, organization_id: int, control_database_url: str):
+            assert organization_id == 7
             assert control_database_url == "postgres://x"
             return {"anthropic": "org-key"}
 
     keys, source = run_jobs.resolve_run_keys(
         tmp_path / "ws",
-        org_id=7,
+        organization_id=7,
         credentials=_Port(),
         control_database_url="postgres://x",
     )
@@ -126,8 +127,10 @@ def test_organization_run_search_uses_only_its_search_credential_port(
     provider_config.save_local_provider_key(tmp_path, "exa", "local-must-not-leak")
 
     class SearchPort:
-        def search_provider_keys(self, *, org_id: int, control_database_url: str):
-            assert org_id == 7
+        def search_provider_keys(
+            self, *, organization_id: int, control_database_url: str
+        ):
+            assert organization_id == 7
             assert control_database_url == "postgres://control"
             return {"tavily": "tenant-seven"}
 
@@ -199,7 +202,7 @@ def test_organization_without_control_db_never_claims_an_organization_key_was_re
     monkeypatch.setenv("OLLAMA_URL", "http://ollama:11434")
     keys, source = run_jobs.resolve_run_keys(
         tmp_path / "ws",
-        org_id=7,
+        organization_id=7,
         credentials=_OrganizationCredentialsPort(),
         control_database_url=None,
     )
@@ -222,7 +225,7 @@ def test_run_router_carries_the_locally_keyed_adapter(tmp_path, monkeypatch) -> 
     project = Project.create(project_dir, name="p")
 
     keys, source = run_jobs.resolve_run_keys(
-        root, org_id=None, credentials=None, control_database_url=None
+        root, organization_id=None, credentials=None, control_database_url=None
     )
     router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
         project,
@@ -230,7 +233,9 @@ def test_run_router_carries_the_locally_keyed_adapter(tmp_path, monkeypatch) -> 
         keys=keys,
         keys_source=source,
         use_env_keys=True,
-        local_endpoints=run_jobs.resolve_run_local_endpoints(root, org_id=None),
+        local_endpoints=run_jobs.resolve_run_local_endpoints(
+            root, organization_id=None
+        ),
     )
 
     assert "gemini" in router.configured_keys()
@@ -240,8 +245,7 @@ def test_run_router_carries_the_locally_keyed_adapter(tmp_path, monkeypatch) -> 
 
 def test_run_router_uses_the_cache_mode_frozen_by_enqueue(tmp_path) -> None:
     root = tmp_path / "ws"
-    project = _make_project(root)
-    try:
+    with closing(_make_project(root)) as project:
         router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
             project,
             None,
@@ -249,8 +253,6 @@ def test_run_router_uses_the_cache_mode_frozen_by_enqueue(tmp_path) -> None:
             cache_mode="replay_strict",
         )
         assert router.cache_mode == "replay_strict"
-    finally:
-        project.close()
 
 
 def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
@@ -274,7 +276,7 @@ def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
     )
     adapter = object()
     injected._adapters["anthropic"] = adapter  # noqa: SLF001 - injected seam
-    try:
+    with closing(project):
         composed = run_jobs._router_for(  # noqa: SLF001 - white-box seam
             project,
             injected,
@@ -288,8 +290,6 @@ def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
         assert composed.cache is None
         assert composed.cache_mode == "off"
         assert composed.max_retries == 1
-    finally:
-        project.close()
 
 
 def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -> None:
@@ -308,7 +308,7 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
         use_env_keys=False,
         local_endpoints=(endpoint,),
     )
-    try:
+    with closing(project):
         composed = run_jobs._router_for(  # noqa: SLF001 - white-box seam
             project,
             injected,
@@ -319,8 +319,6 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
         assert composed is not injected
         assert composed.local_endpoints == ()
         assert not composed.has_provider("ollama")
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +345,7 @@ class _OrganizationCredentialsPort:
     def __init__(self, provider_keys: dict[str, str] | None = None) -> None:
         self._provider_keys = dict(provider_keys or {})
 
-    def provider_keys(self, *, org_id: int, control_database_url: str):
+    def provider_keys(self, *, organization_id: int, control_database_url: str):
         return dict(self._provider_keys)
 
 
@@ -364,7 +362,7 @@ def test_organization_run_router_takes_local_server_url_from_env(
 
     keys, source = run_jobs.resolve_run_keys(
         root,
-        org_id=7,
+        organization_id=7,
         credentials=_OrganizationCredentialsPort(),
         control_database_url="postgres://x",
     )
@@ -374,7 +372,7 @@ def test_organization_run_router_takes_local_server_url_from_env(
         keys=keys,
         keys_source=source,
         use_env_keys=False,
-        local_endpoints=run_jobs.resolve_run_local_endpoints(root, org_id=7),
+        local_endpoints=run_jobs.resolve_run_local_endpoints(root, organization_id=7),
     )
 
     assert len(router.local_endpoints) == 1
@@ -394,7 +392,7 @@ def test_organization_run_api_keys_stay_excluded_from_env(
 
     keys, source = run_jobs.resolve_run_keys(
         root,
-        org_id=7,
+        organization_id=7,
         credentials=_OrganizationCredentialsPort(),  # no anthropic BYOK row configured
         control_database_url="postgres://x",
     )
@@ -404,7 +402,7 @@ def test_organization_run_api_keys_stay_excluded_from_env(
         keys=keys,
         keys_source=source,
         use_env_keys=False,
-        local_endpoints=run_jobs.resolve_run_local_endpoints(root, org_id=7),
+        local_endpoints=run_jobs.resolve_run_local_endpoints(root, organization_id=7),
     )
 
     assert "anthropic" not in router.configured_keys()
@@ -423,7 +421,7 @@ def test_organization_run_rejects_invalid_env_local_server_url_without_fallback(
 
     keys, source = run_jobs.resolve_run_keys(
         root,
-        org_id=7,
+        organization_id=7,
         credentials=_OrganizationCredentialsPort(),
         control_database_url="postgres://x",
     )
@@ -433,7 +431,7 @@ def test_organization_run_rejects_invalid_env_local_server_url_without_fallback(
         keys=keys,
         keys_source=source,
         use_env_keys=False,
-        local_endpoints=run_jobs.resolve_run_local_endpoints(root, org_id=7),
+        local_endpoints=run_jobs.resolve_run_local_endpoints(root, organization_id=7),
     )
 
     assert router.local_endpoints == ()
@@ -463,7 +461,7 @@ def test_resolve_run_local_endpoints_organization_carries_tokens_atomically(
     monkeypatch.setenv("FRISKET_LLM_TOKEN", "org-inference-secret")
     root = tmp_path / "ws"
 
-    endpoints = run_jobs.resolve_run_local_endpoints(root, org_id=7)
+    endpoints = run_jobs.resolve_run_local_endpoints(root, organization_id=7)
 
     assert len(endpoints) == 1
     endpoint = endpoints[0]
@@ -484,11 +482,11 @@ def test_router_for_organization_run_threads_the_resolved_local_endpoint(
 
     keys, source = run_jobs.resolve_run_keys(
         root,
-        org_id=7,
+        organization_id=7,
         credentials=_OrganizationCredentialsPort(),
         control_database_url="postgres://x",
     )
-    endpoints = run_jobs.resolve_run_local_endpoints(root, org_id=7)
+    endpoints = run_jobs.resolve_run_local_endpoints(root, organization_id=7)
     router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
         project,
         None,
@@ -517,13 +515,13 @@ def test_resolve_run_local_endpoints_organization_rejects_token_with_invalid_ori
     monkeypatch.setenv("FRISKET_LLM_TOKEN", "should-never-be-used")
     root = tmp_path / "ws"
 
-    assert run_jobs.resolve_run_local_endpoints(root, org_id=7) == ()
+    assert run_jobs.resolve_run_local_endpoints(root, organization_id=7) == ()
 
 
 def test_resolve_run_local_endpoints_local_tier_uses_full_resolution(
     tmp_path, monkeypatch
 ) -> None:
-    """Local-tier (org_id=None) runs resolve through the SAME atomic bundle
+    """Local-tier (organization_id=None) runs resolve through the SAME atomic bundle
     logic Workspace.router_for uses (env, then file, then default) -- not
     the organization-only env carve-out."""
     monkeypatch.delenv("OLLAMA_URL", raising=False)
@@ -543,7 +541,7 @@ def test_resolve_run_local_endpoints_local_tier_uses_full_resolution(
         edge_auth=False,
     )
 
-    endpoints = run_jobs.resolve_run_local_endpoints(root, org_id=None)
+    endpoints = run_jobs.resolve_run_local_endpoints(root, organization_id=None)
 
     assert len(endpoints) == 1
     endpoint = endpoints[0]

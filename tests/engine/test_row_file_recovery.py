@@ -1,5 +1,7 @@
 """Durable returned-file recovery and schema-bound occurrence contracts."""
 
+from contextlib import closing
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -82,8 +84,9 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
         "SELECT hash FROM blobs WHERE hash=?", (digest,)
     ).fetchone()
     archive = project.export(tmp_path / "returned.zip")
-    restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(archive, tmp_path / "restored.frisket")
+    ) as restored:
         bound = typed_action_for_request(body)
         plan = build_typed_map_rows_plan(restored, bound, _allow_existing_outputs=True)
         verify_row_files(
@@ -98,7 +101,7 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
         attempt_a = checkpoint["authorized_attempt_id"]
         _age_silent_attempt(restored, attempt_a)
         claim = restored.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
+            "SELECT claim_token FROM generated_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
         runner = actions._default_map_runner_factory(restored, router)
         progress = asyncio.run(
@@ -121,7 +124,7 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
         )
         occurrences = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "row_file_output"
         ]
         assert len(occurrences) == 1
@@ -133,8 +136,6 @@ def test_returned_bytes_survive_gc_bundle_restore_and_resume(
             ).fetchone()[0]
             == 2
         )
-    finally:
-        restored.close()
 
 
 @pytest.mark.parametrize("tamper", ["row", "key", "path", "missing", "duplicate"])

@@ -32,7 +32,7 @@ from frisket.server.thread_worker import await_thread_worker
 class BlobDownload:
     path: Path
     media_type: str
-    materialization: AbstractContextManager[Path]
+    materialization: AbstractContextManager[Any]
 
     def close(self) -> None:
         self.materialization.__exit__(None, None, None)

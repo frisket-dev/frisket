@@ -89,9 +89,7 @@ def test_typed_pdf_read_publishes_host_schema_and_replays(make_project, monkeypa
     assert {"vendor", "amount"} <= named["item_schema"]["properties"].keys()
     assert len(calls) == 1
     read = next(
-        item.ref
-        for item in receipt.evidence
-        if item.ref.get("kind") == "pdf_table_read"
+        item.ref for item in receipt.records if item.ref.get("kind") == "pdf_table_read"
     )
     assert read["columns"] == ["vendor", "amount"]
     replay = run_action_spec(project, request, project_id="p")
@@ -198,9 +196,7 @@ def test_page_scoped_pdf_read_extracts_one_page_and_reports_physical_page(
     assert (record["page_start"], record["page_end"]) == (2, 2)
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     read = next(
-        item.ref
-        for item in receipt.evidence
-        if item.ref.get("kind") == "pdf_table_read"
+        item.ref for item in receipt.records if item.ref.get("kind") == "pdf_table_read"
     )
     assert read["input"]["page"] == 2
 
@@ -326,15 +322,13 @@ def test_alternate_params_actual_source_options_and_exact_output_association(
         assert result.status == "failed", result.errors
         assert named == []
         assert not any(
-            item.ref.get("kind") == "pdf_table_read" for item in receipt.evidence
+            item.ref.get("kind") == "pdf_table_read" for item in receipt.records
         )
         return
     assert result.status == "completed", result.errors
     assert len(named) == 1 and named[0]["route"] == "extracted"
     read = next(
-        item.ref
-        for item in receipt.evidence
-        if item.ref.get("kind") == "pdf_table_read"
+        item.ref for item in receipt.records if item.ref.get("kind") == "pdf_table_read"
     )
     assert read["options"] == {
         "mode": "extract_table",
@@ -435,7 +429,7 @@ def test_pdf_worker_recovery_uses_committed_read_evidence(tmp_path, monkeypatch,
         before = ReceiptStore(project).parsed_by_id(queued["receipt_id"])
         read_facts = [
             item.ref
-            for item in before.evidence
+            for item in before.records
             if item.ref.get("kind") == "pdf_table_read"
         ]
         assert len(read_facts) == 2
@@ -450,7 +444,7 @@ def test_pdf_worker_recovery_uses_committed_read_evidence(tmp_path, monkeypatch,
         assert sorted(
             [
                 item.ref
-                for item in after.evidence
+                for item in after.records
                 if item.ref.get("kind") == "pdf_table_read"
             ],
             key=lambda item: item["row_id"],

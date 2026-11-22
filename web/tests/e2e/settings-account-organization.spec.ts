@@ -17,7 +17,7 @@ test('Personal theme preferences persist locally and organization API keys are o
     },
   ];
 
-  await page.route('**/api/org/tokens', async (route) => {
+  await page.route('**/api/organization/tokens', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tokens) });
       return;
@@ -44,7 +44,7 @@ test('Personal theme preferences persist locally and organization API keys are o
       }),
     });
   });
-  await page.route('**/api/org/tokens/*', async (route) => {
+  await page.route('**/api/organization/tokens/*', async (route) => {
     const id = Number(route.request().url().split('/').pop());
     const token = tokens.find((item) => item.id === id);
     if (token) token.revoked = true;

@@ -231,7 +231,6 @@ def declare_prepared_outputs(
                     "schema": field.get("schema") or {},
                 },
                 defer_publication=stage_output_group,
-                commit=False,
             )
         if any(descriptor_changing.values()):
             # A descriptor-changing replacement publishes as one whole output group.
@@ -278,7 +277,7 @@ def declare_bound_run_outputs(
 
     action_program = program if program is not None else action_program_for_spec(spec)
     rows = project.db.execute(
-        "SELECT output_name,column_id FROM output_column_claims "
+        "SELECT output_name,column_id FROM generated_column_claims "
         "WHERE claim_token=? AND run_id=? AND status='active' "
         "ORDER BY output_name",
         (claim_token, int(run_id)),

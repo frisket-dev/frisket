@@ -19,7 +19,10 @@ from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import EXPECTED_ROW_ERROR, RunResultStore
-from frisket.execution.attempt import set_attempt_state
+from frisket.engine.store.writer_fence import WriterFence
+from frisket.execution.attempt import set_attempt_state_in_transaction
+
+_EMPTY_FENCE = WriterFence()
 
 
 class RunFinalization(TypedDict):
@@ -41,11 +44,9 @@ class PreDispatchRunFinalization(RunFinalization):
     """A pre-dispatch close also names the run and any attempt it settles."""
 
     run_id: int
-    writer_attempt_id: NotRequired[str | None]
-    claimless_direct_effect: NotRequired[bool]
+    fence: NotRequired[WriterFence]
     terminal_attempt_id: NotRequired[str | None]
     terminal_attempt_state: NotRequired[str | None]
-    generation_claim_token: NotRequired[str | None]
 
 
 def _finalize_run_in_transaction(
@@ -56,8 +57,7 @@ def _finalize_run_in_transaction(
     run_id: int,
     status: str,
     out_cols: dict[str, int],
-    writer_attempt_id: str | None = None,
-    claimless_direct_effect: bool = False,
+    fence: WriterFence = _EMPTY_FENCE,
     keep_zero_success_generated_columns: bool = False,
     halted_code: str | None = None,
     halted_reason: str | None = None,
@@ -66,7 +66,6 @@ def _finalize_run_in_transaction(
     terminal_attempt_state: str | None = None,
     defer_terminal_status: bool = False,
     defer_generation_seal: bool = False,
-    generation_claim_token: str | None = None,
     never_point_column_ids: Collection[int] = (),
 ) -> None:
     """Terminal run bookkeeping after the caller has opened its transaction.
@@ -103,19 +102,16 @@ def _finalize_run_in_transaction(
         and run["cancel_requested_at"] is not None
     ):
         status = "cancelled"
-    if writer_attempt_id is not None:
+    if fence.writer_attempt_id is not None:
         from frisket.engine.store.run_lifecycle import require_terminal_writer
 
         require_terminal_writer(
             project,
+            fence=fence,
             terminal_status=status,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=generation_claim_token,
             output_column_ids=frozenset(
                 int(column_id) for column_id in out_cols.values()
             ),
-            claimless_direct_effect=claimless_direct_effect,
         )
     managed_column_ids = {
         int(row["column_id"])
@@ -137,16 +133,15 @@ def _finalize_run_in_transaction(
     # run status together with receipt + attempt + claim in the terminalizer
     # kernel.  Every other path keeps the established one-step run close.
     if managed_column_ids and not defer_generation_seal:
-        if not isinstance(generation_claim_token, str) or not generation_claim_token:
+        if not isinstance(fence.claim_token, str) or not fence.claim_token:
             raise RuntimeError(
                 "managed result generations require their exact claim at seal"
             )
         ResultGenerationStore(project).seal(
             run_id,
             sorted(managed_column_ids),
-            claim_token=generation_claim_token,
+            claim_token=fence.claim_token,
             terminal_disposition=status,
-            commit=False,
         )
     # Coupled publishers retain the current writer and running status until
     # their materialization transaction seals outputs and terminalizes the run.
@@ -155,16 +150,13 @@ def _finalize_run_in_transaction(
             "deferred publication cannot close its current writer before materialization"
         )
     if not defer_terminal_status and not defer_generation_seal:
-        run_store.finish_run(
+        run_store.finish_run_in_transaction(
             run_id,
             status,
-            commit=False,
             rebuild_review_stats=False,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=generation_claim_token,
-            claimless_direct_effect=claimless_direct_effect,
+            fence=fence,
             prepared_attempt_id=(
-                terminal_attempt_id if writer_attempt_id is None else None
+                terminal_attempt_id if fence.writer_attempt_id is None else None
             ),
         )
     never_point = {int(column_id) for column_id in never_point_column_ids}
@@ -231,11 +223,10 @@ def _finalize_run_in_transaction(
     if terminal_attempt_id is not None:
         if terminal_attempt_state is None:
             raise ValueError("terminal attempt state is required with an attempt id")
-        set_attempt_state(
+        set_attempt_state_in_transaction(
             project,
             terminal_attempt_id,
             terminal_attempt_state,
-            commit=False,
         )
 
     # Capture final output descriptors once, after publication and visibility.
@@ -263,10 +254,7 @@ def finalize_dispatched_run(
     project: Project,
     run_store: RunResultStore,
     *,
-    run_id: int,
-    writer_attempt_id: str,
-    claim_token: str | None,
-    claimless_direct_effect: bool,
+    fence: WriterFence,
     terminal_attempt_state: str | None,
     **kwargs: Unpack[RunFinalization],
 ) -> None:
@@ -276,19 +264,21 @@ def finalize_dispatched_run(
     dispatching for a caller-owned terminal receipt/checkpoint transaction.
     """
 
+    if fence.run_id is None or fence.writer_attempt_id is None:
+        raise ValueError(
+            "dispatched run finalization requires a run-scoped writer fence"
+        )
     try:
         project.db.execute("BEGIN IMMEDIATE")
         _finalize_run_in_transaction(
             project,
             run_store,
-            run_id=run_id,
-            generation_claim_token=claim_token,
+            run_id=fence.run_id,
+            fence=fence,
             terminal_attempt_id=(
-                writer_attempt_id if terminal_attempt_state is not None else None
+                fence.writer_attempt_id if terminal_attempt_state is not None else None
             ),
             terminal_attempt_state=terminal_attempt_state,
-            writer_attempt_id=writer_attempt_id,
-            claimless_direct_effect=claimless_direct_effect,
             **kwargs,
         )
         project.db.commit()

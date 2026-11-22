@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import json
 import sqlite3
@@ -26,6 +27,7 @@ from frisket.sdk.capture import _capture_result_warnings, capture_maprunner_fact
 from frisket.sdk.provenance import Provenance, build_receipt_from_provenance
 from helpers import run_writer_authority_fixture
 from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -33,7 +35,7 @@ def warning_run(make_project, request):
     project = make_project("Warnings")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "source")
-    output_id = project.add_column(sheet_id, "generated", ai_generated=True)
+    output_id = project.add_column(sheet_id, "generated", generated=True)
     row_ids = project.add_rows(
         sheet_id, [{"source": "scan"}, {"source": "blank"}], {"source": source_id}
     )
@@ -46,14 +48,15 @@ def warning_run(make_project, request):
         project, run_id, output_column_ids={output_id}
     )
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        output_id,
-        output_role="generated",
-        compatibility_key="sha256:text-warning-proof",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            output_id,
+            output_role="generated",
+            compatibility_key="sha256:text-warning-proof",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     store.write_results(
         run_id,
         [
@@ -73,18 +76,16 @@ def warning_run(make_project, request):
         **authority.kwargs(),
     )
     if getattr(request, "param", True):
-        generations.seal(
-            run_id,
-            [output_id],
-            claim_token=authority.claim_token,
-            terminal_disposition="completed",
-        )
-        store.finish_run(
-            run_id,
-            writer_attempt_id=authority.writer_attempt_id,
-            claim_token=authority.claim_token,
-        )
-        store.point_column_at_run(op_id, output_id, run_id)
+        with write_transaction(generations.db):
+            generations.seal(
+                run_id,
+                [output_id],
+                claim_token=authority.claim_token,
+                terminal_disposition="completed",
+            )
+        store.finish_run(run_id, fence=authority.fence())
+        with write_transaction(store.db):
+            store.point_column_at_run(op_id, output_id, run_id)
     yield project, sheet_id, source_id, output_id, row_ids, run_id
 
 
@@ -118,7 +119,7 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
         inputs=[],
         output_refs=[],
         provider_use=[],
-        evidence=[],
+        records=[],
         status="completed",
         warnings=["Existing action warning", *facts.warnings],
     )
@@ -148,8 +149,7 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
     )
     path = project.path
     project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         heads = ResultGenerationStore(reopened).read_cell_heads(output_id, row_ids)
         assert [heads[row_id].value for row_id in row_ids] == ["pages 1 and 3", ""]
         assert heads[row_ids[0]].warnings == ("Page 2 could not be read",)
@@ -158,8 +158,6 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
             head.outcome == "ok" and head.error is None for head in heads.values()
         )
         assert _facts(reopened, sheet_id, source_id, run_id).warnings == facts.warnings
-    finally:
-        reopened.close()
 
 
 def _restore_prior_layout(project):
@@ -236,8 +234,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
         ] == expected
     path = project.path
     project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert EXECUTION_METADATA_TO_DIGEST == DOCUMENT_TEXT_FROM_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert reopened.get_values(sheet, output_id) == {
@@ -254,8 +251,6 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
         assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
         run_step(reopened.db, *EXECUTION_METADATA_STEP)
         _assert_warning_guard(reopened, run_id, row_ids[0], output_id)
-    finally:
-        reopened.close()
 
 
 def test_warning_migration_rolls_back_on_digest_stamp_failure(warning_run):
@@ -291,8 +286,7 @@ def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
     if migrated:
         _restore_prior_layout(original)
     original.close()
-    project = Project(path)
-    try:
+    with closing(Project(path)) as project:
         assert (
             project.db.execute(
                 "SELECT work_progress FROM runs WHERE id=?", (run_id,)
@@ -316,17 +310,12 @@ def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
         )
         project.db.commit()
         run_step(project.db, *EXECUTION_METADATA_STEP)
-    finally:
-        project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         row = reopened.db.execute(
             "SELECT params,work_progress FROM runs WHERE id=?", (run_id,)
         ).fetchone()
         assert row["params"] == params_before
         assert json.loads(row["work_progress"]) == progress
-    finally:
-        reopened.close()
 
 
 def test_warning_storage_is_bounded_and_redacts_secrets(make_project):

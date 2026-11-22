@@ -10,6 +10,13 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.writer_fence import WriterFence
+
+
+def _stale_writer(message: str) -> Exception:
+    from frisket.execution.attempt import StaleAttemptWriter
+
+    return StaleAttemptWriter(message)
 
 
 # A claim's owning run can reach a terminal status (project-local
@@ -24,7 +31,7 @@ class ClaimLeaseRenewalFailed(sqlite3.OperationalError):
     """A transient claim-lease write failure, never authority loss."""
 
 
-class OutputColumnClaimStore:
+class GeneratedColumnClaimStore:
     def __init__(self, project: Any, *, queue: Any | None = None):
         self.project = project
         self.queue = queue
@@ -79,7 +86,7 @@ class OutputColumnClaimStore:
         try:
             for name in names:
                 existing = self.db.execute(
-                    "SELECT * FROM output_column_claims "
+                    "SELECT * FROM generated_column_claims "
                     "WHERE sheet_id=? AND output_name=? AND status='active'",
                     (sheet_id, name),
                 ).fetchone()
@@ -98,7 +105,7 @@ class OutputColumnClaimStore:
                 ).fetchone()
                 claim_id = f"claim:{uuid.uuid4()}"
                 self.db.execute(
-                    "INSERT INTO output_column_claims ("
+                    "INSERT INTO generated_column_claims ("
                     "id, sheet_id, column_id, output_name, run_id, op_id, "
                     "receipt_id, job_id, action_kind, mode, expected_current_run_id, "
                     "claim_token, lease_expires_at, details"
@@ -127,7 +134,7 @@ class OutputColumnClaimStore:
                 )
                 created.append(
                     self.db.execute(
-                        "SELECT * FROM output_column_claims WHERE id=?", (claim_id,)
+                        "SELECT * FROM generated_column_claims WHERE id=?", (claim_id,)
                     ).fetchone()
                 )
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
@@ -137,7 +144,7 @@ class OutputColumnClaimStore:
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             placeholders = ",".join("?" for _ in names)
             conflict = self.db.execute(
-                "SELECT occ.* FROM output_column_claims occ "
+                "SELECT occ.* FROM generated_column_claims occ "
                 "LEFT JOIN columns c ON c.id=occ.column_id AND c.active=1 "
                 "WHERE occ.status='active' AND ("
                 f"(occ.sheet_id=? AND occ.output_name IN ({placeholders})) "
@@ -183,7 +190,7 @@ class OutputColumnClaimStore:
             raise ValueError(f"cannot bind output claims to missing run {run_id}")
         op_id = int(run["op_id"])
         claims = self.db.execute(
-            "SELECT id, sheet_id, output_name FROM output_column_claims "
+            "SELECT id, sheet_id, output_name FROM generated_column_claims "
             "WHERE claim_token=? AND status='active'",
             (claim_token,),
         ).fetchall()
@@ -212,7 +219,7 @@ class OutputColumnClaimStore:
                     f"{claim['output_name']!r}"
                 )
             self.db.execute(
-                "UPDATE output_column_claims SET run_id=?, op_id=?, job_id=?, "
+                "UPDATE generated_column_claims SET run_id=?, op_id=?, job_id=?, "
                 "column_id=? WHERE id=?",
                 (
                     run_id,
@@ -237,7 +244,7 @@ class OutputColumnClaimStore:
             "SELECT c.output_name, c.details, col.id AS column_id, "
             "col.type AS column_type, "
             "col.semantic_type, col.format, op.undo_info "
-            "FROM output_column_claims c "
+            "FROM generated_column_claims c "
             "JOIN columns col ON col.id=c.column_id "
             "JOIN runs run ON run.id=c.run_id "
             "JOIN ops op ON op.id=run.op_id "
@@ -248,7 +255,7 @@ class OutputColumnClaimStore:
         ).fetchall()
         active_count = int(
             self.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE claim_token=? AND run_id=? AND status='active'",
                 (claim_token, run_id),
             ).fetchone()[0]
@@ -406,7 +413,7 @@ class OutputColumnClaimStore:
         where = "claim_token=? AND status='active'"
         args: list[Any] = [
             observed_now.isoformat(timespec="microseconds"),
-            OutputColumnClaimStore.claim_expiry(
+            GeneratedColumnClaimStore.claim_expiry(
                 lease_seconds,
                 now=observed_now,
             ),
@@ -416,63 +423,72 @@ class OutputColumnClaimStore:
             where += " AND run_id=?"
             args.append(run_id)
         renewed = db.execute(
-            "UPDATE output_column_claims SET renewed_at=?, lease_expires_at=? "
+            "UPDATE generated_column_claims SET renewed_at=?, lease_expires_at=? "
             f"WHERE {where}",
             args,
         )
         return int(renewed.rowcount)
 
     @staticmethod
-    def require_current_writer(
+    def _require_dispatching_attempt(
         db: sqlite3.Connection,
-        *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str | None,
-        output_column_ids: set[int] | frozenset[int] | None = None,
-        claimless_direct_effect: bool = False,
-    ) -> str:
-        """Fence one run-scoped mutation inside its caller's write transaction."""
-
-        from frisket.execution.attempt import StaleAttemptWriter
-
+        fence: WriterFence,
+    ) -> tuple[int, str]:
+        run_id = fence.run_id
+        writer_attempt_id = fence.writer_attempt_id
+        if run_id is None:
+            raise _stale_writer("the mutation supplied no run id")
         if not isinstance(writer_attempt_id, str) or not writer_attempt_id:
-            raise StaleAttemptWriter(
-                "the mutation supplied no immutable writer attempt"
-            )
+            raise _stale_writer("the mutation supplied no immutable writer attempt")
         attempt = db.execute(
             "SELECT run_id, state FROM execution_attempts WHERE id=?",
             (writer_attempt_id,),
         ).fetchone()
         if attempt is None:
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"attempt {writer_attempt_id!r} is missing; "
                 "no writer owns this mutation"
             )
         attempt_run_id = attempt["run_id"]
         if attempt_run_id is None or int(attempt_run_id) != int(run_id):
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"attempt {writer_attempt_id!r} belongs to run "
                 f"{attempt_run_id!r}, not run {run_id}"
             )
         if str(attempt["state"]) != "dispatching":
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"attempt {writer_attempt_id!r} is {attempt['state']!r}, "
                 "not 'dispatching'"
             )
+        return run_id, writer_attempt_id
+
+    @staticmethod
+    def require_current_writer(
+        db: sqlite3.Connection,
+        *,
+        fence: WriterFence,
+        output_column_ids: set[int] | frozenset[int] | None = None,
+    ) -> str:
+        """Fence one run-scoped mutation inside its caller's write transaction."""
+
+        run_id, writer_attempt_id = (
+            GeneratedColumnClaimStore._require_dispatching_attempt(db, fence)
+        )
+        claim_token = fence.claim_token
+        claimless_direct_effect = fence.claimless_direct_effect
 
         if claimless_direct_effect:
             if output_column_ids:
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "a claimless direct writer cannot mutate output columns"
                 )
             active_claim = db.execute(
-                "SELECT claim_token FROM output_column_claims "
+                "SELECT claim_token FROM generated_column_claims "
                 "WHERE run_id=? AND status='active' LIMIT 1",
                 (run_id,),
             ).fetchone()
             if active_claim is not None:
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "a claimed output run cannot use claimless direct authority"
                 )
             run = db.execute(
@@ -481,23 +497,21 @@ class OutputColumnClaimStore:
             ).fetchone()
             if run is None or run["current_attempt_id"] != writer_attempt_id:
                 holder = None if run is None else run["current_attempt_id"]
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     "the claimless dispatch is no longer held by this writer "
                     f"(current holder {holder!r})"
                 )
             return writer_attempt_id
 
         if not isinstance(claim_token, str) or not claim_token:
-            raise StaleAttemptWriter(
-                "an output-producing mutation supplied no claim token"
-            )
+            raise _stale_writer("an output-producing mutation supplied no claim token")
         claims = db.execute(
-            "SELECT column_id FROM output_column_claims "
+            "SELECT column_id FROM generated_column_claims "
             "WHERE claim_token=? AND run_id=? AND status='active'",
             (claim_token, run_id),
         ).fetchall()
         if not claims:
-            raise StaleAttemptWriter(
+            raise _stale_writer(
                 f"claim token {claim_token!r} has no active claims "
                 f"bound to run {run_id}"
             )
@@ -508,7 +522,7 @@ class OutputColumnClaimStore:
             }
             missing = sorted(required_columns - claimed_columns)
             if missing:
-                raise StaleAttemptWriter(
+                raise _stale_writer(
                     f"claim token {claim_token!r} does not cover "
                     f"output columns {missing}"
                 )
@@ -527,7 +541,7 @@ class OutputColumnClaimStore:
         require_transaction(self.db, "stale-attempt sweep")
         has_claim = (
             self.db.execute(
-                "SELECT 1 FROM output_column_claims WHERE run_id=? "
+                "SELECT 1 FROM generated_column_claims WHERE run_id=? "
                 "AND status='active' LIMIT 1",
                 (run_id,),
             ).fetchone()
@@ -538,11 +552,11 @@ class OutputColumnClaimStore:
             "UPDATE execution_attempts SET state='abandoned' "
             "WHERE run_id=? AND state='dispatching' "
             "AND ("
-            "(? AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+            "(? AND NOT EXISTS (SELECT 1 FROM generated_column_claims c "
             "WHERE c.run_id=execution_attempts.run_id AND c.status='active')) "
-            "OR (created_at < ? AND EXISTS (SELECT 1 FROM output_column_claims c "
+            "OR (created_at < ? AND EXISTS (SELECT 1 FROM generated_column_claims c "
             "WHERE c.run_id=execution_attempts.run_id AND c.status='active') "
-            "AND NOT EXISTS (SELECT 1 FROM output_column_claims live "
+            "AND NOT EXISTS (SELECT 1 FROM generated_column_claims live "
             "WHERE live.run_id=execution_attempts.run_id "
             "AND live.status='active' AND live.lease_expires_at > ?))"
             ")",
@@ -566,7 +580,7 @@ class OutputColumnClaimStore:
         """Release one active claim group in the caller's transaction."""
         require_transaction(self.db, "output claim release")
         released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+            "UPDATE generated_column_claims SET status=?, released_at=datetime('now') "
             "WHERE claim_token=? AND status='active'",
             (status, claim_token),
         )
@@ -575,12 +589,9 @@ class OutputColumnClaimStore:
     def finish_current_writer(
         self,
         *,
-        run_id: int,
-        writer_attempt_id: str,
-        claim_token: str | None,
+        fence: WriterFence,
         attempt_state: str,
         claim_status: str = "released",
-        claimless_direct_effect: bool = False,
     ) -> int:
         """Close only the still-current writer and its own active claim group.
 
@@ -590,27 +601,20 @@ class OutputColumnClaimStore:
         touched.
         """
 
-        from frisket.execution.attempt import set_attempt_state
+        from frisket.execution.attempt import set_attempt_state_in_transaction
 
         with write_transaction(self.db):
-            self.require_current_writer(
-                self.db,
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-            )
-            set_attempt_state(
+            writer_attempt_id = self.require_current_writer(self.db, fence=fence)
+            set_attempt_state_in_transaction(
                 self.project,
                 writer_attempt_id,
                 attempt_state,
-                commit=False,
             )
             released = (
                 0
-                if claim_token is None
+                if fence.claim_token is None
                 else self.release(
-                    claim_token=claim_token,
+                    claim_token=fence.claim_token,
                     status=claim_status,
                 )
             )
@@ -625,7 +629,7 @@ class OutputColumnClaimStore:
         """Return the active output-column coverage for one run-bound token."""
 
         rows = self.db.execute(
-            "SELECT column_id FROM output_column_claims "
+            "SELECT column_id FROM generated_column_claims "
             "WHERE claim_token=? AND run_id=? AND status='active'",
             (claim_token, run_id),
         ).fetchall()
@@ -638,7 +642,7 @@ class OutputColumnClaimStore:
 
         return (
             self.db.execute(
-                "SELECT 1 FROM output_column_claims "
+                "SELECT 1 FROM generated_column_claims "
                 "WHERE run_id=? AND status='active' LIMIT 1",
                 (run_id,),
             ).fetchone()
@@ -654,7 +658,7 @@ class OutputColumnClaimStore:
         """Release active claims for one receipt in the caller's transaction."""
         require_transaction(self.db, "receipt output claim release")
         released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+            "UPDATE generated_column_claims SET status=?, released_at=datetime('now') "
             "WHERE receipt_id=? AND status='active'",
             (status, receipt_id),
         )
@@ -677,7 +681,7 @@ class OutputColumnClaimStore:
 
         require_transaction(self.db, "run receipt output claim release")
         released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+            "UPDATE generated_column_claims SET status=?, released_at=datetime('now') "
             "WHERE run_id=? AND receipt_id=? AND status='active'",
             (status, run_id, receipt_id),
         )
@@ -697,7 +701,7 @@ class OutputColumnClaimStore:
 
         require_transaction(self.db, "receipt output claim discard")
         discarded = self.db.execute(
-            "DELETE FROM output_column_claims WHERE receipt_id=? AND status='active'",
+            "DELETE FROM generated_column_claims WHERE receipt_id=? AND status='active'",
             (receipt_id,),
         )
         return discarded.rowcount
@@ -705,7 +709,7 @@ class OutputColumnClaimStore:
     def active_for_columns(
         self, column_ids: list[int] | set[int]
     ) -> sqlite3.Row | None:
-        """The output_column_busy gate (edits.py/operations.py's
+        """The generated_column_busy gate (edits.py/operations.py's
         _claimed_column_error / _operation_claimed_column_error both call
         this). RECOVERY (queued-run-claim-release-v1): a claim normally dies
         with its owning action's finalize step, but that release is a
@@ -726,7 +730,7 @@ class OutputColumnClaimStore:
             return None
         placeholders = ",".join("?" for _ in ids)
         query = (
-            "SELECT occ.* FROM output_column_claims occ "
+            "SELECT occ.* FROM generated_column_claims occ "
             "LEFT JOIN columns c ON c.sheet_id=occ.sheet_id "
             "AND c.name=occ.output_name AND c.active=1 "
             "WHERE occ.status='active' "
@@ -754,13 +758,13 @@ class OutputColumnClaimStore:
         output_name: str,
         recover_stale: bool = True,
     ) -> sqlite3.Row | None:
-        """The output_column_busy gate for a TARGET name that may not exist as
+        """The generated_column_busy gate for a TARGET name that may not exist as
         a column yet (the resolve.* transforms' pre-write check). Same
         stale-owner semantics as `active_for_columns`: a write caller releases
         terminal-owner claims under its transaction; a read-only caller can
         pass ``recover_stale=False`` to ignore them without mutating state."""
         query = (
-            "SELECT * FROM output_column_claims "
+            "SELECT * FROM generated_column_claims "
             "WHERE sheet_id=? AND output_name=? AND status='active' "
             "ORDER BY created_at, id LIMIT 1"
         )
@@ -900,10 +904,10 @@ class OutputColumnClaimStore:
         job_ids = {
             int(row[0])
             for row in self.db.execute(
-                "SELECT job_id FROM output_column_claims WHERE run_id=? "
+                "SELECT job_id FROM generated_column_claims WHERE run_id=? "
                 "AND job_id IS NOT NULL UNION "
                 "SELECT json_extract(e.value, '$.ref.job_id') "
-                "FROM receipts r, json_each(r.body, '$.evidence') e "
+                "FROM receipts r, json_each(r.body, '$.records') e "
                 "WHERE r.run_id=? "
                 "AND json_type(e.value, '$.ref.job_id')='integer' "
                 "AND (json_extract(e.value, '$.ref.queue_kind')='project.run' "
@@ -934,7 +938,7 @@ class OutputColumnClaimStore:
         an ordinary release."""
         require_transaction(self.db, "stale output claim release")
         row = self.db.execute(
-            "SELECT details FROM output_column_claims WHERE id=?", (claim_id,)
+            "SELECT details FROM generated_column_claims WHERE id=?", (claim_id,)
         ).fetchone()
         if row is None:
             return 0
@@ -946,7 +950,7 @@ class OutputColumnClaimStore:
             details = {}
         details["recovered_by"] = reason
         released = self.db.execute(
-            "UPDATE output_column_claims SET status='released', "
+            "UPDATE generated_column_claims SET status='released', "
             "released_at=datetime('now'), details=? "
             "WHERE id=? AND status='active'",
             (json.dumps(details, sort_keys=True), claim_id),

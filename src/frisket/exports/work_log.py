@@ -237,7 +237,7 @@ def _markdown_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
         return lines
     lines.extend(
         [
-            "| Receipt | Action | Status | Ops | Outputs | Evidence |",
+            "| Receipt | Action | Status | Ops | Outputs | Records |",
             "|---|---|---|---|---|---|",
         ]
     )
@@ -248,7 +248,7 @@ def _markdown_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
             f"{markdown_table_cell(receipt['status'])} | "
             f"{markdown_table_cell(', '.join(str(item) for item in receipt['op_ids']) or 'none')} | "
             f"{markdown_table_cell(', '.join(receipt['outputs']) or 'none')} | "
-            f"{markdown_table_cell(', '.join(receipt['evidence']) or 'none')} |"
+            f"{markdown_table_cell(', '.join(receipt['records']) or 'none')} |"
         )
     return lines
 
@@ -348,7 +348,7 @@ def _html_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
         rows.append('<p class="muted">No action receipts recorded.</p>')
         return rows
     rows.append(
-        "<table><thead><tr><th>Receipt</th><th>Action</th><th>Status</th><th>Ops</th><th>Outputs</th><th>Evidence</th></tr></thead><tbody>"
+        "<table><thead><tr><th>Receipt</th><th>Action</th><th>Status</th><th>Ops</th><th>Outputs</th><th>Records</th></tr></thead><tbody>"
     )
     for receipt in receipts:
         rows.append(
@@ -356,7 +356,7 @@ def _html_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
             f"<td>{_html_escape(receipt['status'])}</td>"
             f"<td>{_html_escape(', '.join(str(item) for item in receipt['op_ids']) or 'none')}</td>"
             f"<td>{_html_escape(', '.join(receipt['outputs']) or 'none')}</td>"
-            f"<td>{_html_escape(', '.join(receipt['evidence']) or 'none')}</td></tr>"
+            f"<td>{_html_escape(', '.join(receipt['records']) or 'none')}</td></tr>"
         )
     rows.append("</tbody></table>")
     return rows
@@ -465,11 +465,11 @@ def work_log_pdf_lines(payload: dict[str, Any]) -> list[str]:
         for receipt in receipts:
             operation_ids = ", ".join(str(item) for item in receipt["op_ids"]) or "none"
             outputs = ", ".join(receipt["outputs"]) or "none"
-            citations = ", ".join(receipt["evidence"]) or "none"
+            records = ", ".join(receipt["records"]) or "none"
             lines.append(
                 f"- {receipt['id']} {receipt['action_kind']} "
                 f"({receipt['status']}), ops: {operation_ids}, outputs: {outputs}, "
-                f"evidence: {citations}"
+                f"records: {records}"
             )
     else:
         lines.append("- No action receipts recorded.")

@@ -12,7 +12,7 @@ from frisket.ai.embeddings import EmbeddingStore
 from frisket.contracts.action import (
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.embedding_export import (
@@ -127,7 +127,7 @@ class _IndexDeleter:
 
 
 def _insert_receipt(project: Project, receipt: Receipt) -> None:
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
 
 
 def _perform_delete_in_txn(
@@ -179,7 +179,7 @@ def _perform_delete_in_txn(
             )
         ],
         outputs=[ReceiptIO(name=result.index_id, ref=output_ref)],
-        evidence=[ReceiptEvidence(ref=output_ref, retention="pinned")],
+        records=[ReceiptRecord(ref=output_ref, retention="pinned")],
     )
     _insert_receipt(project, receipt)
     return _result_from_receipt(receipt)

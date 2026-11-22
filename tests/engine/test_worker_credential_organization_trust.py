@@ -4,7 +4,7 @@ credentials from the TRUSTED queue organization column, never the mutable JSON p
 The physical project is already selected from the trusted storage-identity
 columns (``claimed_project_location`` beats ``payload['project_id']``). The
 credential organization must come from the same trust boundary: the first-class
-``org_id`` queue column written at enqueue and immutable in the row. A forged,
+``organization_id`` queue column written at enqueue and immutable in the row. A forged,
 stale, or mis-migrated durable payload that names a DIFFERENT organization than the
 trusted column must never resolve that other organization's keys against this organization's
 project (cross-tenant credential confusion, mis-billing, prompt exposure).
@@ -63,8 +63,8 @@ class _RecordingCredentialPort:
     def __init__(self) -> None:
         self.requested_organization_ids: list[int] = []
 
-    def provider_keys(self, *, org_id: int, control_database_url: str | None):
-        self.requested_organization_ids.append(int(org_id))
+    def provider_keys(self, *, organization_id: int, control_database_url: str | None):
+        self.requested_organization_ids.append(int(organization_id))
         return {}
 
 
@@ -130,16 +130,16 @@ def _enqueue_canonical_regex_run(
 
 
 def _forge_payload_organization(
-    queue: SqliteJobQueue, job_id: int, org_id: int
+    queue: SqliteJobQueue, job_id: int, organization_id: int
 ) -> None:
     """Simulate a forged/mis-migrated durable payload: rewrite the row's JSON
-    ``org_id`` to a different organization while leaving the trusted columns untouched."""
+    ``organization_id`` to a different organization while leaving the trusted columns untouched."""
     with queue.engine.begin() as cx:
         raw = cx.execute(
             sa.text("SELECT payload FROM jobs WHERE id=:id"), {"id": job_id}
         ).scalar_one()
         body = json.loads(raw)
-        body["org_id"] = org_id
+        body["organization_id"] = organization_id
         cx.execute(
             sa.text("UPDATE jobs SET payload=:p WHERE id=:id"),
             {"p": json.dumps(body), "id": job_id},
@@ -152,7 +152,7 @@ def test_forged_payload_organization_never_resolves_credentials_and_fails_closed
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
 
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     port = _RecordingCredentialPort()
     registry = default_registry()
     register_project_run_handler(
@@ -172,8 +172,8 @@ def test_forged_payload_organization_never_resolves_credentials_and_fails_closed
         project_id="queued",
         sheet_id=sheet,
         queue_payload_extra={
-            "org_id": TRUSTED_ORGANIZATION,
-            "storage_org_id": TRUSTED_ORGANIZATION,
+            "organization_id": TRUSTED_ORGANIZATION,
+            "storage_organization_id": TRUSTED_ORGANIZATION,
         },
     )
     # The trusted columns still name organization A; only the mutable JSON is forged.
@@ -203,7 +203,7 @@ def test_agreeing_payload_organization_resolves_trusted_organization_and_runs(
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
 
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     port = _RecordingCredentialPort()
     registry = default_registry()
     register_project_run_handler(
@@ -223,8 +223,8 @@ def test_agreeing_payload_organization_resolves_trusted_organization_and_runs(
         project_id="queued",
         sheet_id=sheet,
         queue_payload_extra={
-            "org_id": TRUSTED_ORGANIZATION,
-            "storage_org_id": TRUSTED_ORGANIZATION,
+            "organization_id": TRUSTED_ORGANIZATION,
+            "storage_organization_id": TRUSTED_ORGANIZATION,
         },
     )
 
@@ -284,15 +284,15 @@ def test_queued_cache_factory_uses_trusted_context_and_owns_cache(
 ) -> None:
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     _run_id, job_id = _enqueue_canonical_regex_run(
         ws / str(TRUSTED_ORGANIZATION),
         queue,
         project_id="queued",
         sheet_id=sheet,
         queue_payload_extra={
-            "org_id": TRUSTED_ORGANIZATION,
-            "storage_org_id": TRUSTED_ORGANIZATION,
+            "organization_id": TRUSTED_ORGANIZATION,
+            "storage_organization_id": TRUSTED_ORGANIZATION,
         },
     )
     cache = _TrackingResponseCache(tmp_path / "tenant.cache.db", fail_close=True)
@@ -337,15 +337,15 @@ def test_queued_cache_factory_closes_cache_when_composition_fails(
 ) -> None:
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     _run_id, job_id = _enqueue_canonical_regex_run(
         ws / str(TRUSTED_ORGANIZATION),
         queue,
         project_id="queued",
         sheet_id=sheet,
         queue_payload_extra={
-            "org_id": TRUSTED_ORGANIZATION,
-            "storage_org_id": TRUSTED_ORGANIZATION,
+            "organization_id": TRUSTED_ORGANIZATION,
+            "storage_organization_id": TRUSTED_ORGANIZATION,
         },
     )
     cache = _TrackingResponseCache(tmp_path / "tenant.cache.db")
@@ -379,15 +379,15 @@ def test_queued_cache_factory_none_explicitly_disables_template_cache(
 ) -> None:
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     _run_id, job_id = _enqueue_canonical_regex_run(
         ws / str(TRUSTED_ORGANIZATION),
         queue,
         project_id="queued",
         sheet_id=sheet,
         queue_payload_extra={
-            "org_id": TRUSTED_ORGANIZATION,
-            "storage_org_id": TRUSTED_ORGANIZATION,
+            "organization_id": TRUSTED_ORGANIZATION,
+            "storage_organization_id": TRUSTED_ORGANIZATION,
         },
     )
     template_cache = ResponseCache(tmp_path / "template.cache.db")
@@ -476,14 +476,14 @@ class TestNormalizeQueueOrganizationIdMatrix:
 
 
 def _drop_payload_organization(queue: SqliteJobQueue, job_id: int) -> None:
-    """Tamper: remove org_id from the durable payload, leaving the trusted
+    """Tamper: remove organization_id from the durable payload, leaving the trusted
     column intact — the missing-side of a payload/column divergence."""
     with queue.engine.begin() as cx:
         raw = cx.execute(
             sa.text("SELECT payload FROM jobs WHERE id=:id"), {"id": job_id}
         ).scalar_one()
         body = json.loads(raw)
-        body.pop("org_id", None)
+        body.pop("organization_id", None)
         cx.execute(
             sa.text("UPDATE jobs SET payload=:p WHERE id=:id"),
             {"p": json.dumps(body), "id": job_id},
@@ -494,13 +494,13 @@ def test_column_present_payload_missing_organization_fails_closed(
     tmp_path: Path,
 ) -> None:
     """Missing-side divergence (A regression): a job whose trusted column
-    names an organization but whose (tampered) payload dropped org_id must fail closed —
+    names an organization but whose (tampered) payload dropped organization_id must fail closed —
     a well-formed hosted job carries both; a one-sided identity is a mismatch,
     not a silent downgrade to local/unkeyed or to the column's organization."""
     ws = tmp_path / "data"
     sheet = _make_regex_project(ws / str(TRUSTED_ORGANIZATION), slug="queued")
 
-    queue = SqliteJobQueue(tmp_path / "run.queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "run.queue.db", cloud=True)
     port = _RecordingCredentialPort()
     registry = default_registry()
     register_project_run_handler(
@@ -519,8 +519,8 @@ def test_column_present_payload_missing_organization_fails_closed(
         project_id="queued",
         sheet_id=sheet,
         queue_payload_extra={
-            "org_id": TRUSTED_ORGANIZATION,
-            "storage_org_id": TRUSTED_ORGANIZATION,
+            "organization_id": TRUSTED_ORGANIZATION,
+            "storage_organization_id": TRUSTED_ORGANIZATION,
         },
     )
     with queue.engine.begin() as cx:

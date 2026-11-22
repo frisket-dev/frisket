@@ -230,7 +230,7 @@ def test_google_sheets_provider_failure_persists_failed_claim_and_replay_is_noop
     assert receipt["status"] == "failed"
     assert receipt["errors"][0]["code"] == "external_effect_reconciliation_required"
     assert receipt["errors"][0]["details"]["reconciliation_required"] is True
-    assert receipt["evidence"][0]["ref"]["kind"] == "attempted_google_sheets_tabs"
+    assert receipt["records"][0]["ref"]["kind"] == "attempted_google_sheets_tabs"
 
     replay = client.post(f"/api/projects/{pid}/actions/v1/run", json=action)
     assert replay.status_code == 400, replay.text

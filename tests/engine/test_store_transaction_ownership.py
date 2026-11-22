@@ -23,6 +23,8 @@ from frisket.contracts.action import Receipt
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_run_review_stats import _managed_run
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
+from frisket.engine.store.writer_fence import WriterFence
 
 CALLER_SHEET_NAME = "Caller edit"
 
@@ -38,7 +40,6 @@ def project(make_project):
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        project.close()
 
 
 def _sheet_id(project) -> int:
@@ -108,12 +109,12 @@ def test_finish_run_owned_failure_rolls_back(project):
     assert not project.db.in_transaction
 
 
-def test_finish_run_commit_false_joins_caller_transaction(project):
+def test_finish_run_in_transaction_joins_caller_transaction(project):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
-    RunResultStore(project).finish_run(
-        run_id, "completed", commit=False, rebuild_review_stats=False
+    RunResultStore(project).finish_run_in_transaction(
+        run_id, "completed", rebuild_review_stats=False
     )
 
     assert project.db.in_transaction
@@ -123,12 +124,12 @@ def test_finish_run_commit_false_joins_caller_transaction(project):
     assert _committed_sheet_name(project) == CALLER_SHEET_NAME
 
 
-def test_finish_run_commit_false_requires_caller_transaction(project):
+def test_finish_run_in_transaction_requires_caller_transaction(project):
     run_id = _running_run(project)
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        RunResultStore(project).finish_run(
-            run_id, "completed", commit=False, rebuild_review_stats=False
+        RunResultStore(project).finish_run_in_transaction(
+            run_id, "completed", rebuild_review_stats=False
         )
 
     assert not project.db.in_transaction
@@ -141,7 +142,7 @@ def test_finish_run_commit_false_requires_caller_transaction(project):
 @pytest.fixture
 def review_target(project):
     sheet_id = _sheet_id(project)
-    output = project.add_column(sheet_id, "answer", ai_generated=True)
+    output = project.add_column(sheet_id, "answer", generated=True)
     row_id = int(project.db.execute("SELECT id FROM rows").fetchone()[0])
     run_id = _managed_run(
         project, sheet_id=sheet_id, columns=[output], row_ids=[row_id]
@@ -193,24 +194,24 @@ def test_review_write_requires_caller_transaction(project, review_target, field)
 # -- start_run, set_run_halt, begin_run_resume -------------------------------
 
 
-def test_start_run_commit_false_requires_caller_transaction(project):
+def test_start_run_in_transaction_requires_caller_transaction(project):
     op_id = project.append_change("map", {"recipe": "template"})
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        RunResultStore(project).start_run(
-            op_id, _sheet_id(project), "map.template", commit=False
+        RunResultStore(project).start_run_in_transaction(
+            op_id, _sheet_id(project), "map.template"
         )
 
     assert not project.db.in_transaction
     assert _committed(project, "SELECT COUNT(*) FROM runs")[0][0] == 0
 
 
-def test_start_run_commit_false_joins_caller_transaction(project):
+def test_start_run_in_transaction_joins_caller_transaction(project):
     op_id = project.append_change("map", {"recipe": "template"})
     _open_caller_transaction(project)
 
-    run_id = RunResultStore(project).start_run(
-        op_id, _sheet_id(project), "map.template", commit=False
+    run_id = RunResultStore(project).start_run_in_transaction(
+        op_id, _sheet_id(project), "map.template"
     )
 
     assert project.db.in_transaction
@@ -303,8 +304,9 @@ UNIT = {
 @pytest.fixture
 def returned_checkpoint(project):
     store = EffectCheckpointStore(project.db)
-    assert store.reserve("cp-1", **UNIT) is True
-    store.complete("cp-1", **UNIT, payload={"envelope": "raw"})
+    ref = EffectCheckpointRef(checkpoint_id="cp-1", **UNIT)
+    assert store.reserve(ref) is True
+    store.complete(ref, payload={"envelope": "raw"})
     return store
 
 
@@ -449,21 +451,21 @@ def _value_column(project) -> int:
     return int(project.db.execute("SELECT id FROM columns").fetchone()[0])
 
 
-def test_set_descriptor_commit_false_requires_caller_transaction(project):
+def test_set_descriptor_requires_caller_transaction(project):
     column_id = _value_column(project)
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        set_descriptor(project, column_id, "type", "number", commit=False)
+        set_descriptor(project, column_id, "type", "number")
 
     assert not project.db.in_transaction
     assert _committed_column_type(project, column_id) != "number"
 
 
-def test_set_descriptor_commit_false_joins_caller_transaction(project):
+def test_set_descriptor_joins_caller_transaction(project):
     column_id = _value_column(project)
     _open_caller_transaction(project)
 
-    set_descriptor(project, column_id, "type", "number", commit=False)
+    set_descriptor(project, column_id, "type", "number")
 
     assert project.db.in_transaction
     assert _committed_column_type(project, column_id) != "number"
@@ -471,24 +473,15 @@ def test_set_descriptor_commit_false_joins_caller_transaction(project):
     assert _committed_column_type(project, column_id) == "number"
 
 
-def test_set_descriptor_commit_true_inside_caller_transaction_refuses(project):
+def test_set_descriptor_rolls_back_with_caller_transaction(project):
     column_id = _value_column(project)
     _open_caller_transaction(project)
 
-    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
-        set_descriptor(project, column_id, "type", "number")
-
-    assert project.db.in_transaction
+    set_descriptor(project, column_id, "type", "number")
     project.db.rollback()
 
-
-def test_set_descriptor_owns_its_transaction_when_none_is_open(project):
-    column_id = _value_column(project)
-
-    set_descriptor(project, column_id, "type", "number")
-
     assert not project.db.in_transaction
-    assert _committed_column_type(project, column_id) == "number"
+    assert _committed_column_type(project, column_id) != "number"
 
 
 # -- review stats are chosen apart from transaction ownership ----------------
@@ -504,8 +497,8 @@ def test_finish_run_joined_rebuild_lands_with_the_caller_commit(project):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
-    RunResultStore(project).finish_run(
-        run_id, "completed", commit=False, rebuild_review_stats=True
+    RunResultStore(project).finish_run_in_transaction(
+        run_id, "completed", rebuild_review_stats=True
     )
 
     assert _committed_run_status(project, run_id) == "running"
@@ -549,7 +542,7 @@ def test_receipt_insert_owned_is_durable_on_return(project):
     assert _committed_receipt_status(project) == "running"
 
 
-def test_receipt_insert_commit_true_inside_caller_transaction_refuses(project):
+def test_receipt_insert_owned_inside_caller_transaction_refuses(project):
     _open_caller_transaction(project)
 
     with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
@@ -563,7 +556,7 @@ def test_receipt_insert_commit_true_inside_caller_transaction_refuses(project):
 def test_receipt_insert_joined_rolls_back_with_the_caller(project):
     _open_caller_transaction(project)
 
-    ReceiptStore(project).insert_running(_running_receipt(), commit=False)
+    ReceiptStore(project).insert_running_in_transaction(_running_receipt())
 
     assert _committed_receipt_status(project) is None
     project.db.rollback()
@@ -576,10 +569,9 @@ def test_receipt_update_joined_commits_only_with_the_caller(project):
     store.insert_running(_running_receipt())
     _open_caller_transaction(project)
 
-    assert store.update_body_status(
+    assert store.update_body_status_in_transaction(
         _running_receipt().model_copy(update={"status": "completed"}),
         require_status="running",
-        commit=False,
     )
 
     assert _committed_receipt_status(project) == "running"
@@ -588,7 +580,7 @@ def test_receipt_update_joined_commits_only_with_the_caller(project):
     assert _committed_sheet_name(project) == CALLER_SHEET_NAME
 
 
-def test_receipt_update_commit_true_inside_caller_transaction_refuses(project):
+def test_receipt_update_owned_inside_caller_transaction_refuses(project):
     store = ReceiptStore(project)
     store.insert_running(_running_receipt())
     _open_caller_transaction(project)
@@ -609,6 +601,12 @@ RECEIPT_CALLER_WRITES = {
     ),
     "insert_completed": lambda store: store.insert_completed(
         _running_receipt().model_copy(update={"status": "completed"})
+    ),
+    "insert_partial": lambda store: store.insert_partial(
+        _running_receipt().model_copy(update={"status": "partial"})
+    ),
+    "insert_failed": lambda store: store.insert_failed(
+        _running_receipt().model_copy(update={"status": "failed"})
     ),
     "update_if_status_in": lambda store: store.update_if_status_in(
         _running_receipt(), {"queued"}
@@ -633,7 +631,7 @@ def test_running_receipt_delete_joined_rolls_back_with_the_caller(project):
     store.insert_running(_running_receipt())
     _open_caller_transaction(project)
 
-    assert store.delete_running("receipt_ownership", commit=False)
+    assert store.delete_running_in_transaction("receipt_ownership")
 
     project.db.rollback()
     assert _committed_receipt_status(project) == "running"
@@ -656,7 +654,7 @@ def test_request_cancel_joined_rolls_back_with_the_caller(project):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
-    assert RunResultStore(project).request_cancel(run_id, commit=False)
+    assert RunResultStore(project).request_cancel_in_transaction(run_id)
 
     project.db.rollback()
     assert _committed(
@@ -664,7 +662,7 @@ def test_request_cancel_joined_rolls_back_with_the_caller(project):
     ) == [(None,)]
 
 
-def test_request_cancel_commit_true_inside_caller_transaction_refuses(project):
+def test_request_cancel_owned_inside_caller_transaction_refuses(project):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
@@ -674,16 +672,15 @@ def test_request_cancel_commit_true_inside_caller_transaction_refuses(project):
     assert _committed_sheet_name(project) == "Source"
 
 
-def test_point_column_at_run_commit_true_inside_caller_transaction_refuses(project):
+def test_point_column_at_run_requires_caller_transaction(project):
     run_id = _running_run(project)
     column_id = _value_column(project)
     op_id = int(project.db.execute("SELECT op_id FROM runs").fetchone()[0])
-    _open_caller_transaction(project)
 
-    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
         RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
 
-    assert _committed_sheet_name(project) == "Source"
+    assert not project.db.in_transaction
 
 
 # -- provider facts and spend ------------------------------------------------
@@ -709,9 +706,15 @@ def _committed_call_ids(project) -> set[str]:
     return {row[0] for row in _committed(project, "SELECT id FROM model_calls")}
 
 
-def _write_unscoped(project, call_id, **kwargs):
+def _write_unscoped(project, call_id):
     return RunResultStore(project).write_unscoped_model_calls(
-        [_unscoped_call(call_id)], row_id=None, column_id=None, **kwargs
+        [_unscoped_call(call_id)], row_id=None, column_id=None
+    )
+
+
+def _write_unscoped_in_txn(project, call_id):
+    return RunResultStore(project).write_unscoped_model_calls_in_transaction(
+        [_unscoped_call(call_id)], row_id=None, column_id=None
     )
 
 
@@ -722,7 +725,7 @@ def test_unscoped_facts_owned_are_durable_on_return(project):
     assert _committed_call_ids(project) == {"call-owned"}
 
 
-def test_unscoped_facts_commit_true_inside_caller_transaction_refuse(project):
+def test_unscoped_facts_owned_inside_caller_transaction_refuse(project):
     _open_caller_transaction(project)
 
     with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
@@ -736,16 +739,16 @@ def test_unscoped_facts_commit_true_inside_caller_transaction_refuse(project):
 def test_unscoped_facts_joined_roll_back_with_the_caller(project):
     _open_caller_transaction(project)
 
-    _write_unscoped(project, "call-joined", commit=False)
+    _write_unscoped_in_txn(project, "call-joined")
 
     assert _committed_call_ids(project) == set()
     project.db.rollback()
     assert _committed_call_ids(project) == set()
 
 
-def test_unscoped_facts_commit_false_require_caller_transaction(project):
+def test_unscoped_facts_joined_require_caller_transaction(project):
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        _write_unscoped(project, "call-unowned", commit=False)
+        _write_unscoped_in_txn(project, "call-unowned")
 
     assert not project.db.in_transaction
     assert _committed_call_ids(project) == set()
@@ -761,7 +764,7 @@ def test_returned_accounting_commit_true_inside_caller_transaction_refuses(
         RunResultStore(project).write_returned_call_accounting(
             run_id,
             [{"row_id": 1, "column_id": None, "model_calls": [_unscoped_call("c")]}],
-            claimless_direct_effect=True,
+            fence=WriterFence(run_id=run_id, claimless_direct_effect=True),
         )
 
     assert _committed_sheet_name(project) == "Source"

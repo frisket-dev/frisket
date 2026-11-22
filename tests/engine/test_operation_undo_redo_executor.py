@@ -306,7 +306,7 @@ def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> 
     assert receipt.op_ids == [derive_op_id]
     assert receipt.inputs[0].ref["kind"] == "target_operation"
     assert receipt.outputs[0].ref["kind"] == "operation_status_transition"
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "operation_cursor",
         "operation_undo_info",
         "operation_snapshot",

@@ -167,7 +167,7 @@ function mapHistoryRun(run: WireHistoryRun): HistoryChangeRun | undefined {
     startedAt: sqliteTimestampToIso(run.started_at),
     finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     workerVersion: run.worker_version,
-    generatedColumns: run.output_columns.map((column) => ({
+    generatedColumns: run.generated_columns.map((column) => ({
       id: String(column.id),
       name: column.name,
     })),
@@ -309,7 +309,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
         .slice(0, 400),
       reviewNote: bundle.review_note ?? null,
       fields: bundle.fields.map(mapReviewBundleField),
-      evidence: bundle.evidence.map(mapReviewBundleField),
+      supportingColumns: bundle.supporting_columns.map(mapReviewBundleField),
       items: bundle.items.map(mapReviewBundleField),
     };
   });

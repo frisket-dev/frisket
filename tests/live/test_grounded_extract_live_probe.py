@@ -90,7 +90,7 @@ def _first_transcript_row(project: Any, sheet_id: int) -> tuple[int, int] | None
 def test_grounded_extract_live_probe(tmp_path: Path, run_index: int) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.ai.llm import ModelRouter, ResponseCache
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         list_cell_citations,
         resolve_citation_viewer,
     )

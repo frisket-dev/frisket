@@ -26,7 +26,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
@@ -387,7 +387,7 @@ def _perform(
                 ReceiptIO(name="source", ref=refs["source"]),
                 ReceiptIO(name="source_run", ref=refs["source_run"]),
             ],
-            evidence=[ReceiptEvidence(ref=refs["cursor"])],
+            records=[ReceiptRecord(ref=refs["cursor"])],
         )
         ReceiptStore(project).insert_completed(receipt)
         return ActionResult(
@@ -463,7 +463,7 @@ def _perform(
         status="completed",
         inputs=inputs,
         outputs=[ReceiptIO(name="source", ref=ref)],
-        evidence=[ReceiptEvidence(ref=evidence_ref)],
+        records=[ReceiptRecord(ref=evidence_ref)],
     )
     ReceiptStore(project).insert_completed(receipt)
     return ActionResult(

@@ -59,7 +59,7 @@ test('project plugin secrets save through Project Secrets without organization e
   await installAndActivateEnvPlugin(page.request, projectId);
 
   let organizationEnvRouteUsed = false;
-  await page.route('**/api/org/env**', async (route) => {
+  await page.route('**/api/organization/env**', async (route) => {
     organizationEnvRouteUsed = true;
     await route.abort();
   });

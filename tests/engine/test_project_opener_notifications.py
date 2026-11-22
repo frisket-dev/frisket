@@ -19,7 +19,7 @@ the seam.
 
 Attacker: a team-edition member with a valid session who
 controls the job's request-body fields (``workspace_root`` / ``project_id`` /
-``storage_org_id``) but not server code, the engine tables, or the trusted
+``storage_organization_id``) but not server code, the engine tables, or the trusted
 queue columns from which the worker reconstructs the claimed
 ``ProjectStorageKey``. Before the fix, the notification ``_handle`` wrappers
 built the bundle path from those payload fields, so a payload-set
@@ -86,7 +86,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
     # slug "trusted" is projects/23/trusted.frisket — NOT anything the payload
     # names.
     global_root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=23, project_slug="trusted")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="trusted")
     trusted_bundle = global_root / "23" / "trusted.frisket"
     Project.create(trusted_bundle, name="Trusted").close()
 
@@ -106,7 +106,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
     direct_opens: list[Path] = []
     _booby_trap(monkeypatch, direct_opens)
 
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     registry = HandlerRegistry()
     try:
         register_notification_handlers(
@@ -124,7 +124,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
 
         hostile_common = {
             "project_id": "trusted",  # slug collides with the victim's
-            "storage_org_id": 999,  # attacker's own declared organization
+            "storage_organization_id": 999,  # attacker's own declared organization
             "workspace_root": str(hostile_root),  # attacker-controlled directory
         }
         deliver = registry.get("notification.deliver")
@@ -132,7 +132,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
         assert deliver is not None and digest is not None
 
         # --- With a CLAIMED key: WHERE comes ONLY from the claim. The hostile
-        # payload workspace_root / project_id / storage_org_id are ignored.
+        # payload workspace_root / project_id / storage_organization_id are ignored.
         for kind, handler, extra in (
             ("deliver", deliver, {"request_id": 999}),
             (

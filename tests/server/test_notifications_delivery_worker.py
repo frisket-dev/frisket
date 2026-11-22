@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tests.alert_helpers import post_alert
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -398,10 +399,9 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     organization_root = registered_root / "1"
     organization_root.mkdir(parents=True)
     project_id = "hosted-delivery-root"
-    project = Project.create(
-        organization_root / f"{project_id}.frisket", name=project_id
-    )
-    try:
+    with closing(
+        Project.create(organization_root / f"{project_id}.frisket", name=project_id)
+    ) as project:
         channel = project.create_notification_channel(
             kind="email",
             name="Hosted email",
@@ -429,8 +429,6 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
             },
         )
         request_id = int(emitted["planned_delivery_requests"][0]["id"])
-    finally:
-        project.close()
 
     queue = open_queue(workspace=tmp_path / "queue")
     registry = default_registry()
@@ -458,14 +456,11 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     worker = Worker(queue, registry, worker_id="hosted-root", retry_base_seconds=0)
     assert worker.run_once() is True
 
-    project = Project(organization_root / f"{project_id}.frisket")
-    try:
+    with closing(Project(organization_root / f"{project_id}.frisket")) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "sent"
         assert request["provider_ref"] == "fake-hosted:1"
         assert provider.messages[0].title == "Hosted delivery"
-    finally:
-        project.close()
 
 
 def test_recovery_enqueues_delivery_planned_before_process_stopped(tmp_path):

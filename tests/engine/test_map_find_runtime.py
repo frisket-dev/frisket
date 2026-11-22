@@ -38,7 +38,7 @@ from frisket.engine.executor.map_find_source import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     list_row_citations,
     record_citation,
@@ -305,7 +305,7 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
         column_id=media_column_id,
     )
     transcript_column_id = project.add_column(
-        sheet_id, "transcript", "timestamped_transcript", ai_generated=True
+        sheet_id, "transcript", "timestamped_transcript", generated=True
     )
     op_id = project.append_change(
         "media.transcribe", {"kind": "media.transcribe", "params": {}}
@@ -330,7 +330,8 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
         ],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(
         [
@@ -353,24 +354,25 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
     _values, refs = project.get_values_with_refs(
         sheet_id, transcript_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=spans,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-            "language": "en",
-        },
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=spans,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+                "language": "en",
+            },
+        )
     return sheet_id, row_id
 
 
@@ -926,7 +928,7 @@ def test_find_action_job_writes_one_grounded_row_per_match(make_project) -> None
     assert receipt.status == "completed"
     coverage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_find_coverage"
     )
     assert coverage == {
@@ -993,7 +995,7 @@ def test_find_source_change_records_definite_pre_egress_outcome(
     assert receipt.provider_use == []
     assert [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_find_effect_outcome"
     ] == [
         {
@@ -1216,7 +1218,7 @@ def test_timestamped_find_row_exposes_original_video_start_end_and_clip(
             "end_ms": 7_000,
             "span_ids": [artifact["spans"][0]["stable_id"]],
             "clip_url": (
-                "/api/projects/project-find-video/evidence/links/"
+                "/api/projects/project-find-video/citations/"
                 f"{evidence['links'][0]['stable_id']}/runs/0/clip"
             ),
         }
@@ -1294,7 +1296,7 @@ def test_uncited_sibling_is_withheld_and_result_is_partial(make_project) -> None
     assert receipt.status == "partial"
     coverage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_find_coverage"
     )
     assert coverage["status"] == "incomplete"
@@ -1349,7 +1351,7 @@ def test_uncited_sibling_is_withheld_and_result_is_partial(make_project) -> None
     assert failed_receipt is not None
     assert not any(
         item.ref.get("kind") == "map_find_effect_outcome"
-        for item in failed_receipt.evidence
+        for item in failed_receipt.records
     )
     assert (
         project.db.execute(
@@ -1452,7 +1454,7 @@ def test_selected_image_uses_vision_while_ocr_text_reuses_region_evidence(
     project = make_project("Find OCR")
     sheet_id = project.add_sheet("Scans")
     file_column_id = project.add_column(sheet_id, "scan", "file")
-    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", generated=True)
     output = io.BytesIO()
     Image.new("RGB", (100, 60), color="white").save(output, format="PNG")
     blob_hash = project.add_blob(
@@ -1497,17 +1499,18 @@ def test_selected_image_uses_vision_while_ocr_text_reuses_region_evidence(
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": region["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=text_column_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": region["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=text_column_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr"},
+        )
 
     def resolve(column: str) -> Any:
         return resolve_find_sources(
@@ -1549,7 +1552,7 @@ def test_selected_file_reuses_legacy_summary_only_ocr_evidence(make_project) -> 
     project = make_project("Legacy OCR")
     sheet_id = project.add_sheet("Documents")
     file_column_id = project.add_column(sheet_id, "document", "file")
-    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", generated=True)
     blob_hash = project.add_blob(
         b"%PDF-1.4\nlegacy fixture",
         filename="legacy.pdf",
@@ -1593,17 +1596,18 @@ def test_selected_file_reuses_legacy_summary_only_ocr_evidence(make_project) -> 
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": summary["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=text_column_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": summary["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=text_column_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr"},
+        )
 
     resolved = resolve_find_sources(
         project,
@@ -1743,7 +1747,7 @@ def test_find_rerun_atomically_supersedes_managed_generation(make_project) -> No
         is not None
     )
     stale = project.db.execute(
-        "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
+        "SELECT status, stale_reason FROM citations WHERE stable_id=?",
         (first_evidence["stable_id"],),
     ).fetchone()
     assert dict(stale) == {

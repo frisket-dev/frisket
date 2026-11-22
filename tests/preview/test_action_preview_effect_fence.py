@@ -684,7 +684,7 @@ _ZERO_WRITE_TABLES = {
     "execution_attempts",
     "model_calls",
     "ops",
-    "output_column_claims",
+    "generated_column_claims",
     "promise_sets",
     "receipts",
     "results",
@@ -748,102 +748,96 @@ def _exact_retry(spec: dict[str, Any], gate: validation.ClaimsGate) -> dict[str,
 
 
 def test_real_api_call_exact_echo_refuses_before_row_effect(
-    tmp_path: Any,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.engine.executor.http_request import AdmittedHttpRequester
 
-    project = StoreProject.create(tmp_path / "preview-api-call.frisket")
-    try:
-        sheet_id = project.add_sheet("Data")
-        source = project.add_column(sheet_id, "q", type="text")
-        [row_id] = project.add_rows(sheet_id, [{"q": "alpha"}], {"q": source})
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            authority=UnroutedOnlyAuthority(project),
+    project = make_project("preview-api-call")
+    sheet_id = project.add_sheet("Data")
+    source = project.add_column(sheet_id, "q", type="text")
+    [row_id] = project.add_rows(sheet_id, [{"q": "alpha"}], {"q": source})
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    plan = _api_plan(sheet_id, [row_id], project=project)
+    spec = plan.spec_dict()
+    execute_calls: list[dict[str, Any]] = []
+
+    async def counted_execute(
+        _self: Any,
+        request: Any,
+        _row: Any,
+    ) -> dict[str, Any]:
+        execute_calls.append(request.model_dump(mode="json"))
+        return {"unexpected": True}
+
+    monkeypatch.setattr(AdmittedHttpRequester, "request_json", counted_execute)
+    before = _database_snapshot(project)
+    gate = _exact_ephemeral_gate(runner, spec, program=plan.program)
+    assert gate.claims == []
+    assert gate.estimate_details["cost"] is None
+    assert gate.estimate_details["billed_cost"] is None
+
+    exc = _catch(
+        lambda: asyncio.run(
+            runner.preview(_exact_retry(spec, gate), program=plan.program)
         )
-        plan = _api_plan(sheet_id, [row_id], project=project)
-        spec = plan.spec_dict()
-        execute_calls: list[dict[str, Any]] = []
+    )
 
-        async def counted_execute(
-            _self: Any,
-            request: Any,
-            _row: Any,
-        ) -> dict[str, Any]:
-            execute_calls.append(request.model_dump(mode="json"))
-            return {"unexpected": True}
-
-        monkeypatch.setattr(AdmittedHttpRequester, "request_json", counted_execute)
-        before = _database_snapshot(project)
-        gate = _exact_ephemeral_gate(runner, spec, program=plan.program)
-        assert gate.claims == []
-        assert gate.estimate_details["cost"] is None
-        assert gate.estimate_details["billed_cost"] is None
-
-        exc = _catch(
-            lambda: asyncio.run(
-                runner.preview(_exact_retry(spec, gate), program=plan.program)
-            )
-        )
-
-        _assert_requires_run(exc)
-        assert execute_calls == []
-        assert _database_snapshot(project) == before
-    finally:
-        project.close()
+    _assert_requires_run(exc)
+    assert execute_calls == []
+    assert _database_snapshot(project) == before
 
 
 def test_real_census_preview_refuses_before_execute_batch(
-    tmp_path: Any,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CENSUS_API_KEY", "test-census-key")
-    project = StoreProject.create(tmp_path / "preview-census.frisket")
-    try:
-        sheet_id = project.add_sheet("Places")
-        source = project.add_column(sheet_id, "point", type="geo_point")
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{"point": {"lat": 38.9, "lon": -77.03}}],
-            {"point": source},
-        )
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        plan = _census_plan(sheet_id, [row_id], project=project)
-        spec = plan.spec_dict()
-        batch_calls: list[dict[int, dict[str, Any]]] = []
+    project = make_project("preview-census")
+    sheet_id = project.add_sheet("Places")
+    source = project.add_column(sheet_id, "point", type="geo_point")
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{"point": {"lat": 38.9, "lon": -77.03}}],
+        {"point": source},
+    )
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    plan = _census_plan(sheet_id, [row_id], project=project)
+    spec = plan.spec_dict()
+    batch_calls: list[dict[int, dict[str, Any]]] = []
 
-        async def counted_batch(
-            _self: Any,
-            rows: dict[int, dict[str, Any]],
-            _spec: dict[str, Any],
-            _ctx: Any,
-        ) -> dict[int, dict[str, Any]]:
-            batch_calls.append(deepcopy(rows))
-            return {row: {} for row in rows}
+    async def counted_batch(
+        _self: Any,
+        rows: dict[int, dict[str, Any]],
+        _spec: dict[str, Any],
+        _ctx: Any,
+    ) -> dict[int, dict[str, Any]]:
+        batch_calls.append(deepcopy(rows))
+        return {row: {} for row in rows}
 
-        monkeypatch.setattr(type(plan.program), "execute_batch", counted_batch)
-        before = _database_snapshot(project)
-        exc = _catch(lambda: asyncio.run(runner.preview(spec, program=plan.program)))
+    monkeypatch.setattr(type(plan.program), "execute_batch", counted_batch)
+    before = _database_snapshot(project)
+    exc = _catch(lambda: asyncio.run(runner.preview(spec, program=plan.program)))
 
-        _assert_requires_run(exc)
-        assert batch_calls == []
-        assert _database_snapshot(project) == before
-    finally:
-        project.close()
+    _assert_requires_run(exc)
+    assert batch_calls == []
+    assert _database_snapshot(project) == before
 
 
-def _seed_ocr_project(tmp_path: Any, filename: str) -> tuple[StoreProject, int, int]:
-    project = StoreProject.create(tmp_path / filename)
+def _seed_ocr_project(make_project, name: str) -> tuple[StoreProject, int, int]:
+    project = make_project(name)
     sheet_id = project.add_sheet("Scans")
     source = project.add_column(sheet_id, "page", type="image")
     blob = project.add_blob(
@@ -863,162 +857,156 @@ def _seed_ocr_project(tmp_path: Any, filename: str) -> tuple[StoreProject, int, 
 
 
 def test_real_dots_mocr_runs_once_at_operator_lan_without_writes(
-    tmp_path: Any,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models.test")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "test-token")
-    project, sheet_id, row_id = _seed_ocr_project(tmp_path, "preview-dots.mocr.frisket")
-    try:
-        from frisket.actions.system import typed_action_for_request
-        from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+    project, sheet_id, row_id = _seed_ocr_project(make_project, "preview-dots.mocr")
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 
-        plan = build_typed_map_rows_plan(
-            project,
-            typed_action_for_request(
-                {
-                    "action_id": "media.ocr",
-                    "scope": {
-                        "kind": "sheet_rows",
-                        "sheet_id": sheet_id,
-                        "row_ids": [row_id],
-                    },
-                    "params": {"source": "page", "engine": "dots.mocr"},
-                    "output_names": {"text": "ocr_text", "blocks": "ocr_text_blocks"},
-                    "idempotency_key": "dots-preview",
-                }
-            ),
-        )
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        spec = plan.spec_dict()
-        engine_calls: list[tuple[str, int]] = []
+    plan = build_typed_map_rows_plan(
+        project,
+        typed_action_for_request(
+            {
+                "action_id": "media.ocr",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "row_ids": [row_id],
+                },
+                "params": {"source": "page", "engine": "dots.mocr"},
+                "output_names": {"text": "ocr_text", "blocks": "ocr_text_blocks"},
+                "idempotency_key": "dots-preview",
+            }
+        ),
+    )
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    spec = plan.spec_dict()
+    engine_calls: list[tuple[str, int]] = []
 
-        async def fake_pages(
-            _self: OcrEngines,
-            engine: str,
-            page_paths: list[Any],
-            _ctx: Any,
-            **_kwargs: Any,
-        ) -> list[dict[str, Any]]:
-            engine_calls.append((engine, len(page_paths)))
-            return [
-                {
-                    "text": "FROM OPERATOR LAN",
-                    "blocks": [{"text": "FROM OPERATOR LAN"}],
-                }
-                for _path in page_paths
-            ]
+    async def fake_pages(
+        _self: OcrEngines,
+        engine: str,
+        page_paths: list[Any],
+        _ctx: Any,
+        **_kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        engine_calls.append((engine, len(page_paths)))
+        return [
+            {
+                "text": "FROM OPERATOR LAN",
+                "blocks": [{"text": "FROM OPERATOR LAN"}],
+            }
+            for _path in page_paths
+        ]
 
-        monkeypatch.setattr(OcrEngines, "run_engine_on_pages", fake_pages)
-        real_resolve = validation.resolve_for_action
-        resolutions: list[Any] = []
+    monkeypatch.setattr(OcrEngines, "run_engine_on_pages", fake_pages)
+    real_resolve = validation.resolve_for_action
+    resolutions: list[Any] = []
 
-        def counted_resolution(*args: Any, **kwargs: Any) -> Any:
-            resolved = real_resolve(*args, **kwargs)
-            resolutions.append(resolved)
-            return resolved
+    def counted_resolution(*args: Any, **kwargs: Any) -> Any:
+        resolved = real_resolve(*args, **kwargs)
+        resolutions.append(resolved)
+        return resolved
 
-        monkeypatch.setattr(validation, "resolve_for_action", counted_resolution)
-        before = _database_snapshot(project)
-        result = asyncio.run(runner.preview(spec, program=plan.program))
+    monkeypatch.setattr(validation, "resolve_for_action", counted_resolution)
+    before = _database_snapshot(project)
+    result = asyncio.run(runner.preview(spec, program=plan.program))
 
-        assert len(resolutions) == 1
-        assert resolutions[0].resolution.facts.egress_class == "operator_lan"
-        assert resolutions[0].persistence == "ephemeral"
-        assert engine_calls == [("dots.mocr", 1)]
-        assert result.values[row_id]["ocr_text"]["value"] == "FROM OPERATOR LAN"
-        assert _database_snapshot(project) == before
-    finally:
-        project.close()
+    assert len(resolutions) == 1
+    assert resolutions[0].resolution.facts.egress_class == "operator_lan"
+    assert resolutions[0].persistence == "ephemeral"
+    assert engine_calls == [("dots.mocr", 1)]
+    assert result.values[row_id]["ocr_text"]["value"] == "FROM OPERATOR LAN"
+    assert _database_snapshot(project) == before
 
 
 def test_real_opus_mt_exact_free_local_preview_uses_actual_validation(
-    tmp_path: Any,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.ops.integrations import opus_mt
 
-    project = StoreProject.create(tmp_path / "preview-opus-mt.frisket")
-    try:
-        sheet_id = project.add_sheet("Text")
-        source = project.add_column(sheet_id, "statement", type="text")
-        [row_id] = project.add_rows(
-            sheet_id, [{"statement": "Hello world."}], {"statement": source}
-        )
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        from frisket.actions.system import typed_action_for_request
-        from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
+    project = make_project("preview-opus-mt")
+    sheet_id = project.add_sheet("Text")
+    source = project.add_column(sheet_id, "statement", type="text")
+    [row_id] = project.add_rows(
+        sheet_id, [{"statement": "Hello world."}], {"statement": source}
+    )
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 
-        plan = build_typed_map_rows_plan(
-            project,
-            typed_action_for_request(
-                {
-                    "action_id": "map.translate",
-                    "scope": {
-                        "kind": "sheet_rows",
-                        "sheet_id": sheet_id,
-                        "row_ids": [row_id],
-                    },
-                    "params": {
-                        "source": ["statement"],
-                        "engine": "opus_mt",
-                        "language": ["en"],
-                        "target_language": "Spanish",
-                    },
-                    "output_names": {"translation": "es"},
-                    "idempotency_key": "opus-preview-fence",
-                }
-            ),
-        )
-        spec = plan.spec_dict()
-        translate_calls: list[tuple[str, str, list[str]]] = []
-        monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
+    plan = build_typed_map_rows_plan(
+        project,
+        typed_action_for_request(
+            {
+                "action_id": "map.translate",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "row_ids": [row_id],
+                },
+                "params": {
+                    "source": ["statement"],
+                    "engine": "opus_mt",
+                    "language": ["en"],
+                    "target_language": "Spanish",
+                },
+                "output_names": {"translation": "es"},
+                "idempotency_key": "opus-preview-fence",
+            }
+        ),
+    )
+    spec = plan.spec_dict()
+    translate_calls: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
 
-        def fake_translate(
-            source_code: str,
-            target_code: str,
-            texts: list[str],
-            *,
-            cache_root: Any = None,
-        ) -> list[str]:
-            del cache_root
-            translate_calls.append((source_code, target_code, list(texts)))
-            return ["Hola mundo."]
+    def fake_translate(
+        source_code: str,
+        target_code: str,
+        texts: list[str],
+        *,
+        cache_root: Any = None,
+    ) -> list[str]:
+        del cache_root
+        translate_calls.append((source_code, target_code, list(texts)))
+        return ["Hola mundo."]
 
-        monkeypatch.setattr(opus_mt, "translate_texts", fake_translate)
-        real_validate = validation.validate_spec
-        validated: list[Any] = []
+    monkeypatch.setattr(opus_mt, "translate_texts", fake_translate)
+    real_validate = validation.validate_spec
+    validated: list[Any] = []
 
-        def captured_validation(*args: Any, **kwargs: Any) -> Any:
-            result = real_validate(*args, **kwargs)
-            validated.append(result)
-            return result
+    def captured_validation(*args: Any, **kwargs: Any) -> Any:
+        result = real_validate(*args, **kwargs)
+        validated.append(result)
+        return result
 
-        monkeypatch.setattr(validation, "validate_spec", captured_validation)
-        before = _database_snapshot(project)
+    monkeypatch.setattr(validation, "validate_spec", captured_validation)
+    before = _database_snapshot(project)
 
-        result = asyncio.run(runner.preview(spec, program=plan.program))
+    result = asyncio.run(runner.preview(spec, program=plan.program))
 
-        assert len(validated) == 1
-        assert validated[0].program.consumes_resolution is True
-        assert validated[0].resolved_execution.resolution.facts.egress_class == "none"
-        assert validated[0].est["cost_source"] == "free_local"
-        assert validated[0].est["cost"] == 0.0
-        assert validated[0].est["billed_cost"] == 0
-        assert translate_calls == [("en", "es", ["Hello world."])]
-        assert result.values[row_id]["es"]["value"] == "Hola mundo."
-        assert _database_snapshot(project) == before
-    finally:
-        project.close()
+    assert len(validated) == 1
+    assert validated[0].program.consumes_resolution is True
+    assert validated[0].resolved_execution.resolution.facts.egress_class == "none"
+    assert validated[0].est["cost_source"] == "free_local"
+    assert validated[0].est["cost"] == 0.0
+    assert validated[0].est["billed_cost"] == 0
+    assert translate_calls == [("en", "es", ["Hello world."])]
+    assert result.values[row_id]["es"]["value"] == "Hola mundo."
+    assert _database_snapshot(project) == before

@@ -151,7 +151,7 @@ async def test_unpriced_model_pauses_without_consuming_budget_or_turn(make_proje
         session.before_model(LLMRequest(model="openai/unpriced-model", messages=[]))
     )
     await asyncio.wait_for(published.wait(), 5)
-    assert ledger.get(run["id"])["pending_approval"]["kind"] == "unknown_cost"
+    assert ledger.get(run["id"])["pending_pause"]["kind"] == "unknown_cost"
     assert ledger.operations(run["id"]) == []
     assert ledger.get(run["id"])["turn_count"] == 0
     task.cancel()

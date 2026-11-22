@@ -21,12 +21,6 @@ type PluginViewSpyEvent =
 declare global {
   interface Window {
     __FRISKET_PLUGIN_VIEW_TEST_EVENTS__?: PluginViewSpyEvent[];
-    __FRISKET_DISABLED_PLUGIN_VIEW_CAPABILITIES__?: string[];
-    __FRISKET_PLUGIN_VIEW_TEST_SPIES__?: {
-      rowsQuery?: (args: { contributionId: string; offset: number; limit: number }) => void;
-      mediaFromCell?: (args: { contributionId: string; hasValue: boolean }) => void;
-      openRow?: (args: { contributionId: string; rowId: string }) => void;
-    };
   }
 }
 

@@ -153,7 +153,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     if (scope === 'expected') {
       const { links } = await evaluationApi.getLinks(Number(target.sheetId));
       const link = links.find(item => isExpectedLinkAvailable(item) && item.action_id === context.draft.action_id
-        && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
+        && item.fields.some(field => context.generated_columns.some(output => output.column_id === field.generated_column_id)));
       if (!link) throw new Error('Join expected answers for this action first.');
       const expectedRows = await evaluationApi.getExpectedRows({ link_id: link.id, limit: MAX_COMPARE_ROWS });
       if (!expectedRows.row_ids.length) throw new Error('No rows have expected answers for this action.');
@@ -313,7 +313,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     }
     return { actionTitle: run.actionName, comparisonKind: context ? comparisonKind : null,
       sourceLabels: context?.source_columns.map(column => column.name) ?? [],
-      outputLabels: context?.output_columns.map(column => column.current_name) ?? [history.columnName], modelLabel: run.model,
+      outputLabels: context?.generated_columns.map(column => column.current_name) ?? [history.columnName], modelLabel: run.model,
       rowCount: run.totalRows, ranAt: run.startedAt, errorCount: run.failedRows,
       outcomeLabel: run.status };
   }, [entries, projectApi, readContext, targetForRun]);

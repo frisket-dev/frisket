@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
-const projectApi = vi.hoisted(() => ({ getEvidenceViewer: vi.fn() }));
+const projectApi = vi.hoisted(() => ({ getCitationViewer: vi.fn() }));
 vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => ({ projectApi }) }));
 import { SavedTextContext } from '../../src/components/CitationTextContext';
 
@@ -20,13 +20,13 @@ const context = {
 };
 
 beforeEach(() => {
-  projectApi.getEvidenceViewer.mockReset();
+  projectApi.getCitationViewer.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 it('keeps full transcript context and entity highlights alongside its saved source recording', async () => {
-  projectApi.getEvidenceViewer.mockResolvedValue({ artifacts: [evidenceArtifact({
+  projectApi.getCitationViewer.mockResolvedValue({ artifacts: [evidenceArtifact({
     stable_id: 'audio:1', title: 'Council recording', media_type: 'audio/mpeg',
     artifact_ref: artifactRef({ blob: blobRef('/recording.mp3') }),
     spans: [evidenceSpan({ stable_id: 'time:1', clip_url: '/clip/1' }), evidenceSpan({ stable_id: 'time:2', clip_url: '/clip/2' })],
@@ -51,11 +51,11 @@ it('keeps full transcript context and entity highlights alongside its saved sour
   expect(screen.getByRole('link', { name: 'Download clip at 0:04' })).toHaveAttribute('href', '/clip/2');
   rerender(<SavedTextContext context={context} highlight emphasizedSpanIds={['entity:1']} />);
   expect(screen.getByLabelText('Council recording')).toBe(audio);
-  expect(projectApi.getEvidenceViewer).toHaveBeenCalledTimes(1);
+  expect(projectApi.getCitationViewer).toHaveBeenCalledTimes(1);
 });
 
 it('preserves saved text and highlights when the recording cannot be loaded', async () => {
-  projectApi.getEvidenceViewer.mockRejectedValue(new Error('missing'));
+  projectApi.getCitationViewer.mockRejectedValue(new Error('missing'));
   render(<SavedTextContext context={context} highlight emphasizedSpanIds={[]} />);
   expect(await screen.findByText(/Recording unavailable/)).toBeInTheDocument();
   expect(screen.getAllByTestId('evidence-text-highlight')).toHaveLength(2);

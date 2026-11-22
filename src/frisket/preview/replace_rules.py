@@ -77,10 +77,17 @@ class CompiledReplaceRule:
 
 
 class ReplaceRuleLike(Protocol):
-    match: str
-    pattern: str
-    target: str | None
-    case_sensitive: bool
+    @property
+    def match(self) -> str: ...
+
+    @property
+    def pattern(self) -> str: ...
+
+    @property
+    def target(self) -> str | None: ...
+
+    @property
+    def case_sensitive(self) -> bool: ...
 
 
 def compile_replace_rules(

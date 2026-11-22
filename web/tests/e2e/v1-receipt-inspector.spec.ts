@@ -77,5 +77,5 @@ test('provenance drawer exposes and inspects v1 executor receipts', async ({
   await expect(inspector).toContainText('import.rows');
   await expect(inspector).toContainText('completed');
   await expect(inspector.getByTestId('receipt-outputs')).toContainText('source_rows');
-  await expect(inspector.getByTestId('receipt-evidence')).toContainText('source_cell');
+  await expect(inspector.getByTestId('receipt-records')).toContainText('source_cell');
 });

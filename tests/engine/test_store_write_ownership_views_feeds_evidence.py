@@ -15,9 +15,10 @@ import sqlite3
 import pytest
 
 from frisket.ai.embeddings import EmbeddingStore, make_space_descriptor
-from frisket.engine.store import alerts, evidence, extraction_layouts
+from frisket.ai.embeddings.store import IndexCountUpdate
+from frisket.engine.store import alerts, citations as evidence, extraction_layouts
 from frisket.engine.store.feeds import FeedStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.transactions import write_transaction
 
 CALLER_SHEET_NAME = "Caller edit"
@@ -306,8 +307,8 @@ def test_owning_embedding_write_inside_caller_transaction_refuses_and_keeps_it(
 
 
 JOINING_EMBEDDING_WRITES = {
-    "create_space": lambda store, _space_id, _index_id: store.create_space(
-        _space_descriptor(), commit=False
+    "create_space_in_transaction": lambda store, _space_id, _index_id: (
+        store.create_space_in_transaction(_space_descriptor())
     ),
     "create_index": lambda store, space_id, _index_id: store.create_index(
         name="joined",
@@ -324,8 +325,8 @@ JOINING_EMBEDDING_WRITES = {
     "delete_space_if_orphan": lambda store, space_id, _index_id: (
         store.delete_space_if_orphan(space_id)
     ),
-    "update_index_counts": lambda store, _space_id, index_id: store.update_index_counts(
-        index_id, total=1, commit=False
+    "update_index_counts_in_transaction": lambda store, _space_id, index_id: (
+        store.update_index_counts_in_transaction(index_id, IndexCountUpdate(total=1))
     ),
 }
 
@@ -379,7 +380,7 @@ JOINING_ONLY_WRITES = {
     "merge_artifact_metadata": lambda project: evidence.merge_artifact_metadata(
         project, 1, {"probe": True}
     ),
-    "bind_to_run": lambda project: OutputColumnClaimStore(project).bind_to_run(
+    "bind_to_run": lambda project: GeneratedColumnClaimStore(project).bind_to_run(
         claim_token="claim:none", run_id=1
     ),
     "set_provider_key": lambda project: project.set_provider_key(

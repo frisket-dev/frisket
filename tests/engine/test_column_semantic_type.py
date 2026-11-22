@@ -13,6 +13,7 @@ from __future__ import annotations
 
 
 import pytest
+from frisket.engine.store.transactions import write_transaction
 
 
 class TestFreshBundleSemanticType:
@@ -55,17 +56,20 @@ class TestAddColumnSemanticTypeRoundTrip:
         col_id = p.add_column(sheet, "mentions")
         assert p.get_column(col_id)["semantic_type"] is None
 
-        p.set_column_semantic_type(col_id, "entity_mentions")
+        with write_transaction(p.db):
+            p.set_column_semantic_type(col_id, "entity_mentions")
         assert p.get_column(col_id)["semantic_type"] == "entity_mentions"
 
-        p.set_column_semantic_type(col_id, None)
+        with write_transaction(p.db):
+            p.set_column_semantic_type(col_id, None)
         assert p.get_column(col_id)["semantic_type"] is None
         p.close()
 
     def test_set_column_semantic_type_rejects_unknown_column(self, make_project):
         p = make_project("t")
         with pytest.raises(KeyError):
-            p.set_column_semantic_type(999999, "entity_mentions")
+            with write_transaction(p.db):
+                p.set_column_semantic_type(999999, "entity_mentions")
         p.close()
 
 
@@ -81,14 +85,14 @@ def test_revived_column_converges_its_semantic_marker(make_project) -> None:
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
     project.db.commit()
 
     # Re-created by a producer that declares no contract: marker must clear.
-    revived = project.add_column(sheet_id, "entities", type="text", ai_generated=True)
+    revived = project.add_column(sheet_id, "entities", type="text", generated=True)
     assert revived == column_id
     row = project.db.execute(
         "SELECT semantic_type FROM columns WHERE id=?", (column_id,)
@@ -103,7 +107,7 @@ def test_revived_column_converges_its_semantic_marker(make_project) -> None:
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     row = project.db.execute(

@@ -47,7 +47,7 @@ export function ReapplyResultsDialog({ run, onClose, onApplied }: {
         params: { source_run_id: Number(run.runId) },
         output_names: Object.fromEntries(outputs.map((output, i) => [output.key, values[i]])),
         replace_existing: replacements.length > 0,
-        expected_output_columns: Object.fromEntries(values.map((name) => [name,
+        expected_generated_columns: Object.fromEntries(values.map((name) => [name,
           existingColumnByName(columns ?? [], name)?.id == null ? null
             : Number(existingColumnByName(columns ?? [], name)!.id)])),
       });

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.engine.store.writer_fence import WriterFence
 
 from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
@@ -147,7 +148,7 @@ def _engine_tier(engine: str) -> str:
     if engine in SIDECAR_ENGINES:
         return "sidecar"
     if engine == DATALAB_ENGINE or engine.startswith("opendocrouter/"):
-        return "hosted"
+        return "remote"
     return "local"
 
 
@@ -195,7 +196,7 @@ class AdmittedDocumentConverter:
         self._called_rows: set[int] = set()
         # Per-row provider accounting (datalab) surfaced to the host writer via
         # the same channel geocode/ocr use; datalab's accepted-job fact is ALSO
-        # persisted immediately (persist_hosted_accepted_accounting) so it is
+        # persisted immediately (persist_remote_accepted_accounting) so it is
         # durable independent of this envelope.
         self.accounting_by_row: dict[int, dict[str, Any]] = {}
         # Per-row PRIVATE read-facts, keyed by row_id. The host's existing
@@ -210,7 +211,7 @@ class AdmittedDocumentConverter:
         #   {
         #     "kind": "document_convert_read",  # row_file_call discriminator
         #     "engine": str,                    # canonical engine id that ran
-        #     "tier": "local"|"sidecar"|"hosted",
+        #     "tier": "local"|"sidecar"|"remote",
         #     "external": bool,                 # True only for datalab (egress)
         #     "ocr_used": list[bool],           # per-page (sidecar); [] else
         #     "produced_markdown": bool,        # False for a blank output
@@ -358,13 +359,13 @@ class _BoundDocumentConverter:
         read["column_id"] = column_id
         read["source_column"] = source.name
         cloud_route = self._is_cloud_route()
-        tier = "hosted" if cloud_route else _engine_tier(engine)
+        tier = "remote" if cloud_route else _engine_tier(engine)
         owner.calls_by_row.setdefault(self._row_id, []).append(
             {
                 "kind": "document_convert_read",
                 "engine": engine,
                 "tier": tier,
-                "external": cloud_route or tier == "hosted",
+                "external": cloud_route or tier == "remote",
                 "ocr_used": list(ocr_used),
                 "produced_markdown": bool(markdown),
                 "document_read": read,
@@ -742,12 +743,12 @@ class _BoundDocumentConverter:
 
         def persist_accepted(accounting: dict[str, Any]) -> None:
             nonlocal accepted_accounting
-            from frisket.sdk.ops._hosted_accounting import (
-                persist_hosted_accepted_accounting,
+            from frisket.sdk.ops._remote_accounting import (
+                persist_remote_accepted_accounting,
             )
 
             accepted_accounting = accounting
-            persist_hosted_accepted_accounting(ctx, accounting)
+            persist_remote_accepted_accounting(ctx, accounting)
 
         payload = path.read_bytes()
         from hashlib import sha256
@@ -777,8 +778,8 @@ class _BoundDocumentConverter:
                 )
             except BaseException as error:
                 if accepted_accounting is not None:
-                    error.accounting = accepted_accounting
-                    error.provider_job_accepted = True
+                    setattr(error, "accounting", accepted_accounting)
+                    setattr(error, "provider_job_accepted", True)
                 raise
 
         def observe(result):
@@ -916,20 +917,23 @@ def write_document_convert_evidence(
 ):
     """Retain actual reads and quote-free dependencies at the result savepoint."""
     from frisket.engine.store.receipts import ReceiptStore
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
     )
 
     store = ReceiptStore(project)
+    fence = WriterFence(
+        run_id=run_id,
+        writer_attempt_id=writer_attempt_id,
+        claim_token=claim_token,
+    )
     reads = document_convert_reads(batch)
     for row_id, read in reads.items():
         store._record_writer_supporting_record(
             {**read, "row_id": row_id},
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )
     for item in batch:
         value = item.get("value")
@@ -948,7 +952,7 @@ def write_document_convert_evidence(
         engine = read["engine"]
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='source_provenance' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()
@@ -983,7 +987,7 @@ def write_document_convert_evidence(
             },
         )
         receipt_id = project.db.execute(
-            "SELECT DISTINCT receipt_id FROM output_column_claims "
+            "SELECT DISTINCT receipt_id FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()[0]
@@ -1021,7 +1025,5 @@ def write_document_convert_evidence(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

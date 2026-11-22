@@ -52,10 +52,10 @@ describe('organization operations generated HTTP port', () => {
     });
 
     expect(requests.map(({ input, init }) => [String(input), init?.method])).toEqual([
-      ['/api/org/env', 'GET'],
-      ['/api/org/env', 'POST'],
-      ['/api/org/env/CLIENT%2FSECRET', 'DELETE'],
-      ['/api/org/media-proxy/status', 'GET'],
+      ['/api/organization/env', 'GET'],
+      ['/api/organization/env', 'POST'],
+      ['/api/organization/env/CLIENT%2FSECRET', 'DELETE'],
+      ['/api/organization/media-proxy/status', 'GET'],
     ]);
     expect(requests.map(({ init }) => init?.body ?? null)).toEqual([
       null,

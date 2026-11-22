@@ -225,7 +225,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["cost_actual"] is None
     refs = [
         item.ref
-        for section in (receipt.inputs, receipt.outputs, receipt.evidence)
+        for section in (receipt.inputs, receipt.outputs, receipt.records)
         for item in section
     ]
     ref_kinds = {ref["kind"] for ref in refs}
@@ -275,8 +275,8 @@ CASES = [
                     "invalid_action_request",
                     "invalid_params",
                     "invalid_input_ref",
-                    "output_column_exists",
-                    "output_column_busy",
+                    "generated_column_exists",
+                    "generated_column_busy",
                     "model_cost_requires_confirmation",
                     "idempotency_conflict",
                 }
@@ -460,7 +460,7 @@ def test_direct_join_semantic_binds_claim_and_attempt_through_materialization(
 
         claims = env.project.db.execute(
             "SELECT output_name, column_id, status, run_id, claim_token "
-            "FROM output_column_claims WHERE receipt_id=? ORDER BY output_name",
+            "FROM generated_column_claims WHERE receipt_id=? ORDER BY output_name",
             (result.receipt_id,),
         ).fetchall()
         assert len(claims) == 3
@@ -572,7 +572,7 @@ def test_direct_join_semantic_terminal_fence_blocks_replaced_writer(
         assert replacement is not None
         assert replacement["state"] == "dispatching"
         claim = env.project.db.execute(
-            "SELECT status FROM output_column_claims WHERE run_id=?",
+            "SELECT status FROM generated_column_claims WHERE run_id=?",
             (run["id"],),
         ).fetchall()
         assert claim
@@ -583,11 +583,11 @@ def test_direct_join_semantic_claim_conflict_precedes_embedding_and_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         with write_transaction(env.project.db):
-            blocker, conflict = OutputColumnClaimStore(env.project).acquire(
+            blocker, conflict = GeneratedColumnClaimStore(env.project).acquire(
                 sheet_id=env.seeded["source_sheet_id"],
                 output_names=["company_match_value"],
                 action_kind="join.semantic",
@@ -600,7 +600,7 @@ def test_direct_join_semantic_claim_conflict_precedes_embedding_and_run(
         result = env.run_primary()
 
         assert result.status == "failed"
-        assert result.errors[0].code == "output_column_busy"
+        assert result.errors[0].code == "generated_column_busy"
         assert _EMBED_CALLS == []
         assert (
             env.project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
@@ -611,7 +611,7 @@ def test_direct_join_semantic_claim_conflict_precedes_embedding_and_run(
         )
         assert (
             env.project.db.execute(
-                "SELECT status FROM output_column_claims "
+                "SELECT status FROM generated_column_claims "
                 "WHERE claim_token='output-claim:receipt_join_blocker'"
             ).fetchone()[0]
             == "active"

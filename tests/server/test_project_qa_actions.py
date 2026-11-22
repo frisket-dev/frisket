@@ -69,7 +69,7 @@ def _estimate(action: dict[str, object]) -> dict[str, object]:
 def _approval(authority: dict[str, object]) -> dict[str, object]:
     return {
         "payload_identity": authority["payload_identity"],
-        "promise_set_hash": authority["quote"]["estimate"]["promise_set_hash"],
+        "promise_set_hash": authority["estimate"]["estimate"]["promise_set_hash"],
     }
 
 
@@ -99,7 +99,7 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(
         "output_target_preconditions": {"rendered": None},
         "replace_existing": False,
     }
-    assert stored["quote"]["estimate"]["billed_cost"] == 17
+    assert stored["estimate"]["estimate"]["billed_cost"] == 17
 
     admitted: list[dict[str, object]] = []
     launched: list[tuple[str, dict[str, object]]] = []
@@ -141,7 +141,7 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(
             {
                 **saved.prepared.request.model_dump(mode="json"),
                 "idempotency_key": saved.reference.dispatch_id,
-                "expected_output_columns": {"rendered": None},
+                "expected_generated_columns": {"rendered": None},
                 "confirmation": "confirmation-hash",
             },
         )
@@ -308,7 +308,7 @@ def test_launch_pauses_when_only_the_saved_estimate_becomes_unpriceable(make_pro
     assert error.prepared_event_seq == saved.reference.event_seq
     assert error.payload_identity == saved.payload_identity
     assert error.action["idempotency_key"] == saved.reference.dispatch_id
-    assert error.reason == "normal action quote has unknown cost"
+    assert error.reason == "normal action estimate has unknown cost"
 
 
 def test_launch_uses_the_saved_normal_estimate_not_a_caller_price(make_project):

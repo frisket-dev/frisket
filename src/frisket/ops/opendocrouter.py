@@ -23,13 +23,13 @@ from frisket.ai.models.metadata import provider_cost_total
 from frisket.credentials import resolve_credential_for_use
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import ActionContext
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.integrations.opendocrouter import parse_document
 from frisket.ops.markdown_plain import markdown_to_plain_text
 from frisket.ops.media_metadata import image_dimensions
 from frisket.ops.ocr_engines_remote import halt_unless_consented_credential
-from frisket.sdk.ops._hosted_accounting import persist_hosted_accepted_accounting
+from frisket.sdk.ops._remote_accounting import persist_remote_accepted_accounting
 
 
 async def parse_with_context(
@@ -50,6 +50,11 @@ async def parse_with_context(
         )
     admission = routed_admission_in_scope(ctx.extras)
     if admission:
+        if ctx.credential_use_context is None:
+            raise ActionProgramInvocationHalt(
+                "promise_violation",
+                "OpenDocRouter document processing requires an authorized credential context",
+            )
         halt_unless_consented_credential(
             admission.route,
             credential.source,
@@ -63,7 +68,7 @@ async def parse_with_context(
     def record(accounting):
         nonlocal accepted
         if not accepted:
-            persist_hosted_accepted_accounting(ctx, accounting)
+            persist_remote_accepted_accounting(ctx, accounting)
             accepted = True
         if on_accounting:
             on_accounting(accounting)
@@ -97,7 +102,7 @@ async def parse_with_context(
                 exc.provider_job_accepted or exc.post_egress_ambiguous
             ) and exc.accounting:
                 try:
-                    persist_hosted_accepted_accounting(ctx, exc.accounting)
+                    persist_remote_accepted_accounting(ctx, exc.accounting)
                 except Exception as persistence_error:
                     # Keep the accepted-effect marker even when the ledger cannot
                     # be written: an ordinary row failure could be resubmitted.

@@ -5,8 +5,8 @@
 // account resolver (ExecutorDeps.connected_account_resolver -- see
 // tests/server/test_google_sheets_connected_account_hint.py and
 // tests/team/test_google_sheets_executor_wiring.py for the backend half).
-// The bare local single-user tier never does, so /api/org/oauth/connections
-// and /api/org/oauth/google/start both 404 there -- before this fix, the
+// The bare local single-user tier never does, so /api/organization/oauth/connections
+// and /api/organization/oauth/google/start both 404 there -- before this fix, the
 // modal caught that failure and still rendered a "Connect Google" link
 // (guaranteed to 404 too) alongside a raw fetch-error string. This proves
 // the modal instead reads the SAME server-truthful catalog hint

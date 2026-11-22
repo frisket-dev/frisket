@@ -1119,11 +1119,11 @@ type PythonParams_NamedResultTarget = ({
 type PythonParams_PythonOutputRoute = ({
   "name": (string);
   "path": (string);
-  "target": (((PythonParams_ColumnTarget)) | ((PythonParams_NamedResultTarget)) | ((PythonParams_ReceiptEvidenceTarget)));
+  "target": (((PythonParams_ColumnTarget)) | ((PythonParams_NamedResultTarget)) | ((PythonParams_ReceiptRecordTarget)));
 });
 
-type PythonParams_ReceiptEvidenceTarget = ({
-  "kind": ("receipt_evidence") & (string);
+type PythonParams_ReceiptRecordTarget = ({
+  "kind": ("receipt_record") & (string);
   "retention"?: ("compactable" | "pinned" | "materialized") & (string);
 });
 

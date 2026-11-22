@@ -6,7 +6,7 @@ from typing import Any
 from action_test_helpers import run_typed_map_request, typed_map_request
 from frisket.engine.executor.actions import run_action_spec as run_legacy_action_spec
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -150,7 +150,7 @@ def _generated_column_id(project: Project, *, sheet_id: int, name: str) -> int:
 def _active_claim_count(project: Project, output_name: str) -> int:
     return int(
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE output_name=? AND status='active'",
             (output_name,),
         ).fetchone()[0]
@@ -165,7 +165,7 @@ def _claim_output(
     token: str = "claim:test-running",
 ) -> str:
     with write_transaction(project.db):
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
+        _claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=[output_name],
             action_kind="map.template",
@@ -182,7 +182,7 @@ def test_output_claim_group_supports_multiple_output_names(tmp_path: Path) -> No
     project, sheet_id, _row_ids, _columns = _seed_project(tmp_path)
     try:
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["first_output", "second_output"],
                 action_kind="map.multi_output_fixture",
@@ -196,7 +196,7 @@ def test_output_claim_group_supports_multiple_output_names(tmp_path: Path) -> No
         ]
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE claim_token=? AND status='active'",
                 ("claim:multi-output",),
             ).fetchone()[0]
@@ -204,7 +204,7 @@ def test_output_claim_group_supports_multiple_output_names(tmp_path: Path) -> No
         )
 
         with write_transaction(project.db):
-            _claims, conflict = OutputColumnClaimStore(project).acquire(
+            _claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["second_output"],
                 action_kind="map.other",
@@ -215,12 +215,12 @@ def test_output_claim_group_supports_multiple_output_names(tmp_path: Path) -> No
         assert conflict["output_name"] == "second_output"
 
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token="claim:multi-output", status="released"
             )
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE claim_token=? AND status='active'",
                 ("claim:multi-output",),
             ).fetchone()[0]
@@ -243,7 +243,7 @@ def test_output_claim_blocks_competing_run_and_releases_after_success(
             project_id=PROJECT_ID,
         )
         assert blocked.status == "failed"
-        assert blocked.errors[0].code == "output_column_busy"
+        assert blocked.errors[0].code == "generated_column_busy"
         assert blocked.errors[0].field == "output_names"
         assert blocked.errors[0].details["output_name"] == "rendered_note"
         assert (
@@ -255,7 +255,9 @@ def test_output_claim_blocks_competing_run_and_releases_after_success(
         )
 
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(claim_token=token, status="failed")
+            GeneratedColumnClaimStore(project).release(
+                claim_token=token, status="failed"
+            )
         completed = run_action_spec(
             project,
             _map_template_action(sheet_id, key="map_template_after_claim@sha256:v1"),
@@ -270,7 +272,7 @@ def test_output_claim_blocks_competing_run_and_releases_after_success(
             == completed.outputs[0].column_id
         )
         claim_rows = project.db.execute(
-            "SELECT status, run_id, receipt_id FROM output_column_claims "
+            "SELECT status, run_id, receipt_id FROM generated_column_claims "
             "WHERE output_name='rendered_note'"
         ).fetchall()
         assert sorted(row["status"] for row in claim_rows) == ["failed", "released"]
@@ -310,7 +312,7 @@ def test_output_claim_blocks_manual_and_metadata_edits(
             project_id=PROJECT_ID,
         )
         assert edit.status == "failed"
-        assert edit.errors[0].code == "output_column_busy"
+        assert edit.errors[0].code == "generated_column_busy"
         assert edit.errors[0].details["column_id"] == output_column_id
 
         patch = run_action_spec(
@@ -322,7 +324,7 @@ def test_output_claim_blocks_manual_and_metadata_edits(
             project_id=PROJECT_ID,
         )
         assert patch.status == "failed"
-        assert patch.errors[0].code == "output_column_busy"
+        assert patch.errors[0].code == "generated_column_busy"
 
         set_type = run_action_spec(
             project,
@@ -333,7 +335,7 @@ def test_output_claim_blocks_manual_and_metadata_edits(
             project_id=PROJECT_ID,
         )
         assert set_type.status == "failed"
-        assert set_type.errors[0].code == "output_column_busy"
+        assert set_type.errors[0].code == "generated_column_busy"
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM receipts WHERE idempotency_key=?",
@@ -368,7 +370,7 @@ def test_output_claim_blocks_run_backfill_on_claimed_column(tmp_path: Path) -> N
             project_id=PROJECT_ID,
         )
         assert backfill.status == "failed"
-        assert backfill.errors[0].code == "output_column_busy", backfill.errors[
+        assert backfill.errors[0].code == "generated_column_busy", backfill.errors[
             0
         ].message
         # The shared claim owner reports the semantic backfill target field.
@@ -410,7 +412,7 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
         assert undo_map.status == "completed", undo_map.errors
         assert project.get_column(output_column_id)["active"] == 0
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=map_claim, status="failed"
             )
         assert project.redo() == map_op_id

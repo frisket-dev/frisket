@@ -105,7 +105,7 @@ def test_typed_url_table_names_receipt_and_replay(make_project, monkeypatch):
     }
     blob = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"]["kind"] == "imported_blob"
     )
     assert blob["column_id"] == columns["Picture"]["id"]

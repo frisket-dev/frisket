@@ -11,7 +11,7 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { useState } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RowDrawerBody, RowField } from '../../src/components/RowDrawer';
@@ -247,7 +247,7 @@ describe('row drawer field action rail', () => {
       timeline,
       items: [{ id: 'scene-1', at_ms: 12_500, label: 'Opening claim' }],
     };
-    const onEdit = vi.fn(() => Promise.resolve());
+    const onEdit = vi.fn<ComponentProps<typeof RowField>['onEdit']>(() => Promise.resolve());
     render(
       <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}
@@ -269,7 +269,10 @@ describe('row drawer field action rail', () => {
     fireEvent.click(within(field).getByTestId('cell-save-cuts'));
     await waitFor(() => expect(onEdit).toHaveBeenCalledTimes(1));
 
-    const saved = onEdit.mock.calls[0][2] as Record<string, unknown>;
+    const saved = onEdit.mock.calls[0][2];
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
+      throw new Error('Expected saved timeline object');
+    }
     expect(saved.timeline).toEqual(timeline);
     expect(saved.items).toEqual([
       { id: 'manual-1', at_ms: 20_000, label: 'Claim' },
@@ -288,7 +291,7 @@ describe('row drawer field action rail', () => {
       },
       item: { id: 'moment-1', at_ms: 5_000 },
     };
-    const onEdit = vi.fn(() => Promise.resolve());
+    const onEdit = vi.fn<ComponentProps<typeof RowField>['onEdit']>(() => Promise.resolve());
     render(
       <RowField runResultExpanded={false} onToggleRunResult={() => {}}
         col={col}

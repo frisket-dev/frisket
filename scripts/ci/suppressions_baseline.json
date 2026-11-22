@@ -287,7 +287,7 @@
   "src/frisket/engine/store/artifact_timeline.py": 1,
   "src/frisket/engine/store/blob_metadata.py": 2,
   "src/frisket/engine/store/import_sessions.py": 2,
-  "src/frisket/engine/store/output_claims.py": 1,
+  "src/frisket/engine/store/generated_column_claims.py": 1,
   "src/frisket/engine/store/result_generations.py": 2,
   "src/frisket/engine/store/runs.py": 1,
   "src/frisket/execution/attempt.py": 3,

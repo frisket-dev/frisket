@@ -101,7 +101,7 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
   const pending = state.variants.some((variant) => variant.status === 'pending');
   const visibilityFields = [
     ...context.source_columns.map((column) => ({ key: `source:${column.name}`, name: column.name })),
-    ...context.output_columns.map((column) => ({ key: `output:${column.logical_key}`, name: column.current_name })),
+    ...context.generated_columns.map((column) => ({ key: `output:${column.logical_key}`, name: column.current_name })),
   ];
 
   useEscapeDismiss(() => { setEditingId(null); setHoveredId(null); }, {

@@ -12,13 +12,13 @@ import { isRecord } from './wireValues';
 type CitationViewerOptions = CitationViewerReadOptions;
 
 type CellCitationsWire =
-  HttpContractSuccessResponse<'tenant.cell_evidence.get'>;
+  HttpContractSuccessResponse<'tenant.cell_citations.get'>;
 type CellTextAnnotationsWire =
   HttpContractSuccessResponse<'tenant.cell_text_annotations.get'>;
 type ColumnCitationsWire =
-  HttpContractSuccessResponse<'tenant.column_evidence.get'>;
+  HttpContractSuccessResponse<'tenant.column_citations.get'>;
 type CitationViewerWire =
-  HttpContractSuccessResponse<'tenant.evidence_viewer.get'>;
+  HttpContractSuccessResponse<'tenant.citation_viewer.get'>;
 type RowSourceDocumentsWire =
   HttpContractSuccessResponse<'tenant.row_source_documents.get'>;
 
@@ -50,7 +50,7 @@ function mapTextAnnotationLayer(raw: unknown): TextAnnotationLayer[] {
   const layerFamily = typeof raw.layer_family === 'string' ? raw.layer_family : '';
   if (!toggleKey || !layerFamily) return [];
   const producer = isRecord(raw.producer) ? raw.producer : {};
-  const generatedColumn = isRecord(raw.output_column) ? raw.output_column : {};
+  const generatedColumn = isRecord(raw.generated_column) ? raw.generated_column : {};
   const common = {
     toggleKey,
     layerFamily,
@@ -146,13 +146,13 @@ export function createProjectCitationsApi(
         },
       );
     },
-    getCellEvidence(
+    getCellCitations(
       rowId: string,
       columnId: string,
       options: RequestOptions & { includeStale?: boolean } = {},
     ): Promise<CellCitationsWire> {
       return httpContract(
-        'tenant.cell_evidence.get',
+        'tenant.cell_citations.get',
         {
           pathParams: {
             pid: projectId,
@@ -192,16 +192,16 @@ export function createProjectCitationsApi(
       return textAnnotationsFromWire(wire, rowId, columnId);
     },
 
-    /** One call per (sheet, column) instead of one cell-evidence call per
+    /** One call per (sheet, column) instead of one cell-citations call per
      * visible row. `rowIds` scopes the batch to the list's virtualization
      * window; omitted = every row on the sheet. */
-    getColumnEvidence(
+    getColumnCitations(
       sheetId: string,
       columnId: string,
       options: RequestOptions & { rowIds?: readonly string[] } = {},
     ): Promise<ColumnCitationsWire> {
       return httpContract(
-        'tenant.column_evidence.get',
+        'tenant.column_citations.get',
         {
           pathParams: {
             pid: projectId,
@@ -214,16 +214,16 @@ export function createProjectCitationsApi(
       );
     },
 
-    getEvidenceViewer(
-      evidenceLinkId: string | number,
+    getCitationViewer(
+      citationId: string | number,
       options: CitationViewerOptions = {},
     ): Promise<CitationViewerWire> {
       return httpContract(
-        'tenant.evidence_viewer.get',
+        'tenant.citation_viewer.get',
         {
           pathParams: {
             pid: projectId,
-            evidence_link_id: String(evidenceLinkId),
+            citation_id: String(citationId),
           },
           query: {
             locate_current: options.locateCurrent ? true : undefined,

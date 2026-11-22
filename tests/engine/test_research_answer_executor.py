@@ -264,7 +264,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     ],
 )
 def test_research_answer_persists_pricing_source_by_value(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     model: str,
     expected_source: str,
@@ -310,47 +310,42 @@ def test_research_answer_persists_pricing_source_by_value(
         )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
 
-    project = Project.create(tmp_path / f"research-{expected_source}.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _research_answer_action(
-            seeded["sheet_id"],
-            idempotency_key=f"research_answer@sha256:{expected_source}",
-            model=model,
-        )
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=f"project-research-{expected_source}",
-            router=router,
-        )
+    project = make_project(f"research-{expected_source}")
+    seeded = _seed(project, None)
+    action = _research_answer_action(
+        seeded["sheet_id"],
+        idempotency_key=f"research_answer@sha256:{expected_source}",
+        model=model,
+    )
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=f"project-research-{expected_source}",
+        router=router,
+    )
 
-        assert result.status == "completed", (
-            result.errors,
-            [
-                dict(row)
-                for row in project.db.execute("SELECT error, error_code FROM results")
-            ],
-        )
-        calls = RunResultStore(project).model_calls(result.run_id)
-        assert len(calls) == 4
-        assert {call["cost_source"] for call in calls} == {expected_source}
-        if expected_cost_known:
-            assert all(call["provider_cost_usd"] is not None for call in calls)
-        else:
-            assert all(call["provider_cost_usd"] is None for call in calls)
+    assert result.status == "completed", (
+        result.errors,
+        [
+            dict(row)
+            for row in project.db.execute("SELECT error, error_code FROM results")
+        ],
+    )
+    calls = RunResultStore(project).model_calls(result.run_id)
+    assert len(calls) == 4
+    assert {call["cost_source"] for call in calls} == {expected_source}
+    if expected_cost_known:
+        assert all(call["provider_cost_usd"] is not None for call in calls)
+    else:
+        assert all(call["provider_cost_usd"] is None for call in calls)
 
-        receipt = Receipt.model_validate_json(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()["body"]
-        )
-        llm_use = next(
-            item for item in receipt.provider_use if item.get("model") == model
-        )
-        assert (llm_use["cost_actual"] is not None) is expected_cost_known
-    finally:
-        project.close()
+    receipt = Receipt.model_validate_json(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["body"]
+    )
+    llm_use = next(item for item in receipt.provider_use if item.get("model") == model)
+    assert (llm_use["cost_actual"] is not None) is expected_cost_known
 
 
 def _make_action(seeded: dict[str, Any]) -> dict[str, Any]:
@@ -470,7 +465,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert output_refs["answer_sources"]["role"] == "sources"
     assert output_refs["answer"]["value_hash"].startswith("sha256:")
     assert output_refs["answer_sources"]["value_hash"].startswith("sha256:")
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     assert "typed_action_request" in evidence
     assert "model_rows_model_calls" in evidence
     assert sorted(url for urls in sources.values() for url in urls) == [
@@ -512,7 +507,7 @@ CASES = [
                 {
                     "invalid_action_request",
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "model_cost_requires_confirmation",
                     "model_run_failed",
                     "idempotency_conflict",
@@ -533,7 +528,9 @@ CASES = [
                 "invalid_action_request",
             ),
             Gate("invalid_input_ref", _bad_input_action, "invalid_input_ref"),
-            Gate("output_column_exists", _collision_action, "output_column_exists"),
+            Gate(
+                "generated_column_exists", _collision_action, "generated_column_exists"
+            ),
             Gate(
                 "idempotency_conflict",
                 _conflict_action,
@@ -628,7 +625,7 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
                 provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
                 units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
-                quote=estimate,
+                estimate=estimate,
             ),
         )
 
@@ -659,7 +656,7 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
         assert search_use["cost_actual"] is not None
         search_evidence = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "web_search_call"
         ]
         assert len(search_evidence) == 2
@@ -721,7 +718,7 @@ def test_research_answer_receipts_failed_paid_search_as_unknown_cost(
         )
         search_evidence = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "web_search_call"
         ]
         assert search_evidence
@@ -977,7 +974,7 @@ def test_output_name_suffix_names_both_columns(
         output_refs = {item.name: item.ref for item in receipt.outputs}
         assert output_refs["brief_sources"]["role"] == "answer"
         assert output_refs["brief_sources_sources"]["role"] == "sources"
-        evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+        evidence = {item.ref["kind"]: item.ref for item in receipt.records}
         assert "model_rows_model_calls" in evidence
 
         replay = env.run(action)
@@ -1093,7 +1090,7 @@ def test_all_rows_failed_writes_failed_receipt_and_replays_it(
     monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router, adapter = _failing_router()
     project = make_project("research failed")
-    seeded = _seed(project, tmp_path)
+    seeded = _seed(project, None)
     action = _research_answer_action(
         seeded["sheet_id"],
         idempotency_key="research_answer@sha256:all-failed",
@@ -1213,7 +1210,7 @@ class _StepBudgetExhaustAdapter:
 
 
 def _run_with_scripted_adapter(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     adapter: Any,
     *,
@@ -1237,8 +1234,8 @@ def _run_with_scripted_adapter(
         max_retries=0,
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
-    project = Project.create(tmp_path / "scripted.frisket", name="research guard")
-    seeded = _seed(project, tmp_path)
+    project = make_project("research guard")
+    seeded = _seed(project, None)
     action = _research_answer_action(
         seeded["sheet_id"], idempotency_key=idempotency_key
     )
@@ -1260,98 +1257,89 @@ def _answer_cells(project: Project, run_id: int) -> list[Any]:
 
 
 def test_tool_json_final_turn_is_corrected_by_output_validator(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = _MalformedFinalAdapter(retry_recovers=True)
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         adapter,
         idempotency_key="research_answer@sha256:malformed-recovered",
     )
-    try:
-        assert result.status == "completed", result.errors
-        for cell in _answer_cells(project, result.run_id):
-            assert cell["value"] != _TOOL_JSON_LEAK
-            assert '"tool"' not in str(cell["value"])
-            assert cell["outcome"] == "ok"
-            assert cell["error"] is None
-        # Two rows, each making search -> malformed answer -> corrected answer.
-        assert (
-            len(
-                projected := project.db.execute(
-                    "SELECT provider_cost_usd FROM model_calls WHERE run_id=?",
-                    (result.run_id,),
-                ).fetchall()
-            )
-            == 6
+    assert result.status == "completed", result.errors
+    for cell in _answer_cells(project, result.run_id):
+        assert cell["value"] != _TOOL_JSON_LEAK
+        assert '"tool"' not in str(cell["value"])
+        assert cell["outcome"] == "ok"
+        assert cell["error"] is None
+    # Two rows, each making search -> malformed answer -> corrected answer.
+    assert (
+        len(
+            projected := project.db.execute(
+                "SELECT provider_cost_usd FROM model_calls WHERE run_id=?",
+                (result.run_id,),
+            ).fetchall()
         )
-        assert sum(
-            float(row["provider_cost_usd"]) for row in projected
-        ) == pytest.approx(0.012)
-        assert len(adapter.requests) == 6
-        corrective = [
-            req
-            for req in adapter.requests
-            if any(
-                "Return the final answer as plain prose" in str(message.get("content"))
-                for message in req.messages
-            )
-        ]
-        assert len(corrective) == 2
-        assert all(
-            any(message.get("role") == "tool" for message in req.messages)
-            for req in corrective
+        == 6
+    )
+    assert sum(float(row["provider_cost_usd"]) for row in projected) == pytest.approx(
+        0.012
+    )
+    assert len(adapter.requests) == 6
+    corrective = [
+        req
+        for req in adapter.requests
+        if any(
+            "Return the final answer as plain prose" in str(message.get("content"))
+            for message in req.messages
         )
-    finally:
-        project.close()
+    ]
+    assert len(corrective) == 2
+    assert all(
+        any(message.get("role") == "tool" for message in req.messages)
+        for req in corrective
+    )
 
 
 def test_tool_json_final_turn_fails_typed_when_retry_also_misbehaves(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = _MalformedFinalAdapter(retry_recovers=False)
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         adapter,
         idempotency_key="research_answer@sha256:malformed-failed",
     )
-    try:
-        # Every row failed the same way -> action-level failure, never debris.
-        assert result.status == "failed"
-        assert result.errors[0].code == "model_run_failed"
-        for cell in _answer_cells(project, result.run_id):
-            assert cell["value"] is None
-            assert cell["outcome"] == "row_error"
-            assert cell["error_code"] == "research_answer_malformed"
-            assert _TOOL_JSON_LEAK not in str(cell["error"])
-        assert len(adapter.requests) == 6
-        assert all(request.tools is not None for request in adapter.requests)
-    finally:
-        project.close()
+    # Every row failed the same way -> action-level failure, never debris.
+    assert result.status == "failed"
+    assert result.errors[0].code == "model_run_failed"
+    for cell in _answer_cells(project, result.run_id):
+        assert cell["value"] is None
+        assert cell["outcome"] == "row_error"
+        assert cell["error_code"] == "research_answer_malformed"
+        assert _TOOL_JSON_LEAK not in str(cell["error"])
+    assert len(adapter.requests) == 6
+    assert all(request.tools is not None for request in adapter.requests)
 
 
 def test_step_budget_exhaustion_does_not_synthesize(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = _StepBudgetExhaustAdapter()
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         adapter,
         idempotency_key="research_answer@sha256:exhausted-recovered",
     )
-    try:
-        assert result.status == "failed"
-        for cell in _answer_cells(project, result.run_id):
-            assert cell["value"] is None
-            assert cell["outcome"] == "row_error"
-            assert cell["error_code"] == "research_incomplete_step_budget"
-        assert len(adapter.requests) == 10
-        assert all(req.tools is not None for req in adapter.requests)
-    finally:
-        project.close()
+    assert result.status == "failed"
+    for cell in _answer_cells(project, result.run_id):
+        assert cell["value"] is None
+        assert cell["outcome"] == "row_error"
+        assert cell["error_code"] == "research_incomplete_step_budget"
+    assert len(adapter.requests) == 10
+    assert all(req.tools is not None for req in adapter.requests)
 
 
 class _MemoryAnswerAdapter:
@@ -1416,79 +1404,70 @@ class _MemoryAnswerAdapter:
 
 
 def test_uncited_memory_answer_is_kept_but_marked_unverified(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         _MemoryAnswerAdapter(ground_on_nudge=False),
         idempotency_key="research_answer@sha256:memory-unverified",
     )
-    try:
-        # "mark, don't destroy": the run still completes and the answer is KEPT.
-        assert result.status == "completed", result.errors
-        for cell in _answer_cells(project, result.run_id):
-            assert cell["value"] is not None
-            assert cell["outcome"] == "unverified_memory"
-        sources_col = project.db.execute(
-            "SELECT id, sheet_id FROM columns "
-            "WHERE current_run_id=? AND name='answer_sources'",
-            (result.run_id,),
-        ).fetchone()
-        sources = project.get_values(
-            int(sources_col["sheet_id"]), int(sources_col["id"])
-        )
-        assert all(v == [] for v in sources.values())
-    finally:
-        project.close()
+    # "mark, don't destroy": the run still completes and the answer is KEPT.
+    assert result.status == "completed", result.errors
+    for cell in _answer_cells(project, result.run_id):
+        assert cell["value"] is not None
+        assert cell["outcome"] == "unverified_memory"
+    sources_col = project.db.execute(
+        "SELECT id, sheet_id FROM columns "
+        "WHERE current_run_id=? AND name='answer_sources'",
+        (result.run_id,),
+    ).fetchone()
+    sources = project.get_values(int(sources_col["sheet_id"]), int(sources_col["id"]))
+    assert all(v == [] for v in sources.values())
 
 
 def test_verification_nudge_grounds_a_memory_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = _MemoryAnswerAdapter(
         ground_on_nudge=True, malformed_after_observation=True
     )
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         adapter,
         idempotency_key="research_answer@sha256:memory-grounded",
     )
-    try:
-        assert result.status == "completed", result.errors
-        for cell in _answer_cells(project, result.run_id):
-            # nudge grounded it -> normal ok outcome, no unverified marker.
-            assert cell["outcome"] == "ok"
-            assert cell["value"] == "Grounded answer citing the source."
-        # The verification run uses the same validator: per row it performs
-        # memory answer -> search -> malformed text -> corrected prose.
-        assert len(adapter.requests) == 8
-        assert (
-            sum(
-                any(
-                    "Return the final answer as plain prose"
-                    in str(message.get("content"))
-                    for message in request.messages
-                )
-                for request in adapter.requests
+    assert result.status == "completed", result.errors
+    for cell in _answer_cells(project, result.run_id):
+        # nudge grounded it -> normal ok outcome, no unverified marker.
+        assert cell["outcome"] == "ok"
+        assert cell["value"] == "Grounded answer citing the source."
+    # The verification run uses the same validator: per row it performs
+    # memory answer -> search -> malformed text -> corrected prose.
+    assert len(adapter.requests) == 8
+    assert (
+        sum(
+            any(
+                "Return the final answer as plain prose" in str(message.get("content"))
+                for message in request.messages
             )
-            == 2
+            for request in adapter.requests
         )
-        model_calls = project.db.execute(
-            "SELECT provider_cost_usd FROM model_calls WHERE run_id=?",
-            (result.run_id,),
-        ).fetchall()
-        assert len(model_calls) == 8
-        assert sum(float(call["provider_cost_usd"]) for call in model_calls) == (
-            pytest.approx(0.008)
-        )
-    finally:
-        project.close()
+        == 2
+    )
+    model_calls = project.db.execute(
+        "SELECT provider_cost_usd FROM model_calls WHERE run_id=?",
+        (result.run_id,),
+    ).fetchall()
+    assert len(model_calls) == 8
+    assert sum(float(call["provider_cost_usd"]) for call in model_calls) == (
+        pytest.approx(0.008)
+    )
 
 
 def test_repeated_malformed_verification_fails_typed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = _MemoryAnswerAdapter(
         ground_on_nudge=True,
@@ -1496,50 +1475,44 @@ def test_repeated_malformed_verification_fails_typed(
         retry_recovers=False,
     )
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         adapter,
         idempotency_key="research_answer@sha256:memory-malformed",
     )
-    try:
-        assert result.status == "failed"
-        for cell in _answer_cells(project, result.run_id):
-            assert cell["value"] is None
-            assert cell["outcome"] == "row_error"
-            assert cell["error_code"] == "research_answer_malformed"
-        assert len(adapter.requests) == 8
-        model_calls = project.db.execute(
-            "SELECT provider_cost_usd FROM model_calls WHERE run_id=?",
-            (result.run_id,),
-        ).fetchall()
-        assert len(model_calls) == 8
-        assert sum(float(call["provider_cost_usd"]) for call in model_calls) == (
-            pytest.approx(0.008)
-        )
-    finally:
-        project.close()
+    assert result.status == "failed"
+    for cell in _answer_cells(project, result.run_id):
+        assert cell["value"] is None
+        assert cell["outcome"] == "row_error"
+        assert cell["error_code"] == "research_answer_malformed"
+    assert len(adapter.requests) == 8
+    model_calls = project.db.execute(
+        "SELECT provider_cost_usd FROM model_calls WHERE run_id=?",
+        (result.run_id,),
+    ).fetchall()
+    assert len(model_calls) == 8
+    assert sum(float(call["provider_cost_usd"]) for call in model_calls) == (
+        pytest.approx(0.008)
+    )
 
 
 def test_failed_verification_does_not_ground_the_original_memory_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = _MemoryAnswerAdapter(
         ground_on_nudge=True,
         empty_after_observation=True,
     )
     project, result = _run_with_scripted_adapter(
-        tmp_path,
+        make_project,
         monkeypatch,
         adapter,
         idempotency_key="research_answer@sha256:memory-verification-empty",
     )
-    try:
-        assert result.status == "completed", result.errors
-        for cell in _answer_cells(project, result.run_id):
-            assert cell["value"] == (
-                "Answer straight from model memory (no source consulted)."
-            )
-            assert cell["outcome"] == "unverified_memory"
-        assert len(adapter.requests) == 8
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    for cell in _answer_cells(project, result.run_id):
+        assert cell["value"] == (
+            "Answer straight from model memory (no source consulted)."
+        )
+        assert cell["outcome"] == "unverified_memory"
+    assert len(adapter.requests) == 8

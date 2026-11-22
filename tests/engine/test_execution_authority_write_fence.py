@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
@@ -13,12 +14,17 @@ from frisket.contracts.action import ActionError, Receipt
 from frisket.engine.jobs.queue import SqliteJobQueue
 from frisket.engine.runner.finalization import finalize_dispatched_run
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-from frisket.engine.store.output_claims import (
-    OutputColumnClaimStore,
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+    row_effect_ref,
+)
+from frisket.engine.store.generated_column_claims import (
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import (
     StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
@@ -37,7 +43,7 @@ def _seed_claimed_run(
     output_column_id = project.add_column(
         sheet_id,
         "python_result",
-        ai_generated=True,
+        generated=True,
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -64,7 +70,7 @@ def _seed_claimed_run(
         )
     )
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["python_result"],
             action_kind="map.python",
@@ -76,7 +82,7 @@ def _seed_claimed_run(
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
         )
@@ -118,7 +124,7 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
         tmp_path,
         name="pre-dispatch-live-writer",
     )
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_live",
@@ -149,13 +155,11 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
         )
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
+                "SELECT status FROM generated_column_claims WHERE claim_token=?",
                 (claim_token,),
             ).fetchone()[0]
             == "active"
         )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize(
@@ -279,7 +283,7 @@ def _authority_snapshot(project: Project, run_id: int) -> dict[str, Any]:
             tuple(row)
             for row in project.db.execute(
                 "SELECT id, run_id, claim_token, status "
-                "FROM output_column_claims WHERE run_id=? ORDER BY id",
+                "FROM generated_column_claims WHERE run_id=? ORDER BY id",
                 (run_id,),
             ).fetchall()
         ],
@@ -288,7 +292,7 @@ def _authority_snapshot(project: Project, run_id: int) -> dict[str, Any]:
 
 def test_just_claimed_attempt_survives_an_immediate_sweep(tmp_path: Path) -> None:
     project, run_id, _rows, _column_id, _claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_just_claimed",
@@ -298,7 +302,7 @@ def test_just_claimed_attempt_survives_an_immediate_sweep(tmp_path: Path) -> Non
             age_hours=7,
         )
         lease = project.db.execute(
-            "SELECT renewed_at, lease_expires_at FROM output_column_claims "
+            "SELECT renewed_at, lease_expires_at FROM generated_column_claims "
             "WHERE run_id=? AND status='active'",
             (run_id,),
         ).fetchone()
@@ -320,8 +324,6 @@ def test_just_claimed_attempt_survives_an_immediate_sweep(tmp_path: Path) -> Non
             ).fetchone()[0]
             == "dispatching"
         )
-    finally:
-        project.close()
 
 
 def test_terminal_queue_job_cannot_release_a_live_claimed_writer(
@@ -361,18 +363,18 @@ def test_terminal_queue_job_cannot_release_a_live_claimed_writer(
             result={"status": "queue-terminal"},
         )
         project.db.execute(
-            "UPDATE output_column_claims SET job_id=? WHERE run_id=? AND claim_token=?",
+            "UPDATE generated_column_claims SET job_id=? WHERE run_id=? AND claim_token=?",
             (job_id, run_id, claim_token),
         )
         project.db.commit()
 
         lease = project.db.execute(
-            "SELECT lease_expires_at FROM output_column_claims "
+            "SELECT lease_expires_at FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()
         assert lease is not None and lease["lease_expires_at"] is not None
-        blocker = OutputColumnClaimStore(project, queue=queue).active_for_columns(
+        blocker = GeneratedColumnClaimStore(project, queue=queue).active_for_columns(
             [column_id]
         )
 
@@ -380,7 +382,7 @@ def test_terminal_queue_job_cannot_release_a_live_claimed_writer(
         assert blocker["claim_token"] == claim_token
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims "
+                "SELECT status FROM generated_column_claims "
                 "WHERE run_id=? AND claim_token=?",
                 (run_id, claim_token),
             ).fetchone()[0]
@@ -402,7 +404,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
     tmp_path: Path,
 ) -> None:
     project, run_id, row_ids, column_id, claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_map_python",
@@ -412,7 +414,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             age_hours=7,
         )
         project.db.execute(
-            "UPDATE output_column_claims "
+            "UPDATE generated_column_claims "
             "SET lease_expires_at=datetime('now', '-1 second') "
             "WHERE run_id=? AND status='active'",
             (run_id,),
@@ -423,8 +425,11 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             RunResultStore(project).write_results(
                 run_id,
                 _result_batch(row_id, column_id, f"batch-{index}"),
-                writer_attempt_id="attempt_map_python",
-                claim_token=claim_token,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_map_python",
+                    claim_token=claim_token,
+                ),
             )
             with write_transaction(project.db):
                 assert (
@@ -444,7 +449,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             == 0
         )
         project.db.execute(
-            "UPDATE output_column_claims "
+            "UPDATE generated_column_claims "
             "SET lease_expires_at=datetime('now', '-1 second') "
             "WHERE run_id=? AND status='active'",
             (run_id,),
@@ -467,7 +472,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             state="dispatching",
         )
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).renew(
+            GeneratedColumnClaimStore(project).renew(
                 claim_token=claim_token,
                 run_id=run_id,
                 lease_seconds=int(timedelta(hours=6).total_seconds()),
@@ -475,8 +480,11 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
         RunResultStore(project).write_results(
             run_id,
             _result_batch(row_ids[2], column_id, "replacement"),
-            writer_attempt_id="attempt_map_python_b",
-            claim_token=claim_token,
+            fence=WriterFence.claimed(
+                run_id=run_id,
+                writer_attempt_id="attempt_map_python_b",
+                claim_token=claim_token,
+            ),
         )
         assert (
             project.db.execute(
@@ -485,8 +493,6 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             ).fetchone()[0]
             == 3
         )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("effect_site", ("result", "fact", "checkpoint"))
@@ -499,7 +505,7 @@ def test_paused_writer_cannot_commit_after_replacement(
         name=f"paused-{effect_site}",
     )
     checkpoints = EffectCheckpointStore(project.db)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_a",
@@ -507,19 +513,24 @@ def test_paused_writer_cannot_commit_after_replacement(
             seq=0,
             state="dispatching",
         )
+        fence_a = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_a", claim_token=claim_token
+        )
+        fence_b = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_b", claim_token=claim_token
+        )
+        paused_ref = row_effect_ref(
+            "checkpoint-paused",
+            run_id=run_id,
+            row_id=row_ids[0],
+            action_kind="map.python",
+            identity="paused",
+        )
         if effect_site == "checkpoint":
             assert checkpoints.reserve(
-                "checkpoint-paused",
-                family="row_effect",
-                group_key=str(run_id),
-                unit_key=str(row_ids[0]),
-                action_kind="map.python",
-                identity="paused",
-                authorized_attempt_id="attempt_a",
+                paused_ref,
+                fence=fence_a,
                 payload={"request": "paid"},
-                run_id=run_id,
-                writer_attempt_id="attempt_a",
-                claim_token=claim_token,
             )
         _replace_attempt(
             project,
@@ -534,28 +545,14 @@ def test_paused_writer_cannot_commit_after_replacement(
             # after replacement. This grants no right to publish cell values.
             with pytest.raises(StaleAttemptWriter):
                 checkpoints.complete(
-                    "checkpoint-paused",
-                    family="row_effect",
-                    group_key=str(run_id),
-                    unit_key=str(row_ids[0]),
-                    action_kind="map.python",
-                    identity="paused",
+                    paused_ref,
                     payload={"response": "imposter-b"},
-                    run_id=run_id,
-                    writer_attempt_id="attempt_b",
-                    claim_token=claim_token,
+                    fence=fence_b,
                 )
             checkpoints.complete(
-                "checkpoint-paused",
-                family="row_effect",
-                group_key=str(run_id),
-                unit_key=str(row_ids[0]),
-                action_kind="map.python",
-                identity="paused",
+                paused_ref,
                 payload={"response": "late-a"},
-                run_id=run_id,
-                writer_attempt_id="attempt_a",
-                claim_token=claim_token,
+                fence=fence_a,
             )
             checkpoint = checkpoints.get("checkpoint-paused")
             assert checkpoint["state"] == "returned"
@@ -568,29 +565,19 @@ def test_paused_writer_cannot_commit_after_replacement(
                 RunResultStore(project).write_results(
                     run_id,
                     _result_batch(row_ids[0], column_id, "late-a"),
-                    writer_attempt_id="attempt_a",
-                    claim_token=claim_token,
+                    fence=fence_a,
                 )
             elif effect_site == "fact":
                 RunResultStore(project).write_model_calls(
                     run_id,
                     _fact_batch(row_ids[0], column_id, "late-a"),
-                    writer_attempt_id="attempt_a",
-                    claim_token=claim_token,
-                    authorized_attempt_id="attempt_a",
+                    fence=fence_a,
                 )
             else:
                 checkpoints.complete(
-                    "checkpoint-paused",
-                    family="row_effect",
-                    group_key=str(run_id),
-                    unit_key=str(row_ids[0]),
-                    action_kind="map.python",
-                    identity="paused",
+                    paused_ref,
                     payload={"response": "late-a"},
-                    run_id=run_id,
-                    writer_attempt_id="attempt_a",
-                    claim_token=claim_token,
+                    fence=fence_a,
                 )
         assert exc_info.value.code == "stale_attempt_writer"
         assert _authority_snapshot(project, run_id) == before
@@ -599,42 +586,30 @@ def test_paused_writer_cannot_commit_after_replacement(
             RunResultStore(project).write_results(
                 run_id,
                 _result_batch(row_ids[0], column_id, "winner-b"),
-                writer_attempt_id="attempt_b",
-                claim_token=claim_token,
+                fence=fence_b,
             )
         elif effect_site == "fact":
             RunResultStore(project).write_model_calls(
                 run_id,
                 _fact_batch(row_ids[0], column_id, "winner-b"),
-                writer_attempt_id="attempt_b",
-                claim_token=claim_token,
-                authorized_attempt_id="attempt_b",
+                fence=fence_b,
             )
             project.db.commit()
         else:
             checkpoints.complete(
-                "checkpoint-paused",
-                family="row_effect",
-                group_key=str(run_id),
-                unit_key=str(row_ids[0]),
-                action_kind="map.python",
-                identity="paused",
+                paused_ref,
                 payload={"response": "winner-b"},
-                run_id=run_id,
-                writer_attempt_id="attempt_b",
-                claim_token=claim_token,
+                fence=fence_b,
             )
         after = _authority_snapshot(project, run_id)
         assert after["run"][1] == "attempt_b"
         assert all(claim[3] == "active" for claim in after["claims"])
         assert after != before
-    finally:
-        project.close()
 
 
 def test_writer_fence_requires_attempt_to_belong_to_run(tmp_path: Path) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         other_op = project.append_change("map", {"recipe": "python"})
         other_run_id = RunResultStore(project).start_run(
             other_op,
@@ -655,17 +630,18 @@ def test_writer_fence_requires_attempt_to_belong_to_run(tmp_path: Path) -> None:
             RunResultStore(project).write_results(
                 run_id,
                 _result_batch(rows[0], column_id, "wrong-run"),
-                writer_attempt_id="attempt_other_run",
-                claim_token=claim_token,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_other_run",
+                    claim_token=claim_token,
+                ),
             )
         assert _authority_snapshot(project, run_id)["results"] == 0
-    finally:
-        project.close()
 
 
 def test_writer_fence_requires_dispatching_state(tmp_path: Path) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_not_dispatching",
@@ -677,12 +653,13 @@ def test_writer_fence_requires_dispatching_state(tmp_path: Path) -> None:
             RunResultStore(project).write_results(
                 run_id,
                 _result_batch(rows[0], column_id, "not-dispatching"),
-                writer_attempt_id="attempt_not_dispatching",
-                claim_token=claim_token,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_not_dispatching",
+                    claim_token=claim_token,
+                ),
             )
         assert _authority_snapshot(project, run_id)["results"] == 0
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("token", (None, "output-claim:wrong"))
@@ -691,7 +668,7 @@ def test_writer_fence_requires_exact_active_claim_token(
     token: str | None,
 ) -> None:
     project, run_id, rows, column_id, _claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_live",
@@ -703,14 +680,15 @@ def test_writer_fence_requires_exact_active_claim_token(
             RunResultStore(project).write_model_calls(
                 run_id,
                 _fact_batch(rows[0], column_id, "wrong-token"),
-                writer_attempt_id="attempt_live",
-                claim_token=token,
-                authorized_attempt_id="attempt_live",
+                fence=WriterFence(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_live",
+                    claim_token=token,
+                    authorized_attempt_id="attempt_live",
+                ),
                 _renew_claim=False,
             )
         assert _authority_snapshot(project, run_id)["facts"] == 0
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("nested", (False, True))
@@ -719,14 +697,14 @@ def test_writer_fence_requires_claim_coverage_for_every_fact_column(
     nested: bool,
 ) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         other_column_id = project.add_column(
             project.db.execute(
                 "SELECT sheet_id FROM runs WHERE id=?",
                 (run_id,),
             ).fetchone()[0],
             "unclaimed",
-            ai_generated=True,
+            generated=True,
         )
         _insert_attempt(
             project,
@@ -744,13 +722,13 @@ def test_writer_fence_requires_claim_coverage_for_every_fact_column(
             RunResultStore(project).write_model_calls(
                 run_id,
                 batch,
-                writer_attempt_id="attempt_live",
-                claim_token=claim_token,
-                authorized_attempt_id="attempt_live",
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_live",
+                    claim_token=claim_token,
+                ),
             )
         assert _authority_snapshot(project, run_id)["facts"] == 0
-    finally:
-        project.close()
 
 
 def test_resume_writer_preserves_original_checkpoint_fact_owner(
@@ -758,7 +736,7 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
 ) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
     checkpoints = EffectCheckpointStore(project.db)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_a",
@@ -766,31 +744,18 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
             seq=0,
             state="dispatching",
         )
-        assert checkpoints.reserve(
+        fence_a = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_a", claim_token=claim_token
+        )
+        ref = row_effect_ref(
             "checkpoint-replay-owner",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key=str(rows[0]),
+            run_id=run_id,
+            row_id=rows[0],
             action_kind="map.python",
             identity="replay-owner",
-            authorized_attempt_id="attempt_a",
-            payload={"request": "paid"},
-            run_id=run_id,
-            writer_attempt_id="attempt_a",
-            claim_token=claim_token,
         )
-        checkpoints.complete(
-            "checkpoint-replay-owner",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key=str(rows[0]),
-            action_kind="map.python",
-            identity="replay-owner",
-            payload={"response": "returned"},
-            run_id=run_id,
-            writer_attempt_id="attempt_a",
-            claim_token=claim_token,
-        )
+        assert checkpoints.reserve(ref, fence=fence_a, payload={"request": "paid"})
+        checkpoints.complete(ref, payload={"response": "returned"}, fence=fence_a)
         _replace_attempt(
             project,
             run_id=run_id,
@@ -799,29 +764,19 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
         )
 
         def accrue(checkpoint: dict[str, Any]) -> float:
-            RunResultStore(project).write_returned_call_accounting(
+            RunResultStore(project).write_returned_call_accounting_in_transaction(
                 run_id,
                 _fact_batch(rows[0], column_id, "replayed-a"),
-                writer_attempt_id="attempt_a",
-                claim_token=claim_token,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                commit=False,
+                fence=fence_a.for_fact_owner(checkpoint["authorized_attempt_id"]),
             )
             return 0.0
 
         with write_transaction(checkpoints.db):
             checkpoints.account_returned(
-                "checkpoint-replay-owner",
-                family="row_effect",
-                group_key=str(run_id),
-                unit_key=str(rows[0]),
-                action_kind="map.python",
-                identity="replay-owner",
+                ref,
                 payload={"response": "returned"},
                 accrue=accrue,
-                run_id=run_id,
-                writer_attempt_id="attempt_a",
-                claim_token=claim_token,
+                fence=fence_a,
             )
         fact = project.db.execute(
             "SELECT attempt_id FROM model_calls WHERE id='replayed-a'"
@@ -835,8 +790,6 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
             ).fetchone()[0]
             == "attempt_b"
         )
-    finally:
-        project.close()
 
 
 def test_production_checkpoint_consume_uses_resume_writer_and_original_owner(
@@ -844,7 +797,7 @@ def test_production_checkpoint_consume_uses_resume_writer_and_original_owner(
 ) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
     store = RunResultStore(project)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_a",
@@ -854,26 +807,25 @@ def test_production_checkpoint_consume_uses_resume_writer_and_original_owner(
         )
         batch = _fact_batch(rows[0], column_id, "consume-owner-a")
         batch[0]["value"] = "returned"
-        assert store.reserve_row_effect_checkpoint(
-            "checkpoint-production-consume",
-            run_id=run_id,
-            row_id=rows[0],
-            action_kind="map.python",
-            identity="production-consume",
-            authorized_attempt_id="attempt_a",
-            writer_attempt_id="attempt_a",
-            claim_token=claim_token,
+        fence_a = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_a", claim_token=claim_token
         )
-        store.complete_row_effect_checkpoint(
+        fence_b = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_b", claim_token=claim_token
+        )
+        ref = row_effect_ref(
             "checkpoint-production-consume",
             run_id=run_id,
             row_id=rows[0],
             action_kind="map.python",
             identity="production-consume",
+        )
+        assert store.reserve_row_effect_checkpoint(ref, fence=fence_a)
+        store.complete_row_effect_checkpoint(
+            ref,
             batch=batch,
             replay_response={"python_result": {"value": "returned"}},
-            writer_attempt_id="attempt_a",
-            claim_token=claim_token,
+            fence=fence_a,
         )
         _replace_attempt(
             project,
@@ -882,16 +834,12 @@ def test_production_checkpoint_consume_uses_resume_writer_and_original_owner(
             new_attempt_id="attempt_b",
         )
 
-        store.consume_returned_row_effect_checkpoint(
-            "checkpoint-production-consume",
-            run_id=run_id,
-            row_id=rows[0],
-            action_kind="map.python",
-            identity="production-consume",
-            batch=batch,
-            writer_attempt_id="attempt_b",
-            claim_token=claim_token,
-        )
+        with write_transaction(store.db):
+            store.consume_returned_row_effect_checkpoint(
+                ref,
+                batch=batch,
+                fence=fence_b,
+            )
 
         fact = project.db.execute(
             "SELECT attempt_id FROM model_calls WHERE id='consume-owner-a'"
@@ -919,13 +867,11 @@ def test_production_checkpoint_consume_uses_resume_writer_and_original_owner(
             ).fetchone()[0]
             == "attempt_b"
         )
-    finally:
-        project.close()
 
 
 def test_claimed_run_cannot_select_claimless_writer_mode(tmp_path: Path) -> None:
     project, run_id, rows, column_id, _claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_claimed",
@@ -937,12 +883,11 @@ def test_claimed_run_cannot_select_claimless_writer_mode(tmp_path: Path) -> None
             RunResultStore(project).write_results(
                 run_id,
                 _result_batch(rows[0], column_id, "forbidden-claimless"),
-                writer_attempt_id="attempt_claimed",
-                claimless_direct_effect=True,
+                fence=WriterFence.claimless(
+                    run_id=run_id, attempt_id="attempt_claimed"
+                ),
             )
         assert _authority_snapshot(project, run_id)["results"] == 0
-    finally:
-        project.close()
 
 
 def test_claimless_writer_must_remain_the_current_dispatch_holder(
@@ -950,9 +895,9 @@ def test_claimless_writer_must_remain_the_current_dispatch_holder(
 ) -> None:
     project, run_id, rows, _column_id, claim_token = _seed_claimed_run(tmp_path)
     checkpoints = EffectCheckpointStore(project.db)
-    try:
+    with closing(project):
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=claim_token,
                 status="released",
             )
@@ -971,41 +916,41 @@ def test_claimless_writer_must_remain_the_current_dispatch_holder(
         )
         with pytest.raises(StaleAttemptWriter):
             checkpoints.reserve(
-                "claimless-stale-a",
+                EffectCheckpointRef(
+                    checkpoint_id="claimless-stale-a",
+                    family="claimless",
+                    group_key=str(run_id),
+                    unit_key=str(rows[0]),
+                    action_kind="reduce.group_summary",
+                    identity="claimless-stale-a",
+                ),
+                fence=WriterFence.claimless(
+                    run_id=run_id, attempt_id="attempt_claimless_a"
+                ),
+                payload={"request": "stale"},
+            )
+        assert checkpoints.reserve(
+            EffectCheckpointRef(
+                checkpoint_id="claimless-live-b",
                 family="claimless",
                 group_key=str(run_id),
                 unit_key=str(rows[0]),
                 action_kind="reduce.group_summary",
-                identity="claimless-stale-a",
-                authorized_attempt_id="attempt_claimless_a",
-                payload={"request": "stale"},
-                run_id=run_id,
-                writer_attempt_id="attempt_claimless_a",
-                claimless_direct_effect=True,
-            )
-        assert checkpoints.reserve(
-            "claimless-live-b",
-            family="claimless",
-            group_key=str(run_id),
-            unit_key=str(rows[0]),
-            action_kind="reduce.group_summary",
-            identity="claimless-live-b",
-            authorized_attempt_id="attempt_claimless_b",
+                identity="claimless-live-b",
+            ),
+            fence=WriterFence.claimless(
+                run_id=run_id, attempt_id="attempt_claimless_b"
+            ),
             payload={"request": "live"},
-            run_id=run_id,
-            writer_attempt_id="attempt_claimless_b",
-            claimless_direct_effect=True,
         )
         assert checkpoints.get("claimless-live-b") is not None
-    finally:
-        project.close()
 
 
 def test_terminal_finalize_refuses_a_writer_replaced_after_its_last_batch(
     tmp_path: Path,
 ) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_finalize_a",
@@ -1013,11 +958,15 @@ def test_terminal_finalize_refuses_a_writer_replaced_after_its_last_batch(
             seq=0,
             state="dispatching",
         )
+        fence_a = WriterFence.claimed(
+            run_id=run_id,
+            writer_attempt_id="attempt_finalize_a",
+            claim_token=claim_token,
+        )
         RunResultStore(project).write_results(
             run_id,
             _result_batch(rows[0], column_id, "last-live-batch"),
-            writer_attempt_id="attempt_finalize_a",
-            claim_token=claim_token,
+            fence=fence_a,
         )
         _replace_attempt(
             project,
@@ -1038,12 +987,9 @@ def test_terminal_finalize_refuses_a_writer_replaced_after_its_last_batch(
                 project,
                 RunResultStore(project),
                 op_id=op_id,
-                run_id=run_id,
                 status="completed",
                 out_cols={"python_result": column_id},
-                writer_attempt_id="attempt_finalize_a",
-                claim_token=claim_token,
-                claimless_direct_effect=False,
+                fence=fence_a,
                 terminal_attempt_state="effected",
             )
 
@@ -1055,16 +1001,14 @@ def test_terminal_finalize_refuses_a_writer_replaced_after_its_last_batch(
             ).fetchone()[0]
             is None
         )
-    finally:
-        project.close()
 
 
 def test_terminal_claim_release_refuses_a_replaced_writer(
     tmp_path: Path,
 ) -> None:
     project, run_id, _rows, _column_id, claim_token = _seed_claimed_run(tmp_path)
-    claims = OutputColumnClaimStore(project)
-    try:
+    claims = GeneratedColumnClaimStore(project)
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_release_a",
@@ -1082,9 +1026,11 @@ def test_terminal_claim_release_refuses_a_replaced_writer(
 
         with pytest.raises(StaleAttemptWriter):
             claims.finish_current_writer(
-                run_id=run_id,
-                writer_attempt_id="attempt_release_a",
-                claim_token=claim_token,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_release_a",
+                    claim_token=claim_token,
+                ),
                 attempt_state="effected",
             )
 
@@ -1095,8 +1041,6 @@ def test_terminal_claim_release_refuses_a_replaced_writer(
             ).fetchone()[0]
             == "dispatching"
         )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("replace_before_terminal", (False, True))
@@ -1113,7 +1057,7 @@ def test_queued_terminal_failure_uses_current_writer_fence(
         name=f"queued-terminal-{replace_before_terminal}",
     )
     receipt_id = claim_token.removeprefix("output-claim:")
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_queued_a",
@@ -1141,8 +1085,11 @@ def test_queued_terminal_failure_uses_current_writer_fence(
                     message="provider rate limited",
                     action_kind="map.python",
                 ),
-                writer_attempt_id="attempt_queued_a",
-                claim_token=claim_token,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_queued_a",
+                    claim_token=claim_token,
+                ),
             )
 
         if replace_before_terminal:
@@ -1187,13 +1134,11 @@ def test_queued_terminal_failure_uses_current_writer_fence(
             )
             assert (
                 project.db.execute(
-                    "SELECT status FROM output_column_claims WHERE claim_token=?",
+                    "SELECT status FROM generated_column_claims WHERE claim_token=?",
                     (claim_token,),
                 ).fetchone()[0]
                 == "failed"
             )
-    finally:
-        project.close()
 
 
 def test_running_cancel_without_writer_tuple_retains_durable_authority(
@@ -1209,7 +1154,7 @@ def test_running_cancel_without_writer_tuple_retains_durable_authority(
         name="running-cancel-no-writer",
     )
     receipt_id = claim_token.removeprefix("output-claim:")
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_running_cancel",
@@ -1242,13 +1187,11 @@ def test_running_cancel_without_writer_tuple_retains_durable_authority(
         )
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
+                "SELECT status FROM generated_column_claims WHERE claim_token=?",
                 (claim_token,),
             ).fetchone()[0]
             == "active"
         )
-    finally:
-        project.close()
 
 
 def test_renewal_failure_rolls_back_batch_and_leaves_run_alive(
@@ -1256,7 +1199,7 @@ def test_renewal_failure_rolls_back_batch_and_leaves_run_alive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_live",
@@ -1269,13 +1212,16 @@ def test_renewal_failure_rolls_back_batch_and_leaves_run_alive(
         def fail_renew(*_args: Any, **_kwargs: Any) -> int:
             raise sqlite3.OperationalError("injected renewal failure")
 
-        monkeypatch.setattr(OutputColumnClaimStore, "renew", fail_renew)
+        monkeypatch.setattr(GeneratedColumnClaimStore, "renew", fail_renew)
         with pytest.raises(sqlite3.OperationalError, match="renewal failure"):
             RunResultStore(project).write_results(
                 run_id,
                 _result_batch(rows[0], column_id, "must-rollback"),
-                writer_attempt_id="attempt_live",
-                claim_token=claim_token,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id="attempt_live",
+                    claim_token=claim_token,
+                ),
             )
         assert _authority_snapshot(project, run_id) == before
         run = project.db.execute(
@@ -1283,8 +1229,6 @@ def test_renewal_failure_rolls_back_batch_and_leaves_run_alive(
             (run_id,),
         ).fetchone()
         assert tuple(run) == ("running", "attempt_live")
-    finally:
-        project.close()
 
 
 def test_returned_checkpoint_does_not_need_publication_lease_renewal(
@@ -1293,7 +1237,7 @@ def test_returned_checkpoint_does_not_need_publication_lease_renewal(
 ) -> None:
     project, run_id, rows, _column_id, claim_token = _seed_claimed_run(tmp_path)
     checkpoints = EffectCheckpointStore(project.db)
-    try:
+    with closing(project):
         _insert_attempt(
             project,
             attempt_id="attempt_live",
@@ -1301,18 +1245,20 @@ def test_returned_checkpoint_does_not_need_publication_lease_renewal(
             seq=0,
             state="dispatching",
         )
-        assert checkpoints.reserve(
+        live_fence = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_live", claim_token=claim_token
+        )
+        renewal_ref = row_effect_ref(
             "checkpoint-renewal-failure",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key=str(rows[0]),
+            run_id=run_id,
+            row_id=rows[0],
             action_kind="map.python",
             identity="checkpoint-renewal-failure",
-            authorized_attempt_id="attempt_live",
+        )
+        assert checkpoints.reserve(
+            renewal_ref,
+            fence=live_fence,
             payload={"request": "paid"},
-            run_id=run_id,
-            writer_attempt_id="attempt_live",
-            claim_token=claim_token,
         )
         before = _authority_snapshot(project, run_id)
 
@@ -1320,21 +1266,14 @@ def test_returned_checkpoint_does_not_need_publication_lease_renewal(
             raise sqlite3.OperationalError("injected checkpoint renewal failure")
 
         monkeypatch.setattr(
-            OutputColumnClaimStore,
+            GeneratedColumnClaimStore,
             "renew_in_transaction",
             fail_renew,
         )
         checkpoints.complete(
-            "checkpoint-renewal-failure",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key=str(rows[0]),
-            action_kind="map.python",
-            identity="checkpoint-renewal-failure",
+            renewal_ref,
             payload={"response": "retained"},
-            run_id=run_id,
-            writer_attempt_id="attempt_live",
-            claim_token=claim_token,
+            fence=live_fence,
         )
         after = _authority_snapshot(project, run_id)
         assert after["run"] == before["run"]
@@ -1342,8 +1281,6 @@ def test_returned_checkpoint_does_not_need_publication_lease_renewal(
         checkpoint = checkpoints.get("checkpoint-renewal-failure")
         assert checkpoint is not None
         assert checkpoint["state"] == "returned"
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("winner", ("write", "abandon"))
@@ -1363,7 +1300,7 @@ def test_write_and_abandonment_have_one_serialized_winner(
             age_hours=7,
         )
         project.db.execute(
-            "UPDATE output_column_claims "
+            "UPDATE generated_column_claims "
             "SET lease_expires_at=datetime('now', '-1 second') "
             "WHERE run_id=? AND status='active'",
             (run_id,),
@@ -1372,14 +1309,15 @@ def test_write_and_abandonment_have_one_serialized_winner(
         started = Event()
         outcome: list[Any] = []
 
+        fence_a = WriterFence.claimed(
+            run_id=run_id, writer_attempt_id="attempt_a", claim_token=claim_token
+        )
         if winner == "write":
             project.db.execute("BEGIN IMMEDIATE")
-            RunResultStore(project).write_results(
+            RunResultStore(project).write_results_in_transaction(
                 run_id,
                 _result_batch(rows[0], column_id, "write-first"),
-                writer_attempt_id="attempt_a",
-                claim_token=claim_token,
-                commit=False,
+                fence=fence_a,
             )
 
             def sweep() -> None:
@@ -1418,8 +1356,7 @@ def test_write_and_abandonment_have_one_serialized_winner(
                     RunResultStore(project).write_results(
                         run_id,
                         _result_batch(rows[0], column_id, "abandon-first"),
-                        writer_attempt_id="attempt_a",
-                        claim_token=claim_token,
+                        fence=fence_a,
                     )
                 except BaseException as exc:  # capture across the test thread
                     outcome.append(exc)

@@ -5,7 +5,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import copy
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -49,31 +48,27 @@ def _stub_router(*replies: dict[str, Any]) -> tuple[ModelRouter, _SequenceAdapte
     return router, adapter
 
 
-def _seed_project(project_path: Path) -> int:
-    project = Project.create(project_path, name="Judge Generalize")
-    try:
-        sheet_id = project.add_sheet("Sheet")
-        columns = {
-            "story": project.add_column(sheet_id, "story", type="text"),
-            "source_url": project.add_column(sheet_id, "source_url", type="link"),
-        }
-        project.add_rows(
-            sheet_id,
-            [
-                {
-                    "story": "City hall awarded a no-bid contract.",
-                    "source_url": "https://example.com/contract",
-                },
-                {
-                    "story": "Road repairs finished under budget.",
-                    "source_url": "https://example.com/road",
-                },
-            ],
-            columns,
-        )
-        return sheet_id
-    finally:
-        project.close()
+def _seed_project(project: Project) -> int:
+    sheet_id = project.add_sheet("Sheet")
+    columns = {
+        "story": project.add_column(sheet_id, "story", type="text"),
+        "source_url": project.add_column(sheet_id, "source_url", type="link"),
+    }
+    project.add_rows(
+        sheet_id,
+        [
+            {
+                "story": "City hall awarded a no-bid contract.",
+                "source_url": "https://example.com/contract",
+            },
+            {
+                "story": "Road repairs finished under budget.",
+                "source_url": "https://example.com/road",
+            },
+        ],
+        columns,
+    )
+    return sheet_id
 
 
 # The upstream instruction text the original-prompt trace must surface.
@@ -228,167 +223,146 @@ def test_typed_judge_upstream_prompt_never_recurses_prior_evaluation_context() -
     assert "inner-model" not in formatted
 
 
-def test_judge_rejects_non_generated_answer_before_model_work(tmp_path: Path) -> None:
-    project_path = tmp_path / "non-generated.frisket"
-    sheet_id = _seed_project(project_path)
+def test_judge_rejects_non_generated_answer_before_model_work(
+    project: Project,
+) -> None:
+    sheet_id = _seed_project(project)
     router, adapter = _stub_router(
         {"verdict": True, "judge_note": "Supported by the story."},
         {"verdict": False, "judge_note": "Not supported."},
     )
-    project = Project(project_path)
-    try:
-        result = _run(
-            project,
-            _judge_action(
-                sheet_id,
-                judged_column="source_url",
-                input_columns=["story", "source_url"],
-                include_original_prompt=True,
-                idempotency_key="judge_generalize@sha256:non-generated",
-            ),
-            router,
-            "judge_source_url",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "column_not_ai_generated"
-        assert result.errors[0].field == "params.judged_column"
-        assert result.errors[0].message == (
-            "map.judge answer to grade must be an AI-generated column"
-        )
-        assert result.errors[0].details == {"column": "source_url"}
-        assert adapter.requests == []
-    finally:
-        project.close()
+    result = _run(
+        project,
+        _judge_action(
+            sheet_id,
+            judged_column="source_url",
+            input_columns=["story", "source_url"],
+            include_original_prompt=True,
+            idempotency_key="judge_generalize@sha256:non-generated",
+        ),
+        router,
+        "judge_source_url",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "column_not_generated"
+    assert result.errors[0].field == "params.judged_column"
+    assert result.errors[0].message == (
+        "map.judge answer to grade must be an AI-generated column"
+    )
+    assert result.errors[0].details == {"column": "source_url"}
+    assert adapter.requests == []
 
 
 def test_judge_canonicalizes_omitted_judged_column_into_sources(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project_path = tmp_path / "canonical-source-union.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _stub_router(
         {"risk_score": 8},
         {"risk_score": 3},
         {"verdict": True, "judge_note": "Supported by the story."},
         {"verdict": True, "judge_note": "Supported by the story."},
     )
-    project = Project(project_path)
-    try:
-        classify = _run(project, _classify_action(sheet_id), router, "classify")
-        assert classify.status == "completed", classify.errors
-        action = _judge_action(
-            sheet_id,
-            input_columns=["story"],
-            idempotency_key="judge_generalize@sha256:canonical-source-union",
-        )
-        judge = _run(project, action, router, "judge_canonical_source_union")
-        assert judge.status == "completed", judge.errors
-        assert "risk_score" in _request_text(adapter.requests[-1])
-    finally:
-        project.close()
+    classify = _run(project, _classify_action(sheet_id), router, "classify")
+    assert classify.status == "completed", classify.errors
+    action = _judge_action(
+        sheet_id,
+        input_columns=["story"],
+        idempotency_key="judge_generalize@sha256:canonical-source-union",
+    )
+    judge = _run(project, action, router, "judge_canonical_source_union")
+    assert judge.status == "completed", judge.errors
+    assert "risk_score" in _request_text(adapter.requests[-1])
 
 
-def test_judge_allows_same_model_family(tmp_path: Path) -> None:
+def test_judge_allows_same_model_family(project: Project) -> None:
     """The judge model may share a provider family with the judged run (soft default)."""
-    project_path = tmp_path / "same-family.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, _adapter = _stub_router(
         {"risk_score": 8},
         {"risk_score": 3},
         {"verdict": True, "judge_note": "Plausible."},
         {"verdict": True, "judge_note": "Plausible."},
     )
-    project = Project(project_path)
-    try:
-        classify = _run(project, _classify_action(sheet_id), router, "classify")
-        assert classify.status == "completed", classify.errors
-        judge = _run(
-            project,
-            _judge_action(
-                sheet_id,
-                judged_column="risk_score",
-                model="anthropic/claude-sonnet-4-6",  # same family as the haiku judged run
-                idempotency_key="judge_generalize@sha256:same-family",
-            ),
-            router,
-            "judge_same_family",
-        )
-        assert judge.status == "completed", judge.errors
-        assert all(e.code != "invalid_judge_model_family" for e in (judge.errors or []))
-    finally:
-        project.close()
+    classify = _run(project, _classify_action(sheet_id), router, "classify")
+    assert classify.status == "completed", classify.errors
+    judge = _run(
+        project,
+        _judge_action(
+            sheet_id,
+            judged_column="risk_score",
+            model="anthropic/claude-sonnet-4-6",  # same family as the haiku judged run
+            idempotency_key="judge_generalize@sha256:same-family",
+        ),
+        router,
+        "judge_same_family",
+    )
+    assert judge.status == "completed", judge.errors
+    assert all(e.code != "invalid_judge_model_family" for e in (judge.errors or []))
 
 
-def test_include_original_prompt_injects_for_generated_column(tmp_path: Path) -> None:
+def test_include_original_prompt_injects_for_generated_column(
+    project: Project,
+) -> None:
     """include_original_prompt=True surfaces the upstream instruction, XML-wrapped."""
-    project_path = tmp_path / "include-prompt.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _stub_router(
         {"risk_score": 8},
         {"risk_score": 3},
         {"verdict": True, "judge_note": "x"},
         {"verdict": True, "judge_note": "y"},
     )
-    project = Project(project_path)
-    try:
-        classify = _run(project, _classify_action(sheet_id), router, "classify")
-        assert classify.status == "completed", classify.errors
-        judge = _run(
-            project,
-            _judge_action(
-                sheet_id,
-                judged_column="risk_score",
-                include_original_prompt=True,
-                idempotency_key="judge_generalize@sha256:include-prompt",
-            ),
-            router,
-            "judge_include_prompt",
-        )
-        assert judge.status == "completed", judge.errors
-        # The last requests are the judge's; the upstream instruction must appear,
-        # wrapped in an <original_prompt> block.
-        judge_text = _request_text(adapter.requests[-1])
-        assert "<original_prompt>" in judge_text
-        assert _CLASSIFY_CONTEXT in judge_text
-    finally:
-        project.close()
+    classify = _run(project, _classify_action(sheet_id), router, "classify")
+    assert classify.status == "completed", classify.errors
+    judge = _run(
+        project,
+        _judge_action(
+            sheet_id,
+            judged_column="risk_score",
+            include_original_prompt=True,
+            idempotency_key="judge_generalize@sha256:include-prompt",
+        ),
+        router,
+        "judge_include_prompt",
+    )
+    assert judge.status == "completed", judge.errors
+    # The last requests are the judge's; the upstream instruction must appear,
+    # wrapped in an <original_prompt> block.
+    judge_text = _request_text(adapter.requests[-1])
+    assert "<original_prompt>" in judge_text
+    assert _CLASSIFY_CONTEXT in judge_text
 
 
 @pytest.mark.parametrize("subject", ["risk_score", "input"])
 def test_judge_template_source_keeps_subject_value_in_prompt(
-    tmp_path: Path, subject: str
+    project: Project, subject: str
 ) -> None:
-    project_path = tmp_path / "template-source.frisket"
-    sheet_id = _seed_project(project_path)
+    sheet_id = _seed_project(project)
     router, adapter = _stub_router(
         {"risk_score": 8},
         {"risk_score": 3},
         {"verdict": True, "judge_note": "x"},
         {"verdict": True, "judge_note": "y"},
     )
-    project = Project(project_path)
-    try:
-        classify = _run(project, _classify_action(sheet_id), router, "classify")
-        assert classify.status == "completed", classify.errors
-        project.db.execute(
-            "UPDATE columns SET name=? WHERE sheet_id=? AND name='risk_score'",
-            (subject, sheet_id),
-        )
-        project.db.commit()
-        judged = _run(
-            project,
-            _judge_action(
-                sheet_id,
-                judged_column=subject,
-                input_columns="Source: {{story}}",
-                idempotency_key="judge_generalize@sha256:template-source",
-            ),
-            router,
-            "judge_template_source",
-        )
-        assert judged.status == "completed", judged.errors
-        rendered = _request_text(adapter.requests[-1])
-        assert "Source: Road repairs finished under budget." in rendered
-        assert f"{subject}: 3" in rendered
-    finally:
-        project.close()
+    classify = _run(project, _classify_action(sheet_id), router, "classify")
+    assert classify.status == "completed", classify.errors
+    project.db.execute(
+        "UPDATE columns SET name=? WHERE sheet_id=? AND name='risk_score'",
+        (subject, sheet_id),
+    )
+    project.db.commit()
+    judged = _run(
+        project,
+        _judge_action(
+            sheet_id,
+            judged_column=subject,
+            input_columns="Source: {{story}}",
+            idempotency_key="judge_generalize@sha256:template-source",
+        ),
+        router,
+        "judge_template_source",
+    )
+    assert judged.status == "completed", judged.errors
+    rendered = _request_text(adapter.requests[-1])
+    assert "Source: Road repairs finished under budget." in rendered
+    assert f"{subject}: 3" in rendered

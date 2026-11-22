@@ -9,6 +9,7 @@ from dataclasses import replace
 from typing import Any
 
 from frisket.engine.store.changes import ChangeStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.derived_refresh_stage import DerivedRefreshStage
 from frisket.engine.store.derived_updates import (
@@ -28,7 +29,7 @@ from frisket.engine.store.materialization import (
     load_materialized_row_sources_for_op,
     write_aggregate_sheet,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -87,7 +88,7 @@ class GroupPublication:
         if self.recovery_run is None:
             return None
         claim = self.project.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=? AND status='active'",
+            "SELECT claim_token FROM generated_column_claims WHERE run_id=? AND status='active'",
             (self.recovery_run["id"],),
         ).fetchone()
         return str(claim[0]) if claim is not None else None
@@ -116,7 +117,7 @@ class GroupPublication:
         from .action_receipts import _result_from_receipt
         from .project_run_terminalization import (
             CurrentWriterTerminalAuthority,
-            terminalize_project_run,
+            terminalize_project_run_in_transaction,
         )
         from frisket.engine.store.receipts import ReceiptStore
         from frisket.execution.attempt import StaleAttemptWriter
@@ -130,7 +131,7 @@ class GroupPublication:
                 raise StaleAttemptWriter(
                     "grouped cancellation needs durable Stop intent"
                 )
-            terminal = terminalize_project_run(
+            terminal = terminalize_project_run_in_transaction(
                 self.project,
                 run_id=int(self._started_envelope["run_id"]),
                 receipt_id=self.receipt_id,
@@ -139,7 +140,6 @@ class GroupPublication:
                     writer_attempt_id=str(self._started_envelope["attempt_id"]),
                     claim_token=self.claim_token,
                 ),
-                commit=False,
             )
             if terminal.disposition != "terminalized":
                 raise StaleAttemptWriter(
@@ -190,7 +190,7 @@ class GroupPublication:
         }
         columns = [
             AggregateColumnSpec(
-                name=physical[c.key], type=c.type, ai_generated=c.key == "summary"
+                name=physical[c.key], type=c.type, generated=c.key == "summary"
             )
             for c in GROUP_SUMMARY_COLUMNS
         ]
@@ -239,8 +239,8 @@ class GroupPublication:
                     ],
                 }
             )
-            if not receipts.update_body_status(
-                receipt, require_status="running", commit=False
+            if not receipts.update_body_status_in_transaction(
+                receipt, require_status="running"
             ):
                 raise ValueError("Grouped receipt reservation was lost")
             ChangeStore(project).start(op_id)
@@ -399,10 +399,10 @@ class GroupPublication:
                 parent_op_id=target.parent_op_id,
                 token=self.receipt_id,
             )
-        claims = OutputColumnClaimStore(self.project)
+        claims = GeneratedColumnClaimStore(self.project)
         run_id = int(self._started_envelope["run_id"])
         existing = self.project.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=? AND status='active'",
+            "SELECT claim_token FROM generated_column_claims WHERE run_id=? AND status='active'",
             (run_id,),
         ).fetchone()
         if existing is not None:
@@ -444,11 +444,13 @@ class GroupPublication:
                 "Grouped refresh lease renewal failed"
             ) from self._lease_failure
         ChangeStore(self.project).require_publication(self._started_write.op_id)
-        OutputColumnClaimStore.require_current_writer(
+        GeneratedColumnClaimStore.require_current_writer(
             self.project.db,
-            run_id=int(self._started_envelope["run_id"]),
-            writer_attempt_id=str(self._started_envelope["attempt_id"]),
-            claim_token=self.claim_token,
+            fence=WriterFence(
+                run_id=int(self._started_envelope["run_id"]),
+                writer_attempt_id=str(self._started_envelope["attempt_id"]),
+                claim_token=self.claim_token,
+            ),
         )
         if self.params.refresh_target is not None:
             target = self.params.refresh_target
@@ -459,7 +461,7 @@ class GroupPublication:
                 op_id=self._started_write.op_id,
                 token=self.receipt_id,
             )
-        OutputColumnClaimStore(self.project).renew(
+        GeneratedColumnClaimStore(self.project).renew(
             claim_token=self.claim_token,
             run_id=int(self._started_envelope["run_id"]),
             lease_seconds=300,

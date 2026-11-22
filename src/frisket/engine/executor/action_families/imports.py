@@ -17,7 +17,7 @@ from frisket.contracts.action import (
     ActionSpec,
     ImportRowsParams,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
     canonical_column_type,
 )
@@ -163,7 +163,7 @@ def _perform_import_rows_in_txn(
     for idx, column in enumerate(materialization.columns, start=1):
         cur.execute(
             "INSERT INTO columns (sheet_id, name, type, position, "
-            "ai_generated, hidden, default_hidden, format) "
+            "generated, hidden, default_hidden, format) "
             "VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
             (
                 sheet_id,
@@ -246,7 +246,7 @@ def _perform_import_rows_in_txn(
             op_id=op_id,
             receipt_id=receipt_id,
         )
-        receipt.evidence.extend(ReceiptEvidence(ref=ref) for ref in published)
+        receipt.records.extend(ReceiptRecord(ref=ref) for ref in published)
     if resolved is not None:
         receipt.warnings = list(resolved.get("warnings", ()))
         result.warnings = list(receipt.warnings)
@@ -373,7 +373,7 @@ def _import_rows_receipt(
         ),
     ]
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref=_compact_import_rowset_ref(
                 sheet_id=sheet_id, row_ids=row_ids, op_id=op_id
             )
@@ -416,14 +416,14 @@ def _import_rows_receipt(
             source_ref.setdefault("importer", "ndjson")
             source_kind = "ndjson"
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={"kind": "import_source", "source_kind": source_kind, **source_ref}
             )
         )
     if row_ids and column_ids:
         first_name = next(iter(column_ids))
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "source_cell",
                     "sheet_id": sheet_id,
@@ -449,7 +449,7 @@ def _import_rows_receipt(
             )
         ],
         outputs=outputs,
-        evidence=supporting_records,
+        records=supporting_records,
     )
 
 

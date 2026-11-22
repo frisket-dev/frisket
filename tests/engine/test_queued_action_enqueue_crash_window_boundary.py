@@ -21,6 +21,7 @@ from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.execution.provider import ExecutionCompositionContext
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture(autouse=True)
@@ -67,11 +68,11 @@ def _sheet_id(action: dict[str, Any]) -> int:
 # transaction; both must therefore expose the same complete pending tuple.
 PRECOMMIT_BOUNDARY_TARGETS = {
     1: "frisket.engine.store.receipts.ReceiptStore.insert_queued",
-    2: "frisket.engine.store.output_claims.OutputColumnClaimStore.acquire",
-    3: "frisket.engine.store.project.Project.add_column",
-    4: "frisket.engine.store.project.Project.append_change",
+    2: "frisket.engine.store.generated_column_claims.GeneratedColumnClaimStore.acquire",
+    3: "frisket.engine.store.project.Project.add_column_in_transaction",
+    4: "frisket.engine.store.project.Project.append_change_in_transaction",
     5: "frisket.engine.store.project.Project.set_undo_info",
-    6: "frisket.engine.store.runs.RunResultStore.start_run",
+    6: "frisket.engine.store.runs.RunResultStore.start_run_in_transaction",
     7: "frisket.engine.store.runs.RunResultStore.point_column_at_run",
     8: "frisket.engine.runner.preparation.retire_dropped_generated_columns",
     9: "frisket.engine.runner.validation.persist_resolved_execution",
@@ -83,8 +84,8 @@ PRECOMMIT_BOUNDARY_TARGETS = {
 }
 
 OUTPUT_WRITER_TARGETS = {
-    "add": "frisket.engine.store.project.Project.add_column",
-    "revive": "frisket.engine.store.project.Project.add_column",
+    "add": "frisket.engine.store.project.Project.add_column_in_transaction",
+    "revive": "frisket.engine.store.project.Project.add_column_in_transaction",
     "retype": "frisket.engine.store.project.Project.set_column_type",
     "semantic_retype": (
         "frisket.engine.store.project.Project.set_column_semantic_type"
@@ -94,7 +95,7 @@ OUTPUT_WRITER_TARGETS = {
 
 PROJECT_COUNT_QUERIES = {
     "receipts": "SELECT COUNT(*) FROM receipts",
-    "output_column_claims": "SELECT COUNT(*) FROM output_column_claims",
+    "generated_column_claims": "SELECT COUNT(*) FROM generated_column_claims",
     "ops": "SELECT COUNT(*) FROM ops",
     "runs": "SELECT COUNT(*) FROM runs",
     "run_scopes": "SELECT COUNT(*) FROM run_scopes",
@@ -295,7 +296,7 @@ def _seed_case(
                 sheet_id,
                 "markdown",
                 type="text",
-                ai_generated=True,
+                generated=True,
                 format=None,
             )
         elif action_kind != "enrich.geocode":
@@ -305,7 +306,7 @@ def _seed_case(
                 sheet_id,
                 "location",
                 type="text",
-                ai_generated=True,
+                generated=True,
                 hidden=True,
             )
         elif output_writer_variant == "retype":
@@ -313,16 +314,17 @@ def _seed_case(
                 sheet_id,
                 "location",
                 type="text",
-                ai_generated=True,
+                generated=True,
             )
         elif output_writer_variant == "semantic_retype":
             column_id = project.add_column(
                 sheet_id,
                 "location",
                 type="geo_point",
-                ai_generated=True,
+                generated=True,
             )
-            project.set_column_semantic_type(column_id, "packet_10_prior_geocode")
+            with write_transaction(project.db):
+                project.set_column_semantic_type(column_id, "packet_10_prior_geocode")
         elif output_writer_variant != "add":
             raise AssertionError(output_writer_variant)
         if output_writer_variant in {
@@ -340,7 +342,7 @@ def _seed_case(
             sheet_id,
             "location_retired",
             type="category",
-            ai_generated=True,
+            generated=True,
         )
     if confirm_action:
         action = _confirmed_action(ActionRunService(workspace), action)
@@ -587,7 +589,7 @@ def _project_snapshot(project: Any) -> dict[str, Any]:
         "columns": [
             tuple(row)
             for row in project.db.execute(
-                "SELECT id, sheet_id, name, type, format, ai_generated, "
+                "SELECT id, sheet_id, name, type, format, generated, "
                 "hidden, default_hidden, semantic_type, current_run_id "
                 "FROM columns ORDER BY id"
             ).fetchall()
@@ -609,7 +611,7 @@ def _prepared_tuple(
     receipt = json.loads(row["body"])
     prepared = [
         evidence["ref"]
-        for evidence in receipt["evidence"]
+        for evidence in receipt["records"]
         if evidence["ref"].get("kind") == "queued_action_run_prepared"
     ]
     assert len(prepared) == 1
@@ -659,7 +661,7 @@ def _prepared_tuple(
         (attempt_id,),
     ).fetchall()
     cost_basis = json.loads(attempt["cost_basis_json"])
-    row_estimates = cost_basis.get("row_quote_quantities", [])
+    row_estimates = cost_basis.get("row_estimate_quantities", [])
     assert [
         (int(value["row_id"]), str(value["quoted_quantity"]))
         for value in row_authorizations
@@ -670,7 +672,7 @@ def _prepared_tuple(
         "col.semantic_type AS column_semantic_type, "
         "col.format AS column_format, "
         "col.current_run_id AS column_run_id "
-        "FROM output_column_claims c "
+        "FROM generated_column_claims c "
         "JOIN columns col ON col.id=c.column_id "
         "WHERE c.run_id=? AND c.status='active' "
         "ORDER BY col.position, col.id",
@@ -726,7 +728,7 @@ def _acknowledged_job_ids(project: Any, receipt_id: str) -> list[int]:
     body = json.loads(row["body"])
     return [
         int(evidence["ref"]["job_id"])
-        for evidence in body["evidence"]
+        for evidence in body["records"]
         if isinstance(evidence["ref"].get("job_id"), int)
         and not isinstance(evidence["ref"].get("job_id"), bool)
     ]
@@ -826,7 +828,7 @@ def test_routed_preparation_process_death_is_all_or_nothing(
     )
     acknowledged = [
         evidence["ref"]
-        for evidence in body["evidence"]
+        for evidence in body["records"]
         if evidence["ref"].get("job_id") == jobs[0].id
     ]
     assert len(acknowledged) == 1
@@ -869,7 +871,7 @@ def test_unowned_generated_column_is_refused_before_writer_mutation(
 
     assert result.payload["status"] == "failed"
     if "action_id" in action:
-        assert result.payload["errors"][0]["code"] == "output_column_exists"
+        assert result.payload["errors"][0]["code"] == "generated_column_exists"
     assert _project_snapshot(project) == baseline
     assert (
         workspace.queue.list_project_jobs(

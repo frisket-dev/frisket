@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.embeddings import IndexExportParams
-from frisket.actions.types import IndexExport, IndexExportFormat
+from frisket.actions.types import IndexExport, IndexExportArtifact, IndexExportFormat
 from frisket.ai.embeddings import EmbeddingStore
 from frisket.ai.embeddings.unified_index import (
     UNIFIED_BACKEND_ID,
@@ -30,7 +30,7 @@ from frisket.contracts.action import (
     ActionResult,
     ActionSpec,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
@@ -339,7 +339,7 @@ def _resolve_index_export(
             artifact_pages(),
             dest_dir=dest_dir,
             base_name=base_name,
-            formats=params.formats,
+            formats=[str(fmt) for fmt in params.formats],
             include_vectors=params.include_vectors,
         )
         exported_rows = artifacts[0].row_count if artifacts else 0
@@ -447,13 +447,13 @@ def _perform_index_export_in_txn(
                 "cost_actual": 0.0,
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=resolved.provenance, retention="pinned"),
-            ReceiptEvidence(ref=resolved.export_item_evidence, retention="pinned"),
+        records=[
+            ReceiptRecord(ref=resolved.provenance, retention="pinned"),
+            ReceiptRecord(ref=resolved.export_item_evidence, retention="pinned"),
         ],
         exports=artifact_refs,
     )
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
     for art in resolved.artifacts:
         resolved.deliveries.append(
             _deliver_export_artifact(Path(art.tmp_path), Path(art.path))
@@ -533,11 +533,13 @@ class _IndexExporter:
             exported_rows=resolved.provenance["ready_items"],
             include_vectors=resolved.include_vectors,
             artifacts=tuple(
-                {
-                    key: value
-                    for key, value in ref.items()
-                    if key not in {"kind", "export_kind"}
-                }
+                IndexExportArtifact.model_validate(
+                    {
+                        key: value
+                        for key, value in ref.items()
+                        if key not in {"kind", "export_kind"}
+                    }
+                )
                 for ref in resolved.artifact_refs
             ),
         )

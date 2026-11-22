@@ -255,7 +255,7 @@ test('AI-generated text columns can be saved as markdown from the column drawer'
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   let columns = await sheetColumns(page.request, pid, sheetId);
-  expect(columns.find((c) => c.name === 'summary')?.ai_generated).toBe(true);
+  expect(columns.find((c) => c.name === 'summary')?.generated).toBe(true);
 
   await openColumnSettings(page, columns, 'summary');
   await page.getByTestId('column-format-select').selectOption('markdown');

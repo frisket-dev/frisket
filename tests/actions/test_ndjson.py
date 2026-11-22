@@ -16,7 +16,6 @@ from frisket.contracts.action import ActionSpec, Receipt, ReceiptIO
 from frisket.engine.executor import run_action_spec
 from action_test_helpers import legacy_params_hash
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk import (
     ActionParams,
@@ -126,7 +125,7 @@ def test_second_format_derived_path_and_observed_facts(
         }
     ]
     summary = next(
-        item.ref for item in receipt.evidence if item.ref.get("kind") == "import_source"
+        item.ref for item in receipt.records if item.ref.get("kind") == "import_source"
     )
     assert summary["path"] == str(source)
     assert summary["fingerprint"] == facts[0]["sha256"]
@@ -153,7 +152,7 @@ def test_unused_file_capability_does_not_claim_a_read(tmp_path, make_project):
         item.ref.get("kind") in {"local_file_read", "file_rows"}
         for item in receipt.inputs
     )
-    assert not any(item.ref.get("kind") == "import_source" for item in receipt.evidence)
+    assert not any(item.ref.get("kind") == "import_source" for item in receipt.records)
 
 
 def test_file_reader_refuses_symlink_loop_without_writes(tmp_path, make_project):
@@ -211,7 +210,7 @@ def test_retired_ndjson_wire_cannot_replay_a_stored_receipt(tmp_path, make_proje
 
 
 def test_ndjson_retry_replays_original_read_and_new_key_imports_changed_bytes(
-    tmp_path, monkeypatch
+    tmp_path, project, monkeypatch
 ):
     from frisket.engine.executor.local_file_read import AdmittedLocalFileReader
 
@@ -229,57 +228,53 @@ def test_ndjson_retry_replays_original_read_and_new_key_imports_changed_bytes(
         },
         "idempotency_key": "original-read",
     }
-    project = Project.create(tmp_path / "project")
-    try:
-        first = run_action_spec(project, request, project_id="p")
-        assert first.status == "completed", first.errors
-        source.write_bytes(changed)
+    first = run_action_spec(project, request, project_id="p")
+    assert first.status == "completed", first.errors
+    source.write_bytes(changed)
 
-        def unexpected_read(*_args):
-            raise AssertionError("a retry must not reread source bytes")
+    def unexpected_read(*_args):
+        raise AssertionError("a retry must not reread source bytes")
 
-        with monkeypatch.context() as retry_patch:
-            retry_patch.setattr(AdmittedLocalFileReader, "read_bytes", unexpected_read)
-            replay = run_action_spec(project, request, project_id="p")
-            assert replay.status == "completed", replay.errors
-            assert replay.receipt_id == first.receipt_id
-            conflict = run_action_spec(
-                project, {**request, "sheet_name": "Different"}, project_id="p"
-            )
-            assert conflict.status == "failed"
-            assert conflict.errors[0].code == "idempotency_conflict"
-
-        second = run_action_spec(
-            project,
-            {**request, "sheet_name": "Updated", "idempotency_key": "updated-read"},
-            project_id="p",
+    with monkeypatch.context() as retry_patch:
+        retry_patch.setattr(AdmittedLocalFileReader, "read_bytes", unexpected_read)
+        replay = run_action_spec(project, request, project_id="p")
+        assert replay.status == "completed", replay.errors
+        assert replay.receipt_id == first.receipt_id
+        conflict = run_action_spec(
+            project, {**request, "sheet_name": "Different"}, project_id="p"
         )
-        assert second.status == "completed", second.errors
-        assert second.receipt_id != first.receipt_id
-        for result, data, value in (
-            (replay, original, "Original"),
-            (second, changed, "Changed"),
-        ):
-            sheet = result.outputs[0].ref
-            assert list(
-                project.get_values(sheet["sheet_id"], sheet["columns"]["name"]).values()
-            ) == [value]
-            receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-            read = next(
-                item.ref
-                for item in receipt.inputs
-                if item.ref.get("kind") == "local_file_read"
-            )
-            assert read["sha256"] == "sha256:" + hashlib.sha256(data).hexdigest()
-            assert read["byte_count"] == len(data)
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 2
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
-    finally:
-        project.close()
+        assert conflict.status == "failed"
+        assert conflict.errors[0].code == "idempotency_conflict"
+
+    second = run_action_spec(
+        project,
+        {**request, "sheet_name": "Updated", "idempotency_key": "updated-read"},
+        project_id="p",
+    )
+    assert second.status == "completed", second.errors
+    assert second.receipt_id != first.receipt_id
+    for result, data, value in (
+        (replay, original, "Original"),
+        (second, changed, "Changed"),
+    ):
+        sheet = result.outputs[0].ref
+        assert list(
+            project.get_values(sheet["sheet_id"], sheet["columns"]["name"]).values()
+        ) == [value]
+        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+        read = next(
+            item.ref
+            for item in receipt.inputs
+            if item.ref.get("kind") == "local_file_read"
+        )
+        assert read["sha256"] == "sha256:" + hashlib.sha256(data).hexdigest()
+        assert read["byte_count"] == len(data)
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 2
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
 
 
 @pytest.mark.parametrize("kind", ["import.rows", "import.ndjson"])
-def test_registered_nonidempotent_parser_runs_once(tmp_path, kind):
+def test_registered_nonidempotent_parser_runs_once(tmp_path, project, kind):
     calls = []
 
     def parse(value):
@@ -293,7 +288,6 @@ def test_registered_nonidempotent_parser_runs_once(tmp_path, kind):
             isinstance(value, dict) and isinstance(value.get("parsed"), str)
         ),
     )
-    project = Project.create(tmp_path / "project")
     try:
         params = {"columns": [{"name": "value", "type": "one_parse"}]}
         if kind == "import.rows":
@@ -320,7 +314,6 @@ def test_registered_nonidempotent_parser_runs_once(tmp_path, kind):
             project.get_values(sheet["sheet_id"], sheet["columns"]["value"]).values()
         ) == [{"parsed": "raw"}]
     finally:
-        project.close()
         unregister_column_type("one_parse")
 
 
@@ -332,14 +325,13 @@ def unnormalized(_params: RawParams) -> TableResult[DynamicOutput]:
     return TableResult(rows=[TableRow(output=DynamicOutput({"value": "raw"}))])
 
 
-def test_host_rejects_unnormalized_values_instead_of_parsing_them(make_project):
+def test_host_rejects_unnormalized_values_instead_of_parsing_them(project):
     calls = []
     register_column_type(
         "one_parse",
         parse=lambda value: calls.append(value) or {"parsed": value},
         validate=lambda value: isinstance(value, dict),
     )
-    project = make_project("project")
     try:
         bound = _bound(
             unnormalized,
@@ -352,5 +344,4 @@ def test_host_rejects_unnormalized_values_instead_of_parsing_them(make_project):
         assert calls == []
         assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
     finally:
-        project.close()
         unregister_column_type("one_parse")

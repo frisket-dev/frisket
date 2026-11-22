@@ -121,15 +121,15 @@ WHERE source_column.sheet_id=text_column.sheet_id
       AND EXISTS (
         SELECT 1
         FROM source_spans source_span
-        JOIN evidence_link_spans linked ON linked.span_id=source_span.id
-        JOIN evidence_links source_link ON source_link.id=linked.link_id
+        JOIN citation_spans linked ON linked.span_id=source_span.id
+        JOIN citations source_link ON source_link.id=linked.citation_id
         WHERE source_span.artifact_id=artifact.id
           AND source_span.span_kind='page'
           AND source_span.page_start=ref.page_number
           AND source_span.page_end=ref.page_number
           AND source_link.status='active'
-          AND (source_link.op_id IS NULL OR EXISTS (SELECT 1 FROM ops evidence_owner
-            WHERE evidence_owner.id=source_link.op_id AND evidence_owner.status='applied'))
+          AND (source_link.op_id IS NULL OR EXISTS (SELECT 1 FROM ops citation_owner
+            WHERE citation_owner.id=source_link.op_id AND citation_owner.status='applied'))
           AND source_link.link_role='primary_support'
           AND source_link.subject_kind='cell_value'
           AND source_link.sheet_id=source_column.sheet_id
@@ -140,9 +140,25 @@ WHERE source_column.sheet_id=text_column.sheet_id
   );
 """
 
-# Historical adoption upgrades run before the ordered authority exists.
-LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
-    "effective_current_cells", "current_cells"
+# Post-domain upgrades prior to the citations cutover use effective_current_cells
+# while still joining the pre-cutover evidence_links / evidence_link_spans tables.
+PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
+    DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
+        "JOIN citation_spans linked", "JOIN evidence_link_spans linked"
+    )
+    .replace(
+        "JOIN citations source_link ON source_link.id=linked.citation_id",
+        "JOIN evidence_links source_link ON source_link.id=linked.link_id",
+    )
+    .replace("ops citation_owner", "ops evidence_owner")
+    .replace("citation_owner.", "evidence_owner.")
+)
+
+# Historical adoption upgrades run before ordered authority and citation tables exist.
+LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = (
+    PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
+        "effective_current_cells", "current_cells"
+    )
 )
 
 
@@ -596,17 +612,17 @@ def _prepared_result_matches_source_sql(result_alias: str) -> str:
             ref.page_number IS NOT NULL
             AND EXISTS (
               SELECT 1 FROM source_spans source_span
-              JOIN evidence_link_spans linked ON linked.span_id=source_span.id
-              JOIN evidence_links source_link ON source_link.id=linked.link_id
+              JOIN citation_spans linked ON linked.span_id=source_span.id
+              JOIN citations source_link ON source_link.id=linked.citation_id
               WHERE source_span.artifact_id=artifact.id
                 AND source_span.span_kind='page'
                 AND source_span.page_start=ref.page_number
                 AND source_span.page_end=ref.page_number
                 AND source_link.status='active'
                 AND (source_link.op_id IS NULL OR EXISTS (
-                  SELECT 1 FROM ops evidence_owner
-                  WHERE evidence_owner.id=source_link.op_id
-                    AND evidence_owner.status='applied'))
+                  SELECT 1 FROM ops citation_owner
+                  WHERE citation_owner.id=source_link.op_id
+                    AND citation_owner.status='applied'))
                 AND source_link.link_role='primary_support'
                 AND source_link.subject_kind='cell_value'
                 AND source_link.sheet_id=source_column.sheet_id

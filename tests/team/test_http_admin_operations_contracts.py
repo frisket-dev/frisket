@@ -43,5 +43,5 @@ def test_operator_user_listing_is_an_exact_alias_of_the_browser_wire(
     ]["content"]["application/json"]["schema"]
     assert "anyOf" not in response_schema
 
-    user = client.get("/api/admin/users").json()["orgs"][0]["users"][0]
+    user = client.get("/api/admin/users").json()["organizations"][0]["users"][0]
     assert "user_id" in user and "id" not in user

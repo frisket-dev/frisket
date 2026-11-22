@@ -87,7 +87,6 @@ src/frisket/engine/projections/point_backend.py::GeoProjectionBackend.query_shap
 src/frisket/engine/projections/runtime.py::projection_runtime_binding  test-only
 src/frisket/engine/receipt_index.py::build_receipt_index  test-only
 src/frisket/engine/receipt_index.py::receipt_bodies_by_id  unreferenced
-src/frisket/engine/receipt_index.py::receipt_evidence_counts  unreferenced
 src/frisket/engine/recovery/postgres_backup.py::<module>  frisket-cloud
 src/frisket/engine/recovery/postgres_backup.py::run_hermetic_restore_drill  unreferenced
 src/frisket/engine/recovery/split_store_reconciliation.py::<module>  frisket-cloud

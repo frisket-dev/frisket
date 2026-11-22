@@ -52,7 +52,7 @@ const columnRunsFixture = {
     id: 5,
     name: 'Label',
     type: 'text',
-    ai_generated: true,
+    generated: true,
     current_run_id: 9,
   },
   offset: 2,
@@ -105,7 +105,7 @@ const historyFixture = {
         started_at: '2026-08-11 00:00:00',
         finished_at: null,
         worker_version: null,
-        output_columns: [{ id: 5, name: 'Label' }],
+        generated_columns: [{ id: 5, name: 'Label' }],
         row_errors: {
           total_failed_rows: 1,
           groups: [{
@@ -166,7 +166,7 @@ const reviewBundlesFixture = {
       value: 'Example',
     }],
     fields: [reviewItem],
-    evidence: [],
+    supporting_columns: [],
     items: [reviewItem],
   }],
 };
@@ -686,7 +686,7 @@ describe('history and review generated HTTP reads', () => {
       column_name: 'When',
       column_type: 'timeline_point',
       value: temporal,
-      role: 'evidence',
+      role: 'supporting',
     };
     const fallbackReviewBundles = {
       ...reviewBundlesFixture,
@@ -699,7 +699,7 @@ describe('history and review generated HTTP reads', () => {
         confidence: null,
         source,
         fields: [fallbackField],
-        evidence: [temporalEvidence],
+        supporting_columns: [temporalEvidence],
         items: [fallbackField, temporalEvidence],
       }],
     };
@@ -749,7 +749,7 @@ describe('history and review generated HTTP reads', () => {
         id: '9:7:5', columnType: 'text', value: '["alpha","beta"]',
         confidence: null, justification: '', note: null, reviewDecision: null, reviewState: 'unreviewed',
       }],
-      evidence: [{ id: '9:7:6', value: temporal }],
+      supportingColumns: [{ id: '9:7:6', value: temporal }],
     });
     expect(bundle.context).toBe(
       Object.entries(expectedSource)
@@ -758,7 +758,7 @@ describe('history and review generated HTTP reads', () => {
         .slice(0, 400),
     );
     expect(bundle.context).toHaveLength(400);
-    expect(bundle.items).toEqual([...bundle.fields, ...bundle.evidence]);
+    expect(bundle.items).toEqual([...bundle.fields, ...bundle.supportingColumns]);
     expect(bundle.fields[0]).not.toHaveProperty('error');
     await expect(api.getReviewCount()).resolves.toBe(0);
   });

@@ -16,7 +16,7 @@ from frisket.team.gateway_routes import (
     register_team_models_gateway_routes,
     team_models_gateway_service,
 )
-from frisket.team.schema import metadata, org_env_vars
+from frisket.team.schema import metadata, organization_env_vars
 
 
 ORIGIN = "https://team-models.example.test"
@@ -54,7 +54,7 @@ def _app(tmp_path, monkeypatch) -> tuple[FastAPI, sa.Engine]:
 
     service = team_models_gateway_service(
         engine,
-        org_id=9,
+        organization_id=9,
         encrypt=_encrypt,
         decrypt=_decrypt,
         transport=httpx.MockTransport(capabilities),
@@ -91,13 +91,13 @@ def test_member_reads_status_but_only_owner_validates_and_saves(
     member_headers = {"x-role": "member"}
     owner_headers = {"x-role": "owner"}
 
-    status = client.get("/api/org/models-gateway", headers=member_headers)
+    status = client.get("/api/organization/models-gateway", headers=member_headers)
     assert status.status_code == 200
     assert status.json()["authority"] == "organization"
     assert status.json()["can_mutate"] is False
     assert (
         client.post(
-            "/api/org/models-gateway/validate",
+            "/api/organization/models-gateway/validate",
             headers=member_headers,
             json={"origin": ORIGIN, "token": TOKEN},
         ).status_code
@@ -105,14 +105,14 @@ def test_member_reads_status_but_only_owner_validates_and_saves(
     )
 
     validated = client.post(
-        "/api/org/models-gateway/validate",
+        "/api/organization/models-gateway/validate",
         headers=owner_headers,
         json={"origin": ORIGIN, "token": TOKEN},
     )
     assert validated.status_code == 200
     receipt = validated.json()["validation_token"]
     saved = client.put(
-        "/api/org/models-gateway",
+        "/api/organization/models-gateway",
         headers=owner_headers,
         json={"origin": ORIGIN, "token": TOKEN, "validation_token": receipt},
     )
@@ -127,7 +127,7 @@ def test_team_save_writes_pair_in_one_transaction_and_resolves_it(
     _app_instance, engine = _app(tmp_path, monkeypatch)
     store = TeamModelsGatewayStore(
         engine,
-        org_id=9,
+        organization_id=9,
         encrypt=_encrypt,
         decrypt=_decrypt,
         env={},
@@ -135,9 +135,9 @@ def test_team_save_writes_pair_in_one_transaction_and_resolves_it(
     store.save(ORIGIN, TOKEN)
     with engine.connect() as connection:
         rows = connection.execute(
-            sa.select(org_env_vars.c.name, org_env_vars.c.encrypted).where(
-                org_env_vars.c.org_id == 9
-            )
+            sa.select(
+                organization_env_vars.c.name, organization_env_vars.c.encrypted
+            ).where(organization_env_vars.c.organization_id == 9)
         ).all()
     assert {row.name for row in rows} == {
         "FRISKET_MODELS_URL",
@@ -152,7 +152,7 @@ def test_team_save_writes_pair_in_one_transaction_and_resolves_it(
 def test_failed_team_pair_save_rolls_back_both_rows(tmp_path, monkeypatch) -> None:
     _app_instance, engine = _app(tmp_path, monkeypatch)
     store = TeamModelsGatewayStore(
-        engine, org_id=9, encrypt=_encrypt, decrypt=_decrypt, env={}
+        engine, organization_id=9, encrypt=_encrypt, decrypt=_decrypt, env={}
     )
     store.save(ORIGIN, TOKEN)
 
@@ -162,7 +162,11 @@ def test_failed_team_pair_save_rolls_back_both_rows(tmp_path, monkeypatch) -> No
         return _encrypt(value)
 
     failing_store = TeamModelsGatewayStore(
-        engine, org_id=9, encrypt=fail_token_encryption, decrypt=_decrypt, env={}
+        engine,
+        organization_id=9,
+        encrypt=fail_token_encryption,
+        decrypt=_decrypt,
+        env={},
     )
     with pytest.raises(ValueError, match="encryption failed"):
         failing_store.save("https://replacement.example.test", "replacement-token")
@@ -178,7 +182,7 @@ def test_team_environment_pair_is_read_only_and_partial_pair_refuses_fallback(
     _app_instance, engine = _app(tmp_path, monkeypatch)
     stored = TeamModelsGatewayStore(
         engine,
-        org_id=9,
+        organization_id=9,
         encrypt=_encrypt,
         decrypt=_decrypt,
         env={},
@@ -190,7 +194,7 @@ def test_team_environment_pair_is_read_only_and_partial_pair_refuses_fallback(
     }
     service = team_models_gateway_service(
         engine,
-        org_id=9,
+        organization_id=9,
         encrypt=_encrypt,
         decrypt=_decrypt,
         env=env,
@@ -217,7 +221,7 @@ def test_saved_team_pair_reaches_queued_target_via_trusted_organization_port(
     _app_instance, engine = _app(tmp_path, monkeypatch)
     TeamModelsGatewayStore(
         engine,
-        org_id=9,
+        organization_id=9,
         encrypt=_encrypt,
         decrypt=_decrypt,
         env={},
@@ -251,7 +255,7 @@ def test_actual_queued_handler_resolves_team_store_and_preserves_external_factor
 
     _app_instance, engine = _app(tmp_path, monkeypatch)
     TeamModelsGatewayStore(
-        engine, org_id=9, encrypt=_encrypt, decrypt=_decrypt, env={}
+        engine, organization_id=9, encrypt=_encrypt, decrypt=_decrypt, env={}
     ).save(ORIGIN, TOKEN)
     port = TeamOrganizationModelsGatewayPort(_decrypt)
     calls = []
@@ -276,7 +280,7 @@ def test_actual_queued_handler_resolves_team_store_and_preserves_external_factor
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            queue_payload_extra={"org_id": 9},
+            queue_payload_extra={"organization_id": 9},
             control_database_url=str(engine.url),
             worker_ports=WorkerPorts(models_gateway_port=port),
             run_status_grace_seconds=3600,
@@ -349,7 +353,7 @@ def test_standalone_worker_supplies_team_gateway_port_only_for_explicit_team_con
         monkeypatch.setenv("FRISKET_SECRETS_MASTER_KEY", "worker-test-master-key")
         box = TeamSecretBox(team_config_from_env())
         TeamModelsGatewayStore(
-            engine, org_id=9, encrypt=box.encrypt, decrypt=box.decrypt, env={}
+            engine, organization_id=9, encrypt=box.encrypt, decrypt=box.decrypt, env={}
         ).save(ORIGIN, TOKEN)
     captured = []
     real_register = jobs.register_production_handlers
@@ -369,7 +373,7 @@ def test_standalone_worker_supplies_team_gateway_port_only_for_explicit_team_con
             "--schedule-notification-digests-interval",
             "0",
         ],
-        hosted=False,
+        cloud=False,
     )
     assert result == 0
     assert len(captured) == 1
@@ -378,7 +382,9 @@ def test_standalone_worker_supplies_team_gateway_port_only_for_explicit_team_con
         resolved = (
             captured[0]["worker_ports"]
             .models_gateway()
-            .models_gateway_connection(org_id=9, control_database_url=str(engine.url))
+            .models_gateway_connection(
+                organization_id=9, control_database_url=str(engine.url)
+            )
         )
         assert resolved is not None
         assert resolved.origin == ORIGIN

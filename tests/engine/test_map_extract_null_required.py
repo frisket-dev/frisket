@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from model_doubles import CannedReplyAdapter, canned_reply_router
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -39,20 +38,15 @@ def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, CannedReplyAdapter
     )
 
 
-def _seed(tmp_path: Path) -> tuple[Path, int]:
-    project_path = tmp_path / "null-required.frisket"
-    project = Project.create(project_path, name="null-required")
-    try:
-        sheet_id = project.add_sheet("Docs")
-        snippet_id = project.add_column(sheet_id, "snippet", "text")
-        project.add_rows(
-            sheet_id,
-            [{"snippet": "A short document with no head of state named."}],
-            {"snippet": snippet_id},
-        )
-        return project_path, sheet_id
-    finally:
-        project.close()
+def _seed(project: Project) -> int:
+    sheet_id = project.add_sheet("Docs")
+    snippet_id = project.add_column(sheet_id, "snippet", "text")
+    project.add_rows(
+        sheet_id,
+        [{"snippet": "A short document with no head of state named."}],
+        {"snippet": snippet_id},
+    )
+    return sheet_id
 
 
 def _action(
@@ -142,8 +136,8 @@ def test_required_field_round_trips_through_params() -> None:
 
 
 # --- executor: coercion at the routing boundary -----------------------------------
-def test_null_string_becomes_genuinely_empty_cell(tmp_path: Path) -> None:
-    project_path, sheet_id = _seed(tmp_path)
+def test_null_string_becomes_genuinely_empty_cell(project: Project) -> None:
+    sheet_id = _seed(project)
     action = _action(
         sheet_id,
         key="map_extract@sha256:null-coerce",
@@ -155,32 +149,28 @@ def test_null_string_becomes_genuinely_empty_cell(tmp_path: Path) -> None:
     router, _adapter = _stub_router(
         {"head_of_state_name": "null", "head_of_state_title": "None"}
     )
-    project = Project(project_path)
-    try:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        name = _column_result(project, sheet_id, result.run_id, "head_of_state_name")
-        title = _column_result(project, sheet_id, result.run_id, "head_of_state_title")
-        # Genuinely empty -- NOT the 4-char string "null".
-        assert name["value"] is None
-        assert title["value"] is None
-        assert name["value_kind"] == "null"
-        assert title["value_kind"] == "null"
-        # Not required -> a plain empty cell, never withheld.
-        assert name["outcome"] == "empty"
-        assert title["outcome"] == "empty"
-    finally:
-        project.close()
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    name = _column_result(project, sheet_id, result.run_id, "head_of_state_name")
+    title = _column_result(project, sheet_id, result.run_id, "head_of_state_title")
+    # Genuinely empty -- NOT the 4-char string "null".
+    assert name["value"] is None
+    assert title["value"] is None
+    assert name["value_kind"] == "null"
+    assert title["value_kind"] == "null"
+    # Not required -> a plain empty cell, never withheld.
+    assert name["outcome"] == "empty"
+    assert title["outcome"] == "empty"
 
 
 # --- executor: required-missing withhold ------------------------------------------
-def test_required_missing_field_is_withheld(tmp_path: Path) -> None:
-    project_path, sheet_id = _seed(tmp_path)
+def test_required_missing_field_is_withheld(project: Project) -> None:
+    sheet_id = _seed(project)
     action = _action(
         sheet_id,
         key="map_extract@sha256:required-missing",
@@ -193,59 +183,49 @@ def test_required_missing_field_is_withheld(tmp_path: Path) -> None:
     router, _adapter = _stub_router(
         {"head_of_state_name": "null", "summary": "A short document."}
     )
-    project = Project(project_path)
-    try:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        # Withholding is a policy hold, not a run failure.
-        assert result.status == "completed", result.errors
-        required = _column_result(
-            project, sheet_id, result.run_id, "head_of_state_name"
-        )
-        summary = _column_result(project, sheet_id, result.run_id, "summary")
-        assert required["value"] is None
-        # Withheld output has no payload; it differs from the optional
-        # explicit-null cells covered above.
-        assert required["value_kind"] is None
-        assert required["outcome"] == "withheld_unverified"
-        assert required["publication_effect"] == "publish_error"
-        assert required["error"]
-        # The optional field is untouched.
-        assert summary["value"] == "A short document."
-        assert summary["value_kind"] == "text"
-        assert summary["outcome"] != "withheld_unverified"
-        # A declared wire code surfaces on the action result.
-        codes = {err.code for err in result.errors}
-        assert "required_field_missing" in codes
-    finally:
-        project.close()
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    # Withholding is a policy hold, not a run failure.
+    assert result.status == "completed", result.errors
+    required = _column_result(project, sheet_id, result.run_id, "head_of_state_name")
+    summary = _column_result(project, sheet_id, result.run_id, "summary")
+    assert required["value"] is None
+    # Withheld output has no payload; it differs from the optional
+    # explicit-null cells covered above.
+    assert required["value_kind"] is None
+    assert required["outcome"] == "withheld_unverified"
+    assert required["publication_effect"] == "publish_error"
+    assert required["error"]
+    # The optional field is untouched.
+    assert summary["value"] == "A short document."
+    assert summary["value_kind"] == "text"
+    assert summary["outcome"] != "withheld_unverified"
+    # A declared wire code surfaces on the action result.
+    codes = {err.code for err in result.errors}
+    assert "required_field_missing" in codes
 
 
-def test_required_field_found_is_not_withheld(tmp_path: Path) -> None:
-    project_path, sheet_id = _seed(tmp_path)
+def test_required_field_found_is_not_withheld(project: Project) -> None:
+    sheet_id = _seed(project)
     action = _action(
         sheet_id,
         key="map_extract@sha256:required-found",
         fields=[{"name": "head_of_state_name", "type": "text", "required": True}],
     )
     router, _adapter = _stub_router({"head_of_state_name": "Ada Lovelace"})
-    project = Project(project_path)
-    try:
-        result = run_action_with_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        cell = _column_result(project, sheet_id, result.run_id, "head_of_state_name")
-        assert cell["value"] == "Ada Lovelace"
-        assert cell["value_kind"] == "text"
-        assert cell["outcome"] != "withheld_unverified"
-        assert "required_field_missing" not in {err.code for err in result.errors}
-    finally:
-        project.close()
+    result = run_action_with_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    cell = _column_result(project, sheet_id, result.run_id, "head_of_state_name")
+    assert cell["value"] == "Ada Lovelace"
+    assert cell["value_kind"] == "text"
+    assert cell["outcome"] != "withheld_unverified"
+    assert "required_field_missing" not in {err.code for err in result.errors}

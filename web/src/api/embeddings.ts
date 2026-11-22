@@ -338,8 +338,12 @@ export function createEmbeddingsApi(
       await runEmbeddingAction(v1ActionSession, projectId, spec);
     },
 
-    /** Create an embedding index (metadata only; no provider call). Returns its id. */
-    async createEmbeddingIndex(input: CreateEmbeddingIndexInput): Promise<string> {
+    /** Create an embedding index. Curated models are metadata-only; custom remote
+     *  models run a confirmed dimension-discovery probe. Returns its id. */
+    async createEmbeddingIndex(
+      input: CreateEmbeddingIndexInput,
+      options?: { confirmation?: string },
+    ): Promise<string> {
       if (input.modality !== 'text') {
         throw new ApiError(
           400,
@@ -368,6 +372,9 @@ export function createEmbeddingsApi(
         params,
         projectId,
       );
+      if (options?.confirmation) {
+        spec.confirmation = options.confirmation;
+      }
       const out = await runEmbeddingAction(v1ActionSession, projectId, spec);
       const ref = out.outputs?.[0]?.ref as { index_id?: string } | undefined;
       if (!ref?.index_id) throw new ApiError(500, 'index_create returned no index id');

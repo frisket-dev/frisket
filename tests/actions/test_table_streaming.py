@@ -12,7 +12,7 @@ from frisket.actions.types import ActionRequest
 from frisket.engine.executor import ExecutorDeps, ImportWorkloadLimits, run_action_spec
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.sdk import ActionParams, TableResult, TableRow, action, create_sheet
@@ -234,7 +234,7 @@ def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
         original_columns = [
             dict(column) for column in project.db.execute("SELECT * FROM columns")
         ]
-        claims = OutputColumnClaimStore(project)
+        claims = GeneratedColumnClaimStore(project)
         with write_transaction(claims.db):
             acquired, conflict = claims.acquire(
                 sheet_id=sheet_id,

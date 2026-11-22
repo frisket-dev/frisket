@@ -11,7 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.import_sessions import (
     ImportSessionConflict,
     set_import_session_rows_hidden,
@@ -38,7 +38,7 @@ def _valid_review_metadata(value: Any) -> bool:
     )
 
 
-def append_change(
+def append_change_in_transaction(
     project: Any,
     kind: str,
     spec: dict[str, Any] | None = None,
@@ -46,29 +46,43 @@ def append_change(
     barrier: bool = False,
     *,
     undo_info: Mapping[str, Any] | None = None,
-    commit: bool = True,
 ) -> int:
-    """Prepare an operation; its first mutation starts Change navigation.
-
-    ``commit=True`` owns the transaction that inserts the operation and its
-    undo records; ``commit=False`` joins the caller's open transaction.
-    """
-    with write_transaction(project.db, commit=commit, what="change append"):
-        cur = project.db.execute(
-            "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                kind,
-                label,
-                json.dumps(spec or {}),
-                json.dumps(dict(undo_info or {})),
-                int(barrier),
-            ),
-        )
-        change_id = inserted_rowid(cur)
-        if undo_info:
-            _record_undo_records(project.db, change_id, undo_info)
+    """Prepare an operation and its undo records inside the caller's transaction."""
+    require_transaction(project.db, "change append")
+    cur = project.db.execute(
+        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (
+            kind,
+            label,
+            json.dumps(spec or {}),
+            json.dumps(dict(undo_info or {})),
+            1 if barrier else 0,
+        ),
+    )
+    change_id = inserted_rowid(cur)
+    if undo_info:
+        _record_undo_records(project.db, change_id, undo_info)
     return change_id
+
+
+def append_change(
+    project: Any,
+    kind: str,
+    spec: dict[str, Any] | None = None,
+    label: str | None = None,
+    *,
+    undo_info: Mapping[str, Any] | None = None,
+) -> int:
+    """Prepare an operation in its own transaction; its first mutation starts Change navigation."""
+    with write_transaction(project.db, what="change append"):
+        return append_change_in_transaction(
+            project,
+            kind,
+            spec,
+            label,
+            undo_info=undo_info,
+        )
 
 
 def _record_undo_records(
@@ -318,7 +332,7 @@ def _change_has_effects(db, target):
             "EXISTS(SELECT 1 FROM copied_result_outcomes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM column_descriptor_changes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM result_judgment_changes WHERE op_id=:op) OR "
-            "EXISTS(SELECT 1 FROM evidence_links WHERE op_id=:op) OR "
+            "EXISTS(SELECT 1 FROM citations WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM materialized_row_sources WHERE op_id=:op) OR "
             # Ordered work is cancellable even before its first visible output.
             "EXISTS(SELECT 1 FROM runs WHERE op_id=:op AND status='running' "
@@ -378,7 +392,7 @@ def step_operation(
         project, target_change_id, undo_info, reverting=reverting
     )
     column_ids = operation_touched_column_ids(project, target_change_id, undo_info)
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     if not reverting:
         # A queued job can reserve a released name before creating its column
         # or appending an operation (and thus before discarding this redo).
@@ -409,7 +423,7 @@ def step_operation(
             (int(not selective), target_change_id),
         )
         project.db.execute(
-            "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+            "UPDATE generated_column_claims SET status='released',released_at=datetime('now') "
             "WHERE status='active' AND (op_id=? OR run_id IN (SELECT id FROM runs WHERE op_id=?))",
             (target_change_id, target_change_id),
         )
@@ -559,7 +573,7 @@ def undo(project: Any) -> int | None:
         except ClaimedOperation as exc:
             claim = exc.claim
             raise ValueError(
-                "output_column_busy: operation "
+                "generated_column_busy: operation "
                 f"{exc.op_id} "
                 f"touches actively claimed column {claim['column_id']}"
             )
@@ -580,7 +594,7 @@ def redo(project: Any) -> int | None:
         except ClaimedOperation as exc:
             claim = exc.claim
             raise ValueError(
-                "output_column_busy: operation "
+                "generated_column_busy: operation "
                 f"{exc.op_id} touches actively claimed column {claim['column_id']}"
             )
         except CorruptOperation as exc:
@@ -962,7 +976,7 @@ def _unapply(project: Any, change: sqlite3.Row) -> None:
         )
     for transition in info.get("evidence_links_staled", []):
         project.db.execute(
-            "UPDATE evidence_links SET status='active',stale_reason=NULL,stale_at=NULL "
+            "UPDATE citations SET status='active',stale_reason=NULL,stale_at=NULL "
             "WHERE stable_id=? AND status='stale' AND stale_reason=?",
             (transition["stable_id"], transition["stale_reason"]),
         )
@@ -999,7 +1013,7 @@ def _reapply(project: Any, change: sqlite3.Row) -> None:
         )
     for transition in info.get("evidence_links_staled", []):
         project.db.execute(
-            "UPDATE evidence_links SET status='stale',stale_reason=?,"
+            "UPDATE citations SET status='stale',stale_reason=?,"
             "stale_at=datetime('now') WHERE stable_id=? AND status='active'",
             (transition["stale_reason"], transition["stable_id"]),
         )

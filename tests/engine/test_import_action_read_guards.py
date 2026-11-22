@@ -1,5 +1,3 @@
-from contextlib import closing
-
 import pytest
 
 from frisket.actions.join_types import JoinKeyPair
@@ -38,27 +36,27 @@ def _importing_sheet(project: Project, *, state: str = "active") -> int:
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
-def test_sheet_scoped_action_refuses_unfinished_import(tmp_path, state):
-    with closing(Project.create(tmp_path / f"{state}.frisket")) as project:
-        sheet_id = _importing_sheet(project, state=state)
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "media.to_markdown",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-                "params": {"source": "doc"},
-                "idempotency_key": f"blocked:{state}",
-            },
-            project_id="project",
-        )
+def test_sheet_scoped_action_refuses_unfinished_import(make_project, state):
+    project = make_project(state)
+    sheet_id = _importing_sheet(project, state=state)
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "media.to_markdown",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {"source": "doc"},
+            "idempotency_key": f"blocked:{state}",
+        },
+        project_id="project",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "import_in_progress"
-        assert result.errors[0].details == {
-            "sheet_id": sheet_id,
-            "session_id": f"session:{state}",
-            "state": state,
-        }
+    assert result.status == "failed"
+    assert result.errors[0].code == "import_in_progress"
+    assert result.errors[0].details == {
+        "sheet_id": sheet_id,
+        "session_id": f"session:{state}",
+        "state": state,
+    }
 
 
 def test_secondary_and_dynamic_sheet_readers_refuse_importing_sheet(make_project):

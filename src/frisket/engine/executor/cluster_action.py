@@ -32,19 +32,26 @@ from frisket.engine.executor.map_rows_action import (
     _typed_receipt,
     typed_request_hash,
 )
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointStore,
+    is_operator_attestation,
+    model_call_ref,
+)
+from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.value_cluster import (
     ClusterSourceChanged,
     cluster_source_snapshot,
     validate_cluster_source,
 )
-from frisket.contracts.action import ActionError, ReceiptEvidence
+from frisket.contracts.action import ActionError, ReceiptRecord
 from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
     _output_claim_token,
     _receipt_for_idempotency,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt import StaleAttemptWriter
 
@@ -112,13 +119,13 @@ def prepare_cluster_action(project, bound, *, router=None, admission=True):
     name = bound.request.output_names.get("canonical", "canonical")
     if name == state["source"]["name"]:
         raise TypedMapRowsPlanError(
-            "output_column_exists", "Clustering must preserve its source column"
+            "generated_column_exists", "Clustering must preserve its source column"
         )
     if admission and any(
         col["name"] == name for col in project.columns(state["source"]["sheet_id"])
     ):
         raise TypedMapRowsPlanError(
-            "output_column_exists", "The canonical output column already exists"
+            "generated_column_exists", "The canonical output column already exists"
         )
     return cluster_plan_from_state(bound, state)
 
@@ -193,7 +200,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
-        terminalize_project_run,
+        terminalize_project_run_in_transaction,
     )
 
     state = kwargs["resolved"].facts["cluster_values"]
@@ -207,75 +214,69 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     ):
         raise StaleAttemptWriter("Cluster publication needs its exact writer claim")
 
+    def abort_in_transaction(
+        code: str,
+        message: str,
+        *,
+        status: ReceiptStatus = "failed",
+    ):
+        require_transaction(project.db, "cluster abort")
+        prior = ReceiptStore(project).require_parsed(receipt_id)
+        terminal = prior.model_copy(
+            update={
+                "status": status,
+                "outputs": [],
+                "provider_use": _cluster_provider_use(project, run_id),
+                "errors": [
+                    ActionError(code=code, message=message, action_kind=action.kind)
+                ],
+            }
+        )
+        outcome = terminalize_project_run_in_transaction(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=status,
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=writer, claim_token=claim
+            ),
+            terminal_receipt=terminal,
+        )
+        if outcome.disposition not in {"terminalized", "already_terminal"}:
+            if outcome.reason == "reserved_effect_checkpoint":
+                # This response reports a refusal, not a terminal receipt.
+                # Keep its reservation identity so generic error cleanup
+                # cannot discard the unresolved paid-effect authority.
+                return _result_from_receipt(terminal).model_copy(
+                    update={
+                        "errors": [
+                            ActionError(
+                                code="idempotency_checkpoint_ambiguous",
+                                message="An embedding may have been billed but its response is unknown; reconcile this effect before retrying.",
+                                action_kind=action.kind,
+                                details={
+                                    "run_id": run_id,
+                                    "receipt_id": receipt_id,
+                                },
+                            )
+                        ],
+                    }
+                )
+            raise StaleAttemptWriter(f"Cluster abort refused: {outcome.reason}")
+        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
+
     def abort(
         code: str,
         message: str,
         *,
         status: ReceiptStatus = "failed",
-        commit: bool = True,
     ):
-        if commit:
-            project.db.execute("BEGIN IMMEDIATE")
-        try:
-            prior = ReceiptStore(project).require_parsed(receipt_id)
-            terminal = prior.model_copy(
-                update={
-                    "status": status,
-                    "outputs": [],
-                    "provider_use": _cluster_provider_use(project, run_id),
-                    "errors": [
-                        ActionError(code=code, message=message, action_kind=action.kind)
-                    ],
-                }
-            )
-            outcome = terminalize_project_run(
-                project,
-                run_id=run_id,
-                receipt_id=receipt_id,
-                status=status,
-                authority=CurrentWriterTerminalAuthority(
-                    writer_attempt_id=writer, claim_token=claim
-                ),
-                terminal_receipt=terminal,
-                commit=False,
-            )
-            if outcome.disposition not in {"terminalized", "already_terminal"}:
-                if outcome.reason == "reserved_effect_checkpoint":
-                    project.db.rollback()
-                    # This response reports a refusal, not a terminal receipt.
-                    # Keep its reservation identity so generic error cleanup
-                    # cannot discard the unresolved paid-effect authority.
-                    return _result_from_receipt(terminal).model_copy(
-                        update={
-                            "errors": [
-                                ActionError(
-                                    code="idempotency_checkpoint_ambiguous",
-                                    message="An embedding may have been billed but its response is unknown; reconcile this effect before retrying.",
-                                    action_kind=action.kind,
-                                    details={
-                                        "run_id": run_id,
-                                        "receipt_id": receipt_id,
-                                    },
-                                )
-                            ],
-                        }
-                    )
-                raise StaleAttemptWriter(f"Cluster abort refused: {outcome.reason}")
-            if commit:
-                project.db.commit()
-        except BaseException:
-            project.db.rollback()
-            raise
-        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
+        with write_transaction(project.db, what="cluster abort"):
+            return abort_in_transaction(code, message, status=status)
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run["cancel_requested_at"] is not None:
         return abort("cancelled", "Clustering was stopped", status="cancelled")
-    from frisket.engine.store.effect_checkpoints import (
-        EffectCheckpointStore,
-        is_operator_attestation,
-    )
-
     if any(
         checkpoint["state"] == "consumed"
         and is_operator_attestation(checkpoint.get("payload"))
@@ -306,18 +307,21 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         project.db.execute("BEGIN IMMEDIATE")
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         if run["cancel_requested_at"] is not None:
-            result = abort(
-                "cancelled", "Clustering was stopped", status="cancelled", commit=False
+            result = abort_in_transaction(
+                "cancelled", "Clustering was stopped", status="cancelled"
             )
             project.db.commit()
             return result
-        claims = OutputColumnClaimStore(project)
+        claims = GeneratedColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
-        claims.require_current_writer(
-            project.db,
+        writer_fence = WriterFence.claimed(
             run_id=run_id,
             writer_attempt_id=writer,
             claim_token=claim,
+        )
+        claims.require_current_writer(
+            project.db,
+            fence=writer_fence,
             output_column_ids=column_ids,
         )
         validate_cluster_source(project, state["source"])
@@ -340,7 +344,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             claim_token=claim,
             terminal_disposition=terminal_status,
             publish=True,
-            commit=False,
         )
         for column_id in json.loads(op["undo_info"] or "{}").get("created_columns", []):
             if column_id in column_ids:
@@ -386,8 +389,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                         "cost_actual": 0.0,
                     }
                 ]
-        from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-
         checkpoints = EffectCheckpointStore(project.db)
         for checkpoint_id in fact.get("embedding_checkpoint_ids", []):
             checkpoint = checkpoints.get(checkpoint_id)
@@ -395,23 +396,21 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 raise StaleAttemptWriter(
                     "Cluster embedding checkpoint is missing or belongs to another run"
                 )
-            checkpoints.consume_and_retire(
-                checkpoint_id,
-                family="model_call",
-                group_key=str(run_id),
-                unit_key=checkpoint_id,
-                action_kind=action.kind,
-                identity=checkpoint["identity"],
-                run_id=run_id,
-                writer_attempt_id=writer,
-                claim_token=claim,
-                commit=False,
+            checkpoints.consume_and_retire_in_transaction(
+                model_call_ref(
+                    checkpoint_id,
+                    group_key=str(run_id),
+                    unit_key=checkpoint_id,
+                    action_kind=action.kind,
+                    identity=checkpoint["identity"],
+                ),
+                fence=writer_fence,
             )
         receipt = receipt.model_copy(
             update={
-                "evidence": [
-                    *receipt.evidence,
-                    ReceiptEvidence(ref=fact, retention="pinned"),
+                "records": [
+                    *receipt.records,
+                    ReceiptRecord(ref=fact, retention="pinned"),
                 ],
                 "provider_use": provider_use or receipt.provider_use,
             }
@@ -427,7 +426,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             raise StaleAttemptWriter(
                 "Cluster publication cannot terminalize with needs_confirmation"
             )
-        outcome = terminalize_project_run(
+        outcome = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -437,7 +436,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 writer_attempt_id=writer, claim_token=claim
             ),
             terminal_receipt=receipt,
-            commit=False,
         )
         if outcome.disposition != "terminalized":
             raise StaleAttemptWriter(f"Cluster publication refused: {outcome.reason}")
@@ -657,7 +655,9 @@ def run_typed_cluster_action(
                 "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
                 (receipt.run_id,),
             ).fetchone()
-            from frisket.engine.store.output_claims import OutputColumnClaimStore
+            from frisket.engine.store.generated_column_claims import (
+                GeneratedColumnClaimStore,
+            )
 
             if (
                 run is not None
@@ -665,9 +665,9 @@ def run_typed_cluster_action(
                 and run["total_rows"] is not None
                 and int(run["completed_rows"] or 0) >= int(run["total_rows"])
                 and run["current_attempt_id"] is not None
-                and OutputColumnClaimStore(project).attempt_handler_execution_stopped(
-                    str(run["current_attempt_id"])
-                )
+                and GeneratedColumnClaimStore(
+                    project
+                ).attempt_handler_execution_stopped(str(run["current_attempt_id"]))
             ):
                 return finalize_cluster_action(
                     project,
@@ -736,14 +736,18 @@ def run_typed_cluster_action(
             or row["current_attempt_id"] != direct_writer["writer_attempt_id"]
         ):
             return
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
         from frisket.execution.attempt import StaleAttemptWriter
 
         try:
-            OutputColumnClaimStore(project).finish_current_writer(
-                run_id=direct_writer["run_id"],
-                writer_attempt_id=direct_writer["writer_attempt_id"],
-                claim_token=direct_writer["claim_token"],
+            GeneratedColumnClaimStore(project).finish_current_writer(
+                fence=WriterFence.claimed(
+                    run_id=direct_writer["run_id"],
+                    writer_attempt_id=direct_writer["writer_attempt_id"],
+                    claim_token=direct_writer["claim_token"],
+                ),
                 attempt_state="halted",
                 claim_status="released",
             )

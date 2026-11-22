@@ -22,18 +22,16 @@ from frisket.credentials import missing_required_credentials, resolve_credential
 from frisket.ai.llm import ModelRouter
 from frisket.security.secrets import encrypt_secret
 from frisket.server.action_enqueue import MISSING_ACTION_CREDENTIAL_ERROR_CODE
-from frisket.server.app import create_app
 from frisket.server.services.action_runs import v1_action_result_http_status
+from helpers import make_client
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
 

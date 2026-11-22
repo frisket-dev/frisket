@@ -1,8 +1,8 @@
-"""Host projection of the closed column, named-result and evidence routes."""
+"""Host projection of the closed column, named-result and record routes."""
 
 from __future__ import annotations
 
-from frisket.contracts.action import ReceiptEvidence
+from frisket.contracts.action import ReceiptRecord
 from frisket.engine.executor.recordsets import (
     DERIVE_TABLE_FROM_LIST,
     feedable_named_result_ref,
@@ -12,7 +12,7 @@ from frisket.engine.executor.recordsets import (
 def project_routed_outputs(plan, facts, refs, *, project):
     fields = plan.program._resolved_output_fields
     by_name = {ref["name"]: ref for ref in refs}
-    columns, named, evidence = [], [], []
+    columns, named, records = [], [], []
     failed = set(facts.failed_row_ids)
     successful_rows = [row_id for row_id in facts.row_ids if row_id not in failed]
     for field in fields:
@@ -46,9 +46,7 @@ def project_routed_outputs(plan, facts, refs, *, project):
         projection = field.route
         route, target = projection.route, projection.route.target
         if field.hidden:
-            evidence.append(
-                ReceiptEvidence(ref={**base, "kind": "typed_hidden_output"})
-            )
+            records.append(ReceiptRecord(ref={**base, "kind": "typed_hidden_output"}))
         if target.kind == "column":
             columns.append(
                 {
@@ -78,10 +76,10 @@ def project_routed_outputs(plan, facts, refs, *, project):
                 )
             )
         else:
-            evidence.append(
-                ReceiptEvidence(
+            records.append(
+                ReceiptRecord(
                     ref={
-                        "kind": "map_python_receipt_evidence",
+                        "kind": "map_python_receipt_record",
                         "route": route.name,
                         "path": route.path,
                         "sheet_id": facts.sheet_id,
@@ -93,4 +91,4 @@ def project_routed_outputs(plan, facts, refs, *, project):
                     retention=target.retention,
                 )
             )
-    return columns, named, evidence
+    return columns, named, records

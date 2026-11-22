@@ -11,9 +11,11 @@ from frisket.engine.jobs.queue_health import queue_health_payload
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 
 
-def _project_payload(*, storage_org_id: int = 17, project_id: str = "alpha") -> dict:
+def _project_payload(
+    *, storage_organization_id: int = 17, project_id: str = "alpha"
+) -> dict:
     return {
-        "storage_org_id": storage_org_id,
+        "storage_organization_id": storage_organization_id,
         "project_id": project_id,
         "workspace_root": "/unused",
     }
@@ -26,13 +28,13 @@ def test_cancel_does_not_release_claimed_handler_authority(tmp_path) -> None:
         claimed = queue.claim("worker-one", lease_seconds=60)
         assert claimed is not None
         assert claimed.handler_authority_id
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         assert queue.cancel(job_id) is True
         assert queue.get(job_id).status == "cancelled"
         assert not queue.job_execution_stopped(job_id)
         assert not queue.job_execution_stopped(job_id + 1000)
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         assert (
             queue.acknowledge_handler_exit(
@@ -42,13 +44,13 @@ def test_cancel_does_not_release_claimed_handler_authority(tmp_path) -> None:
             )
             is False
         )
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
         assert queue.acknowledge_handler_exit(
             job_id,
             "worker-one",
             authority_id=claimed.handler_authority_id,
         )
-        assert not queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert not queue.has_active_project_handler("alpha", storage_organization_id=17)
         assert queue.job_execution_stopped(job_id)
     finally:
         queue.close()
@@ -66,7 +68,7 @@ def test_lease_recovery_can_overlap_two_independent_handler_authorities(
 
         now[0] += timedelta(seconds=2)
         assert queue.recover_expired() == 1
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         second = queue.claim("worker-two", lease_seconds=60)
         assert second is not None and second.handler_authority_id
@@ -76,7 +78,7 @@ def test_lease_recovery_can_overlap_two_independent_handler_authorities(
             "worker-two",
             authority_id=second.handler_authority_id,
         )
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         # Hard process death has no time/status inference. An operator or
         # supervisor that has established worker-one is stopped uses this
@@ -87,7 +89,7 @@ def test_lease_recovery_can_overlap_two_independent_handler_authorities(
         )
         assert abandoned.abandoned_authorities == 1
         assert abandoned.live_worker is False
-        assert not queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert not queue.has_active_project_handler("alpha", storage_organization_id=17)
     finally:
         queue.close()
 
@@ -112,7 +114,7 @@ def test_cancel_unstarted_refuses_a_claimed_then_recovered_job(tmp_path) -> None
         # The service's earlier attempts==0 observation is now stale.
         assert queue.cancel_unstarted(job_id) is False
         assert queue.get(job_id).status == "queued"
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
     finally:
         queue.close()
 
@@ -142,12 +144,12 @@ def test_worker_finally_releases_authority_after_cancelled_handler_exits(
         thread.start()
         assert entered.wait(timeout=10)
         assert queue.cancel(job_id) is True
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         release.set()
         thread.join(timeout=10)
         assert not thread.is_alive()
-        assert not queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert not queue.has_active_project_handler("alpha", storage_organization_id=17)
     finally:
         release.set()
         thread.join(timeout=10)
@@ -171,7 +173,7 @@ def test_atomic_abandon_refuses_fresh_worker_without_releasing_authority(
         )
         assert refused.live_worker is True
         assert refused.abandoned_authorities == 0
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         abandoned = queue.abandon_stopped_worker_handler_authorities(
             "worker-one",
@@ -179,7 +181,7 @@ def test_atomic_abandon_refuses_fresh_worker_without_releasing_authority(
         )
         assert abandoned.live_worker is False
         assert abandoned.abandoned_authorities == 1
-        assert not queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert not queue.has_active_project_handler("alpha", storage_organization_id=17)
     finally:
         queue.close()
 
@@ -221,7 +223,7 @@ def test_lease_recovery_outlives_even_a_fully_finished_replacement_claim(
         now[0] += timedelta(days=6)
 
         assert queue.recover_expired() == 1
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
 
         # a fresh process claims the requeued job, finishes it cleanly, and
         # releases ITS authority -- the dead worker's row still outlives it
@@ -231,7 +233,7 @@ def test_lease_recovery_outlives_even_a_fully_finished_replacement_claim(
         assert queue.get(second.id).status == "done"
 
         # all work for this project is over, yet deletion still sees an owner
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
         with queue.engine.connect() as cx:
             holders = (
                 cx.execute(sa.select(job_handler_authorities_table.c.worker_id))
@@ -258,7 +260,7 @@ def test_expired_lease_recovers_without_releasing_the_authority(
         assert queue.get(job_id).status == "queued"
         assert queue.get(job_id).locked_by is None
 
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
     finally:
         queue.close()
 
@@ -291,7 +293,7 @@ def test_a_live_worker_holding_an_authority_is_never_reported_unheard(
         queue.record_worker_heartbeat("worker-crash", now=now[0])
 
         payload = queue_health_payload(queue, now=now[0], liveness_window_seconds=60)
-        assert queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.has_active_project_handler("alpha", storage_organization_id=17)
         assert payload["handler_authorities"] == {
             "unheard": 0,
             "oldest_unheard_claim_age_seconds": None,
@@ -334,8 +336,8 @@ def test_the_report_and_the_operator_lever_agree_on_which_workers_are_quiet(
         )
         assert released.abandoned_authorities == reported.count
 
-        assert not queue.has_active_project_handler("alpha", storage_org_id=17)
-        assert queue.has_active_project_handler("beta", storage_org_id=17)
+        assert not queue.has_active_project_handler("alpha", storage_organization_id=17)
+        assert queue.has_active_project_handler("beta", storage_organization_id=17)
         assert (
             queue.unheard_handler_authorities(heartbeat_cutoff=cutoff, now=now[0]).count
             == 0

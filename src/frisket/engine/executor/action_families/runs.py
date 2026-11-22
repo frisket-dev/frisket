@@ -9,7 +9,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResultStatus,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _ActionExecutionEnvelope
@@ -51,7 +51,7 @@ def typed_run_has_matching_producer_receipt(
             supporting_record.ref.get("kind") == "backfill_source_generation"
             and supporting_record.ref.get("successor_run_id") == run_id
             and supporting_record.ref.get("successor_request_hash") == expected_hash
-            for supporting_record in successor.parsed().evidence
+            for supporting_record in successor.parsed().records
         )
     except ValueError:
         return False
@@ -99,7 +99,7 @@ def _resolve_backfill_target(
 ) -> dict[str, Any] | ActionError:
     action_kind = "run.backfill"
     column_name = column.strip()
-    column = next(
+    column_row = next(
         (
             row
             for row in project.columns(sheet_id, include_hidden=True)
@@ -107,21 +107,21 @@ def _resolve_backfill_target(
         ),
         None,
     )
-    if column is None:
+    if column_row is None:
         return ActionError(
             code="column_not_found",
             message=f"no column '{column_name}'",
             action_kind=action_kind,
             field="params.column",
         )
-    if not bool(column["ai_generated"]):
+    if not bool(column_row["generated"]):
         return ActionError(
-            code="column_not_ai_generated",
+            code="column_not_generated",
             message=f"column '{column_name}' is not a generated column",
             action_kind=action_kind,
             field="params.column",
         )
-    column_id = int(column["id"])
+    column_id = int(column_row["id"])
     all_row_ids = [
         int(row["id"])
         for row in project.db.execute(
@@ -511,8 +511,8 @@ def _run_backfill_receipt(
             )
         ],
         outputs=[ReceiptIO(name=column_name, ref=output_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "run_backfill_scope",
                     "run_id": run_id,

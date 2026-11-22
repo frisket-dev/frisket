@@ -198,7 +198,10 @@ class ImportSessionStore:
         )
         if updated.rowcount != 1:
             raise ImportSessionConflict("import session state changed")
-        return self.get(session.id)
+        refreshed = self.get(session.id)
+        if refreshed is None:
+            raise ImportSessionConflict("import session disappeared")
+        return refreshed
 
     def pause(
         self, session_id: str, authority: str, expected_cursor: int
@@ -422,7 +425,7 @@ def invalidate_import_generation(project: Any, *, op_id: int) -> None:
         "AND json_extract(child.spec,'$.import_execution_owner.op_id')=?",
         (int(op_id),),
     ).fetchall():
-        RunResultStore(project).request_cancel(int(child[0]), commit=False)
+        RunResultStore(project).request_cancel_in_transaction(int(child[0]))
         close_run_change(project, int(child[0]))
 
 

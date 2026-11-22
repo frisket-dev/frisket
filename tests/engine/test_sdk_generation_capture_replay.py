@@ -13,7 +13,7 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import (
     GenerationStateError,
     ResultGenerationStore,
@@ -33,9 +33,9 @@ from frisket.sdk.capture import (
     capture_maprunner_facts,
 )
 from frisket.sdk.replay import (
-    output_column_result_value_hash,
-    output_column_value_hash,
-    output_columns_replay_error,
+    generated_column_result_value_hash,
+    generated_column_value_hash,
+    generated_columns_replay_error,
 )
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
 from frisket.engine.store.transactions import write_transaction
@@ -150,7 +150,9 @@ def _release(project: Project, authority: RunWriterAuthorityFixture) -> None:
     set_attempt_state(project, authority.writer_attempt_id, "effected")
     with write_transaction(project.db):
         assert (
-            OutputColumnClaimStore(project).release(claim_token=authority.claim_token)
+            GeneratedColumnClaimStore(project).release(
+                claim_token=authority.claim_token
+            )
             >= 1
         )
 
@@ -176,14 +178,15 @@ def _publish_managed(
     )
     assert authority.claim_token is not None
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        column_id,
-        output_role=output_role,
-        compatibility_key="sha256:text-output-v1",
-        write_mode=write_mode,
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            column_id,
+            output_role=output_role,
+            compatibility_key="sha256:text-output-v1",
+            write_mode=write_mode,
+            claim_token=authority.claim_token,
+        )
     batch: list[dict[str, Any]] = []
     for row_id, value in values.items():
         effect = (effects or {}).get(row_id, "publish_value")
@@ -197,14 +200,16 @@ def _publish_managed(
             item.update(error="fixture error", error_code="fixture_error")
         batch.append(item)
     RunResultStore(project).write_results(run_id, batch, **authority.kwargs())
-    generations.seal(
-        run_id,
-        [column_id],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [column_id],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
-    RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
 
@@ -234,7 +239,8 @@ def _publish_legacy(
         **authority.kwargs(),
     )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
-    RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
 
@@ -289,7 +295,7 @@ def test_capture_discovers_managed_output_by_sealed_binding_and_hashes_heads(
 ) -> None:
     project, sheet_id, source_column_id, row_ids = sheet
     output_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     published = _publish_managed(
         project,
@@ -335,10 +341,10 @@ def test_capture_discovers_managed_output_by_sealed_binding_and_hashes_heads(
 def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -> None:
     project, sheet_id, source_column_id, row_ids = sheet
     generated_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     optional_column_id = project.add_column(
-        sheet_id, "generated_optional", type="text", ai_generated=True
+        sheet_id, "generated_optional", type="text", generated=True
     )
     op_id = project.append_change(
         "map.regex_extract", {}, label="two-role generation fixture"
@@ -361,14 +367,15 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
         ("generated", generated_column_id),
         ("generated_optional", optional_column_id),
     ):
-        generations.declare(
-            run_id,
-            column_id,
-            output_role=role,
-            compatibility_key="sha256:text-output-v1",
-            write_mode="create",
-            claim_token=authority.claim_token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                column_id,
+                output_role=role,
+                compatibility_key="sha256:text-output-v1",
+                write_mode="create",
+                claim_token=authority.claim_token,
+            )
     RunResultStore(project).write_results(
         run_id,
         [
@@ -385,12 +392,13 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [generated_column_id, optional_column_id],
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [generated_column_id, optional_column_id],
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
 
     with pytest.raises(GenerationStateError, match="unexpected=.*generated_optional"):
@@ -415,7 +423,7 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
 def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     output_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     published = _publish_managed(
         project,
@@ -427,7 +435,7 @@ def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> Non
     )
     expected = _value_hash(row_ids[:2], {row_ids[0]: "first", row_ids[1]: "second"})
     assert (
-        output_column_result_value_hash(
+        generated_column_result_value_hash(
             project,
             run_id=published.run_id,
             sheet_id=sheet_id,
@@ -441,14 +449,14 @@ def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> Non
         [{"row_id": row_ids[0], "column_id": output_column_id, "value": "edited"}],
         label="edit generated output",
     )
-    assert output_column_value_hash(
+    assert generated_column_value_hash(
         project,
         sheet_id=sheet_id,
         column_id=output_column_id,
         row_ids=row_ids[:2],
     ) == _value_hash(row_ids[:2], {row_ids[0]: "edited", row_ids[1]: "second"})
     assert (
-        output_column_result_value_hash(
+        generated_column_result_value_hash(
             project,
             run_id=published.run_id,
             sheet_id=sheet_id,
@@ -462,7 +470,7 @@ def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> Non
 def test_replay_checks_receipt_rows_against_exact_active_heads(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     output_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     first = _publish_managed(
         project,
@@ -478,7 +486,7 @@ def test_replay_checks_receipt_rows_against_exact_active_heads(sheet) -> None:
         sheet_id=sheet_id,
         column_id=output_column_id,
         row_ids=receipt_rows,
-        value_hash=output_column_result_value_hash(
+        value_hash=generated_column_result_value_hash(
             project,
             run_id=first.run_id,
             sheet_id=sheet_id,
@@ -499,7 +507,7 @@ def test_replay_checks_receipt_rows_against_exact_active_heads(sheet) -> None:
     )
     assert project.get_column(output_column_id)["current_run_id"] == second.run_id
     assert (
-        output_columns_replay_error(
+        generated_columns_replay_error(
             project,
             receipt,
             output_kind="test_generation_output_column",
@@ -519,7 +527,7 @@ def test_replay_checks_receipt_rows_against_exact_active_heads(sheet) -> None:
         values={row_ids[0]: "third:receipt-row"},
         write_mode="replace_scope",
     )
-    error = output_columns_replay_error(
+    error = generated_columns_replay_error(
         project,
         receipt,
         output_kind="test_generation_output_column",
@@ -535,7 +543,7 @@ def test_replay_checks_receipt_rows_against_exact_active_heads(sheet) -> None:
 def test_rich_input_provenance_is_scoped_or_typed_refused(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     input_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     first = _publish_managed(
         project,
@@ -647,7 +655,7 @@ def test_rich_input_provenance_is_scoped_or_typed_refused(sheet) -> None:
     )
 
     summary_column_id = project.add_column(
-        sheet_id, "summary", type="text", ai_generated=True
+        sheet_id, "summary", type="text", generated=True
     )
     scoped_output = _publish_legacy(
         project,
@@ -705,7 +713,7 @@ def test_rich_input_provenance_is_scoped_or_typed_refused(sheet) -> None:
 def test_rich_input_provenance_refuses_partial_head_coverage(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     input_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     published = _publish_managed(
         project,
@@ -728,7 +736,7 @@ def test_rich_input_provenance_refuses_partial_head_coverage(sheet) -> None:
 def test_rich_input_provenance_all_headless_scope_stays_baseline(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     input_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     _publish_managed(
         project,
@@ -739,7 +747,7 @@ def test_rich_input_provenance_all_headless_scope_stays_baseline(sheet) -> None:
         write_mode="create",
     )
     summary_column_id = project.add_column(
-        sheet_id, "summary", type="text", ai_generated=True
+        sheet_id, "summary", type="text", generated=True
     )
     output = _publish_legacy(
         project,
@@ -773,7 +781,7 @@ def test_rich_input_provenance_all_headless_scope_stays_baseline(sheet) -> None:
 def test_rich_input_provenance_refuses_divergent_manual_overlay(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     input_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     published = _publish_managed(
         project,
@@ -868,7 +876,7 @@ def test_judge_typed_refuses_unrepresentable_managed_judged_input_before_effect(
 ) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     judged_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     expected = _seed_unrepresentable_managed_input(
         project,
@@ -916,7 +924,7 @@ def test_judge_typed_refuses_unrepresentable_managed_judged_input_before_effect(
 def test_judge_typed_refuses_legacy_ai_scalar_without_generation_heads(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     judged_column_id = project.add_column(
-        sheet_id, "legacy_generated", type="text", ai_generated=True
+        sheet_id, "legacy_generated", type="text", generated=True
     )
     published = _publish_legacy(
         project,
@@ -952,7 +960,7 @@ def test_judge_typed_refuses_generated_column_without_selected_scope_provenance(
     sheet,
 ) -> None:
     project, sheet_id, _source_column_id, _row_ids = sheet
-    project.add_column(sheet_id, "generated", type="text", ai_generated=True)
+    project.add_column(sheet_id, "generated", type="text", generated=True)
     request = ActionRequest.model_validate(
         {
             "action_id": "map.judge",
@@ -978,7 +986,7 @@ def test_research_answer_typed_refuses_unrepresentable_managed_input_before_effe
 ) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     input_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     expected = _seed_unrepresentable_managed_input(
         project,
@@ -1013,7 +1021,7 @@ def test_research_answer_typed_refuses_unrepresentable_managed_input_before_effe
 def test_judge_backfill_program_reresolves_provenance_for_retry_scope(sheet) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     judged_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     first = _publish_managed(
         project,
@@ -1066,7 +1074,7 @@ def test_paid_scalar_bypasses_use_exact_scoped_head_instead_of_column_scalar(
 ) -> None:
     project, sheet_id, _source_column_id, row_ids = sheet
     input_column_id = project.add_column(
-        sheet_id, "generated", type="text", ai_generated=True
+        sheet_id, "generated", type="text", generated=True
     )
     first = _publish_managed(
         project,
@@ -1126,7 +1134,7 @@ def test_saved_hash_keeps_frozen_null_invalid_and_failure_encoding(sheet, tmp_pa
     from frisket.server.services.sheet_grid import _result_metadata
 
     project, sheet_id, _, row_ids = sheet
-    column = project.add_column(sheet_id, "generated", type="text", ai_generated=True)
+    column = project.add_column(sheet_id, "generated", type="text", generated=True)
     first = _publish_managed(
         project,
         sheet_id=sheet_id,
@@ -1142,7 +1150,7 @@ def test_saved_hash_keeps_frozen_null_invalid_and_failure_encoding(sheet, tmp_pa
     project.db.commit()
     expected = _value_hash(row_ids, {row_id: None for row_id in row_ids})
     assert (
-        output_column_result_value_hash(
+        generated_column_result_value_hash(
             project,
             run_id=first.run_id,
             sheet_id=sheet_id,
@@ -1167,7 +1175,7 @@ def test_saved_hash_keeps_frozen_null_invalid_and_failure_encoding(sheet, tmp_pa
     )
     assert _result_metadata(project, column, row_ids) == {}
     assert (
-        output_columns_replay_error(
+        generated_columns_replay_error(
             project,
             receipt,
             output_kind="test_generation_output_column",
@@ -1186,7 +1194,7 @@ def test_saved_hash_keeps_frozen_null_invalid_and_failure_encoding(sheet, tmp_pa
     )
     # Saved bytes are unchanged; the separate non-edit identity check rejects drift.
     assert (
-        output_column_result_value_hash(
+        generated_column_result_value_hash(
             project,
             run_id=first.run_id,
             sheet_id=sheet_id,
@@ -1195,7 +1203,7 @@ def test_saved_hash_keeps_frozen_null_invalid_and_failure_encoding(sheet, tmp_pa
         )
         == expected
     )
-    error = output_columns_replay_error(
+    error = generated_columns_replay_error(
         project,
         receipt,
         output_kind="test_generation_output_column",

@@ -25,7 +25,8 @@ function choice(setup: Setup | null, configurationActions: ConfigurationAction[]
     processing_destination: { kind: 'external', label: 'Provider' }, resolved_target: null,
     is_current: false, is_default: false, can_author: true, can_run: false,
     status: setup ? 'needs_setup' : 'ready', blocker: null, active_operation: null,
-    model_card_url: null, setup, configuration_actions: configurationActions };
+    model_card_url: null, execution_route: null, route_selection: null,
+    setup, configuration_actions: configurationActions };
 }
 const accepted = { provider: 'openai', ok: true, reachable: true, status: 200,
   detail: null, validation_token: 'signed-key-receipt' };
@@ -320,8 +321,8 @@ describe('SelectorSetup', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(request).toHaveBeenCalledWith('outer.set_org_models_gateway.put', expect.objectContaining({ body: { origin: 'https://models.test', token: 'gateway-token-changed', validation_token: 'signed-gateway-receipt' } })));
-    expect(request).toHaveBeenCalledWith('outer.validate_org_models_gateway.post', expect.objectContaining({ body: { origin: 'https://models.test/', token: 'gateway-token' } }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('outer.set_organization_models_gateway.put', expect.objectContaining({ body: { origin: 'https://models.test', token: 'gateway-token-changed', validation_token: 'signed-gateway-receipt' } })));
+    expect(request).toHaveBeenCalledWith('outer.validate_organization_models_gateway.post', expect.objectContaining({ body: { origin: 'https://models.test/', token: 'gateway-token' } }));
   });
 
   it('does not expose environment diagnostics when no gateway scope is authorized', () => {
@@ -399,9 +400,9 @@ describe('SelectorSetup', () => {
     expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
     expect(screen.queryByRole('button', { name: 'Download and set up' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(request).toHaveBeenCalledWith('outer.cancel_org_model_pull.post', expect.objectContaining({ pathParams: { pull_id: 7 }, signal: expect.any(AbortSignal) }));
+    expect(request).toHaveBeenCalledWith('outer.cancel_organization_model_pull.post', expect.objectContaining({ pathParams: { pull_id: 7 }, signal: expect.any(AbortSignal) }));
     expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
-    await waitFor(() => expect(request).toHaveBeenCalledWith('outer.get_org_model_pull.get', expect.objectContaining({ pathParams: { pull_id: 7 } })), { timeout: 1800 });
+    await waitFor(() => expect(request).toHaveBeenCalledWith('outer.get_organization_model_pull.get', expect.objectContaining({ pathParams: { pull_id: 7 } })), { timeout: 1800 });
     expect(changed).not.toHaveBeenCalled();
     expect(screen.queryByText('Cancelled.')).not.toBeInTheDocument();
   });
@@ -428,7 +429,7 @@ describe('SelectorSetup', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByRole('progressbar')).toHaveAttribute('value', '800');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(request).toHaveBeenCalledWith('outer.cancel_org_model_pull.post', expect.objectContaining({ pathParams: { pull_id: initial.id } }));
+    expect(request).toHaveBeenCalledWith('outer.cancel_organization_model_pull.post', expect.objectContaining({ pathParams: { pull_id: initial.id } }));
   });
 
   it.each(['done', 'failed'] as const)('notifies a standalone setup parent when its pull becomes %s', async (status) => {
@@ -538,7 +539,7 @@ describe('SelectorSetup', () => {
     request.mockResolvedValue({ pull: pull({ model: failed.model, operation_kind: 'artifact' }), deduplicated: true });
     render(<SelectorSetup projectId="a" choice={choice({ kind: 'artifact_download', scope: 'organization', setup_ref: failed.model, can_mutate: true, can_start: true, blocked_by_operation: failed })} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Retry setup' }));
-    expect(request).toHaveBeenCalledWith('outer.post_org_models_pull.post', expect.objectContaining({ body: { ref: failed.model, unpinned_acknowledged: false }, signal: expect.any(AbortSignal) }));
+    expect(request).toHaveBeenCalledWith('outer.post_organization_models_pull.post', expect.objectContaining({ body: { ref: failed.model, unpinned_acknowledged: false }, signal: expect.any(AbortSignal) }));
     expect(await screen.findByTestId('model-pull-progress')).toHaveAttribute('data-status', 'running');
   });
 

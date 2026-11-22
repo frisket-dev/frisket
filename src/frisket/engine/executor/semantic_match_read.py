@@ -20,7 +20,7 @@ from frisket.actions.types import (
     SheetRows,
     TableError,
 )
-from frisket.contracts.action import ActionError, Receipt, ReceiptEvidence
+from frisket.contracts.action import ActionError, Receipt, ReceiptRecord
 from frisket.engine.executor.action_receipts import (
     _positive_ref_int,
     _receipt_ops_are_applied,
@@ -28,10 +28,13 @@ from frisket.engine.executor.action_receipts import (
 )
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.receipts import ReceiptStore
 
 
-def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
+def _semantic_origin(
+    project: Project | ProjectReadSnapshot, receipt: Receipt
+) -> str | None:
     """Recognize the registered semantic producer and its exact durable run."""
     try:
         terminal = ACTION_REGISTRY.get(receipt.action_kind).definition.run
@@ -41,7 +44,7 @@ def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
         ):
             sources = [
                 item.ref
-                for item in receipt.evidence
+                for item in receipt.records
                 if item.ref.get("kind") == "backfill_source_generation"
             ]
             if len(sources) != 1:
@@ -50,6 +53,8 @@ def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
             if _positive_ref_int(source, "successor_run_id") != receipt.run_id:
                 return None
             origin = source.get("source_action_kind")
+            if not isinstance(origin, str):
+                return None
             terminal = ACTION_REGISTRY.get(origin).definition.run
         if not isinstance(terminal, SemanticJoin):
             return None
@@ -68,7 +73,7 @@ def _semantic_origin(project: Project, receipt: Receipt) -> str | None:
 
 
 def _resolve_semantic_matches(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     receipt_id: str,
     row_ids: tuple[int, ...] | None,
@@ -317,7 +322,7 @@ def _semantic_join_output_refs_by_role(receipt: Receipt) -> dict[str, dict[str, 
 
 
 def _validate_derive_link_table_columns(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     source_sheet_id: int,
     target_sheet_id: int,
@@ -402,7 +407,7 @@ def _validate_derive_link_table_columns(
 
 
 def _target_join_value(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     target_sheet_id: int,
     target_column_id: int,
@@ -430,7 +435,7 @@ def _link_table_text_value(value: Any) -> str | None:
 
 
 def _derive_link_table_review_refs(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     source_run_id: int,
     output_column_ids: set[int],
@@ -708,7 +713,7 @@ class AdmittedSemanticMatchReader:
                 "Link rows must retain their admitted source and matching target",
             )
 
-    def publication_supporting_records(self, write, lineages) -> list[ReceiptEvidence]:
+    def publication_supporting_records(self, write, lineages) -> list[ReceiptRecord]:
         edges = [
             {
                 "child_row_id": row_id,
@@ -718,7 +723,7 @@ class AdmittedSemanticMatchReader:
             for row_id, lineage in zip(write.row_ids, lineages, strict=True)
         ]
         supporting_records = [
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "semantic_link_table_edges",
                     "sheet_id": write.sheet_id,
@@ -734,7 +739,7 @@ class AdmittedSemanticMatchReader:
         for read in self._reads:
             supporting_records.extend(
                 [
-                    ReceiptEvidence(
+                    ReceiptRecord(
                         ref={
                             "kind": "semantic_join_output_cells",
                             "source_receipt_id": read["source_receipt_id"],
@@ -745,7 +750,7 @@ class AdmittedSemanticMatchReader:
                         },
                         retention="pinned",
                     ),
-                    ReceiptEvidence(ref=read["review_refs"], retention="pinned"),
+                    ReceiptRecord(ref=read["review_refs"], retention="pinned"),
                 ]
             )
         return supporting_records

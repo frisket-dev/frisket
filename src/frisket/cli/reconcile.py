@@ -74,7 +74,7 @@ def _probe_receipt_rows(project) -> list[dict[str, Any]]:
             body = json.loads(row["body"] or "{}")
         except (TypeError, ValueError):
             continue
-        supporting_records = body.get("evidence")
+        supporting_records = body.get("records")
         if not isinstance(supporting_records, list):
             continue
         refs = [
@@ -359,7 +359,7 @@ def _accept_charged_probe_receipt(project, row: dict[str, Any]) -> int:
     that the provider WAS reached and never call it again, without inventing
     a response, result, or cost this process never observed."""
 
-    from frisket.contracts.action import ActionError, ReceiptEvidence
+    from frisket.contracts.action import ActionError, ReceiptRecord
     from frisket.engine.store.receipts import ReceiptStore
 
     store = ReceiptStore(project)
@@ -375,11 +375,11 @@ def _accept_charged_probe_receipt(project, row: dict[str, Any]) -> int:
     receipt = stored.parsed()
     supporting_records = [
         item
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") != _PROBE_OPERATOR_RECORD_KIND
     ]
     supporting_records.append(
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": _PROBE_OPERATOR_RECORD_KIND,
                 "decided_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -390,7 +390,7 @@ def _accept_charged_probe_receipt(project, row: dict[str, Any]) -> int:
     decided = receipt.model_copy(
         update={
             "status": "failed",
-            "evidence": supporting_records,
+            "records": supporting_records,
             "errors": [
                 ActionError(
                     code="external_effect_reconciliation_required",

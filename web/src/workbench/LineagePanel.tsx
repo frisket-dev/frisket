@@ -29,7 +29,7 @@ import { CostGateModal } from '../components/CostGateModal';
 const LINEAGE_TIERS: Array<{ key: string; title: string; kind: LineageNode['kind'] }> = [
   { key: 'sources', title: 'FEEDS', kind: 'source' },
   { key: 'sheets', title: 'SHEETS', kind: 'sheet' },
-  { key: 'ai-columns', title: 'GENERATED COLUMNS', kind: 'ai_column' },
+  { key: 'ai-columns', title: 'GENERATED COLUMNS', kind: 'generated_column' },
 ];
 
 /** The shared cascade confirm (strip pill + Lineage tab control): lists the
@@ -158,7 +158,7 @@ function LineageNodeChip({
   const stale = node.syncState === 'stale';
   // Inbound derive edges give a derived sheet its "← parent" line; an amber
   // edge means the downstream sheet is stale relative to that parent.
-  const inbound = dag.edges.filter((e) => e.to === node.id && e.kind !== 'ai_column');
+  const inbound = dag.edges.filter((e) => e.to === node.id && e.kind !== 'generated_column');
   return (
     <div
       className="lineage-node"
@@ -175,7 +175,7 @@ function LineageNodeChip({
           </StatusChip>
         )}
       </div>
-      {node.kind === 'ai_column' && node.model && (
+      {node.kind === 'generated_column' && node.model && (
         <div className="lineage-node-sub">{node.model}</div>
       )}
       {node.kind === 'sheet' && node.op_kind && (

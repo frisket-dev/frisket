@@ -885,7 +885,7 @@ function ExportGoogleSheetsModal({
   // Edition/composition gate (server/action_catalog_hints.py ui_hints.
   // unavailable_reason on the export.google_sheets catalog entry): the
   // local single-user tier has no OAuth flow to connect a Google account
-  // at all, so /api/org/oauth/connections and /google/start 404 there.
+  // at all, so /api/organization/oauth/connections and /google/start 404 there.
   // null = available or not checked; string = the one-line reason to show
   // INSTEAD of the (guaranteed-broken) "Connect Google" affordance below.
   // Read-only, best-effort: on any failure to load the catalog the modal

@@ -13,7 +13,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     record_citation,
     record_source_artifact,
@@ -566,7 +566,7 @@ def _generated_columns(project: Project, sheet_id: int) -> dict[str, int]:
     return {
         str(row["name"]): int(row["id"])
         for row in project.db.execute(
-            "SELECT id, name FROM columns WHERE sheet_id=? AND ai_generated=1 "
+            "SELECT id, name FROM columns WHERE sheet_id=? AND generated=1 "
             "ORDER BY position, id",
             (sheet_id,),
         ).fetchall()
@@ -691,17 +691,18 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             span_kind="text",
             quote="first generation evidence",
         )
-    evidence_link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=prior_error_ref,
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet_id,
-        row_id=error_row,
-        column_id=columns["generated_text"],
-        run_id=first.run_id,
-        op_id=first_op_id,
-    )
+    with write_transaction(project.db):
+        evidence_link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=prior_error_ref,
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet_id,
+            row_id=error_row,
+            column_id=columns["generated_text"],
+            run_id=first.run_id,
+            op_id=first_op_id,
+        )
 
     # Same-descriptor replacements publish each completed row family.
     # The publication boundary includes evidence, not just result storage.

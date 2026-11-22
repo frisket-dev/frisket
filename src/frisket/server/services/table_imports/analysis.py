@@ -9,9 +9,11 @@ from typing import Any, Mapping, Sequence
 
 from frisket.table_import import (
     ColumnStatsAccumulator,
+    DateOrder,
     PreviewAccumulator,
     RawCell,
     TableReadSettings,
+    TargetType,
     convert_cell,
     count_records,
     open_table,
@@ -268,6 +270,32 @@ def count_issues(counts: dict[str, int], issues: Sequence[Any]) -> None:
         counts[names[issue.code]] += int(getattr(issue, "count", 1))
 
 
+def parse_target_type(value: str) -> TargetType:
+    if value == "text":
+        return "text"
+    if value == "integer":
+        return "integer"
+    if value == "number":
+        return "number"
+    if value == "date":
+        return "date"
+    if value == "datetime":
+        return "datetime"
+    if value == "boolean":
+        return "boolean"
+    if value == "omit":
+        return "omit"
+    raise ValueError(f"unsupported table import target type: {value!r}")
+
+
+def _parse_date_order(value: str | None) -> DateOrder:
+    if value is None or value == "month_first":
+        return "month_first"
+    if value == "day_first":
+        return "day_first"
+    raise ValueError(f"unsupported table import date order: {value!r}")
+
+
 def conversion_json(
     original: str,
     target: str,
@@ -278,8 +306,8 @@ def conversion_json(
 ) -> dict[str, Any]:
     converted = convert_cell(
         RawCell(original),
-        target,
-        date_order=date_order or "month_first",
+        parse_target_type(target),
+        date_order=_parse_date_order(date_order),
         decimal_separator=decimal_separator,
         thousands_separator=thousands_separator,
     )

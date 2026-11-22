@@ -21,7 +21,7 @@ from frisket.engine.pdf_render import (
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.blob_backend import BlobStoreError
 
-from .content import PreparedDocumentSurface, TextChunkRecipe
+from .content import PreparedDocumentSurface, TextSliceSpec
 from .contracts import (
     CellAnchor,
     PageRange,
@@ -54,7 +54,7 @@ from .sources import cell_source_binding_id
 
 
 CancelCheck = Callable[[], bool]
-_MAX_TEXT_ANCHOR_CODEPOINTS = TextChunkRecipe().max_codepoints
+_MAX_TEXT_ANCHOR_CODEPOINTS = TextSliceSpec().max_codepoints
 
 
 @dataclass(frozen=True, slots=True)

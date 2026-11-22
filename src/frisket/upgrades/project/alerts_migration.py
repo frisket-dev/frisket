@@ -6,11 +6,14 @@ import json
 import sqlite3
 from typing import Any
 
-from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST
+from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.upgrades.project._step import execute_ddl
+from frisket.upgrades.project.generated_columns_migration import (
+    GENERATED_COLUMNS_TO_DIGEST,
+)
 
-ALERTS_FROM_DIGEST = "frisket.schema.v1:6a94206a03cff0c69e0188ff74317800"
-ALERTS_TO_DIGEST = "frisket.schema.v1:f19c2358cf272be2717f5299a22ccea8"
+ALERTS_FROM_DIGEST = GENERATED_COLUMNS_TO_DIGEST
+ALERTS_TO_DIGEST = "frisket.schema.v1:dcd538f4a70464f82fd7e16b60c6a6b3"
 
 _ALERT_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS alerts (
@@ -335,10 +338,6 @@ def _migrate_cloud_slack_channels(db: sqlite3.Connection, tables: set[str]) -> N
 
 def migrate_alerts(db: sqlite3.Connection) -> None:
     """Atomically cut over alert tables, purge targets, notifications, and Slack configs."""
-    if SCHEMA_DIGEST != ALERTS_TO_DIGEST:
-        raise BundleSchemaMismatch(
-            "Alerts migration endpoint needs updating for this build"
-        )
     tables = {
         str(row[0])
         for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
 from helpers import make_client as _client
 from http_test_helpers import (
@@ -251,7 +251,7 @@ def test_create_cannot_take_name_reserved_before_worker_starts(tmp_path: Path) -
     client = _client(tmp_path)
     pid, sheet_id = _seed_sheet(client)
     project = client.app.state.workspace.get(pid)
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         reserved, conflict = claims.acquire(
             sheet_id=sheet_id,
@@ -263,7 +263,7 @@ def test_create_cannot_take_name_reserved_before_worker_starts(tmp_path: Path) -
     assert reserved[0]["column_id"] is None
     response = post_column_add_as_v1_action(client, pid, sheet_id, "summary")
     assert response.status_code == 400, response.text
-    assert response.json()["errors"][0]["code"] == "output_column_busy"
+    assert response.json()["errors"][0]["code"] == "generated_column_busy"
     assert "summary" not in _visible_columns(client, pid, sheet_id)
     with write_transaction(claims.db):
         claims.release(claim_token="queued-name")

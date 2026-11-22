@@ -94,7 +94,7 @@ def _team_only_declarations():
 def test_route_matching_a_local_declaration_compiles_without_a_base_entry() -> None:
     app = FastAPI()
 
-    @app.get("/api/org/team-only-probe", name="team_only_probe")
+    @app.get("/api/organization/team-only-probe", name="team_only_probe")
     def team_only_probe():
         return {}
 
@@ -103,7 +103,7 @@ def test_route_matching_a_local_declaration_compiles_without_a_base_entry() -> N
         auth_declarations={},
         local_declarations=_team_only_declarations(),
     )
-    assert policies[("GET", "/api/org/team-only-probe")] == "session_or_pat"
+    assert policies[("GET", "/api/organization/team-only-probe")] == "session_or_pat"
 
 
 def test_same_route_without_local_declarations_still_fails_closed() -> None:
@@ -112,7 +112,7 @@ def test_same_route_without_local_declarations_still_fails_closed() -> None:
     parameter is additive and does not weaken the base fail-closed check."""
     app = FastAPI()
 
-    @app.get("/api/org/team-only-probe", name="team_only_probe")
+    @app.get("/api/organization/team-only-probe", name="team_only_probe")
     def team_only_probe():
         return {}
 
@@ -164,7 +164,10 @@ def test_stale_local_declaration_for_an_unregistered_route_fails_closed() -> Non
 
 def test_live_route_path_moves_without_a_policy_edit() -> None:
     declarations = _team_only_declarations()
-    for path in ("/api/org/team-only-probe", "/api/org/moved-team-only-probe"):
+    for path in (
+        "/api/organization/team-only-probe",
+        "/api/organization/moved-team-only-probe",
+    ):
         app = FastAPI()
 
         @app.get(path, name="team_only_probe")
@@ -182,11 +185,11 @@ def test_live_route_path_moves_without_a_policy_edit() -> None:
 def test_duplicate_registered_identity_and_wire_fail_closed() -> None:
     duplicate_identity = FastAPI()
 
-    @duplicate_identity.get("/api/org/one", name="team_only_probe")
+    @duplicate_identity.get("/api/organization/one", name="team_only_probe")
     def first_identity():
         return {}
 
-    @duplicate_identity.get("/api/org/two", name="team_only_probe")
+    @duplicate_identity.get("/api/organization/two", name="team_only_probe")
     def second_identity():
         return {}
 
@@ -199,11 +202,11 @@ def test_duplicate_registered_identity_and_wire_fail_closed() -> None:
 
     duplicate_wire = FastAPI()
 
-    @duplicate_wire.get("/api/org/same", name="first_probe")
+    @duplicate_wire.get("/api/organization/same", name="first_probe")
     def first_wire():
         return {}
 
-    @duplicate_wire.get("/api/org/same", name="second_probe")
+    @duplicate_wire.get("/api/organization/same", name="second_probe")
     def second_wire():
         return {}
 
@@ -279,7 +282,7 @@ def test_real_team_cross_owner_base_reuse_is_closed_and_stable(tmp_path) -> None
 def test_install_outer_policy_enforces_a_local_declaration_route(monkeypatch) -> None:
     app = FastAPI()
 
-    @app.get("/api/org/team-only-probe", name="team_only_probe")
+    @app.get("/api/organization/team-only-probe", name="team_only_probe")
     def team_only_probe(request: Request):
         return {"ok": True}
 
@@ -299,6 +302,6 @@ def test_install_outer_policy_enforces_a_local_declaration_route(monkeypatch) ->
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
-    response = client.get("/api/org/team-only-probe")
+    response = client.get("/api/organization/team-only-probe")
     assert response.status_code == 200
     assert calls, "session_or_pat policy from the local declaration must enforce auth"

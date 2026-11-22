@@ -233,7 +233,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
               onChange={(event) => void patchNetwork(event.currentTarget.value)}
             >
               <option value="inherit">
-                {`Inherit (currently ${network.data.org_default ?? 'on'})`}
+                {`Inherit (currently ${network.data.organization_default ?? 'on'})`}
               </option>
               <option value="on">On</option>
               <option value="off">Off</option>

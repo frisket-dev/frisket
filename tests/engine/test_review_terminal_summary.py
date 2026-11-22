@@ -16,7 +16,7 @@ from frisket.engine.store.runs import RunResultStore
 def test_terminalizer_publishes_review_totals_without_lazy_read(make_project, status):
     project = make_project("terminal-review")
     sheet = project.add_sheet("Source")
-    column = project.add_column(sheet, "answer", ai_generated=True)
+    column = project.add_column(sheet, "answer", generated=True)
     [row] = project.add_rows(sheet, [{}], {})
     op = project.append_change("map.extract")
     run = RunResultStore(project).start_run(

@@ -16,12 +16,21 @@ the excluded policy tables.
 
 from __future__ import annotations
 
+from decimal import Decimal
 import importlib
 import re
+import threading
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+
+from frisket.team import bootstrap as team_bootstrap
+from frisket.team.bootstrap import (
+    PreSplitSchemaError,
+    ensure_clean_control_plane_schema,
+    init_identity_schema,
+)
 
 pytestmark = pytest.mark.gap
 
@@ -32,7 +41,7 @@ TEAM_SRC = ROOT / "src" / "frisket" / "team"
 IDENTITY_TABLES = frozenset(
     {
         "users",
-        "orgs",
+        "organizations",
         "memberships",
         "projects",
         "sessions",
@@ -46,8 +55,8 @@ IDENTITY_TABLES = frozenset(
         "password_resets",
         "audit_log",
         "client_errors",
-        "org_keys",
-        "org_env_vars",
+        "organization_keys",
+        "organization_env_vars",
         "oauth_connections",
         "oidc_identities",
         "project_creation_intents",
@@ -74,9 +83,9 @@ USERS_OPEN_COLUMNS = frozenset(
         "id",
         "email",
         "name",
-        "cost_preapproval_usd",
+        "allowance_usd",
         "password_hash",
-        "default_org_id",
+        "default_organization_id",
         "created_at",
     }
 )
@@ -86,8 +95,8 @@ ORGANIZATIONS_OPEN_COLUMNS = frozenset(
 PROJECTS_OPEN_COLUMNS = frozenset(
     {
         "id",
-        "org_id",
-        "storage_org_id",
+        "organization_id",
+        "storage_organization_id",
         "slug",
         "name",
         "description",
@@ -96,7 +105,7 @@ PROJECTS_OPEN_COLUMNS = frozenset(
     }
 )
 ORGANIZATION_KEYS_OPEN_COLUMNS = frozenset(
-    {"id", "org_id", "provider", "encrypted", "hint", "created_at"}
+    {"id", "organization_id", "provider", "encrypted", "hint", "created_at"}
 )
 
 _MARKER_NAME_RE = re.compile(r"(?i)(version|marker|schema)")
@@ -209,14 +218,15 @@ def test_identity_tables_shed_the_deployment_policy_columns() -> None:
         f" unexpected={sorted(users_cols - USERS_OPEN_COLUMNS)}"
     )
 
-    organizations_cols = set(identity_md.tables["orgs"].c.keys())
+    organizations_cols = set(identity_md.tables["organizations"].c.keys())
     assert not (organizations_cols & ORGANIZATIONS_BILLING_POLICY_COLUMNS), (
-        "identity orgs still carries deployment-policy columns"
+        "identity organizations still carries deployment-policy columns"
         f" {sorted(organizations_cols & ORGANIZATIONS_BILLING_POLICY_COLUMNS)}"
         " (shared deployment-policy split)"
     )
     assert ORGANIZATIONS_OPEN_COLUMNS <= organizations_cols, (
-        f"identity orgs is missing open columns {sorted(ORGANIZATIONS_OPEN_COLUMNS - organizations_cols)}"
+        "identity organizations is missing open columns"
+        f" {sorted(ORGANIZATIONS_OPEN_COLUMNS - organizations_cols)}"
     )
 
     projects_cols = set(identity_md.tables["projects"].c.keys())
@@ -229,14 +239,14 @@ def test_identity_tables_shed_the_deployment_policy_columns() -> None:
         f" {sorted(PROJECTS_OPEN_COLUMNS - projects_cols)}"
     )
 
-    organization_keys_cols = set(identity_md.tables["org_keys"].c.keys())
+    organization_keys_cols = set(identity_md.tables["organization_keys"].c.keys())
     assert not (organization_keys_cols & ORGANIZATION_KEYS_SPEND_POLICY_COLUMNS), (
-        "identity org_keys still carries spend-policy columns"
+        "identity organization_keys still carries spend-policy columns"
         f" {sorted(organization_keys_cols & ORGANIZATION_KEYS_SPEND_POLICY_COLUMNS)}"
         " (shared deployment-policy split)"
     )
     assert ORGANIZATION_KEYS_OPEN_COLUMNS <= organization_keys_cols, (
-        "identity org_keys is missing open columns"
+        "identity organization_keys is missing open columns"
         f" {sorted(ORGANIZATION_KEYS_OPEN_COLUMNS - organization_keys_cols)}"
     )
 
@@ -305,11 +315,6 @@ def test_team_bootstrap_stamps_a_queryable_schema_version_marker(tmp_path) -> No
 def test_malformed_marker_refuses_before_mutating_legacy_challenge_schema(
     tmp_path: Path, marker_row: tuple[int, str, int] | None
 ) -> None:
-    from frisket.team.bootstrap import (
-        PreSplitSchemaError,
-        init_identity_schema,
-    )
-
     path = tmp_path / "stale-v4.db"
     engine = sa.create_engine(f"sqlite:///{path}", future=True)
     with engine.begin() as cx:
@@ -359,8 +364,6 @@ def test_malformed_marker_refuses_before_mutating_legacy_challenge_schema(
 def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
     tmp_path: Path,
 ) -> None:
-    from frisket.team.bootstrap import PreSplitSchemaError, init_identity_schema
-
     path = tmp_path / "stale-v5.db"
     engine = sa.create_engine(f"sqlite:///{path}", future=True)
     _run_team_fresh_init(engine)(engine)
@@ -371,7 +374,7 @@ def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
     before = path.read_bytes()
 
     stale = sa.create_engine(f"sqlite:///{path}", future=True)
-    with pytest.raises(PreSplitSchemaError, match="version=7"):
+    with pytest.raises(PreSplitSchemaError, match="version=9"):
         init_identity_schema(stale)
     stale.dispose()
     assert path.read_bytes() == before
@@ -391,8 +394,6 @@ def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
 def test_v6_identity_schema_upgrades_user_allowance_without_reset(
     tmp_path: Path,
 ) -> None:
-    from frisket.team.bootstrap import init_identity_schema
-
     path = tmp_path / "v6.db"
     engine = sa.create_engine(f"sqlite:///{path}", future=True)
     with engine.begin() as cx:
@@ -422,9 +423,769 @@ def test_v6_identity_schema_upgrades_user_allowance_without_reset(
             cx.exec_driver_sql(
                 "SELECT schema_version FROM schema_marker WHERE id = 1"
             ).scalar_one()
-            == 7
+            == 9
         )
         assert cx.exec_driver_sql(
-            "SELECT email, name, cost_preapproval_usd FROM users WHERE id = 1"
-        ).one() == ("owner@example.test", "Owner", None)
+            "SELECT email, name, allowance_usd, default_organization_id "
+            "FROM users WHERE id = 1"
+        ).one() == ("owner@example.test", "Owner", None, None)
     engine.dispose()
+
+
+def test_v7_identity_schema_renames_user_allowance_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "v7.db"
+    engine = sa.create_engine(f"sqlite:///{path}", future=True)
+    with engine.begin() as cx:
+        cx.exec_driver_sql(
+            "CREATE TABLE schema_marker ("
+            "id INTEGER PRIMARY KEY, edition VARCHAR NOT NULL, "
+            "schema_version INTEGER NOT NULL, stamped_at DATETIME)"
+        )
+        cx.exec_driver_sql(
+            "INSERT INTO schema_marker (id, edition, schema_version) "
+            "VALUES (1, 'team', 7)"
+        )
+        cx.exec_driver_sql(
+            "CREATE TABLE users ("
+            "id INTEGER PRIMARY KEY, email VARCHAR NOT NULL, name VARCHAR, "
+            "cost_preapproval_usd NUMERIC(18, 6), "
+            "password_hash VARCHAR, default_org_id INTEGER, created_at DATETIME)"
+        )
+        cx.exec_driver_sql(
+            "INSERT INTO users (id, email, name, cost_preapproval_usd) "
+            "VALUES (1, 'owner@example.test', 'Owner', 4.25), "
+            "(2, 'new@example.test', 'New User', NULL)"
+        )
+
+    for _ in range(2):
+        init_identity_schema(engine)
+
+    columns = {column["name"] for column in sa.inspect(engine).get_columns("users")}
+    assert "allowance_usd" in columns
+    assert "cost_preapproval_usd" not in columns
+    assert "default_organization_id" in columns
+    assert "default_org_id" not in columns
+    with engine.connect() as cx:
+        assert (
+            cx.exec_driver_sql(
+                "SELECT schema_version FROM schema_marker WHERE id = 1"
+            ).scalar_one()
+            == 9
+        )
+        rows = cx.exec_driver_sql(
+            "SELECT id, email, name, allowance_usd FROM users ORDER BY id"
+        ).all()
+        assert len(rows) == 2
+        assert (rows[0][0], rows[0][1], rows[0][2]) == (
+            1,
+            "owner@example.test",
+            "Owner",
+        )
+        assert Decimal(str(rows[0][3])) == Decimal("4.25")
+        assert rows[1] == (2, "new@example.test", "New User", None)
+    engine.dispose()
+
+
+def _create_and_seed_v8_identity_schema(engine: sa.Engine) -> None:
+    """Build a complete v8 control-plane database with rows across all org tables."""
+    v8_md = sa.MetaData()
+    v8_orgs = sa.Table(
+        "orgs",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("name", sa.String, nullable=False),
+        sa.Column("display_name", sa.String),
+        sa.Column("welcome_message", sa.Text),
+        sa.Column("support_contact", sa.String),
+        sa.Column("network_default", sa.String),
+    )
+    v8_users = sa.Table(
+        "users",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("email", sa.String, unique=True, nullable=False),
+        sa.Column("name", sa.String),
+        sa.Column("allowance_usd", sa.Numeric(18, 6)),
+        sa.Column("password_hash", sa.String),
+        sa.Column("default_org_id", sa.Integer, sa.ForeignKey("orgs.id")),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+    )
+    sa.Table(
+        "oidc_identities",
+        v8_md,
+        sa.Column("issuer", sa.String, primary_key=True),
+        sa.Column("subject", sa.String, primary_key=True),
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("email_at_link", sa.String, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.UniqueConstraint("issuer", "user_id"),
+    )
+    v8_memberships = sa.Table(
+        "memberships",
+        v8_md,
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), primary_key=True),
+        sa.Column("role", sa.String, nullable=False),
+    )
+    v8_projects = sa.Table(
+        "projects",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("storage_org_id", sa.Integer, sa.ForeignKey("orgs.id")),
+        sa.Column("slug", sa.String, nullable=False),
+        sa.Column("name", sa.String, nullable=False),
+        sa.Column("description", sa.String),
+        sa.Column("sensitive", sa.Boolean, nullable=False),
+        sa.Column("network", sa.String, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.UniqueConstraint("org_id", "slug"),
+    )
+    sa.Table(
+        "sessions",
+        v8_md,
+        sa.Column("token", sa.String, primary_key=True),
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    sa.Table(
+        "auth_challenges",
+        v8_md,
+        sa.Column("secret_hash", sa.String(64), primary_key=True),
+        sa.Column("kind", sa.String, nullable=False),
+        sa.Column("subject_email", sa.String),
+        sa.Column("subject_user_id", sa.Integer, sa.ForeignKey("users.id")),
+        sa.Column("provider", sa.String),
+        sa.Column("nonce", sa.String),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("consumed_at", sa.DateTime(timezone=True)),
+    )
+    v8_buckets = sa.Table(
+        "auth_attempt_buckets",
+        v8_md,
+        sa.Column("scope", sa.String, primary_key=True),
+        sa.Column("key_hash", sa.String(64), primary_key=True),
+        sa.Column("window_started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("attempt_count", sa.Integer, nullable=False),
+    )
+    sa.Index(
+        "idx_auth_attempt_buckets_window_started_at",
+        v8_buckets.c.window_started_at,
+    )
+    v8_pending_invites = sa.Table(
+        "pending_invites",
+        v8_md,
+        sa.Column("email", sa.String, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("role", sa.String, nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    v8_project_invites = sa.Table(
+        "project_invites",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("slug", sa.String, nullable=False),
+        sa.Column("email", sa.String, nullable=False),
+        sa.Column("role", sa.String, nullable=False),
+        sa.Column("token", sa.String, unique=True, nullable=False),
+        sa.Column("token_hash", sa.String, unique=True, nullable=False),
+        sa.Column("invited_by_user_id", sa.Integer, sa.ForeignKey("users.id")),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("accepted_at", sa.DateTime(timezone=True)),
+        sa.Column("revoked_at", sa.DateTime(timezone=True)),
+    )
+    v8_project_roles = sa.Table(
+        "project_roles",
+        v8_md,
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), primary_key=True),
+        sa.Column("slug", sa.String, primary_key=True),
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), primary_key=True),
+        sa.Column("role", sa.String, nullable=False),
+    )
+    v8_intents = sa.Table(
+        "project_creation_intents",
+        v8_md,
+        sa.Column("slug", sa.String, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column(
+            "creator_user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False
+        ),
+        sa.Column("name", sa.String, nullable=False),
+        sa.Column("sensitive", sa.Boolean, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+    )
+    v8_api_tokens = sa.Table(
+        "api_tokens",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("name", sa.String, nullable=False),
+        sa.Column("token_hash", sa.String, unique=True, nullable=False),
+        sa.Column("prefix", sa.String, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("last_used_at", sa.DateTime(timezone=True)),
+        sa.Column("revoked_at", sa.DateTime(timezone=True)),
+    )
+    v8_operator_tokens = sa.Table(
+        "operator_tokens",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("label", sa.String),
+        sa.Column("token_hash", sa.String, unique=True, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("last_used_at", sa.DateTime(timezone=True)),
+        sa.Column("revoked_at", sa.DateTime(timezone=True)),
+    )
+    sa.Table(
+        "password_resets",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("token_hash", sa.String, unique=True, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("used_at", sa.DateTime(timezone=True)),
+    )
+    v8_audit = sa.Table(
+        "audit_log",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("user_id", sa.Integer),
+        sa.Column("org_id", sa.Integer),
+        sa.Column("action", sa.String, nullable=False),
+        sa.Column("detail", sa.String),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+    )
+    v8_client_errors = sa.Table(
+        "client_errors",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer),
+        sa.Column("user_id", sa.Integer),
+        sa.Column("source", sa.String, nullable=False),
+        sa.Column("severity", sa.String, nullable=False),
+        sa.Column("name", sa.String),
+        sa.Column("message", sa.Text, nullable=False),
+        sa.Column("stack", sa.Text),
+        sa.Column("route", sa.String),
+        sa.Column("project_id", sa.String),
+        sa.Column("sheet_id", sa.String),
+        sa.Column("run_id", sa.String),
+        sa.Column("job_id", sa.String),
+        sa.Column("trace_id", sa.String),
+        sa.Column("context_json", sa.Text, nullable=False),
+        sa.Column("bundle_json", sa.Text),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+    )
+    v8_org_keys = sa.Table(
+        "org_keys",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("provider", sa.String, nullable=False),
+        sa.Column("encrypted", sa.Text, nullable=False),
+        sa.Column("hint", sa.String, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.UniqueConstraint("org_id", "provider"),
+    )
+    v8_org_env = sa.Table(
+        "org_env_vars",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("name", sa.String, nullable=False),
+        sa.Column("encrypted", sa.Text, nullable=False),
+        sa.Column("hint", sa.String, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.UniqueConstraint("org_id", "name"),
+    )
+    v8_oauth = sa.Table(
+        "oauth_connections",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
+        sa.Column("provider", sa.String, nullable=False),
+        sa.Column("connection_id", sa.String, nullable=False),
+        sa.Column("external_subject", sa.String, nullable=False),
+        sa.Column("external_email", sa.String),
+        sa.Column("scopes_json", sa.Text, nullable=False),
+        sa.Column("encrypted_refresh_token", sa.Text, nullable=False),
+        sa.Column("refresh_token_hint", sa.String, nullable=False),
+        sa.Column("token_type", sa.String, nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True)),
+        sa.Column("updated_at", sa.DateTime(timezone=True)),
+        sa.Column("revoked_at", sa.DateTime(timezone=True)),
+        sa.UniqueConstraint("org_id", "provider", "connection_id"),
+        sa.UniqueConstraint("org_id", "provider", "external_subject"),
+    )
+    v8_marker = sa.Table(
+        "schema_marker",
+        v8_md,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("edition", sa.String, nullable=False),
+        sa.Column("schema_version", sa.Integer, nullable=False),
+        sa.Column("stamped_at", sa.DateTime(timezone=True)),
+    )
+    from datetime import UTC, datetime
+
+    now = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
+    v8_md.create_all(engine)
+    with engine.begin() as cx:
+        cx.execute(
+            v8_marker.insert().values(
+                id=1, edition="team", schema_version=8, stamped_at=now
+            )
+        )
+        cx.execute(
+            v8_orgs.insert().values(
+                id=1,
+                name="Newsroom",
+                display_name="Newsroom Desk",
+                network_default="off",
+            )
+        )
+        cx.execute(
+            v8_users.insert().values(
+                id=1,
+                email="owner@example.test",
+                name="Owner",
+                allowance_usd=Decimal("10.00"),
+                default_org_id=1,
+                created_at=now,
+            )
+        )
+        cx.execute(v8_memberships.insert().values(user_id=1, org_id=1, role="owner"))
+        cx.execute(
+            v8_projects.insert().values(
+                id=1,
+                org_id=1,
+                storage_org_id=1,
+                slug="investigations",
+                name="Investigations",
+                sensitive=True,
+                network="inherit",
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_pending_invites.insert().values(
+                email="pending@example.test",
+                org_id=1,
+                role="member",
+                expires_at=now,
+            )
+        )
+        cx.execute(
+            v8_project_invites.insert().values(
+                id=1,
+                org_id=1,
+                slug="investigations",
+                email="guest@example.test",
+                role="viewer",
+                token="stored:marker",
+                token_hash="hash-1",
+                invited_by_user_id=1,
+                created_at=now,
+                expires_at=now,
+            )
+        )
+        cx.execute(
+            v8_project_roles.insert().values(
+                org_id=1, slug="investigations", user_id=1, role="owner"
+            )
+        )
+        cx.execute(
+            v8_intents.insert().values(
+                slug="pending-proj",
+                org_id=1,
+                creator_user_id=1,
+                name="Pending",
+                sensitive=False,
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_api_tokens.insert().values(
+                id=1,
+                org_id=1,
+                user_id=1,
+                name="ci",
+                token_hash="pat-hash",
+                prefix="frisket_pat_1234",
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_operator_tokens.insert().values(
+                id=1,
+                org_id=1,
+                label="ops",
+                token_hash="op-hash",
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_audit.insert().values(
+                id=1, user_id=1, org_id=1, action="signup", detail="ok", created_at=now
+            )
+        )
+        cx.execute(
+            v8_client_errors.insert().values(
+                id=1,
+                org_id=1,
+                user_id=1,
+                source="browser",
+                severity="error",
+                message="boom",
+                context_json="{}",
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_org_keys.insert().values(
+                id=1,
+                org_id=1,
+                provider="openai",
+                encrypted="enc-key",
+                hint="sk-...99",
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_org_env.insert().values(
+                id=1,
+                org_id=1,
+                name="CUSTOM_TOKEN",
+                encrypted="enc-env",
+                hint="...42",
+                created_at=now,
+            )
+        )
+        cx.execute(
+            v8_oauth.insert().values(
+                id=1,
+                org_id=1,
+                provider="google",
+                connection_id="google_abc",
+                external_subject="sub-1",
+                external_email="owner@example.test",
+                scopes_json="[]",
+                encrypted_refresh_token="enc-ref",
+                refresh_token_hint="...ref",
+                token_type="Bearer",
+                created_at=now,
+            )
+        )
+
+
+def _assert_v9_upgraded_state(engine: sa.Engine) -> None:
+    inspector = sa.inspect(engine)
+    table_names = set(inspector.get_table_names())
+    assert IDENTITY_TABLES | {"schema_marker"} <= table_names
+    assert not ({"orgs", "org_keys", "org_env_vars"} & table_names)
+
+    for table_name in (
+        "memberships",
+        "projects",
+        "pending_invites",
+        "project_invites",
+        "project_roles",
+        "project_creation_intents",
+        "api_tokens",
+        "operator_tokens",
+        "audit_log",
+        "client_errors",
+        "organization_keys",
+        "organization_env_vars",
+        "oauth_connections",
+    ):
+        cols = {col["name"] for col in inspector.get_columns(table_name)}
+        assert "organization_id" in cols, f"{table_name} missing organization_id"
+        assert "org_id" not in cols, f"{table_name} still has org_id"
+
+    users_cols = {col["name"] for col in inspector.get_columns("users")}
+    assert "default_organization_id" in users_cols
+    assert "default_org_id" not in users_cols
+
+    projects_cols = {col["name"] for col in inspector.get_columns("projects")}
+    assert "storage_organization_id" in projects_cols
+    assert "storage_org_id" not in projects_cols
+
+    # Verify foreign keys reference organizations.id after table rename.
+    for table_name in (
+        "users",
+        "memberships",
+        "projects",
+        "organization_keys",
+        "organization_env_vars",
+        "oauth_connections",
+    ):
+        referred = {
+            fk["referred_table"] for fk in inspector.get_foreign_keys(table_name)
+        }
+        assert "organizations" in referred, (
+            f"{table_name} FK did not follow organizations"
+        )
+        assert "orgs" not in referred, f"{table_name} FK still references orgs"
+
+    # Verify existing index survived untouched.
+    bucket_indexes = {
+        idx["name"] for idx in inspector.get_indexes("auth_attempt_buckets")
+    }
+    assert "idx_auth_attempt_buckets_window_started_at" in bucket_indexes
+
+    with engine.connect() as cx:
+        assert (
+            cx.exec_driver_sql(
+                "SELECT schema_version FROM schema_marker WHERE id = 1"
+            ).scalar_one()
+            == 9
+        )
+        assert cx.exec_driver_sql(
+            "SELECT id, name, display_name, network_default FROM organizations WHERE id = 1"
+        ).one() == (1, "Newsroom", "Newsroom Desk", "off")
+        assert cx.exec_driver_sql(
+            "SELECT email, default_organization_id FROM users WHERE id = 1"
+        ).one() == ("owner@example.test", 1)
+        assert cx.exec_driver_sql(
+            "SELECT user_id, organization_id, role FROM memberships"
+        ).one() == (1, 1, "owner")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, storage_organization_id, slug FROM projects WHERE id = 1"
+        ).one() == (1, 1, "investigations")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, provider, hint FROM organization_keys WHERE id = 1"
+        ).one() == (1, "openai", "sk-...99")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, name, hint FROM organization_env_vars WHERE id = 1"
+        ).one() == (1, "CUSTOM_TOKEN", "...42")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, slug, role FROM project_roles"
+        ).one() == (1, "investigations", "owner")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, email FROM pending_invites"
+        ).one() == (1, "pending@example.test")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, slug, email FROM project_invites WHERE id = 1"
+        ).one() == (1, "investigations", "guest@example.test")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, slug FROM project_creation_intents"
+        ).one() == (1, "pending-proj")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, name FROM api_tokens WHERE id = 1"
+        ).one() == (1, "ci")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, label FROM operator_tokens WHERE id = 1"
+        ).one() == (1, "ops")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, action FROM audit_log WHERE id = 1"
+        ).one() == (1, "signup")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, message FROM client_errors WHERE id = 1"
+        ).one() == (1, "boom")
+        assert cx.exec_driver_sql(
+            "SELECT organization_id, connection_id FROM oauth_connections WHERE id = 1"
+        ).one() == (1, "google_abc")
+
+    # Unique constraint on renamed column/table remains enforced.
+    with pytest.raises(sa.exc.IntegrityError):
+        with engine.begin() as cx:
+            cx.exec_driver_sql(
+                "INSERT INTO organization_keys (id, organization_id, provider, encrypted, hint) "
+                "VALUES (2, 1, 'openai', 'dup', 'dup')"
+            )
+
+
+def test_v8_identity_schema_upgrades_organization_tables_and_columns_sqlite(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "v8-full.db"
+    engine = sa.create_engine(f"sqlite:///{path}", future=True)
+
+    @sa.event.listens_for(engine, "connect")
+    def _enable_fk(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    _create_and_seed_v8_identity_schema(engine)
+
+    for _ in range(2):
+        init_identity_schema(engine)
+
+    with engine.connect() as cx:
+        assert cx.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    _assert_v9_upgraded_state(engine)
+    engine.dispose()
+
+
+def test_v8_to_v9_upgrade_rolls_back_atomically_on_sqlite_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "v8-atomic-rollback.db"
+    engine = sa.create_engine(f"sqlite:///{path}", future=True)
+    _create_and_seed_v8_identity_schema(engine)
+
+    real_apply = team_bootstrap._apply_v8_to_v9
+
+    def failing_apply(cx: sa.Connection, tables: set[str]) -> None:
+        real_apply(cx, tables)
+        raise RuntimeError("simulated mid-migration crash")
+
+    monkeypatch.setattr(team_bootstrap, "_apply_v8_to_v9", failing_apply)
+
+    with pytest.raises(RuntimeError, match="simulated mid-migration crash"):
+        ensure_clean_control_plane_schema(engine, edition="team")
+
+    tables = set(sa.inspect(engine).get_table_names())
+    assert {"orgs", "org_keys", "org_env_vars"} <= tables
+    assert "organizations" not in tables
+    assert "organization_keys" not in tables
+    assert "organization_env_vars" not in tables
+    with engine.connect() as cx:
+        assert (
+            cx.exec_driver_sql(
+                "SELECT schema_version FROM schema_marker WHERE id = 1"
+            ).scalar_one()
+            == 8
+        )
+        assert cx.exec_driver_sql(
+            "SELECT name FROM orgs WHERE id = 1"
+        ).scalar_one() == ("Newsroom")
+    engine.dispose()
+
+
+def test_concurrent_v8_to_v9_upgrade_is_race_free_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "v8-concurrent.db"
+    setup_engine = sa.create_engine(f"sqlite:///{path}", future=True)
+    _create_and_seed_v8_identity_schema(setup_engine)
+    setup_engine.dispose()
+
+    engines = [
+        sa.create_engine(
+            f"sqlite:///{path}",
+            future=True,
+            connect_args={"timeout": 10},
+        )
+        for _ in range(2)
+    ]
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker(eng: sa.Engine) -> None:
+        try:
+            barrier.wait(timeout=5)
+            ensure_clean_control_plane_schema(eng, edition="team")
+        except (PreSplitSchemaError, sa.exc.SQLAlchemyError, RuntimeError) as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(  # realtime: concurrent bootstrap
+            target=worker, args=(eng,)
+        )
+        for eng in engines
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+        assert not thread.is_alive()
+
+    assert errors == []
+    with engines[0].connect() as cx:
+        assert cx.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    _assert_v9_upgraded_state(engines[0])
+    for eng in engines:
+        eng.dispose()
+
+    # Deterministic race: caller reads v8 before lock, peer commits v9 before
+    # caller enters _upgrade_identity_schema_to_current.
+    race_path = tmp_path / "v8-interleaved-race.db"
+    race_engine = sa.create_engine(f"sqlite:///{race_path}", future=True)
+    peer_engine = sa.create_engine(f"sqlite:///{race_path}", future=True)
+    _create_and_seed_v8_identity_schema(race_engine)
+
+    real_upgrade = team_bootstrap._upgrade_identity_schema_to_current
+
+    def peer_finishes_first(eng: sa.Engine, *, edition: str | None) -> bool:
+        assert real_upgrade(peer_engine, edition=edition) is True
+        return real_upgrade(eng, edition=edition)
+
+    monkeypatch.setattr(
+        team_bootstrap,
+        "_upgrade_identity_schema_to_current",
+        peer_finishes_first,
+    )
+    ensure_clean_control_plane_schema(race_engine, edition="team")
+    with race_engine.connect() as cx:
+        assert cx.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    _assert_v9_upgraded_state(race_engine)
+    peer_engine.dispose()
+    race_engine.dispose()
+
+
+def test_v8_identity_schema_upgrades_organization_tables_and_columns_postgres() -> None:
+    import os
+
+    pg_url = os.environ.get("FRISKET_PG_TEST_URL")
+    if not pg_url:
+        pytest.skip("FRISKET_PG_TEST_URL not set (real-postgres tests gated)")
+    engine = sa.create_engine(pg_url, future=True)
+    peer_engine = sa.create_engine(pg_url, future=True)
+    try:
+        with engine.begin() as cx:
+            for name in (
+                *IDENTITY_TABLES,
+                "orgs",
+                "org_keys",
+                "org_env_vars",
+                "schema_marker",
+            ):
+                cx.execute(sa.text(f"DROP TABLE IF EXISTS {name} CASCADE"))
+        _create_and_seed_v8_identity_schema(engine)
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def worker(eng: sa.Engine) -> None:
+            try:
+                barrier.wait(timeout=5)
+                ensure_clean_control_plane_schema(eng, edition="team")
+            except (PreSplitSchemaError, sa.exc.SQLAlchemyError, RuntimeError) as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(  # realtime: concurrent bootstrap
+                target=worker, args=(eng,)
+            )
+            for eng in (engine, peer_engine)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+            assert not thread.is_alive()
+        assert errors == []
+
+        init_identity_schema(engine)
+        _assert_v9_upgraded_state(engine)
+    finally:
+        with engine.begin() as cx:
+            for name in (
+                *IDENTITY_TABLES,
+                "orgs",
+                "org_keys",
+                "org_env_vars",
+                "schema_marker",
+            ):
+                cx.execute(sa.text(f"DROP TABLE IF EXISTS {name} CASCADE"))
+        peer_engine.dispose()
+        engine.dispose()

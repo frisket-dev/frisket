@@ -211,7 +211,7 @@ def test_draft_context_is_bounded_canonical_and_read_only(tmp_path: Path) -> Non
             "format": None,
         }
     ]
-    assert payload["output_columns"][0]["logical_key"] == "answer"
+    assert payload["generated_columns"][0]["logical_key"] == "answer"
     assert payload["replacement_targets"] == []
     assert payload["baseline_rows"] is None
     assert payload["sample_fingerprint"]
@@ -353,7 +353,7 @@ def test_run_context_uses_complete_binding_and_current_renamed_target(
                 },
                 "output_names": {"beat": "reporting_beat"},
                 "replace_existing": True,
-                "expected_output_columns": {
+                "expected_generated_columns": {
                     "reporting_beat": int(output["id"]),
                 },
                 "idempotency_key": "action-compare-run@replacement",
@@ -553,7 +553,7 @@ def test_run_context_reports_real_overlays_and_complete_partial_output_family(
             "includes_manual_edits": True,
             "includes_reject_clear": True,
         }
-        assert [column["logical_key"] for column in payload["output_columns"]] == [
+        assert [column["logical_key"] for column in payload["generated_columns"]] == [
             "beat",
             "tone",
         ]
@@ -1158,7 +1158,7 @@ def test_comparison_preview_captures_full_evaluation_metadata(tmp_path: Path) ->
         result = service.evaluation_preview(pid, preview_id)
         assert result["sheet_id"] == sheet_id
         assert result["action_id"] == "map.ask"
-        assert result["output_columns"][0]["logical_key"] == "answer"
+        assert result["generated_columns"][0]["logical_key"] == "answer"
         assert result["rows"][str(rows[0])]["answer"]["state"] in {
             "value",
             "error",
@@ -1282,7 +1282,7 @@ def test_compare_estimate_is_write_free_and_its_confirmation_starts_same_preview
         assert estimated.status_code == 200, estimated.payload
         assert not service._registry._jobs
         wire_estimate = client.post(
-            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+            f"/api/projects/{pid}/actions/v1/compare-preview-estimate", json=body
         )
         assert wire_estimate.status_code == 200, wire_estimate.text
         assert wire_estimate.json()["estimate"] == estimated.payload["estimate"]
@@ -1386,7 +1386,7 @@ def test_translate_comparison_estimates_confirms_and_previews_without_writing_ce
             "context": "Use a formal newsroom style.",
         }
         estimated = client.post(
-            f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
+            f"/api/projects/{pid}/actions/v1/compare-preview-estimate", json=body
         )
         assert estimated.status_code == 200, estimated.text
         estimate = estimated.json()["estimate"]

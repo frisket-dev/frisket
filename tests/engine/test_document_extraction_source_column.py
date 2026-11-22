@@ -2,7 +2,7 @@ from frisket.actions.document_extraction_types import ExtractionTemplate
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.document_extraction_read import load_positioned_document
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store.evidence import record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_source_artifact, record_source_span
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -127,7 +127,7 @@ def test_extraction_adds_page_scoped_source_file_with_collision_free_name(
     evidence_columns = {
         int(row["column_id"])
         for row in project.db.execute(
-            "SELECT column_id FROM evidence_links WHERE sheet_id=?",
+            "SELECT column_id FROM citations WHERE sheet_id=?",
             (output["sheet_id"],),
         )
     }

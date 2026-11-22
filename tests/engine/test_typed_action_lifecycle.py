@@ -33,7 +33,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.runner import MapRunner, NetworkDisabled, validation
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
@@ -227,7 +227,7 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
     assert receipt.outputs[0].ref["value_hash"].startswith("sha256:")
     counts = next(
         evidence.ref
-        for evidence in receipt.evidence
+        for evidence in receipt.records
         if evidence.ref["kind"] == "map_rows_run_counts"
     )
     assert counts == {
@@ -244,7 +244,7 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
     }
     assert (
         store.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -326,7 +326,7 @@ def test_typed_action_refuses_adopting_unmanaged_generated_output(
     project: tuple[Project, int, int, list[int]],
 ) -> None:
     store, sheet_id, _source_id, row_ids = project
-    store.add_column(sheet_id, "orphan", type="text", ai_generated=True)
+    store.add_column(sheet_id, "orphan", type="text", generated=True)
     request = _request(sheet_id, row_ids, output="orphan").model_copy(
         update={"replace_existing": True}
     )
@@ -341,7 +341,7 @@ def test_typed_action_refuses_adopting_unmanaged_generated_output(
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert "generation-managed" in result.errors[0].message
     assert store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
@@ -476,7 +476,7 @@ def test_typed_receipt_preserves_normalized_request_provenance_on_replay(
     assert receipt is not None
     request_evidence = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "typed_action_request"
     )
     assert request_evidence == {
@@ -732,7 +732,7 @@ def test_stale_running_receipt_is_retained_for_live_writer(
     ReceiptStore(store).insert_running(receipt)
     authority = run_writer_authority_fixture(store, run_id, output_column_ids={output})
     claims = store.db.execute(
-        "SELECT status FROM output_column_claims WHERE claim_token=?",
+        "SELECT status FROM generated_column_claims WHERE claim_token=?",
         (authority.claim_token,),
     ).fetchall()
     assert claims and all(row["status"] == "active" for row in claims)
@@ -811,7 +811,7 @@ def test_typed_action_collision_preserves_recovery_identity(
     )
     ReceiptStore(store).insert_running(blocker)
     with write_transaction(store.db):
-        claims, conflict = OutputColumnClaimStore(store).acquire(
+        claims, conflict = GeneratedColumnClaimStore(store).acquire(
             sheet_id=sheet_id,
             output_names=["upper"],
             action_kind=blocker.action_kind,
@@ -832,7 +832,7 @@ def test_typed_action_collision_preserves_recovery_identity(
 
     assert result.status == "failed"
     error = result.errors[0]
-    assert error.code == "output_column_busy"
+    assert error.code == "generated_column_busy"
     assert error.field == "output_names"
     assert error.details == {
         "sheet_id": sheet_id,
@@ -877,7 +877,7 @@ def test_typed_action_maps_network_refusal_and_cleans_reservation(
     assert result.errors[0].details == {"capability": "external:typed-test"}
     assert ReceiptStore(store).count() == 0
     assert store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    claim = store.db.execute("SELECT status FROM output_column_claims").fetchone()
+    claim = store.db.execute("SELECT status FROM generated_column_claims").fetchone()
     assert claim is not None
     assert claim["status"] == "failed"
 
@@ -911,7 +911,7 @@ def test_typed_action_terminalizes_failed_run_and_retries_cleanly(
     assert run["finished_at"] is not None
     assert (
         store.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )

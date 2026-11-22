@@ -10,7 +10,7 @@ import pytest
 from frisket.contracts.action import (
     ActionError,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.ai.llm import ModelRouter
@@ -267,7 +267,6 @@ def test_result_from_receipt_reconstructs_map_columns(
         assert calls == ["/items/1", "/items/2"]
     finally:
         asyncio.run(client.aclose())
-        project.close()
 
 
 def test_result_from_receipt_fails_closed_on_unknown_first_party_output_ref() -> None:
@@ -381,7 +380,7 @@ def test_result_from_receipt_keeps_settlement_facts_behind_receipt_boundary(
         action_kind="projection.settlement",
         status="completed",
         provider_use=provider_use,
-        evidence=[ReceiptEvidence(ref={"kind": "audit_fact", "value": 1})],
+        records=[ReceiptRecord(ref={"kind": "audit_fact", "value": 1})],
         trace_ref={"kind": "trace", "trace_id": "trace-1"},
         review={"state": "accepted"},
         exports=[{"kind": "archive", "path": "result.zip"}],
@@ -395,7 +394,7 @@ def test_result_from_receipt_keeps_settlement_facts_behind_receipt_boundary(
     assert receipt.provider_use == provider_use
     for receipt_only_field in (
         "provider_use",
-        "evidence",
+        "records",
         "trace_ref",
         "review",
         "exports",
@@ -419,8 +418,8 @@ def test_result_from_receipt_routes_trusted_plugin_ref_through_extension_boundar
                 ref={"kind": "runtime_action_result", "value": "handled"},
             )
         ],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "workbench_runtime_binding",
                     "plugin": "frisket-runtime-demo",

@@ -136,8 +136,8 @@ def _seed_restored_stores(conn: sqlite3.Connection, recovery_id: str) -> None:
         (recovery_id, "2026-07-11T00:00:00Z"),
     )
 
-    key = ProjectStorageKey(storage_org_id=1, project_slug="acme")
-    scope = f"{key.storage_org_id}/{key.project_slug}"
+    key = ProjectStorageKey(storage_organization_id=1, project_slug="acme")
+    scope = f"{key.storage_organization_id}/{key.project_slug}"
     rows: list[tuple[str, str, str, int, int]] = [
         # nonterminal jobs -> quarantine
         ("job", f"{scope}/job/1", "queued", 1, 1),

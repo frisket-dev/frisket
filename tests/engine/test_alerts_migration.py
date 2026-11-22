@@ -11,8 +11,8 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.upgrades.project.alerts_migration import ALERTS_TO_DIGEST
-from frisket.upgrades.project.edit_precedence_migration import (
-    COPY_PRECEDENCE_TO_DIGEST,
+from frisket.upgrades.project.generated_columns_migration import (
+    GENERATED_COLUMNS_TO_DIGEST,
 )
 
 _PRE_UPGRADE_WATCH_TABLES_SQL = """
@@ -272,7 +272,7 @@ def test_alerts_migration_preserves_all_tables_purge_targets_notifications_and_s
 
         raw.execute(
             "UPDATE meta SET value=? WHERE key='schema_digest'",
-            (COPY_PRECEDENCE_TO_DIGEST,),
+            (GENERATED_COLUMNS_TO_DIGEST,),
         )
         raw.commit()
     finally:

@@ -12,7 +12,7 @@ test('save-to input exposes its native combobox and keyboard-real rich popup', a
   // fixture supplies those metadata facts; it never runs an action or
   // overrides the form's actual compatibility policy.
   const generated = (column: Record<string, unknown>) => ({
-    ...column, type: 'text', ai_generated: true, generation_managed: true,
+    ...column, type: 'text', generated: true, generation_managed: true,
   });
   await page.route((url) => url.pathname === `/api/projects/${pid}/sheets`, async (route) => {
     const response = await route.fetch();

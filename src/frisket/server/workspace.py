@@ -111,7 +111,7 @@ class ImportChildAdmissionPort(Protocol):
         project_id: str,
         parent_receipt_id: str,
         child_key: str,
-        quote: Mapping[str, Any],
+        estimate: Mapping[str, Any],
         receipt_id: str | None = None,
     ) -> Any: ...
 
@@ -284,9 +284,9 @@ class Workspace:
             require_storage_identity=require_storage_identity,
             # Declared storage posture, not path inference: an external managed
             # composition constructs this Workspace with
-            # queue_payload_extra["storage_org_id"]
+            # queue_payload_extra["storage_organization_id"]
             # equal to the organization whose directory self.root IS
-            # (FRISKET_DATA_DIR/projects/<org_id>). Declaring it here lets a
+            # (FRISKET_DATA_DIR/projects/<organization_id>). Declaring it here lets a
             # claimed ProjectStorageKey resolve against this organization-scoped root
             # without re-appending the organization id (double-nesting), while claims
             # for other orgs fail closed. Local workspaces have no
@@ -420,10 +420,10 @@ class Workspace:
             return None
 
         def open_declared_project(key: ProjectStorageKey, path: Path) -> Project:
-            if key.storage_org_id != declared_organization_id:
+            if key.storage_organization_id != declared_organization_id:
                 raise ValueError(
-                    f"claimed storage identity (org {key.storage_org_id}) does "
-                    f"not belong to this workspace (org {declared_organization_id})"
+                    f"claimed storage identity (organization {key.storage_organization_id}) does "
+                    f"not belong to this workspace (organization {declared_organization_id})"
                 )
             return Project(path, blob_store=factory(key.project_slug))
 
@@ -451,7 +451,7 @@ class Workspace:
                 return Project(path, blob_store=blob_store)
             return self.project_opener(
                 ProjectStorageKey(
-                    storage_org_id=require_opener_storage_organization_id(
+                    storage_organization_id=require_opener_storage_organization_id(
                         self.queue_storage_organization_id
                     ),
                     project_slug=project_id,
@@ -466,7 +466,7 @@ class Workspace:
 
     @property
     def queue_storage_organization_id(self) -> int | None:
-        value = self.queue_payload_extra.get("storage_org_id")
+        value = self.queue_payload_extra.get("storage_organization_id")
         try:
             return None if value is None else int(value)
         except (TypeError, ValueError):
@@ -531,7 +531,7 @@ class Workspace:
         project_keys = project.provider_model_keys()
         # Hosted / injected base router: layer project keys over organization secrets.
         # The team edition resolves its organization keys for each request so a key
-        # written through /api/org/keys becomes effective immediately without
+        # written through /api/organization/keys becomes effective immediately without
         # restarting the process.  The resolver is deliberately key-only: its
         # composition boundary fixes the non-secret provenance to org_byok.
         resolved_organization_keys = (
@@ -918,8 +918,8 @@ class Workspace:
         return self._router is None
 
     @property
-    def cost_preapproval_usd(self) -> str:
-        """The local installation's cost-gate amount, defaulting to $2."""
+    def allowance_usd(self) -> str:
+        """The local installation's allowance amount, defaulting to $2."""
 
         return self._local_allowance_usd
 

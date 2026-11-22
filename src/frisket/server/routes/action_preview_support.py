@@ -33,8 +33,8 @@ from frisket.contracts.http.action_preview_runs import (
 from frisket.contracts.http.action_compare import (
     ActionCompareContextRequest,
     ActionCompareContextResponse,
+    ActionCompareEstimateResponse,
     ActionComparePreviewRequest,
-    ActionCompareQuoteResponse,
 )
 from frisket.server.route_errors import http_error_responses
 from frisket.server.services.action_param_validation import (
@@ -120,8 +120,8 @@ def register_action_preview_run_routes(
             )
 
         @app.post(
-            "/api/projects/{pid}/actions/v1/compare-preview-quote",
-            response_model=ActionCompareQuoteResponse,
+            "/api/projects/{pid}/actions/v1/compare-preview-estimate",
+            response_model=ActionCompareEstimateResponse,
             response_model_exclude_unset=True,
             responses={
                 **ACTION_PREVIEW_ERROR_RESPONSES,
@@ -129,11 +129,11 @@ def register_action_preview_run_routes(
                 **http_error_responses(401, 403, 422, 500),
             },
         )
-        def v1_action_compare_preview_quote(
+        def v1_action_compare_preview_estimate(
             request: Request,
             pid: str,
             body: ActionComparePreviewRequest,
-        ) -> ActionCompareQuoteResponse | JSONResponse:
+        ) -> ActionCompareEstimateResponse | JSONResponse:
             response = service.estimate_compare_preview(
                 pid, body.model_dump(mode="json"), request_context=request
             )
@@ -141,7 +141,7 @@ def register_action_preview_run_routes(
                 return JSONResponse(
                     status_code=response.status_code, content=response.payload
                 )
-            return ActionCompareQuoteResponse.model_validate(response.payload)
+            return ActionCompareEstimateResponse.model_validate(response.payload)
 
         @app.post(
             "/api/projects/{pid}/actions/v1/compare-preview",

@@ -25,7 +25,7 @@ from frisket.actions.types import (
     TableError,
     discover_references,
 )
-from frisket.contracts.action import ActionError, ReceiptIO, ReceiptEvidence
+from frisket.contracts.action import ActionError, ReceiptIO, ReceiptRecord
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.map_rows_action import (
     validate_row_project_references,
@@ -75,7 +75,7 @@ from frisket.engine.store.cell_writes import (
     create_base_cell_producer,
     initialize_base_cells,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.transcript_projection import (
     TranscriptProjection,
     project_transcript_segments,
@@ -842,7 +842,7 @@ def _publish_projection(
                 )
             )
             supporting_records.append(
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "temporal_annotation_projection",
                         "source": annotation.input_ref(),
@@ -874,7 +874,7 @@ def _publish_projection(
         op_id=write.op_id,
     )
     supporting_records.append(
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "derived_transcript_timeline",
                 "artifact_id": int(artifact["id"]),
@@ -897,7 +897,7 @@ def _publish_projection(
     )
     if projected is not None:
         supporting_records.append(
-            ReceiptEvidence(ref=projected, retention="materialized")
+            ReceiptRecord(ref=projected, retention="materialized")
         )
 
     return supporting_records

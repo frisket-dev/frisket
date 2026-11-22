@@ -68,7 +68,7 @@ function receipt(status: string): V1Receipt {
       },
     ],
     providerUse: [],
-    evidence: [],
+    records: [],
     errors: [],
   } as unknown as V1Receipt;
 }

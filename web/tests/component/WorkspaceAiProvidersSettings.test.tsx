@@ -17,6 +17,7 @@ import type {
   LocalProviderEntry,
   LocalHttpEndpointEntry,
   LocalProviderModel,
+  PlatformLocalProviderEntry,
   ProviderValidateResult,
 } from '../../src/api/types';
 
@@ -59,7 +60,7 @@ function model(id: string, label: string): LocalProviderModel {
   return { id, label, price: null, local: true };
 }
 
-function providerEntry(overrides: Partial<LocalProviderEntry> & Pick<LocalProviderEntry, 'id' | 'label' | 'kind' | 'models'>): LocalProviderEntry {
+function providerEntry(overrides: Partial<PlatformLocalProviderEntry> & Pick<PlatformLocalProviderEntry, 'id' | 'label' | 'kind' | 'models'>): PlatformLocalProviderEntry {
   return { configured: false, source: null, hint: null, ...overrides };
 }
 

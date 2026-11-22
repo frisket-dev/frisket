@@ -15,24 +15,33 @@ class AuditStore:
         self.cx = cx
 
     def append(
-        self, *, user_id: int | None, org_id: int | None, action: str, detail: str = ""
+        self,
+        *,
+        user_id: int | None,
+        organization_id: int | None,
+        action: str,
+        detail: str = "",
     ) -> None:
         record_audit(
-            self.cx, user_id=user_id, org_id=org_id, action=action, detail=detail
+            self.cx,
+            user_id=user_id,
+            organization_id=organization_id,
+            action=action,
+            detail=detail,
         )
 
 
 class TeamUnitOfWork:
-    def __init__(self, engine: sa.Engine, *, org_id: int):
+    def __init__(self, engine: sa.Engine, *, organization_id: int):
         self.engine = engine
-        self.org_id = org_id
+        self.organization_id = organization_id
 
     def __enter__(self) -> "TeamUnitOfWork":
         self.connection = self.engine.connect()
         self.transaction = self.connection.begin()
         self.auth = IdentityStore(
             self.connection,
-            provision_organization_id=self.org_id,
+            provision_organization_id=self.organization_id,
         )
         self.audit = AuditStore(self.connection)
         return self

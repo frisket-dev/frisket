@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx
@@ -90,7 +90,7 @@ class BrowserUrlRenderResult:
     screenshot: bytes = b""
     screenshot_mime: str = "image/png"
     elapsed_ms: int | None = None
-    resources: list[BrowserUrlResource | Mapping[str, Any]] = field(
+    resources: Sequence[BrowserUrlResource | Mapping[str, Any]] = field(
         default_factory=list
     )
 
@@ -502,7 +502,10 @@ def fetch_static_url(
                     location = response.headers.get("location")
                     if not location:
                         raise ValueError("redirect missing Location header")
-                    next_url = str(response.next_request.url)
+                    next_request = response.next_request
+                    if next_request is None:
+                        raise ValueError("redirect missing next request")
+                    next_url = str(next_request.url)
                     if not url_is_safe(next_url):
                         raise ValueError(f"blocked redirect target: {next_url}")
                     redirects.append(

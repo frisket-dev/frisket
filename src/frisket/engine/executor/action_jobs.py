@@ -13,13 +13,13 @@ from frisket.contracts.action import (
     ActionIdentity,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.project_opener import ProjectOpener
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
@@ -243,7 +243,7 @@ def _terminalize_action_job_receipt(
                 f"failed to terminalize {action_kind} receipt {receipt_id!r} to "
                 f"{status!r} (current status {receipt.status!r})"
             )
-        OutputColumnClaimStore(project).release_for_receipt(
+        GeneratedColumnClaimStore(project).release_for_receipt(
             receipt_id=receipt_id,
             status="released" if status in {"completed", "partial"} else status,
         )
@@ -380,7 +380,7 @@ def _terminalize_formula_attached_run(
         "SELECT status, current_attempt_id FROM runs WHERE id=?", (run_id,)
     ).fetchone()
     claims = project.db.execute(
-        "SELECT DISTINCT claim_token FROM output_column_claims "
+        "SELECT DISTINCT claim_token FROM generated_column_claims "
         "WHERE run_id=? AND receipt_id=? AND status='active'",
         (run_id, receipt_id),
     ).fetchall()
@@ -465,10 +465,9 @@ def _mark_action_job_receipt_running(
     running = receipt.model_copy(update={"status": "running"})
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        updated = receipts.update_body_status(
+        updated = receipts.update_body_status_in_transaction(
             running,
             require_status="queued",
-            commit=False,
         )
         if not updated:
             project.db.rollback()
@@ -503,10 +502,9 @@ def _mark_action_job_receipt_queued_for_retry(
     queued = receipt.model_copy(update={"status": "queued"})
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        receipts.update_body_status(
+        receipts.update_body_status_in_transaction(
             queued,
             require_status="running",
-            commit=False,
         )
         project.db.commit()
     except Exception:
@@ -518,7 +516,7 @@ def _mark_action_job_receipt_queued_for_retry(
 
 
 def _action_job_receipt_job_id(receipt: Receipt) -> int | None:
-    for item in receipt.evidence:
+    for item in receipt.records:
         ref = item.ref
         if ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND:
             continue
@@ -656,12 +654,11 @@ def reserve_queued_action_job_receipt(
                         field="idempotency_key",
                     )
                 if not pins:
-                    pinned = ReceiptStore(project).update_body_status(
+                    pinned = ReceiptStore(project).update_body_status_in_transaction(
                         previous.model_copy(
                             update={"inputs": [*previous.inputs, prepared_input]}
                         ),
                         require_status=previous.status,
-                        commit=False,
                     )
                     if not pinned:
                         raise RuntimeError("queued operation reservation changed")
@@ -899,11 +896,11 @@ def mark_action_job_enqueued(
             )
         supporting_records = [
             item
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND
         ]
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": ACTION_JOB_ENQUEUED_RECORD_KIND,
                     "queue_kind": job_kind,
@@ -911,11 +908,10 @@ def mark_action_job_enqueued(
                 }
             )
         )
-        updated_receipt = receipt.model_copy(update={"evidence": supporting_records})
-        updated = receipts.update_body_status(
+        updated_receipt = receipt.model_copy(update={"records": supporting_records})
+        updated = receipts.update_body_status_in_transaction(
             updated_receipt,
             require_status=receipt.status,
-            commit=False,
         )
         if not updated:
             project.db.rollback()
@@ -984,7 +980,7 @@ def launch_queued_action_job(
     envelope: ActionJobEnvelope,
     queue: Any,
     job_kind: str,
-    org_id: str | None = None,
+    organization_id: str | None = None,
     max_attempts: int = 1,
     payload_extra: Mapping[str, Any] | None = None,
     project: Any | None = None,
@@ -1012,8 +1008,8 @@ def launch_queued_action_job(
         and "dedupe_key" not in (payload_extra or {})
     ):
         authoritative_payload["dedupe_key"] = envelope.receipt_id
-    if org_id is not None:
-        authoritative_payload["org_id"] = org_id
+    if organization_id is not None:
+        authoritative_payload["organization_id"] = organization_id
     payload = merge_queue_payload(authoritative_payload, payload_extra)
     job_id = queue.enqueue(job_kind, payload, max_attempts=max_attempts)
     if project is not None:

@@ -220,9 +220,9 @@ def test_read_only_invocation_does_not_prepare_or_execute_handler(installed_tabl
 
     class ViewerAccess:
         def resolve_project_for_user_id(self, user_id, slug, **kwargs):
-            return {"org_id": 1, "storage_org_id": 1, "slug": slug}
+            return {"organization_id": 1, "storage_organization_id": 1, "slug": slug}
 
-        def can_on_project(self, org_id, slug, user_id, need):
+        def can_on_project(self, organization_id, slug, user_id, need):
             required.append(need)
             return need == "viewer"
 
@@ -231,7 +231,7 @@ def test_read_only_invocation_does_not_prepare_or_execute_handler(installed_tabl
         resolve_user=lambda request: {
             "id": 7,
             "email": "reader@example.com",
-            "org_id": 1,
+            "organization_id": 1,
             "auth": "session",
         },
         admin_emails=lambda: set(),

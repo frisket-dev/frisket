@@ -146,12 +146,12 @@ class AskResearchState(WireModel):
     write_mode: Literal["ask_each", "ask_overwrite", "full_access"]
     max_turns: int | None
     turn_count: int
-    pending_approval: dict[str, JsonValue] | None
+    pending_pause: dict[str, JsonValue] | None
 
 
 class AskResearchResume(WireModel):
     expected_revision: int = Field(ge=1)
-    approval_id: str = Field(min_length=1, max_length=100)
+    pause_id: str = Field(min_length=1, max_length=100)
     decision: Literal["continue", "approve", "skip"] = "continue"
     budget_usd: str | None = Field(
         default=None, pattern=r"^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$", max_length=20
@@ -184,12 +184,12 @@ class AskCellTarget(WireModel):
     text_range: ProjectSearchTextRange | None = None
 
 
-class AskEvidenceTarget(WireModel):
-    kind: Literal["evidence"]
+class AskCellCitationTarget(WireModel):
+    kind: Literal["cell_citation"]
     sheet_id: int
     row_id: int
     column_id: int
-    evidence_link_id: str
+    citation_id: str
     artifact_id: str
     span_id: str
     span_ids: list[str] = Field(default_factory=list)
@@ -212,7 +212,7 @@ class AskWebTarget(WireModel):
 
 
 AskCitationTarget = Annotated[
-    AskCellTarget | AskQueryTarget | AskEvidenceTarget | AskWebTarget,
+    AskCellTarget | AskQueryTarget | AskCellCitationTarget | AskWebTarget,
     Field(discriminator="kind"),
 ]
 

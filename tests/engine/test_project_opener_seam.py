@@ -9,6 +9,7 @@ terminalize receipts for jobs that failed for unrelated reasons.
 """
 
 from __future__ import annotations
+from contextlib import closing
 
 import importlib
 import signal
@@ -70,9 +71,11 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
         workspace_module, "register_production_handlers", capture_registration
     )
 
-    storage_org_id = 23
-    root = tmp_path / str(storage_org_id)
-    key = ProjectStorageKey(storage_org_id=storage_org_id, project_slug="same")
+    storage_organization_id = 23
+    root = tmp_path / str(storage_organization_id)
+    key = ProjectStorageKey(
+        storage_organization_id=storage_organization_id, project_slug="same"
+    )
     bundle = root / "same.frisket"
     created = Project.create(bundle, name="Same")
     created.close()
@@ -80,7 +83,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
 
     def store_factory(project_slug: str) -> S3ProjectBlobStore:
         store_key = ProjectStorageKey(
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             project_slug=project_slug,
         )
         store_keys.append(store_key)
@@ -100,13 +103,13 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
 
     monkeypatch.setattr(workspace_module, "Project", recording_project)
     registry = default_registry()
-    queue = SqliteJobQueue(tmp_path / "workspace-queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "workspace-queue.db", cloud=True)
     try:
         workspace_module.Workspace(
             root,
             queue=queue,
             registry=registry,
-            queue_payload_extra={"storage_org_id": storage_org_id},
+            queue_payload_extra={"storage_organization_id": storage_organization_id},
             project_blob_store_factory=store_factory,
         )
         assert len(registered_openers) == 1
@@ -116,19 +119,18 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
             "and project_blob_store_factory"
         )
 
-        opened = opener(key, bundle)
-        try:
+        with closing(opener(key, bundle)) as opened:
             assert isinstance(opened.blob_store, S3ProjectBlobStore)
             assert opened.blob_store.project_storage_key == key
             assert opened_paths == [bundle]
             assert store_keys == [key]
-        finally:
-            opened.close()
 
         before_wrong_organization = (list(opened_paths), list(store_keys))
         with pytest.raises((RuntimeError, ValueError)):
             opener(
-                ProjectStorageKey(storage_org_id=99, project_slug=key.project_slug),
+                ProjectStorageKey(
+                    storage_organization_id=99, project_slug=key.project_slug
+                ),
                 bundle,
             )
         assert (opened_paths, store_keys) == before_wrong_organization
@@ -151,7 +153,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
                 {
                     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
                     "project_id": "payload-attacker",
-                    "storage_org_id": 99,
+                    "storage_organization_id": 99,
                     "workspace_root": str(tmp_path / "payload-root"),
                     "source_id": -1,
                 },
@@ -177,7 +179,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
     modules = _opener_modules()
     worker_module = modules["frisket.engine.jobs.worker"]
     global_root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=23, project_slug="trusted")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="trusted")
     bundle = global_root / "23" / "trusted.frisket"
     created = Project.create(bundle, name="Trusted")
     created.close()
@@ -207,7 +209,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
         calls.append((storage_key, Path(path)))
         return Project(path)
 
-    queue = SqliteJobQueue(tmp_path / "handler-queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "handler-queue.db", cloud=True)
     registry = default_registry()
     try:
         worker_module.register_production_handlers(
@@ -220,8 +222,8 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
         common = {
             CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
             "project_id": "payload-attacker",
-            "storage_org_id": 999,
-            "org_id": 555,
+            "storage_organization_id": 999,
+            "organization_id": 555,
             "workspace_root": str(tmp_path / "payload-root"),
             "job_id": 1,
             "run_id": 999,
@@ -297,7 +299,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     # The root basename is intentionally 999 while its declared identity is 23.
     # Re-parsing root.name would cross the test's tenant boundary.
     root = tmp_path / "999"
-    key = ProjectStorageKey(storage_org_id=23, project_slug="same")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="same")
     bundle = root / "same.frisket"
     created = Project.create(bundle, name="Same")
     created.close()
@@ -320,7 +322,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     ):
         monkeypatch.setattr(modules[name], "Project", forbid_direct_project)
 
-    queue = SqliteJobQueue(tmp_path / "scheduler.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "scheduler.db", cloud=True)
     try:
         for sweep in (
             cli._FEED_POLLS,
@@ -356,7 +358,9 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         # The actual global hosted notification recovery root is
         # /data/projects, not a pre-selected per-organization directory.
         global_root = tmp_path / "projects"
-        recovery_key = ProjectStorageKey(storage_org_id=31, project_slug="recover")
+        recovery_key = ProjectStorageKey(
+            storage_organization_id=31, project_slug="recover"
+        )
         recovery_bundle = global_root / "31" / "recover.frisket"
         recovery = Project.create(recovery_bundle, name="Recover")
         recovery.close()
@@ -398,7 +402,9 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         from frisket.engine.jobs.queue import ACTION_RUN_KIND
         import frisket.engine.store as store_module
 
-        action_key = ProjectStorageKey(storage_org_id=41, project_slug="action")
+        action_key = ProjectStorageKey(
+            storage_organization_id=41, project_slug="action"
+        )
         action_bundle = global_root / "41" / "action.frisket"
         action_project = Project.create(action_bundle, name="Action")
         action_project.close()
@@ -421,8 +427,8 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             project_storage_key=action_key,
             payload={
                 "project_id": "payload-attacker",
-                "storage_org_id": 999,
-                "org_id": 555,
+                "storage_organization_id": 999,
+                "organization_id": 555,
                 "workspace_root": str(tmp_path / "payload-root"),
                 "action_job": envelope.to_json(),
             },
@@ -499,7 +505,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         result = digests.compose_notification_digest_job(
             workspace_root=root,
             project_id=key.project_slug,
-            storage_org_id=key.storage_org_id,
+            storage_organization_id=key.storage_organization_id,
             route_id=5,
             window=window_type(
                 cadence="daily",
@@ -588,7 +594,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 "--schedule-notification-digests-interval",
                 "1",
             ],
-            hosted=True,
+            cloud=True,
         )
         assert rc == 0
         every_sweep = [
@@ -636,7 +642,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 "--schedule-notification-digests-interval",
                 "1",
             ],
-            hosted=True,
+            cloud=True,
         )
         assert rc == 0
         assert started == [

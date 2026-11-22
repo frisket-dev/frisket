@@ -182,13 +182,13 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "sha256": digest,
         "byte_count": len(raw),
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "import_source",
         "source_rows",
         "source_cell",
     }
     source_refs = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "import_source"
+        item.ref for item in receipt.records if item.ref["kind"] == "import_source"
     ]
     assert source_refs[0]["source_kind"] == "ndjson"
     assert source_refs[0]["importer"] == "ndjson"

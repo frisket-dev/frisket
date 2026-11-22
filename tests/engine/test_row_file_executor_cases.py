@@ -98,7 +98,7 @@ def _case(kind, seed, make, patch, output_key, output_name, row_count, capabilit
         receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
         occurrences = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "row_file_output"
         ]
         assert {item["row_id"] for item in occurrences} == set(seeded["row_ids"])

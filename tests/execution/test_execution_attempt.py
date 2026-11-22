@@ -44,6 +44,7 @@ from frisket.execution.attempt import (
 from frisket.execution.attempt_authority import AttemptAuthority
 from frisket.execution.resolve_for_action import action_identity_hash
 from tests.deterministic_time import controlled_time
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _transcription_plan():
@@ -240,8 +241,8 @@ def _mint(project, run_id, *, scope=(7, 11)):
 
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
-            org_id="org-test",
+            edition="cloud",
+            organization_id="org-test",
             funding=PlatformMetered(),
         ),
         provider=_PricedProvider(),
@@ -256,7 +257,7 @@ def _mint(project, run_id, *, scope=(7, 11)):
 def _claim_unscoped(project, commitment) -> None:
     """These lifecycle probes carry no output-column effect."""
 
-    claim(project, commitment, claimless_direct_effect=True)
+    claim(project, commitment, fence=WriterFence(claimless_direct_effect=True))
 
 
 def test_claim_requires_an_explicit_claimed_or_claimless_mode(
@@ -265,8 +266,10 @@ def test_claim_requires_an_explicit_claimed_or_claimless_mode(
 ):
     run_id, _route, _set, _consent = consented_run
     attempt = _mint(project, run_id)
-    with pytest.raises(TypeError, match="claimless_direct_effect"):
+    with pytest.raises(TypeError, match="fence"):
         claim(project, attempt)
+    with pytest.raises(AttemptClaimRefused):
+        claim(project, attempt, fence=WriterFence())
     assert attempt_receipt(project, attempt.attempt_id)["state"] == "admitted"
 
 
@@ -283,8 +286,8 @@ def test_claimless_dispatch_refuses_an_generated_column_plan(
         claim(
             project,
             attempt,
+            fence=WriterFence(claimless_direct_effect=True),
             output_column_ids=frozenset({123}),
-            claimless_direct_effect=True,
         )
     assert attempt_receipt(project, attempt.attempt_id)["state"] == "admitted"
 
@@ -446,7 +449,7 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
 
 
 def _link_run_job(project, run_id, job_id):
-    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.contracts.action import Receipt, ReceiptRecord
     from frisket.engine.store.receipts import ReceiptStore
 
     receipt = Receipt(
@@ -456,10 +459,8 @@ def _link_run_job(project, run_id, job_id):
         run_id=run_id,
         action_kind="media.transcribe",
         status="running",
-        evidence=[
-            ReceiptEvidence(
-                ref={"kind": "queued_action_job_enqueued", "job_id": job_id}
-            )
+        records=[
+            ReceiptRecord(ref={"kind": "queued_action_job_enqueued", "job_id": job_id})
         ],
     )
     ReceiptStore(project).insert(receipt)
@@ -1078,7 +1079,7 @@ def test_edition_run_context_lands_on_its_column_not_in_params(project, consente
     assert "edition_run_context" not in json.loads(row["params"])
 
     # Idempotent: an already-attached context is never overwritten.
-    attach_run_edition_run_context(project, run_id, {"edition": "hosted"})
+    attach_run_edition_run_context(project, run_id, {"edition": "cloud"})
     assert json.loads(
         project.db.execute(
             "SELECT edition_run_context FROM runs WHERE id=?", (run_id,)
@@ -1234,9 +1235,11 @@ def test_requeued_claimless_attempt_recovers_original_handler_not_current_job(
             reopened = Project(project.path)
             if attached_queue:
                 reopened._frisket_run_queue = queue
-            from frisket.engine.store.output_claims import OutputColumnClaimStore
+            from frisket.engine.store.generated_column_claims import (
+                GeneratedColumnClaimStore,
+            )
 
-            claims = OutputColumnClaimStore(reopened)
+            claims = GeneratedColumnClaimStore(reopened)
             assert claims.attempt_handler_execution_stopped(original.attempt_id)
             with write_transaction(reopened.db):
                 assert abandon_stale_dispatching_attempts(reopened, run_id) == 1

@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
-import { isGeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type GeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
@@ -15,8 +15,11 @@ beforeAll(installPopoverPolyfill);
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const MODEL = 'openai/pdf-test';
 const catalog = servedActionCatalog();
-const entry = catalog.actions.find((item) => item.kind === 'map.ask');
-if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing Ask catalog entry');
+const entry: GeneratedActionCatalogEntry = (() => {
+  const item = catalog.actions.find((candidate) => candidate.kind === 'map.ask');
+  if (!item || !isGeneratedActionCatalogEntry(item)) throw new Error('Missing Ask catalog entry');
+  return item;
+})();
 const template = generatedActionTemplateFromCatalogEntry(entry)!;
 const sheet = sheetMeta([columnDef({ id: '1', name: 'document', type: 'file' }),
   columnDef({ id: '2', name: 'notes', type: 'text' })], { id: '7', rowCount: 1 });

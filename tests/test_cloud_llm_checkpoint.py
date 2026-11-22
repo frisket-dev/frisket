@@ -26,8 +26,8 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMUsage,
     CloudTokenPrice,
 )
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 
 MODEL = "anthropic/claude-sonnet-4-5"
 
@@ -172,9 +172,8 @@ def _claimless_run(
     return run_id
 
 
-def test_returned_request_replays_locally_and_changed_payer_refuses(tmp_path):
+def test_returned_request_replays_locally_and_changed_payer_refuses(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         first_transport = _Transport([_response(execution_id="exec-1")])
         first = _coordinator(project, first_transport)
         attempt, original = await first.execute(_request())
@@ -191,14 +190,12 @@ def test_returned_request_replays_locally_and_changed_payer_refuses(tmp_path):
         with pytest.raises(Exception, match="different request or payer"):
             await changed_user.execute(_request())
         assert replay_transport.calls == []
-        project.close()
 
     asyncio.run(scenario())
 
 
-def test_reserved_request_reposts_identical_id_and_body(tmp_path):
+def test_reserved_request_reposts_identical_id_and_body(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         uncertain = _Transport([RuntimeError("lost response")])
         with pytest.raises(RuntimeError, match="lost response"):
             await _coordinator(project, uncertain).execute(_request())
@@ -210,14 +207,12 @@ def test_reserved_request_reposts_identical_id_and_body(tmp_path):
         [(second_attempt, second_request)] = recovered.calls
         assert second_attempt.request_id == first_attempt.request_id
         assert second_request == first_request
-        project.close()
 
     asyncio.run(scenario())
 
 
-def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
+def test_reserved_request_is_adopted_by_fresh_run_writer(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "fresh-run.frisket")
         project.add_sheet("S")
         first_run = _claimless_run(project, attempt_id="attempt-first")
         uncertain = _Transport([RuntimeError("lost response")])
@@ -228,9 +223,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
             estimate_authority=CloudEstimateAuthority(100),
             group_key="map:stable-parent-key",
             action_kind="map.extract",
-            run_id=first_run,
-            writer_attempt_id="attempt-first",
-            claimless_direct_effect=True,
+            fence=WriterFence.claimless(run_id=first_run, attempt_id="attempt-first"),
         )
         with pytest.raises(RuntimeError, match="lost response"):
             await first.execute(_request())
@@ -243,6 +236,9 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
         project.db.commit()
 
         second_run = _claimless_run(project, attempt_id="attempt-second")
+        second_fence = WriterFence.claimless(
+            run_id=second_run, attempt_id="attempt-second"
+        )
         recovered_transport = _Transport([_response(execution_id="exec-1")])
         recovered = CloudLLMCheckpointCoordinator(
             project,
@@ -251,9 +247,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
             estimate_authority=CloudEstimateAuthority(100),
             group_key="map:stable-parent-key",
             action_kind="map.extract",
-            run_id=second_run,
-            writer_attempt_id="attempt-second",
-            claimless_direct_effect=True,
+            fence=second_fence,
         )
         await recovered.execute(_request())
 
@@ -272,8 +266,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
                 {"row_id": None, "column_id": None, **entry}
                 for entry in recovered.returned_accounting
             ],
-            writer_attempt_id="attempt-second",
-            claimless_direct_effect=True,
+            fence=second_fence,
         )
         recovered.retire_returned()
         assert (
@@ -282,14 +275,12 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
             ).fetchone()[0]
             == 0
         )
-        project.close()
 
     asyncio.run(scenario())
 
 
-def test_changed_request_gets_new_child_and_only_remaining_allowance(tmp_path):
+def test_changed_request_gets_new_child_and_only_remaining_allowance(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         transport = _Transport(
             [
                 _response(execution_id="exec-1", charge_micro=20),
@@ -306,14 +297,12 @@ def test_changed_request_gets_new_child_and_only_remaining_allowance(tmp_path):
         assert first_attempt.estimate_authority.maximum_charge_micro == 100
         assert second_attempt.estimate_authority.maximum_charge_micro == 80
         assert len(coordinator.returned_checkpoints) == 2
-        project.close()
 
     asyncio.run(scenario())
 
 
-def test_explicit_unknown_quantity_covers_distinct_tool_and_repair_calls(tmp_path):
+def test_explicit_unknown_quantity_covers_distinct_tool_and_repair_calls(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         transport = _Transport(
             [
                 _response(execution_id="exec-1", charge_micro=20),
@@ -356,14 +345,12 @@ def test_explicit_unknown_quantity_covers_distinct_tool_and_repair_calls(tmp_pat
         assert first_attempt.estimate_authority.maximum_charge_micro is None
         assert second_attempt.estimate_authority.maximum_charge_micro is None
         assert len(coordinator.returned_checkpoints) == 2
-        project.close()
 
     asyncio.run(scenario())
 
 
-def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(tmp_path):
+def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         payer = CloudPayerSubject(**{**_payer().to_snapshot(), "lane": "account_key"})
         transport = _Transport(
             [
@@ -382,14 +369,12 @@ def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(tmp
 
         [first_attempt] = [call[0] for call in transport.calls]
         assert first_attempt.estimate_authority.maximum_charge_micro == 100
-        project.close()
 
     asyncio.run(scenario())
 
 
-def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
+def test_router_selects_cloud_only_inside_exact_bound_model_scope(project):
     async def scenario() -> None:
-        project = Project.create(tmp_path / "project.frisket")
         transport = _Transport([_response(execution_id="exec-1")])
         coordinator = _coordinator(project, transport)
         router = ModelRouter(
@@ -411,7 +396,6 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
                 )
         finally:
             await router.aclose()
-            project.close()
 
         assert response.content == "answer"
         assert len(transport.calls) == 1
@@ -420,9 +404,8 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
 
 
 @pytest.mark.parametrize("ceiling", [None, 100])
-def test_pending_accounting_does_not_block_next_approved_call(tmp_path, ceiling):
+def test_pending_accounting_does_not_block_next_approved_call(project, ceiling):
     async def scenario():
-        project = Project.create(tmp_path / "pending.frisket")
         pending = _response(execution_id="first").model_copy(
             update={
                 "receipt": None,
@@ -448,64 +431,57 @@ def test_pending_accounting_does_not_block_next_approved_call(tmp_path, ceiling)
         # The explicit agent budget reserves a provisional estimate only; it
         # never turns that estimate into a settled charge or receipt.
         assert coordinator.returned_accounting[0]["cloud_receipt"] is None
-        project.close()
 
     asyncio.run(scenario())
 
 
 def test_pending_pdf_without_page_metadata_refuses_budget_continuation_clearly(
-    tmp_path,
+    project,
 ):
     async def scenario():
-        project = Project.create(tmp_path / "pending-pdf.frisket")
-        try:
-            pending = _response(execution_id="first").model_copy(
-                update={
-                    "receipt": None,
-                    "accounting": CloudExecutionAccounting(
-                        status="pending",
-                        usage=CloudLLMUsage(
-                            kind="llm.complete", tokens_in=2, tokens_out=1
-                        ),
-                    ),
-                }
-            )
-            transport = _Transport([pending, _response(execution_id="second")])
-            coordinator = _coordinator(project, transport, ceiling=100)
-            pdf = _request().model_copy(
-                update={
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "document",
-                                    "media_type": "application/pdf",
-                                    "data": "cGRm",
-                                }
-                            ],
-                        }
-                    ]
-                }
-            )
-            await coordinator.execute(pdf)
-            with pytest.raises(CloudExecutionRefused) as caught:
-                await coordinator.execute(_request(message="next call"))
-            assert caught.value.code == "external_effect_reconciliation_required"
-            assert "research budget" in str(caught.value)
-            assert "accounting" in str(caught.value)
-            assert caught.value.retryable is False
-            assert len(transport.calls) == 1
-            assert len(coordinator.returned_checkpoints) == 1
-            assert coordinator.returned_accounting[0]["cloud_receipt"] is None
-        finally:
-            project.close()
+        pending = _response(execution_id="first").model_copy(
+            update={
+                "receipt": None,
+                "accounting": CloudExecutionAccounting(
+                    status="pending",
+                    usage=CloudLLMUsage(kind="llm.complete", tokens_in=2, tokens_out=1),
+                ),
+            }
+        )
+        transport = _Transport([pending, _response(execution_id="second")])
+        coordinator = _coordinator(project, transport, ceiling=100)
+        pdf = _request().model_copy(
+            update={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "document",
+                                "media_type": "application/pdf",
+                                "data": "cGRm",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        await coordinator.execute(pdf)
+        with pytest.raises(CloudExecutionRefused) as caught:
+            await coordinator.execute(_request(message="next call"))
+        assert caught.value.code == "external_effect_reconciliation_required"
+        assert "research budget" in str(caught.value)
+        assert "accounting" in str(caught.value)
+        assert caught.value.retryable is False
+        assert len(transport.calls) == 1
+        assert len(coordinator.returned_checkpoints) == 1
+        assert coordinator.returned_accounting[0]["cloud_receipt"] is None
 
     asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("pending", [False, True])
-def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(tmp_path, pending):
+def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(project, pending):
     import json
 
     def response(execution_id):
@@ -539,33 +515,27 @@ def test_pre_meter_ocr_checkpoint_replays_and_allows_next_call(tmp_path, pending
         return owner
 
     async def scenario():
-        project = Project.create(tmp_path / "checkpoint.frisket")
-        try:
-            original = response("old-ocr")
-            first = coordinator(project, _Transport([original]))
-            original_attempt, _ = await first.execute(_request())
-            row = project.db.execute(
-                "SELECT id,payload FROM effect_checkpoints"
-            ).fetchone()
-            payload = json.loads(row["payload"])
-            for key in ("receipt", "accounting"):
-                if payload["response"].get(key):
-                    payload["response"][key]["usage"].pop("meter")
-            project.db.execute(
-                "UPDATE effect_checkpoints SET payload=? WHERE id=?",
-                (json.dumps(payload), row["id"]),
-            )
-            project.db.commit()
+        original = response("old-ocr")
+        first = coordinator(project, _Transport([original]))
+        original_attempt, _ = await first.execute(_request())
+        row = project.db.execute("SELECT id,payload FROM effect_checkpoints").fetchone()
+        payload = json.loads(row["payload"])
+        for key in ("receipt", "accounting"):
+            if payload["response"].get(key):
+                payload["response"][key]["usage"].pop("meter")
+        project.db.execute(
+            "UPDATE effect_checkpoints SET payload=? WHERE id=?",
+            (json.dumps(payload), row["id"]),
+        )
+        project.db.commit()
 
-            transport = _Transport([response("next-ocr")])
-            resumed = coordinator(project, transport)
-            replay_attempt, recovered = await resumed.execute(_request())
-            assert recovered == original
-            assert replay_attempt.request_id == original_attempt.request_id
-            assert transport.calls == []
-            await resumed.execute(_request(message="next page"))
-            assert len(transport.calls) == 1
-        finally:
-            project.close()
+        transport = _Transport([response("next-ocr")])
+        resumed = coordinator(project, transport)
+        replay_attempt, recovered = await resumed.execute(_request())
+        assert recovered == original
+        assert replay_attempt.request_id == original_attempt.request_id
+        assert transport.calls == []
+        await resumed.execute(_request(message="next page"))
+        assert len(transport.calls) == 1
 
     asyncio.run(scenario())

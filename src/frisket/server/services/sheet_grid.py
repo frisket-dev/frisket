@@ -7,6 +7,7 @@ import math
 import re
 import statistics
 from collections import Counter
+from collections.abc import Generator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator
@@ -278,20 +279,23 @@ class SheetGridService:
             snapshot.close()
             raise
 
-        def body() -> Iterator[bytes]:
+        def body() -> Generator[bytes, None, None]:
             try:
-                with closing(
-                    iter_current_value(
-                        snapshot.db,
-                        sheet_id=sheet_id,
-                        row_id=row_id,
-                        column_id=column_id,
-                        expected_revision=revision,
-                        metadata=metadata,
-                    )
-                ) as chunks:
+                chunks = iter_current_value(
+                    snapshot.db,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=column_id,
+                    expected_revision=revision,
+                    metadata=metadata,
+                )
+                try:
                     for text in chunks:
                         yield text.encode("utf-8")
+                finally:
+                    close_chunks = getattr(chunks, "close", None)
+                    if callable(close_chunks):
+                        close_chunks()
             finally:
                 snapshot.close()
 
@@ -1109,7 +1113,7 @@ def _sheet_data_payload(
                             **({"outcome": head["outcome"]} if is_error else {}),
                         }
                     )
-        if bool(c["ai_generated"]) and generation_managed:
+        if bool(c["generated"]) and generation_managed:
             document_text_role = document_text_role_for_text_column(
                 project, text_column_id=column_id
             )
@@ -1189,7 +1193,7 @@ def _sheet_data_payload(
             else {
                 c["id"]: project.pending_replay_count(sheet_id, c["id"])
                 for c in cols
-                if bool(c["ai_generated"])
+                if bool(c["generated"])
                 and is_generation_managed(int(c["id"]))
                 and not has_mixed_origins(int(c["id"]))
             }
@@ -1218,7 +1222,7 @@ def _sheet_data_payload(
                 "id": c["id"],
                 "name": c["name"],
                 "type": c["type"],
-                "ai_generated": bool(c["ai_generated"]),
+                "generated": bool(c["generated"]),
                 "format": (c["format"] if "format" in c.keys() else None),
                 "semantic_type": (
                     c["semantic_type"] if "semantic_type" in c.keys() else None

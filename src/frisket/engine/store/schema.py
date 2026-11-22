@@ -43,6 +43,8 @@ FORMAT_VERSION = 1
 SCHEMA_DIGEST_META_KEY = "schema_digest"
 REVIEW_OUTPUT_ROLES_META_KEY = "review_output_roles"
 REVIEW_OUTPUT_ROLES_VERSION = "ocr-v1"
+RECEIPT_RECORDS_META_KEY = "receipt_records_format"
+RECEIPT_RECORDS_VERSION = "records-v1"
 
 
 SCHEMA = """
@@ -97,7 +99,7 @@ CREATE TABLE IF NOT EXISTS columns (
   type TEXT NOT NULL DEFAULT 'text',
   position INTEGER NOT NULL DEFAULT 0,
   current_run_id INTEGER,
-  ai_generated INTEGER NOT NULL DEFAULT 0,
+  generated INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
   default_hidden INTEGER NOT NULL DEFAULT 0,
@@ -685,7 +687,7 @@ CREATE TABLE IF NOT EXISTS workbench_plugin_settings (
 
 -- Semantic claims for long-running generated-column actions. These are not
 -- SQLite locks: they protect column visibility/promotion while work runs.
-CREATE TABLE IF NOT EXISTS output_column_claims (
+CREATE TABLE IF NOT EXISTS generated_column_claims (
   id TEXT PRIMARY KEY,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   column_id INTEGER REFERENCES columns(id) ON DELETE CASCADE,
@@ -705,18 +707,18 @@ CREATE TABLE IF NOT EXISTS output_column_claims (
   released_at TEXT,
   details TEXT NOT NULL DEFAULT '{}'
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_name
-  ON output_column_claims(sheet_id, output_name)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_generated_column_claims_active_name
+  ON generated_column_claims(sheet_id, output_name)
   WHERE status='active';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_column
-  ON output_column_claims(column_id)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_generated_column_claims_active_column
+  ON generated_column_claims(column_id)
   WHERE status='active' AND column_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_output_claims_claim_token
-  ON output_column_claims(claim_token);
-CREATE INDEX IF NOT EXISTS idx_output_claims_run ON output_column_claims(run_id);
-CREATE INDEX IF NOT EXISTS idx_output_claims_receipt ON output_column_claims(receipt_id);
-CREATE INDEX IF NOT EXISTS idx_output_claims_status_expiry
-  ON output_column_claims(status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_claim_token
+  ON generated_column_claims(claim_token);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_run ON generated_column_claims(run_id);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_receipt ON generated_column_claims(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_generated_column_claims_status_expiry
+  ON generated_column_claims(status, lease_expires_at);
 
 -- One immutable output-generation declaration per run/output. A run may
 -- contain both a progressively visible fresh output (`create`) and an atomic
@@ -1319,8 +1321,8 @@ CREATE INDEX IF NOT EXISTS idx_blob_derivations_derived
 CREATE INDEX IF NOT EXISTS idx_blob_derivations_source
   ON blob_derivations(source_hash);
 
--- Canonical investigative evidence substrate. Artifacts and spans are source
--- objects; evidence_links attach product subjects to one or more spans.
+-- Canonical investigative citation substrate. Artifacts and spans are source
+-- objects; citations attach product subjects to one or more spans.
 CREATE TABLE IF NOT EXISTS source_artifacts (
   id INTEGER PRIMARY KEY,
   stable_id TEXT NOT NULL UNIQUE,
@@ -1546,7 +1548,7 @@ BEGIN
   SELECT RAISE(ABORT, 'character offsets require a valid range and matching text surface');
 END;
 
-CREATE TABLE IF NOT EXISTS evidence_links (
+CREATE TABLE IF NOT EXISTS citations (
   id INTEGER PRIMARY KEY,
   stable_id TEXT NOT NULL UNIQUE,
   subject_kind TEXT NOT NULL,
@@ -1576,36 +1578,36 @@ CREATE TABLE IF NOT EXISTS evidence_links (
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_evidence_links_cell_status
-  ON evidence_links(row_id, column_id, status);
-CREATE INDEX IF NOT EXISTS idx_evidence_links_subject
-  ON evidence_links(subject_kind, subject_ref_json);
-CREATE INDEX IF NOT EXISTS idx_evidence_links_run_cell
-  ON evidence_links(run_id, row_id, column_id);
-CREATE INDEX IF NOT EXISTS idx_evidence_links_receipt
-  ON evidence_links(receipt_id);
--- answers-view-cited-columns-signal-v1: the cited-column-availability probe
--- (SheetMeta.citedColumnIds, DISTINCT active column_ids for a sheet) filters
--- on sheet_id+status before touching column_id; idx_evidence_links_cell_status
--- leads on row_id so a sheet_id-scoped query would otherwise scan.
-CREATE INDEX IF NOT EXISTS idx_evidence_links_sheet_status
-  ON evidence_links(sheet_id, status, column_id);
+CREATE INDEX IF NOT EXISTS idx_citations_cell_status
+  ON citations(row_id, column_id, status);
+CREATE INDEX IF NOT EXISTS idx_citations_subject
+  ON citations(subject_kind, subject_ref_json);
+CREATE INDEX IF NOT EXISTS idx_citations_run_cell
+  ON citations(run_id, row_id, column_id);
+CREATE INDEX IF NOT EXISTS idx_citations_receipt
+  ON citations(receipt_id);
+-- The cited-column-availability probe (SheetMeta.citedColumnIds, DISTINCT
+-- active column_ids for a sheet) filters on sheet_id+status before touching
+-- column_id; idx_citations_cell_status leads on row_id so a sheet_id-scoped
+-- query would otherwise scan.
+CREATE INDEX IF NOT EXISTS idx_citations_sheet_status
+  ON citations(sheet_id, status, column_id);
 
-CREATE TABLE IF NOT EXISTS evidence_link_spans (
-  link_id INTEGER NOT NULL REFERENCES evidence_links(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS citation_spans (
+  citation_id INTEGER NOT NULL REFERENCES citations(id) ON DELETE CASCADE,
   span_id INTEGER NOT NULL REFERENCES source_spans(id) ON DELETE CASCADE,
   rank INTEGER NOT NULL DEFAULT 0,
   span_role TEXT NOT NULL DEFAULT 'support',
   required INTEGER NOT NULL DEFAULT 0,
   note TEXT,
-  PRIMARY KEY (link_id, span_id)
+  PRIMARY KEY (citation_id, span_id)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_evidence_link_spans_span
-  ON evidence_link_spans(span_id);
+CREATE INDEX IF NOT EXISTS idx_citation_spans_span
+  ON citation_spans(span_id);
 -- The inverse-query path (surface -> span -> annotation
--- association -> link) filters junction rows by span_role='annotation'.
-CREATE INDEX IF NOT EXISTS idx_evidence_link_spans_annotation
-  ON evidence_link_spans(span_id, span_role, link_id);
+-- association -> citation) filters junction rows by span_role='annotation'.
+CREATE INDEX IF NOT EXISTS idx_citation_spans_annotation
+  ON citation_spans(span_id, span_role, citation_id);
 
 -- Live sources, scheduling, and monitoring.
 -- A source is a recurring fetch (URL feed, search, etc.) that lands new rows
@@ -1964,7 +1966,7 @@ CREATE TABLE IF NOT EXISTS embedding_indexes (
   last_refresh_receipt_id TEXT,
   last_refresh_job_id TEXT,
   last_refreshed_at TEXT,
-  -- index-level refresh claim/lease (NOT output_column_claims: refresh writes no
+  -- index-level refresh claim/lease (NOT generated_column_claims: refresh writes no
   -- visible column). A non-null token past its lease is a crashed refresh and is
   -- reclaimable; two live refreshes of one index conflict on embedding_index_busy.
   refresh_claim_token TEXT,
@@ -2016,12 +2018,12 @@ CREATE TABLE IF NOT EXISTS consents (
                                      -- worker fence and its future
                                      -- backfills/reconsents can read it.
                                      -- NULL for standing consents.
-  quote_json TEXT,                   -- THE quote this consent approved, as the
-                                     -- dumped ConsentQuote
+  estimate_json TEXT,                -- THE estimate this consent approved, as
+                                     -- the dumped ConsentEstimate
                                      -- (engine/runner/confirmation_context).
                                      -- Written by the unrouted 402 path, which
                                      -- is the only one that mints a
-                                     -- ConsentQuote; NULL for standing
+                                     -- ConsentEstimate; NULL for standing
                                      -- consents and for routed/claims consents,
                                      -- whose authority is the promise-set chain.
                                      -- Dispatch reads the RATED projection back
@@ -2293,7 +2295,7 @@ CREATE TABLE IF NOT EXISTS project_qa_research_runs (
   turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),
   skills_json TEXT NOT NULL DEFAULT '[]',
   saved_messages_json TEXT NOT NULL DEFAULT '[]',
-  pending_approval_json TEXT,
+  pending_pause_json TEXT,
   output_grants_json TEXT NOT NULL DEFAULT '[]',
   revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
   created_at TEXT NOT NULL,
@@ -2344,6 +2346,13 @@ SCHEMA += "\n" + JUDGMENT_SCHEMA_SQL + "\n"
 SCHEMA += (
     "\nINSERT OR IGNORE INTO meta(key,value) VALUES "
     f"('{REVIEW_OUTPUT_ROLES_META_KEY}','{REVIEW_OUTPUT_ROLES_VERSION}');\n"
+)
+# Durable bootstrap row giving the receipts.body JSON key cutover an exact
+# schema endpoint so existing bundles migrate once on open without a read-time
+# compatibility shim.
+SCHEMA += (
+    "\nINSERT OR IGNORE INTO meta(key,value) VALUES "
+    f"('{RECEIPT_RECORDS_META_KEY}','{RECEIPT_RECORDS_VERSION}');\n"
 )
 
 # Range filters read only these always-inline native numeric kinds. Text,

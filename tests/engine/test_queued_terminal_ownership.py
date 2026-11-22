@@ -135,7 +135,7 @@ def test_queued_provider_error_does_not_overwrite_run_terminal_state(
         ).fetchone()
         assert receipt["status"] == ("cancelled" if cancel else "failed"), dict(receipt)
         assert not project.db.execute(
-            "SELECT 1 FROM output_column_claims WHERE run_id=? AND status='active'",
+            "SELECT 1 FROM generated_column_claims WHERE run_id=? AND status='active'",
             (launched["run_id"],),
         ).fetchone()
         from frisket.engine.executor.queued_actions import (

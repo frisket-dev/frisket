@@ -35,14 +35,14 @@ class IdentityProfileResponse(BaseModel):
     display_name: str | None
     avatar_seed: str
     instance: IdentityInstance
-    cost_preapproval_usd: str | None
+    allowance_usd: str | None
 
 
 class ProfilePatchRequest(BaseModel):
     """Keep the route's existing tolerant body coercion and extra-key posture."""
 
     display_name: str | None = Field(default=None, max_length=200)
-    cost_preapproval_usd: str | None = None
+    allowance_usd: str | None = None
 
 
 __all__ = [

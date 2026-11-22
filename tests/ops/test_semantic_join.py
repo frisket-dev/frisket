@@ -21,7 +21,6 @@ from frisket.engine.executor.semantic_join_program import semantic_join_referenc
 from frisket.ops.base import ActionContext
 from frisket.ai.embeddings.backends import resolve_embedder as _REAL_RESOLVE_EMBEDDER
 from frisket.engine.runner.review import review_queue
-from frisket.engine.store import Project
 from http_test_helpers import drain_queue
 from frisket.engine.store.transactions import write_transaction
 
@@ -103,8 +102,8 @@ def _run_confirmed(project, router, request):
     )
 
 
-def _project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
+def _project(make_project):
+    p = make_project("t")
     a = p.add_sheet("donors")
     acols = {"donor": p.add_column(a, "donor", type="text")}
     a_rows = p.add_rows(
@@ -130,10 +129,10 @@ def _project(tmp_path):
     return p, a, b, a_rows, b_rows
 
 
-def _project_with_location(tmp_path):
+def _project_with_location(make_project):
     """Like _project, but sheet A also carries a 'location' column — the
     fixture for 'columns to carry over' (design card 5b) tests below."""
-    p = Project.create(tmp_path / "t.frisket", name="t")
+    p = make_project("t")
     a = p.add_sheet("donors")
     acols = {
         "donor": p.add_column(a, "donor", type="text"),
@@ -317,53 +316,44 @@ def test_threshold_validation(low, high):
     ],
 )
 def test_missing_sources_refuse_before_embedding_or_mutation(
-    tmp_path, monkeypatch, change
+    make_project, monkeypatch, change
 ):
-    p, a, b, *_ = _project_with_location(tmp_path)
+    p, a, b, *_ = _project_with_location(make_project)
     calls = []
     monkeypatch.setattr(
         "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *args, **kwargs: (lambda texts: calls.append(texts), "stub/test"),
     )
     target = change.pop("target_sheet_id", b)
-    try:
-        result = run_action_spec(p, _request(a, target, **change), project_id="test")
-        assert result.status == "failed"
-        assert result.errors
-        assert calls == []
-        assert p.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        assert len(p.sheets()) == 2
-    finally:
-        p.close()
+    result = run_action_spec(p, _request(a, target, **change), project_id="test")
+    assert result.status == "failed"
+    assert result.errors
+    assert calls == []
+    assert p.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    assert len(p.sheets()) == 2
 
 
-def test_self_join_rejected(tmp_path):
-    p, a, *_ = _project(tmp_path)
-    try:
-        result = run_action_spec(
-            p, _request(a, a, target_column="donor"), project_id="test"
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_params"
-        assert "different" in result.errors[0].details["errors"][0]["message"].lower()
-        assert len(p.sheets()) == 2
-    finally:
-        p.close()
+def test_self_join_rejected(make_project):
+    p, a, *_ = _project(make_project)
+    result = run_action_spec(
+        p, _request(a, a, target_column="donor"), project_id="test"
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_params"
+    assert "different" in result.errors[0].details["errors"][0]["message"].lower()
+    assert len(p.sheets()) == 2
 
 
-def test_no_embedding_backend_fails_honestly(tmp_path, monkeypatch):
-    p, a, b, *_ = _project(tmp_path)
+def test_no_embedding_backend_fails_honestly(make_project, monkeypatch):
+    p, a, b, *_ = _project(make_project)
     monkeypatch.setattr(
         "frisket.ai.embeddings.backends.resolve_embedder", lambda *args, **kwargs: None
     )
-    try:
-        result = run_action_spec(p, _request(a, b), project_id="test")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_params"
-        assert "embedding backend" in result.errors[0].details["errors"][0]["message"]
-        assert p.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        p.close()
+    result = run_action_spec(p, _request(a, b), project_id="test")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_params"
+    assert "embedding backend" in result.errors[0].details["errors"][0]["message"]
+    assert p.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 @pytest.mark.network
@@ -416,130 +406,116 @@ def test_local_embedder_path_smoke(make_project, monkeypatch):
     ],
 )
 def test_confident_gray_and_below_threshold_matching(
-    tmp_path, value, index, score, justification
+    make_project, value, index, score, justification
 ):
-    p, _, b, _, target_rows = _project(tmp_path)
-    try:
-        result = _match(p, b, value)
-        assert result.match_score.value == pytest.approx(score, abs=0.005)
-        assert result.match_value.confidence == pytest.approx(score, abs=0.005)
-        assert result.matched_row_id.value == (
-            target_rows[index] if index is not None else None
-        )
-        if justification is None:
-            assert result.match_value.justification is None
-            assert result.match_value.value == "Acme Corporation"
-        else:
-            assert justification in result.match_value.justification
-            assert result.match_value.value == ("Globex LLC" if index == 1 else None)
-    finally:
-        p.close()
+    p, _, b, _, target_rows = _project(make_project)
+    result = _match(p, b, value)
+    assert result.match_score.value == pytest.approx(score, abs=0.005)
+    assert result.match_value.confidence == pytest.approx(score, abs=0.005)
+    assert result.matched_row_id.value == (
+        target_rows[index] if index is not None else None
+    )
+    if justification is None:
+        assert result.match_value.justification is None
+        assert result.match_value.value == "Acme Corporation"
+    else:
+        assert justification in result.match_value.justification
+        assert result.match_value.value == ("Globex LLC" if index == 1 else None)
 
 
-def test_empty_cell_matches_nothing(tmp_path):
-    p, _, b, *_ = _project(tmp_path)
-    try:
-        out = _match(p, b, None)
-        assert out.match_value.value is None
-        assert out.match_score.value is None
-        assert out.matched_row_id.value is None
-        assert p.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
-    finally:
-        p.close()
+def test_empty_cell_matches_nothing(make_project):
+    p, _, b, *_ = _project(make_project)
+    out = _match(p, b, None)
+    assert out.match_value.value is None
+    assert out.match_score.value is None
+    assert out.matched_row_id.value is None
+    assert p.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
 
 
-def test_runner_end_to_end_gray_band_surfaces_first(tmp_path):
-    p, a, b, a_rows, b_rows = _project(tmp_path)
-    try:
-        result = _run_confirmed(
-            p,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            _request(a, b),
-        )
-        assert result.status == "completed", result.errors
-        cols = {c["name"]: c for c in p.columns(a)}
-        assert [
-            cols[name]["type"]
-            for name in ("match_value", "match_score", "matched_row_id")
-        ] == ["text", "number", "integer"]
-        matched = p.get_values(a, cols["matched_row_id"]["id"])
-        assert [matched[row] for row in a_rows] == [b_rows[0], b_rows[1], None]
-        queue = review_queue(p, sheet_id=a)
-        assert queue[0]["row_id"] == a_rows[2]
-        assert queue[0]["confidence"] == pytest.approx(0.5774, abs=0.005)
-        assert [item["confidence"] for item in queue] == sorted(
-            item["confidence"] for item in queue
-        )
-        gray = [
-            item
-            for item in queue
-            if item["row_id"] == a_rows[1] and item["column_name"] == "match_value"
-        ]
-        assert gray and "gray-band" in gray[0]["justification"]
-    finally:
-        p.close()
+def test_runner_end_to_end_gray_band_surfaces_first(make_project):
+    p, a, b, a_rows, b_rows = _project(make_project)
+    result = _run_confirmed(
+        p,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        _request(a, b),
+    )
+    assert result.status == "completed", result.errors
+    cols = {c["name"]: c for c in p.columns(a)}
+    assert [
+        cols[name]["type"] for name in ("match_value", "match_score", "matched_row_id")
+    ] == ["text", "number", "integer"]
+    matched = p.get_values(a, cols["matched_row_id"]["id"])
+    assert [matched[row] for row in a_rows] == [b_rows[0], b_rows[1], None]
+    queue = review_queue(p, sheet_id=a)
+    assert queue[0]["row_id"] == a_rows[2]
+    assert queue[0]["confidence"] == pytest.approx(0.5774, abs=0.005)
+    assert [item["confidence"] for item in queue] == sorted(
+        item["confidence"] for item in queue
+    )
+    gray = [
+        item
+        for item in queue
+        if item["row_id"] == a_rows[1] and item["column_name"] == "match_value"
+    ]
+    assert gray and "gray-band" in gray[0]["justification"]
 
 
 @pytest.mark.parametrize("carry", [[], ["location"]])
-def test_materialization_keeps_parent_lineage_and_exact_source_carry(tmp_path, carry):
-    p, a, b, a_rows, b_rows = _project_with_location(tmp_path)
+def test_materialization_keeps_parent_lineage_and_exact_source_carry(
+    make_project, carry
+):
+    p, a, b, a_rows, b_rows = _project_with_location(make_project)
     names = {"source": "donor", **({"carry.location": "location"} if carry else {})}
-    try:
-        result = _run_confirmed(
-            p,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            _request(a, b, carry=carry, sheet_name="linkage", output_names=names),
-        )
-        assert result.status == "completed", result.errors
-        child = next(s for s in p.sheets() if s["name"] == "linkage")
-        assert child["parent_sheet_id"] == a
-        rows = p.db.execute(
-            "SELECT id,parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
-            (child["id"],),
-        ).fetchall()
-        assert [row["parent_row_id"] for row in rows] == a_rows[:2]
-        cols = {c["name"]: c for c in p.columns(child["id"])}
-        assert set(cols) == {
-            "donor",
-            "match_value",
-            "match_score",
-            "matched_row_id",
-            *carry,
+    result = _run_confirmed(
+        p,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        _request(a, b, carry=carry, sheet_name="linkage", output_names=names),
+    )
+    assert result.status == "completed", result.errors
+    child = next(s for s in p.sheets() if s["name"] == "linkage")
+    assert child["parent_sheet_id"] == a
+    rows = p.db.execute(
+        "SELECT id,parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
+        (child["id"],),
+    ).fetchall()
+    assert [row["parent_row_id"] for row in rows] == a_rows[:2]
+    cols = {c["name"]: c for c in p.columns(child["id"])}
+    assert set(cols) == {
+        "donor",
+        "match_value",
+        "match_score",
+        "matched_row_id",
+        *carry,
+    }
+    assert (
+        sorted(p.get_values(child["id"], cols["matched_row_id"]["id"]).values())
+        == b_rows[:2]
+    )
+    if carry:
+        assert cols["location"]["type"] == "text"
+        values = p.get_values(child["id"], cols["location"]["id"])
+        assert {row["parent_row_id"]: values[row["id"]] for row in rows} == {
+            a_rows[0]: "Boston",
+            a_rows[1]: "NYC",
         }
-        assert (
-            sorted(p.get_values(child["id"], cols["matched_row_id"]["id"]).values())
-            == b_rows[:2]
-        )
-        if carry:
-            assert cols["location"]["type"] == "text"
-            values = p.get_values(child["id"], cols["location"]["id"])
-            assert {row["parent_row_id"]: values[row["id"]] for row in rows} == {
-                a_rows[0]: "Boston",
-                a_rows[1]: "NYC",
-            }
-        run = p.db.execute(
-            "SELECT completed_rows,failed_rows FROM runs WHERE id=?", (result.run_id,)
-        ).fetchone()
-        assert tuple(run) == (3, 0)
-    finally:
-        p.close()
+    run = p.db.execute(
+        "SELECT completed_rows,failed_rows FROM runs WHERE id=?", (result.run_id,)
+    ).fetchone()
+    assert tuple(run) == (3, 0)
 
 
-def test_child_sheet_name_collision_rejected(tmp_path):
-    p, a, b, *_ = _project(tmp_path)
-    try:
-        result = run_action_spec(
-            p, _request(a, b, sheet_name="registry"), project_id="test"
-        )
-        assert result.status == "failed"
-        assert len(p.sheets()) == 2
-        assert p.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        p.close()
+def test_child_sheet_name_collision_rejected(make_project):
+    p, a, b, *_ = _project(make_project)
+    result = run_action_spec(
+        p, _request(a, b, sheet_name="registry"), project_id="test"
+    )
+    assert result.status == "failed"
+    assert len(p.sheets()) == 2
+    assert p.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 def test_semantic_join_endpoint_materializes_child_sheet(tmp_path):
@@ -1320,7 +1296,7 @@ def test_remote_semantic_join_persists_each_call_and_receipts_actual_cost(
 
 
 def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """A provider success can commit its fact just before the sidecar fails.
 
@@ -1334,7 +1310,9 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     paid_results = _patch_paid_remote_result(monkeypatch)
-    project, source_sheet, target_sheet, source_rows, _target_rows = _project(tmp_path)
+    project, source_sheet, target_sheet, source_rows, _target_rows = _project(
+        make_project
+    )
     with write_transaction(project.db):
         project.set_provider_key(
             provider="openai",
@@ -1626,7 +1604,7 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
     # claim lease expiring; let the normal stale-recovery path prove and
     # release the claim rather than pre-releasing it in the fixture.
     project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at=datetime('now', '-1 hour') "
+        "UPDATE generated_column_claims SET lease_expires_at=datetime('now', '-1 hour') "
         "WHERE run_id=? AND status='active'",
         (run_a,),
     )

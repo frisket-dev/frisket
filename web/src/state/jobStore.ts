@@ -50,7 +50,7 @@ export interface CostGateState {
 }
 
 /** A launch rejected by the server's overwrite-collision gate (precheck_fn,
- *  `output_column_exists` — mapped to HTTP 409, `_v1_action_result_http_status`).
+ *  `generated_column_exists` — mapped to HTTP 409, `_v1_action_result_http_status`).
  *  DISTINCT from the pre-submit CLIENT-side collision check ActionPanel
  *  already has (`newColumnConflictName`, keyed off the possibly-stale
  *  `sheet.columns` prop): this is what the form converts a SERVER 409 into,
@@ -863,7 +863,7 @@ export function createJobStore(
           openRunCostGate(launch, req, sheet, deps, e);
         } else if (
           e instanceof ApiError
-          && e.code === 'output_column_exists'
+          && e.code === 'generated_column_exists'
           && req.replace_existing === true
         ) {
           if (!isCurrentActionLaunch(launch)) return;
@@ -881,7 +881,7 @@ export function createJobStore(
           });
         } else if (
           e instanceof ApiError
-          && e.code === 'output_column_exists'
+          && e.code === 'generated_column_exists'
         ) {
           // Server truth
           // wins over the client's possibly-stale column list — convert the

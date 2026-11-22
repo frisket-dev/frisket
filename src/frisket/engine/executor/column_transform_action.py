@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from frisket.engine.store.transactions import inserted_rowid
+from frisket.engine.store.writer_fence import WriterFence
 import inspect
 import json
 import threading
@@ -25,7 +26,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families._errors import receipt_stale_replay_error
@@ -40,7 +41,7 @@ from frisket.engine.executor.map_rows_action import (
     normalized_typed_request_identity,
     typed_request_hash,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.consumed_sources import read_consumed_source, store_capture
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -303,19 +304,19 @@ def _output_gate(
     if existing is not None:
         return _error(
             action_id,
-            "output_column_exists",
+            "generated_column_exists",
             "output column already exists",
             field="output_names",
             details={"sheet_id": sheet_id, "output_name": output_name},
         )
-    claim = OutputColumnClaimStore(project).active_for_output_name(
+    claim = GeneratedColumnClaimStore(project).active_for_output_name(
         sheet_id=sheet_id, output_name=output_name
     )
     if claim is None:
         return None
     return _error(
         action_id,
-        "output_column_busy",
+        "generated_column_busy",
         "The target output column is claimed by a running action.",
         field="output_names",
         details={"sheet_id": sheet_id, "output_name": output_name},
@@ -338,12 +339,12 @@ def _preview_output_gate(
     if existing is not None:
         return _error(
             action_id,
-            "output_column_exists",
+            "generated_column_exists",
             "output column already exists",
             field="output_names",
             details={"sheet_id": sheet_id, "output_name": output_name},
         )
-    claim = OutputColumnClaimStore(project).active_for_output_name(
+    claim = GeneratedColumnClaimStore(project).active_for_output_name(
         sheet_id=sheet_id,
         output_name=output_name,
         recover_stale=False,
@@ -352,7 +353,7 @@ def _preview_output_gate(
         return None
     return _error(
         action_id,
-        "output_column_busy",
+        "generated_column_busy",
         "The target output column is claimed by a running action.",
         field="output_names",
         details={"sheet_id": sheet_id, "output_name": output_name},
@@ -410,7 +411,7 @@ def _write_column(
         ).fetchone()[0]
     )
     cur.execute(
-        "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden, format) "
+        "INSERT INTO columns (sheet_id, name, type, position, generated, hidden, format) "
         "VALUES (?, ?, ?, ?, 1, 0, NULL)",
         (sheet_id, output_name, output_type, position),
     )
@@ -479,11 +480,11 @@ def _receipt(
                 "cost_actual": 0.0,
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=request_ref),
-            ReceiptEvidence(ref=source_ref),
-            ReceiptEvidence(ref=output_ref),
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(ref=request_ref),
+            ReceiptRecord(ref=source_ref),
+            ReceiptRecord(ref=output_ref),
+            ReceiptRecord(
                 ref={
                     "kind": "column_transform_counts",
                     "total_rows": len(source["row_ids"]),
@@ -662,14 +663,13 @@ def run_typed_column_transform_action(
             op_spec=op_spec,
         )
         runs = RunResultStore(project)
-        run_id = runs.start_run(
+        run_id = runs.start_run_in_transaction(
             op_id,
             int(source["sheet_id"]),
             bound.action.action_id,
             params=bound.params.model_dump(mode="json"),
             row_ids=source["row_ids"],
             total_rows=len(source["row_ids"]),
-            commit=False,
         )
         receipt_id = _new_id("receipt")
         receipt = _receipt(
@@ -686,12 +686,12 @@ def run_typed_column_transform_action(
             run_id=run_id,
         )
         receipts = ReceiptStore(project)
-        receipts.insert_running(
-            receipt.model_copy(update={"status": "running"}), commit=False
+        receipts.insert_running_in_transaction(
+            receipt.model_copy(update={"status": "running"})
         )
         token = f"output-claim:{receipt_id}"
         field = {"name": output_name, "column_type": output_type}
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=int(source["sheet_id"]),
             output_names=[output_name],
             action_kind=bound.action.action_id,
@@ -711,7 +711,6 @@ def run_typed_column_transform_action(
             compatibility_key=_compatibility_key(field=field),
             write_mode="create",
             claim_token=token,
-            commit=False,
         )
         runs.write_precomputed_results(
             run_id,
@@ -749,18 +748,16 @@ def run_typed_column_transform_action(
             [output_column_id],
             claim_token=token,
             terminal_disposition="completed",
-            commit=False,
         )
-        runs.finish_run(
+        runs.finish_run_in_transaction(
             run_id,
             "completed",
-            commit=False,
             rebuild_review_stats=False,
-            claim_token=token,
+            fence=WriterFence(run_id=run_id, claim_token=token),
         )
-        OutputColumnClaimStore(project).release(claim_token=token)
-        if not receipts.update_body_status(
-            receipt, require_status="running", commit=False
+        GeneratedColumnClaimStore(project).release(claim_token=token)
+        if not receipts.update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise RuntimeError("column transform receipt changed during publication")
         result = _result_from_receipt(receipt)

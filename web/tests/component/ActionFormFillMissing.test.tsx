@@ -5,19 +5,25 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
-import { isGeneratedActionCatalogEntry } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type ActionTemplate, type GeneratedActionCatalogEntry } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { completeCatalogPayload, sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
 
 const catalog = completeCatalogPayload();
-const entry = catalog.actions.find((candidate) => candidate.kind === 'resolve.fill_missing');
-if (!entry || !isGeneratedActionCatalogEntry(entry)) {
-  throw new Error('Missing generated resolve.fill_missing fixture');
-}
-const template = actionTemplatesFromCatalog(catalog)
-  .find((candidate) => candidate.actionKind === entry.kind);
-if (!template) throw new Error('Missing generated resolve.fill_missing template');
+const entry: GeneratedActionCatalogEntry = (() => {
+  const candidate = catalog.actions.find((item) => item.kind === 'resolve.fill_missing');
+  if (!candidate || !isGeneratedActionCatalogEntry(candidate)) {
+    throw new Error('Missing generated resolve.fill_missing fixture');
+  }
+  return candidate;
+})();
+const template: ActionTemplate = (() => {
+  const candidate = actionTemplatesFromCatalog(catalog)
+    .find((item) => item.actionKind === entry.kind);
+  if (!candidate) throw new Error('Missing generated resolve.fill_missing template');
+  return candidate;
+})();
 
 const SHEET = sheetMeta([
   columnDef({ id: '1', name: 'agency', type: 'text' }),

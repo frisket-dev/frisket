@@ -111,7 +111,6 @@ def export_case(make_project, monkeypatch):
     try:
         yield project, bound, deps, prepared, calls
     finally:
-        project.close()
         execution_registry.cache_clear()
 
 

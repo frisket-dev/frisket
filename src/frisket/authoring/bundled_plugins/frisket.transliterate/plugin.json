@@ -44,11 +44,11 @@
               "message": "The source sheet or column is invalid."
             },
             {
-              "code": "output_column_exists",
+              "code": "generated_column_exists",
               "message": "The requested output column already exists."
             },
             {
-              "code": "output_column_busy",
+              "code": "generated_column_busy",
               "message": "The requested output column is claimed by another run."
             },
             {

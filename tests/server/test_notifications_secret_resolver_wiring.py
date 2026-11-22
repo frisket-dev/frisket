@@ -14,8 +14,8 @@ from frisket.notifications.delivery import (
     NotificationRenderedMessage,
 )
 from frisket.notifications.secrets import StaticNotificationSecretResolver
-from frisket.server.app import create_app
 from frisket.search_index import drain_index
+from helpers import make_client
 from http_test_helpers import drain_queue
 
 
@@ -130,9 +130,7 @@ def test_create_app_threads_notification_secret_resolver_into_worker(
             {"env:RESEND_API_KEY": "static-resend-secret"}
         ),
     )
-    client = TestClient(
-        create_app(tmp_path / "ws", notification_delivery_runtime=runtime)
-    )
+    client = make_client(tmp_path, notification_delivery_runtime=runtime)
     pid, refs, events = _seed_alert(client)
     _create_email_route(client, pid, int(refs["watch"]["id"]))
     request_id = _emit(client, pid, refs, events)

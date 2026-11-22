@@ -205,7 +205,7 @@ def _write_entity_spans(
     """
     if not row_ids:
         return
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
@@ -233,7 +233,7 @@ def _write_entity_spans(
         row_id = int(result_row["row_id"])
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links "
+                "SELECT 1 FROM citations "
                 "WHERE receipt_id=? AND row_id=? AND column_id=? LIMIT 1",
                 (receipt_id, row_id, output_column_id),
             ).fetchone()
@@ -354,7 +354,7 @@ def _write_entity_spans(
                             "value_ref": surface_spec["value_ref"],
                         },
                     }
-                    if captured_text is not None
+                    if captured_text is not None and surface_spec is not None
                     else {}
                 ),
                 **(
@@ -506,7 +506,7 @@ def _write_ner_result_citations(
     if not captures or not isinstance(claim_token, str) or not claim_token:
         return
     claim = project.db.execute(
-        "SELECT receipt_id FROM output_column_claims "
+        "SELECT receipt_id FROM generated_column_claims "
         "WHERE claim_token=? AND run_id=? AND op_id=? AND column_id=? "
         "AND status='active'",
         (claim_token, run_id, op_id, int(output_column_id)),

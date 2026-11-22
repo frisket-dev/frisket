@@ -323,32 +323,32 @@ def test_unknown_offered_quantity_pins_terms_but_cannot_invent_a_ceiling() -> No
 
 def test_unequal_row_allocations_sum_to_the_exact_pinned_aggregate() -> None:
     basis = estimate_commercial_offering(
-        offering=_offering(row_mode="quoted_successful_rows"),
+        offering=_offering(row_mode="estimated_successful_rows"),
         metered_quantity=181.23474,
         row_metered_quantities={9: 0.00006, 3: 60.00012, 8: 121.23456},
     )
     assert isinstance(basis, PricedCostBasis)
-    assert basis.row_quote_quantities == (
+    assert basis.row_estimate_quantities == (
         (3, "1.000002"),
         (8, "2.020576"),
         (9, "0.000001"),
     )
     assert sum(
-        (Decimal(quantity) for _row_id, quantity in basis.row_quote_quantities),
+        (Decimal(quantity) for _row_id, quantity in basis.row_estimate_quantities),
         Decimal(0),
     ) == Decimal(str(basis.estimated_quantity))
 
 
 def test_row_offer_derives_aggregate_from_the_exact_row_values() -> None:
     basis = estimate_commercial_offering(
-        offering=_offering(row_mode="quoted_successful_rows"),
+        offering=_offering(row_mode="estimated_successful_rows"),
         # Deliberately carries the ordinary binary-float sum. The row map is
-        # the quote authority, so this cannot disagree with a separate sum.
+        # the estimate authority, so this cannot disagree with a separate sum.
         metered_quantity=0.1 + 0.2,
         row_metered_quantities={1: 0.1, 2: 0.2},
     )
     assert isinstance(basis, PricedCostBasis)
-    assert basis.row_quote_quantities == ((1, "0.001667"), (2, "0.003333"))
+    assert basis.row_estimate_quantities == ((1, "0.001667"), (2, "0.003333"))
     assert basis.estimated_quantity == "0.005"
 
 

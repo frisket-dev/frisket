@@ -11,7 +11,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.find_plan import FindOperation
@@ -31,14 +31,14 @@ from frisket.engine.executor.map_find_source import (
 
 def _find_admission_supporting_records(
     project: Any, receipt_id: str
-) -> list[ReceiptEvidence]:
+) -> list[ReceiptRecord]:
     from frisket.engine.store.receipts import ReceiptStore
 
     receipt = ReceiptStore(project).parsed_by_id(receipt_id)
     if receipt is None:
         raise RuntimeError("Find lost its admitted receipt before publication")
     return [
-        item for item in receipt.evidence if item.ref.get("kind") == "find_admission"
+        item for item in receipt.records if item.ref.get("kind") == "find_admission"
     ]
 
 
@@ -84,9 +84,9 @@ def _failure_after_egress(
                     "model_call_ids": [str(call["id"]) for call in calls],
                 }
             ],
-            evidence=[
+            records=[
                 *_find_admission_supporting_records(project, receipt_id),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_coverage",
                         "status": "incomplete",
@@ -96,8 +96,8 @@ def _failure_after_egress(
             ],
             errors=[error],
         )
-        updated = ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        updated = ReceiptStore(project).update_body_status_in_transaction(
+            receipt, require_status="running"
         )
         if not updated:
             raise RuntimeError("map.find running receipt was lost")
@@ -120,7 +120,7 @@ def _materialize_text_spans(
     *,
     artifact_cache: dict[tuple[int, int], dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_source_artifact,
         record_source_span,
         record_text_surface,
@@ -206,7 +206,7 @@ def _materialize_visual_span(
     *,
     artifact_cache: dict[tuple[int, int], dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_source_artifact,
         record_source_span,
     )
@@ -364,7 +364,7 @@ def write_find_result(
     params_hash: str,
     admitted: dict[str, Any],
 ) -> ActionResult:
-    from frisket.engine.store.evidence import record_citation
+    from frisket.engine.store.citations import record_citation
     from frisket.engine.store.materialization import (
         AggregateColumnSpec,
         AggregateMaterializedRow,
@@ -376,14 +376,14 @@ def write_find_result(
 
     columns = [
         AggregateColumnSpec(
-            name=params.output_names["match"], type="text", ai_generated=True
+            name=params.output_names["match"], type="text", generated=True
         )
     ]
     columns.extend(
         AggregateColumnSpec(
             name=params.output_names[field.name],
             type=field.column_type,
-            ai_generated=True,
+            generated=True,
         )
         for field in params.fields
     )
@@ -451,7 +451,7 @@ def write_find_result(
                 f"(superseded:{superseded_sheet_id}:{target['parent_op_id']})"
             )
             project.db.execute(
-                "UPDATE evidence_links SET status='stale', "
+                "UPDATE citations SET status='stale', "
                 "stale_reason='superseded_find_generation', "
                 "stale_at=datetime('now') WHERE sheet_id=? AND status='active'",
                 (superseded_sheet_id,),
@@ -465,15 +465,17 @@ def write_find_result(
             project.db.execute("UPDATE ops SET barrier=1 WHERE id=?", (write.op_id,))
         from frisket.engine.executor.project_run_terminalization import (
             UnclaimedRunTerminalAuthority,
-            terminalize_project_run,
+            terminalize_project_run_in_transaction,
         )
         from frisket.engine.runner.publication import PUBLISH_NULL, PUBLISH_VALUE
         from frisket.engine.runner.result_generations import _compatibility_key
-        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.engine.store.generated_column_claims import (
+            GeneratedColumnClaimStore,
+        )
         from frisket.engine.store.result_generations import ResultGenerationStore
 
         run_store = RunResultStore(project)
-        run_id = run_store.start_run(
+        run_id = run_store.start_run_in_transaction(
             write.op_id,
             write.sheet_id,
             action.kind,
@@ -483,14 +485,12 @@ def write_find_result(
             total_rows=len(scan.matches),
             cost_estimate=admitted["estimate"].get("cost"),
             row_ids=write.row_ids,
-            commit=False,
         )
         receipts = ReceiptStore(project)
         stored_receipt = receipts.parsed_by_id(receipt_id)
-        if stored_receipt is None or not receipts.update_body_status(
+        if stored_receipt is None or not receipts.update_body_status_in_transaction(
             stored_receipt.model_copy(update={"run_id": run_id}),
             require_status="running",
-            commit=False,
         ):
             raise RuntimeError("map.find running receipt was lost")
         run_store.attach_unscoped_model_calls(
@@ -504,7 +504,7 @@ def write_find_result(
             {"name": column.name, "column_type": column.type} for column in columns
         ]
         claim_token = f"output-claim:{receipt_id}"
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=write.sheet_id,
             output_names=[field["name"] for field in output_fields],
             action_kind=action.kind,
@@ -529,7 +529,6 @@ def write_find_result(
                 compatibility_key=_compatibility_key(field=field),
                 write_mode="create",
                 claim_token=claim_token,
-                commit=False,
             )
         result_batch: list[dict[str, Any]] = []
         for child_row_id, match in zip(write.row_ids, scan.matches, strict=True):
@@ -646,10 +645,9 @@ def write_find_result(
             list(write.column_ids.values()),
             claim_token=claim_token,
             terminal_disposition=result_status,
-            commit=False,
         )
         for column_id in write.column_ids.values():
-            run_store.point_column_at_run(write.op_id, column_id, run_id, commit=False)
+            run_store.point_column_at_run(write.op_id, column_id, run_id)
         receipt = Receipt(
             receipt_id=receipt_id,
             project_id=project_id,
@@ -680,9 +678,9 @@ def write_find_result(
                     "model_call_ids": [str(call["id"]) for call in calls],
                 }
             ],
-            evidence=[
+            records=[
                 *_find_admission_supporting_records(project, receipt_id),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_coverage",
                         "status": ("complete" if not scan.issues else "incomplete"),
@@ -692,28 +690,28 @@ def write_find_result(
                     },
                     retention="pinned",
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_match_evidence",
                         "evidence_link_ids": link_ids,
                     },
                     retention="pinned",
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_result_evidence",
                         "evidence_link_ids": result_link_ids,
                     },
                     retention="pinned",
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref=write.materialized_row_sources_ref,
                     retention="pinned",
                 ),
             ],
             errors=list(scan.issues),
         )
-        terminalization = terminalize_project_run(
+        terminalization = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -722,7 +720,6 @@ def write_find_result(
             authority=UnclaimedRunTerminalAuthority(),
             terminal_receipt=receipt,
             receipt_source_statuses={"running"},
-            commit=False,
         )
         if (
             terminalization.disposition != "terminalized"
@@ -781,9 +778,9 @@ def _failure_before_egress(
             "status": "failed",
             "errors": [error],
             "provider_use": [],
-            "evidence": [
-                *receipt.evidence,
-                ReceiptEvidence(
+            "records": [
+                *receipt.records,
+                ReceiptRecord(
                     ref={
                         "kind": "map_find_effect_outcome",
                         "schema_version": "frisket.map_find_effect_outcome.v1",
@@ -797,10 +794,9 @@ def _failure_before_egress(
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        if not receipts.update_body_status(
+        if not receipts.update_body_status_in_transaction(
             failed,
             require_status="running",
-            commit=False,
         ):
             raise RuntimeError("map.find pre-egress failure lost its running receipt")
         project.db.commit()

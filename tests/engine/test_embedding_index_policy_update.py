@@ -23,7 +23,6 @@ from frisket.engine.jobs import (
     find_scheduled_indexes,
     register_embedding_refresh_handler,
 )
-from frisket.engine.store import Project
 from frisket.actions.core import ActionCategory, ActionNamespace, ActionRegistry, action
 from frisket.actions.embeddings import IndexUpdatePolicyParams
 from frisket.actions.system import BoundTypedActionRequest, typed_action_for_request
@@ -50,14 +49,13 @@ class _Gateway:
         )
 
 
-def _project(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="p")
+def _seed_sheet(project):
     sheet = project.add_sheet("s")
     col = project.add_column(sheet, "headline")
     project.add_rows(
         sheet, [{"headline": t} for t in ("cat", "kitten")], {"headline": col}
     )
-    return project, sheet
+    return sheet
 
 
 def _create(
@@ -135,8 +133,8 @@ def test_typed_policy_shape_rejects_before_project_access(params):
     assert result.errors[0].code == "invalid_action_request"
 
 
-def test_policy_defaults_normalize_but_empty_object_is_a_replacement(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_policy_defaults_normalize_but_empty_object_is_a_replacement(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet, maintenance={"mode": "on_source_append"})
     request = _typed_request(index_id, provider_policy={})
     explicit = deepcopy(request)
@@ -155,11 +153,10 @@ def test_policy_defaults_normalize_but_empty_object_is_a_replacement(tmp_path):
     explicit["idempotency_key"] = "clear-maintenance"
     assert run_action_spec(project, explicit, project_id="p").status == "completed"
     assert _policies(project, index_id) == ({}, {})
-    project.close()
 
 
-def test_policy_semantics_are_deferred_until_after_replay_and_index_lookup(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_policy_semantics_are_deferred_until_after_replay_and_index_lookup(project):
+    sheet = _seed_sheet(project)
     request = _typed_request("missing", maintenance_policy={"mode": []})
     assert IndexUpdatePolicyParams.model_validate(request["params"])
     missing = run_action_spec(project, request, project_id="p")
@@ -171,7 +168,6 @@ def test_policy_semantics_are_deferred_until_after_replay_and_index_lookup(tmp_p
     assert conflict.errors[0].code == "idempotency_conflict"
     invalid = _update(project, index_id, maintenance={"mode": []}, key="invalid")
     assert invalid.errors[0].code == "invalid_params"
-    project.close()
 
 
 def test_policy_catalog_and_host_have_one_inline_zero_cost_owner():
@@ -205,11 +201,11 @@ def test_policy_catalog_and_host_have_one_inline_zero_cost_owner():
 
 
 def test_policy_update_has_exact_receipt_facts_without_provider_or_vector_work(
-    tmp_path, monkeypatch
+    project, monkeypatch
 ):
     from frisket.engine.executor.action_families import embeddings
 
-    project, sheet = _project(tmp_path)
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
 
     def forbidden(*args, **kwargs):
@@ -243,18 +239,17 @@ def test_policy_update_has_exact_receipt_facts_without_provider_or_vector_work(
             "provider_policy": {"allow_remote": True},
         }
     )
-    assert receipt["evidence"][0]["ref"] == {
+    assert receipt["records"][0]["ref"] == {
         "kind": "embedding_index_policy",
         "maintenance_policy": {},
         "provider_policy": {"allow_remote": True},
     }
-    assert receipt["evidence"][0]["retention"] == "pinned"
-    project.close()
+    assert receipt["records"][0]["retention"] == "pinned"
 
 
 @pytest.mark.parametrize("tamper", ["input", "output", "evidence", "space"])
-def test_policy_replay_rejects_tampered_evidence_and_current_space(tmp_path, tamper):
-    project, sheet = _project(tmp_path)
+def test_policy_replay_rejects_tampered_evidence_and_current_space(project, tamper):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
     request = _typed_request(index_id, provider_policy={})
     first = run_action_spec(project, request, project_id="p")
@@ -267,7 +262,7 @@ def test_policy_replay_rejects_tampered_evidence_and_current_space(tmp_path, tam
     elif tamper == "output":
         receipt["outputs"][0]["ref"]["provider_policy"] = {"allow_remote": True}
     elif tamper == "evidence":
-        receipt["evidence"] = []
+        receipt["records"] = []
     else:
         # A second admitted space makes the live index point somewhere else.
         other = _create(project, sheet, provider="fastembed", key="other-space")
@@ -283,7 +278,6 @@ def test_policy_replay_rejects_tampered_evidence_and_current_space(tmp_path, tam
     project.db.commit()
     replay = run_action_spec(project, request, project_id="p")
     assert replay.errors[0].code == "stale_replay"
-    project.close()
 
 
 class _RepairParams(ActionParams):
@@ -304,8 +298,8 @@ def _repair_policy(
     return result
 
 
-def test_reused_capability_uses_derived_arguments_and_host_results(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_reused_capability_uses_derived_arguments_and_host_results(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
     custom = action(
         name="repair",
@@ -332,7 +326,6 @@ def test_reused_capability_uses_derived_arguments_and_host_results(tmp_path):
     assert (
         run_typed_embedding_action(project, "p", bound).receipt_id == result.receipt_id
     )
-    project.close()
 
 
 @pytest.mark.parametrize(
@@ -343,9 +336,9 @@ def test_reused_capability_uses_derived_arguments_and_host_results(tmp_path):
     ],
 )
 def test_reused_capability_refusals_do_not_invent_params_fields(
-    tmp_path, missing, cadence, code
+    project, missing, cadence, code
 ):
-    project, sheet = _project(tmp_path)
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
     custom = action(
         name="repair",
@@ -376,7 +369,6 @@ def test_reused_capability_refusals_do_not_invent_params_fields(
     assert result.errors[0].action_kind == "custom.repair"
     assert result.receipt_id is None
     assert _policies(project, index_id) == before
-    project.close()
 
 
 def _refresh(project, index_id, *, trigger=None, key="r@1", gateway=None):
@@ -399,8 +391,8 @@ def _refresh(project, index_id, *, trigger=None, key="r@1", gateway=None):
 # --------------------------------------------------------------------------
 
 
-def test_update_replaces_policies_and_is_idempotent(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_update_replaces_policies_and_is_idempotent(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
     result = _update(
         project,
@@ -430,21 +422,19 @@ def test_update_replaces_policies_and_is_idempotent(tmp_path):
         },
     )
     assert again.receipt_id == result.receipt_id
-    project.close()
 
 
-def test_update_leaves_unprovided_policy_unchanged(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_update_leaves_unprovided_policy_unchanged(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet, maintenance={"mode": "on_source_append"})
     _update(project, index_id, provider={"allow_remote": True})
     maintenance, provider = _policies(project, index_id)
     assert maintenance == {"mode": "on_source_append"}  # untouched
     assert provider == {"allow_remote": True}
-    project.close()
 
 
-def test_update_rejects_unknown_mode_and_scheduled_without_schedule(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_update_rejects_unknown_mode_and_scheduled_without_schedule(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
     bad_mode = _update(project, index_id, maintenance={"mode": "live_on_write"})
     assert bad_mode.status == "failed"
@@ -452,12 +442,11 @@ def test_update_rejects_unknown_mode_and_scheduled_without_schedule(tmp_path):
     no_sched = _update(project, index_id, maintenance={"mode": "scheduled"}, key="u@2")
     assert no_sched.status == "failed"
     assert no_sched.errors[0].code == "invalid_params"
-    project.close()
 
 
 @pytest.mark.parametrize("cap", [0, -1])
-def test_update_rejects_non_positive_cost_cap(tmp_path, cap):
-    project, sheet = _project(tmp_path)
+def test_update_rejects_non_positive_cost_cap(project, cap):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet)
     result = _update(
         project,
@@ -467,31 +456,29 @@ def test_update_rejects_non_positive_cost_cap(tmp_path, cap):
     )
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_params"
-    project.close()
 
 
-def test_update_missing_index_fails(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_update_missing_index_fails(project):
+    _seed_sheet(project)
     result = _update(project, "embidx_missing", provider={"allow_remote": True})
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_index_not_found"
-    project.close()
 
 
-def test_scheduled_state_visible_after_update(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_scheduled_state_visible_after_update(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet, provider="fastembed")
     assert find_scheduled_indexes(project) == []
     _update(project, index_id, maintenance={"mode": "scheduled", "schedule": "@hourly"})
     scheduled = [i["id"] for i in find_scheduled_indexes(project)]
     assert scheduled == [index_id]
-    project.close()
 
 
-def test_update_does_not_bypass_remote_and_cost_gates(tmp_path):
+def test_update_does_not_bypass_remote_and_cost_gates(tmp_path, make_project):
     # Pre-authorizing remote + automatic refresh via update must NOT let an
     # automatic refresh skip the gates: without a cost ceiling it still blocks.
-    project, sheet = _project(tmp_path)
+    project = make_project("p")
+    sheet = _seed_sheet(project)
     queue = SqliteJobQueue(tmp_path / ".q.db")
     index_id = _create(project, sheet)
     # preauthorize automatic remote refresh but DO NOT set a cost ceiling; make it
@@ -535,8 +522,8 @@ def test_update_does_not_bypass_remote_and_cost_gates(tmp_path):
     queue.close()
 
 
-def test_corrupt_remote_consent_and_cost_never_egress(tmp_path):
-    project, sheet = _project(tmp_path)
+def test_corrupt_remote_consent_and_cost_never_egress(project):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet, policy={"allow_remote": True})
     calls: list[int] = []
 
@@ -596,12 +583,11 @@ def test_corrupt_remote_consent_and_cost_never_egress(tmp_path):
     assert wrong_auto.status == "failed"
     assert wrong_auto.errors[0].code == "embedding_remote_confirmation_required"
     assert calls == []
-    project.close()
 
 
 @pytest.mark.parametrize("cap", [0, -1])
-def test_non_positive_legacy_automatic_cost_cap_never_egresses(tmp_path, cap):
-    project, sheet = _project(tmp_path)
+def test_non_positive_legacy_automatic_cost_cap_never_egresses(project, cap):
+    sheet = _seed_sheet(project)
     index_id = _create(project, sheet, policy={"allow_remote": True})
     calls: list[int] = []
 
@@ -636,4 +622,3 @@ def test_non_positive_legacy_automatic_cost_cap_never_egresses(tmp_path, cap):
     assert automatic.status == "failed"
     assert automatic.errors[0].code == "embedding_cost_requires_confirmation"
     assert calls == []
-    project.close()

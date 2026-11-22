@@ -11,6 +11,7 @@ from frisket.followthemoney._sdk_import import require_followthemoney_sdk
 with require_followthemoney_sdk():
     from followthemoney import model
     from followthemoney.exc import InvalidData
+    from followthemoney.schema import ValidationData
 
 FOLLOWTHEMONEY_ENTITY_SCHEMA_VERSION = "frisket.followthemoney.entity_stream.v1"
 
@@ -65,7 +66,11 @@ def validate_entity(entity: Mapping[str, Any]) -> dict[str, Any]:
     try:
         proxy = model.get_proxy(dict(entity))
         normalized = proxy.to_dict()
-        schema.validate(normalized)
+        raw_properties = normalized.get("properties")
+        validation_data: ValidationData = (
+            {"properties": raw_properties} if isinstance(raw_properties, dict) else {}
+        )
+        schema.validate(validation_data)
     except InvalidData as exc:
         return _invalid_entity_result(
             entity,

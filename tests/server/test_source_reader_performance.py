@@ -8,14 +8,13 @@ import tracemalloc
 import pytest
 from starlette.requests import ClientDisconnect
 
-from frisket.engine.store import Project
 from frisket.engine.store.cell_reference import current_value_ref
 from frisket.engine.store.current_value_windows import (
     current_text_hash,
     current_text_metadata,
     read_current_value_window,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -38,8 +37,8 @@ from frisket.engine.store.transactions import write_transaction
 pytestmark = pytest.mark.realtime
 
 
-def _source(tmp_path, text, authority):
-    project = Project.create(tmp_path / "source.frisket", name="Source")
+def _source(make_project, text, authority):
+    project = make_project("Source")
     sheet = project.add_sheet("documents")
     column = project.add_column(sheet, "body", type="text")
     [row] = project.add_rows(
@@ -60,10 +59,10 @@ def _source(tmp_path, text, authority):
 
 @pytest.mark.parametrize("authority", ["source", "result", "edit"])
 def test_twenty_mib_tail_anchor_and_digest_finish_within_ask_budget(
-    tmp_path, authority, record_property
+    make_project, authority, record_property
 ):
     text = "a" * (20 * 1024 * 1024) + "😀TAIL-NEEDLE"
-    project, cell = _source(tmp_path, text, authority)
+    project, cell = _source(make_project, text, authority)
     try:
         tracemalloc.start()
         started = time.monotonic()
@@ -99,14 +98,13 @@ def test_twenty_mib_tail_anchor_and_digest_finish_within_ask_budget(
         record_property("digest_python_peak", peak)
     finally:
         tracemalloc.stop()
-        project.close()
 
 
 def test_twenty_mib_nul_metadata_and_windows_stay_bounded_and_revision_fenced(
-    tmp_path, record_property
+    make_project, record_property
 ):
     text = "leading\0" + "a" * (20 * 1024 * 1024) + "😀TAIL-NEEDLE"
-    project, cell = _source(tmp_path, text, "source")
+    project, cell = _source(make_project, text, "source")
     try:
         tracemalloc.start()
         started = time.monotonic()
@@ -146,7 +144,6 @@ def test_twenty_mib_nul_metadata_and_windows_stay_bounded_and_revision_fenced(
         assert window.text == "new\0😀"
     finally:
         tracemalloc.stop()
-        project.close()
 
 
 def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
@@ -202,15 +199,16 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
             "prepared_ref_id,outcome FROM current_cell_values WHERE row_id=? AND column_id=?",
             (row, column),
         ).fetchone()
-        record_citation(
-            project,
-            subject_kind="cell_value",
-            subject_ref=current_value_ref(head, row_id=row, column_id=column),
-            spans=[{"span_id": span["id"]}],
-            sheet_id=sheet,
-            row_id=row,
-            column_id=column,
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell_value",
+                subject_ref=current_value_ref(head, row_id=row, column_id=column),
+                spans=[{"span_id": span["id"]}],
+                sheet_id=sheet,
+                row_id=row,
+                column_id=column,
+            )
         tracemalloc.start()
         started = time.monotonic()
         opened = read_source_text(project, cell, anchor="TAIL-NEEDLE", limit=50)
@@ -251,7 +249,6 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
         assert again == passages
     finally:
         tracemalloc.stop()
-        project.close()
 
 
 @pytest.mark.parametrize("failure", ["start", "body", "disconnect"])

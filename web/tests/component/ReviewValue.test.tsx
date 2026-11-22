@@ -18,7 +18,7 @@ afterEach(cleanup);
 
 function field(update: Partial<ReviewBundleField> = {}): ReviewBundleField {
   return {
-    id: '9:3:4', runId: '9', sheetId: '2', rowId: '3', columnId: '4',
+    id: '9:3:4', runId: '9', sourceId: '9', copiedChangeId: null, sheetId: '2', rowId: '3', columnId: '4',
     columnName: 'result', columnType: 'json', value: null, confidence: null,
     justification: '', reviewDecision: null, reviewState: 'unreviewed',
     role: 'field', chore: true, ...update,

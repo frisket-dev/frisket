@@ -67,7 +67,7 @@ function mapPublicRunProgress(
 }
 
 function mapRunProgress(wire: ActionRunStatusWire): RunProgress {
-  return mapPublicRunProgress(wire.run.public_status, wire.run.sheet_id, wire.run.output_columns ?? []);
+  return mapPublicRunProgress(wire.run.public_status, wire.run.sheet_id, wire.run.generated_columns ?? []);
 }
 
 function mapRunRows(wire: ActionRunRowsWire): RunRowsPage {
@@ -139,7 +139,7 @@ function mapReceipt(wire: ReceiptWire): V1Receipt {
     })),
     value: wire.value ?? null,
     providerUse: wire.provider_use ?? [],
-    evidence: (wire.evidence ?? []).map((entry) => ({
+    records: (wire.records ?? []).map((entry) => ({
       ref: entry.ref,
       retention: entry.retention ?? 'compactable',
     })),
@@ -164,7 +164,7 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     context: wire.context ? {
       sheetId: String(wire.context.sheet_id),
       sheetName: wire.context.sheet_name ?? null,
-      generatedColumns: (wire.context.output_columns ?? []).map((column) => ({
+      generatedColumns: (wire.context.generated_columns ?? []).map((column) => ({
         id: String(column.id), name: column.name,
       })),
     } : null,
@@ -187,7 +187,7 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     error: wire.error,
     resultSummary: wire.result_summary ?? {},
     importErrors: wire.import_errors ?? [],
-    progress: wire.progress ? mapPublicRunProgress(wire.progress, wire.progress.sheet_id, wire.context?.output_columns ?? []) : null,
+    progress: wire.progress ? mapPublicRunProgress(wire.progress, wire.progress.sheet_id, wire.context?.generated_columns ?? []) : null,
   };
 }
 

@@ -107,11 +107,11 @@ describe("team-local model generated HTTP transport", () => {
     expect(
       requests.map((request) => [request.input, request.init?.method]),
     ).toEqual([
-      ["/api/org/local-endpoints", "GET"],
-      ["/api/org/models/pull", "POST"],
-      ["/api/org/models/pulls", "GET"],
-      ["/api/org/models/pulls/7", "GET"],
-      ["/api/org/models/pulls/7/cancel", "POST"],
+      ["/api/organization/local-endpoints", "GET"],
+      ["/api/organization/models/pull", "POST"],
+      ["/api/organization/models/pulls", "GET"],
+      ["/api/organization/models/pulls/7", "GET"],
+      ["/api/organization/models/pulls/7/cancel", "POST"],
     ]);
     expect(requests.map((request) => request.init?.body ?? null)).toEqual([
       null,
@@ -136,14 +136,14 @@ describe("team-local model generated HTTP transport", () => {
     );
 
     await httpContract(
-      "outer.delete_org_key.delete",
+      "outer.delete_organization_key.delete",
       {
         pathParams: { provider: "open/ai?prod" },
         query: {},
       },
       (wire) => wire,
     );
-    expect(requests).toEqual(["/api/org/keys/open%2Fai%3Fprod"]);
+    expect(requests).toEqual(["/api/organization/keys/open%2Fai%3Fprod"]);
   });
 
   it("accepts the canonical empty plural catalog form the handler emits", async () => {

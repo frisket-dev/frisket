@@ -63,7 +63,7 @@ def test_cluster_http_queue_publishes_reviewed_values_and_replays(tmp_path, empt
         receipt = json.loads(stored["body"])
         [fact] = [
             item["ref"]
-            for item in receipt["evidence"]
+            for item in receipt["records"]
             if item["ref"].get("kind") == "value_clusters"
         ]
         assert len(fact["canonical_values"]) == (0 if empty else 2)

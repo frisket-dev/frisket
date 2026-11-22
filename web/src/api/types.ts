@@ -5,14 +5,14 @@ import type {
   HttpActionPreviewStatusResponse,
   HttpApiTokenCreateResponse,
   HttpApiTokenList,
-  HttpCellEvidenceResponse,
+  HttpCellCitationsResponse,
   HttpCellTextAnnotationsResponse,
+  HttpCitationViewerResponse,
   HttpClusterPreviewResponse,
-  HttpColumnEvidenceResponse,
+  HttpColumnCitationsResponse,
   HttpColumnRunsPage,
   HttpColumnStats,
   HttpColumnValuesPreviewResponse,
-  HttpEvidenceViewerResponse,
   HttpInstanceInfoResponse,
   HttpLocalEndpointCatalog,
   HttpLocalEndpointDiscoveryResponse,
@@ -90,8 +90,8 @@ export interface MeInfo {
   email: string;
   display_name?: string | null;
   /** Null marks a newly signed-in person who has not answered the initial
-   * cost pre-approval prompt. */
-  cost_preapproval_usd?: string | null;
+   * allowance prompt. */
+  allowance_usd?: string | null;
   avatar_seed?: string | null;
   instance?: {
     display_name: string;
@@ -114,10 +114,10 @@ export interface RuntimeConfig {
    *  runtime-setting mutation. Team/managed deployments own this posture
    *  outside the personal browser settings surface. */
   cache_mode_editable: boolean;
-  /** Local-installation amount for an unauthenticated workspace. */
-  cost_preapproval_usd?: string;
+  /** Local-installation allowance for an unauthenticated workspace. */
+  allowance_usd?: string;
   /** True only when this local installation owns the setting. */
-  cost_preapproval_editable?: boolean;
+  allowance_editable?: boolean;
   /** Whether the server runs inside a container. Managed deployments may
    *  source `cache_mode` from their environment; local editable instances
    *  persist it through Preferences. Hosted deployments may omit it. */
@@ -193,7 +193,7 @@ export type ProjectSecrets = HttpProjectSecretCatalogResponse;
 
 export interface AdminOverview {
   totals: {
-    orgs?: number;
+    organizations?: number;
     users?: number;
     projects?: number;
     pending_invites?: number;
@@ -645,7 +645,7 @@ export interface EntityMentionOccurrencesPage {
 /** A node in the Monitor Lineage DAG. */
 export interface LineageNode {
   id: string;
-  kind: 'source' | 'sheet' | 'ai_column';
+  kind: 'source' | 'sheet' | 'generated_column';
   name: string;
   sheet_id?: number | null;
   column_id?: number;
@@ -710,25 +710,25 @@ export interface CellProvenance {
   runId: string;
 }
 
-export type CellCitationSummary = HttpCellEvidenceResponse['links'][number];
+export type CellCitationSummary = HttpCellCitationsResponse['links'][number];
 
 /**
  * Generated contract authority for cell-evidence reads. `current_value_ref`
  * can retain valid scalar, list, or provider/plugin JSON leaves, so callers
  * must not narrow it into a client-owned object shape.
  */
-export type CellCitationsPayload = HttpCellEvidenceResponse;
+export type CellCitationsPayload = HttpCellCitationsResponse;
 export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
 /** The Grounded Answers reading view's middle-pane batch: one row per row
  *  with ACTIVE evidence on the column, carrying the same link summary shape
  *  as `CellCitationsPayload`. A row with no active evidence is absent. */
-export type ColumnCitationsBatchPayload = HttpColumnEvidenceResponse;
+export type ColumnCitationsBatchPayload = HttpColumnCitationsResponse;
 
 /** Browser aliases intentionally track the generated evidence-viewer wire
  * response. Its JSON leaves are open values, so consumers must narrow only
  * the individual leaves they dereference rather than narrowing the payload. */
-export type CitationViewerPayload = HttpEvidenceViewerResponse;
+export type CitationViewerPayload = HttpCitationViewerResponse;
 export type CitationArtifact = CitationViewerPayload['artifacts'][number];
 export type CitationArtifactRef = CitationArtifact['artifact_ref'];
 export type CitationBlobRef = NonNullable<CitationArtifactRef['blob']>;
@@ -919,13 +919,13 @@ interface ActionSourceRequirementBase {
   accepted_column_types?: ColumnType[];
   template_accepted_column_types?: ColumnType[];
   /** Require columns whose current values are generation-managed outputs. */
-  ai_generated_only?: boolean;
+  generated_only?: boolean;
   accepted_cell_kinds?: string[];
   template_param?: string;
   template_columns?: 'exact' | 'union';
   message?: string;
   next_steps?: string[];
-  unset_fallback_includes_ai_generated?: boolean;
+  unset_fallback_includes_generated?: boolean;
   source_union_params?: string[];
   sheet_param?: string;
 }
@@ -1141,9 +1141,9 @@ export interface EngineLicense {
 
 /** Three-tier engine remoteness vocabulary: 'local' = this process/box;
  *  'sidecar' = the operator's frisket-models service, which may be another
- *  machine — never labelled local; 'hosted' = leaves the operator's
+ *  machine — never labelled local; 'remote' = leaves the operator's
  *  infrastructure. */
-export type EngineTier = 'local' | 'sidecar' | 'hosted';
+export type EngineTier = 'local' | 'sidecar' | 'remote';
 
 export interface ClassificationOptionDeclaration {
   field_types: Array<'category' | 'score' | 'integer' | 'number' | 'boolean' | 'text'>;
@@ -1244,7 +1244,7 @@ export interface ActionCatalogFormParam {
   default?: string | number | boolean | null;
   required?: boolean;
   column_types?: ColumnType[];
-  ai_generated_only?: boolean;
+  generated_only?: boolean;
   cardinality?: string;
   description?: string;
   /** Compact-layout hint. 'grid' tags a boolean for the checkbox grid
@@ -1602,7 +1602,7 @@ export interface RegisteredActionRequest extends RegisteredActionDraft {
    * action drafts deliberately never carry this destructive invocation fact. */
   replace_existing?: boolean;
   /** Physical target preconditions for an explicitly restored replacement. */
-  expected_output_columns?: Record<string, number | null>;
+  expected_generated_columns?: Record<string, number | null>;
 }
 
 function hasRegisteredActionDraftShape(candidate: unknown): candidate is RegisteredActionDraft {
@@ -2576,7 +2576,7 @@ export interface RunRowErrorSummary {
   groups: RunRowErrorGroup[];
 }
 
-/** Server-side media egress proxy status (GET /api/org/media-proxy/status),
+/** Server-side media egress proxy status (GET /api/organization/media-proxy/status),
  *  polled by MediaProxyRemediationCard for the youtube_provider_blocked
  *  triage card. `connected` is null exactly when `configured` is false; the
  *  local tier (no organization identity) 404s instead of returning this shape. */
@@ -3149,7 +3149,7 @@ export interface ReceiptRef {
   ref: Record<string, unknown>;
 }
 
-export interface ReceiptEvidence {
+export interface ReceiptRecord {
   ref: Record<string, unknown>;
   retention: string;
 }
@@ -3177,7 +3177,7 @@ export interface V1Receipt {
   outputs: ReceiptRef[];
   value?: HttpReceipt['value'];
   providerUse: Array<Record<string, unknown>>;
-  evidence: ReceiptEvidence[];
+  records: ReceiptRecord[];
   errors: ReceiptError[];
 }
 
@@ -3298,7 +3298,7 @@ export interface ReviewBundleField {
   /** Reviewer note stored for this exact run/result cell, if one was recorded. */
   note?: string | null;
   reviewState: ReviewState;
-  role: 'field' | 'evidence';
+  role: 'field' | 'supporting';
   chore: boolean;
   /** False for a partial display or when editing would mutate the wrong cell. */
   canEdit?: boolean;
@@ -3336,7 +3336,7 @@ export interface ReviewBundle {
   /** Shared reviewer note for this row and run. */
   reviewNote?: string | null;
   fields: ReviewBundleField[];
-  evidence: ReviewBundleField[];
+  supportingColumns: ReviewBundleField[];
   /** Includes historical primary/support items without changing decision roles. */
   items?: ReviewBundleField[];
 }

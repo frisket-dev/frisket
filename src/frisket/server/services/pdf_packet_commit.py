@@ -489,7 +489,11 @@ class PdfPacketCommitter:
                 elif int(canonical[0]) != source.size:
                     raise ValueError("admitted source size changed")
                 context = {}
-                if pdf_source is not None and pdf_source.source_row_id is not None:
+                if (
+                    pdf_source is not None
+                    and pdf_source.source_sheet_id is not None
+                    and pdf_source.source_row_id is not None
+                ):
                     for column_id, output_name in carried.items():
                         values = project.get_values(
                             pdf_source.source_sheet_id,
@@ -777,7 +781,7 @@ class PdfPacketCommitter:
             PDF_SPLIT_APPLY_KIND,
             statuses=("queued", "running"),
             project_id=project_id,
-            storage_org_id=getattr(
+            storage_organization_id=getattr(
                 self._workspace, "queue_storage_organization_id", None
             ),
             dedupe_key=dedupe_key,

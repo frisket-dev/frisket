@@ -12,7 +12,10 @@ if __name__ == "__main__":
             import uvicorn
 
             uvicorn.run(
-                "frisket.team.asgi:app", host="127.0.0.1", port=int(sys.argv[2])
+                "frisket.team.asgi:app",
+                host="127.0.0.1",
+                port=int(sys.argv[2]),
+                loop="asyncio",
             )
         else:
             main()

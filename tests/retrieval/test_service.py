@@ -48,7 +48,7 @@ def _pdf_cursor(source, **changes):
         {
             "kind": "pdf_pages",
             "source_id": source.source_id,
-            "recipe_id": PDF_PAGE_RECIPE_ID,
+            "slice_id": PDF_PAGE_RECIPE_ID,
             "next_page": 3,
             "page_count": 10,
             **changes,
@@ -79,13 +79,13 @@ def pdf_indexing_sources(make_project):
         for source, _row in sources:
             store.begin_preparation(
                 source,
-                recipe_id=PDF_PAGE_RECIPE_ID,
+                slice_id=PDF_PAGE_RECIPE_ID,
                 channel="pdf_page",
                 space_id=DEFAULT_TEXT_SPACE.identity,
             )
             assert store.advance_preparation(
                 source,
-                recipe_id=PDF_PAGE_RECIPE_ID,
+                slice_id=PDF_PAGE_RECIPE_ID,
                 channel="pdf_page",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 cursor_json=_pdf_cursor(source),
@@ -106,7 +106,7 @@ def test_pdf_indexing_progress_is_bounded_current_metadata_only(
     with RetrievalStore(project) as store:
         assert store.advance_preparation(
             second,
-            recipe_id=PDF_PAGE_RECIPE_ID,
+            slice_id=PDF_PAGE_RECIPE_ID,
             channel="pdf_page",
             space_id=DEFAULT_TEXT_SPACE.identity,
             cursor_json=_pdf_cursor(second, next_page=1897, page_count=24909),
@@ -139,7 +139,7 @@ def test_pdf_indexing_progress_is_bounded_current_metadata_only(
     files, truncated = read_pdf_indexing_progress(
         project,
         space_id=DEFAULT_TEXT_SPACE.identity,
-        recipe_id=PDF_PAGE_RECIPE_ID,
+        slice_id=PDF_PAGE_RECIPE_ID,
         limit=2,
     )
     assert truncated
@@ -162,7 +162,7 @@ def test_pdf_indexing_progress_omits_invalid_stale_hidden_and_terminal_work(
             (
                 {"kind": "other"},
                 {"source_id": "wrong-source"},
-                {"recipe_id": "wrong-recipe"},
+                {"slice_id": "wrong-recipe"},
                 {"next_page": True},
                 {"next_page": 11},
             ),
@@ -188,7 +188,7 @@ def test_pdf_indexing_progress_omits_invalid_stale_hidden_and_terminal_work(
     files, truncated = read_pdf_indexing_progress(
         project,
         space_id=DEFAULT_TEXT_SPACE.identity,
-        recipe_id=PDF_PAGE_RECIPE_ID,
+        slice_id=PDF_PAGE_RECIPE_ID,
         limit=2,
     )
     assert not truncated
@@ -198,7 +198,7 @@ def test_pdf_indexing_progress_omits_invalid_stale_hidden_and_terminal_work(
     assert read_pdf_indexing_progress(
         project,
         space_id=DEFAULT_TEXT_SPACE.identity,
-        recipe_id=PDF_PAGE_RECIPE_ID,
+        slice_id=PDF_PAGE_RECIPE_ID,
         limit=2,
     ) == ((), False)
 
@@ -255,7 +255,7 @@ def indexed_project(make_project, monkeypatch, built_native_root):
     )
     space = EmbeddingGemma2Space()
     with RetrievalStore(project) as store:
-        store.begin_preparation(source, recipe_id="text-v1", channel="text")
+        store.begin_preparation(source, slice_id="text-v1", channel="text")
         assert store.publish_source(
             SourcePublication(
                 source,

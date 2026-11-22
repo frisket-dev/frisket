@@ -33,7 +33,11 @@ def enqueue_dirty_scope(
         raise ValueError("column scope requires sheet_id")
     if (row_id_start is None) != (row_id_end is None):
         raise ValueError("row range requires both bounds")
-    if row_id_start is not None and row_id_start > row_id_end:
+    if (
+        row_id_start is not None
+        and row_id_end is not None
+        and row_id_start > row_id_end
+    ):
         raise ValueError("row range is reversed")
     if sheet_id is None:
         # A fresh global repair supersedes every older scope. Deleting first is

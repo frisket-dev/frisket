@@ -7,6 +7,7 @@ is literal: the stub records every invocation.
 """
 
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
@@ -35,9 +36,9 @@ from frisket.engine.runner.validation import ClaimsGate
 from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import media_cell
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import encode_stored_value
@@ -56,6 +57,7 @@ from frisket.execution.pricing_policy import (
 )
 from tests.execution_composition_helpers import open_attempt_authority
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 class _AboveLimitPricingPolicy:
@@ -280,7 +282,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
     if queued is not None:
         token = "output-claim:" + queued[2]["receipt_id"]
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=token,
                 run_id=run_id,
                 expected_output_names=[str(row["name"]) for row in columns],
@@ -288,7 +290,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
         return token, {int(row["id"]) for row in columns}
     token = f"output-claim:worker-route-verification:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=int(run["sheet_id"]),
             output_names=[str(row["name"]) for row in columns],
             action_kind=str(run["action_kind"]),
@@ -298,7 +300,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
     assert conflict is None
     assert len(claims) == len(columns)
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=token,
             run_id=run_id,
             expected_output_names=[str(row["name"]) for row in columns],
@@ -307,8 +309,7 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
 
 
 def _handle(root: Path, run_id: int, spec: dict) -> dict:
-    project = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as project:
         action_body, request, reservation = _PREPARED_QUEUES[
             (str(project.path), run_id)
         ]
@@ -371,8 +372,6 @@ def _handle(root: Path, run_id: int, spec: dict) -> dict:
                 run_id=run_id,
             ),
         }
-    finally:
-        project.close()
     registry = HandlerRegistry()
     register_project_run_handler(
         registry,
@@ -395,13 +394,10 @@ def _delete_route_artifacts(project, run_id: int) -> None:
 
 
 def _run_row(root: Path, run_id: int):
-    reopened = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as reopened:
         return reopened.db.execute(
             "SELECT * FROM runs WHERE id=?", (run_id,)
         ).fetchone()
-    finally:
-        reopened.close()
 
 
 def _error_code(result: dict) -> str:
@@ -427,7 +423,7 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
 
     monkeypatch.setattr(
         RunResultStore,
-        "write_results",
+        "write_results_in_transaction",
         lose_effect_authority,
     )
     result = _handle(root, run_id, spec)
@@ -435,8 +431,7 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
     assert result["status"] == "stale_attempt_writer"
     assert result["error"]["code"] == "stale_attempt_writer"
     assert adapter_stub
-    reopened = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as reopened:
         run = reopened.db.execute(
             "SELECT status, current_attempt_id FROM runs WHERE id=?",
             (run_id,),
@@ -453,7 +448,7 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
         )
         assert (
             reopened.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
@@ -466,8 +461,6 @@ def test_project_run_stale_writer_refusal_is_non_destructive(
         assert receipt is not None
         assert receipt["status"] == "queued"
         assert json.loads(receipt["body"])["errors"] == []
-    finally:
-        reopened.close()
 
 
 def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
@@ -482,7 +475,7 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
     def fail_renewal(*_args, **_kwargs) -> int:
         raise sqlite3.OperationalError("injected claim renewal outage")
 
-    monkeypatch.setattr(OutputColumnClaimStore, "renew", fail_renewal)
+    monkeypatch.setattr(GeneratedColumnClaimStore, "renew", fail_renewal)
     with pytest.raises(
         ClaimLeaseRenewalFailed,
         match="claim renewal outage",
@@ -490,8 +483,7 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
         _handle(root, run_id, spec)
 
     assert adapter_stub
-    reopened = Project(root / "proj.frisket")
-    try:
+    with closing(Project(root / "proj.frisket")) as reopened:
         run = reopened.db.execute(
             "SELECT status, current_attempt_id FROM runs WHERE id=?",
             (run_id,),
@@ -515,7 +507,7 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
         )
         assert (
             reopened.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
@@ -528,8 +520,6 @@ def test_project_run_renewal_failure_is_retryable_and_leaves_run_alive(
             ).fetchone()[0]
             == "queued"
         )
-    finally:
-        reopened.close()
 
 
 def test_consented_gateway_run_verifies_and_executes(
@@ -988,8 +978,7 @@ def test_head_that_moved_between_admission_and_the_claim_refuses(
         claim(
             project,
             attempt,
-            claimless_direct_effect=False,
-            claim_token=claim_token,
+            fence=WriterFence(run_id=run_id, claim_token=claim_token),
             output_column_ids=output_column_ids,
         )
     assert exc_info.value.code == "stale_head"
@@ -1158,14 +1147,14 @@ def test_the_claim_transaction_must_own_its_write_lock(
         program=_program(spec), spec=spec, run_id=run_id, scope=(1,)
     )
     claim_token, output_column_ids = _claimed_output_authority(project, run_id)
+
     project.db.execute("BEGIN IMMEDIATE")
     try:
         with pytest.raises(AttemptClaimRefused):
             claim(
                 project,
                 attempt,
-                claimless_direct_effect=False,
-                claim_token=claim_token,
+                fence=WriterFence(run_id=run_id, claim_token=claim_token),
                 output_column_ids=output_column_ids,
             )
     finally:

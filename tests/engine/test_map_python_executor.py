@@ -17,9 +17,9 @@ from executor_harness import (
     case_env,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import (
@@ -125,7 +125,7 @@ def _map_python_action(sheet_id: int, *, idempotency_key: str) -> dict[str, Any]
                     "name": "debug",
                     "path": "$.debug",
                     "target": {
-                        "kind": "receipt_evidence",
+                        "kind": "receipt_record",
                         "retention": "compactable",
                     },
                 },
@@ -230,7 +230,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     # visible column targets
     assert columns["python_result"]["type"] == "json"
-    assert columns["python_result"]["ai_generated"] == 1
+    assert columns["python_result"]["generated"] == 1
     assert columns["python_result"]["current_run_id"] == result.run_id
     assert columns["python_result"]["hidden"] == 0
     assert columns["word_count"]["type"] == "integer"
@@ -244,7 +244,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert named_result_column["current_run_id"] == result.run_id
 
     # receipt_evidence target -> hidden plumbing column (NOT a user-facing output)
-    evidence_column = columns.get("__evidence_debug")
+    evidence_column = columns.get("__record_debug")
     assert evidence_column is not None
     assert evidence_column["hidden"] == 1
 
@@ -282,15 +282,15 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.run_id == result.run_id
     assert receipt.action_kind == "map.python"
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "map_python_code",
         "typed_action_request",
-        "map_python_receipt_evidence",
+        "map_python_receipt_record",
     }
     debug_refs = [
         item.ref
-        for item in receipt.evidence
-        if item.ref["kind"] == "map_python_receipt_evidence"
+        for item in receipt.records
+        if item.ref["kind"] == "map_python_receipt_record"
     ]
     # lightweight: a pointer at the hidden column, no per-row value blobs.
     assert debug_refs[0]["route"] == "debug"
@@ -393,7 +393,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "map_rows_failed",
                     "idempotency_conflict",
                     "idempotency_in_progress",
@@ -412,9 +412,9 @@ CASES = [
                 "invalid_action_request",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _visible_collision_action,
-                "output_column_exists",
+                "generated_column_exists",
                 after_primary_run=True,
             ),
             # A failed map run persists its failed run/results/op/receipt
@@ -492,7 +492,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
     ) -> None:
         original_publish_result_batch(store, run_id, batch, **kwargs)
         assert not store.db.in_transaction
-        writer_attempt_id = kwargs.get("writer_attempt_id")
+        writer_attempt_id = kwargs["fence"].writer_attempt_id
         assert isinstance(writer_attempt_id, str) and writer_attempt_id
         store.db.execute(
             "UPDATE execution_attempts "
@@ -545,7 +545,7 @@ def test_direct_maprunner_stale_writer_refusal_is_non_destructive(
 
     monkeypatch.setattr(
         RunResultStore,
-        "write_results",
+        "write_results_in_transaction",
         lose_effect_authority,
     )
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
@@ -571,7 +571,7 @@ def test_direct_maprunner_stale_writer_refusal_is_non_destructive(
         )
         assert (
             env.project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
@@ -597,7 +597,7 @@ def test_direct_maprunner_renewal_failure_leaves_run_alive(
     def fail_renewal(*_args: Any, **_kwargs: Any) -> int:
         raise sqlite3.OperationalError("injected claim renewal outage")
 
-    monkeypatch.setattr(OutputColumnClaimStore, "renew", fail_renewal)
+    monkeypatch.setattr(GeneratedColumnClaimStore, "renew", fail_renewal)
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         with pytest.raises(
             ClaimLeaseRenewalFailed,
@@ -630,7 +630,7 @@ def test_direct_maprunner_renewal_failure_leaves_run_alive(
         )
         assert (
             env.project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims "
+                "SELECT COUNT(*) FROM generated_column_claims "
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]

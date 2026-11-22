@@ -13,7 +13,7 @@
 //
 // Deterministic generation uses map.python (local, no model): run 1
 // renders 'A', we hand-edit three cells to 'EDIT#', run 2 renders 'B'. Because
-// map_runner REUSES the same-named ai_generated column on re-run, run 2 writes a
+// map_runner REUSES the same-named generated column on re-run, run 2 writes a
 // fresh (current_run_id, row_id, column_id) results row under the surviving
 // edits; the three edited cells (overlay 'EDIT#') now differ from the fresh 'B'
 // and become the pending set. Setup is API-driven; the page is opened afterward

@@ -53,9 +53,11 @@ class InviteService:
     PROJECT_INVITE_ROLES = ("viewer", "editor")
     ORGANIZATION_ROLES = ("member", "owner")
 
-    def __init__(self, engine: sa.Engine, *, org_id: int, access: ProjectAccess):
+    def __init__(
+        self, engine: sa.Engine, *, organization_id: int, access: ProjectAccess
+    ):
         self._engine = engine
-        self._organization_id = org_id
+        self._organization_id = organization_id
         self._access = access
 
     @staticmethod
@@ -83,7 +85,8 @@ class InviteService:
     def _require_editor(self, cx: sa.Connection, *, user_id: int, slug: str) -> None:
         exists = cx.execute(
             sa.select(projects.c.id).where(
-                projects.c.org_id == self._organization_id, projects.c.slug == slug
+                projects.c.organization_id == self._organization_id,
+                projects.c.slug == slug,
             )
         ).scalar_one_or_none()
         if exists is None:
@@ -124,7 +127,7 @@ class InviteService:
                 raise ValueError("org invite role must be member or owner")
         now = datetime.now(UTC)
         with locked_transaction(
-            self._engine, lock_scope=("org-membership", self._organization_id)
+            self._engine, lock_scope=("organization-membership", self._organization_id)
         ) as cx:
             if not operator_actor:
                 # An operator-token actor has no membership row by design (see
@@ -133,7 +136,7 @@ class InviteService:
                 # explicitly instead of this owner-membership lookup.
                 owner = cx.execute(
                     sa.select(memberships.c.user_id).where(
-                        memberships.c.org_id == self._organization_id,
+                        memberships.c.organization_id == self._organization_id,
                         memberships.c.user_id == actor_user_id,
                         memberships.c.role == "owner",
                     )
@@ -146,7 +149,7 @@ class InviteService:
                     memberships.join(users, users.c.id == memberships.c.user_id)
                 )
                 .where(
-                    memberships.c.org_id == self._organization_id,
+                    memberships.c.organization_id == self._organization_id,
                     users.c.email == clean_email,
                 )
             ).scalar_one_or_none()
@@ -158,7 +161,7 @@ class InviteService:
                 )
             existing_role = cx.execute(
                 sa.select(pending_invites.c.role).where(
-                    pending_invites.c.org_id == self._organization_id,
+                    pending_invites.c.organization_id == self._organization_id,
                     pending_invites.c.email == clean_email,
                 )
             ).scalar_one_or_none()
@@ -174,7 +177,7 @@ class InviteService:
                 str(existing_role) if reissued else "member"
             )
             values = {
-                "org_id": self._organization_id,
+                "organization_id": self._organization_id,
                 "role": effective_role,
                 "expires_at": now + timedelta(days=7),
             }
@@ -195,7 +198,7 @@ class InviteService:
                     memberships.join(users, users.c.id == memberships.c.user_id)
                 )
                 .where(
-                    memberships.c.org_id == self._organization_id,
+                    memberships.c.organization_id == self._organization_id,
                     users.c.email == clean_email,
                 )
             ).scalar_one_or_none()
@@ -208,13 +211,13 @@ class InviteService:
             record_audit(
                 cx,
                 user_id=actor_user_id,
-                org_id=self._organization_id,
-                action="org_invite_set",
+                organization_id=self._organization_id,
+                action="organization_invite_set",
                 detail=clean_email,
             )
         return {
             "email": clean_email,
-            "org_id": self._organization_id,
+            "organization_id": self._organization_id,
             "role": effective_role,
             "reissued": reissued,
         }
@@ -228,12 +231,12 @@ class InviteService:
     ) -> bool:
         clean_email = self._email(email)
         with locked_transaction(
-            self._engine, lock_scope=("org-membership", self._organization_id)
+            self._engine, lock_scope=("organization-membership", self._organization_id)
         ) as cx:
             if not operator_actor:
                 owner = cx.execute(
                     sa.select(memberships.c.user_id).where(
-                        memberships.c.org_id == self._organization_id,
+                        memberships.c.organization_id == self._organization_id,
                         memberships.c.user_id == actor_user_id,
                         memberships.c.role == "owner",
                     )
@@ -243,15 +246,15 @@ class InviteService:
             result = cx.execute(
                 pending_invites.delete().where(
                     pending_invites.c.email == clean_email,
-                    pending_invites.c.org_id == self._organization_id,
+                    pending_invites.c.organization_id == self._organization_id,
                 )
             )
             if result.rowcount:
                 record_audit(
                     cx,
                     user_id=actor_user_id,
-                    org_id=self._organization_id,
-                    action="org_invite_revoked",
+                    organization_id=self._organization_id,
+                    action="organization_invite_revoked",
                     detail=clean_email,
                 )
             return bool(result.rowcount)
@@ -280,7 +283,7 @@ class InviteService:
             cx.execute(
                 project_invites.update()
                 .where(
-                    project_invites.c.org_id == self._organization_id,
+                    project_invites.c.organization_id == self._organization_id,
                     project_invites.c.slug == slug,
                     project_invites.c.email == clean_email,
                     project_invites.c.accepted_at.is_(None),
@@ -291,7 +294,7 @@ class InviteService:
             invite_id = inserted_id(
                 cx.execute(
                     project_invites.insert().values(
-                        org_id=self._organization_id,
+                        organization_id=self._organization_id,
                         slug=slug,
                         email=clean_email,
                         role=clean_role,
@@ -309,7 +312,7 @@ class InviteService:
             record_audit(
                 cx,
                 user_id=actor_user_id,
-                org_id=self._organization_id,
+                organization_id=self._organization_id,
                 action="project_invited",
                 detail=f"{slug}:{clean_email}:{clean_role}",
             )
@@ -323,7 +326,7 @@ class InviteService:
             rows = cx.execute(
                 sa.select(project_invites)
                 .where(
-                    project_invites.c.org_id == self._organization_id,
+                    project_invites.c.organization_id == self._organization_id,
                     project_invites.c.slug == slug,
                 )
                 .order_by(project_invites.c.id)
@@ -343,7 +346,7 @@ class InviteService:
                 project_invites.update()
                 .where(
                     project_invites.c.id == invite_id,
-                    project_invites.c.org_id == self._organization_id,
+                    project_invites.c.organization_id == self._organization_id,
                     project_invites.c.slug == slug,
                     project_invites.c.accepted_at.is_(None),
                     project_invites.c.revoked_at.is_(None),
@@ -354,7 +357,7 @@ class InviteService:
                 record_audit(
                     cx,
                     user_id=actor_user_id,
-                    org_id=self._organization_id,
+                    organization_id=self._organization_id,
                     action="project_invite_revoked",
                     detail=f"{slug}:{invite_id}",
                 )
@@ -444,7 +447,7 @@ class InviteService:
                 )
             existing = cx.execute(
                 sa.select(project_roles.c.role).where(
-                    project_roles.c.org_id == self._organization_id,
+                    project_roles.c.organization_id == self._organization_id,
                     project_roles.c.slug == str(invite.slug),
                     project_roles.c.user_id == user.id,
                 )
@@ -452,7 +455,7 @@ class InviteService:
             if existing is None:
                 cx.execute(
                     project_roles.insert().values(
-                        org_id=self._organization_id,
+                        organization_id=self._organization_id,
                         slug=str(invite.slug),
                         user_id=user.id,
                         role=str(invite.role),
@@ -464,7 +467,7 @@ class InviteService:
                 cx.execute(
                     project_roles.update()
                     .where(
-                        project_roles.c.org_id == self._organization_id,
+                        project_roles.c.organization_id == self._organization_id,
                         project_roles.c.slug == str(invite.slug),
                         project_roles.c.user_id == user.id,
                     )
@@ -473,7 +476,7 @@ class InviteService:
             record_audit(
                 cx,
                 user_id=user.id,
-                org_id=self._organization_id,
+                organization_id=self._organization_id,
                 action="project_invite_accepted",
                 detail=f"{invite.slug}:{invite.email}:{invite.role}",
             )
@@ -501,7 +504,7 @@ class InviteService:
                     "name": user.name,
                     # Project-only access resolves to its one live project
                     # organization without creating an organization membership.
-                    "org_id": self._organization_id,
+                    "organization_id": self._organization_id,
                     "new": False,
                 },
             }

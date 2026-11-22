@@ -22,7 +22,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
@@ -167,7 +167,7 @@ class _OperationStep:
         except ClaimedOperation as exc:
             claim = exc.claim
             _refuse(
-                "output_column_busy",
+                "generated_column_busy",
                 "The target output column is claimed by a running action.",
                 action_kind=self._action.kind,
                 field="params.expected_op_id",
@@ -294,8 +294,8 @@ def _result_and_receipt(
             )
         ],
         outputs=[ReceiptIO(name=output_name, ref=transition_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "operation_cursor",
                     "direction": transition.direction,
@@ -306,7 +306,7 @@ def _result_and_receipt(
                     "status_after": transition.status_after,
                 }
             ),
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "operation_undo_info",
                     "op_id": transition.op_id,
@@ -315,7 +315,7 @@ def _result_and_receipt(
                 },
                 retention="pinned",
             ),
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "operation_snapshot",
                     "op_id": transition.op_id,

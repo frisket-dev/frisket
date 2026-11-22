@@ -48,7 +48,7 @@ it('debounces edits while retaining the previous amount and enabled Run through 
     expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent('UNKNOWN');
   }
   await waitFor(() => expect(estimateAction).toHaveBeenCalledTimes(previousCalls + 1));
-  expect(estimateAction.mock.lastCall?.[0].params.context).toBe('Reporting');
+  expect(estimateAction.mock.lastCall?.[0]?.params.context).toBe('Reporting');
   expect(screen.getByTestId('generated-action-run')).toBeEnabled();
   await act(async () => { nextValidation.resolve(valid); nextEstimate.resolve({ ...knownEstimate, billed_cost: 20_000 }); });
   expect(screen.getByTestId('cost-estimate')).toHaveTextContent('Estimated cost: $0.02');
@@ -60,9 +60,9 @@ it('replaces a previous known price with a current unknown quote and ignores lat
   const { estimateAction } = await mount();
   estimateAction.mockImplementation((request) => request.params.context === 'old' ? old.promise : current.promise);
   changeContext('old');
-  await waitFor(() => expect(estimateAction.mock.lastCall?.[0].params.context).toBe('old'));
+  await waitFor(() => expect(estimateAction.mock.lastCall?.[0]?.params.context).toBe('old'));
   changeContext('current');
-  await waitFor(() => expect(estimateAction.mock.lastCall?.[0].params.context).toBe('current'));
+  await waitFor(() => expect(estimateAction.mock.lastCall?.[0]?.params.context).toBe('current'));
   await act(async () => current.resolve({ cost: null, rows: 2, billed_cost: null }));
   expect(screen.getByTestId('cost-estimate')).toHaveTextContent('UNKNOWN');
   expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent('$0.01');
@@ -83,7 +83,7 @@ it('Run awaits current validation and quotation, then executes only the exact la
   expect(resolveParams.mock.lastCall?.[0].params.context).toBe('latest');
   await act(async () => validation.resolve(valid));
   expect(onExecute).not.toHaveBeenCalled();
-  expect(estimateAction.mock.lastCall?.[0].params.context).toBe('latest');
+  expect(estimateAction.mock.lastCall?.[0]?.params.context).toBe('latest');
   await act(async () => estimate.resolve({ ...knownEstimate, billed_cost: 50_000, promise_set_hash: 'new-display-only' }));
   expect(onExecute).toHaveBeenCalledTimes(1);
   expect(onExecute.mock.calls[0][0]).toMatchObject({ params: { context: 'latest' } });

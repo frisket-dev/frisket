@@ -9,7 +9,7 @@ pytest.importorskip(
     reason="requires the entities extra: pip install 'frisket-data[entities]'",
 )
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -89,16 +89,17 @@ def test_ftm_entity_matching_returns_read_only_candidate_groups_with_refs(
             span_kind="text",
             quote="Jane@example.org",
         )
-    evidence = record_citation(
-        project,
-        stable_id="evidence_link:email-profile",
-        subject_kind="cell_value",
-        subject_ref=refs[lead_rows[0]],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=leads_sheet,
-        row_id=lead_rows[0],
-        column_id=lead_columns["email"],
-    )
+    with write_transaction(project.db):
+        evidence = record_citation(
+            project,
+            stable_id="evidence_link:email-profile",
+            subject_kind="cell_value",
+            subject_ref=refs[lead_rows[0]],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=leads_sheet,
+            row_id=lead_rows[0],
+            column_id=lead_columns["email"],
+        )
 
     registry_sheet = project.add_sheet("Registry people")
     registry_columns = {

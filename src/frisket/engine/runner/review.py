@@ -176,7 +176,7 @@ def _source_context(project: Project, sheet_id: int, row_id: int) -> dict[str, A
 
     context: dict[str, Any] = {}
     for column in project.columns(sheet_id):
-        if column["ai_generated"]:
+        if column["generated"]:
             continue
         value = project.get_values(sheet_id, column["id"], row_ids=[row_id]).get(row_id)
         if value is not None:
@@ -542,7 +542,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                 if result is not None and result.bounded_justification is not None
                 else None
             )
-            role = "field" if bool(cell["is_primary"]) else "evidence"
+            role = "field" if bool(cell["is_primary"]) else "supporting"
             item = {
                 "run_id": cell["run_id"],
                 "row_id": cell["row_id"],
@@ -606,7 +606,7 @@ def _hydrate_review_bundles(project: Project, keys: list[Any]) -> list[dict[str,
                     None,
                 ),
                 "fields": fields,
-                "evidence": evidence,
+                "supporting_columns": evidence,
                 "items": items,
             }
         )

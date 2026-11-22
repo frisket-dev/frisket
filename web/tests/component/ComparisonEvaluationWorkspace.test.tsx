@@ -18,16 +18,16 @@ afterEach(cleanup);
 const link: EvaluationLink = { id: 1, target_sheet_id: 7, expected_sheet_id: 8,
   action_id: 'map.extract', keys: [{ expected_column_id: 20, target_column_id: 10 }], hidden: false,
   expected_sheet_name: 'Verified answers', target_sheet_name: 'Cases',
-  fields: [{ expected_column_id: 21, output_column_id: 13, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }] };
+  fields: [{ expected_column_id: 21, generated_column_id: 13, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }] };
 
 function seed(): ActionComparisonContext {
   const draft = { action_id: 'map.extract', scope: { kind: 'sheet_rows' as const, sheet_id: 7 },
     params: { model: 'local/qwen', instruction: 'Extract' }, output_names: { answer: 'answer' } };
   return { schema_version: 'frisket.action_compare_context.v1', available: true, reason: null,
-    limits: { max_sample_rows: 20, max_challengers: 3 }, baseline_mode: 'current_values',
+    limits: { max_sample_rows: 500, max_challengers: 19 }, baseline_mode: 'current_values',
     comparison_basis: { kind: 'run', run_id: 41, column_id: 13 }, draft, sheet: { id: 7, name: 'Cases' },
     sample_row_ids: [101], sample_fingerprint: 'inputs', locked_params: [], source_columns: [], source_rows: {},
-    output_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer', column_type: 'text', format: null, hidden: false, schema: null }],
+    generated_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer', column_type: 'text', format: null, hidden: false, schema: {} }],
     expected_output_signature: 'output', replacement_targets: [{ logical_key: 'answer', current_name: 'answer', column_id: 13 }],
     baseline_rows: { 101: { answer: { state: 'value', value: 'A', origin: { kind: 'run_result', run_id: 41, op_id: 9, review_decision: null } } } },
     origin_summary: { mixed_runs: false, includes_manual_edits: false, includes_reject_clear: false },
@@ -35,7 +35,7 @@ function seed(): ActionComparisonContext {
 }
 function result(joined = true, two = false): EvaluationResponse {
   const score = { checked: joined ? 1 : 0, attempted: 1, matches: 1, misses: 0, failed: 0, scored: 1, remaining: 0, accuracy: 1, coverage: 1 };
-  return { sheet_id: 7, action_id: 'map.extract', output_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer' }], row_ids: [101],
+  return { sheet_id: 7, action_id: 'map.extract', generated_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer' }], row_ids: [101],
     link: joined ? link : null, expected: joined ? { 101: { answer: 'A' } } : {}, best: { answer: ['A'] }, rule_previews: {},
     variants: [{ key: 'A', label: 'Current values', source: { kind: 'current' }, settings: {}, rows: { 101: { answer: { state: 'value', value: 'A' } } }, source_fingerprints: {}, verdicts: { 101: { answer: joined ? 'match' : 'unchecked' } }, scores: { answer: score } },
       ...(two ? [{ key: 'B', label: 'B', source: { kind: 'saved' as const, saved_id: 42 }, settings: {}, rows: { 101: { answer: { state: 'value' as const, value: 'B' } } }, source_fingerprints: {}, verdicts: { 101: { answer: joined ? 'miss' as const : 'unchecked' as const } }, scores: { answer: { ...score, matches: 0, misses: joined ? 1 : 0, accuracy: 0 } } }] : [])] };
@@ -69,7 +69,7 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
     onCaptured?.(42); return { status: 'ready' as const, previewId: 'preview-B', result: { rows: { 101: { answer: { state: 'value' as const, value: 'B' } } } } };
   });
   const context = seed();
-  if (secondField) context.output_columns.push({ ...context.output_columns[0], logical_key: 'other', current_name: 'other', column_id: 14 });
+  if (secondField) context.generated_columns.push({ ...context.generated_columns[0], logical_key: 'other', current_name: 'other', column_id: 14 });
   const session = createActionCompareSession({ context }, { runVariant });
   if (two) { session.addVariant(); await session.runPending(); }
   const onJoinExpected = vi.fn(); const changed = vi.fn(); const onOpenVariant = vi.fn();
@@ -236,9 +236,9 @@ describe('comparison evaluation workspace', () => {
   });
   it('shows shelf items only for the same physical output family', async () => {
     const { api } = await setup();
-    const summary = { id: 9, label: 'This output family', sheet_id: 7, action_id: 'map.extract', row_count: 1,
-      output_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'renamed answer' }], saved_at: '2026-10-30T00:00:00Z' };
-    vi.mocked(api.getShelf).mockResolvedValue({ items: [summary, { ...summary, id: 10, label: 'Another output family', output_columns: [{ logical_key: 'answer', column_id: 99, current_name: 'answer' }] }] });
+    const summary = { id: 9, label: 'This output family', sheet_id: 7, action_id: 'map.extract', row_count: 1, kept: false,
+      generated_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'renamed answer' }], saved_at: '2026-10-30T00:00:00Z' };
+    vi.mocked(api.getShelf).mockResolvedValue({ items: [summary, { ...summary, id: 10, label: 'Another output family', generated_columns: [{ logical_key: 'answer', column_id: 99, current_name: 'answer' }] }] });
     fireEvent.click(screen.getByRole('button', { name: '✓ Expected answers' }));
     await waitFor(() => expect(api.getShelf).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('button', { name: '+ ⌄' }));

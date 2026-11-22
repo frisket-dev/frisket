@@ -13,6 +13,7 @@ from frisket.notifications.emit import (
 )
 from frisket.engine.store import Project
 from frisket.alerts.events import decode_alert_check_event
+from frisket.engine.store.transactions import write_transaction
 
 
 def alert_check_notification_candidate(
@@ -105,11 +106,11 @@ def emit_alert_check_notification(
     )
     # The observation transaction creates this obligation. Only clear it after
     # durable notification and delivery planning; recovery safely repeats either.
-    project.db.execute(
-        "UPDATE alert_checks SET notification_pending=0 WHERE id=? AND alert_id=?",
-        (run_id, alert_id),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="clear alert notification pending"):
+        project.db.execute(
+            "UPDATE alert_checks SET notification_pending=0 WHERE id=? AND alert_id=?",
+            (run_id, alert_id),
+        )
     return result
 
 

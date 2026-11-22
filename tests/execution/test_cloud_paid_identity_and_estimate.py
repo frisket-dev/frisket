@@ -14,6 +14,8 @@ from frisket.engine.runner.map_runner import (
 )
 from frisket.engine.store import Project
 from frisket.execution.resolve_for_action import _llm_cost_basis
+from frisket.engine.store.effect_checkpoints import row_effect_ref
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _payer() -> CloudPayerSubject:
@@ -45,18 +47,19 @@ def _new_cloud_row_request(
 ) -> str:
     owner, request_id, adopted = _cloud_row_request_id(
         project,
-        current_checkpoint_id=checkpoint_id,
-        current_group_key=str(run_id),
-        current_unit_key="1",
-        action_kind="media.ocr",
-        identity=identity,
-        current_authorized_attempt_id="not-used-without-recovery",
-        run_id=run_id,
-        writer_attempt_id="not-used-without-recovery",
-        claim_token=None,
-        claimless_direct_effect=True,
+        current=row_effect_ref(
+            checkpoint_id,
+            run_id=run_id,
+            row_id=1,
+            action_kind="media.ocr",
+            identity=identity,
+        ),
+        fence=WriterFence.claimless(
+            run_id=run_id,
+            attempt_id="not-used-without-recovery",
+        ),
     )
-    assert owner == checkpoint_id
+    assert owner.checkpoint_id == checkpoint_id
     assert adopted is False
     return request_id
 
@@ -186,7 +189,7 @@ def test_structured_llm_initial_estimate_is_not_a_spending_cap():
     )
     assert quantity == expected
     assert float(basis.estimated_quantity) == expected / 1_000_000
-    assert basis.row_quote_quantities is None
+    assert basis.row_estimate_quantities is None
     assert basis.pricing_key.endswith(
         ":anthropic:llm.complete:anthropic/claude-sonnet-4-5"
     )

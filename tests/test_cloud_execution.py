@@ -33,7 +33,8 @@ from frisket.cloud_execution import (
 from frisket.contracts.http.cloud_connection import (
     CloudAccount,
     CloudCapabilityRoute,
-    CloudExecutionQuote,
+    CloudEstimateChallenge,
+    CloudExecutionEstimate,
     CloudExecutionAccounting,
     CloudErrorResponse,
     CloudLLMOptionSupport,
@@ -45,7 +46,6 @@ from frisket.contracts.http.cloud_connection import (
     CloudOCROptions,
     CloudOCRResult,
     CloudOCRUsage,
-    CloudQuoteChallenge,
     CloudSessionResponse,
     CloudTokenPrice,
     CloudUser,
@@ -163,9 +163,9 @@ def test_cloud_row_estimate_authority_keeps_cohort_without_price_cap():
         meter_key="pages",
         meter_units_per_quantity_unit="1",
         ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=((11, "2"), (12, "3")),
+        row_estimate_quantities=((11, "2"), (12, "3")),
     )
 
     authority = cloud_estimate_authority_for_row(basis, row_id=11)
@@ -191,7 +191,7 @@ def test_cloud_priced_unknown_quantity_consent_is_explicitly_unbounded():
         meter_key="pages",
         meter_units_per_quantity_unit="1",
         ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="frisket_cloud_receipt",
     )
 
@@ -212,9 +212,9 @@ def test_cloud_fractional_unit_approval_does_not_become_a_price_cap():
         meter_key="audio_seconds",
         meter_units_per_quantity_unit="1",
         ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=((11, "10.5"),),
+        row_estimate_quantities=((11, "10.5"),),
     )
 
     authority = cloud_estimate_authority_for_row(basis, row_id=11)
@@ -347,11 +347,11 @@ def _store(tmp_path) -> CloudConnectionStore:
     return store
 
 
-def _estimate(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
-    return CloudQuoteChallenge(
+def _estimate(*, charge_micro: int | None = 25_000) -> CloudEstimateChallenge:
+    return CloudEstimateChallenge(
         error="needs_confirmation",
         confirmation="quote-confirmation",
-        quote=CloudExecutionQuote(
+        estimate=CloudExecutionEstimate(
             account_id=41,
             route_revision="route-1",
             lane="frisket_credits",
@@ -367,14 +367,14 @@ def _estimate(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
 def _account_key_estimate(
     *,
     provider_cost_micro: int | None,
-) -> CloudQuoteChallenge:
-    estimate = _estimate(charge_micro=0).quote.model_copy(
+) -> CloudEstimateChallenge:
+    estimate = _estimate(charge_micro=0).estimate.model_copy(
         update={"lane": "account_key", "provider_cost_micro": provider_cost_micro}
     )
-    return CloudQuoteChallenge(
+    return CloudEstimateChallenge(
         error="needs_confirmation",
         confirmation="account-key-confirmation",
-        quote=estimate,
+        estimate=estimate,
     )
 
 

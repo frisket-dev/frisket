@@ -57,7 +57,7 @@ def test_oauth_connection_list_route_has_a_closed_public_wire_contract(
     }
     assert set(routes) == {"list_oauth_connections"}
     route = routes["list_oauth_connections"]
-    assert route.path == "/api/org/oauth/connections"
+    assert route.path == "/api/organization/oauth/connections"
     assert route.methods == {"GET"}
     assert route.response_model is OAuthConnectionList
     assert route.response_model_exclude_unset is True
@@ -69,7 +69,7 @@ def test_oauth_connection_list_route_has_a_closed_public_wire_contract(
     assert route.dependant.body_params == []
 
     document = app.openapi()
-    operation = document["paths"]["/api/org/oauth/connections"]["get"]
+    operation = document["paths"]["/api/organization/oauth/connections"]["get"]
     assert "requestBody" not in operation
     assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/OAuthConnectionList"
@@ -158,14 +158,14 @@ def test_oauth_connection_list_keeps_organization_member_bytes_and_browser_only_
         secret_box=TeamSecretBox(config),
     )
     service.connect_google_account(
-        org_id=app.state.team_organization_id,
+        organization_id=app.state.team_organization_id,
         user_id=1,
         external_subject="subject-1",
         refresh_token="refresh-secret-never-public",
         external_email="person@example.com",
         scopes=["openid"],
     )
-    expected = owner.get("/api/org/oauth/connections")
+    expected = owner.get("/api/organization/oauth/connections")
     assert expected.status_code == 200, expected.text
     payload = expected.json()
     connection = payload["connections"][0]
@@ -193,15 +193,20 @@ def test_oauth_connection_list_keeps_organization_member_bytes_and_browser_only_
     assert "refresh-secret-never-public" not in expected.text
     # Empty is a valid optional query value and retains the legacy all-provider
     # behavior; special characters are accepted as ordinary query bytes.
-    assert owner.get("/api/org/oauth/connections?provider=").json() == expected.json()
-    assert owner.get("/api/org/oauth/connections?provider=google%2Ftest").json() == {
-        "connections": []
-    }
+    assert (
+        owner.get("/api/organization/oauth/connections?provider=").json()
+        == expected.json()
+    )
+    assert owner.get(
+        "/api/organization/oauth/connections?provider=google%2Ftest"
+    ).json() == {"connections": []}
 
-    pat = owner.post("/api/org/tokens", json={"name": "oauth probe"}).json()["token"]
+    pat = owner.post("/api/organization/tokens", json={"name": "oauth probe"}).json()[
+        "token"
+    ]
     owner.cookies.clear()
     denied = owner.get(
-        "/api/org/oauth/connections",
+        "/api/organization/oauth/connections",
         headers={"Authorization": f"Bearer {pat}"},
     )
     assert denied.status_code == 403

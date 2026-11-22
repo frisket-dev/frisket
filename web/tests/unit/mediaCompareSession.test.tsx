@@ -31,7 +31,7 @@ function renderHook(useSession: () => MediaCompareSession<string>) {
 afterEach(cleanup);
 
 const local = { id: 'local', label: 'Local', tier: 'local' } as EngineOption;
-const paid = { id: 'paid', label: 'Paid', tier: 'hosted', billable: true } as EngineOption;
+const paid = { id: 'paid', label: 'Paid', tier: 'remote', billable: true } as EngineOption;
 
 function config(overrides: Partial<MediaCompareConfig<string>> = {}): MediaCompareConfig<string> {
   return {

@@ -20,11 +20,12 @@ from .sources import canonical_json, input_hash
 
 
 RETRIEVAL_DB_NAME = "project.retrieval.db"
-# Version 3 changes source authority: prepared OCR text supersedes its evidence
-# copy, and producer-owned OCR geometry is metadata rather than searchable JSON.
-# The sidecar is disposable, so an incompatible derivation is preserved and
-# rebuilt through the existing recovery path instead of migrated in place.
-SCHEMA_VERSION = 3
+# Version 4 renames parts.recipe_id and preparation.recipe_id (and their
+# indexes and cursor JSON keys) to slice_id; version 3 changed OCR source
+# authority. The sidecar is disposable, so an incompatible derivation is
+# preserved and rebuilt through the existing recovery path instead of migrated
+# in place.
+SCHEMA_VERSION = 4
 SIDECAR_ID_META_KEY = "sidecar_id"
 PROJECT_SIDECAR_META_KEY = "retrieval_sidecar_id"
 PAGE_SIZE = 16 * 1024
@@ -113,7 +114,7 @@ class NamedDatasetVector:
 @dataclass(frozen=True)
 class SourcePublication:
     source_revision: SourceRevision
-    recipe_id: str
+    slice_id: str
     channel: str
     parts: tuple[StoredPart, ...]
     bindings: tuple[StoredBinding, ...]
@@ -128,7 +129,7 @@ class SourcePublication:
 @dataclass(frozen=True)
 class PreparationState:
     source_id: str
-    recipe_id: str
+    slice_id: str
     channel: str
     space_id: str | None
     target_version_kind: str
@@ -143,7 +144,7 @@ class PreparationState:
 @dataclass(frozen=True)
 class PreparationWork:
     source_revision: SourceRevision
-    recipe_id: str
+    slice_id: str
     channel: str
     space_id: str | None
     status: Literal["pending", "preparing"]
@@ -261,7 +262,7 @@ class RetrievalStore:
                 self.db.execute(statement)
             self.db.execute(
                 "CREATE INDEX IF NOT EXISTS preparation_space_counts "
-                "ON preparation(recipe_id,channel,space_id,status)"
+                "ON preparation(slice_id,channel,space_id,status)"
             )
             self.db.execute(
                 "CREATE INDEX IF NOT EXISTS preparation_attention "
@@ -372,7 +373,7 @@ class RetrievalStore:
         self,
         source_revision: SourceRevision,
         *,
-        recipe_id: str,
+        slice_id: str,
         channel: str,
         space_id: str | None = None,
     ) -> None:
@@ -381,16 +382,16 @@ class RetrievalStore:
         source_id, _kind, version_kind, version_value, _hash = _revision_fields(
             source_revision
         )
-        _require_nonempty(recipe_id, "recipe_id")
+        _require_nonempty(slice_id, "slice_id")
         _require_nonempty(channel, "channel")
         _validate_space_id(space_id)
         encoded, value_type = _encode_version(version_value)
         self.db.execute(
             "INSERT INTO preparation("
-            "source_id,recipe_id,channel,space_id,target_version_kind,target_version_value,"
+            "source_id,slice_id,channel,space_id,target_version_kind,target_version_value,"
             "target_version_type,status,prepared_parts,error_code,error_message,"
             "cursor_json) VALUES (?,?,?,?,?,?,?,'preparing',0,NULL,NULL,NULL) "
-            "ON CONFLICT(source_id,recipe_id,channel) DO UPDATE SET "
+            "ON CONFLICT(source_id,slice_id,channel) DO UPDATE SET "
             "prepared_parts=CASE WHEN preparation.space_id IS excluded.space_id "
             "AND preparation.target_version_kind="
             "excluded.target_version_kind AND preparation.target_version_value="
@@ -407,7 +408,7 @@ class RetrievalStore:
             "error_code=NULL,error_message=NULL",
             (
                 source_id,
-                recipe_id,
+                slice_id,
                 channel,
                 space_id,
                 version_kind,
@@ -420,7 +421,7 @@ class RetrievalStore:
         self,
         source_revision: SourceRevision,
         *,
-        recipe_id: str,
+        slice_id: str,
         channel: str,
         space_id: str | None = None,
     ) -> None:
@@ -429,7 +430,7 @@ class RetrievalStore:
         source_id, _kind, version_kind, version_value, _hash = _revision_fields(
             source_revision
         )
-        _require_nonempty(recipe_id, "recipe_id")
+        _require_nonempty(slice_id, "slice_id")
         _require_nonempty(channel, "channel")
         _validate_space_id(space_id)
         encoded, value_type = _encode_version(version_value)
@@ -441,10 +442,10 @@ class RetrievalStore:
         )
         self.db.execute(
             "INSERT INTO preparation("
-            "source_id,recipe_id,channel,space_id,target_version_kind,target_version_value,"
+            "source_id,slice_id,channel,space_id,target_version_kind,target_version_value,"
             "target_version_type,status,prepared_parts,error_code,error_message,"
             "cursor_json) VALUES (?,?,?,?,?,?,?,'pending',0,NULL,NULL,NULL) "
-            "ON CONFLICT(source_id,recipe_id,channel) DO UPDATE SET "
+            "ON CONFLICT(source_id,slice_id,channel) DO UPDATE SET "
             "status=CASE WHEN preparation.space_id IS excluded.space_id "
             "AND preparation.target_version_kind="
             "excluded.target_version_kind AND preparation.target_version_value="
@@ -481,7 +482,7 @@ class RetrievalStore:
             + ") THEN preparation.error_message ELSE NULL END",
             (
                 source_id,
-                recipe_id,
+                slice_id,
                 channel,
                 space_id,
                 version_kind,
@@ -495,7 +496,7 @@ class RetrievalStore:
         source_revision: SourceRevision,
         bindings: Sequence[StoredBinding],
         *,
-        recipe_id: str,
+        slice_id: str,
         channel: str,
         space_id: str | None = None,
         replace_channel_recipes: bool = False,
@@ -513,34 +514,34 @@ class RetrievalStore:
         if not bindings:
             raise ValueError("registered preparation requires at least one binding")
         _validate_bindings(bindings)
-        _require_nonempty(recipe_id, "recipe_id")
+        _require_nonempty(slice_id, "slice_id")
         _require_nonempty(channel, "channel")
         _validate_space_id(space_id)
         encoded_version, version_type = _encode_version(version_value)
         source_key = (source_id, version_kind, encoded_version, version_type)
         with self._write_transaction():
             if replace_channel_recipes:
-                old_recipes = tuple(
+                old_slices = tuple(
                     str(row[0])
                     for row in self.db.execute(
-                        "SELECT recipe_id FROM preparation "
-                        "WHERE source_id=? AND channel=? AND recipe_id<>?",
-                        (source_id, channel, recipe_id),
+                        "SELECT slice_id FROM preparation "
+                        "WHERE source_id=? AND channel=? AND slice_id<>?",
+                        (source_id, channel, slice_id),
                     )
                 )
-                if old_recipes:
-                    placeholders = ",".join("?" for _ in old_recipes)
+                if old_slices:
+                    placeholders = ",".join("?" for _ in old_slices)
                     self.db.execute(
                         "DELETE FROM parts WHERE source_key IN ("
                         "SELECT source_key FROM sources WHERE source_id=?"
                         ") AND publication_channel=? "
-                        f"AND recipe_id IN ({placeholders})",
-                        (source_id, channel, *old_recipes),
+                        f"AND slice_id IN ({placeholders})",
+                        (source_id, channel, *old_slices),
                     )
                     self.db.execute(
                         "DELETE FROM preparation WHERE source_id=? AND channel=? "
-                        f"AND recipe_id IN ({placeholders})",
-                        (source_id, channel, *old_recipes),
+                        f"AND slice_id IN ({placeholders})",
+                        (source_id, channel, *old_slices),
                     )
             self.db.execute(
                 "INSERT INTO sources("
@@ -561,7 +562,7 @@ class RetrievalStore:
             self._upsert_binding_records(bindings, self._source_key(source_key))
             self.queue_preparation(
                 source_revision,
-                recipe_id=recipe_id,
+                slice_id=slice_id,
                 channel=channel,
                 space_id=space_id,
             )
@@ -588,7 +589,7 @@ class RetrievalStore:
             + channel_sql
             + space_sql
             + "ORDER BY CASE work.status WHEN 'preparing' THEN 0 ELSE 1 END,"
-            "work.source_id,work.recipe_id,work.channel LIMIT 1",
+            "work.source_id,work.slice_id,work.channel LIMIT 1",
             params,
         ).fetchone()
         return None if row is None else _preparation_work(row)
@@ -597,7 +598,7 @@ class RetrievalStore:
         self,
         source_revision: SourceRevision,
         *,
-        recipe_id: str,
+        slice_id: str,
         channel: str,
         space_id: str | None = None,
         cursor_json: str,
@@ -617,14 +618,14 @@ class RetrievalStore:
         encoded, value_type = _encode_version(version_value)
         changed = self.db.execute(
             "UPDATE preparation SET cursor_json=?,status='preparing',"
-            "error_code=NULL,error_message=NULL WHERE source_id=? AND recipe_id=? "
+            "error_code=NULL,error_message=NULL WHERE source_id=? AND slice_id=? "
             "AND channel=? AND space_id IS ? AND target_version_kind=? "
             "AND target_version_value=? "
             "AND target_version_type=? AND status IN ('pending','preparing')",
             (
                 cursor_json,
                 source_id,
-                recipe_id,
+                slice_id,
                 channel,
                 space_id,
                 version_kind,
@@ -638,7 +639,7 @@ class RetrievalStore:
         self,
         source_revision: SourceRevision,
         *,
-        recipe_id: str,
+        slice_id: str,
         channel: str,
         space_id: str | None = None,
         error_code: str = "encoder_unavailable",
@@ -656,14 +657,14 @@ class RetrievalStore:
         changed = self.db.execute(
             "UPDATE preparation SET status='unavailable',"
             "error_code=?,error_message=? "
-            "WHERE source_id=? AND recipe_id=? AND channel=? AND space_id IS ? "
+            "WHERE source_id=? AND slice_id=? AND channel=? AND space_id IS ? "
             "AND target_version_kind=? AND target_version_value=? "
             "AND target_version_type=? AND status IN ('pending','preparing')",
             (
                 error_code,
                 reason,
                 source_id,
-                recipe_id,
+                slice_id,
                 channel,
                 space_id,
                 version_kind,
@@ -726,7 +727,7 @@ class RetrievalStore:
         self,
         source_revision: SourceRevision,
         *,
-        recipe_id: str,
+        slice_id: str,
         channel: str,
         space_id: str | None = None,
         error_code: str,
@@ -741,14 +742,14 @@ class RetrievalStore:
         encoded, value_type = _encode_version(version_value)
         cursor = self.db.execute(
             "UPDATE preparation SET status='failed',error_code=?,error_message=? "
-            "WHERE source_id=? AND recipe_id=? AND channel=? AND space_id IS ? "
+            "WHERE source_id=? AND slice_id=? AND channel=? AND space_id IS ? "
             "AND target_version_kind=? AND target_version_value=? "
             "AND target_version_type=?",
             (
                 error_code,
                 error_message,
                 source_id,
-                recipe_id,
+                slice_id,
                 channel,
                 space_id,
                 version_kind,
@@ -759,7 +760,7 @@ class RetrievalStore:
         return cursor.rowcount == 1
 
     def publish_source(self, publication: SourcePublication) -> bool:
-        """Append one bounded source/recipe/channel batch conditionally.
+        """Append one bounded source/slice/channel batch conditionally.
 
         The method returns ``False`` when newer preparation superseded this worker.
         No part of a stale batch is written.  Vector encoding and lexical text
@@ -773,13 +774,13 @@ class RetrievalStore:
         encoded_version, version_type = _encode_version(version_value)
         with self._write_transaction():
             owned = self.db.execute(
-                "SELECT 1 FROM preparation WHERE source_id=? AND recipe_id=? "
+                "SELECT 1 FROM preparation WHERE source_id=? AND slice_id=? "
                 "AND channel=? AND space_id IS ? AND target_version_kind=? "
                 "AND target_version_value=? AND target_version_type=? "
                 "AND status IN ('pending','preparing')",
                 (
                     source_id,
-                    publication.recipe_id,
+                    publication.slice_id,
                     publication.channel,
                     publication.space_id,
                     version_kind,
@@ -821,22 +822,22 @@ class RetrievalStore:
             self._upsert_memberships(publication)
             prepared_parts = int(
                 self.db.execute(
-                    "SELECT count(*) FROM parts WHERE source_key=? AND recipe_id=? "
+                    "SELECT count(*) FROM parts WHERE source_key=? AND slice_id=? "
                     "AND publication_channel=?",
-                    (source_key, publication.recipe_id, publication.channel),
+                    (source_key, publication.slice_id, publication.channel),
                 ).fetchone()[0]
             )
             changed = self.db.execute(
                 "UPDATE preparation SET status=?,prepared_parts=?,"
                 "error_code=NULL,error_message=NULL "
-                "WHERE source_id=? AND recipe_id=? AND channel=? "
+                "WHERE source_id=? AND slice_id=? AND channel=? "
                 "AND space_id IS ? AND target_version_kind=? AND target_version_value=? "
                 "AND target_version_type=? AND status IN ('pending','preparing')",
                 (
                     "ready" if publication.complete else "preparing",
                     prepared_parts,
                     source_id,
-                    publication.recipe_id,
+                    publication.slice_id,
                     publication.channel,
                     publication.space_id,
                     version_kind,
@@ -941,18 +942,18 @@ class RetrievalStore:
             )
 
     def preparation_state(
-        self, source_id: str, *, recipe_id: str, channel: str
+        self, source_id: str, *, slice_id: str, channel: str
     ) -> PreparationState | None:
         row = self.db.execute(
-            "SELECT * FROM preparation WHERE source_id=? AND recipe_id=? AND channel=?",
-            (source_id, recipe_id, channel),
+            "SELECT * FROM preparation WHERE source_id=? AND slice_id=? AND channel=?",
+            (source_id, slice_id, channel),
         ).fetchone()
         if row is None:
             return None
         return _preparation_state(row)
 
     def readiness_counts(
-        self, *, recipe_id: str, channel: str, space_id: str | None = None
+        self, *, slice_id: str, channel: str, space_id: str | None = None
     ) -> dict[PreparationStatus, int]:
         """Read maintained status counts without scanning source or part tables."""
 
@@ -966,17 +967,17 @@ class RetrievalStore:
         }
         space_sql = "" if space_id is None else " AND space_id IS ?"
         params = (
-            (recipe_id, channel)
+            (slice_id, channel)
             if space_id is None
             else (
-                recipe_id,
+                slice_id,
                 channel,
                 space_id,
             )
         )
         for row in self.db.execute(
             "SELECT status,count(*) AS amount FROM preparation "
-            "WHERE recipe_id=? AND channel=?" + space_sql + " GROUP BY status",
+            "WHERE slice_id=? AND channel=?" + space_sql + " GROUP BY status",
             params,
         ):
             counts[row["status"]] = int(row["amount"])
@@ -1064,10 +1065,10 @@ class RetrievalStore:
     def _upsert_parts(self, publication: SourcePublication, source_key: int) -> None:
         self.db.executemany(
             "INSERT INTO parts("
-            "part_id,source_key,recipe_id,publication_channel,part_kind,"
+            "part_id,source_key,slice_id,publication_channel,part_kind,"
             "locator_json,group_key) VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(part_id) DO UPDATE SET "
-            "source_key=excluded.source_key,recipe_id=excluded.recipe_id,"
+            "source_key=excluded.source_key,slice_id=excluded.slice_id,"
             "publication_channel=excluded.publication_channel,"
             "part_kind=excluded.part_kind,locator_json=excluded.locator_json,"
             "group_key=excluded.group_key",
@@ -1075,7 +1076,7 @@ class RetrievalStore:
                 (
                     part.part_id,
                     source_key,
-                    publication.recipe_id,
+                    publication.slice_id,
                     publication.channel,
                     part.kind,
                     canonical_json(part.locator),
@@ -1291,7 +1292,7 @@ def _decode_version(value: str, value_type: str) -> int | str:
 def _preparation_state(row: sqlite3.Row) -> PreparationState:
     return PreparationState(
         source_id=str(row["source_id"]),
-        recipe_id=str(row["recipe_id"]),
+        slice_id=str(row["slice_id"]),
         channel=str(row["channel"]),
         space_id=None if row["space_id"] is None else str(row["space_id"]),
         target_version_kind=str(row["target_version_kind"]),
@@ -1308,6 +1309,8 @@ def _preparation_state(row: sqlite3.Row) -> PreparationState:
 
 def _preparation_work(row: sqlite3.Row) -> PreparationWork:
     state = _preparation_state(row)
+    if state.status != "pending" and state.status != "preparing":
+        raise ValueError(f"unexpected preparation work status: {state.status!r}")
     return PreparationWork(
         source_revision=SourceRevision(
             source_id=state.source_id,
@@ -1316,7 +1319,7 @@ def _preparation_work(row: sqlite3.Row) -> PreparationWork:
             version_value=state.target_version_value,
             content_hash=row["content_hash"],
         ),
-        recipe_id=state.recipe_id,
+        slice_id=state.slice_id,
         channel=state.channel,
         space_id=state.space_id,
         status=state.status,
@@ -1368,7 +1371,7 @@ def _duplicates(values: Iterable[str]) -> set[str]:
 
 def _validate_publication(publication: SourcePublication) -> None:
     _revision_fields(publication.source_revision)
-    _require_nonempty(publication.recipe_id, "recipe_id")
+    _require_nonempty(publication.slice_id, "slice_id")
     _require_nonempty(publication.channel, "channel")
     _validate_space_id(publication.space_id)
     part_ids = {part.part_id for part in publication.parts}
@@ -1474,14 +1477,14 @@ CREATE TABLE IF NOT EXISTS parts (
   part_key INTEGER PRIMARY KEY,
   part_id TEXT NOT NULL UNIQUE,
   source_key INTEGER NOT NULL REFERENCES sources(source_key) ON DELETE CASCADE,
-  recipe_id TEXT NOT NULL,
+  slice_id TEXT NOT NULL,
   publication_channel TEXT NOT NULL,
   part_kind TEXT NOT NULL,
   locator_json TEXT NOT NULL CHECK(json_valid(locator_json)),
   group_key TEXT
 );
-CREATE INDEX IF NOT EXISTS parts_source_recipe
-  ON parts(source_key,recipe_id,publication_channel,part_key);
+CREATE INDEX IF NOT EXISTS parts_source_slice
+  ON parts(source_key,slice_id,publication_channel,part_key);
 
 CREATE TABLE IF NOT EXISTS bindings (
   binding_key INTEGER PRIMARY KEY,
@@ -1541,7 +1544,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS lexical_fts USING fts5(
 
 CREATE TABLE IF NOT EXISTS preparation (
   source_id TEXT NOT NULL,
-  recipe_id TEXT NOT NULL,
+  slice_id TEXT NOT NULL,
   channel TEXT NOT NULL,
   space_id TEXT,
   target_version_kind TEXT NOT NULL,
@@ -1554,20 +1557,20 @@ CREATE TABLE IF NOT EXISTS preparation (
   error_code TEXT,
   error_message TEXT,
   cursor_json TEXT CHECK(cursor_json IS NULL OR json_valid(cursor_json)),
-  PRIMARY KEY(source_id,recipe_id,channel)
+  PRIMARY KEY(source_id,slice_id,channel)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS preparation_counts
-  ON preparation(recipe_id,channel,status);
+  ON preparation(slice_id,channel,status);
 CREATE INDEX IF NOT EXISTS preparation_work_order
   ON preparation(
     CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
-    source_id,recipe_id,channel
+    source_id,slice_id,channel
   ) WHERE status IN ('pending','preparing');
 CREATE INDEX IF NOT EXISTS preparation_channel_work_order
   ON preparation(
     space_id,channel,
     CASE status WHEN 'preparing' THEN 0 ELSE 1 END,
-    source_id,recipe_id
+    source_id,slice_id
   ) WHERE status IN ('pending','preparing');
 
 CREATE TABLE IF NOT EXISTS named_dataset_membership (

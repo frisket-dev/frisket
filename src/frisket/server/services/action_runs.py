@@ -217,7 +217,7 @@ def _attach_job_contexts(
         if context is not None:
             run_id = payload.get("run_id")
             context["sheet_name"] = names.get(context["sheet_id"])
-            context["output_columns"] = (
+            context["generated_columns"] = (
                 outputs.get(run_id, []) if isinstance(run_id, int) else []
             )
     return payloads
@@ -263,7 +263,7 @@ class ActionRunService:
             self._workspace.queue.get_project_run_job(
                 project_id,
                 receipt.run_id,
-                storage_org_id=self._storage_organization_id(),
+                storage_organization_id=self._storage_organization_id(),
             )
             if receipt.run_id is not None
             else None
@@ -293,7 +293,7 @@ class ActionRunService:
                 stale_run_grace_seconds=self._stale_run_grace_seconds,
                 worker_liveness_window_seconds=self._worker_liveness_window_seconds,
                 queue_timeout_seconds=self._queue_timeout_seconds,
-                storage_org_id=self._storage_organization_id(),
+                storage_organization_id=self._storage_organization_id(),
             )
         except KeyError:
             return payload
@@ -651,7 +651,7 @@ class ActionRunService:
             SearchPreparationStore(
                 self._workspace.queue, workspace_root=str(self._workspace.root)
             ).create_pending_materialization(
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 project_id=project_id,
                 job_id=int(result.job_id),
                 sheet_id=sheet_id,
@@ -846,7 +846,7 @@ class ActionRunService:
                 stale_run_grace_seconds=self._stale_run_grace_seconds,
                 worker_liveness_window_seconds=self._worker_liveness_window_seconds,
                 queue_timeout_seconds=self._queue_timeout_seconds,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
             )
         except KeyError as exc:
             raise RouteError(404, str(exc)) from exc
@@ -969,7 +969,7 @@ class ActionRunService:
             jobs.extend(
                 self._workspace.queue.list_project_jobs(
                     project_id,
-                    storage_org_id=self._storage_organization_id(),
+                    storage_organization_id=self._storage_organization_id(),
                     status=status,
                     limit=limit,
                     kind=kind,
@@ -993,7 +993,7 @@ class ActionRunService:
         # -job status would "unmask" an already-queued run as if uncovered).
         covering_jobs = self._workspace.queue.list_project_jobs(
             project_id,
-            storage_org_id=self._storage_organization_id(),
+            storage_organization_id=self._storage_organization_id(),
             status=None,
             limit=max(limit, _INLINE_RUN_EXCLUSION_SCAN_LIMIT),
             kind=RUN_PROJECT_KIND,
@@ -1056,7 +1056,7 @@ class ActionRunService:
             or job_project_id(job) != project_id
             or (
                 self._storage_organization_id() is not None
-                and job.storage_org_id != self._storage_organization_id()
+                and job.storage_organization_id != self._storage_organization_id()
             )
         ):
             raise ActionRunRouteError(404, "no such action job")
@@ -1080,7 +1080,7 @@ class ActionRunService:
             or job_project_id(job) != project_id
             or (
                 self._storage_organization_id() is not None
-                and job.storage_org_id != self._storage_organization_id()
+                and job.storage_organization_id != self._storage_organization_id()
             )
         ):
             raise ActionRunRouteError(404, "no such cancellable action job")
@@ -1144,7 +1144,7 @@ class ActionRunService:
             return 0
         refs = [
             item.get("ref") or {}
-            for item in [*receipt.get("outputs", []), *receipt.get("evidence", [])]
+            for item in [*receipt.get("outputs", []), *receipt.get("records", [])]
             if isinstance(item, dict)
         ]
         source_run = next(
@@ -1181,7 +1181,7 @@ class ActionRunService:
                 project=project,
                 project_id=project_id,
                 workspace_root=self._workspace.root,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 feed=source_data,
                 sheet_id=sheet_id,
                 row_ids=row_ids,
@@ -1208,7 +1208,7 @@ class ActionRunService:
                 project=project,
                 project_id=project_id,
                 workspace_root=self._workspace.root,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 sheet_id=int(materialization["sheet_id"]),
                 row_ids=[int(r) for r in materialization.get("row_ids") or []],
                 trigger_ref={
@@ -1227,7 +1227,7 @@ class ActionRunService:
                 alerts=alerts,
                 project_id=project_id,
                 workspace_root=self._workspace.root,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 trigger_ref={"source_run_id": materialization["source_run_id"]},
             )
 
@@ -1262,7 +1262,7 @@ def _v1_action_result_http_status(result: V1ActionResult) -> int:
     if codes & {
         "idempotency_conflict",
         "output_claim_conflict",
-        "output_column_exists",
+        "generated_column_exists",
         "duplicate_sheet_name",
         "stale_replay",
         "plugin_code_integrity_mismatch",

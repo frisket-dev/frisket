@@ -1,6 +1,6 @@
 """Generic map-op replay + value-hash helpers.
 
-`output_columns_replay_error` is the ONE replay checker:
+`generated_columns_replay_error` is the ONE replay checker:
 its `scope` keyword derives from the op's `accepted_run_statuses` contract, not
 from a separate value-hash knob. "expected" scope (deterministic, completed-only
 ops) checks the receipt's row set against the caller's freshly computed expected
@@ -24,7 +24,7 @@ from frisket.sdk.replay_policy import REPLAY_EDIT_POLICY
 _SQLITE_ID_CHUNK_SIZE = 900
 
 
-def _replay_output_column_row(
+def _replay_generated_column_row(
     project: Any,
     receipt: Receipt,
     *,
@@ -69,7 +69,7 @@ def _replay_output_column_row(
             if column_id in {int(c) for c in info.get("zero_success_columns", [])}:
                 zero_success_hidden = True
                 break
-        if not zero_success_hidden and not (allow_hidden and row["ai_generated"]):
+        if not zero_success_hidden and not (allow_hidden and row["generated"]):
             return None
         by_id = {int(op_row["id"]): str(op_row["status"]) for op_row in rows}
         if not all(by_id.get(op_id) == "applied" for op_id in op_ids):
@@ -77,15 +77,15 @@ def _replay_output_column_row(
     return row
 
 
-def output_column_value_hash(
+def generated_column_value_hash(
     project: Any, *, sheet_id: int, column_id: int, row_ids: list[int]
 ) -> str:
-    return _output_column_value_hash_streaming(
+    return _generated_column_value_hash_streaming(
         row_ids, lambda page: project.get_values(sheet_id, column_id, row_ids=page)
     )
 
 
-def _output_column_value_hash_streaming(
+def _generated_column_value_hash_streaming(
     row_ids, read_page, *, page_size: int = 128
 ) -> str:
     """Preserve receipt JSON bytes while decoding only one bounded row page."""
@@ -112,7 +112,7 @@ def _output_column_value_hash_streaming(
     return "sha256:" + digest.hexdigest()
 
 
-def output_column_result_value_hash(
+def generated_column_result_value_hash(
     project: Any, *, run_id: int, sheet_id: int, column_id: int, row_ids: list[int]
 ) -> str:
     """Hash an explicit saved output with the persisted receipt value encoding.
@@ -143,7 +143,7 @@ def output_column_result_value_hash(
             for (_, row_id, _), result in saved.items()
         }
 
-    return _output_column_value_hash_streaming(row_ids, read_page)
+    return _generated_column_value_hash_streaming(row_ids, read_page)
 
 
 def replay_expected_row_ids(
@@ -154,7 +154,7 @@ def replay_expected_row_ids(
     return project.visible_row_ids(sheet_id)
 
 
-def replay_output_column_identity(
+def replay_generated_column_identity(
     project: Any,
     receipt: Receipt,
     output: Any,
@@ -178,7 +178,7 @@ def replay_output_column_identity(
         problem = "receipt has invalid output refs"
         extra: dict[str, Any] = {}
     else:
-        row = _replay_output_column_row(
+        row = _replay_generated_column_row(
             project,
             receipt,
             column_id=column_id,
@@ -209,7 +209,7 @@ def replay_output_column_identity(
     )
 
 
-def output_columns_replay_error(
+def generated_columns_replay_error(
     project: Any,
     receipt: Receipt,
     *,
@@ -244,7 +244,7 @@ def output_columns_replay_error(
     naturally as old receipts age out.
     """
     if scope not in ("expected", "receipt"):
-        raise ValueError(f"output_columns_replay_error: unknown scope {scope!r}")
+        raise ValueError(f"generated_columns_replay_error: unknown scope {scope!r}")
     seen_output = False
     from frisket.contracts.action import ReceiptIO
 
@@ -252,7 +252,7 @@ def output_columns_replay_error(
     if hidden_output_kind is not None:
         outputs.extend(
             ReceiptIO(name=item.ref["name"], ref=item.ref)
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == hidden_output_kind
         )
     for output in outputs:
@@ -263,7 +263,7 @@ def output_columns_replay_error(
         if ref.get("kind") != output_kind and not hidden:
             continue
         seen_output = True
-        row = replay_output_column_identity(
+        row = replay_generated_column_identity(
             project,
             receipt,
             output,
@@ -455,7 +455,7 @@ def output_columns_replay_error(
             # carried a value_hash. Identity/row-scope checks above already
             # ran; skip only the value comparison for this output.
             continue
-        actual_value_hash = output_column_value_hash(
+        actual_value_hash = generated_column_value_hash(
             project, sheet_id=sheet_id, column_id=column_id, row_ids=row_ids
         )
         if actual_value_hash != expected_value_hash:
@@ -463,7 +463,7 @@ def output_columns_replay_error(
             # Compare this receipt's exact saved output to preserve edit-surface
             # behavior without reading a second notion of current values.
             if REPLAY_EDIT_POLICY == "surface":
-                result_value_hash = output_column_result_value_hash(
+                result_value_hash = generated_column_result_value_hash(
                     project,
                     run_id=run_id,
                     sheet_id=sheet_id,

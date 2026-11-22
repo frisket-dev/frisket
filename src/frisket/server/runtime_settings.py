@@ -20,8 +20,11 @@ from filelock import FileLock
 
 from frisket.ai.llm import CACHE_MODES, CacheMode, resolve_env_cache_mode
 from frisket.local_runtime_config import (
+    ALLOWANCE_SETTINGS_KEY,
     DEFAULT_ALLOWANCE_USD,
+    LEGACY_ALLOWANCE_SETTINGS_KEY,
     InvalidLocalRuntimeConfigError,
+    extract_stored_allowance_usd,
     normalize_allowance_usd,
     resolve_local_allowance_usd,
 )
@@ -54,7 +57,10 @@ def _read_valid_settings(path: Path) -> dict[str, Any]:
         raise InvalidRuntimeSettingsError(
             f"runtime settings at {path} must be a JSON object"
         )
-    unknown = sorted(set(value) - {"cache_mode", "cost_preapproval_usd"})
+    unknown = sorted(
+        set(value)
+        - {"cache_mode", ALLOWANCE_SETTINGS_KEY, LEGACY_ALLOWANCE_SETTINGS_KEY}
+    )
     if unknown:
         raise InvalidRuntimeSettingsError(
             f"runtime settings at {path} contain unsupported fields: "
@@ -65,10 +71,16 @@ def _read_valid_settings(path: Path) -> dict[str, Any]:
         raise InvalidRuntimeSettingsError(
             f"runtime settings at {path} contain invalid cache_mode {mode!r}"
         )
-    threshold = value.get("cost_preapproval_usd")
+    try:
+        threshold = extract_stored_allowance_usd(value)
+    except InvalidLocalRuntimeConfigError as exc:
+        raise InvalidRuntimeSettingsError(f"runtime settings {exc}") from exc
+    normalized: dict[str, Any] = {}
+    if mode is not None:
+        normalized["cache_mode"] = mode
     if threshold is not None:
-        _validated_allowance_usd(threshold)
-    return value
+        normalized[ALLOWANCE_SETTINGS_KEY] = threshold
+    return normalized
 
 
 def _validated_allowance_usd(value: object) -> str:
@@ -93,7 +105,7 @@ def resolve_workspace_cache_mode(
 
 
 def resolve_workspace_allowance_usd(root: str | Path) -> str:
-    """Return this local installation's pre-approval amount, defaulting to $2."""
+    """Return this local installation's allowance amount, defaulting to $2."""
 
     # Keep this server-owned settings document strict about unrelated fields;
     # the shared reader below is intentionally narrower for execution paths.
@@ -148,7 +160,7 @@ def save_workspace_allowance_usd(root: str | Path, amount: str) -> str:
     lock_path = path.with_name(f".{path.name}.lock")
     with FileLock(str(lock_path), timeout=-1):
         current = _read_valid_settings(path)
-        current["cost_preapproval_usd"] = normalized
+        current[ALLOWANCE_SETTINGS_KEY] = normalized
         fd, temporary = tempfile.mkstemp(
             dir=path.parent,
             prefix=f".{path.name}.",

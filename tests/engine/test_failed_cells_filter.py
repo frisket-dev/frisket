@@ -20,6 +20,7 @@ from frisket.querysets import SheetRowSetError, resolve_sheet_filter_rows
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _failed_filter(column_name: str, value: str) -> str:
@@ -31,7 +32,7 @@ def _seed_run_backed_column(project: Project):
     outcome: ok, model_error, invalid_output, empty_output, withheld."""
     sheet = project.add_sheet("data")
     text_col = project.add_column(sheet, "text", type="text")
-    ai_col = project.add_column(sheet, "result", type="text", ai_generated=True)
+    ai_col = project.add_column(sheet, "result", type="text", generated=True)
     rows = project.add_rows(
         sheet,
         [{"text": f"row {i}"} for i in range(5)],
@@ -78,7 +79,8 @@ def _seed_run_backed_column(project: Project):
         ],
     )
     store.finish_run(run)
-    store.point_column_at_run(op, ai_col, run)
+    with write_transaction(store.db):
+        store.point_column_at_run(op, ai_col, run)
     return sheet, rows
 
 

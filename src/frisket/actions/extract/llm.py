@@ -170,19 +170,25 @@ def complete_extract(
     )
 
 
-async def extract_row(
-    params: ExtractParams, row: Row, classifier: Classifier
-) -> RowResult[DynamicOutput]:
-    """Keep each admitted decision and probability in its original cell outcome."""
-    fields = tuple(
-        ClassifyField(
+def _to_classify_field(field: ExtractField) -> ClassifyField:
+    if field.type in ("category", "score", "integer", "number", "boolean", "text"):
+        return ClassifyField(
             name=field.name,
             type=field.type,
             description=field.description,
             labels=field.labels,
         )
-        for field in params.fields
+    raise RowError(
+        "classify_unsupported_field_type",
+        f"classifier does not support field type {field.type!r}",
     )
+
+
+async def extract_row(
+    params: ExtractParams, row: Row, classifier: Classifier
+) -> RowResult[DynamicOutput]:
+    """Keep each admitted decision and probability in its original cell outcome."""
+    fields = tuple(_to_classify_field(field) for field in params.fields)
     outcomes = await classifier.classify(row, classification_text(row.values), fields)
     missing = [field.name for field in params.fields if field.name not in outcomes]
     if missing:
