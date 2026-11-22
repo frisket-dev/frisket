@@ -425,12 +425,7 @@ export function FriendlyFiltersPanel({
   return (
     <section className="sidebar-facets friendly-filters" data-testid="friendly-filters">
       <div className="friendly-filter-intro">
-        <div>
-          <strong>Filter {activeSheet.name}</strong>
-          <p data-testid="facets-blurb">
-            Check values or narrow ranges. Values within a facet match either; facets combine.
-          </p>
-        </div>
+        <strong>Filter {activeSheet.name}</strong>
         <button
           type="button"
           className="icon-btn facets-refresh"
@@ -622,41 +617,41 @@ function FriendlyQueryControls({
       role="search"
       aria-label="Search and limit rows"
     >
-      <div className="friendly-query-search">
-        <Search size={12} className="friendly-query-search-icon" aria-hidden />
-        <input
-          ref={searchInputRef}
-          type="text"
-          className="friendly-query-search-input"
-          data-testid="sheet-filter-search"
-          aria-label="Search text"
-          placeholder="Search text…"
-          value={searchDraft}
-          onChange={(event) => handleSearchChange(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commitSearch(searchDraft);
-            } else if (event.key === 'Escape' && searchDraft) {
-              event.preventDefault();
-              handleClearSearch();
-            }
-          }}
-        />
-        {searchDraft && (
-          <button
-            type="button"
-            className="friendly-query-search-clear"
-            data-testid="sheet-filter-search-clear"
-            aria-label="Clear search"
-            onClick={handleClearSearch}
-          >
-            <X size={12} aria-hidden />
-          </button>
-        )}
-      </div>
       <div className="friendly-query-row">
-        <label className="friendly-query-field">
+        <div className="friendly-query-search">
+          <Search size={12} className="friendly-query-search-icon" aria-hidden />
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="friendly-query-search-input"
+            data-testid="sheet-filter-search"
+            aria-label="Search text"
+            placeholder="Search text…"
+            value={searchDraft}
+            onChange={(event) => handleSearchChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitSearch(searchDraft);
+              } else if (event.key === 'Escape' && searchDraft) {
+                event.preventDefault();
+                handleClearSearch();
+              }
+            }}
+          />
+          {searchDraft && (
+            <button
+              type="button"
+              className="friendly-query-search-clear"
+              data-testid="sheet-filter-search-clear"
+              aria-label="Clear search"
+              onClick={handleClearSearch}
+            >
+              <X size={12} aria-hidden />
+            </button>
+          )}
+        </div>
+        <label className="friendly-query-field friendly-query-limit-field">
           <span className="friendly-query-field-label">Limit</span>
           <TextInput
             className="friendly-query-limit-input"
@@ -678,17 +673,6 @@ function FriendlyQueryControls({
             }}
           />
         </label>
-        {hasActiveSelection && onClearSelection && (
-          <Button
-            type="button"
-            variant="link"
-            className="friendly-query-reset"
-            data-testid="sheet-filter-show-all"
-            onClick={handleShowAllRows}
-          >
-            Show all rows
-          </Button>
-        )}
       </div>
       {hasScoreSort && (
         <label className="friendly-query-field friendly-query-sort-field">
@@ -710,6 +694,19 @@ function FriendlyQueryControls({
             }
           />
         </label>
+      )}
+      {hasActiveSelection && onClearSelection && (
+        <div className="friendly-query-actions">
+          <Button
+            type="button"
+            variant="link"
+            className="friendly-query-reset"
+            data-testid="sheet-filter-show-all"
+            onClick={handleShowAllRows}
+          >
+            Show all rows
+          </Button>
+        </div>
       )}
     </div>
   );

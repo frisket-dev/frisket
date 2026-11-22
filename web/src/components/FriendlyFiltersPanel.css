@@ -1,19 +1,20 @@
 /* Friendly filtering: a compact Amazon-style stack of typed facets. */
 .friendly-filters { gap: 9px; }
 .friendly-filter-intro {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-8);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-8);
   padding: 0 2px 7px; border-bottom: 1px solid var(--border);
 }
 .friendly-filter-intro strong { font-size: var(--font-size-small); color: var(--text); }
-.friendly-filter-intro p {
-  margin: 3px 0 0; color: var(--text-light); font-size: 10.5px; line-height: 1.4;
-}
 .friendly-query-controls {
   display: flex; flex-direction: column; gap: var(--space-6);
   padding-bottom: 8px; border-bottom: 1px solid var(--border);
 }
+.friendly-query-row {
+  display: flex; align-items: center; gap: var(--space-6);
+  font-size: var(--font-size-meta);
+}
 .friendly-query-search {
-  display: flex; align-items: center; gap: 5px; padding: 3px 6px;
+  display: flex; align-items: center; flex: 1 1 auto; min-width: 0; gap: 5px; padding: 3px 6px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-6);
   background: var(--bg); color: var(--text-light);
 }
@@ -34,25 +35,27 @@
 .friendly-query-search-clear:hover {
   background: var(--bg-hover); color: var(--text);
 }
-.friendly-query-row {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-8);
-  min-height: 26px; font-size: var(--font-size-meta);
-}
 .friendly-query-field {
   display: inline-flex; align-items: center; gap: var(--space-6); min-width: 0;
   color: var(--text-mid); font-size: var(--font-size-meta);
+}
+.friendly-query-limit-field {
+  flex: none; gap: 4px;
 }
 .friendly-query-field-label {
   color: var(--text-light); white-space: nowrap;
 }
 .friendly-query-field .form-input.friendly-query-limit-input {
-  width: 72px;
+  width: 54px;
 }
 .friendly-query-sort-field {
   display: grid; grid-template-columns: auto minmax(0, 1fr);
 }
 .friendly-query-sort-field select.panel-select-control.friendly-query-sort-select {
   width: 100%; min-width: 0; padding: 3px 26px 3px 6px; font-size: var(--font-size-meta);
+}
+.friendly-query-actions {
+  display: flex; justify-content: flex-end;
 }
 .friendly-query-reset {
   flex-shrink: 0; white-space: nowrap;
