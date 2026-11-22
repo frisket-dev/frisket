@@ -122,20 +122,20 @@ def test_format_patch_is_undoable(tmp_path):
         client, pid, col["id"], {"format": "markdown"}
     )
     assert patch.status_code == 200, patch.text
-    patch_op_id = patch.json()["op_ids"][0]
+    patch_op_id = patch.json()["change_ids"][0]
     assert _cols(client, pid, sheet_id)["note"]["format"] == "markdown"
 
     # the op is in history with a human label
-    history = client.get(f"/api/projects/{pid}/history").json()["ops"]
+    history = client.get(f"/api/projects/{pid}/history").json()["changes"]
     labels = [o["label"] for o in history]
     assert any("column.patch note format markdown" in (lbl or "") for lbl in labels)
 
-    undo = post_operation_undo_as_v1_action(client, pid, expected_op_id=patch_op_id)
+    undo = post_operation_undo_as_v1_action(client, pid, expected_change_id=patch_op_id)
     assert undo.status_code == 200, undo.text
     assert undo.json()["schema_version"] == "frisket.action_result.v1"
     assert undo.json()["status"] == "completed"
     assert _cols(client, pid, sheet_id)["note"]["format"] is None
-    redo = post_operation_redo_as_v1_action(client, pid, expected_op_id=patch_op_id)
+    redo = post_operation_redo_as_v1_action(client, pid, expected_change_id=patch_op_id)
     assert redo.status_code == 200, redo.text
     assert redo.json()["schema_version"] == "frisket.action_result.v1"
     assert redo.json()["status"] == "completed"

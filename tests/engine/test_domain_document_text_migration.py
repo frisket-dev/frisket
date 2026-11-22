@@ -47,7 +47,7 @@ def _publish(project, sheet, source, column, row, blob, text):
         )
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact["id"],
-            producing_op_id=op,
+            producing_change_id=op,
             pages=[PreparedPageDraft(1, text)],
         )
     runs = RunResultStore(project)
@@ -157,9 +157,6 @@ def test_mixed_rows_freeze_compact_refs_and_manual_correction(tmp_path):
             ).fetchone()[0]
             == "File text_2"
         )
-        values = project.get_values(sheet, adopted, rows)
-        assert values[rows[0]] == "corrected first"
-        assert values[rows[1]] == "second"
         assert (
             project.db.execute(
                 "SELECT prepared_ref_id FROM document_text_manual_pins WHERE row_id=? AND text_column_id=?",
@@ -183,6 +180,11 @@ def test_mixed_rows_freeze_compact_refs_and_manual_correction(tmp_path):
             for row in project.db.execute("SELECT * FROM prepared_page_versions")
         ]
         assert _adopt(project) == {}
+        bundle_path = project.path
+    with closing(Project(bundle_path)) as upgraded:
+        values = upgraded.get_values(sheet, adopted, rows)
+        assert values[rows[0]] == "corrected first"
+        assert values[rows[1]] == "second"
 
 
 def test_explicit_role_is_never_replaced_by_newer_alternative(tmp_path):

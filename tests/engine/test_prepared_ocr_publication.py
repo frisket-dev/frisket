@@ -23,7 +23,7 @@ def _setup(project):
     row = project.add_rows(sheet, [{}], {})[0]
     op = project.append_change("media.ocr", {}, label="OCR")
     run = project.db.execute(
-        "INSERT INTO runs(op_id,sheet_id,action_kind) VALUES(?,?,'media.ocr')",
+        "INSERT INTO runs(change_id,sheet_id,action_kind) VALUES(?,?,'media.ocr')",
         (op, sheet),
     ).lastrowid
     project.db.commit()

@@ -230,7 +230,7 @@ def test_media_capture_url_playwright_warc_records_artifacts_and_replays(
         project,
         (
             "columns",
-            "ops",
+            "changes",
             "receipts",
             "blobs",
             "edits",
@@ -337,7 +337,7 @@ def test_media_capture_url_playwright_warc_records_artifacts_and_replays(
         project,
         (
             "columns",
-            "ops",
+            "changes",
             "receipts",
             "blobs",
             "edits",

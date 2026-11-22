@@ -24,12 +24,12 @@ from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
 def _seed_nonterminal_attempt(project: Project) -> None:
     sheet_id = project.add_sheet("Reset drain")
-    op_id = project.db.execute(
-        "INSERT INTO ops (kind, spec) VALUES ('classify', '{}')"
+    change_id = project.db.execute(
+        "INSERT INTO changes (kind, spec) VALUES ('classify', '{}')"
     ).lastrowid
     run_id = project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind) VALUES (?, ?, 'map.classify')",
-        (op_id, sheet_id),
+        "INSERT INTO runs (change_id, sheet_id, action_kind) VALUES (?, ?, 'map.classify')",
+        (change_id, sheet_id),
     ).lastrowid
     project.db.execute(
         "INSERT INTO execution_attempts "

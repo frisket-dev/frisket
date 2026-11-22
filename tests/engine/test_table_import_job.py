@@ -647,7 +647,7 @@ def test_existing_sheet_dedup_skips_only_snapshot_and_one_undo_keeps_old_rows(
             "new",
             "new",
         ]
-        assert project.undo() == session.op_id
+        assert project.undo() == session.change_id
         assert project.visible_row_ids(sheet_id) == [old_row]
 
 
@@ -1161,7 +1161,8 @@ def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
             )
             assert (
                 project.db.execute(
-                    "SELECT publication_closed FROM ops WHERE id=?", (session.op_id,)
+                    "SELECT publication_closed FROM changes WHERE id=?",
+                    (session.change_id,),
                 ).fetchone()[0]
                 == 1
             )

@@ -153,11 +153,11 @@ def _assert_caller_work_kept_uncommitted(project) -> None:
 def _seed_run(project) -> tuple[int, int]:
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
-    op_id = project.append_change("map", {"action_kind": "map.template"})
+    change_id = project.append_change("map", {"action_kind": "map.template"})
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "map.template", row_ids=[row_id], total_rows=1
+        change_id, sheet_id, "map.template", row_ids=[row_id], total_rows=1
     )
-    return op_id, run_id
+    return change_id, run_id
 
 
 def _space_descriptor() -> dict[str, Any]:
@@ -231,11 +231,11 @@ def _seed_qa_turn(project) -> tuple[str, str]:
 def _seed_consumed_bundle(project) -> int:
     sheet_id = _sheet_id(project)
     col_id = _column_id(project)
-    op_id = project.append_change("map", {"action_kind": "map.template"})
+    change_id = project.append_change("map", {"action_kind": "map.template"})
     _, _, capture = read_consumed_source(project, sheet_id, [col_id])
     with write_transaction(project.db):
         return store_capture(
-            project, capture, owner_op_id=op_id, output_sheet_id=sheet_id
+            project, capture, owner_change_id=change_id, output_sheet_id=sheet_id
         )
 
 
@@ -262,7 +262,7 @@ def _seed_alert_run(project) -> tuple[int, int]:
     with write_transaction(project.db):
         cur = project.db.execute(
             "INSERT INTO alert_checks "
-            "(alert_id, status, op_cursor_before, op_cursor_after, "
+            "(alert_id, status, change_cursor_before, change_cursor_after, "
             "matched_rows, new_rows, notification_pending) "
             "VALUES (?, 'ok', 0, 0, 1, 1, 1)",
             (alert_id,),
@@ -275,9 +275,9 @@ def _seed_embedding_batch_context(project) -> tuple[ActionContext, int, str]:
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
     out_col = project.add_column(sheet_id, "out", generated=True)
-    op_id = project.append_change("map", {"action_kind": "map.semantic_join"})
+    change_id = project.append_change("map", {"action_kind": "map.semantic_join"})
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "map.semantic_join", row_ids=[row_id], total_rows=1
+        change_id, sheet_id, "map.semantic_join", row_ids=[row_id], total_rows=1
     )
     authority = run_writer_authority_fixture(
         project,

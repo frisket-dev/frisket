@@ -64,9 +64,11 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     assert conflict["output_name"] == "summary"
     assert conflict["receipt_id"] == "receipt_1"
 
-    op_id = project.append_change("fixture", {"kind": "claim-bind"}, label="claim bind")
+    change_id = project.append_change(
+        "fixture", {"kind": "claim-bind"}, label="claim bind"
+    )
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "map.template", total_rows=0
+        change_id, sheet_id, "map.template", total_rows=0
     )
     with write_transaction(store.db):
         store.bind_to_run(claim_token="claim:store", run_id=run_id, job_id=42)
@@ -74,7 +76,7 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     assert bound is not None
     assert bound["run_id"] == run_id
     assert bound["job_id"] == 42
-    assert bound["op_id"] == op_id
+    assert bound["change_id"] == change_id
 
     with write_transaction(store.db):
         store.renew(claim_token="claim:store", lease_seconds=5)

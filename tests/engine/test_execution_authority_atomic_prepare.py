@@ -450,7 +450,7 @@ def test_extract_metadata_atomic_output_family_semantics_remain_non_routed(
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         for table in (
             "columns",
-            "ops",
+            "changes",
             "runs",
             "run_scopes",
             "receipts",
@@ -505,11 +505,13 @@ def test_extract_metadata_atomic_output_family_semantics_remain_non_routed(
     assert {row["claim_token"] for row in output_rows} == {f"output-claim:{receipt_id}"}
     assert {int(row["run_id"]) for row in output_rows} == {run_id}
     assert {row["status"] for row in output_rows} == {"active"}
-    run = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
+    run = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
     assert run is not None
     undo = json.loads(
         project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+            "SELECT undo_info FROM changes WHERE id=?", (run["change_id"],)
         ).fetchone()[0]
     )
     assert set(undo["created_columns"]) == {int(row["id"]) for row in output_rows}
@@ -590,7 +592,9 @@ def test_competing_output_preparation_has_one_coherent_winner(
         output_name="shared_location",
     )
     seeded_op_count = (
-        workspace.get("authority").db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        workspace.get("authority")
+        .db.execute("SELECT COUNT(*) FROM changes")
+        .fetchone()[0]
     )
     service = ActionRunService(workspace)
     challenge = service.run_action("authority", first)
@@ -621,7 +625,7 @@ def test_competing_output_preparation_has_one_coherent_winner(
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         == seeded_op_count + 1
     )
     assert project.db.execute("SELECT COUNT(*) FROM run_scopes").fetchone()[0] == 1
@@ -870,7 +874,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
     ]
     receipt_id = "receipt_pre_atomic_half"
     action_id = "action_pre_atomic_half"
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map",
         {
             QUEUED_ACTION_RUN_MARKER_PARAM: {
@@ -883,7 +887,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
         },
     )
     orphan_run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         action["action_id"],
         params={

@@ -12,7 +12,7 @@ from executor_harness import (
     ExecutorCase,
     Gate,
     UndoRerun,
-    operation_action,
+    change_action,
 )
 from frisket.authoring import column_types
 from frisket.engine.store import Project
@@ -65,7 +65,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
         "sheet_id": sheet_id,
         "columns": columns,
         "row_ids": row_ids,
-        "seeded_op_id": project.op_cursor,
+        "seeded_op_id": project.change_cursor,
     }
 
 
@@ -152,7 +152,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
     published = seeded["columns"]["published"]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     output = next(item for item in result.outputs if item.kind == "column")
     assert output.column_id == published
     assert output.sheet_id == seeded["sheet_id"]
@@ -162,7 +162,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert _column_type(project, published) == "date"
 
     op = project.db.execute(
-        "SELECT kind, spec, undo_info FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT kind, spec, undo_info FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op["kind"] == "column.set_type"
     op_spec = json.loads(op["spec"])
@@ -178,7 +178,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     ).fetchone()
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "column.set_type"
-    assert receipt.op_ids == result.op_ids
+    assert receipt.change_ids == result.change_ids
     assert receipt.inputs[0].name == "target_column"
     assert receipt.inputs[0].ref == {
         "kind": "target_column",
@@ -210,10 +210,10 @@ def _check_undone(project: Project, seeded: dict[str, Any], first: Any) -> None:
 
 
 def _redo_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return operation_action(
-        "operation.redo",
+    return change_action(
+        "change.redo",
         key="column_set_type_redo@sha256:v1",
-        expected_op_id=seeded["seeded_op_id"] + 1,
+        expected_change_id=seeded["seeded_op_id"] + 1,
     )
 
 
@@ -300,7 +300,7 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"columns": 0, "ops": 1, "receipts": 1},
+        expect_counts={"columns": 0, "changes": 1, "receipts": 1},
         check_state=_check_state,
         undo=UndoRerun(
             check_undone=_check_undone,
@@ -339,9 +339,9 @@ def test_url_alias_normalizes_to_link_and_replays_as_same_request(
 
     assert first.status == replay.status == "completed"
     assert replay.receipt_id == first.receipt_id
-    assert replay.op_ids == first.op_ids
+    assert replay.change_ids == first.change_ids
     assert _column_type(project, column_id) == "link"
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 1
 
 
 def test_set_type_requires_plugin_enablement_then_accepts_valid_values(
@@ -523,7 +523,7 @@ def test_set_type_and_receipt_roll_back_together(
 
     project = make_project("Rollback")
     seeded = _seed(project, tmp_path)
-    seeded_op_count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    seeded_op_count = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
 
     def fail_receipt(*args: Any, **kwargs: Any) -> None:
         del args, kwargs
@@ -540,6 +540,7 @@ def test_set_type_and_receipt_roll_back_together(
     assert result.errors[0].code == "project_write_failed"
     assert _column_type(project, seeded["columns"]["published"]) == "text"
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == seeded_op_count
+        project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+        == seeded_op_count
     )
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0

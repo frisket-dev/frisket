@@ -222,7 +222,7 @@ def test_export_runtime_refusal_only_records_its_failed_invocation(
         "columns",
         "rows",
         "cells",
-        "ops",
+        "changes",
         "runs",
         "blobs",
         "receipts",

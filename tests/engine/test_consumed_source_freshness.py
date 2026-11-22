@@ -36,7 +36,9 @@ def _seed(target: Path | Any, count=4):
 
 def _save(project, capture, sheet, owner):
     project.db.execute("BEGIN IMMEDIATE")
-    identity = store_capture(project, capture, owner_op_id=owner, output_sheet_id=sheet)
+    identity = store_capture(
+        project, capture, owner_change_id=owner, output_sheet_id=sheet
+    )
     project.db.commit()
     return identity
 
@@ -142,7 +144,7 @@ def test_capture_rolls_back_with_result_transaction(make_project):
     project, sheet, column, _, _, owner = _seed(make_project)
     _, _, capture = read_consumed_source(project, sheet, [column])
     project.db.execute("BEGIN IMMEDIATE")
-    store_capture(project, capture, owner_op_id=owner, output_sheet_id=sheet)
+    store_capture(project, capture, owner_change_id=owner, output_sheet_id=sheet)
     project.db.rollback()
     assert (
         project.db.execute("SELECT count(*) FROM consumed_source_bundles").fetchone()[0]
@@ -163,7 +165,9 @@ def test_earlier_writer_publishing_after_capture_invalidates_actual_identity(
     writer = project.append_change("test.delayed_writer", {})
     project.db.execute("BEGIN IMMEDIATE")
     start_change(project.db, writer, writing=True)
-    producer = create_base_cell_producer(project.db, stage_id="delayed", op_id=writer)
+    producer = create_base_cell_producer(
+        project.db, stage_id="delayed", change_id=writer
+    )
     project.db.commit()
     capture_owner = project.append_change("test.later_capture", {})
     assert writer < capture_owner

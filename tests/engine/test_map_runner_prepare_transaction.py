@@ -115,7 +115,7 @@ def _durable_state(project: Project, *, output_name: str) -> dict[str, int]:
                     "SELECT COUNT(*) FROM columns WHERE name=?", (output_name,)
                 ).fetchone()[0]
             ),
-            "ops": int(db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]),
+            "changes": int(db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]),
             "runs": int(db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
         }
 
@@ -135,13 +135,13 @@ def test_fresh_mode_b_prepare_commits_column_op_run_and_pointer(project: Project
     assert project.get_column(output_id)["current_run_id"] == prepared.run_id
     assert (
         project.db.execute(
-            "SELECT op_id FROM runs WHERE id=?", (prepared.run_id,)
-        ).fetchone()["op_id"]
-        == prepared.op_id
+            "SELECT change_id FROM runs WHERE id=?", (prepared.run_id,)
+        ).fetchone()["change_id"]
+        == prepared.change_id
     )
     assert _durable_state(project, output_name="agency_clean") == {
         "output_columns": before["output_columns"] + 1,
-        "ops": before["ops"] + 1,
+        "changes": before["changes"] + 1,
         "runs": before["runs"] + 1,
     }
     assert project.db.in_transaction is False
@@ -251,8 +251,8 @@ def test_reused_generated_column_converges_inside_mode_b_transaction(project: Pr
     )
     assert reused["current_run_id"] is None
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-        == durable_before["ops"]
+        project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+        == durable_before["changes"]
     )
     assert (
         project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]

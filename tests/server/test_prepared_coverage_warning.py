@@ -30,13 +30,13 @@ def test_grid_and_ask_warn_only_for_partial_document(make_project, value_mode):
     store = PreparedContentStore(project)
     partial = store.stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op,
+        producing_change_id=op,
         pages=[PreparedPageDraft(1, "one"), PreparedPageDraft(3, "")],
         allow_partial=True,
     )
     full_blank = store.stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op,
+        producing_change_id=op,
         pages=[PreparedPageDraft(i, "") for i in range(1, 4)],
     )
     page = store.stage_selector(
@@ -78,7 +78,7 @@ def test_grid_and_ask_warn_only_for_partial_document(make_project, value_mode):
     project.db.execute("BEGIN IMMEDIATE")
     complete = store.stage_replacement(
         base_ref_id=partial.ref_id,
-        producing_op_id=op,
+        producing_change_id=op,
         replacements=[PreparedPageDraft(2, "two")],
         allow_partial=True,
     )

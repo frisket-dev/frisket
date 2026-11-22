@@ -139,7 +139,7 @@ def test_changed_next_url_stops_before_fetch_and_keeps_prior_commit(project):
     assert _cell(project, sheet, rows[0], "media")["blob"]
     assert _cell(project, sheet, rows[1], "media") is None
     receipt = _receipt(project, result.receipt_id)
-    assert receipt.status == "partial" and receipt.op_ids
+    assert receipt.status == "partial" and receipt.change_ids
     assert receipt.errors[0].code == "invalid_input_ref"
     replay = _run(project, request, lambda _: pytest.fail("replay fetched"))
     assert replay.receipt_id == result.receipt_id

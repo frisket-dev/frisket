@@ -44,7 +44,7 @@ def test_partial_refresh_keeps_prior_members_and_undo_restores_complete_batch(
 ):
     project, _, _, child, parents = _build(make_project)
     parent = project.db.execute(
-        "SELECT o.* FROM ops o JOIN sheets s ON s.parent_op_id=o.id WHERE s.id=?",
+        "SELECT o.* FROM changes o JOIN sheets s ON s.parent_change_id=o.id WHERE s.id=?",
         (child,),
     ).fetchone()
     config = refresh_config(parent)
@@ -62,7 +62,7 @@ def test_partial_refresh_keeps_prior_members_and_undo_restores_complete_batch(
         project.db.execute("BEGIN IMMEDIATE")
         written = reconcile_rows_into_open_change(
             project.db,
-            op_id=op,
+            change_id=op,
             sheet_id=child,
             config=config,
             columns=[MaterializedColumnSpec("vendor", "text")],
@@ -142,12 +142,12 @@ def test_action_publishes_bounded_batches_without_holding_lock_between_them(
     import json
 
     op = project.db.execute(
-        "SELECT id,spec FROM ops WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
+        "SELECT id,spec FROM changes WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     receipt_id = json.loads(op["spec"])["refresh_receipt_id"]
     assert receipt_id == result.receipt_id
     capture = project.db.execute(
-        "SELECT capture_json FROM consumed_source_bundles WHERE owner_op_id=? AND output_sheet_id=?",
+        "SELECT capture_json FROM consumed_source_bundles WHERE owner_change_id=? AND output_sheet_id=?",
         (op["id"], child),
     ).fetchone()
     assert capture is not None  # cancellation must retain actual read facts

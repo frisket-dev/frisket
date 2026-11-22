@@ -123,7 +123,7 @@ def _conflict_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == [1]
+    assert result.change_ids == [1]
     assert [output.kind for output in result.outputs] == [
         "sheet",
         *(["column"] * 5),
@@ -151,7 +151,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     payloads = project.get_values(int(sheet["id"]), int(columns["payload"]["id"]))
     assert list(payloads.values())[1] == {"rank": 2, "tags": ["public"]}
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=1").fetchone()
+    op = project.db.execute("SELECT * FROM changes WHERE id=1").fetchone()
     assert op is not None
     assert op["kind"] == "import.ndjson"
     op_spec = json.loads(op["spec"])
@@ -170,7 +170,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.schema_version == "frisket.receipt.v1"
     assert receipt.idempotency_key == "import_ndjson@sha256:stable"
-    assert receipt.op_ids == [1]
+    assert receipt.change_ids == [1]
     file_read = next(
         item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
     )
@@ -251,7 +251,13 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"sheets": 1, "columns": 5, "rows": 2, "ops": 1, "receipts": 1},
+        expect_counts={
+            "sheets": 1,
+            "columns": 5,
+            "rows": 2,
+            "changes": 1,
+            "receipts": 1,
+        },
         check_state=_check_state,
         request_style="typed",
     )
@@ -272,5 +278,5 @@ def test_import_ndjson_replay_survives_source_deletion(
         replay = env.run_primary()
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
+        assert replay.change_ids == first.change_ids
         assert env.counts() == before

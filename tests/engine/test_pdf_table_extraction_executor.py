@@ -262,8 +262,8 @@ def _mutate_pdf_table_output_for_replay(
         )
     if not legacy:
         store = RunResultStore(project)
-        op_id = project.append_change("map")
-        run_id = store.start_run(op_id, ref["sheet_id"], "media.extract_pdf_tables")
+        change_id = project.append_change("map")
+        run_id = store.start_run(change_id, ref["sheet_id"], "media.extract_pdf_tables")
         write_claimed_test_results(
             project,
             run_id,
@@ -277,7 +277,7 @@ def _mutate_pdf_table_output_for_replay(
         )
         store.finish_run(run_id)
         with write_transaction(store.db):
-            store.point_column_at_run(op_id, ref["column_id"], run_id)
+            store.point_column_at_run(change_id, ref["column_id"], run_id)
     project.db.commit()
 
 

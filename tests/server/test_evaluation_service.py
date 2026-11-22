@@ -343,7 +343,7 @@ def test_review_download_full_values_and_original_correctness(env, decision, rev
     e = env
     op = e.project.append_change("map", {"action_id": "extract.llm"})
     run = e.project.db.execute(
-        "INSERT INTO runs(op_id,sheet_id,action_kind,status) VALUES (?,?,?,'completed')",
+        "INSERT INTO runs(change_id,sheet_id,action_kind,status) VALUES (?,?,?,'completed')",
         (op, e.sheet, "extract.llm"),
     ).lastrowid
     e.project.db.execute(
@@ -870,9 +870,9 @@ def test_first_disagreement_answer_undoes_its_row_not_an_unrelated_edit(env):
     e = env
     e.service._edit_cell("p", e.project, e.rows[0], e.cols["answer"], "keep this edit")
     prior_op = int(
-        e.project.db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()[
-            0
-        ]
+        e.project.db.execute(
+            "SELECT value FROM meta WHERE key='change_cursor'"
+        ).fetchone()[0]
     )
     link = e.service.expected_answer(
         "p",
@@ -886,21 +886,21 @@ def test_first_disagreement_answer_undoes_its_row_not_an_unrelated_edit(env):
         },
     )
     saved_op = int(
-        e.project.db.execute("SELECT value FROM meta WHERE key='op_cursor'").fetchone()[
-            0
-        ]
+        e.project.db.execute(
+            "SELECT value FROM meta WHERE key='change_cursor'"
+        ).fetchone()[0]
     )
     assert saved_op != prior_op
     assert (
-        e.project.db.execute("SELECT kind FROM ops WHERE id=?", (saved_op,)).fetchone()[
-            0
-        ]
+        e.project.db.execute(
+            "SELECT kind FROM changes WHERE id=?", (saved_op,)
+        ).fetchone()[0]
         == "add_row"
     )
     result = run_action_spec(
         e.project,
         {
-            "action_id": "operation.undo",
+            "action_id": "change.undo",
             "scope": {"kind": "project"},
             "params": {},
             "idempotency_key": "undo-first-expected-answer",
@@ -914,7 +914,7 @@ def test_first_disagreement_answer_undoes_its_row_not_an_unrelated_edit(env):
     )
     assert (
         e.project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (prior_op,)
+            "SELECT status FROM changes WHERE id=?", (prior_op,)
         ).fetchone()[0]
         == "applied"
     )
@@ -954,7 +954,7 @@ def test_new_expected_row_rolls_back_if_it_would_make_target_keys_ambiguous(env)
         e.cols,
     )
     before_rows = e.project.row_count(e.expected)
-    before_ops = e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before_ops = e.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     with pytest.raises(RouteError, match="ambiguous"):
         e.service.expected_answer(
             "p",
@@ -968,7 +968,9 @@ def test_new_expected_row_rolls_back_if_it_would_make_target_keys_ambiguous(env)
             },
         )
     assert e.project.row_count(e.expected) == before_rows
-    assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+    assert (
+        e.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before_ops
+    )
 
 
 def test_expected_answers_keep_same_action_output_families_separate(env):
@@ -1052,7 +1054,7 @@ def test_new_expected_rows_follow_column_type_validation_before_persistence(env)
         "value": "definitely-not-a-date",
         "rule": "date",
     }
-    before_ops = e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before_ops = e.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     for value in ("definitely-not-a-date", "[empty]"):
         with pytest.raises(RouteError) as error:
             e.service.expected_answer("p", {**answer, "value": value})
@@ -1060,7 +1062,8 @@ def test_new_expected_rows_follow_column_type_validation_before_persistence(env)
         assert "date" in error.value.detail
         assert e.project.row_count(expected_sheet) == 1
         assert (
-            e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+            e.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+            == before_ops
         )
     e.service.expected_answer("p", {**answer, "value": "2026-03-13"})
     assert e.project.row_count(expected_sheet) == 2
@@ -1165,7 +1168,7 @@ def test_new_expected_row_rolls_back_a_key_that_cannot_round_trip(env):
             ],
         },
     )
-    before_ops = e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before_ops = e.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     with pytest.raises(RouteError) as error:
         e.service.expected_answer(
             "p",
@@ -1180,7 +1183,9 @@ def test_new_expected_row_rolls_back_a_key_that_cannot_round_trip(env):
         )
     assert error.value.status_code == 409
     assert e.project.row_count(expected_sheet) == 1
-    assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+    assert (
+        e.project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before_ops
+    )
 
 
 def test_expected_answer_structure_and_value_are_one_undoable_change(env):
@@ -1198,7 +1203,7 @@ def test_expected_answer_structure_and_value_are_one_undoable_change(env):
         },
     )
     assert len(e.project.history()) == before + 1
-    owner = e.project.op_cursor
+    owner = e.project.change_cursor
     e.project.undo()
     assert link["expected_sheet_id"] not in [s["id"] for s in e.project.sheets()]
     assert e.project.redo() == owner

@@ -56,24 +56,24 @@ def test_semantic_join_real_http_queue_to_worker(tmp_path, monkeypatch, mutation
             )
         elif mutation == "created_ids":
             op = project.db.execute(
-                "SELECT ops.id,ops.undo_info FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+                "SELECT changes.id,changes.undo_info FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
                 (result["run_id"],),
             ).fetchone()
             undo_info = json.loads(op["undo_info"])
             undo_info["created_columns"] = []
             project.db.execute(
-                "UPDATE ops SET undo_info=? WHERE id=?",
+                "UPDATE changes SET undo_info=? WHERE id=?",
                 (json.dumps(undo_info), op["id"]),
             )
         elif mutation == "marker":
             op = project.db.execute(
-                "SELECT ops.id,ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+                "SELECT changes.id,changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
                 (result["run_id"],),
             ).fetchone()
             spec = json.loads(op["spec"])
             spec.pop("deferred_publication")
             project.db.execute(
-                "UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec), op["id"])
+                "UPDATE changes SET spec=? WHERE id=?", (json.dumps(spec), op["id"])
             )
         project.db.commit()
         drain_queue(client)

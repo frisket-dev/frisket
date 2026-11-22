@@ -451,7 +451,7 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(make_project
     history = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+            "SELECT id,kind,label,spec,undo_info,status,created_at FROM changes ORDER BY id"
         )
     ]
     with sqlite3.connect(path / "project.db") as db:
@@ -466,7 +466,7 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(make_project
         assert [
             tuple(row)
             for row in upgraded.db.execute(
-                "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+                "SELECT id,kind,label,spec,undo_info,status,created_at FROM changes ORDER BY id"
             )
         ] == history
         assert layouts.list_layouts(upgraded, sheet, column) == []

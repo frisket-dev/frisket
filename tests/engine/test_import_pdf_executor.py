@@ -68,7 +68,7 @@ def _counts(project: Project) -> dict[str, int]:
             "sheets",
             "columns",
             "rows",
-            "ops",
+            "changes",
             "receipts",
             "blobs",
             "source_artifacts",
@@ -254,7 +254,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
     replay = run_action_spec(project, action, project_id="pdf")
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == result.receipt_id
-    assert replay.op_ids == result.op_ids
+    assert replay.change_ids == result.change_ids
     assert _counts(project) == before
     bundle_path = project.path
     project.close()
@@ -263,8 +263,8 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         value.strip()
         for value in project.get_values(sheet_id, columns["text"]).values()
     ] == ["First page", "Second page"]
-    assert project.undo() == result.op_ids[0]
-    assert project.redo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
+    assert project.redo() == result.change_ids[0]
     assert [
         value.strip()
         for value in project.get_values(sheet_id, columns["text"]).values()

@@ -221,8 +221,10 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
     )
     assert result.status == "partial", result.errors
     run_id = int(result.run_id)
-    run = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
-    op_id = int(run["op_id"])
+    run = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    change_id = int(run["change_id"])
     output = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
     output_column_id = int(output["id"])
     assert int(output["current_run_id"]) == run_id
@@ -263,7 +265,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
     ).fetchone()
     assert json.loads(link["subject_ref_json"]) == {
         "kind": "run_result",
-        "op_id": op_id,
+        "change_id": change_id,
         "row_id": row_ids[0],
         "column_id": output_column_id,
         "run_id": run_id,
@@ -277,7 +279,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         )
     project.db.rollback()
 
-    assert project.undo() == op_id
+    assert project.undo() == change_id
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
@@ -295,7 +297,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         == []
     )
 
-    assert project.redo() == op_id
+    assert project.redo() == change_id
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
@@ -459,14 +461,14 @@ def test_llm_capture_uses_all_exact_quotes_not_model_offsets(
                     "row_id": 2,
                     "column_id": 7,
                     "run_id": None,
-                    "op_id": None,
+                    "change_id": None,
                 },
             }
         },
         results,
         {"engine": "llm", "output_name": "entities"},
         run_id=7,
-        op_id=8,
+        change_id=8,
         row_id=9,
         output_columns={"entities": 10},
     )

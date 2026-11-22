@@ -79,15 +79,15 @@ def replace_test_source_cell(
 
     def write() -> int:
         if target_db is project.db:
-            op_id = project.append_change_in_transaction(
+            change_id = project.append_change_in_transaction(
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
                 label=label,
             )
         else:
-            from frisket.engine.store.op_log import append_change_in_transaction
+            from frisket.engine.store.change_log import append_change_in_transaction
 
-            op_id = append_change_in_transaction(
+            change_id = append_change_in_transaction(
                 SimpleNamespace(db=target_db),
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
@@ -95,8 +95,8 @@ def replace_test_source_cell(
             )
         producer_id = create_base_cell_producer(
             target_db,
-            stage_id=f"op:{op_id}",
-            op_id=op_id,
+            stage_id=f"op:{change_id}",
+            change_id=change_id,
         )
         replace_base_cells(
             target_db,
@@ -105,7 +105,7 @@ def replace_test_source_cell(
             row_ids=[int(row_id)],
             cells=[BaseCellWrite(int(row_id), int(column_id), value)],
         )
-        return op_id
+        return change_id
 
     if db is not None:
         return write()
@@ -132,18 +132,18 @@ def initialize_test_source_cells(
         for row_id, column_id, value in cells
     ]
     with write_transaction(project.db):
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "test.source.initialize",
             {"count": len(writes)},
             label=label,
         )
         producer_id = create_base_cell_producer(
             project.db,
-            stage_id=f"op:{op_id}",
-            op_id=op_id,
+            stage_id=f"op:{change_id}",
+            change_id=change_id,
         )
         initialize_base_cells(project.db, producer_id=producer_id, cells=writes)
-    return op_id
+    return change_id
 
 
 def replace_test_source_cells(
@@ -168,15 +168,15 @@ def replace_test_source_cells(
     for write in writes:
         by_column.setdefault(write.column_id, []).append(write)
     with write_transaction(project.db):
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "test.source.update",
             {"count": len(writes)},
             label=label,
         )
         producer_id = create_base_cell_producer(
             project.db,
-            stage_id=f"op:{op_id}",
-            op_id=op_id,
+            stage_id=f"op:{change_id}",
+            change_id=change_id,
         )
         for column_id, column_writes in by_column.items():
             replace_base_cells(
@@ -186,7 +186,7 @@ def replace_test_source_cells(
                 row_ids=[write.row_id for write in column_writes],
                 cells=column_writes,
             )
-    return op_id
+    return change_id
 
 
 @dataclass(frozen=True)

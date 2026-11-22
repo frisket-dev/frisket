@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from executor_harness import CatalogEntry, ExecutorCase, Gate, operation_action
+from executor_harness import CatalogEntry, ExecutorCase, Gate, change_action
 from frisket.engine.store import Project
 
 _CATALOG = CatalogEntry(
@@ -17,17 +17,17 @@ _CATALOG = CatalogEntry(
     required_capabilities=("project:write",),
     side_effects=frozenset(
         {
-            "read_operation_cursor",
-            "transition_operation_status",
-            "move_op_cursor",
+            "read_change_cursor",
+            "transition_change_status",
+            "move_change_cursor",
             "apply_undo_info",
             "write_receipt",
         }
     ),
     error_codes=frozenset(
         {
-            "operation_unavailable",
-            "operation_mismatch",
+            "change_unavailable",
+            "change_mismatch",
             "irreversible_barrier",
             "project_state_corrupt",
             "idempotency_conflict",
@@ -171,7 +171,7 @@ def _seed_chain(project: Project, tmp_path: Path) -> dict[str, Any]:
         project_id="project-operation",
     )
     assert derived.status == "completed", derived.errors
-    derive_op_id = derived.op_ids[0]
+    derive_op_id = derived.change_ids[0]
     assert derive_op_id == 3
     child_sheet_id = next(
         output.sheet_id for output in derived.outputs if output.kind == "sheet"
@@ -179,7 +179,7 @@ def _seed_chain(project: Project, tmp_path: Path) -> dict[str, Any]:
     child_row_ids = next(
         output.row_ids for output in derived.outputs if output.kind == "rows"
     )
-    assert project.op_cursor == derive_op_id
+    assert project.change_cursor == derive_op_id
     return {
         "derive_op_id": derive_op_id,
         "child_sheet_id": child_sheet_id,
@@ -201,66 +201,66 @@ def _seed_chain_undone(project: Project, tmp_path: Path) -> dict[str, Any]:
 
 
 def _undo_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return operation_action(
-        "operation.undo",
+    return change_action(
+        "change.undo",
         key="operation_undo_derive@sha256:v1",
-        expected_op_id=seeded["derive_op_id"],
+        expected_change_id=seeded["derive_op_id"],
     )
 
 
 def _redo_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return operation_action(
-        "operation.redo",
+    return change_action(
+        "change.redo",
         key="operation_redo_derive@sha256:v1",
-        expected_op_id=seeded["derive_op_id"],
+        expected_change_id=seeded["derive_op_id"],
     )
 
 
 def _mismatch_undo_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
-    return operation_action(
-        "operation.undo",
+    return change_action(
+        "change.undo",
         key="operation_undo_mismatch@sha256:v1",
-        expected_op_id=999,
+        expected_change_id=999,
     )
 
 
 def _redo_without_undo_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
-    action = operation_action(
-        "operation.redo",
+    action = change_action(
+        "change.redo",
         key="operation_redo_unavailable@sha256:v1",
-        expected_op_id=0,
+        expected_change_id=0,
     )
-    del action["params"]["expected_op_id"]
+    del action["params"]["expected_change_id"]
     return action
 
 
 def _undo_conflict_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
     # Same key as the primary undo, different expected op.
-    return operation_action(
-        "operation.undo",
+    return change_action(
+        "change.undo",
         key="operation_undo_derive@sha256:v1",
-        expected_op_id=2,
+        expected_change_id=2,
     )
 
 
 def _mismatch_redo_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
-    return operation_action(
-        "operation.redo",
+    return change_action(
+        "change.redo",
         key="operation_redo_mismatch@sha256:v1",
-        expected_op_id=999,
+        expected_change_id=999,
     )
 
 
 def _redo_conflict_action(seeded: dict[str, Any]) -> dict[str, Any]:
     del seeded
-    return operation_action(
-        "operation.redo",
+    return change_action(
+        "change.redo",
         key="operation_redo_derive@sha256:v1",
-        expected_op_id=2,
+        expected_change_id=2,
     )
 
 
@@ -277,17 +277,17 @@ def _operation_receipt(project: Project, result: Any) -> Any:
 
 def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     derive_op_id = seeded["derive_op_id"]
-    assert result.op_ids == [derive_op_id]
+    assert result.change_ids == [derive_op_id]
     transition = next(output for output in result.outputs if output.kind == "operation")
-    assert transition.ref["kind"] == "operation_status_transition"
+    assert transition.ref["kind"] == "change_status_transition"
     assert transition.ref["direction"] == "undo"
-    assert transition.ref["op_id"] == derive_op_id
+    assert transition.ref["change_id"] == derive_op_id
     assert transition.ref["status_before"] == "applied"
     assert transition.ref["status_after"] == "undone"
 
-    assert project.op_cursor == derive_op_id - 1
+    assert project.change_cursor == derive_op_id - 1
     op = project.db.execute(
-        "SELECT status FROM ops WHERE id=?", (derive_op_id,)
+        "SELECT status FROM changes WHERE id=?", (derive_op_id,)
     ).fetchone()
     assert op["status"] == "undone"
     child = project.db.execute(
@@ -302,28 +302,28 @@ def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> 
     assert [int(row["id"]) for row in hidden_rows] == seeded["child_row_ids"]
 
     receipt = _operation_receipt(project, result)
-    assert receipt.action_kind == "operation.undo"
-    assert receipt.op_ids == [derive_op_id]
-    assert receipt.inputs[0].ref["kind"] == "target_operation"
-    assert receipt.outputs[0].ref["kind"] == "operation_status_transition"
+    assert receipt.action_kind == "change.undo"
+    assert receipt.change_ids == [derive_op_id]
+    assert receipt.inputs[0].ref["kind"] == "target_change"
+    assert receipt.outputs[0].ref["kind"] == "change_status_transition"
     assert {item.ref["kind"] for item in receipt.records} >= {
-        "operation_cursor",
-        "operation_undo_info",
-        "operation_snapshot",
+        "change_cursor",
+        "change_undo_info",
+        "change_snapshot",
     }
 
 
 def _check_redo_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     derive_op_id = seeded["derive_op_id"]
-    assert result.op_ids == [derive_op_id]
+    assert result.change_ids == [derive_op_id]
     transition = next(output for output in result.outputs if output.kind == "operation")
     assert transition.ref["direction"] == "redo"
     assert transition.ref["status_before"] == "undone"
     assert transition.ref["status_after"] == "applied"
 
-    assert project.op_cursor == derive_op_id
+    assert project.change_cursor == derive_op_id
     op = project.db.execute(
-        "SELECT status FROM ops WHERE id=?", (derive_op_id,)
+        "SELECT status FROM changes WHERE id=?", (derive_op_id,)
     ).fetchone()
     assert op["status"] == "applied"
     child = project.db.execute(
@@ -338,21 +338,21 @@ def _check_redo_state(project: Project, seeded: dict[str, Any], result: Any) -> 
     assert [int(row["id"]) for row in visible_rows] == seeded["child_row_ids"]
 
     receipt = _operation_receipt(project, result)
-    assert receipt.action_kind == "operation.redo"
+    assert receipt.action_kind == "change.redo"
 
 
 CASES = [
     ExecutorCase(
-        kind="operation.undo",
+        kind="change.undo",
         catalog=_CATALOG,
         seed=_seed_chain,
         make_action=_undo_action,
         gates=(
-            Gate("operation_mismatch", _mismatch_undo_action, "operation_mismatch"),
+            Gate("change_mismatch", _mismatch_undo_action, "change_mismatch"),
             Gate(
                 "redo_before_any_undo",
                 _redo_without_undo_action,
-                "operation_unavailable",
+                "change_unavailable",
             ),
             Gate(
                 "idempotency_conflict",
@@ -366,12 +366,12 @@ CASES = [
         request_style="typed",
     ),
     ExecutorCase(
-        kind="operation.redo",
+        kind="change.redo",
         catalog=_CATALOG,
         seed=_seed_chain_undone,
         make_action=_redo_action,
         gates=(
-            Gate("operation_mismatch", _mismatch_redo_action, "operation_mismatch"),
+            Gate("change_mismatch", _mismatch_redo_action, "change_mismatch"),
             Gate(
                 "idempotency_conflict",
                 _redo_conflict_action,
@@ -390,15 +390,15 @@ def test_undo_on_empty_project_is_unavailable(make_project) -> None:
     from frisket.engine.executor import actions as executor_actions
 
     project = make_project("Empty Operation")
-    action = operation_action(
-        "operation.undo", key="empty_undo@sha256:v1", expected_op_id=0
+    action = change_action(
+        "change.undo", key="empty_undo@sha256:v1", expected_change_id=0
     )
-    del action["params"]["expected_op_id"]
+    del action["params"]["expected_change_id"]
     result = executor_actions.run_action_spec(
         project, action, project_id="project-empty-operation"
     )
     assert result.status == "failed"
-    assert result.errors[0].code == "operation_unavailable"
+    assert result.errors[0].code == "change_unavailable"
 
 
 def test_corrupt_undo_info_rolls_back_and_reports_corrupt_state(
@@ -409,7 +409,7 @@ def test_corrupt_undo_info_rolls_back_and_reports_corrupt_state(
     project = make_project("Corrupt Operation")
     cur = project.db.cursor()
     cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, status, barrier) "
+        "INSERT INTO changes (kind, label, spec, undo_info, status, barrier) "
         "VALUES (?, ?, ?, ?, 'applied', 0)",
         (
             "corrupt.fixture",
@@ -423,32 +423,32 @@ def test_corrupt_undo_info_rolls_back_and_reports_corrupt_state(
 
     start_change(project.db, corrupt_op_id)
     cur.execute(
-        "UPDATE meta SET value=? WHERE key='op_cursor'",
+        "UPDATE meta SET value=? WHERE key='change_cursor'",
         (str(corrupt_op_id),),
     )
     project.db.commit()
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("ops", "receipts")
+        for table in ("changes", "receipts")
     }
 
-    action = operation_action(
-        "operation.undo", key="corrupt_undo@sha256:v1", expected_op_id=0
+    action = change_action(
+        "change.undo", key="corrupt_undo@sha256:v1", expected_change_id=0
     )
-    del action["params"]["expected_op_id"]
+    del action["params"]["expected_change_id"]
     result = executor_actions.run_action_spec(
         project, action, project_id="project-corrupt-operation"
     )
     assert result.status == "failed"
     assert result.errors[0].code == "project_state_corrupt"
     op = project.db.execute(
-        "SELECT status FROM ops WHERE id=?", (corrupt_op_id,)
+        "SELECT status FROM changes WHERE id=?", (corrupt_op_id,)
     ).fetchone()
     assert op["status"] == "applied"
-    assert project.op_cursor == corrupt_op_id
+    assert project.change_cursor == corrupt_op_id
     after = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("ops", "receipts")
+        for table in ("changes", "receipts")
     }
     assert after == before
 
@@ -461,7 +461,7 @@ def test_typed_undo_replays_omitted_and_explicit_default_params(
     project = make_project("default-replay")
     _seed_chain(project, tmp_path)
     omitted = {
-        "action_id": "operation.undo",
+        "action_id": "change.undo",
         "scope": {"kind": "project"},
         "params": {},
         "idempotency_key": "operation-default-replay",
@@ -471,7 +471,7 @@ def test_typed_undo_replays_omitted_and_explicit_default_params(
     )
     explicit = executor_actions.run_action_spec(
         project,
-        {**omitted, "params": {"expected_op_id": None}},
+        {**omitted, "params": {"expected_change_id": None}},
         project_id="project-operation-default-replay",
     )
 
@@ -483,9 +483,9 @@ def test_typed_undo_replays_omitted_and_explicit_default_params(
     assert explicit.outputs == first.outputs
 
 
-@pytest.mark.parametrize("expected_op_id", [True, "1"])
+@pytest.mark.parametrize("expected_change_id", [True, "1"])
 def test_operation_expected_op_id_is_strict(
-    make_project, expected_op_id: object
+    make_project, expected_change_id: object
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
@@ -493,9 +493,9 @@ def test_operation_expected_op_id_is_strict(
     result = executor_actions.run_action_spec(
         project,
         {
-            "action_id": "operation.undo",
+            "action_id": "change.undo",
             "scope": {"kind": "project"},
-            "params": {"expected_op_id": expected_op_id},
+            "params": {"expected_change_id": expected_change_id},
             "idempotency_key": "operation-strict-id",
         },
         project_id="project-operation-strict-id",
@@ -513,7 +513,7 @@ def test_operation_mode_is_not_a_typed_param(make_project) -> None:
     result = executor_actions.run_action_spec(
         project,
         {
-            "action_id": "operation.undo",
+            "action_id": "change.undo",
             "scope": {"kind": "project"},
             "params": {"mode": "step"},
             "idempotency_key": "operation-mode",
@@ -555,10 +555,10 @@ def test_undo_and_receipt_roll_back_without_manifest_refresh(
 
     assert result.status == "failed"
     assert result.errors[0].code == "project_write_failed"
-    assert project.op_cursor == seeded["derive_op_id"]
+    assert project.change_cursor == seeded["derive_op_id"]
     assert (
         project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (seeded["derive_op_id"],)
+            "SELECT status FROM changes WHERE id=?", (seeded["derive_op_id"],)
         ).fetchone()["status"]
         == "applied"
     )
@@ -584,7 +584,7 @@ def test_typed_plain_edit_undo_redo_skip_recount_but_replay_heals(
     sheet_id = project.add_sheet("Rows")
     column_id = project.add_column(sheet_id, "value")
     row_id = project.add_rows(sheet_id, [{"value": "before"}], {"value": column_id})[0]
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [{"row_id": row_id, "column_id": column_id, "value": "after"}]
     )
     refresh_calls = 0
@@ -595,10 +595,10 @@ def test_typed_plain_edit_undo_redo_skip_recount_but_replay_heals(
         return 0
 
     monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
-    undo_action = operation_action(
-        "operation.undo",
+    undo_action = change_action(
+        "change.undo",
         key="typed-plain-edit-undo@sha256:v1",
-        expected_op_id=edit_op_id,
+        expected_change_id=edit_change_id,
     )
 
     undone = executor_actions.run_action_spec(
@@ -616,10 +616,10 @@ def test_typed_plain_edit_undo_redo_skip_recount_but_replay_heals(
 
     redone = executor_actions.run_action_spec(
         project,
-        operation_action(
-            "operation.redo",
+        change_action(
+            "change.redo",
             key="typed-plain-edit-redo@sha256:v1",
-            expected_op_id=edit_op_id,
+            expected_change_id=edit_change_id,
         ),
         project_id="typed-plain-edit",
     )

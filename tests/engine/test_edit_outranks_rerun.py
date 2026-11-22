@@ -98,12 +98,12 @@ class _Sheet:
                 **({"replace_existing": True} if replace else {}),
             }
         )
-        return int(self.project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0])
+        return int(self.project.db.execute("SELECT MAX(id) FROM changes").fetchone()[0])
 
-    def run_id(self, op_id: int) -> int:
+    def run_id(self, change_id: int) -> int:
         return int(
             self.project.db.execute(
-                "SELECT id FROM runs WHERE op_id=?", (op_id,)
+                "SELECT id FROM runs WHERE change_id=?", (change_id,)
             ).fetchone()[0]
         )
 
@@ -510,7 +510,7 @@ def test_projection_rebuild_resolves_the_same_heads(make_project, reapply):
     if reapply:
         sheet.reapply(sheet.first_run)
     db = sheet.project.db
-    columns = "column_id,row_id,origin_kind,origin_op_id,origin_run_id"
+    columns = "column_id,row_id,origin_kind,origin_change_id,origin_run_id"
     cached = db.execute(
         f"SELECT {columns} FROM current_cells WHERE column_id=? ORDER BY row_id",
         (sheet.out,),

@@ -20,7 +20,7 @@ def test_delete_sheet_retains_rows_columns_blobs_and_restores_atomically(make_pr
         {"document": column},
     )[0]
     result = project.delete_sheet(sheet)
-    deleted = project.op_cursor
+    deleted = project.change_cursor
     assert result == {
         "ok": True,
         "deleted_sheet_id": sheet,
@@ -64,7 +64,7 @@ def test_delete_sheet_retains_completed_and_running_execution_records(make_proje
     )
     project.delete_sheet(sheet)
     assert (
-        project.db.execute("SELECT status FROM ops WHERE id=?", (op,)).fetchone()[0]
+        project.db.execute("SELECT status FROM changes WHERE id=?", (op,)).fetchone()[0]
         == "applied"
     )
     assert (

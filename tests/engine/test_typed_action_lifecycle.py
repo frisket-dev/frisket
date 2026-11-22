@@ -199,7 +199,7 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
     assert result.status == "completed", result
     assert result.action.kind == "map.upper_test"
     assert result.run_id is not None
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert [(output.kind, output.name) for output in result.outputs] == [
         ("column", "upper")
     ]
@@ -239,7 +239,7 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
         "result_count": 2,
         "model_call_count": 0,
         "cost_actual": 0.0,
-        "op_id": result.op_ids[0],
+        "change_id": result.change_ids[0],
         "run_id": result.run_id,
     }
     assert (
@@ -390,7 +390,7 @@ def test_typed_action_replays_exact_hash_and_refuses_conflict(
     counts = {
         "receipts": ReceiptStore(store).count(),
         "runs": int(store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
-        "ops": int(store.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]),
+        "changes": int(store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]),
     }
 
     replay = run_typed_map_rows_action(
@@ -409,7 +409,7 @@ def test_typed_action_replays_exact_hash_and_refuses_conflict(
     assert counts == {
         "receipts": ReceiptStore(store).count(),
         "runs": int(store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
-        "ops": int(store.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]),
+        "changes": int(store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]),
     }
     assert conflict.status == "failed"
     assert conflict.errors[0].code == "idempotency_conflict"
@@ -491,7 +491,7 @@ def test_typed_receipt_preserves_normalized_request_provenance_on_replay(
         "output_names": {logical_output: final_output},
         "replace_existing": False,
         "params_hash": receipt.params_hash,
-        "op_id": first.op_ids[0],
+        "change_id": first.change_ids[0],
         "run_id": first.run_id,
     }
 
@@ -709,9 +709,9 @@ def test_stale_running_receipt_is_retained_for_live_writer(
     action = REGISTRY.get(request.action_id)
     params_hash = typed_request_hash(BoundTypedActionRequest.bind(action, request))
     output = store.add_column(sheet_id, "upper")
-    op_id = store.append_change("map.upper_test", {}, label="live map run")
+    change_id = store.append_change("map.upper_test", {}, label="live map run")
     run_id = RunResultStore(store).start_run(
-        op_id, sheet_id, action.action_id, row_ids=row_ids, total_rows=len(row_ids)
+        change_id, sheet_id, action.action_id, row_ids=row_ids, total_rows=len(row_ids)
     )
     receipt = Receipt(
         receipt_id="receipt_live_typed_map",
@@ -798,7 +798,7 @@ def test_typed_action_collision_preserves_recovery_identity(
     project: tuple[Project, int, int, list[int]],
 ) -> None:
     store, sheet_id, _source_id, row_ids = project
-    seeded_op_count = store.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    seeded_op_count = store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     request = _request(sheet_id, row_ids)
     blocker = Receipt(
         receipt_id="receipt_typed_map_rows_blocker",
@@ -849,7 +849,10 @@ def test_typed_action_collision_preserves_recovery_identity(
     }
     assert ReceiptStore(store).count() == 1
     assert store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    assert store.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == seeded_op_count
+    assert (
+        store.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+        == seeded_op_count
+    )
 
 
 def test_typed_action_maps_network_refusal_and_cleans_reservation(

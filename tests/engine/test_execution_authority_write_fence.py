@@ -50,9 +50,9 @@ def _seed_claimed_run(
         [{"source": "one"}, {"source": "two"}, {"source": "three"}],
         {"source": source_column_id},
     )
-    op_id = project.append_change("map", {"recipe": "python"})
+    change_id = project.append_change("map", {"recipe": "python"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.python",
         row_ids=row_ids,
@@ -975,9 +975,9 @@ def test_terminal_finalize_refuses_a_writer_replaced_after_its_last_batch(
             new_attempt_id="attempt_finalize_b",
         )
         before = _authority_snapshot(project, run_id)
-        op_id = int(
+        change_id = int(
             project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?",
+                "SELECT change_id FROM runs WHERE id=?",
                 (run_id,),
             ).fetchone()[0]
         )
@@ -986,7 +986,7 @@ def test_terminal_finalize_refuses_a_writer_replaced_after_its_last_batch(
             finalize_dispatched_run(
                 project,
                 RunResultStore(project),
-                op_id=op_id,
+                change_id=change_id,
                 status="completed",
                 out_cols={"python_result": column_id},
                 fence=fence_a,

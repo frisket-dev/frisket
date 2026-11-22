@@ -5,10 +5,10 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.op_log import (
-    OperationUnavailable,
-    operation_target,
-    step_operation,
+from frisket.engine.store.change_log import (
+    ChangeUnavailable,
+    change_target,
+    step_change,
 )
 from frisket.engine.store.purge import (
     begin_purge,
@@ -30,12 +30,12 @@ def test_purged_creation_does_not_block_unrelated_undo_redo(tmp_path):
         doomed = project.add_rows(docs, [{"content": "secret"}], {"content": content})[
             0
         ]
-        creation = project.op_cursor
+        creation = project.change_cursor
     with closing(Project(path, maintenance=True)) as project:
         finish_purge(project, begin_purge(project, row_ids=[doomed]))
     with closing(Project(path)) as project:
         undone = []
-        while (target := operation_target(project, "undo")) is not None:
+        while (target := change_target(project, "undo")) is not None:
             undone.append(project.undo())
             if target["id"] == edit:
                 break
@@ -45,10 +45,10 @@ def test_purged_creation_does_not_block_unrelated_undo_redo(tmp_path):
         assert project.redo() == edit
         assert project.get_values(sheet, column)[row] == "changed"
         # An empty Change has no transition, including selective history.
-        with pytest.raises(OperationUnavailable):
+        with pytest.raises(ChangeUnavailable):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
-                step_operation(project, "revert", change_id=creation)
+                step_change(project, "revert", change_id=creation)
         assert (
             project.db.execute(
                 "SELECT hidden FROM rows WHERE id=?", (doomed,)
@@ -63,21 +63,21 @@ def test_purged_undone_creation_does_not_block_later_redo(tmp_path):
         sheet = project.add_sheet("data")
         column = project.add_column(sheet, "text")
         first = project.add_rows(sheet, [{"text": "secret"}], {"text": column})[0]
-        first_change = project.op_cursor
+        first_change = project.change_cursor
         second = project.add_rows(sheet, [{"text": "retained"}], {"text": column})[0]
-        second_change = project.op_cursor
+        second_change = project.change_cursor
         assert project.undo() == second_change
         assert project.undo() == first_change
     with closing(Project(path, maintenance=True)) as project:
         finish_purge(project, begin_purge(project, row_ids=[first]))
     with closing(Project(path)) as project:
-        assert operation_target(project, "redo")["id"] == second_change
+        assert change_target(project, "redo")["id"] == second_change
         assert project.redo() == second_change
         assert project.get_values(sheet, column) == {second: "retained"}
-        with pytest.raises(OperationUnavailable):
+        with pytest.raises(ChangeUnavailable):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
-                step_operation(project, "restore", change_id=first_change)
+                step_change(project, "restore", change_id=first_change)
 
 
 @pytest.mark.parametrize("purge_after_undo", [False, True])
@@ -103,7 +103,7 @@ def test_partly_purged_append_preserves_navigation_and_never_restores_purged_row
             ],
             {"content": column},
         )
-        append = project.op_cursor
+        append = project.change_cursor
         if purge_after_undo:
             assert project.undo() == append
             assert project.undo() == edit
@@ -131,14 +131,14 @@ def test_partly_purged_append_preserves_navigation_and_never_restores_purged_row
         # Selective history toggles the same retained effects without changing
         # normal navigation or granting publication on the closed owner.
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=append)
+            step_change(project, "revert", change_id=append)
         assert project.visible_row_ids(sheet) == []
         with project.transaction_scope():
-            step_operation(project, "restore", change_id=append)
+            step_change(project, "restore", change_id=append)
         assert project.visible_row_ids(sheet) == [kept, also_kept]
         assert (
             project.db.execute(
-                "SELECT publication_closed FROM ops WHERE id=?", (append,)
+                "SELECT publication_closed FROM changes WHERE id=?", (append,)
             ).fetchone()[0]
             == 1
         )
@@ -173,7 +173,7 @@ def test_partly_purged_keyed_refresh_keeps_surviving_cell_writes_undoable(tmp_pa
         )
         refreshed = _run(project, _refresh(sheet_id=child, key="refresh-before-purge"))
         assert refreshed.status == "completed", refreshed.errors
-        refresh_op = refreshed.op_ids[0]
+        refresh_op = refreshed.change_ids[0]
         doomed = next(
             row for row in project.visible_row_ids(child) if row not in previous_rows
         )
@@ -193,7 +193,7 @@ def test_partly_purged_sheet_creator_keeps_exact_restore_name_guard(
     tmp_path, purge_after_undo
 ):
     from frisket.engine.store.streaming_import import StreamingSheetWriter
-    from frisket.engine.store.op_log import RestorationUnavailable
+    from frisket.engine.store.change_log import RestorationUnavailable
 
     path = tmp_path / "partial-sheet.frisket"
     with closing(Project.create(path)) as project:
@@ -211,7 +211,7 @@ def test_partly_purged_sheet_creator_keeps_exact_restore_name_guard(
         )
         writer.append_rows([{"text": "secret"}, {"text": "retained"}])
         writer.publish()
-        sheet, creation = writer.sheet_id, project.op_cursor
+        sheet, creation = writer.sheet_id, project.change_cursor
         doomed, kept = project.visible_row_ids(sheet)
         if purge_after_undo:
             assert project.undo() == creation
@@ -224,11 +224,11 @@ def test_partly_purged_sheet_creator_keeps_exact_restore_name_guard(
         replacement = project.add_sheet("Documents")
         with pytest.raises(RestorationUnavailable, match="already exists"):
             with project.transaction_scope():
-                step_operation(project, "restore", change_id=creation)
+                step_change(project, "restore", change_id=creation)
         assert {item["id"] for item in project.sheets()} == {replacement}
         project.delete_sheet(replacement)
         with project.transaction_scope():
-            step_operation(project, "restore", change_id=creation)
+            step_change(project, "restore", change_id=creation)
         assert project.visible_row_ids(sheet) == [kept]
         assert project.db.execute(
             "SELECT active,hidden FROM columns WHERE sheet_id=?", (sheet,)
@@ -262,7 +262,7 @@ def test_partly_purged_group_creation_restores_retained_generated_rows(
         assert result.status == "completed", result.errors
         sheet = result.outputs[0].sheet_id
         doomed, kept = project.visible_row_ids(sheet)
-        creator = project.op_cursor
+        creator = project.change_cursor
         column = next(c["id"] for c in project.columns(sheet) if c["name"] == "summary")
         expected = project.get_values(sheet, column)[kept]
         if purge_after_undo:
@@ -283,7 +283,7 @@ def test_partly_purged_group_creation_restores_retained_generated_rows(
         )
         assert (
             project.db.execute(
-                "SELECT publication_closed FROM ops WHERE id=?", (creator,)
+                "SELECT publication_closed FROM changes WHERE id=?", (creator,)
             ).fetchone()[0]
             == 1
         )
@@ -311,7 +311,7 @@ def test_membership_undo_redo_invalidates_unpopulated_columns_after_partial_purg
         doomed, kept = project.add_rows(
             sheet, [{"text": "secret"}, {"text": "retained"}], {"text": text}
         )
-        append = project.op_cursor
+        append = project.change_cursor
     if purge_one:
         with closing(Project(path, maintenance=True)) as project:
             finish_purge(project, begin_purge(project, row_ids=[doomed]))
@@ -332,7 +332,7 @@ def test_membership_undo_redo_invalidates_unpopulated_columns_after_partial_purg
         _, _, capture = read_consumed_source(project, sheet, [summary])
         with project.transaction_scope():
             bundle = store_capture(
-                project, capture, owner_op_id=append, output_sheet_id=sheet
+                project, capture, owner_change_id=append, output_sheet_id=sheet
             )
         assert bundle_state(project, bundle) == "fresh"
         before, search_before = revision(summary), search_work(summary)

@@ -212,8 +212,8 @@ def test_joined_transaction_requires_and_never_ends_the_callers(project):
 
 def _running_run(project):
     sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
-    op_id = project.append_change("map", {"recipe": "template"})
-    return RunResultStore(project).start_run(op_id, sheet_id, "map.template")
+    change_id = project.append_change("map", {"recipe": "template"})
+    return RunResultStore(project).start_run(change_id, sheet_id, "map.template")
 
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
@@ -236,13 +236,13 @@ def test_finish_run_rolls_back_interrupted_terminal_write(
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_start_run_rolls_back_interrupted_run_insert(project, monkeypatch, failure):
     sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
     before = _snapshot(project.db)
     error = failure("interrupted after the run INSERT")
     db = _interrupt_project_db(project, monkeypatch, "INSERT INTO runs", error)
 
     with pytest.raises(failure) as caught:
-        RunResultStore(project).start_run(op_id, sheet_id, "map.template")
+        RunResultStore(project).start_run(change_id, sheet_id, "map.template")
 
     assert caught.value is error
     assert not db.in_transaction

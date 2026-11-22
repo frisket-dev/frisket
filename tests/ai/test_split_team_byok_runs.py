@@ -477,7 +477,7 @@ def test_wrong_cache_key_does_not_bypass_missing_key_preflight_or_mutate_state(
     body = response.json()
     assert body["status"] == "failed", body
     assert body["run_id"] is None and body["job_id"] is None
-    assert body["receipt_id"] is None and body["op_ids"] == []
+    assert body["receipt_id"] is None and body["change_ids"] == []
     error = body["errors"][0]
     assert error["code"] == "missing_provider_key", error
     assert error["details"] == {

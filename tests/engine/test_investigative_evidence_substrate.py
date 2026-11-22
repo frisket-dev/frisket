@@ -24,7 +24,7 @@ def _attach_whole_cell_evidence(
     row_id: int,
     column_id: int,
     subject_ref: dict,
-    op_id: int,
+    change_id: int,
     run_id: int,
 ) -> dict:
     with write_transaction(project.db):
@@ -52,15 +52,15 @@ def _attach_whole_cell_evidence(
             row_id=row_id,
             column_id=column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
         )
 
 
-def _operation_action(kind: str, *, key: str, expected_op_id: int) -> dict:
+def _operation_action(kind: str, *, key: str, expected_change_id: int) -> dict:
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -90,7 +90,7 @@ def _seed_generated_cell(project: Project) -> tuple[int, int, int, int, int, dic
         [{"Source": "contract.pdf"}],
         {"Source": source_column_id},
     )[0]
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",
@@ -100,7 +100,7 @@ def _seed_generated_cell(project: Project) -> tuple[int, int, int, int, int, dic
         label="extract contract value",
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         model="provider/model",
@@ -122,16 +122,16 @@ def _seed_generated_cell(project: Project) -> tuple[int, int, int, int, int, dic
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, output_column_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, output_column_id, run_id)
     _values, refs = project.get_values_with_refs(
         sheet_id, output_column_id, row_ids=[row_id]
     )
-    return sheet_id, row_id, output_column_id, op_id, run_id, refs[row_id]
+    return sheet_id, row_id, output_column_id, change_id, run_id, refs[row_id]
 
 
 def test_investigative_evidence_substrate_contract(make_project) -> None:
     project = make_project("Evidence")
-    sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+    sheet_id, row_id, column_id, change_id, run_id, current_ref = _seed_generated_cell(
         project
     )
     pdf_hash = project.add_blob(
@@ -311,7 +311,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
             row_id=row_id,
             column_id=column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id="receipt-map-extract",
             link_role="primary_support",
             confidence=0.91,
@@ -344,7 +344,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
             row_id=row_id,
             column_id=column_id,
             run_id=run_id + 999,
-            op_id=op_id,
+            change_id=change_id,
             link_role="support",
             spans=[{"span_id": spans[0]["id"]}],
         )
@@ -535,7 +535,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
 
 def test_facade_edit_stales_exact_current_evidence(make_project) -> None:
     project = make_project("facade-edit-evidence")
-    sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+    sheet_id, row_id, column_id, change_id, run_id, current_ref = _seed_generated_cell(
         project
     )
     link = _attach_whole_cell_evidence(
@@ -544,7 +544,7 @@ def test_facade_edit_stales_exact_current_evidence(make_project) -> None:
         row_id=row_id,
         column_id=column_id,
         subject_ref=current_ref,
-        op_id=op_id,
+        change_id=change_id,
         run_id=run_id,
     )
 
@@ -566,7 +566,7 @@ def test_facade_edit_stales_exact_current_evidence(make_project) -> None:
 
 def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> None:
     project = make_project("edit-evidence-history")
-    sheet_id, row_id, column_id, op_id, run_id, current_ref = _seed_generated_cell(
+    sheet_id, row_id, column_id, change_id, run_id, current_ref = _seed_generated_cell(
         project
     )
     link = _attach_whole_cell_evidence(
@@ -575,7 +575,7 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
         row_id=row_id,
         column_id=column_id,
         subject_ref=current_ref,
-        op_id=op_id,
+        change_id=change_id,
         run_id=run_id,
     )
     already_stale = _attach_whole_cell_evidence(
@@ -583,8 +583,8 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
         sheet_id=sheet_id,
         row_id=row_id,
         column_id=column_id,
-        subject_ref={"kind": "manual_edit", "op_id": 999},
-        op_id=op_id,
+        subject_ref={"kind": "manual_edit", "change_id": 999},
+        change_id=change_id,
         run_id=run_id,
     )
     project.db.execute(
@@ -613,7 +613,7 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
         project_id="project-edit-evidence-history",
     )
     assert edited.status == "completed", edited.errors
-    edit_op_id = edited.op_ids[0]
+    edit_change_id = edited.change_ids[0]
     stale = resolve_citation_viewer(project, link["stable_id"])["link"]
     assert stale["status"] == "stale"
     assert stale["stale_reason"] == "manual_cell_edit"
@@ -621,9 +621,9 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
     undone = run_action_spec(
         project,
         _operation_action(
-            "operation.undo",
+            "change.undo",
             key="undo-edit-evidence-history@sha256:v1",
-            expected_op_id=edit_op_id,
+            expected_change_id=edit_change_id,
         ),
         project_id="project-edit-evidence-history",
     )
@@ -640,9 +640,9 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
     redone = run_action_spec(
         project,
         _operation_action(
-            "operation.redo",
+            "change.redo",
             key="redo-edit-evidence-history@sha256:v1",
-            expected_op_id=edit_op_id,
+            expected_change_id=edit_change_id,
         ),
         project_id="project-edit-evidence-history",
     )

@@ -19,7 +19,14 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 # Default for the first migrated map-action tests; action families that mutate
 # sources, blobs, artifacts, or sheets should pass their own table list.
-DEFAULT_COUNT_TABLES = ("columns", "runs", "results", "model_calls", "ops", "receipts")
+DEFAULT_COUNT_TABLES = (
+    "columns",
+    "runs",
+    "results",
+    "model_calls",
+    "changes",
+    "receipts",
+)
 
 
 def legacy_params_hash(action: ActionSpec) -> str:

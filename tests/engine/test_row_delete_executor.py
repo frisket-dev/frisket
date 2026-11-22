@@ -10,7 +10,7 @@ from executor_harness import (
     ExecutorCase,
     Gate,
     UndoRerun,
-    operation_action,
+    change_action,
 )
 from frisket.engine.store import Project
 from helpers import run_cli
@@ -100,7 +100,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
     target_rows = seeded["target_rows"]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert result.outputs[0].kind == "rows"
     assert result.outputs[0].name == "deleted_rows"
     assert result.outputs[0].row_ids == target_rows
@@ -112,7 +112,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert _hidden_flags(project, target_rows) == {1}
 
     op = project.db.execute(
-        "SELECT * FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT * FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert op["kind"] == "delete_rows"
@@ -125,7 +125,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "row.delete"
-    assert receipt.op_ids == list(result.op_ids)
+    assert receipt.change_ids == list(result.change_ids)
     assert receipt.outputs[0].name == "deleted_rows"
     assert receipt.outputs[0].ref["kind"] == "deleted_rows"
     assert {item.ref["kind"] for item in receipt.records} == {"deleted_row"}
@@ -134,14 +134,14 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 def _check_undone(project: Project, seeded: dict[str, Any], first: Any) -> None:
     assert project.row_count(seeded["sheet_id"]) == 3
     assert _hidden_flags(project, seeded["target_rows"]) == {0}
-    seeded["delete_op_id"] = first.op_ids[0]
+    seeded["delete_op_id"] = first.change_ids[0]
 
 
 def _redo_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return operation_action(
-        "operation.redo",
+    return change_action(
+        "change.redo",
         key="redo_row_delete@sha256:v1",
-        expected_op_id=seeded["delete_op_id"],
+        expected_change_id=seeded["delete_op_id"],
     )
 
 
@@ -199,7 +199,7 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"ops": 1, "receipts": 1},
+        expect_counts={"changes": 1, "receipts": 1},
         check_state=_check_state,
         undo=UndoRerun(
             check_undone=_check_undone,

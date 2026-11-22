@@ -29,7 +29,7 @@ def _copy(work, source_run, selected=None):
                 "SELECT output_role FROM run_output_generations WHERE run_id=?",
                 (source_run,),
             ).fetchone()[0]
-            copy_staged_outcomes(project.db, op_id=op, targets={role: target})
+            copy_staged_outcomes(project.db, change_id=op, targets={role: target})
         ChangeStore(project).close(op)
     return op, target, unavailable
 
@@ -44,7 +44,9 @@ def test_closed_change_cannot_publish_more_copied_results(work):
         ):
             before = project.db.total_changes
             with pytest.raises(ChangePublicationClosed):
-                copy_staged_outcomes(project.db, op_id=op, targets={"answer": target})
+                copy_staged_outcomes(
+                    project.db, change_id=op, targets={"answer": target}
+                )
             assert project.db.total_changes == before
 
 
@@ -64,7 +66,9 @@ def test_copied_publication_refuses_permanently_removed_column(work):
         ):
             before = project.db.total_changes
             with pytest.raises(PurgedMaterialUnavailable):
-                copy_staged_outcomes(project.db, op_id=op, targets={"answer": target})
+                copy_staged_outcomes(
+                    project.db, change_id=op, targets={"answer": target}
+                )
             assert project.db.total_changes == before
 
 
@@ -81,7 +85,7 @@ def test_copy_keeps_error_and_success_without_charging_or_calling(work):
     assert values[rows[0]] == "answer 1"
     assert values[rows[1]] is None
     copied = project.db.execute(
-        "SELECT row_id,outcome,error FROM copied_result_values WHERE op_id=? ORDER BY row_id",
+        "SELECT row_id,outcome,error FROM copied_result_values WHERE change_id=? ORDER BY row_id",
         (op,),
     ).fetchall()
     assert copied[0]["outcome"] == "completed"
@@ -101,7 +105,7 @@ def test_copied_review_is_independent_and_rejection_does_not_select_an_old_answe
     project.db.commit()
     op, target, _ = _copy(work, original.run_id)
     copied = project.db.execute(
-        "SELECT review_decision,review_note FROM copied_result_outcomes WHERE op_id=? AND row_id=?",
+        "SELECT review_decision,review_note FROM copied_result_outcomes WHERE change_id=? AND row_id=?",
         (op, rows[0]),
     ).fetchone()
     assert tuple(copied) == ("reject", "Source judgment")
@@ -112,7 +116,7 @@ def test_copied_review_is_independent_and_rejection_does_not_select_an_old_answe
     project.db.commit()
     assert (
         project.db.execute(
-            "SELECT review_decision FROM copied_result_outcomes WHERE op_id=? AND row_id=?",
+            "SELECT review_decision FROM copied_result_outcomes WHERE change_id=? AND row_id=?",
             (op, rows[0]),
         ).fetchone()[0]
         == "reject"
@@ -287,7 +291,7 @@ def test_copied_values_and_provenance_reach_bounded_and_full_readers(work):
             "column_id": source_column,
         }
         assert refs[row]["kind"] == "copied_result"
-        assert refs[row]["op_id"] == op
+        assert refs[row]["change_id"] == op
         assert refs[row]["retained_result"] == expected
         assert bounded[row].value == values[row]
         assert bounded[row].value_ref["retained_result"] == expected
@@ -398,7 +402,7 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
         GeneratedColumnClaimStore(project).release(claim_token=auth.claim_token)
     op, target, _ = _copy(work, source_run, selected=[rows[0]])
     copied = project.db.execute(
-        "SELECT outcome,value FROM copied_result_values WHERE op_id=?", (op,)
+        "SELECT outcome,value FROM copied_result_values WHERE change_id=?", (op,)
     ).fetchone()
     assert tuple(copied) == ("failed", None)
     assert project.get_values(sheet, target)[rows[0]] is None

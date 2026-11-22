@@ -63,7 +63,7 @@ def _live_name(project: Project, seeded: dict[str, Any]) -> Any:
 def _write_counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("ops", "edits", "receipts")
+        for table in ("changes", "edits", "receipts")
     }
 
 
@@ -97,17 +97,19 @@ def _hide_row(project: Project, seeded: dict[str, Any]) -> None:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert len(result.op_ids) == 1
-    edit_op_id = result.op_ids[0]
+    assert len(result.change_ids) == 1
+    edit_change_id = result.change_ids[0]
     assert _live_name(project, seeded) == "Alicia"
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=?", (edit_op_id,)).fetchone()
+    op = project.db.execute(
+        "SELECT * FROM changes WHERE id=?", (edit_change_id,)
+    ).fetchone()
     assert op is not None
     assert op["kind"] == "edit"
     assert json.loads(op["spec"])["action_id"] == "cell.edit"
 
     overlay = project.db.execute(
-        "SELECT * FROM edits WHERE op_id=?", (edit_op_id,)
+        "SELECT * FROM edits WHERE change_id=?", (edit_change_id,)
     ).fetchone()
     assert overlay is not None
     assert overlay["row_id"] == seeded["row_id"]
@@ -121,7 +123,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "cell.edit"
-    assert receipt.op_ids == [edit_op_id]
+    assert receipt.change_ids == [edit_change_id]
     assert receipt.outputs[0].name == "manual_edits"
     assert receipt.records[0].ref["kind"] == "manual_edit_overlay"
 
@@ -195,7 +197,7 @@ CASES = [
                 prepare=_hide_row,
             ),
         ),
-        expect_counts={"ops": 1, "edits": 1, "receipts": 1},
+        expect_counts={"changes": 1, "edits": 1, "receipts": 1},
         check_state=_check_state,
         undo=UndoRerun(
             check_undone=_check_undone,
@@ -351,11 +353,11 @@ def test_cell_edit_replay_precedes_live_target_lookup(
     replay = run_action_spec(project, action, project_id="cell-edit-replay")
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == first.receipt_id
-    assert replay.op_ids == first.op_ids
+    assert replay.change_ids == first.change_ids
     assert replay.outputs == first.outputs
     assert _write_counts(project) == {
         **before,
-        "ops": before["ops"] + 1,
+        "changes": before["changes"] + 1,
         "edits": before["edits"] + 1,
         "receipts": before["receipts"] + 1,
     }
@@ -392,11 +394,13 @@ def test_cell_edit_query_limits_validate_max_rows(max_rows: object) -> None:
         CellEditQueryLimits(max_rows=max_rows)  # type: ignore[arg-type]
 
 
-def _operation_action(kind: str, *, expected_op_id: int, key: str) -> dict[str, Any]:
+def _operation_action(
+    kind: str, *, expected_change_id: int, key: str
+) -> dict[str, Any]:
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -433,7 +437,7 @@ def test_cell_edit_query_updates_1001_selected_rows_with_exact_replay_and_undo(
     ) == dict.fromkeys(selected_row_ids, "closed")
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM edits WHERE op_id=?", (result.op_ids[0],)
+            "SELECT COUNT(*) FROM edits WHERE change_id=?", (result.change_ids[0],)
         ).fetchone()[0]
         == 1_001
     )
@@ -441,7 +445,7 @@ def test_cell_edit_query_updates_1001_selected_rows_with_exact_replay_and_undo(
     replay = run_action_spec(project, action, project_id="query-edit")
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == result.receipt_id
-    assert replay.op_ids == result.op_ids
+    assert replay.change_ids == result.change_ids
     assert replay.outputs == result.outputs
     assert replay.outputs[0].sheet_id == sheet_id
     assert replay.outputs[0].column_id == columns["status"]
@@ -449,8 +453,8 @@ def test_cell_edit_query_updates_1001_selected_rows_with_exact_replay_and_undo(
     undone = run_action_spec(
         project,
         _operation_action(
-            "operation.undo",
-            expected_op_id=result.op_ids[0],
+            "change.undo",
+            expected_change_id=result.change_ids[0],
             key="operation_undo_query_edit@sha256:1001",
         ),
         project_id="query-edit",

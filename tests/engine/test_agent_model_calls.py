@@ -92,9 +92,9 @@ def agent_context(make_project):
     project = make_project("agent-call")
     sheet = project.add_sheet("data")
     [row_id] = project.add_rows(sheet, [{}], {})
-    op_id = project.append_change("research.answer", {}, label="Agent call")
+    change_id = project.append_change("research.answer", {}, label="Agent call")
     run_id = RunResultStore(project).start_run(
-        op_id, sheet, "research.answer", total_rows=1, row_ids=[row_id]
+        change_id, sheet, "research.answer", total_rows=1, row_ids=[row_id]
     )
     attempt = mint_direct_effect_attempt(
         project, action_kind="research.answer", run_id=run_id, scope=(row_id,)

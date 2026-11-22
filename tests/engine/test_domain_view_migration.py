@@ -2,6 +2,7 @@ import json
 
 from frisket.upgrades.project.domain_view_migration import migrate_unified_views
 from frisket.engine.views.evaluate import open_selection
+from historical_schema import restore_pre_changes_schema
 
 
 def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_project):
@@ -10,6 +11,7 @@ def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_pr
     col = project.add_column(sheet, "status")
     project.add_rows(sheet, [{"status": "open"}], {"status": col})
     db = project.db
+    restore_pre_changes_schema(db)
     db.execute("DROP TABLE alert_row_field_state")
     db.execute("DROP TABLE alert_seen_rows")
     db.execute("DROP TABLE alert_check_events")
@@ -79,8 +81,13 @@ def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_pr
         "columns": [col],
         "column_groups": [{"run_id": 44, "label": "Facts", "columns": [col]}],
     }
-    with open_selection(project, saved["selection"]) as selected:
-        assert selected.total == 1
     migrate_unified_views(db)
     assert len(project.views()) == 4
     assert not db.execute("PRAGMA foreign_key_check").fetchall()
+    eval_project = make_project("eval-views")
+    eval_sheet = eval_project.add_sheet("records")
+    eval_col = eval_project.add_column(eval_sheet, "status")
+    eval_project.add_rows(eval_sheet, [{"status": "open"}], {"status": eval_col})
+    assert eval_sheet == sheet and eval_col == col
+    with open_selection(eval_project, saved["selection"]) as selected:
+        assert selected.total == 1

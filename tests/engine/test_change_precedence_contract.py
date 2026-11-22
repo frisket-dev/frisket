@@ -68,12 +68,12 @@ def test_active_undo_closes_writer_and_redo_cannot_reopen_it(make_project):
     _publish_initial_generation(project, sheet, column, rows)
     run = _replacement(project, sheet, column, rows[:2])
     _publish(project, run, rows[0], column, "saved")
-    assert project.undo() == run.op_id
+    assert project.undo() == run.change_id
     assert project.get_values(sheet, column)[rows[0]] == "first:0"
     # A late worker may seal the closed generation after Undo. Its earlier
     # published result is still saved work, not an aborted staged output.
     _seal(ResultGenerationStore(project), run, column, disposition="cancelled")
-    assert project.redo() == run.op_id
+    assert project.redo() == run.change_id
     with write_transaction(project.db):
         ResultGenerationStore(project).rebuild_heads([column])
     assert project.get_values(sheet, column)[rows[0]] == "saved"
@@ -137,12 +137,12 @@ def test_partial_runs_keep_untouched_cells_without_carry_forward(
             _release(project, run)
             expected = {row: model.read(row, column).value for row in rows}
             assert project.get_values(sheet, column) == expected
-            assert project.undo() == run.op_id
+            assert project.undo() == run.change_id
             model.deactivate(owner)
             assert project.get_values(sheet, column) == {
                 row: model.read(row, column).value for row in rows
             }
-            assert project.redo() == run.op_id
+            assert project.redo() == run.change_id
             model.restore(owner)
             assert project.get_values(sheet, column) == expected
 

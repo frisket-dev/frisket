@@ -33,11 +33,11 @@ def test_upgrade_preserves_data_and_undo_history(tmp_path):
         sheet = project.add_sheet("Source")
         column = project.add_column(sheet, "note")
         rows = project.add_rows(sheet, [{"note": "keep"}], {"note": column})
-        ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        ops = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         prior(project)
     with closing(Project(path)) as project:
         assert project.get_values(sheet, column) == {rows[0]: "keep"}
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == ops
+        assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == ops
         assert (
             project.db.execute("SELECT COUNT(*) FROM action_submissions").fetchone()[0]
             == 0

@@ -1135,16 +1135,16 @@ class TestRunAction:
             project_id="demo",
         )
         assert added.status == "completed", added.errors
-        [op_id] = added.op_ids
+        [change_id] = added.change_ids
         project.close()
 
         result = asyncio.run(
             LocalBackend(root).run_action(
                 "demo",
                 {
-                    "action_id": "operation.undo",
+                    "action_id": "change.undo",
                     "scope": {"kind": "project"},
-                    "params": {"expected_op_id": op_id},
+                    "params": {"expected_change_id": change_id},
                     "idempotency_key": "mcp-operation-undo@sha256:stable",
                 },
             )
@@ -1156,7 +1156,7 @@ class TestRunAction:
         [output] = result["outputs"]
         assert output["kind"] == "operation"
         assert output["ref"]["direction"] == "undo"
-        assert output["ref"]["op_id"] == op_id
+        assert output["ref"]["change_id"] == change_id
 
     def test_local_typed_row_add_returns_terminal_result(self, tmp_path) -> None:
         root = tmp_path / "ws"
@@ -1354,7 +1354,7 @@ class TestRunAction:
             [{"api_result": {"city": "Paris"}}],
             {"api_result": source_id},
         )
-        seeded_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        seeded_ops = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         project.close()
         backend = LocalBackend(root)
         route = {"name": "city"}
@@ -1376,7 +1376,10 @@ class TestRunAction:
         stored = backend.ws.get("demo")
         assert [column["name"] for column in stored.columns(sheet)] == ["api_result"]
         assert stored.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        assert stored.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == seeded_ops
+        assert (
+            stored.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+            == seeded_ops
+        )
 
     def test_local_metadata_uses_typed_action_lifecycle(self, tmp_path):
         root = tmp_path / "ws"
@@ -1839,7 +1842,7 @@ class TestRunAction:
                 "SELECT COUNT(*) FROM generated_column_claims"
             ).fetchone()[0],
             "columns": project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0],
-            "ops": project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0],
+            "changes": project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0],
         }
         action = map_python_action(
             sheet,
@@ -1863,7 +1866,7 @@ class TestRunAction:
                 "SELECT COUNT(*) FROM generated_column_claims"
             ).fetchone()[0],
             "columns": project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0],
-            "ops": project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0],
+            "changes": project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0],
         } == baseline
         active_claim = project.db.execute(
             "SELECT claim_token, run_id, status FROM generated_column_claims"
@@ -1966,7 +1969,7 @@ class TestBackfillRun:
                     project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 )
                 for table in (
-                    "ops",
+                    "changes",
                     "runs",
                     "run_scopes",
                     "run_rows",

@@ -174,7 +174,7 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     # inside Params (which cannot be rebound as a group-summary request).
     op_spec = json.loads(
         project.db.execute(
-            "SELECT o.spec FROM ops o JOIN runs r ON r.op_id=o.id WHERE r.id=?",
+            "SELECT o.spec FROM changes o JOIN runs r ON r.change_id=o.id WHERE r.id=?",
             (run_id,),
         ).fetchone()[0]
     )
@@ -278,10 +278,10 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     assert replacement["id"] != attempt["id"]
     assert replacement["state"] == "effected"
     # One op, one run: the pre-egress accounting envelope IS the final op/run.
-    assert resumed.op_ids == [
+    assert resumed.change_ids == [
         int(
             project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (run_id,)
+                "SELECT change_id FROM runs WHERE id=?", (run_id,)
             ).fetchone()[0]
         )
     ]

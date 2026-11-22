@@ -7,17 +7,17 @@ from frisket.engine.store.column_descriptors import (
     descriptor_identity,
     project_column_descriptors,
 )
-from frisket.engine.store.op_log import (
+from frisket.engine.store.change_log import (
     append_change_in_transaction,
-    operation_target,
-    step_operation,
+    change_target,
+    step_change,
 )
 
 
-def _step(project, direction, op_id=None):
+def _step(project, direction, change_id=None):
     project.db.execute("BEGIN IMMEDIATE")
     try:
-        transition = step_operation(project, direction, change_id=op_id)
+        transition = step_change(project, direction, change_id=change_id)
         project.db.commit()
         return transition
     except BaseException:
@@ -52,15 +52,15 @@ def test_descriptor_identity_tracks_effective_contribution_and_selective_revert(
     first_identity = descriptor_identity(project, column)
     second = _descriptor(project, column, "number")
     assert descriptor_identity(project, column) != first_identity
-    cursor = project.op_cursor
+    cursor = project.change_cursor
     _step(project, "revert", first)
-    assert project.op_cursor == cursor
+    assert project.change_cursor == cursor
     assert descriptor_identity(project, column)["owners"]["type"] == second
     _step(project, "revert", second)
     assert project.get_column(column)["type"] == "text"
     _step(project, "restore", first)
     assert descriptor_identity(project, column) == first_identity
-    assert project.op_cursor == cursor
+    assert project.change_cursor == cursor
 
 
 def test_navigation_uses_first_mutation_order_and_retains_selective_restore(
@@ -78,23 +78,23 @@ def test_navigation_uses_first_mutation_order_and_retains_selective_restore(
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
             insert_edits(
-                project.db, op_id=op, edits=[EditCellWrite(row, column, str(op))]
+                project.db, change_id=op, edits=[EditCellWrite(row, column, str(op))]
             )
             start_change(project.db, op)
-    assert operation_target(project, "undo")["id"] == early_admission
+    assert change_target(project, "undo")["id"] == early_admission
     _step(project, "undo")
-    assert operation_target(project, "undo")["id"] == later_admission
-    assert operation_target(project, "redo")["id"] == early_admission
+    assert change_target(project, "undo")["id"] == later_admission
+    assert change_target(project, "redo")["id"] == early_admission
     queued = project.append_change("prepared")
-    assert operation_target(project, "redo")["id"] == early_admission
+    assert change_target(project, "redo")["id"] == early_admission
     with project.db:
-        project.db.execute("UPDATE ops SET label=label WHERE id=?", (queued,))
+        project.db.execute("UPDATE changes SET label=label WHERE id=?", (queued,))
         start_change(project.db, queued)
-    assert operation_target(project, "redo") is None
-    assert operation_target(project, "restore", change_id=early_admission) is not None
+    assert change_target(project, "redo") is None
+    assert change_target(project, "restore", change_id=early_admission) is not None
     assert (
         project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (early_admission,)
+            "SELECT status FROM changes WHERE id=?", (early_admission,)
         ).fetchone()[0]
         == "undone"
     )
@@ -105,11 +105,11 @@ def test_pre_cutover_history_is_visible_but_not_executable(make_project):
     historical = project.append_change("old")
     with project.db:
         project.db.execute(
-            "UPDATE meta SET value=? WHERE key='op_cursor'", (str(historical),)
+            "UPDATE meta SET value=? WHERE key='change_cursor'", (str(historical),)
         )
     assert len(project.history()) == 1
-    assert operation_target(project, "undo") is None
-    assert operation_target(project, "revert", change_id=historical) is None
+    assert change_target(project, "undo") is None
+    assert change_target(project, "revert", change_id=historical) is None
 
 
 def test_selective_row_membership_uses_latest_active_change(make_project):
@@ -133,18 +133,18 @@ def test_selective_row_membership_uses_latest_active_change(make_project):
 
 
 def test_sheet_delete_retains_derived_data_and_atomic_name_conflict(make_project):
-    from frisket.engine.store.op_log import RestorationUnavailable
+    from frisket.engine.store.change_log import RestorationUnavailable
 
     project = make_project("sheets")
     source = project.add_sheet("source")
     derived = project.add_sheet("derived", parent_sheet_id=source)
     project.delete_sheet(source)
-    deleted = project.op_cursor
+    deleted = project.change_cursor
     assert [s["id"] for s in project.sheets()] == [derived]
     replacement = project.add_sheet("source")
     with pytest.raises(RestorationUnavailable, match="already exists"):
         _step(project, "undo")
-    assert project.op_cursor == deleted
+    assert project.change_cursor == deleted
     assert [s["id"] for s in project.sheets()] == [derived, replacement]
     with project.db:
         project.db.execute(
@@ -163,27 +163,27 @@ def test_typed_selective_actions_keep_navigation_and_return_actual_state(make_pr
     row = project.add_rows(sheet, [{"value": "original"}], {"value": column})[0]
     edit = project.apply_edits([{"row_id": row, "column_id": column, "value": "first"}])
     project.apply_edits([{"row_id": row, "column_id": column, "value": "last"}])
-    cursor = project.op_cursor
+    cursor = project.change_cursor
     for kind in ("revert", "restore"):
         result = run_action_spec(
             project,
             {
                 "action_id": f"operation.{kind}",
                 "scope": {"kind": "project"},
-                "params": {"op_id": edit},
+                "params": {"change_id": edit},
                 "idempotency_key": f"operation-{kind}",
             },
             project_id="test",
         )
         assert result.status == "completed", result.errors
-        assert project.op_cursor == cursor
+        assert project.change_cursor == cursor
         assert project.get_values(sheet, column)[row] == "last"
 
 
 def test_creation_restore_conflict_does_not_partially_restore_other_columns(
     make_project,
 ):
-    from frisket.engine.store.op_log import RestorationUnavailable
+    from frisket.engine.store.change_log import RestorationUnavailable
 
     project = make_project("conflict")
     sheet = project.add_sheet("data")
@@ -210,7 +210,7 @@ def test_direct_descriptor_setters_share_change_identity_and_undo(make_project):
     with write_transaction(project.db):
         project.set_column_type(column, "number")
     changed = descriptor_identity(project, column)
-    assert changed["owners"]["type"] == project.op_cursor
+    assert changed["owners"]["type"] == project.change_cursor
     project.undo()
     assert descriptor_identity(project, column) == original
     project.redo()

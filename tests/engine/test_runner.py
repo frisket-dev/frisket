@@ -1181,7 +1181,7 @@ class TestCancel:
         finalize_dispatched_run(
             project,
             run_store,
-            op_id=prepared.op_id,
+            change_id=prepared.change_id,
             status="cancelled",
             out_cols=dict(prepared.out_cols),
             fence=WriterFence.claimed(

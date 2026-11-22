@@ -27,7 +27,7 @@ from frisket.engine.store.effect_checkpoints import row_effect_ref
 
 @dataclass(frozen=True)
 class _ClaimedRun:
-    op_id: int
+    change_id: int
     run_id: int
     authority: RunWriterAuthorityFixture
 
@@ -82,9 +82,9 @@ def _start_claimed_run(
     spec = {"pattern": "(.*)", "output": "generated"}
     if replace_existing:
         spec["replace_existing"] = True
-    op_id = project.append_change("map.regex_extract", spec, label=label)
+    change_id = project.append_change("map.regex_extract", spec, label=label)
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
         row_ids=row_ids,
@@ -95,7 +95,7 @@ def _start_claimed_run(
         run_id,
         output_column_ids={output_column_id},
     )
-    return _ClaimedRun(op_id=op_id, run_id=run_id, authority=authority)
+    return _ClaimedRun(change_id=change_id, run_id=run_id, authority=authority)
 
 
 def _write(
@@ -196,7 +196,7 @@ def _publish_initial_generation(
     # exact heads.
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(
-            first.op_id, output_column_id, first.run_id
+            first.change_id, output_column_id, first.run_id
         )
     RunResultStore(project).finish_run(
         first.run_id, **first.authority.terminal_kwargs()
@@ -307,7 +307,7 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
         }
         _release(project, replacement)
 
-        assert project.undo() == replacement.op_id
+        assert project.undo() == replacement.change_id
         assert _descriptor(project, column_id) == {
             "type": "text",
             "format": None,
@@ -315,7 +315,7 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
         }
         assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
 
-        assert project.redo() == replacement.op_id
+        assert project.redo() == replacement.change_id
         assert _descriptor(project, column_id) == target
         assert project.get_values(sheet_id, column_id)[row_ids[0]] == 0
 
@@ -353,7 +353,7 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
         retry = None
 
         assert project.undo() is not None
-        assert project.undo() == replacement.op_id
+        assert project.undo() == replacement.change_id
         assert _descriptor(project, column_id)["type"] == "text"
         original_retry = _start_claimed_run(
             project,
@@ -465,7 +465,7 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         info = json.loads(
             project.db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (replacement.op_id,)
+                "SELECT undo_info FROM changes WHERE id=?", (replacement.change_id,)
             ).fetchone()["undo_info"]
         )
         assert info["unpublished_generation_columns"] == [column_id]
@@ -635,8 +635,8 @@ def test_result_publication_rolls_back_callback_result_and_head_together(
 
         def fail_after_evidence_write() -> None:
             project.db.execute(
-                "UPDATE ops SET label='evidence started' WHERE id=?",
-                (claimed_run.op_id,),
+                "UPDATE changes SET label='evidence started' WHERE id=?",
+                (claimed_run.change_id,),
             )
             raise RuntimeError("evidence unavailable")
 
@@ -664,7 +664,7 @@ def test_result_publication_rolls_back_callback_result_and_head_together(
         assert generations.read_cell_heads(output_column_id) == {}
         assert (
             project.db.execute(
-                "SELECT label FROM ops WHERE id=?", (claimed_run.op_id,)
+                "SELECT label FROM changes WHERE id=?", (claimed_run.change_id,)
             ).fetchone()[0]
             == "publication callback rollback"
         )
@@ -773,15 +773,15 @@ def test_checkpoint_result_publication_defers_heads_until_seal(
             checkpoint=ref,
             defer_generation_seal=True,
             citation_writer=lambda: project.db.execute(
-                "UPDATE ops SET label='evidence saved' WHERE id=?",
-                (claimed_run.op_id,),
+                "UPDATE changes SET label='evidence saved' WHERE id=?",
+                (claimed_run.change_id,),
             ),
         )
 
         assert generations.read_cell_heads(output_column_id) == {}
         assert (
             project.db.execute(
-                "SELECT label FROM ops WHERE id=?", (claimed_run.op_id,)
+                "SELECT label FROM changes WHERE id=?", (claimed_run.change_id,)
             ).fetchone()[0]
             == "evidence saved"
         )
@@ -852,8 +852,8 @@ def test_result_publication_preserves_ambient_transaction_ownership(
 
         project.db.execute("BEGIN IMMEDIATE")
         project.db.execute(
-            "UPDATE ops SET label='ambient sentinel' WHERE id=?",
-            (claimed_run.op_id,),
+            "UPDATE changes SET label='ambient sentinel' WHERE id=?",
+            (claimed_run.change_id,),
         )
         store.publish_result_batch_in_transaction(
             claimed_run.run_id,
@@ -891,7 +891,7 @@ def test_result_publication_preserves_ambient_transaction_ownership(
         project.db.rollback()
         assert (
             project.db.execute(
-                "SELECT label FROM ops WHERE id=?", (claimed_run.op_id,)
+                "SELECT label FROM changes WHERE id=?", (claimed_run.change_id,)
             ).fetchone()[0]
             == "ambient publication"
         )
@@ -1072,7 +1072,9 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
         generations.read_cell_heads(output_column_id),
     )
     assert {head.run_id for head in before[2].values()} == {first.run_id}
-    project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (second.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='undone' WHERE id=?", (second.change_id,)
+    )
     project.db.commit()
 
     with pytest.raises(GenerationStateError, match="owning Change is 'undone'"):
@@ -1155,7 +1157,7 @@ def test_fresh_and_replacement_results_stream_then_seal_exact_heads(
     _seal(generations, first, output_column_id)
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(
-            first.op_id, output_column_id, first.run_id
+            first.change_id, output_column_id, first.run_id
         )
     _release(project, first)
 
@@ -1230,7 +1232,7 @@ def test_fresh_and_replacement_results_stream_then_seal_exact_heads(
     assert mixed[targeted[2]].publication_effect == "publish_error"
     assert mixed[targeted[2]].error == "deliberate fixture error"
     assert mixed[targeted[2]].error_code == "fixture_error"
-    assert mixed[targeted[2]].op_id == second.op_id
+    assert mixed[targeted[2]].change_id == second.change_id
     assert generations.origin_run_ids(output_column_id) == [
         second.run_id,
         first.run_id,
@@ -1240,7 +1242,9 @@ def test_fresh_and_replacement_results_stream_then_seal_exact_heads(
     ]
     assert generations.has_mixed_origins(output_column_id)
     assert generations.is_generation_managed(output_column_id)
-    assert generations.column_ids_for_op(second.op_id) == frozenset({output_column_id})
+    assert generations.column_ids_for_change(second.change_id) == frozenset(
+        {output_column_id}
+    )
 
 
 def test_progressive_head_work_does_not_scan_accumulated_results(
@@ -1379,9 +1383,9 @@ def test_progressive_publication_batches_generation_and_head_queries(
 
 def test_generation_declaration_requires_a_frozen_run_scope(make_project) -> None:
     project, sheet_id, output_column_id, row_ids = _seed_project(make_project)
-    op_id = project.append_change("map.regex_extract", {"output": "generated"})
+    change_id = project.append_change("map.regex_extract", {"output": "generated"})
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "map.regex_extract", total_rows=len(row_ids)
+        change_id, sheet_id, "map.regex_extract", total_rows=len(row_ids)
     )
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output_column_id}
@@ -1429,7 +1433,7 @@ def test_seal_after_undo_cannot_publish_a_staged_generation(make_project) -> Non
             }
         ],
     )
-    assert project.undo() == claimed.op_id
+    assert project.undo() == claimed.change_id
     with write_transaction(generations.db):
         assert (
             generations.seal(
@@ -1456,7 +1460,7 @@ def test_seal_after_undo_cannot_publish_a_staged_generation(make_project) -> Non
         == 0
     )
     op = project.db.execute(
-        "SELECT status,publication_closed FROM ops WHERE id=?", (claimed.op_id,)
+        "SELECT status,publication_closed FROM changes WHERE id=?", (claimed.change_id,)
     ).fetchone()
     assert tuple(op) == ("undone", 1)
     project.close()
@@ -1467,10 +1471,12 @@ def test_seal_publishes_only_complete_output_families(make_project) -> None:
     second_column_id = project.add_column(
         sheet_id, "second", type="text", generated=True
     )
-    op_id = project.append_change("map.regex_extract", {"outputs": ["first", "second"]})
+    change_id = project.append_change(
+        "map.regex_extract", {"outputs": ["first", "second"]}
+    )
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
         row_ids=row_ids,
@@ -1558,7 +1564,7 @@ def test_undo_cancels_live_run_and_preserves_returned_usage(make_project) -> Non
         output_column_id,
         write_mode="create",
     )
-    assert project.undo() == claimed.op_id
+    assert project.undo() == claimed.change_id
     run = project.db.execute(
         "SELECT cancel_requested_at FROM runs WHERE id=?", (claimed.run_id,)
     ).fetchone()
@@ -1732,11 +1738,11 @@ def test_seal_partitions_projected_create_from_staged_output(
     staged_column_id = project.add_column(
         sheet_id, "generated_staged", type="text", generated=True
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="mixed publication"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
         row_ids=row_ids[:1],
@@ -1747,7 +1753,7 @@ def test_seal_partitions_projected_create_from_staged_output(
         run_id,
         output_column_ids={active_column_id, staged_column_id},
     )
-    claimed = _ClaimedRun(op_id=op_id, run_id=run_id, authority=authority)
+    claimed = _ClaimedRun(change_id=change_id, run_id=run_id, authority=authority)
     token = authority.claim_token
     assert token is not None
     generations = ResultGenerationStore(project)
@@ -1940,7 +1946,9 @@ def test_rebuild_uses_applied_ops_includes_hidden_rows_and_restores_prior_heads(
         assert generations.rebuild_heads() == 4
     assert generations.read_cell_heads(output_column_id) == expected_mixed
 
-    project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (second.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='undone' WHERE id=?", (second.change_id,)
+    )
     project.db.commit()
     with write_transaction(generations.db):
         assert generations.rebuild_heads([output_column_id]) == 4
@@ -1950,7 +1958,9 @@ def test_rebuild_uses_applied_ops_includes_hidden_rows_and_restores_prior_heads(
     assert restored[row_ids[1]].value == "first:1"
     assert row_ids[3] in restored
 
-    project.db.execute("UPDATE ops SET status='applied' WHERE id=?", (second.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='applied' WHERE id=?", (second.change_id,)
+    )
     project.db.commit()
     with write_transaction(generations.db):
         assert generations.rebuild_heads([output_column_id]) == 4
@@ -2067,11 +2077,11 @@ def test_multi_output_declarations_freeze_before_effect_and_seal_as_a_group(
     late_column_id = project.add_column(
         sheet_id, "generated_late", type="text", generated=True
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="multi-output generation"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
         row_ids=row_ids,
@@ -2082,7 +2092,7 @@ def test_multi_output_declarations_freeze_before_effect_and_seal_as_a_group(
         run_id,
         output_column_ids={first_column_id, second_column_id, late_column_id},
     )
-    claimed = _ClaimedRun(op_id=op_id, run_id=run_id, authority=authority)
+    claimed = _ClaimedRun(change_id=change_id, run_id=run_id, authority=authority)
     token = authority.claim_token
     assert token is not None
 

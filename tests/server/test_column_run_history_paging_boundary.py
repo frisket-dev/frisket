@@ -35,11 +35,11 @@ def _seed_column_run_history(
     )
     run_ids: list[int] = []
     for index in range(5):
-        op_id = project.append_change(
+        change_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label=f"run {index}"
         )
         run_id = RunResultStore(project).start_run(
-            op_id,
+            change_id,
             sheet_id,
             "map.classify",
             model=f"anthropic/test-{index}",
@@ -73,10 +73,10 @@ def _seed_column_run_history(
         )
         RunResultStore(project).finish_run(run_id)
         with write_transaction(project.db):
-            RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+            RunResultStore(project).point_column_at_run(change_id, topic_col, run_id)
         run_ids.append(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, topic_col, run_ids[1])
+        RunResultStore(project).point_column_at_run(change_id, topic_col, run_ids[1])
     return client, project_id, topic_col, sheet_id, run_ids
 
 

@@ -1224,7 +1224,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
             row_id=seeded["row_id"],
             column_id=seeded["columns"]["transcript"],
             run_id=seeded["transcript_run_id"],
-            op_id=seeded["transcript_op_id"],
+            change_id=seeded["transcript_op_id"],
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata={
@@ -1298,7 +1298,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
             row_id=seeded["row_id"],
             column_id=alternate_column_id,
             run_id=alternate_run_id,
-            op_id=alternate_op_id,
+            change_id=alternate_op_id,
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata={

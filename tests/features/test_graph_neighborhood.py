@@ -151,7 +151,7 @@ def _set_relationship_review_states(
 def _counts(project: Any) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "cells", "edits", "ops")
+        for table in ("sheets", "columns", "rows", "cells", "edits", "changes")
     }
 
 

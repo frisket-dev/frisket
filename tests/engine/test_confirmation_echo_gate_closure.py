@@ -211,7 +211,7 @@ _COUNT_TABLES = (
     "columns",
     "rows",
     "cells",
-    "ops",
+    "changes",
     "runs",
     "results",
     "model_calls",

@@ -307,12 +307,12 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
     transcript_column_id = project.add_column(
         sheet_id, "transcript", "timestamped_transcript", generated=True
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.transcribe", {"kind": "media.transcribe", "params": {}}
     )
     runs = RunResultStore(project)
     run_id = runs.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.transcribe",
         total_rows=1,
@@ -331,7 +331,7 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
     )
     runs.finish_run(run_id)
     with write_transaction(runs.db):
-        runs.point_column_at_run(op_id, transcript_column_id, run_id)
+        runs.point_column_at_run(change_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(
         [
@@ -364,7 +364,7 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
             row_id=row_id,
             column_id=transcript_column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata={
@@ -1755,9 +1755,9 @@ def test_find_rerun_atomically_supersedes_managed_generation(make_project) -> No
         "stale_reason": "superseded_find_generation",
     }
     current_op = project.db.execute(
-        "SELECT parent_op_id FROM sheets WHERE id=?", (replacement_sheet_id,)
+        "SELECT parent_change_id FROM sheets WHERE id=?", (replacement_sheet_id,)
     ).fetchone()
-    assert int(current_op["parent_op_id"]) == second.op_ids[0]
+    assert int(current_op["parent_change_id"]) == second.change_ids[0]
 
     third, _third_receipt_id = publish(
         key="research-find-replace@sha256:third",

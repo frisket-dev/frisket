@@ -42,7 +42,7 @@ def test_postcommit_receipt_read_failure_cannot_report_uncommitted_import(
     assert len(publications) == 1
     publication = publications[0]
     assert result.receipt_id == publication.receipt_id
-    assert result.op_ids == [publication.op_id]
+    assert result.change_ids == [publication.change_id]
     assert result.outputs[0].sheet_id == publication.sheet_id
     assert project.row_count(publication.sheet_id) == 2
     assert (

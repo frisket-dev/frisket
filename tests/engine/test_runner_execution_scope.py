@@ -666,7 +666,7 @@ def test_exact_ner_rechecks_fresh_output_during_prepare(make_project) -> None:
         "output_name": "entities",
         "row_ids": row_ids,
     }
-    before_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before_ops = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     before = project.get_column(
         int(
             project.db.execute(
@@ -680,7 +680,9 @@ def test_exact_ner_rechecks_fresh_output_during_prepare(make_project) -> None:
     after = project.get_column(int(before["id"]))
     assert tuple(after) == tuple(before)
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before_ops
+    )
     assert (
         project.db.execute("SELECT COUNT(*) FROM run_output_generations").fetchone()[0]
         == 0

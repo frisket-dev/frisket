@@ -188,10 +188,10 @@ def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
         raw, key=lambda value: value["id"]
     )
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    assert receipt.op_ids == [dataset.op_id]
+    assert receipt.change_ids == [dataset.change_id]
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?", (dataset.op_id,)
+            "SELECT publication_closed FROM changes WHERE id=?", (dataset.change_id,)
         ).fetchone()[0]
         == 1
     )
@@ -200,10 +200,10 @@ def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
     )["sha256"]
     path.unlink()
     assert run_typed_callable_action(project, "p", bound) == result
-    assert project.undo() == dataset.op_id
+    assert project.undo() == dataset.change_id
     replay = run_typed_callable_action(project, "p", bound)
     assert replay.status == "failed" and replay.errors[0].code == "stale_replay"
-    assert project.redo() == dataset.op_id
+    assert project.redo() == dataset.change_id
     assert run_typed_callable_action(project, "p", bound) == result
 
 
@@ -311,7 +311,7 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
                     "update_if_status_in",
                     lambda self, receipt, statuses, **kwargs: (
                         False
-                        if len(receipt.op_ids) == 2
+                        if len(receipt.change_ids) == 2
                         else update(self, receipt, statuses, **kwargs)
                     ),
                 )
@@ -341,10 +341,10 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
     bound, _ = _bound(run, {"document": str(path)})
     result = run_typed_callable_action(project, "p", bound)
     assert result.status == "completed", result.errors
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert len([output for output in result.outputs if output.kind == "sheet"]) == 1
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    assert receipt.status == "completed" and receipt.op_ids == result.op_ids
+    assert receipt.status == "completed" and receipt.change_ids == result.change_ids
 
 
 def test_unavailable_extra_refuses_before_source_read(make_project, monkeypatch):
@@ -375,7 +375,7 @@ def test_empty_or_all_invalid_import_refuses_before_write(
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_ftm_import"
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
 
 
 def test_import_row_budget_counts_every_sheet_kind_before_write(make_project, entities):
@@ -391,7 +391,7 @@ def test_import_row_budget_counts_every_sheet_kind_before_write(make_project, en
     assert result.status == "failed"
     assert result.errors[0].code == "import_workload_limit_exceeded"
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
 
 
 def test_import_row_budget_stops_incremental_source_read(make_project, entities):

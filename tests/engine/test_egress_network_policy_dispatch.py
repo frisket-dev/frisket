@@ -139,7 +139,7 @@ def test_off_rejects_typed_api_call_at_validate_and_dispatch(
     sheet = _seed_statement_sheet(project)
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("runs", "ops", "results", "receipts")
+        for table in ("runs", "changes", "results", "receipts")
     }
     runner = MapRunner(project, _router(), authority=UnroutedOnlyAuthority(project))
     request = ActionRequest(
@@ -180,7 +180,7 @@ def test_off_rejects_typed_api_call_at_validate_and_dispatch(
     assert result.status == "failed", result.errors
     assert result.errors[0].code == "network_disabled"
     assert result.errors[0].details["capability"] == "external:api_call"
-    for table in ("runs", "ops", "results", "receipts"):
+    for table in ("runs", "changes", "results", "receipts"):
         assert (
             project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             == before[table]

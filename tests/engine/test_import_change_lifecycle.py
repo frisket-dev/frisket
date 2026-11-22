@@ -4,7 +4,7 @@ import pytest
 
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
-from frisket.engine.store.op_log import operation_target, step_operation
+from frisket.engine.store.change_log import change_target, step_change
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 
 
@@ -33,18 +33,18 @@ def test_null_only_append_pages_have_restorable_membership(make_project):
             [{"value": None}], expected_cursor=cursor, next_cursor=cursor + 1
         )
     writer.finalize_session(expected_cursor=2, enumeration_complete=True)
-    op_id = operation_target(project, "undo")["id"]
+    change_id = change_target(project, "undo")["id"]
     assert [
         row[0]
         for row in project.db.execute(
             "SELECT object_id FROM structural_changes "
-            "WHERE op_id=? AND kind='row' ORDER BY object_id",
-            (op_id,),
+            "WHERE change_id=? AND kind='row' ORDER BY object_id",
+            (change_id,),
         )
     ] == added
-    assert project.undo() == op_id
+    assert project.undo() == change_id
     assert project.visible_row_ids(sheet) == original
-    assert project.redo() == op_id
+    assert project.redo() == change_id
     assert project.visible_row_ids(sheet) == original + added
     assert project.get_values(sheet, column, added) == dict.fromkeys(added)
 
@@ -67,28 +67,28 @@ def test_root_import_is_one_closed_restorable_change(make_project, rows):
         project_id="project",
     )
     assert result.status == "completed", result.errors
-    op_id = result.op_ids[0]
+    change_id = result.change_ids[0]
     sheet_id = result.outputs[0].sheet_id
     op = project.db.execute(
-        "SELECT change_order,publication_closed FROM ops WHERE id=?", (op_id,)
+        "SELECT change_order,publication_closed FROM changes WHERE id=?", (change_id,)
     ).fetchone()
     assert op["change_order"] is not None
     assert op["publication_closed"] == 1
-    assert operation_target(project, "undo")["id"] == op_id
+    assert change_target(project, "undo")["id"] == change_id
     assert {
         row[0]
         for row in project.db.execute(
-            "SELECT kind FROM structural_changes WHERE op_id=?", (op_id,)
+            "SELECT kind FROM structural_changes WHERE change_id=?", (change_id,)
         )
     } == {"sheet", "column", *({"row"} if rows else set())}
     with pytest.raises(ChangePublicationClosed):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            ChangeStore(project).start(op_id)
+            ChangeStore(project).start(change_id)
     for direction, hidden in (("undo", 1), ("redo", 0)):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            step_operation(project, direction)
+            step_change(project, direction)
         assert (
             project.db.execute(
                 "SELECT hidden FROM sheets WHERE id=?", (sheet_id,)

@@ -143,12 +143,12 @@ def test_worker_defer_lookup_ignores_mutable_run_params(make_project):
     sheet = project.add_sheet("Source")
     op = project.append_change("test", {"deferred_publication": True})
     project.db.execute(
-        "INSERT INTO runs (op_id,sheet_id,action_kind,params) VALUES (?,?,'test',?)",
+        "INSERT INTO runs (change_id,sheet_id,action_kind,params) VALUES (?,?,'test',?)",
         (op, sheet, json.dumps({"deferred_publication": False})),
     )
     run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
     assert _deferred_publication(project, run_id)
-    project.db.execute("UPDATE ops SET spec='{}' WHERE id=?", (op,))
+    project.db.execute("UPDATE changes SET spec='{}' WHERE id=?", (op,))
     project.db.execute(
         "UPDATE runs SET params=? WHERE id=?",
         (json.dumps({"deferred_publication": True}), run_id),

@@ -32,9 +32,11 @@ from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
 from tests.engine.test_generated_columns_migration import (
     _downgrade_generated_columns_schema,
 )
+from historical_schema import restore_pre_changes_schema
 
 
 def _downgrade_to_citations_digest(db: sqlite3.Connection) -> None:
+    restore_pre_changes_schema(db)
     db.execute("BEGIN")
     try:
         _downgrade_generated_columns_schema(db)
@@ -71,7 +73,7 @@ def test_receipt_records_upgrade_rewrites_receipt_bodies_and_python_routes(
 
     op_id = int(
         project.db.execute(
-            "INSERT INTO ops (kind, label, spec, status) VALUES (?, ?, ?, 'applied')",
+            "INSERT INTO changes (kind, label, spec, status) VALUES (?, ?, ?, 'applied')",
             (
                 "map.python",
                 "Python route",
@@ -97,7 +99,7 @@ def test_receipt_records_upgrade_rewrites_receipt_bodies_and_python_routes(
     )
     run_id = int(
         project.db.execute(
-            "INSERT INTO runs (op_id, sheet_id, action_kind, params, status) "
+            "INSERT INTO runs (change_id, sheet_id, action_kind, params, status) "
             "VALUES (?, ?, 'map.python', ?, 'completed')",
             (
                 op_id,
@@ -295,9 +297,9 @@ def test_receipt_records_upgrade_rewrites_receipt_bodies_and_python_routes(
         assert run_params["output_routes"][0]["target"]["kind"] == "receipt_record"
 
         op_spec = json.loads(
-            upgraded.db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[
-                0
-            ]
+            upgraded.db.execute(
+                "SELECT spec FROM changes WHERE id=?", (op_id,)
+            ).fetchone()[0]
         )
         assert (
             op_spec["params"]["output_routes"][0]["target"]["kind"] == "receipt_record"
@@ -396,7 +398,10 @@ def _downgrade_map_python_to_legacy(
         (json.dumps(body, sort_keys=True), receipt_id),
     )
 
-    for table, column, row_id in (("runs", "params", run_id), ("ops", "spec", op_id)):
+    for table, column, row_id in (
+        ("runs", "params", run_id),
+        ("changes", "spec", op_id),
+    ):
         raw = db.execute(
             f"SELECT {column} FROM {table} WHERE id=?", (row_id,)
         ).fetchone()[0]
@@ -424,7 +429,7 @@ def test_migrated_map_python_run_keeps_hidden_output_and_replay_valid(
     result = run_action_spec(project, request, project_id="proj-replay")
     assert result.status == "completed", result.errors
     assert result.receipt_id is not None and result.run_id is not None
-    op_id = result.op_ids[0]
+    op_id = result.change_ids[0]
     hidden_col_id = int(
         project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name='__record_debug'",
@@ -481,9 +486,9 @@ def test_migrated_map_python_run_keeps_hidden_output_and_replay_valid(
             assert "__record_debug" in run_params["output_target_preconditions"]
 
         op_spec = json.loads(
-            upgraded.db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[
-                0
-            ]
+            upgraded.db.execute(
+                "SELECT spec FROM changes WHERE id=?", (op_id,)
+            ).fetchone()[0]
         )
         assert op_spec["output_names"]["debug"] == "__record_debug"
         if "output_target_preconditions" in op_spec:
@@ -506,7 +511,7 @@ def test_migrated_map_python_name_conflict_keeps_column_and_receipt_aligned(
     result = run_action_spec(project, request, project_id="proj-conflict")
     assert result.status == "completed", result.errors
     assert result.receipt_id is not None and result.run_id is not None
-    op_id = result.op_ids[0]
+    op_id = result.change_ids[0]
     hidden_col_id = int(
         project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name='__record_debug'",

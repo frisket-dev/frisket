@@ -214,11 +214,11 @@ def _publication_work(make_project, row_count: int):
             target: "replacement"
         }
         with _vm_work(project.db) as work:
-            assert project.undo() == second.op_id
+            assert project.undo() == second.change_id
         measurements["undo"] = work[0]
         assert project.get_values(sheet_id, column_id, [target]) == {target: "first:0"}
         with _vm_work(project.db) as work:
-            assert project.redo() == second.op_id
+            assert project.redo() == second.change_id
         measurements["redo"] = work[0]
         assert project.get_values(sheet_id, column_id, [target]) == {
             target: "replacement"

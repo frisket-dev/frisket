@@ -26,13 +26,13 @@ def test_result_from_receipt_projects_core_outputs() -> None:
         project_id="project-1",
         action_id="act_replay",
         action_kind="import.rows",
-        op_ids=[7],
+        change_ids=[7],
         status="completed",
         run_id=1,
         outputs=[
             ReceiptIO(
                 name="Rows",
-                ref={"kind": "materialized_sheet", "sheet_id": 11, "op_id": 7},
+                ref={"kind": "materialized_sheet", "sheet_id": 11, "change_id": 7},
             ),
             ReceiptIO(
                 name="column.summary",
@@ -40,7 +40,7 @@ def test_result_from_receipt_projects_core_outputs() -> None:
                     "kind": "source_column",
                     "sheet_id": 11,
                     "column_id": 22,
-                    "op_id": 7,
+                    "change_id": 7,
                 },
             ),
             ReceiptIO(
@@ -49,7 +49,7 @@ def test_result_from_receipt_projects_core_outputs() -> None:
                     "kind": "source_rows",
                     "sheet_id": 11,
                     "row_ids": [101, 102],
-                    "op_id": 7,
+                    "change_id": 7,
                 },
             ),
             ReceiptIO(
@@ -70,7 +70,7 @@ def test_result_from_receipt_projects_core_outputs() -> None:
     assert result.status == "completed"
     assert result.project_id == "project-1"
     assert result.run_id == 1
-    assert result.op_ids == [7]
+    assert result.change_ids == [7]
     assert result.receipt_id == "receipt_replay"
     assert [(output.kind, output.name) for output in result.outputs] == [
         ("sheet", "Rows"),
@@ -307,7 +307,7 @@ def test_result_from_receipt_preserves_partial_order_and_receipt_owned_facts() -
         action_id="act_partial_projection",
         action_kind="projection.partial",
         run_id=41,
-        op_ids=[7, 9],
+        change_ids=[7, 9],
         status="partial",
         outputs=[
             ReceiptIO(
@@ -327,7 +327,7 @@ def test_result_from_receipt_preserves_partial_order_and_receipt_owned_facts() -
 
     assert result.status == "partial"
     assert result.run_id == 41
-    assert result.op_ids == [7, 9]
+    assert result.change_ids == [7, 9]
     assert [(output.kind, output.name) for output in result.outputs] == [
         ("rows", "rows"),
         ("plugin_manifest", "csv-tools"),
@@ -464,7 +464,7 @@ def test_result_from_receipt_preserves_exact_v1_serialization() -> None:
         "project_id": "project-1",
         "run_id": None,
         "job_id": None,
-        "op_ids": [],
+        "change_ids": [],
         "outputs": [],
         "receipt_id": "receipt_v1_projection",
         "value": None,

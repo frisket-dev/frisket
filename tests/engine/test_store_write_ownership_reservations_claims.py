@@ -163,8 +163,10 @@ def _queued_spec() -> _QueuedActionSpec:
 
 def _seed_run(project) -> int:
     sheet_id = _sheet_id(project)
-    op_id = project.append_change("map", {"action_kind": "map.test"})
-    return RunResultStore(project).start_run(op_id, sheet_id, "map.test", total_rows=1)
+    change_id = project.append_change("map", {"action_kind": "map.test"})
+    return RunResultStore(project).start_run(
+        change_id, sheet_id, "map.test", total_rows=1
+    )
 
 
 def _authority(project) -> AttemptAuthority:

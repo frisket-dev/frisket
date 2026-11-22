@@ -27,9 +27,9 @@ def test_e2e_result_seeder_uses_one_immutable_claimed_writer(
         [{"Source": "record.pdf"}],
         {"Source": source_column_id},
     )[0]
-    op_id = project.append_change("map.extract")
+    change_id = project.append_change("map.extract")
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         row_ids=[row_id],

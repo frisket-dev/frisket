@@ -96,7 +96,7 @@ OUTPUT_WRITER_TARGETS = {
 PROJECT_COUNT_QUERIES = {
     "receipts": "SELECT COUNT(*) FROM receipts",
     "generated_column_claims": "SELECT COUNT(*) FROM generated_column_claims",
-    "ops": "SELECT COUNT(*) FROM ops",
+    "changes": "SELECT COUNT(*) FROM changes",
     "runs": "SELECT COUNT(*) FROM runs",
     "run_scopes": "SELECT COUNT(*) FROM run_scopes",
     "run_rows": "SELECT COUNT(*) FROM run_rows",
@@ -394,11 +394,11 @@ def _exit_after_pointer_batch(
     reached: Any,
     release: Any,
 ) -> Any:
-    def wrapped(store: Any, op_id: int, *args: Any, **kwargs: Any) -> Any:
-        result = original(store, op_id, *args, **kwargs)
+    def wrapped(store: Any, change_id: int, *args: Any, **kwargs: Any) -> Any:
+        result = original(store, change_id, *args, **kwargs)
         row = store.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?",
-            (op_id,),
+            "SELECT undo_info FROM changes WHERE id=?",
+            (change_id,),
         ).fetchone()
         info = json.loads(row["undo_info"] or "{}") if row is not None else {}
         created = {int(value) for value in info.get("created_columns", [])}
@@ -703,7 +703,7 @@ def _prepared_tuple(
     assert {str(claim["claim_token"]) for claim in claims} == {claim_token}
     assert all(int(claim["sheet_id"]) == int(run["sheet_id"]) for claim in claims)
     assert all(int(claim["run_id"]) == run_id for claim in claims)
-    assert all(int(claim["op_id"]) == int(run["op_id"]) for claim in claims)
+    assert all(int(claim["change_id"]) == int(run["change_id"]) for claim in claims)
     assert all(int(claim["column_run_id"]) == run_id for claim in claims)
     assert receipt["run_id"] == run_id
     assert prepared[0]["run_id"] == run_id

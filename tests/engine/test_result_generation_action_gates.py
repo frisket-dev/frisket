@@ -25,7 +25,7 @@ def _mutation_snapshot(project) -> tuple[object, ...]:  # noqa: ANN001
     return tuple(
         int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
         for table in (
-            "ops",
+            "changes",
             "runs",
             "run_rows",
             "run_scopes",
@@ -76,7 +76,7 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
         ).fetchone()[0]
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("document_text.seed")
+    change_id = project.append_change_in_transaction("document_text.seed")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -89,11 +89,11 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
     )
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(1, "seeded exact text")],
     )
     producer_id = create_base_cell_producer(
-        project.db, stage_id=f"op:{op_id}", op_id=op_id
+        project.db, stage_id=f"op:{change_id}", change_id=change_id
     )
     initialize_base_cells(
         project.db,
@@ -339,7 +339,7 @@ def test_managed_resume_only_accepts_exact_open_recovery(
 def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_changes(
     make_project,
 ) -> None:
-    from frisket.engine.store.op_log import RestorationUnavailable, step_operation
+    from frisket.engine.store.change_log import RestorationUnavailable, step_change
     from test_result_generation_store import _seal, _write
 
     project, _parent_id, _source_column_id, child_id, _parent_row_ids = _build(
@@ -397,7 +397,7 @@ def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_change
     assert result.status == "completed", result.errors
     refresh_op = int(
         project.db.execute(
-            "SELECT id FROM ops WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
+            "SELECT id FROM changes WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
         ).fetchone()[0]
     )
     # Unkeyed list occurrences are replaced, never matched by their values.
@@ -420,24 +420,24 @@ def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_change
     newest = project.get_values(child_id, column_id)
     assert newest[first_new_row] == "newer correction"
     order = project.db.execute(
-        "SELECT change_order FROM ops WHERE id IN (?,?) ORDER BY change_order",
-        (claimed_run.op_id, refresh_op),
+        "SELECT change_order FROM changes WHERE id IN (?,?) ORDER BY change_order",
+        (claimed_run.change_id, refresh_op),
     ).fetchall()
     assert order[0][0] < order[1][0]
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=claimed_run.op_id)
+        step_change(project, "revert", change_id=claimed_run.change_id)
     assert project.get_values(child_id, column_id) == newest
     # Restore cannot resurrect removed destinations as a side effect.
     with pytest.raises(RestorationUnavailable, match="restore it first"):
         with project.transaction_scope():
-            step_operation(project, "restore", change_id=claimed_run.op_id)
+            step_change(project, "restore", change_id=claimed_run.change_id)
     assert project.get_values(child_id, column_id) == newest
     # Reverting refresh restores membership; the old generated values can
     # then be restored. Neither operation discards the newer manual edit.
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=refresh_op)
-        step_operation(project, "restore", change_id=claimed_run.op_id)
+        step_change(project, "revert", change_id=refresh_op)
+        step_change(project, "restore", change_id=claimed_run.change_id)
     assert project.get_values(child_id, column_id) == before_refresh
     with project.transaction_scope():
-        step_operation(project, "restore", change_id=refresh_op)
+        step_change(project, "restore", change_id=refresh_op)
     assert project.get_values(child_id, column_id) == newest

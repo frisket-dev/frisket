@@ -97,7 +97,7 @@ def _typed_model_rows_error(
 
 @dataclass(frozen=True)
 class _PublishedRun:
-    op_id: int
+    change_id: int
     run_id: int
 
 
@@ -124,13 +124,13 @@ def _start_run(
     action_kind: str = "map.regex_extract",
     run_params: dict[str, Any] | None = None,
 ) -> tuple[int, int, RunWriterAuthorityFixture]:
-    op_id = project.append_change(
+    change_id = project.append_change(
         action_kind,
         {"column_id": column_id, "row_ids": row_ids},
         label=f"publish {action_kind}",
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         action_kind,
         params=run_params,
@@ -140,7 +140,7 @@ def _start_run(
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={column_id}
     )
-    return op_id, run_id, authority
+    return change_id, run_id, authority
 
 
 def _release(project: Project, authority: RunWriterAuthorityFixture) -> None:
@@ -169,7 +169,7 @@ def _publish_managed(
     run_params: dict[str, Any] | None = None,
 ) -> _PublishedRun:
     row_ids = list(values)
-    op_id, run_id, authority = _start_run(
+    change_id, run_id, authority = _start_run(
         project,
         sheet_id=sheet_id,
         column_id=column_id,
@@ -209,9 +209,9 @@ def _publish_managed(
         )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, column_id, run_id)
     _release(project, authority)
-    return _PublishedRun(op_id=op_id, run_id=run_id)
+    return _PublishedRun(change_id=change_id, run_id=run_id)
 
 
 def _publish_legacy(
@@ -223,7 +223,7 @@ def _publish_legacy(
     action_kind: str = "map.summarize",
 ) -> _PublishedRun:
     row_ids = list(values)
-    op_id, run_id, authority = _start_run(
+    change_id, run_id, authority = _start_run(
         project,
         sheet_id=sheet_id,
         column_id=column_id,
@@ -240,9 +240,9 @@ def _publish_legacy(
     )
     RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, column_id, run_id)
     _release(project, authority)
-    return _PublishedRun(op_id=op_id, run_id=run_id)
+    return _PublishedRun(change_id=change_id, run_id=run_id)
 
 
 def _value_hash(row_ids: list[int], values: dict[int, Any]) -> str:
@@ -346,11 +346,11 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
     optional_column_id = project.add_column(
         sheet_id, "generated_optional", type="text", generated=True
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.regex_extract", {}, label="two-role generation fixture"
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
         row_ids=[row_ids[0]],

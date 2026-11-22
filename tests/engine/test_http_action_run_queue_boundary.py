@@ -3701,7 +3701,7 @@ def test_v1_action_run_queues_media_to_markdown_and_worker_finalizes_receipt(
             "sheet_id": sheet_id,
             "column_id": output_refs[0]["column_id"],
             "run_id": result.run_id,
-            "op_id": output_refs[0]["op_id"],
+            "change_id": output_refs[0]["change_id"],
             "row_ids": row_ids,
             "type": "text",
             "format": "markdown",
@@ -3864,7 +3864,7 @@ def test_v1_media_queued_adapter_replay_before_enqueue_is_retryable_then_pollabl
         "retryable": True,
     }
 
-    op_id = project.append_change(
+    change_id = project.append_change(
         "test.queue_adapter_window",
         {"reason": "simulate prepare_run before enqueue evidence"},
     )
@@ -3874,7 +3874,7 @@ def test_v1_media_queued_adapter_replay_before_enqueue_is_retryable_then_pollabl
         reserved=reserved,
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.to_markdown",
         model="markitdown",

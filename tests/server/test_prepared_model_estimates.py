@@ -84,7 +84,7 @@ def preview_project(make_project):
     )
     before = {
         table: project.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-        for table in ("runs", "results", "receipts", "model_calls", "ops")
+        for table in ("runs", "results", "receipts", "model_calls", "changes")
     }
 
     class Workspace:

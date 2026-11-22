@@ -26,6 +26,7 @@ from frisket.upgrades.project.research_pause_migration import (
 from tests.engine.test_generated_columns_migration import (
     _downgrade_generated_columns_schema,
 )
+from historical_schema import restore_pre_changes_schema
 
 _LEGACY_TABLES_DDL = """
 CREATE TABLE evidence_links (
@@ -83,6 +84,7 @@ CREATE INDEX idx_evidence_link_spans_annotation
 
 def _downgrade_to_pre_citations_schema(db: sqlite3.Connection) -> None:
     """Convert a fresh bundle's citation tables back to RESEARCH_PAUSE_TO_DIGEST."""
+    restore_pre_changes_schema(db)
     db.execute("PRAGMA foreign_keys=OFF")
     try:
         db.execute("BEGIN")

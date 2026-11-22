@@ -280,5 +280,13 @@ def test_derive_table_from_list_uses_registered_named_result_capabilities(
 def _table_counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "runs", "results", "ops", "receipts")
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "runs",
+            "results",
+            "changes",
+            "receipts",
+        )
     }

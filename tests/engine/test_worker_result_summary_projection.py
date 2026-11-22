@@ -101,7 +101,7 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
         "new_rows": 3,
         "revisions": 2,
         "sheet_id": 9,
-        "op_id": 12,
+        "change_id": 12,
         "enclosure_jobs": 5,
         "feed_xml": "raw provider payload",
         "enclosure_row_ids": [1, 2, 3, 4, 5],
@@ -113,14 +113,14 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
         "new_rows": 3,
         "revisions": 2,
         "sheet_id": 9,
-        "op_id": 12,
+        "change_id": 12,
         "enclosure_jobs": 5,
     }
 
     enclosure_result = {
         "status": "downloaded",
         "row_id": 15,
-        "op_id": 22,
+        "change_id": 22,
         "media": {
             "blob": "sha256:abc",
             "source_url": "https://example.com/private.mp3",
@@ -129,7 +129,7 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
     assert job_result_summary("enclosure.download", enclosure_result) == {
         "status": "downloaded",
         "row_id": 15,
-        "op_id": 22,
+        "change_id": 22,
     }
 
     unknown_result = {
@@ -156,7 +156,7 @@ def test_worker_result_summaries_are_kind_bounded() -> None:
     assert enclosure_payload["result_summary"] == {
         "status": "downloaded",
         "row_id": 15,
-        "op_id": 22,
+        "change_id": 22,
     }
     _assert_no_raw_result(admin_payload["result_summary"])
     _assert_no_raw_result(diagnostic_payload["result_summary"])

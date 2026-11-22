@@ -157,7 +157,7 @@ def test_clock_changes_membership_without_data_write(scene, monkeypatch):
     p.update_view(view, spec={"selection": selection, "presentation": {}})
     first = run(scene, today)
     assert first["matched_rows"] == 1
-    cursor = p.op_cursor
+    cursor = p.change_cursor
 
     class Tomorrow(datetime):
         @classmethod
@@ -166,7 +166,7 @@ def test_clock_changes_membership_without_data_write(scene, monkeypatch):
 
     monkeypatch.setattr(qs, "datetime", Tomorrow)
     later = run(scene, today + timedelta(days=1))
-    assert p.op_cursor == cursor
+    assert p.change_cursor == cursor
     assert events(scene, later) == ["row_exited"]
     assert (
         json.loads(p.alert_check_events(later["id"])[0]["after_json"])["reason"]

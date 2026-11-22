@@ -309,8 +309,8 @@ def _go_stale(project: Project, seeded: dict[str, Any]) -> None:
     column_id = int(column["id"])
     project.db.execute("DELETE FROM cell_result_heads WHERE column_id=?", (column_id,))
     project.db.execute(
-        "UPDATE ops SET status='discarded' WHERE id IN ("
-        "SELECT run.op_id FROM runs run JOIN run_output_generations generation "
+        "UPDATE changes SET status='discarded' WHERE id IN ("
+        "SELECT run.change_id FROM runs run JOIN run_output_generations generation "
         "ON generation.run_id=run.id WHERE generation.column_id=?)",
         (column_id,),
     )
@@ -382,7 +382,7 @@ CASES = [
             # One model-call fact per OCR row. Zero here would mean
             # settlement has nothing to rate.
             "model_calls": 2,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

@@ -54,12 +54,12 @@ def test_initializing_absent_base_cell_still_respects_newer_edit(make_project):
     sheet = project.add_sheet("Rows")
     column = project.add_column(sheet, "text")
     rows = project.add_rows(sheet, [{}, {}, {}], {})
-    op_id = project.append_change("source", {})
+    change_id = project.append_change("source", {})
     project.db.execute("BEGIN IMMEDIATE")
     producer = create_base_cell_producer(
-        project.db, stage_id="delayed-source", op_id=op_id
+        project.db, stage_id="delayed-source", change_id=change_id
     )
-    start_change(project.db, op_id, writing=True)
+    start_change(project.db, change_id, writing=True)
     project.db.commit()
     project.apply_edits(
         [{"row_id": row, "column_id": column, "value": "later edit"} for row in rows]

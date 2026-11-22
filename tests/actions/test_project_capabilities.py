@@ -14,7 +14,7 @@ from frisket.actions.core import (
 )
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.engine.executor import actions as executor_actions
-from frisket.engine.executor import mutation_action, operation_action
+from frisket.engine.executor import mutation_action, change_action
 from frisket.engine.executor import feed_action, feed_poll_action
 from frisket.engine.executor import sheet_refresh_action
 from frisket.engine.executor import plugin_load_action
@@ -122,7 +122,7 @@ def test_every_project_action_has_exactly_one_host_owner() -> None:
     # project actions through.
     predicates = (
         mutation_action.supports_typed_mutation_action,
-        operation_action.supports_typed_operation_action,
+        change_action.supports_typed_change_action,
         feed_action.supports_typed_feed_action,
         feed_poll_action.supports_typed_feed_poll_action,
         sheet_refresh_action.supports_typed_sheet_refresh_action,

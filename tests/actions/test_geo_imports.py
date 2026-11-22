@@ -302,7 +302,7 @@ def test_late_geometry_rejection_publishes_nothing_and_skip_retains_properties(
     rejected = run_action_spec(project, request, project_id="p")
     assert rejected.status == "failed"
     assert rejected.errors[0].code == f"unsupported_{format_name}_geometry"
-    for table in ("sheets", "columns", "rows", "ops", "receipts"):
+    for table in ("sheets", "columns", "rows", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
     request["params"]["on_invalid_geometry"] = "skip"
     imported = run_action_spec(project, request, project_id="p")

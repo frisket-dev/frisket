@@ -14,9 +14,9 @@ def test_current_writer_success_terminalization_maps_durable_stop_to_cancelled(
 ):
     project = make_project("stop-before-success")
     sheet_id = project.add_sheet("source")
-    op_id = project.append_change("map.template", {"action_kind": "map.template"})
+    change_id = project.append_change("map.template", {"action_kind": "map.template"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.template",
         total_rows=0,

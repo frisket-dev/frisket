@@ -107,11 +107,11 @@ def test_prepared_large_text_uses_same_omission_contract(client):
             media_type="application/pdf",
             page_count=1,
         )
-    op_id = project.append_change("media.ocr")
+    change_id = project.append_change("media.ocr")
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(1, "x" * (1024 * 1024))],
     )
     project.db.commit()

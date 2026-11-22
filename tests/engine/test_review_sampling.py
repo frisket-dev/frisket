@@ -43,10 +43,10 @@ def _finish_run(
     outcomes: dict[tuple[int, int], str] | None = None,
     action_kind: str = "map.extract",
 ) -> int:
-    op_id = project.append_change("map", {"fixture": "review sampling"})
+    change_id = project.append_change("map", {"fixture": "review sampling"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         action_kind,
         params={"input_columns": ["source"]},
@@ -222,10 +222,10 @@ def test_map_find_sampling_uses_derived_result_rows(make_project) -> None:
     findings_sheet = project.add_sheet("Findings")
     match = project.add_column(findings_sheet, "Match", generated=True)
     findings = project.add_rows(findings_sheet, [{}, {}], {})
-    op_id = project.append_change("map", {"fixture": "derived review output"})
+    change_id = project.append_change("map", {"fixture": "derived review output"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         source_sheet,
         "map.find",
         params={"input_columns": ["body"]},

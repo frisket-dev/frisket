@@ -68,7 +68,7 @@ def _body(
 def _prepared_ref(
     project: Project,
     *,
-    op_id: int,
+    change_id: int,
     sheet_id: int,
     row_id: int,
     source_column_id: int,
@@ -89,7 +89,7 @@ def _prepared_ref(
     with project.transaction_scope():
         return PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             pages=[PreparedPageDraft(1, text)],
         )
 
@@ -97,7 +97,7 @@ def _prepared_ref(
 def _publish_legacy_results(
     project: Project,
     *,
-    op_id: int,
+    change_id: int,
     sheet_id: int,
     values: list[tuple[int, int, PreparedContentRef]],
 ) -> None:
@@ -106,7 +106,9 @@ def _publish_legacy_results(
     columns = sorted({column_id for _row_id, column_id, _ref in values})
     for column_id in columns:
         column_values = [item for item in values if item[1] == column_id]
-        owner = op_id if len(columns) == 1 else project.append_change("media.ocr", {})
+        owner = (
+            change_id if len(columns) == 1 else project.append_change("media.ocr", {})
+        )
         rows = sorted({row_id for row_id, _column_id, _ref in column_values})
         run_id = RunResultStore(project).start_run(
             owner, sheet_id, "media.ocr", row_ids=rows, total_rows=len(rows)
@@ -440,10 +442,10 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
         {"Document": source_column_id},
     )
     unique, ambiguous, stale, manual, hidden = row_ids
-    op_id = project.append_change("media.ocr")
+    change_id = project.append_change("media.ocr")
     unique_ref = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=unique,
         source_column_id=source_column_id,
@@ -452,7 +454,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     ambiguous_a = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=ambiguous,
         source_column_id=source_column_id,
@@ -461,7 +463,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     ambiguous_b = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=ambiguous,
         source_column_id=source_column_id,
@@ -470,7 +472,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     stale_ref = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=stale,
         source_column_id=source_column_id,
@@ -479,7 +481,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     manual_ref = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=manual,
         source_column_id=source_column_id,
@@ -488,7 +490,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     hidden_ref = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=hidden,
         source_column_id=source_column_id,
@@ -497,7 +499,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     _publish_legacy_results(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         values=[
             (unique, legacy_a, unique_ref),
@@ -526,7 +528,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
             "prepared_page_versions",
             "prepared_content_sets",
             "prepared_content_refs",
-            "ops",
+            "changes",
         )
     )
 
@@ -545,18 +547,18 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
             "prepared_page_versions",
             "prepared_content_sets",
             "prepared_content_refs",
-            "ops",
+            "changes",
         )
     ) == (*immutable_counts[:3], immutable_counts[3] + 1)
     stored = project.db.execute(
-        "SELECT cell.row_id,cell.value_kind,cell.value,producer.op_id "
+        "SELECT cell.row_id,cell.value_kind,cell.value,producer.change_id "
         "FROM cells cell JOIN base_cell_producers producer "
         "ON producer.id=cell.producer_id WHERE cell.column_id=?",
         (text_column_id,),
     ).fetchall()
     assert len(stored) == 1
-    adoption_op = int(stored[0]["op_id"])
-    assert adoption_op != op_id
+    adoption_op = int(stored[0]["change_id"])
+    assert adoption_op != change_id
     assert tuple(stored[0]) == (
         unique,
         "prepared_content_ref",
@@ -565,16 +567,16 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?", (adoption_op,)
+            "SELECT publication_closed FROM changes WHERE id=?", (adoption_op,)
         ).fetchone()[0]
         == 1
     )
     assert (
         project.db.execute(
-            "SELECT producing_op_id FROM prepared_content_sets WHERE id=(SELECT set_id FROM prepared_content_refs WHERE id=?)",
+            "SELECT producing_change_id FROM prepared_content_sets WHERE id=(SELECT set_id FROM prepared_content_refs WHERE id=?)",
             (unique_ref.ref_id,),
         ).fetchone()[0]
-        == op_id
+        == change_id
     )
     selection = resolve_document_text_selection(
         project, (sheet_id, unique, source_column_id)
@@ -626,7 +628,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
             == 0
         )
     assert (
-        project.db.execute("SELECT count(*) FROM ops").fetchone()[0]
+        project.db.execute("SELECT count(*) FROM changes").fetchone()[0]
         == immutable_counts[3] + 1
     )
     assert project.undo() == adoption_op
@@ -650,10 +652,10 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(
     legacy_column_id = project.add_column(
         sheet_id, "Search text", type="text", generated=True
     )
-    op_id = project.append_change("media.read_pdf_text")
+    change_id = project.append_change("media.read_pdf_text")
     legacy_ref = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=row_id,
         source_column_id=source_column_id,
@@ -662,7 +664,7 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(
     )
     _publish_legacy_results(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         values=[(row_id, legacy_column_id, legacy_ref)],
     )
@@ -799,10 +801,10 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
     legacy_column_id = project.add_column(
         sheet_id, "Search text", type="text", generated=True
     )
-    op_id = project.append_change("media.read_pdf_text")
+    change_id = project.append_change("media.read_pdf_text")
     old_ref = _prepared_ref(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         row_id=old_row,
         source_column_id=source_column_id,
@@ -811,7 +813,7 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
     )
     _publish_legacy_results(
         project,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         values=[(old_row, legacy_column_id, old_ref)],
     )

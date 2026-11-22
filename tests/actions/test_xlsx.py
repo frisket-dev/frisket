@@ -404,7 +404,7 @@ def test_xlsx_final_source_failure_removes_already_staged_rows(
         assert closed == [True]
         assert sum(appended) >= 500
         assert result.receipt_id is None
-        for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+        for table in ("sheets", "columns", "rows", "cells", "changes", "receipts"):
             assert (
                 project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
             )

@@ -1511,7 +1511,7 @@ def test_queued_model_rows_replacement_refuses_target_rename_before_worker(
     # results from the prior execution are restored only by undoing it.
     assert row_ids[0] not in ResultGenerationStore(project).read_cell_heads(target_id)
     owner = project.db.execute(
-        "SELECT op_id FROM runs WHERE id=?", (queued.run_id,)
+        "SELECT change_id FROM runs WHERE id=?", (queued.run_id,)
     ).fetchone()[0]
     assert project.undo() == owner
     assert (

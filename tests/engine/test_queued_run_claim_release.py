@@ -80,11 +80,11 @@ def run_action_spec(
     return run_legacy_action_spec(project, action, project_id=project_id)
 
 
-def _undo_action(*, expected_op_id: int, key: str) -> dict[str, Any]:
+def _undo_action(*, expected_change_id: int, key: str) -> dict[str, Any]:
     return {
-        "action_id": "operation.undo",
+        "action_id": "change.undo",
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -111,8 +111,8 @@ def _prepare_with_synthetic_claim(
         project_id=PROJECT_ID,
     )
     assert generated.status == "completed"
-    assert generated.op_ids
-    map_op_id = generated.op_ids[0]
+    assert generated.change_ids
+    map_op_id = generated.change_ids[0]
 
     queue = SqliteJobQueue(tmp_path / QUEUE_DB_NAME)
     job_id = queue.enqueue("project.run", {"project_id": PROJECT_ID, "run_id": 1})
@@ -150,7 +150,7 @@ def test_stale_active_claim_with_terminal_job_is_recovered(tmp_path: Path) -> No
 
         sheet_id = int(
             project.db.execute(
-                "SELECT sheet_id FROM runs WHERE op_id=?", (map_op_id,)
+                "SELECT sheet_id FROM runs WHERE change_id=?", (map_op_id,)
             ).fetchone()[0]
         )
         column = project.db.execute(
@@ -180,7 +180,7 @@ def test_stale_active_claim_with_terminal_job_is_recovered(tmp_path: Path) -> No
         )
 
         op = project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (map_op_id,)
+            "SELECT status FROM changes WHERE id=?", (map_op_id,)
         ).fetchone()
         assert op is not None
         assert op["status"] == "applied"
@@ -195,7 +195,7 @@ def test_running_job_claim_still_blocks(tmp_path: Path) -> None:
         # The job stays claimed ("running") -- never completed/failed/cancelled.
         sheet_id = int(
             project.db.execute(
-                "SELECT sheet_id FROM runs WHERE op_id=?", (map_op_id,)
+                "SELECT sheet_id FROM runs WHERE change_id=?", (map_op_id,)
             ).fetchone()[0]
         )
         column = project.db.execute(
@@ -223,7 +223,7 @@ def test_running_job_claim_still_blocks(tmp_path: Path) -> None:
         assert status == "active"
 
         op = project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (map_op_id,)
+            "SELECT status FROM changes WHERE id=?", (map_op_id,)
         ).fetchone()
         assert op is not None
         assert op["status"] == "applied"
@@ -251,7 +251,7 @@ def _seed_terminal_fallback_tuple(
     )
     assert generated.status == "completed"
     run_id = RunResultStore(project).start_run(
-        generated.op_ids[0],
+        generated.change_ids[0],
         sheet_id,
         "test.queued_run",
         total_rows=0,
@@ -346,9 +346,9 @@ def test_finalize_fallback_is_a_noop_while_run_is_still_running(
             ),
             project_id=PROJECT_ID,
         )
-        op_id = generated.op_ids[0]
+        change_id = generated.change_ids[0]
         run_id = RunResultStore(project).start_run(
-            op_id, sheet_id, "test.queued_run", total_rows=0
+            change_id, sheet_id, "test.queued_run", total_rows=0
         )
         # No finish_run: the run is still 'running'.
 

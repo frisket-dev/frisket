@@ -35,13 +35,13 @@ def _seed_provenance_history(
     receipt_ids: list[str] = []
     for index in range(64):
         project.db.commit()
-        op_id = project.append_change(
+        change_id = project.append_change(
             "map",
             {"action_kind": "map.classify", "seed": index},
             label=f"classify {index}",
         )
         run_id = RunResultStore(project).start_run(
-            op_id,
+            change_id,
             sheet_id,
             "map.classify",
             model=f"gemini/model-{index % 4}",
@@ -183,13 +183,13 @@ def test_provenance_manifest_reports_unknown_costs_honestly(client) -> None:
     costs = [1.25, None, 0.0]  # known, unknown, known-free
     for index, cost in enumerate(costs):
         project.db.commit()
-        op_id = project.append_change(
+        change_id = project.append_change(
             "map",
             {"action_kind": "map.classify", "seed": index},
             label=f"classify {index}",
         )
         run_id = RunResultStore(project).start_run(
-            op_id,
+            change_id,
             sheet_id,
             "map.classify",
             model="gemini/model-a",

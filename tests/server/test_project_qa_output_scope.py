@@ -138,7 +138,7 @@ def test_materialized_sheet_requires_its_current_applied_creation_op(
         project_id="project-1",
         action_id="table.test_output",
         action_kind="table.test_output",
-        op_ids=[write.op_id],
+        change_ids=[write.change_id],
         status="completed",
         outputs=[
             ReceiptIO(
@@ -166,7 +166,9 @@ def test_materialized_sheet_requires_its_current_applied_creation_op(
     )
     assert resolved.unavailable == ()
 
-    project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (write.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='undone' WHERE id=?", (write.change_id,)
+    )
     project.db.commit()
     stale = derive_output_read_grants(project, [receipt.receipt_id])
     assert stale.grants == ()
@@ -429,7 +431,7 @@ def test_materialized_sheet_grant_is_visible_without_broadening_other_sheets(
         project_id="project-1",
         action_id="table.test_output",
         action_kind="table.test_output",
-        op_ids=[write.op_id],
+        change_ids=[write.change_id],
         status="completed",
         outputs=[ReceiptIO(name="Research output", ref=write.materialized_sheet_ref)],
     )

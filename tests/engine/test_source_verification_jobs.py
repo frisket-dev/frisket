@@ -33,7 +33,7 @@ def test_view_requests_coalesced_job_and_undo_restores_freshness(tmp_path, monke
             start_change(project.db, owner)
             bundles.append(
                 store_capture(
-                    project, capture, owner_op_id=owner, output_sheet_id=sheet
+                    project, capture, owner_change_id=owner, output_sheet_id=sheet
                 )
             )
             project.db.commit()

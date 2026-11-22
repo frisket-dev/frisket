@@ -185,7 +185,7 @@ def test_reapply_from_retry_collects_success_union_and_retry_does_not_expand_sco
     )
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "SELECT publication_closed FROM changes JOIN runs ON runs.change_id=changes.id "
             "WHERE runs.id=?",
             (retried.run_id,),
         ).fetchone()[0]
@@ -273,7 +273,9 @@ def test_reapply_checks_prepared_targets_before_writing(work):
     assert dict(project.get_values(sheet, source)) == before
     assert len(calls) == 2
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops WHERE kind='edit'").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM changes WHERE kind='edit'").fetchone()[
+            0
+        ]
         == 0
     )
 

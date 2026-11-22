@@ -175,7 +175,7 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
         expected_hash = "sha256:" + digest.hexdigest()
         project.db.execute("BEGIN IMMEDIATE")
         ref = PreparedContentStore(project).stage_reference(
-            source_artifact_id=artifact["id"], producing_op_id=op, pages=pages
+            source_artifact_id=artifact["id"], producing_change_id=op, pages=pages
         )
         project.db.commit()
         [row] = project.add_rows(
@@ -195,7 +195,7 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
         # Obtain the immutable identity without loading/caching the 8MB text
         # before the measured bounded reader below.
         head = project.db.execute(
-            "SELECT origin_kind,origin_op_id,origin_run_id,base_producer_id,"
+            "SELECT origin_kind,origin_change_id,origin_run_id,base_producer_id,"
             "prepared_ref_id,outcome FROM current_cell_values WHERE row_id=? AND column_id=?",
             (row, column),
         ).fetchone()

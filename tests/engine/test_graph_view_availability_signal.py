@@ -225,8 +225,8 @@ def test_resolved_entities_are_aggregate_rows_not_graph_edges(seeded):
     roles = {
         row[0]
         for row in project.db.execute(
-            "SELECT DISTINCT role FROM materialized_row_sources WHERE op_id=?",
-            (result.op_ids[0],),
+            "SELECT DISTINCT role FROM materialized_row_sources WHERE change_id=?",
+            (result.change_ids[0],),
         )
     }
     assert roles == {"aggregate_source"}

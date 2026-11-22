@@ -43,9 +43,9 @@ def test_durable_fact_store_rejects_unknown_credential_source(make_project) -> N
         [{"value": "input"}],
         {"value": column_id},
     )[0]
-    op_id = project.append_change("map", {"recipe": "invalid-fact"})
+    change_id = project.append_change("map", {"recipe": "invalid-fact"})
     run_store = RunResultStore(project)
-    run_id = run_store.start_run(op_id, sheet_id, "test.invalid_fact")
+    run_id = run_store.start_run(change_id, sheet_id, "test.invalid_fact")
     with pytest.raises(ValueError, match="unsupported credential source"):
         write_claimless_test_model_calls(
             project,

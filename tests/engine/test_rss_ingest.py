@@ -187,7 +187,7 @@ def test_op_logged_per_poll(project):
     assert len(history) == before + 1
     op = history[-1]
     assert op["kind"] == "ingest"
-    assert op["id"] == s["op_id"]
+    assert op["id"] == s["change_id"]
     spec = json.loads(op["spec"])
     assert spec["new_rows"] == 2
     assert spec["source_id"] == src["id"]
@@ -196,7 +196,7 @@ def test_op_logged_per_poll(project):
     src = _src(project, src["id"])
     runs_before = len(FeedStore(project).feed_checks_page(src["id"]))
     s2 = ingest.ingest_rss(project, src, fetch=lambda u: poll)
-    assert s2["new_rows"] == 0 and s2["op_id"] is None
+    assert s2["new_rows"] == 0 and s2["change_id"] is None
     assert len(project.history()) == before + 1  # unchanged
     assert len(FeedStore(project).feed_checks_page(src["id"])) == runs_before + 1
 

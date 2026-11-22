@@ -328,14 +328,14 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
 
     original_links = active_links()
     # The original derive's applicable undo/redo keeps its row grounding.
-    assert project.undo() == created.op_ids[0]
+    assert project.undo() == created.change_ids[0]
     assert (
         project.db.execute(
             "SELECT hidden FROM sheets WHERE id=?", (child_id,)
         ).fetchone()[0]
         == 1
     )
-    assert project.redo() == created.op_ids[0]
+    assert project.redo() == created.change_ids[0]
     assert active_links() == original_links
 
     def refresh(key):
@@ -375,9 +375,9 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == refreshed.receipt_id
         assert active_links() == fresh_links
-        assert project.undo() == refreshed.op_ids[0]
+        assert project.undo() == refreshed.change_ids[0]
         assert active_links() == previous_links
-        assert project.redo() == refreshed.op_ids[0]
+        assert project.redo() == refreshed.change_ids[0]
         assert active_links() == fresh_links
 
     # Evidence-copy failure rolls back membership and copied evidence together.
@@ -385,7 +385,7 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         "sheets": "id",
         "rows": "id",
         "cells": "row_id, column_id",
-        "ops": "id",
+        "changes": "id",
         "receipts": "id",
         "citations": "id",
         "citation_spans": "citation_id, span_id",
@@ -411,13 +411,13 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
     assert refused.status == "failed"
     assert refused.errors[0].code == "project_write_failed"
     for table, old_rows in before.items():
-        if table not in {"ops", "receipts"}:
+        if table not in {"changes", "receipts"}:
             assert snapshot(table) == old_rows
     failed_receipt = ReceiptStore(project).parsed_by_id(refused.receipt_id)
     assert failed_receipt.status == "failed"
     failed_op = project.db.execute(
-        "SELECT publication_closed,change_order FROM ops WHERE id=?",
-        (failed_receipt.op_ids[0],),
+        "SELECT publication_closed,change_order FROM changes WHERE id=?",
+        (failed_receipt.change_ids[0],),
     ).fetchone()
     assert tuple(failed_op) == (1, None)  # no batch committed a Change
     assert active_links() == fresh_links
@@ -505,8 +505,8 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
         ).fetchall()
         assert len(preserved) == len(original)
         assert {row["status"] for row in preserved} == {"active"}
-        edit_op_id = project.op_cursor
-        assert project.undo() == edit_op_id
+        edit_change_id = project.change_cursor
+        assert project.undo() == edit_change_id
         restored = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
@@ -514,7 +514,7 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
             column_id=seeded["moments_column_id"],
         )
         assert len(restored["links"]) == len(original)
-        assert project.redo() == edit_op_id
+        assert project.redo() == edit_change_id
         hidden_again = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],

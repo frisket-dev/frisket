@@ -29,7 +29,7 @@ from tests.helpers import make_client
 
 def _write_op(project: Project, label: str) -> None:
     project.db.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+        "INSERT INTO changes (kind, label, spec, undo_info, barrier) "
         "VALUES ('unit_of_work_probe', ?, '{}', '{}', 0)",
         (label,),
     )
@@ -52,7 +52,7 @@ def _committed_labels(db_path: Path) -> list[str]:
         return [
             row[0]
             for row in peer.execute(
-                "SELECT label FROM ops WHERE kind='unit_of_work_probe' ORDER BY id"
+                "SELECT label FROM changes WHERE kind='unit_of_work_probe' ORDER BY id"
             )
         ]
 

@@ -25,7 +25,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
         [{"Source": "a.pdf"}, {"Source": "b.pdf"}],
         {"Source": source_col},
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",
@@ -35,7 +35,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
         label="extract contract value",
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         model="provider/model",
@@ -63,7 +63,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+        RunResultStore(project).point_column_at_run(change_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=row_ids)
 
     with write_transaction(project.db):
@@ -95,7 +95,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
                 row_id=row_id,
                 column_id=output_col,
                 run_id=run_id,
-                op_id=op_id,
+                change_id=change_id,
                 link_role="primary_support",
                 confidence=0.9,
                 spans=[{"span_id": span["id"], "rank": 0}],
@@ -105,7 +105,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
         "row_ids": row_ids,
         "source_col": source_col,
         "output_col": output_col,
-        "op_id": op_id,
+        "change_id": change_id,
         "run_id": run_id,
         "links": links,
         "refs": refs,

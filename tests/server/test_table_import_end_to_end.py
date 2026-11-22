@@ -425,7 +425,7 @@ def test_typed_row_update_queues_compact_input_and_preserves_receipt(
     assert receipt.status == "completed"
     assert receipt.action_kind == "import.update_rows"
     assert receipt.outputs[0].ref["kind"] == "updated_import_rows"
-    assert project.undo() == receipt.op_ids[0]
+    assert project.undo() == receipt.change_ids[0]
     assert project.get_values(sheet, columns["name"])[row] == "Ada"
 
 

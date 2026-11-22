@@ -31,7 +31,7 @@ from frisket.engine.runner.publication import PreparedRowPublication
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
-from frisket.engine.store.op_log import append_change
+from frisket.engine.store.change_log import append_change
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
     GenerationStateError,
@@ -135,15 +135,15 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
     ).fetchone()["id"]
     assert new_column != old_column
     assert project.get_column(old_column)["active"] == 0
-    from frisket.engine.store.op_log import operation_affected_refs
+    from frisket.engine.store.change_log import change_affected_refs
 
     failed_info = json.loads(
         project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=(SELECT op_id FROM runs WHERE id=?)",
+            "SELECT undo_info FROM changes WHERE id=(SELECT change_id FROM runs WHERE id=?)",
             (failed.run_id,),
         ).fetchone()["undo_info"]
     )
-    assert {"kind": "column", "column_id": old_column} in operation_affected_refs(
+    assert {"kind": "column", "column_id": old_column} in change_affected_refs(
         failed_info
     )
     assert generations.get_binding(failed.run_id, old_column) == old_binding
@@ -155,13 +155,13 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
     assert project.get_values(sheet_id, source_id, row_ids=[row_id]) == {
         row_id: "source"
     }
-    recovered_op = RunResultStore(project).get_run(recovered.run_id)["op_id"]
-    failed_op = RunResultStore(project).get_run(failed.run_id)["op_id"]
-    repeated_op = RunResultStore(project).get_run(repeated.run_id)["op_id"]
+    recovered_op = RunResultStore(project).get_run(recovered.run_id)["change_id"]
+    failed_op = RunResultStore(project).get_run(failed.run_id)["change_id"]
+    repeated_op = RunResultStore(project).get_run(repeated.run_id)["change_id"]
     assert project.undo() == recovered_op
     assert project.undo() == repeated_op
     assert project.undo() == failed_op
-    from frisket.engine.store.op_log import RestorationUnavailable, step_operation
+    from frisket.engine.store.change_log import RestorationUnavailable, step_change
 
     # Retired incompatible destinations cannot be silently recreated by
     # restoring a saved failure. The newer valid output remains restorable.
@@ -169,7 +169,7 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
         project.redo()
     assert project.get_column(old_column)["active"] == 0
     with project.transaction_scope():
-        step_operation(project, "restore", change_id=recovered_op)
+        step_change(project, "restore", change_id=recovered_op)
     assert project.get_column(new_column)["active"] == 1
     assert generations.read_cell_heads(old_column, [row_id]) == {}
     assert generations.get_binding(failed.run_id, old_column) == old_binding
@@ -185,13 +185,14 @@ def test_empty_failed_retirement_preserves_any_prior_value_or_null(
     )
     run = RunResultStore(project).get_run(run_id)
     op = project.db.execute(
-        "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+        "SELECT undo_info FROM changes WHERE id=?", (run["change_id"],)
     ).fetchone()
     info = json.loads(op["undo_info"])
     # Even a stale zero-success marker may not retire populated history.
     info["zero_success_columns"] = [column_id]
     project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), run["op_id"])
+        "UPDATE changes SET undo_info=? WHERE id=?",
+        (json.dumps(info), run["change_id"]),
     )
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
     project.db.commit()
@@ -214,9 +215,9 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         type="text",
         generated=True,
     )
-    op_id = project.append_change("map", {"action_kind": "map.regex_extract"})
+    change_id = project.append_change("map", {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.regex_extract",
     )
@@ -919,7 +920,7 @@ def test_undo_then_same_name_managed_output_creates_fresh_identity(
     sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
     first_run = RunResultStore(project).get_run(first_run_id)
     assert first_run is not None
-    assert project.undo() == int(first_run["op_id"])
+    assert project.undo() == int(first_run["change_id"])
     undone_column = project.db.execute(
         "SELECT hidden,current_run_id FROM columns WHERE id=?",
         (output_id,),
@@ -964,7 +965,7 @@ def test_undo_then_same_name_managed_output_creates_fresh_identity(
 
     replacement_run = RunResultStore(project).get_run(int(replacement.run_id))
     assert replacement_run is not None
-    assert project.undo() == int(replacement_run["op_id"])
+    assert project.undo() == int(replacement_run["change_id"])
     hidden_again = project.db.execute(
         "SELECT hidden,current_run_id FROM columns WHERE id=?",
         (output_id,),
@@ -972,7 +973,7 @@ def test_undo_then_same_name_managed_output_creates_fresh_identity(
     assert tuple(hidden_again) == (1, None)
     assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
 
-    assert project.redo() == int(replacement_run["op_id"])
+    assert project.redo() == int(replacement_run["change_id"])
     redone = project.db.execute(
         "SELECT hidden,current_run_id FROM columns WHERE id=?",
         (output_id,),
@@ -1006,7 +1007,7 @@ def test_incompatible_hidden_managed_revival_refuses_before_mutation(
                     (output_id,),
                 ).fetchone()
             ),
-            int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]),
+            int(project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]),
             int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
             int(
                 project.db.execute(
@@ -1129,7 +1130,7 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
     sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
     first_run = RunResultStore(project).get_run(first_run_id)
     assert first_run is not None
-    assert project.undo() == int(first_run["op_id"])
+    assert project.undo() == int(first_run["change_id"])
 
     original_declare = map_runner_module.declare_prepared_outputs
 
@@ -1163,7 +1164,7 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
             )
         )
     refused_run = project.db.execute(
-        "SELECT id,status,op_id FROM runs ORDER BY id DESC LIMIT 1"
+        "SELECT id,status,change_id FROM runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert refused_run is not None and refused_run["status"] == "failed"
     assert (
@@ -1184,7 +1185,7 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
     # become an ordinary Undo/Redo entry merely because a run exists.
     assert (
         project.db.execute(
-            "SELECT change_order FROM ops WHERE id=?", (refused_run["op_id"],)
+            "SELECT change_order FROM changes WHERE id=?", (refused_run["change_id"],)
         ).fetchone()[0]
         is None
     )

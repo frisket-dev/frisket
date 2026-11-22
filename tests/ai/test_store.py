@@ -342,7 +342,7 @@ class TestUndoRedo:
         from frisket.engine.store.changes import start_change
         from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
-        op_id = project.append_change("compaction", barrier=True)
+        change_id = project.append_change("compaction", barrier=True)
         # Reservation alone is not an undoable change. A real maintenance
         # mutation starts its barrier when it changes project state.
         assert project.undo() is None
@@ -352,9 +352,11 @@ class TestUndoRedo:
         row = project.db.execute(
             "INSERT INTO rows(sheet_id,position) VALUES (?,1)", (sheet,)
         ).lastrowid
-        start_change(project.db, op_id, writing=True)
+        start_change(project.db, change_id, writing=True)
         insert_edits(
-            project.db, op_id=op_id, edits=[EditCellWrite(row, column, "maintained")]
+            project.db,
+            change_id=change_id,
+            edits=[EditCellWrite(row, column, "maintained")],
         )
         project.db.commit()
         with pytest.raises(ValueError):
@@ -428,7 +430,7 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
         col = p.add_column(sheet, "out", generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
         baseline = p.get_values(sheet, col)
-        seeded_op_cursor = p.op_cursor
+        seeded_op_cursor = p.change_cursor
         for i, kind in enumerate(seq):
             if kind == "run":
                 op = p.append_change("map")
@@ -444,7 +446,7 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
                 p.apply_edits(
                     [{"row_id": rows[0], "column_id": col, "value": f"edit{i}"}]
                 )
-        while p.op_cursor > seeded_op_cursor:
+        while p.change_cursor > seeded_op_cursor:
             assert p.undo() is not None
         assert p.get_values(sheet, col) == baseline
 
@@ -693,14 +695,14 @@ class TestCompactionGC:
         project.append_change("noop")
         assert (
             project.db.execute(
-                "SELECT redo_eligible FROM ops WHERE id=?", (op,)
+                "SELECT redo_eligible FROM changes WHERE id=?", (op,)
             ).fetchone()[0]
             == 1
         )
         project.apply_edits([{"row_id": rid, "column_id": col, "value": 6}])
         assert tuple(
             project.db.execute(
-                "SELECT status,redo_eligible FROM ops WHERE id=?", (op,)
+                "SELECT status,redo_eligible FROM changes WHERE id=?", (op,)
             ).fetchone()
         ) == ("undone", 0)
 
@@ -905,13 +907,13 @@ class TestCompactionRedoSafety:
         assert project.get_column(col)["current_run_id"] == second_run
         assert (
             project.db.execute(
-                "SELECT status FROM ops WHERE id=?", (first_op,)
+                "SELECT status FROM changes WHERE id=?", (first_op,)
             ).fetchone()["status"]
             == "applied"
         )
         undo_info = json.loads(
             project.db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (second_op,)
+                "SELECT undo_info FROM changes WHERE id=?", (second_op,)
             ).fetchone()["undo_info"]
         )
         assert undo_info["column_pointers"][str(col)] == first_run
@@ -923,7 +925,7 @@ class TestCompactionRedoSafety:
         assert values[rid] == {"blob": first_blob, "mime": "image/png"}
         assert refs[rid] == {
             "kind": "run_result",
-            "op_id": first_op,
+            "change_id": first_op,
             "row_id": rid,
             "column_id": col,
             "run_id": first_run,

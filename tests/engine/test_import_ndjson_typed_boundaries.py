@@ -15,7 +15,7 @@ from tests.engine.test_temporal_persistence_ingress import _range_value, _seed_p
 def _counts(project: Project) -> dict[str, int]:
     return {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "cells", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "cells", "changes", "receipts")
     }
 
 

@@ -38,7 +38,7 @@ MUTATION_TABLES = (
     "runs",
     "results",
     "model_calls",
-    "ops",
+    "changes",
     "receipts",
 )
 

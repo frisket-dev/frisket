@@ -169,7 +169,7 @@ def _seed_generated_cell(
         [{"Source": "contract.pdf"}],
         {"Source": source_column_id},
     )[0]
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",
@@ -179,7 +179,7 @@ def _seed_generated_cell(
         label="extract contract value",
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         model="provider/model",
@@ -201,7 +201,7 @@ def _seed_generated_cell(
     )
     RunResultStore(project).finish_run(run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, output_column_id, run_id)
+        RunResultStore(project).point_column_at_run(change_id, output_column_id, run_id)
     _values, refs = project.get_values_with_refs(
         sheet_id, output_column_id, row_ids=[row_id]
     )
@@ -209,7 +209,7 @@ def _seed_generated_cell(
         sheet_id,
         row_id,
         {"source": source_column_id, "output": output_column_id},
-        op_id,
+        change_id,
         run_id,
         refs[row_id],
     )
@@ -223,7 +223,7 @@ def _seed_evidence(
     row_id: int,
     column_id: int,
     run_id: int,
-    op_id: int,
+    change_id: int,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     pdf_hash = project.add_blob(
         b"%PDF-1.4 public contract", "contract.pdf", "application/pdf"
@@ -289,7 +289,7 @@ def _seed_evidence(
             row_id=row_id,
             column_id=column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id="receipt-map-extract",
             link_role="primary_support",
             confidence=0.91,
@@ -311,7 +311,7 @@ def _seed_evidence(
             row_id=row_id,
             column_id=column_id,
             run_id=run_id + 999,
-            op_id=op_id,
+            change_id=change_id,
             link_role="support",
             spans=[{"span_id": region["id"]}],
         )
@@ -337,7 +337,7 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
         "id"
     ]
     project = client.app.state.workspace.get(project_id)
-    sheet_id, row_id, columns, op_id, run_id, current_ref = _seed_generated_cell(
+    sheet_id, row_id, columns, change_id, run_id, current_ref = _seed_generated_cell(
         project
     )
     link, hashes = _seed_evidence(
@@ -347,7 +347,7 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
         row_id=row_id,
         column_id=columns["output"],
         run_id=run_id,
-        op_id=op_id,
+        change_id=change_id,
     )
 
     before_counts = _evidence_counts(project)

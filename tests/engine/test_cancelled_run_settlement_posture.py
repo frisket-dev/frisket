@@ -15,9 +15,9 @@ def test_already_cancelled_run_returns_its_terminal_posture(tmp_path) -> None:
     project_id = "cancelled-settle-once"
     project = Project.create(tmp_path / f"{project_id}.frisket")
     sheet_id = project.add_sheet("Source")
-    op_id = project.append_change("map.template", {"action_kind": "map.template"})
+    change_id = project.append_change("map.template", {"action_kind": "map.template"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.template",
         params={"action_kind": "map.template"},

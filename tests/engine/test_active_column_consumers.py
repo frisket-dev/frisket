@@ -11,7 +11,7 @@ from frisket.contracts.action import ActionError
 from frisket.engine.store.changes import start_change
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.output_families import OutputFamilyStore
-from frisket.engine.store.op_log import append_change
+from frisket.engine.store.change_log import append_change
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
 

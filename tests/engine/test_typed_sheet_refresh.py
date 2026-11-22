@@ -167,14 +167,14 @@ def test_post_refresh_cancellation_rolls_back_and_closes_transaction(
 
     bound = _bound(handler, {"reference": str(child_id)})
     before = _snapshot(project)
-    cursor_before = project.op_cursor
+    cursor_before = project.change_cursor
     with pytest.raises(interruption, match="interrupted after refresh"):
         run_typed_sheet_refresh_action(project, "p-ref", bound)
     observed = {
         "transaction_open": project.db.in_transaction,
         "database_unchanged": _snapshot(project) == before,
         "cursor_before": cursor_before,
-        "cursor_after": project.op_cursor,
+        "cursor_after": project.change_cursor,
     }
     assert not project.db.in_transaction, observed
     assert _snapshot(project) == before
@@ -208,12 +208,12 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
     seeded = _seed_join(tmp_path / "join.frisket")
     project, child_id = seeded["project"], seeded["child_id"]
     with closing(project):
-        parent_op_id = project.db.execute(
-            "SELECT parent_op_id FROM sheets WHERE id=?", (child_id,)
+        parent_change_id = project.db.execute(
+            "SELECT parent_change_id FROM sheets WHERE id=?", (child_id,)
         ).fetchone()[0]
         saved = json.loads(
             project.db.execute(
-                "SELECT spec FROM ops WHERE id=?", (parent_op_id,)
+                "SELECT spec FROM changes WHERE id=?", (parent_change_id,)
             ).fetchone()[0]
         )
         second = {
@@ -227,7 +227,8 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
         assert created.status == "completed", created.errors
         second_id = created.outputs[0].sheet_id
         project.db.execute(
-            "UPDATE sheets SET parent_op_id=? WHERE id=?", (parent_op_id, second_id)
+            "UPDATE sheets SET parent_change_id=? WHERE id=?",
+            (parent_change_id, second_id),
         )
 
         saved["params"]["max_output_rows"] = 1
@@ -245,7 +246,8 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
         original_token = original_estimate.errors[0].details["promise_set_hash"]
         saved["confirmation"] = original_token
         project.db.execute(
-            "UPDATE ops SET spec=? WHERE id=?", (json.dumps(saved), parent_op_id)
+            "UPDATE changes SET spec=? WHERE id=?",
+            (json.dumps(saved), parent_change_id),
         )
         project.db.commit()
         selected = child_id

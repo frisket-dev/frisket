@@ -94,12 +94,12 @@ def test_sample_rejects_changed_file_before_creating_undo_step(make_project):
         )
     )
     project.apply_edits([{"row_id": row, "column_id": source_col, "value": None}])
-    before = project.op_cursor
+    before = project.change_cursor
     with pytest.raises(ValueError):
         publish_pdf_ocr_sample(
             project, capture, page={"page": 1, "text": "stale"}, receipt_id="r"
         )
-    assert project.op_cursor == before
+    assert project.change_cursor == before
     assert ReceiptStore(project).parsed_by_id("r").run_id is None
 
 

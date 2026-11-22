@@ -17,7 +17,7 @@ from frisket.engine.store.cell_writes import (
     insert_edits,
 )
 from frisket.engine.store.current_cells import register_current_cell_functions
-from frisket.engine.store.op_log import append_change_in_transaction
+from frisket.engine.store.change_log import append_change_in_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
@@ -203,18 +203,18 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
     _restore_legacy_authorities(db)
     raw = '"prefix\\ud800suffix"'
     db.executemany(
-        "INSERT INTO ops (id,kind,spec) VALUES (?,?, '{}')",
+        "INSERT INTO changes (id,kind,spec) VALUES (?,?, '{}')",
         [(1, "source.write"), (2, "map.test"), (3, "edit")],
     )
     db.execute(
-        "INSERT INTO base_cell_producers (id,stage_id,op_id) VALUES (1,'op:1',1)"
+        "INSERT INTO base_cell_producers (id,stage_id,change_id) VALUES (1,'op:1',1)"
     )
     db.execute(
         "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (100,10,?,1)",
         (raw,),
     )
     db.execute(
-        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
+        "INSERT INTO runs (id,change_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
     )
     db.execute(
         "INSERT INTO run_output_generations "
@@ -231,12 +231,12 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,101,20)"
     )
     db.execute(
-        "INSERT INTO edits (op_id,row_id,column_id,value) VALUES (3,102,10,?)",
+        "INSERT INTO edits (change_id,row_id,column_id,value) VALUES (3,102,10,?)",
         (raw,),
     )
     db.executemany(
         "INSERT INTO current_cells "
-        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+        "(column_id,row_id,value,origin_kind,origin_change_id,origin_run_id,"
         "base_producer_id,validity) VALUES (10,?,?,?,?,?,?, 'valid')",
         [
             (100, raw, "source_cell", None, None, 1),
@@ -322,7 +322,7 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
     db.execute("BEGIN")
     source_op = append_change_in_transaction(_Project(db), "source.write")
     producer_id = create_base_cell_producer(
-        db, stage_id=f"op:{source_op}", op_id=source_op
+        db, stage_id=f"op:{source_op}", change_id=source_op
     )
     initialize_base_cells(
         db,
@@ -330,7 +330,7 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
         cells=[BaseCellWrite(100, 10, "0012"), BaseCellWrite(101, 10, 7)],
     )
     edit_op = append_change_in_transaction(_Project(db), "edit")
-    insert_edits(db, op_id=edit_op, edits=[EditCellWrite(101, 10, None)])
+    insert_edits(db, change_id=edit_op, edits=[EditCellWrite(101, 10, None)])
 
     rows = db.execute(
         "SELECT row_id,value_kind,value,typeof(value),origin_kind,validity "

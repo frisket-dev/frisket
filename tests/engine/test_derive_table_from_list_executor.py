@@ -229,7 +229,7 @@ def _bad_projection_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == [3]
+    assert result.change_ids == [3]
     assert {output.kind for output in result.outputs} == {"sheet", "column", "rows"}
     child_sheet_id = next(
         output.sheet_id for output in result.outputs if output.kind == "sheet"
@@ -244,7 +244,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     ).fetchone()
     assert child["name"] == "Entities"
     assert child["parent_sheet_id"] == seeded["sheet_id"]
-    assert child["parent_op_id"] == 3
+    assert child["parent_change_id"] == 3
     columns = {
         row["name"]: row
         for row in project.db.execute(
@@ -268,7 +268,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     # keys outside the declared projection never materialize
     assert "ignored" not in columns
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=3").fetchone()
+    op = project.db.execute("SELECT * FROM changes WHERE id=3").fetchone()
     assert op["kind"] == "derive.table_from_list"
     undo_info = json.loads(op["undo_info"])
     assert undo_info["created_sheets"] == [child_sheet_id]
@@ -284,7 +284,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row["run_id"] is None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "derive.table_from_list"
-    assert receipt.op_ids == [3]
+    assert receipt.change_ids == [3]
     read = next(
         item.ref for item in receipt.inputs if item.ref["kind"] == "list_table_read"
     )
@@ -374,7 +374,7 @@ CASES = [
             "rows": 2,
             "runs": 0,
             "results": 0,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,
@@ -702,10 +702,10 @@ def test_empty_named_result_retains_parent_schema_and_replays_without_source_cel
             output.sheet_id for output in first.outputs if output.kind == "sheet"
         )
         child = env.project.db.execute(
-            "SELECT parent_sheet_id, parent_op_id, hidden FROM sheets WHERE id=?",
+            "SELECT parent_sheet_id, parent_change_id, hidden FROM sheets WHERE id=?",
             (child_sheet_id,),
         ).fetchone()
-        assert tuple(child) == (env.seeded["sheet_id"], first.op_ids[0], 0)
+        assert tuple(child) == (env.seeded["sheet_id"], first.change_ids[0], 0)
         columns = [
             tuple(column)
             for column in env.project.db.execute(
@@ -729,8 +729,8 @@ def test_empty_named_result_retains_parent_schema_and_replays_without_source_cel
         # Discarding the source op does not erase its immutable result history;
         # the already materialized child remains applied and replayable.
         env.project.db.execute(
-            "UPDATE ops SET status='discarded' WHERE id="
-            "(SELECT op_id FROM runs WHERE id=?)",
+            "UPDATE changes SET status='discarded' WHERE id="
+            "(SELECT change_id FROM runs WHERE id=?)",
             (env.seeded["run_id"],),
         )
         env.project.db.commit()

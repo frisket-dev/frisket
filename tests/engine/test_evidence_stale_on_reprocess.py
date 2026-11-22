@@ -303,10 +303,12 @@ def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
     row_id = project.add_rows(
         sheet_id, [{"source": "doc.pdf"}], {"source": source_col}
     )[0]
-    op_id = project.append_change("media.to_markdown", {"kind": "media.to_markdown"})
+    change_id = project.append_change(
+        "media.to_markdown", {"kind": "media.to_markdown"}
+    )
     run_store = RunResultStore(project)
     run_id = run_store.start_run(
-        op_id, sheet_id, "media.to_markdown", total_rows=1, row_ids=[row_id]
+        change_id, sheet_id, "media.to_markdown", total_rows=1, row_ids=[row_id]
     )
     write_claimed_test_results(
         project,
@@ -315,7 +317,7 @@ def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
     )
     run_store.finish_run(run_id)
     with write_transaction(run_store.db):
-        run_store.point_column_at_run(op_id, output_col, run_id)
+        run_store.point_column_at_run(change_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
 
     with write_transaction(project.db):
@@ -357,7 +359,7 @@ def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
             row_id=row_id,
             column_id=output_col,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             link_role="media_to_markdown_grounding",
         )
     return {
@@ -365,7 +367,7 @@ def _seed_text_layer_link(make_project, *, initial_text: str) -> dict[str, Any]:
         "sheet_id": sheet_id,
         "row_id": row_id,
         "output_col": output_col,
-        "op_id": op_id,
+        "change_id": change_id,
         "run_store": run_store,
         "link": link,
     }

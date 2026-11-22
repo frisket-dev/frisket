@@ -495,7 +495,7 @@ class TestSurfacedViaStatusAndHistoryEndpoints:
 
         history = client.get(f"/api/projects/{project_id}/history")
         assert history.status_code == 200, history.text
-        ops = history.json()["ops"]
+        ops = history.json()["changes"]
         op = next(
             o for o in ops if o["run"] is not None and o["run"]["run_id"] == run_id
         )

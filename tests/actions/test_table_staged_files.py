@@ -293,7 +293,7 @@ def test_invalid_staged_file_never_publishes_sql(
             "columns",
             "rows",
             "cells",
-            "ops",
+            "changes",
             "receipts",
             "blobs",
             "source_artifacts",

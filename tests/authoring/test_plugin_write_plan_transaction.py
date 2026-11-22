@@ -56,8 +56,8 @@ def test_mid_apply_failure_rolls_back_begin_immediate(
     make_project, monkeypatch
 ) -> None:
     project = make_project("t")
-    cursor_before = project.get_meta("op_cursor")
-    ops_before = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
+    cursor_before = project.get_meta("change_cursor")
+    ops_before = project.db.execute("SELECT COUNT(*) AS n FROM changes").fetchone()["n"]
 
     with monkeypatch.context() as patch:
         patch.setattr(
@@ -72,14 +72,14 @@ def test_mid_apply_failure_rolls_back_begin_immediate(
                 declared_capabilities=(PROJECT_WRITES_CAPABILITY,),
             )
 
-    # Zero partial state: no sheet, no rows, no op row, op_cursor unmoved.
+    # Zero partial state: no sheet, no rows, no op row, change_cursor unmoved.
     assert project.sheets() == []
     assert project.db.execute("SELECT COUNT(*) AS n FROM rows").fetchone()["n"] == 0
     assert (
-        project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
+        project.db.execute("SELECT COUNT(*) AS n FROM changes").fetchone()["n"]
         == ops_before
     )
-    assert project.get_meta("op_cursor") == cursor_before
+    assert project.get_meta("change_cursor") == cursor_before
     assert project.db.in_transaction is False
 
 
@@ -173,16 +173,18 @@ def test_table_plan_owns_one_closed_undoable_change(make_project, contents, nest
     )
     assert project.db.in_transaction is nested
     change = project.db.execute(
-        "SELECT change_order,publication_closed FROM ops WHERE id=?", (receipt.op_id,)
+        "SELECT change_order,publication_closed FROM changes WHERE id=?",
+        (receipt.change_id,),
     ).fetchone()
     assert change["change_order"] is not None
     assert change["publication_closed"] == 1
     assert project.db.execute(
-        "SELECT COUNT(*) FROM structural_changes WHERE op_id=?", (receipt.op_id,)
+        "SELECT COUNT(*) FROM structural_changes WHERE change_id=?",
+        (receipt.change_id,),
     ).fetchone()[0] == sum(receipt.counts.values())
     if nested:
         project.db.commit()
-    assert project.undo() == receipt.op_id
+    assert project.undo() == receipt.change_id
     assert project.sheets() == []
-    assert project.redo() == receipt.op_id
+    assert project.redo() == receipt.change_id
     assert [sheet["name"] for sheet in project.sheets()] == ["People"]

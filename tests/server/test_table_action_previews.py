@@ -71,7 +71,7 @@ def _run(client, request):
 
 
 def _assert_unpublished(project):
-    for table in ("sheets", "blobs", "ops", "receipts", "runs"):
+    for table in ("sheets", "blobs", "changes", "receipts", "runs"):
         assert project.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 

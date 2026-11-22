@@ -67,10 +67,10 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     column = project.add_column(sheet, "text", type="text")
 
     with write_transaction(project.db):
-        producing_op_id = project.append_change_in_transaction("prepare.test")
+        producing_change_id = project.append_change_in_transaction("prepare.test")
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact_id,
-            producing_op_id=producing_op_id,
+            producing_change_id=producing_change_id,
             pages=[
                 PreparedPageDraft(
                     1,

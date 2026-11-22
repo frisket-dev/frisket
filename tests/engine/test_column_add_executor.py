@@ -129,25 +129,25 @@ def test_column_add_undo_hides_and_redo_restores(tmp_path: Path) -> None:
     body = resp.json()
     output = _added_column(body)
     column_id = int(output["column_id"])
-    add_op_id = body["op_ids"][0]
+    add_op_id = body["change_ids"][0]
 
     project = client.app.state.workspace.get(pid)
     op = project.db.execute(
-        "SELECT id, undo_info FROM ops WHERE kind='add_column' ORDER BY id DESC LIMIT 1"
+        "SELECT id, undo_info FROM changes WHERE kind='add_column' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert op["id"] == add_op_id
     assert json.loads(op["undo_info"]) == {"created_columns": [column_id]}
 
-    undo = post_operation_undo_as_v1_action(client, pid, expected_op_id=add_op_id)
+    undo = post_operation_undo_as_v1_action(client, pid, expected_change_id=add_op_id)
     assert undo.status_code == 200, undo.text
-    assert undo.json()["op_ids"] == [add_op_id]
+    assert undo.json()["change_ids"] == [add_op_id]
     assert "notes" not in _visible_columns(client, pid, sheet_id)
     hidden = project.db.execute(
         "SELECT hidden FROM columns WHERE id=?", (column_id,)
     ).fetchone()
     assert hidden["hidden"] == 1
 
-    redo = post_operation_redo_as_v1_action(client, pid, expected_op_id=add_op_id)
+    redo = post_operation_redo_as_v1_action(client, pid, expected_change_id=add_op_id)
     assert redo.status_code == 200, redo.text
     assert "notes" in _visible_columns(client, pid, sheet_id)
 
@@ -179,13 +179,13 @@ def test_undo_then_create_same_name_gets_fresh_empty_identity(tmp_path: Path) ->
     assert edit.status_code == 200, edit.text
     assert (
         post_operation_undo_as_v1_action(
-            client, pid, expected_op_id=edit.json()["op_ids"][0]
+            client, pid, expected_change_id=edit.json()["change_ids"][0]
         ).status_code
         == 200
     )
     assert (
         post_operation_undo_as_v1_action(
-            client, pid, expected_op_id=first.json()["op_ids"][0]
+            client, pid, expected_change_id=first.json()["change_ids"][0]
         ).status_code
         == 200
     )
@@ -214,18 +214,23 @@ def test_undo_then_create_same_name_gets_fresh_empty_identity(tmp_path: Path) ->
         is not None
     )
     assert project.db.execute(
-        "SELECT status,redo_eligible FROM ops WHERE id=?", (first.json()["op_ids"][0],)
+        "SELECT status,redo_eligible FROM changes WHERE id=?",
+        (first.json()["change_ids"][0],),
     ).fetchone()[:] == ("undone", 0)
 
     # New creation owns its own undo/redo; neither operation resurrects the old ID.
-    new_op = second.json()["op_ids"][0]
+    new_op = second.json()["change_ids"][0]
     assert (
-        post_operation_undo_as_v1_action(client, pid, expected_op_id=new_op).status_code
+        post_operation_undo_as_v1_action(
+            client, pid, expected_change_id=new_op
+        ).status_code
         == 200
     )
     assert "notes" not in _visible_columns(client, pid, sheet_id)
     assert (
-        post_operation_redo_as_v1_action(client, pid, expected_op_id=new_op).status_code
+        post_operation_redo_as_v1_action(
+            client, pid, expected_change_id=new_op
+        ).status_code
         == 200
     )
     assert project.get_column(new_id)["active"] == 1

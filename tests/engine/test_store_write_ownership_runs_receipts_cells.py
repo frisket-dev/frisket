@@ -23,7 +23,7 @@ import pytest
 from frisket.contracts.action import Receipt
 from frisket.engine.runner import preparation
 from frisket.engine.runner.validation import _ValidatedSpec
-from frisket.engine.store import op_log
+from frisket.engine.store import change_log
 from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
 from frisket.engine.store.column_descriptors import set_descriptor
 from frisket.engine.store.effect_checkpoints import (
@@ -148,15 +148,15 @@ def _receipt(
 
 
 def _seed_run(project) -> tuple[int, int]:
-    op_id = project.append_change("map", {"action_kind": "map.template"})
+    change_id = project.append_change("map", {"action_kind": "map.template"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         _sheet_id(project),
         "map.template",
         row_ids=[_row_id(project)],
         total_rows=1,
     )
-    return op_id, run_id
+    return change_id, run_id
 
 
 def _model_call(call_id: str) -> dict[str, Any]:
@@ -315,8 +315,8 @@ JOINING_WRITES = {
             identity="id-1",
         )
     ),
-    "op_log.append_change_in_transaction": lambda p: (
-        op_log.append_change_in_transaction(p, "edit", {})
+    "change_log.append_change_in_transaction": lambda p: (
+        change_log.append_change_in_transaction(p, "edit", {})
     ),
     "project.append_change_in_transaction": lambda p: p.append_change_in_transaction(
         "edit", {}
@@ -437,7 +437,9 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
         "checkpoints.consume_and_retire": lambda: checkpoint_store.consume_and_retire(
             owned_ref
         ),
-        "op_log.append_change": lambda: op_log.append_change(project, "edit", {}),
+        "change_log.append_change": lambda: change_log.append_change(
+            project, "edit", {}
+        ),
         "project.append_change": lambda: project.append_change("edit", {}),
         "project.set_meta": lambda: project.set_meta("probe", "value"),
     }
@@ -548,7 +550,7 @@ def test_write_results_and_publish_preserve_accounting_on_closed_change(project)
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
     output_col = project.add_column(sheet_id, "answer", generated=True)
-    op_id, run_id = _seed_run(project)
+    change_id, run_id = _seed_run(project)
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output_col}
     )
@@ -562,7 +564,7 @@ def test_write_results_and_publish_preserve_accounting_on_closed_change(project)
             write_mode="create",
             claim_token=authority.claim_token,
         )
-        ChangeStore(project).close(op_id)
+        ChangeStore(project).close(change_id)
 
     owned_batch = [
         {
@@ -628,7 +630,7 @@ def test_joined_core_writes_roll_back_together_with_caller(project):
     col_id = _column_id(project)
     row_id = _row_id(project)
     _op_id, run_id = _seed_run(project)
-    ops_before = _committed_count(project, "ops")
+    ops_before = _committed_count(project, "changes")
     runs_before = _committed_count(project, "runs")
     rows_before = _committed_count(project, "rows")
 
@@ -666,7 +668,7 @@ def test_joined_core_writes_roll_back_together_with_caller(project):
     assert _committed_count(project, "sheets") == 1
     assert _committed_count(project, "columns") == 1
     assert _committed_count(project, "rows") == rows_before
-    assert _committed_count(project, "ops") == ops_before
+    assert _committed_count(project, "changes") == ops_before
     assert _committed_count(project, "runs") == runs_before
     assert _committed_count(project, "receipts") == 0
     assert _committed(project, "SELECT value FROM meta WHERE key='joined_key'") == []
@@ -678,12 +680,12 @@ def test_joined_core_writes_roll_back_together_with_caller(project):
 def test_start_run_rolls_back_when_row_scope_insert_fails(project):
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
-    op_id = project.append_change("map", {"action_kind": "map.template"})
+    change_id = project.append_change("map", {"action_kind": "map.template"})
     _refuse(project, "INSERT", "run_rows")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         RunResultStore(project).start_run(
-            op_id, sheet_id, "map.template", row_ids=[row_id], total_rows=1
+            change_id, sheet_id, "map.template", row_ids=[row_id], total_rows=1
         )
 
     _assert_nothing_left_behind(project)
@@ -695,7 +697,7 @@ def test_add_rows_rolls_back_atomically_when_base_cell_insert_fails(project):
     sheet_id = _sheet_id(project)
     col_id = _column_id(project)
     rows_before = _committed_count(project, "rows")
-    ops_before = _committed_count(project, "ops")
+    ops_before = _committed_count(project, "changes")
     _refuse(project, "INSERT", "cells")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
@@ -703,12 +705,12 @@ def test_add_rows_rolls_back_atomically_when_base_cell_insert_fails(project):
 
     _assert_nothing_left_behind(project)
     assert _committed_count(project, "rows") == rows_before
-    assert _committed_count(project, "ops") == ops_before
+    assert _committed_count(project, "changes") == ops_before
 
 
 def test_request_cancel_rolls_back_when_change_close_fails(project):
     _op_id, run_id = _seed_run(project)
-    _refuse(project, "UPDATE", "ops")
+    _refuse(project, "UPDATE", "changes")
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         RunResultStore(project).request_cancel(run_id)

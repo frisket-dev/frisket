@@ -96,7 +96,7 @@ def test_table_schema_refuses_before_producer(project, column_type):
         result = run_typed_create_sheet_action(project, "project", bound)
         assert result.status == "failed"
         assert calls == []
-        for table in ("sheets", "columns", "rows", "ops", "receipts"):
+        for table in ("sheets", "columns", "rows", "changes", "receipts"):
             assert (
                 project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
             )
@@ -167,7 +167,7 @@ def test_create_sheet_materializes_typed_outputs_once_and_pins_destination(proje
         ("Message", "text", 0),
         ("count", "integer", 0),
     ]
-    op = project.db.execute("SELECT spec, undo_info FROM ops").fetchone()
+    op = project.db.execute("SELECT spec, undo_info FROM changes").fetchone()
     assert json.loads(op["spec"])["sheet_name"] == "Destination"
     sheet_id = first.outputs[0].ref["sheet_id"]
     assert json.loads(op["undo_info"]) == {
@@ -186,14 +186,14 @@ def test_create_sheet_materializes_typed_outputs_once_and_pins_destination(proje
         ],
     }
     original_rows = [tuple(row) for row in project.db.execute("SELECT * FROM rows")]
-    assert project.undo() == first.op_ids[0]
+    assert project.undo() == first.change_ids[0]
     assert (
         project.db.execute(
             "SELECT hidden FROM sheets WHERE id=?", (sheet_id,)
         ).fetchone()[0]
         == 1
     )
-    assert project.redo() == first.op_ids[0]
+    assert project.redo() == first.change_ids[0]
     assert (
         project.db.execute(
             "SELECT hidden FROM sheets WHERE id=?", (sheet_id,)
@@ -286,7 +286,7 @@ def test_create_sheet_rejects_invalid_produced_rows_without_publishing(project):
         project, "project", BoundTypedActionRequest.bind(registered, request)
     )
     assert result.errors[0].code == "invalid_params"
-    for table in ("sheets", "columns", "rows", "ops", "receipts"):
+    for table in ("sheets", "columns", "rows", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 

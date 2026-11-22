@@ -66,7 +66,7 @@ def semantic_workspace(tmp_path, monkeypatch):
 def _counts(project):
     return tuple(
         project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("runs", "receipts", "ops", "sheets", "columns", "results")
+        for table in ("runs", "receipts", "changes", "sheets", "columns", "results")
     )
 
 

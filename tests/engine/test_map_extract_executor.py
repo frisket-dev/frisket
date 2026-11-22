@@ -402,7 +402,7 @@ CASES = [
             "runs": 1,
             "results": 2,
             "model_calls": 1,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

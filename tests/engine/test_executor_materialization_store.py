@@ -107,7 +107,9 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(make_pr
     project.db.commit()
     project.db.execute("BEGIN IMMEDIATE")
     config = refresh_config(
-        project.db.execute("SELECT * FROM ops WHERE id=?", (write.op_id,)).fetchone()
+        project.db.execute(
+            "SELECT * FROM changes WHERE id=?", (write.change_id,)
+        ).fetchone()
     )
     from frisket.engine.store.changes import ChangeStore
 
@@ -118,7 +120,7 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(make_pr
     changes.start(refresh_op)
     new_ids = reconcile_rows_into_open_change(
         project.db,
-        op_id=refresh_op,
+        change_id=refresh_op,
         sheet_id=write.sheet_id,
         config=config,
         columns=columns,
@@ -171,10 +173,10 @@ def test_materialized_lineage_upgrade_preserves_edges_and_foreign_keys():
         CREATE TABLE ops(id INTEGER PRIMARY KEY,status TEXT,change_order INTEGER);
         INSERT INTO sheets VALUES(1);
         INSERT INTO rows VALUES(1),(2);
-        INSERT INTO ops VALUES(1,'applied',1);
+        INSERT INTO changes VALUES(1,'applied',1);
     """)
     old_schema = MATERIALIZED_LINEAGE_SCHEMA_SQL.split("CREATE VIEW")[0].replace(
-        "PRIMARY KEY (materialized_row_id, source_row_id, role, op_id)",
+        "PRIMARY KEY (materialized_row_id, source_row_id, role, change_id)",
         "PRIMARY KEY (materialized_row_id, source_row_id, role)",
     )
     db.executescript(old_schema)

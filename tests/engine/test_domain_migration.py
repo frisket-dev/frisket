@@ -353,12 +353,12 @@ def test_full_cutover_preserves_values_and_starts_new_history(old_db):
     assert db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
     # The cutover must install the ordered authority relation with presentation
     # visibility facts while still joining the pre-citations tables.
-    from frisket.engine.store.document_text import (
-        PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+    from frisket.upgrades.project._pre_changes_ddl import (
+        PRE_CHANGES_PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
     )
 
     with sqlite3.connect(":memory:") as fresh:
-        fresh.execute(PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+        fresh.execute(PRE_CHANGES_PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
         expected = fresh.execute(
             "SELECT sql FROM sqlite_schema WHERE name='current_document_text_selections'"
         ).fetchone()[0]

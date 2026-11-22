@@ -2,7 +2,7 @@
 
 from frisket.engine.executor import collection_read
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store.op_log import step_operation
+from frisket.engine.store.change_log import step_change
 from frisket.engine.store.staleness import sheet_freshness
 from test_derive_collection_expand_executor import (
     _fake_channel_provider,
@@ -67,5 +67,5 @@ def test_collection_capture_precedes_enumerator_and_keeps_consumed_identity(
     # the original input identity, rather than rereading it after enumeration.
     assert sheet_freshness(project, output) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=edits[0])
+        step_change(project, "revert", change_id=edits[0])
     assert sheet_freshness(project, output) == "synced"

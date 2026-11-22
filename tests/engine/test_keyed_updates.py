@@ -110,7 +110,7 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
                 key=typed_key([("text", "a")]),
                 incoming={"name": "second"},
             )
-            project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (op,))
+            project.db.execute("UPDATE changes SET status='undone' WHERE id=?", (op,))
         assert observation(project.db, "test:baseline", row) == {
             "name": "second",
             "note": "retained",
@@ -257,11 +257,11 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         latest = poll([FeedItem("item-a", {"title": "latest"})])
         assert latest["row_ids"] == [target]
         assert project.get_values(sheet, title, [target])[target] == "latest"
-        assert project.undo() == latest["op_id"]
+        assert project.undo() == latest["change_id"]
         assert project.get_values(sheet, title, [target])[target] == "my correction"
         repeated = poll([FeedItem("item-a", {"title": "latest"})])
         assert repeated["row_ids"] == []
-        assert repeated["op_id"] is None
+        assert repeated["change_id"] is None
         with write_transaction(project.db):
             sources.update_feed(source, config={"update_policy": "keep_changes"})
         # A hidden association cannot steal a newly visible current-key row.
@@ -311,6 +311,6 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         assert updated["row_ids"] == [b, c]
         assert project.get_values(sheet, title, [b, c]) == {b: "new B", c: "keep C"}
         assert project.get_values(sheet, note, [b, c]) == {b: "keep B", c: "new C"}
-        assert project.undo() == updated["op_id"]
+        assert project.undo() == updated["change_id"]
         assert project.get_values(sheet, title, [b, c]) == {b: "B", c: "keep C"}
         assert project.get_values(sheet, note, [b, c]) == {b: "keep B", c: "C"}

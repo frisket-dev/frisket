@@ -48,13 +48,13 @@ def _seed_review_history(client: TestClient) -> tuple[TestClient, str, list[int]
         [{"story": f"Story {index:02d}"} for index in range(64)],
         {"story": story_col},
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map",
         {"action_kind": "map.classify", "purpose": "review paging"},
         label="Classify rows for review paging",
     )
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         model="anthropic/claude-haiku-4-5",
@@ -95,11 +95,13 @@ def _seed_review_history(client: TestClient) -> tuple[TestClient, str, list[int]
         )
     write_claimed_test_results(project, run_id, batch)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, risk_col, run_id)
+        RunResultStore(project).point_column_at_run(change_id, risk_col, run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, tone_col, run_id)
+        RunResultStore(project).point_column_at_run(change_id, tone_col, run_id)
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, justification_col, run_id)
+        RunResultStore(project).point_column_at_run(
+            change_id, justification_col, run_id
+        )
     RunResultStore(project).finish_run(run_id, "completed")
     return client, project_id, row_ids
 
@@ -178,18 +180,18 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
             media_type="application/pdf",
             page_count=1,
         )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map", {"action_kind": "media.ocr"}, label="Prepare document"
     )
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[PreparedPageDraft(page_number=1, text="ordinary review text")],
     )
     project.db.commit()
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.ocr",
         params={"input_columns": ["document"], "fields": [{"name": "prepared"}]},
@@ -209,7 +211,7 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
         ],
     )
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+        RunResultStore(project).point_column_at_run(change_id, output_col, run_id)
     RunResultStore(project).finish_run(run_id, "completed")
 
     stored = project.db.execute(
@@ -410,9 +412,9 @@ def test_review_run_picker_includes_completed_results_of_running_runs(
     risk_id = int(
         project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
     )
-    op_id = project.append_change("map", {"action_kind": "map.classify"})
+    change_id = project.append_change("map", {"action_kind": "map.classify"})
     running_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.classify",
         params={"input_columns": ["story"]},
@@ -425,7 +427,7 @@ def test_review_run_picker_includes_completed_results_of_running_runs(
         [{"row_id": row_ids[0], "column_id": risk_id, "value": "new"}],
     )
     with write_transaction(project.db):
-        RunResultStore(project).point_column_at_run(op_id, risk_id, running_id)
+        RunResultStore(project).point_column_at_run(change_id, risk_id, running_id)
 
     while_running = client.get(f"/api/projects/{project_id}/review/runs")
     assert while_running.status_code == 200, while_running.text

@@ -53,7 +53,7 @@ def _project_with_selection(
         source_column_id=source_column_id,
         text_column_id=text_column_id,
     )
-    op_id = project.append_change_in_transaction("document.prepare")
+    change_id = project.append_change_in_transaction("document.prepare")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -67,7 +67,7 @@ def _project_with_selection(
     store = PreparedContentStore(project)
     ref = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[
             PreparedPageDraft(number, f"page {number}")
             for number in range(1, max(1, page or 1) + 1)
@@ -76,7 +76,7 @@ def _project_with_selection(
     )
     insert_edits(
         project.db,
-        op_id=op_id,
+        change_id=change_id,
         edits=[EditCellWrite(row_id, text_column_id, ref)],
     )
     project.db.commit()
@@ -112,10 +112,10 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
     assert original is not None
 
     project.db.execute("BEGIN IMMEDIATE")
-    edit_op_id = project.append_change_in_transaction("edit")
+    edit_change_id = project.append_change_in_transaction("edit")
     insert_edits(
         project.db,
-        op_id=edit_op_id,
+        change_id=edit_change_id,
         edits=[EditCellWrite(row_id, text_column_id, "human correction")],
     )
     project.db.commit()
@@ -130,7 +130,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
     second_edit = project.append_change_in_transaction("edit")
     insert_edits(
         project.db,
-        op_id=second_edit,
+        change_id=second_edit,
         edits=[EditCellWrite(row_id, text_column_id, "second correction")],
     )
     project.db.commit()
@@ -157,7 +157,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
     source_edit_op_id = project.append_change_in_transaction("edit")
     insert_edits(
         project.db,
-        op_id=source_edit_op_id,
+        change_id=source_edit_op_id,
         edits=[
             EditCellWrite(
                 row_id,
@@ -243,9 +243,9 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
     )
 
     def start(label: str):
-        op_id = project.append_change("media.ocr", {"output": "Text"}, label=label)
+        change_id = project.append_change("media.ocr", {"output": "Text"}, label=label)
         run_id = RunResultStore(project).start_run(
-            op_id,
+            change_id,
             sheet_id,
             "media.ocr",
             row_ids=[row_id],
@@ -254,7 +254,7 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
         authority = run_writer_authority_fixture(
             project, run_id, output_column_ids={text_column_id}
         )
-        return op_id, run_id, authority
+        return change_id, run_id, authority
 
     generations = ResultGenerationStore(project)
     first_op, first_run, first_authority = start("first")
@@ -368,9 +368,9 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
         "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
         (text_id,),
     ).fetchone()[0]
-    op_id = project.append_change("media.ocr")
+    change_id = project.append_change("media.ocr")
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+        change_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
     )
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={text_id}
@@ -390,7 +390,7 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
     edit_op = project.append_change_in_transaction("edit")
     insert_edits(
         project.db,
-        op_id=edit_op,
+        change_id=edit_op,
         edits=[EditCellWrite(row_id, source_id, {"blob": _BLOB, "page": page})],
     )
     project.db.commit()
@@ -431,10 +431,10 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
         ).fetchone()[0]
         == 0
     )
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=op_id)
+        step_change(project, "revert", change_id=change_id)
     assert (
         project.db.execute(
             "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",

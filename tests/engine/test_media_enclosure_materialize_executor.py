@@ -173,7 +173,7 @@ def _receipt_refs(project: Project, receipt_id: str) -> tuple[dict[str, Any], ..
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     sheet_id = seeded["sheet_id"]
     row_ids = seeded["row_ids"]
-    assert len(result.op_ids) == 2
+    assert len(result.change_ids) == 2
     assert _FETCH_CALLS == [
         "https://cdn.example/ep1.mp3",
         "https://cdn.example/ep2.mp3",
@@ -286,7 +286,13 @@ CASES = [
             Gate("missing_row", _missing_row_action, "invalid_input_ref"),
             Gate("no_enclosure_column", _no_enclosure_action, "invalid_input_ref"),
         ),
-        expect_counts={"blobs": 2, "columns": 1, "ops": 2, "receipts": 1, "rows": 0},
+        expect_counts={
+            "blobs": 2,
+            "columns": 1,
+            "changes": 2,
+            "receipts": 1,
+            "rows": 0,
+        },
         check_state=_check_state,
         # Replay reconstructs generic receipt-io names (media_blob.N, rows)
         # rather than the live run's output names; identity is asserted via
@@ -422,7 +428,7 @@ def test_replay_and_already_downloaded_rows_never_refetch(
     replay = _run(project, action, _refusing_fetcher("replay"))
     assert replay.status == "completed"
     assert replay.receipt_id == first.receipt_id
-    assert replay.op_ids == first.op_ids
+    assert replay.change_ids == first.change_ids
     replay_rows = next(o for o in replay.outputs if o.kind == "rows")
     assert replay_rows.row_ids == seeded["row_ids"]
 
@@ -436,7 +442,7 @@ def test_replay_and_already_downloaded_rows_never_refetch(
         _refusing_fetcher("already-downloaded row"),
     )
     assert already.status == "completed"
-    assert already.op_ids == []
+    assert already.change_ids == []
     already_cells = [
         ref
         for ref in _receipt_refs(project, already.receipt_id)

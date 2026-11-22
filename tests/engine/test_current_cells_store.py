@@ -42,15 +42,15 @@ def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape(
 ) -> None:
     project, _sheet_id, column_id, row_ids = _project_sheet(make_project)
     with pytest.raises(RuntimeError, match="caller transaction"):
-        create_base_cell_producer(project.db, stage_id="op:1", op_id=1)
+        create_base_cell_producer(project.db, stage_id="op:1", change_id=1)
 
     project.db.execute("BEGIN")
     op_1 = project.append_change_in_transaction("source.write")
     producer_id = create_base_cell_producer(
-        project.db, stage_id=f"op:{op_1}", op_id=op_1
+        project.db, stage_id=f"op:{op_1}", change_id=op_1
     )
     assert (
-        create_base_cell_producer(project.db, stage_id=f"op:{op_1}", op_id=op_1)
+        create_base_cell_producer(project.db, stage_id=f"op:{op_1}", change_id=op_1)
         == producer_id
     )
     assert (
@@ -69,7 +69,7 @@ def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape(
         (column_id, row_ids[0]),
     ).fetchone()
     assert source["origin_kind"] == "source_cell"
-    assert source["origin_op_id"] is None
+    assert source["origin_change_id"] is None
     assert source["origin_run_id"] is None
     assert source["base_producer_id"] == producer_id
     explicit_null = project.db.execute(
@@ -81,14 +81,15 @@ def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape(
 
     op_2 = project.append_change_in_transaction("edit")
     insert_edits(
-        project.db, op_id=op_2, edits=[EditCellWrite(row_ids[0], column_id, None)]
+        project.db, change_id=op_2, edits=[EditCellWrite(row_ids[0], column_id, None)]
     )
     edited = project.db.execute(
         "SELECT * FROM current_cell_values WHERE column_id=? AND row_id=?",
         (column_id, row_ids[0]),
     ).fetchone()
     assert tuple(
-        edited[key] for key in ("value", "origin_kind", "origin_op_id", "origin_run_id")
+        edited[key]
+        for key in ("value", "origin_kind", "origin_change_id", "origin_run_id")
     ) == (None, "manual_edit", op_2, None)
 
     project.db.rollback()
@@ -113,12 +114,12 @@ def test_pending_producer_binds_once_and_abort_discards_only_unreferenced(
     with pytest.raises(ValueError, match="referenced"):
         discard_pending_base_cell_producer(project.db, producer_id)
     op_1 = project.append_change_in_transaction("source.write")
-    bind_base_cell_producer(project.db, producer_id, op_id=op_1)
+    bind_base_cell_producer(project.db, producer_id, change_id=op_1)
     project.db.execute("UPDATE sheets SET hidden=0 WHERE id=?", (sheet_id,))
-    bind_base_cell_producer(project.db, producer_id, op_id=op_1)
+    bind_base_cell_producer(project.db, producer_id, change_id=op_1)
     op_2 = project.append_change_in_transaction("source.write")
     with pytest.raises(ValueError, match="already bound"):
-        bind_base_cell_producer(project.db, producer_id, op_id=op_2)
+        bind_base_cell_producer(project.db, producer_id, change_id=op_2)
     project.db.rollback()
 
     with write_transaction(project.db):
@@ -140,7 +141,7 @@ def test_sinks_reject_unknown_authority_and_cross_sheet_targets(make_project) ->
 
     with write_transaction(project.db):
         with pytest.raises(ValueError, match="unknown producing operation"):
-            create_base_cell_producer(project.db, stage_id="op:404", op_id=404)
+            create_base_cell_producer(project.db, stage_id="op:404", change_id=404)
         with pytest.raises(ValueError, match="unknown base-cell producer"):
             initialize_base_cells(
                 project.db,
@@ -150,7 +151,7 @@ def test_sinks_reject_unknown_authority_and_cross_sheet_targets(make_project) ->
         with pytest.raises(ValueError, match="unknown producing operation"):
             insert_edits(
                 project.db,
-                op_id=404,
+                change_id=404,
                 edits=[EditCellWrite(row_ids[0], column_id, "value")],
             )
 
@@ -164,7 +165,7 @@ def test_sinks_reject_unknown_authority_and_cross_sheet_targets(make_project) ->
 
         op_1 = project.append_change_in_transaction("source.write")
         producer = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_1}", op_id=op_1
+            project.db, stage_id=f"op:{op_1}", change_id=op_1
         )
         with pytest.raises(ValueError, match="same sheet"):
             initialize_base_cells(
@@ -175,11 +176,11 @@ def test_sinks_reject_unknown_authority_and_cross_sheet_targets(make_project) ->
         with pytest.raises(ValueError, match="same sheet"):
             insert_edits(
                 project.db,
-                op_id=op_1,
+                change_id=op_1,
                 edits=[EditCellWrite(row_ids[0], other_column, "wrong")],
             )
         # Simulates a mid-transaction discarded op (only pdf_split sets status='discarded').
-        project.db.execute("UPDATE ops SET status='discarded' WHERE id=?", (op_1,))
+        project.db.execute("UPDATE changes SET status='discarded' WHERE id=?", (op_1,))
         with pytest.raises(ValueError, match="not bound to an applied operation"):
             initialize_base_cells(
                 project.db,
@@ -332,7 +333,7 @@ def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped(
     )
     assert tuple(
         project.db.execute(
-            "SELECT value,origin_kind,origin_op_id FROM current_cell_values "
+            "SELECT value,origin_kind,origin_change_id FROM current_cell_values "
             "WHERE column_id=? AND row_id=?",
             (column_id, row_ids[0]),
         ).fetchone()
@@ -402,7 +403,9 @@ def test_replace_remove_and_rebuild_share_the_same_projector(make_project) -> No
     project, _sheet_id, column_id, row_ids = _project_sheet(make_project)
     with write_transaction(project.db):
         op_1 = project.append_change_in_transaction("source.write")
-        first = create_base_cell_producer(project.db, stage_id=f"op:{op_1}", op_id=op_1)
+        first = create_base_cell_producer(
+            project.db, stage_id=f"op:{op_1}", change_id=op_1
+        )
         initialize_base_cells(
             project.db,
             producer_id=first,
@@ -422,7 +425,7 @@ def test_replace_remove_and_rebuild_share_the_same_projector(make_project) -> No
     with write_transaction(project.db):
         op_2 = project.append_change_in_transaction("source.write")
         second = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_2}", op_id=op_2
+            project.db, stage_id=f"op:{op_2}", change_id=op_2
         )
         replace_base_cells(
             project.db,
@@ -440,7 +443,7 @@ def test_replace_remove_and_rebuild_share_the_same_projector(make_project) -> No
     assert second_version != second
     assert (
         project.db.execute(
-            "SELECT op_id FROM base_cell_producers WHERE id=?", (second_version,)
+            "SELECT change_id FROM base_cell_producers WHERE id=?", (second_version,)
         ).fetchone()[0]
         == op_2
     )
@@ -547,7 +550,7 @@ def test_old_source_continuation_preserves_newer_edit_and_immutable_versions(
     with write_transaction(project.db):
         op_1 = project.append_change_in_transaction("source.write")
         producer = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_1}", op_id=op_1
+            project.db, stage_id=f"op:{op_1}", change_id=op_1
         )
         initialize_base_cells(
             project.db,

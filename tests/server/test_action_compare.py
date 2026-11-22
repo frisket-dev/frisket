@@ -177,7 +177,7 @@ def test_draft_context_is_bounded_canonical_and_read_only(tmp_path: Path) -> Non
     project = workspace.get("compare")
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("ops", "runs", "results", "receipts", "model_calls")
+        for table in ("changes", "runs", "results", "receipts", "model_calls")
     }
 
     payload = ActionCompareService(workspace).context(
@@ -572,7 +572,7 @@ def test_run_context_reports_real_overlays_and_complete_partial_output_family(
             "origin": {
                 "kind": "manual_edit",
                 "run_id": None,
-                "op_id": edited.json()["op_ids"][0],
+                "change_id": edited.json()["change_ids"][0],
                 "review_decision": "edit",
             },
         }
@@ -582,7 +582,7 @@ def test_run_context_reports_real_overlays_and_complete_partial_output_family(
             "origin": {
                 "kind": "manual_edit",
                 "run_id": None,
-                "op_id": rejected.json()["op_ids"][0],
+                "change_id": rejected.json()["change_ids"][0],
                 "review_decision": "reject_clear",
             },
         }
@@ -632,7 +632,7 @@ def test_compare_preview_refuses_a_source_retired_after_context_capture(
         retired = post_operation_undo_as_v1_action(
             client,
             pid,
-            expected_op_id=added.json()["op_ids"][0],
+            expected_change_id=added.json()["change_ids"][0],
             idempotency_key="action-compare-source@retire",
         )
         assert retired.status_code == 200, retired.text

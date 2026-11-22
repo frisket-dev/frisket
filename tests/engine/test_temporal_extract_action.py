@@ -315,9 +315,9 @@ def test_extract_projects_compatible_typed_annotations_only(make_project) -> Non
         for item in receipt.records
     )
     output_columns = {output.column_id for output in result.outputs}
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert all(project.get_column(column)["active"] == 0 for column in output_columns)
-    assert project.redo() == result.op_ids[0]
+    assert project.redo() == result.change_ids[0]
     assert all(project.get_column(column)["active"] == 1 for column in output_columns)
 
 
@@ -376,7 +376,7 @@ def test_extract_range_stages_then_atomically_publishes_lineage_and_replays(
     )
     assert result.status == "completed"
     assert stage_calls == [(2_000, 5_000)]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     output = result.outputs[0]
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert receipt is not None and receipt.status == "completed"
@@ -1368,7 +1368,7 @@ def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='temporal.extract_range'"
+            "SELECT COUNT(*) FROM changes WHERE kind='temporal.extract_range'"
         ).fetchone()[0]
         == 0
     )
@@ -1492,7 +1492,7 @@ def test_extract_batch_projects_every_compatible_current_transcript(
             alternate_column_id,
             alternate_run_id,
         )
-    for row_id, column_id, quote, run_id, op_id in [
+    for row_id, column_id, quote, run_id, change_id in [
         (
             row_ids[0],
             transcript_column_id,
@@ -1544,7 +1544,7 @@ def test_extract_batch_projects_every_compatible_current_transcript(
                 row_id=row_id,
                 column_id=column_id,
                 run_id=run_id,
-                op_id=op_id,
+                change_id=change_id,
                 link_role="media_transcribe_temporal",
                 producer={"action_kind": "media.transcribe"},
                 metadata={

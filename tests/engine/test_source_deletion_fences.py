@@ -31,15 +31,15 @@ def _consumer(project, sheet, output, rows, source_sheet, source_column):
         project, sheet_id=sheet, output_column_id=output, row_ids=rows, label="consumer"
     )
     spec = json.loads(
-        project.db.execute("SELECT spec FROM ops WHERE id=?", (run.op_id,)).fetchone()[
-            0
-        ]
+        project.db.execute(
+            "SELECT spec FROM changes WHERE id=?", (run.change_id,)
+        ).fetchone()[0]
     )
     spec[SOURCE_BINDING] = execution_source_binding(
         sheet_ids=[source_sheet], column_ids=[source_column]
     )
     project.db.execute(
-        "UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec), run.op_id)
+        "UPDATE changes SET spec=? WHERE id=?", (json.dumps(spec), run.change_id)
     )
     project.db.commit()
     _declare(ResultGenerationStore(project), run, output, write_mode="create")
@@ -103,11 +103,11 @@ def test_source_sheet_deletion_keeps_independent_results_and_fences_late_output(
     assert project.get_values(output_sheet, output)[rows[0]] == "saved"
     _step(project, "undo")  # Restore source containment only.
     with pytest.raises(ExecutionSourceUnavailable):
-        require_execution_sources(project, run.op_id)
+        require_execution_sources(project, run.change_id)
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         with pytest.raises(ChangePublicationClosed):
-            ChangeStore(project).start(run.op_id)
+            ChangeStore(project).start(run.change_id)
 
 
 def test_source_stop_rolls_back_with_deletion_and_does_not_stop_for_hidden_presentation(
@@ -121,16 +121,16 @@ def test_source_stop_rolls_back_with_deletion_and_does_not_stop_for_hidden_prese
     run = _consumer(project, sheet, output, rows, sheet, source)
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (source,))
     project.db.commit()
-    require_execution_sources(project, run.op_id)
+    require_execution_sources(project, run.change_id)
     project.db.execute("BEGIN IMMEDIATE")
     project.db.execute("UPDATE columns SET active=0 WHERE id=?", (source,))
     assert stop_direct_consumers(project, column_ids=[source]) == [run.run_id]
     project.db.rollback()
-    require_execution_sources(project, run.op_id)
+    require_execution_sources(project, run.change_id)
     assert RunResultStore(project).get_run(run.run_id)["cancel_requested_at"] is None
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?", (run.op_id,)
+            "SELECT publication_closed FROM changes WHERE id=?", (run.change_id,)
         ).fetchone()[0]
         == 0
     )
@@ -151,9 +151,9 @@ def test_close_before_first_materialization_is_irreversible(make_project):
         with pytest.raises(ChangePublicationClosed):
             ChangeStore(project).start(op)
     assert (
-        project.db.execute("SELECT change_order FROM ops WHERE id=?", (op,)).fetchone()[
-            0
-        ]
+        project.db.execute(
+            "SELECT change_order FROM changes WHERE id=?", (op,)
+        ).fetchone()[0]
         is None
     )
     _step(project, "undo")
@@ -202,7 +202,7 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
     )
     stored = json.loads(
         project.db.execute(
-            "SELECT op.spec FROM ops op JOIN runs run ON run.op_id=op.id WHERE run.id=?",
+            "SELECT op.spec FROM changes op JOIN runs run ON run.change_id=op.id WHERE run.id=?",
             (prepared.run_id,),
         ).fetchone()[0]
     )
@@ -224,7 +224,7 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
 
 def test_revert_source_column_creation_cancels_direct_consumer_only(make_project):
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_change_in_transaction
+    from frisket.engine.store.change_log import append_change_in_transaction
 
     project = make_project("column")
     sheet = project.add_sheet("data")
@@ -243,7 +243,7 @@ def test_revert_source_column_creation_cancels_direct_consumer_only(make_project
     _step(project, "restore", creator)
     assert project.get_column(source)["active"] == 1
     with pytest.raises(ExecutionSourceUnavailable):
-        require_execution_sources(project, run.op_id)
+        require_execution_sources(project, run.change_id)
 
 
 def test_source_deletion_cancels_runless_pdf_import_without_losing_completed_pages(
@@ -360,7 +360,7 @@ def test_direct_map_runner_stops_on_persisted_cancel_without_server_callback(
             output_names=["answer"],
             action_kind=request.action_id,
             run_id=prepared.run_id,
-            op_id=prepared.op_id,
+            change_id=prepared.change_id,
             claim_token="direct-claim",
             details={"output_fields": list(plan.output_fields)},
         )
@@ -410,7 +410,7 @@ def test_semantic_join_binds_both_sides_and_stops_before_next_embedding(
     def embed(texts):
         calls.append(texts)
         run = project.db.execute(
-            "SELECT ops.spec,runs.id FROM ops JOIN runs ON runs.op_id=ops.id WHERE runs.action_kind='join.semantic'"
+            "SELECT changes.spec,runs.id FROM changes JOIN runs ON runs.change_id=changes.id WHERE runs.action_kind='join.semantic'"
         ).fetchone()
         assert json.loads(run["spec"])[SOURCE_BINDING] == execution_source_binding(
             sheet_ids=[left, right], column_ids=[source, target]

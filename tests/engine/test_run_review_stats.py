@@ -45,10 +45,10 @@ def _managed_run(
     params: dict | None = None,
 ) -> int:
     project.db.commit()
-    op_id = project.append_change(action_kind, {"fixture": "review stats"})
+    change_id = project.append_change(action_kind, {"fixture": "review stats"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         action_kind,
         params=params,
@@ -609,10 +609,10 @@ def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
     sheet_id = project.add_sheet("Rows")
     output = project.add_column(sheet_id, "answer", generated=True)
     rows = project.add_rows(sheet_id, [{}, {}], {})
-    op_id = project.append_change("map", {"fixture": "running migration"})
+    change_id = project.append_change("map", {"fixture": "running migration"})
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         row_ids=rows,

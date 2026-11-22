@@ -106,7 +106,7 @@ def test_source_erasure_removes_shared_bytes_and_blocks_stale_publication(projec
 
 def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
-    from frisket.engine.store.op_log import OperationUnavailable, step_operation
+    from frisket.engine.store.change_log import ChangeUnavailable, step_change
 
     sheet, purged_column, purged_row = add(project, "purged", "secret")
     finish_purge(project, begin_purge(project, row_ids=[purged_row]))
@@ -127,10 +127,10 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_change_in_transaction("test.edit")
+            change_id = project.append_change_in_transaction("test.edit")
             insert_edits(
                 project.db,
-                op_id=op_id,
+                change_id=change_id,
                 edits=[EditCellWrite(purged_row, purged_column, "late")],
             )
 
@@ -141,7 +141,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
         retained_edit = project.append_change_in_transaction("test.edit")
         insert_edits(
             project.db,
-            op_id=retained_edit,
+            change_id=retained_edit,
             edits=[EditCellWrite(retained_row, retained_column, "updated")],
         )
     assert (
@@ -157,7 +157,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
         {"doomed": doomed, "safe": safe},
     )[0]
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_change_in_transaction
+    from frisket.engine.store.change_log import append_change_in_transaction
 
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
@@ -171,20 +171,20 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_change_in_transaction("test.edit")
+            change_id = project.append_change_in_transaction("test.edit")
             insert_edits(
                 project.db,
-                op_id=op_id,
+                change_id=change_id,
                 edits=[EditCellWrite(third_row, doomed, "late")],
             )
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(OperationUnavailable):
-            step_operation(project, "revert", change_id=column_op)
-    with pytest.raises(OperationUnavailable):
+        with pytest.raises(ChangeUnavailable):
+            step_change(project, "revert", change_id=column_op)
+    with pytest.raises(ChangeUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            step_operation(project, "restore", change_id=column_op)
+            step_change(project, "restore", change_id=column_op)
 
 
 def test_restoring_source_change_keeps_purged_cell_absent(project):
@@ -194,7 +194,7 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
         replace_base_cells,
     )
     from frisket.engine.store.changes import ChangeStore
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     sheet = project.add_sheet("source restore")
     column = project.add_column(sheet, "value", type="text")
@@ -205,7 +205,7 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
     op = project.append_change_in_transaction(
         "source.refresh", {}, label="source refresh"
     )
-    producer = create_base_cell_producer(project.db, stage_id=f"op:{op}", op_id=op)
+    producer = create_base_cell_producer(project.db, stage_id=f"op:{op}", change_id=op)
     replace_base_cells(
         project.db,
         producer_id=producer,
@@ -223,7 +223,7 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
     finish_purge(project, begin_purge(project, row_ids=[rows[0]]))
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", change_id=op)
+    step_change(project, "restore", change_id=op)
     project.db.commit()
 
     assert (
@@ -239,19 +239,19 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
 
 
 def test_purged_undone_row_cannot_be_restored(project):
-    from frisket.engine.store.op_log import OperationUnavailable, step_operation
+    from frisket.engine.store.change_log import ChangeUnavailable, step_change
 
     _sheet, _column, row = add(project, "restore", "secret")
     row_op = project.db.execute(
-        "SELECT op_id FROM structural_changes WHERE kind='row' AND object_id=? ORDER BY op_id DESC LIMIT 1",
+        "SELECT change_id FROM structural_changes WHERE kind='row' AND object_id=? ORDER BY change_id DESC LIMIT 1",
         (row,),
     ).fetchone()[0]
     assert project.undo() == row_op
     finish_purge(project, begin_purge(project, row_ids=[row]))
-    with pytest.raises(OperationUnavailable):
+    with pytest.raises(ChangeUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            step_operation(project, "restore", change_id=row_op)
+            step_change(project, "restore", change_id=row_op)
     assert (
         project.db.execute("SELECT hidden FROM rows WHERE id=?", (row,)).fetchone()[0]
         == 1
@@ -324,7 +324,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, copy_op)
         project.db.executemany(
-            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO copied_result_outcomes(change_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
             [
                 (copy_op, row_id, output, source_run, source_row, source_column)
                 for row_id in (first, second)
@@ -337,7 +337,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
     assert [
         int(row[0])
         for row in project.db.execute(
-            "SELECT row_id FROM copied_result_outcomes WHERE op_id=?", (copy_op,)
+            "SELECT row_id FROM copied_result_outcomes WHERE change_id=?", (copy_op,)
         )
     ] == [second]
     finish_purge(project, begin_purge(project, row_ids=[source_row]))
@@ -421,7 +421,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, saved_op)
         project.db.execute(
-            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO copied_result_outcomes(change_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
             (saved_op, saved_row, saved_column, run_id, first, output),
         )
         refresh_current_cells(project.db, column_ids=[saved_column])
@@ -449,7 +449,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
     assert refused.status == "failed"
     assert (
         project.db.execute(
-            "SELECT count(*) FROM ops WHERE kind='run.reapply'"
+            "SELECT count(*) FROM changes WHERE kind='run.reapply'"
         ).fetchone()[0]
         == 1
     )
@@ -540,7 +540,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, copy_op)
         project.db.execute(
-            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO copied_result_outcomes(change_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
             (copy_op, saved_row, saved_column, run_id, shared, output),
         )
         refresh_current_cells(project.db, column_ids=[saved_column])
@@ -681,8 +681,8 @@ def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
             {"sheet_id": first[0], "row_id": first[2], "snippet": "secret"},
             {"sheet_id": second[0], "row_id": second[2], "snippet": "public"},
         ],
-        op_cursor_before=project.op_cursor,
-        op_cursor_after=project.op_cursor,
+        change_cursor_before=project.change_cursor,
+        change_cursor_after=project.change_cursor,
         resolved_query_hash="purge-alert",
     )
     for source_kind, source_ref, dedupe_key, summary in (
@@ -783,7 +783,7 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
     finish_purge(project, begin_purge(project, row_ids=[row]))
     cleaned = json.loads(
         project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (review_op,)
+            "SELECT undo_info FROM changes WHERE id=?", (review_op,)
         ).fetchone()[0]
     )
     assert not any(target in cleaned.get(field, {}) for field in info)
@@ -810,8 +810,8 @@ def test_purged_receipt_replays_as_valid_refusal(project):
     from frisket.engine.store.runs import RunResultStore
 
     sheet, column, row = add(project, "receipt", "secret")
-    op_id = project.append_change("test.receipted")
-    run_id = RunResultStore(project).start_run(op_id, sheet, "test.receipted")
+    change_id = project.append_change("test.receipted")
+    run_id = RunResultStore(project).start_run(change_id, sheet, "test.receipted")
     write_claimed_test_results(
         project, run_id, [{"row_id": row, "column_id": column, "value": "answer"}]
     )
@@ -852,12 +852,12 @@ def test_late_result_refusal_keeps_paid_usage(project):
     source = project.add_column(sheet, "source")
     output = project.add_column(sheet, "generated", generated=True)
     row = project.add_rows(sheet, [{"source": "paid request"}], {"source": source})[0]
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)", "output": "generated"}
     )
     runs = RunResultStore(project)
     run_id = runs.start_run(
-        op_id, sheet, "map.regex_extract", row_ids=[row], total_rows=1
+        change_id, sheet, "map.regex_extract", row_ids=[row], total_rows=1
     )
     authority = run_writer_authority_fixture(
         project, run_id, output_column_ids={output}
@@ -976,7 +976,7 @@ def test_independent_saved_result_copy_keeps_payload_until_last_owner(project):
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         project.db.execute(
-            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO copied_result_outcomes(change_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
             (copy_op, second[2], second[1], run, first[2], first[1]),
         )
     original = begin_purge(project, sheet_ids=[first[0]])
@@ -1190,7 +1190,7 @@ def test_purge_source_forgets_consumed_capture_and_related_trace_only(project):
         bundle = store_capture(
             project,
             capture,
-            owner_op_id=owner,
+            owner_change_id=owner,
             output_sheet_id=output[0],
             run_id=run,
             row_id=output[2],

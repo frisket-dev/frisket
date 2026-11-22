@@ -94,7 +94,7 @@ def test_file_mapping_unmapped_fields_and_undo(tmp_path, project, kind):
     assert result.outputs[0].ref["edit_count"] == 1
     assert project.get_values(sheet, columns["qty"]) == {rows[0]: 11, rows[1]: 8}
     assert project.get_values(sheet, columns["note"])[rows[0]] == "keep"
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert project.get_values(sheet, columns["qty"])[rows[0]] == 3
     source.unlink()
     replay = run_action_spec(project, request, project_id="p")

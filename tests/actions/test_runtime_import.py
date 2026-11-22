@@ -278,7 +278,7 @@ def test_runtime_derived_arguments_and_reconstructed_results_cannot_forge_facts(
             "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
         ).fetchone()[0]
         op_text = runtime.project.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+            "SELECT spec FROM changes WHERE id=?", (result.change_ids[0],)
         ).fetchone()[0]
         assert marker not in receipt_text and marker not in op_text
         assert '"params"' not in op_text

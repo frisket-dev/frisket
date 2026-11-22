@@ -111,7 +111,7 @@ def test_reused_loader_requires_exactly_one_successful_call(
     assert result.errors[0].code == "project_write_failed"
     assert result.receipt_id is None
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize(

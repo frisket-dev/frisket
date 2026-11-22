@@ -25,10 +25,10 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     row_id = project.add_rows(
         sheet_id, [{"source": "contract.pdf"}], {"source": source_col}
     )[0]
-    op_id = project.append_change("map.extract", {"kind": "map.extract"})
+    change_id = project.append_change("map.extract", {"kind": "map.extract"})
     run_store = RunResultStore(project)
     run_id = run_store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         total_rows=1,
@@ -41,7 +41,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     )
     run_store.finish_run(run_id)
     with write_transaction(run_store.db):
-        run_store.point_column_at_run(op_id, output_col, run_id)
+        run_store.point_column_at_run(change_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
     current_ref = refs[row_id]
 
@@ -77,7 +77,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
             row_id=row_id,
             column_id=output_col,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id="receipt-1",
         )
 

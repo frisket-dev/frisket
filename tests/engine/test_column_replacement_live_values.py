@@ -19,7 +19,7 @@ from test_result_generation_store import (
 
 def _reject_clear(project, *, row_id: int, column_id: int) -> int:
     with write_transaction(project.db):
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "review.decision",
             {
                 "action_id": "review.decision",
@@ -29,10 +29,10 @@ def _reject_clear(project, *, row_id: int, column_id: int) -> int:
         )
         insert_edits(
             project.db,
-            op_id=op_id,
+            change_id=change_id,
             edits=[EditCellWrite(row_id=row_id, column_id=column_id, value=None)],
         )
-    return op_id
+    return change_id
 
 
 def test_selected_replacement_supersedes_only_exact_reject_clear_cell(
@@ -117,7 +117,7 @@ def test_selected_replacement_supersedes_only_exact_reject_clear_cell(
     )
     assert sorted_rows.row_ids == sorted(row_ids, key=lambda row_id: live[row_id])
 
-    assert project.undo() == replacement.op_id
+    assert project.undo() == replacement.change_id
     assert project.get_values(sheet_id, column_id, row_ids=row_ids) == {
         row_ids[0]: None,
         row_ids[1]: "manual",

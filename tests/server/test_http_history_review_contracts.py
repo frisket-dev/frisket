@@ -34,12 +34,12 @@ class _HistoryService:
             "prev_offset": None,
             "next_offset": None,
             "cursor_index": -1,
-            "cursor_op": None,
-            "cursor_op_loaded": False,
+            "cursor_change": None,
+            "cursor_change_loaded": False,
             "undo_target": None,
             "redo_target": None,
-            "revision": {"total": 0, "max_op_id": 0, "op_cursor": 0},
-            "ops": [],
+            "revision": {"total": 0, "max_change_id": 0, "change_cursor": 0},
+            "changes": [],
         }
 
 
@@ -121,7 +121,7 @@ class _ReviewService:
         offset: int,
         limit: int,
         run_id: int | None,
-        copied_op_id: int | None = None,
+        copied_change_id: int | None = None,
         include_reviewed: bool,
         field_id: int | None,
         order: str,
@@ -193,7 +193,7 @@ class _ReviewService:
         *,
         sheet_id: int | None,
         run_id: int | None,
-        copied_op_id: int | None = None,
+        copied_change_id: int | None = None,
         offset: int,
         limit: int,
     ) -> dict[str, Any]:
@@ -255,12 +255,12 @@ def test_history_review_contracts_preserve_bytes_omissions_and_open_json() -> No
         "prev_offset": None,
         "next_offset": None,
         "cursor_index": -1,
-        "cursor_op": None,
-        "cursor_op_loaded": False,
+        "cursor_change": None,
+        "cursor_change_loaded": False,
         "undo_target": None,
         "redo_target": None,
-        "revision": {"total": 0, "max_op_id": 0, "op_cursor": 0},
-        "ops": [],
+        "revision": {"total": 0, "max_change_id": 0, "change_cursor": 0},
+        "changes": [],
     }
 
     runs = client.get("/api/projects/p/columns/12/runs", params={"limit": 2})
@@ -345,20 +345,20 @@ def test_history_contract_preserves_an_ordinary_unlabeled_persisted_operation(
         "/api/projects", json={"name": "Unlabeled history operation"}
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
-    op_id = project.append_change("edit", {"cell": "unchanged"})
+    change_id = project.append_change("edit", {"cell": "unchanged"})
     # Admission alone is not a Change; this fixture represents a committed edit.
     from frisket.engine.store.changes import start_change
 
     with project.db:
-        project.db.execute("UPDATE ops SET label=label WHERE id=?", (op_id,))
-        start_change(project.db, op_id)
+        project.db.execute("UPDATE changes SET label=label WHERE id=?", (change_id,))
+        start_change(project.db, change_id)
 
     response = client.get(f"/api/projects/{project_id}/history")
 
     assert response.status_code == 200, response.text
-    assert response.json()["ops"] == [
+    assert response.json()["changes"] == [
         {
-            "id": op_id,
+            "id": change_id,
             "index": 0,
             "kind": "edit",
             "label": None,
@@ -366,7 +366,7 @@ def test_history_contract_preserves_an_ordinary_unlabeled_persisted_operation(
             "executable": True,
             "barrier": False,
             "at_cursor": True,
-            "created_at": response.json()["ops"][0]["created_at"],
+            "created_at": response.json()["changes"][0]["created_at"],
             "run": None,
         }
     ]
