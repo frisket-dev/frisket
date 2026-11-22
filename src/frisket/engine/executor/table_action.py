@@ -95,10 +95,16 @@ from frisket.engine.executor.collection_read import (
 )
 from frisket.actions.semantic_match_types import SemanticMatchReader
 from frisket.actions.join_types import JoinedTablesReader
+from frisket.actions.spatial_join_types import SpatialJoinReader
 from frisket.engine.executor.joined_tables_read import (
     AdmittedJoinedTablesReader,
     JoinRefreshAdmission,
     validate_joined_tables_source,
+)
+from frisket.engine.executor.spatial_join_read import (
+    AdmittedSpatialJoinReader,
+    SpatialJoinAdmission,
+    validate_spatial_join_source,
 )
 from frisket.actions.transcript_types import (
     TranscriptReader,
@@ -182,6 +188,8 @@ def _table_replay_error(project: Project, receipt: Receipt) -> ActionError | Non
                 validate_semantic_match_source(project, entry.ref)
             elif entry.ref.get("kind") == "joined_tables_source":
                 validate_joined_tables_source(project, entry.ref)
+            elif entry.ref.get("kind") == "spatial_join_source":
+                validate_spatial_join_source(project, entry.ref)
     except TableError:
         return stale()
 
@@ -327,7 +335,12 @@ def _admitted_parent_sheet(readers):
         if isinstance(source, RowSource)
         and not (
             isinstance(
-                reader, (AdmittedSemanticMatchReader, AdmittedJoinedTablesReader)
+                reader,
+                (
+                    AdmittedSemanticMatchReader,
+                    AdmittedJoinedTablesReader,
+                    AdmittedSpatialJoinReader,
+                ),
             )
             and reader.source_roles.get(source) in {"edge_target", "join_right"}
         )
@@ -674,6 +687,19 @@ def prepare_table_producer(
                     refresh_admission=join_refresh,
                 )
                 resources.callback(reader.close)
+            elif capability is SpatialJoinReader:
+                reader = AdmittedSpatialJoinReader(
+                    project,
+                    scope=bound.request.scope,
+                    admission=SpatialJoinAdmission(
+                        action_kind=bound.action.action_id,
+                        request_identity=normalized_typed_request_identity(bound),
+                        confirmation=bound.request.confirmation,
+                        refresh_admission=join_refresh,
+                        schema_only=schema_only,
+                    ),
+                )
+                resources.callback(reader.close)
             elif capability is TranscriptReader:
                 reader = AdmittedTranscriptReader(
                     project,
@@ -835,6 +861,10 @@ def prepare_table_producer(
                     readers[JoinedTablesReader].validate_lineage(
                         item[1].sources, item[1].parent
                     )
+                elif SpatialJoinReader in readers:
+                    readers[SpatialJoinReader].validate_lineage(
+                        item[1].sources, item[1].parent
+                    )
                 elif any(source.sheet_id != parent for source in item[1].sources):
                     raise ValueError(
                         "table sources must match the admitted parent sheet"
@@ -864,6 +894,7 @@ def _table_read_metadata(bound, produced, readers, row_count):
         or CollectionReader in readers
         or SemanticMatchReader in readers
         or JoinedTablesReader in readers
+        or SpatialJoinReader in readers
         or TranscriptReader in readers
         or PositionedDocumentReader in readers
         or TemporalMediaReader in readers
@@ -1256,6 +1287,7 @@ def run_table_source(
                 "collection_reader": prepared.readers.get(CollectionReader),
                 "semantic_match_reader": prepared.readers.get(SemanticMatchReader),
                 "joined_tables_reader": prepared.readers.get(JoinedTablesReader),
+                "spatial_join_reader": prepared.readers.get(SpatialJoinReader),
                 "projection_readers": [
                     prepared.readers[c]
                     for c in (
@@ -1547,6 +1579,8 @@ def _perform_table_in_txn(
                 validate_semantic_match_source(project, fact)
             elif fact.get("kind") == "joined_tables_source":
                 validate_joined_tables_source(project, fact)
+            elif fact.get("kind") == "spatial_join_source":
+                validate_spatial_join_source(project, fact)
     except TableError as error:
         return ctx.fail(error.code, str(error))
     table = resolved["materialization"]
@@ -1576,7 +1610,10 @@ def _perform_table_in_txn(
     from frisket.engine.store.derived_updates import MaterializedIdentity, join_identity
 
     refresh_identity = None
-    if resolved.get("joined_tables_reader") is not None:
+    if (
+        resolved.get("joined_tables_reader") is not None
+        or resolved.get("spatial_join_reader") is not None
+    ):
         refresh_identity = MaterializedIdentity(
             "join",
             [
@@ -1614,6 +1651,7 @@ def _perform_table_in_txn(
                     if list_reader is not None
                     else resolved.get("collection_reader") is None
                     and resolved.get("joined_tables_reader") is None
+                    and resolved.get("spatial_join_reader") is None
                     and resolved.get("sheet_rows_reader") is None,
                 )
                 for column in table.columns

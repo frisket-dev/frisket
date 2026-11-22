@@ -52,9 +52,9 @@ describe('served action ribbon organization', () => {
       }
       return tab.groups.flatMap((group) => group.items);
     });
-    // All 51 standalone actions (including Structured Agent Research) and 10 workflow or
-    // compare commands remain present, with no duplicate base-tab launchers.
-    expect(items).toHaveLength(61);
+    // All 52 standalone actions (including Structured Agent Research and Spatial join)
+    // and 10 workflow or compare commands remain present, with no duplicate base-tab launchers.
+    expect(items).toHaveLength(62);
     expect(new Set(items.map((item) => item.kind === 'action' ? item.launcherKind
       : item.kind === 'command' ? item.command : item.contributionId)).size).toBe(items.length);
   });
@@ -63,6 +63,7 @@ describe('served action ribbon organization', () => {
     expect(placements).toEqual(expect.arrayContaining([
       { kind: 'map.regex_extract', tab: 'analyze', group: 'EXTRACT' },
       { kind: 'map.columns_from_json', tab: 'tables', group: 'SHEETS' },
+      { kind: 'derive.spatial_join', tab: 'tables', group: 'JOIN' },
       { kind: 'derive.link_table', tab: 'tables', group: 'SHEETS' },
       { kind: 'media.enclosure_materialize', tab: 'data', group: 'WEB' },
     ]));

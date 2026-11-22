@@ -100,6 +100,7 @@ from frisket.actions.row_media_types import FrameExtractor, FaceExtractor
 from frisket.actions.semantic_match_types import SemanticMatchReader
 from frisket.actions.semantic_join_types import SemanticJoinMatch, SemanticMatcher
 from frisket.actions.join_types import JoinedTablesReader
+from frisket.actions.spatial_join_types import SpatialJoinReader
 from frisket.actions.temporal_types import TemporalMediaReader
 from frisket.actions.transcript_types import (
     TranscriptReader,
@@ -1512,6 +1513,14 @@ _CAPABILITY_CATALOG_SPECS: Mapping[type[Any], CapabilityCatalogSpec] = MappingPr
                 (
                     "join_fanout_requires_confirmation",
                     "The join exceeds the output row limit; echo the current confirmation token.",
+                ),
+            )
+        ),
+        SpatialJoinReader: CapabilityCatalogSpec(
+            errors=(
+                (
+                    "join_fanout_requires_confirmation",
+                    "The spatial join exceeds the output row limit; echo the current confirmation token.",
                 ),
             )
         ),
@@ -3482,6 +3491,7 @@ def create_sheet(
             CollectionReader,
             SemanticMatchReader,
             JoinedTablesReader,
+            SpatialJoinReader,
             TranscriptReader,
             TemporalMediaReader,
             ClusterReceiptReader,
@@ -3723,6 +3733,7 @@ def _request_scope_types(
                 (PositionedDocumentReader, (SheetRows,)),
                 (TemporalMediaReader, (SheetRows,)),
                 (JoinedTablesReader, (SheetRows,)),
+                (SpatialJoinReader, (SheetRows,)),
                 (SheetRowsReader, (SheetRows,)),
                 (SemanticMatchReader, (ProjectScope, SheetRows)),
             )

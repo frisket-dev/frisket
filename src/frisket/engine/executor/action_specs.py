@@ -271,6 +271,7 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "column.set_type",
         "derive.collection_expand",
         "derive.join",
+        "derive.spatial_join",
         "derive.link_table",
         "derive.table_from_list",
         "derive.temporal_segments",
@@ -473,6 +474,10 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "derive.join": (
             "Derive join computes a local in-memory join across already-loaded "
             "sheets; no network."
+        ),
+        "derive.spatial_join": (
+            "Spatial join evaluates pure-Python point-in-polygon containment "
+            "across already-loaded sheets locally; no network."
         ),
         "derive.link_table": (
             "Link table derive builds a local join table from already-loaded "

@@ -17,6 +17,7 @@ import { SubstituteForm } from '../resolve/SubstituteForm';
 import { PythonCodeField } from './ActionParams';
 import { ApiCallParamsBody } from './ApiCallParamsBody';
 import { JoinParamsBody } from './JoinParamsBody';
+import { SpatialJoinParamsBody } from './SpatialJoinParamsBody';
 import { SemanticJoinParamsBody } from './SemanticJoinParamsBody';
 import { MediaSegmentsParamsBody, TranscriptSegmentsParamsBody } from './TranscriptSegmentsParamsBody';
 import { TemporalExtractParamsBody } from './TemporalExtractParamsBody';
@@ -201,6 +202,8 @@ const EXACT_CUSTOMIZATIONS = {
   'join.semantic': { body: SemanticJoinParamsBody, primaryLabel: 'Match rows', defaultSheetName: 'Matches',
     initialParams: { carry: [] } },
   'derive.join': { body: JoinParamsBody, primaryLabel: 'Join tables', defaultSheetName: 'Joined',
+    outputLabel: (key: string) => key === '_merge' ? 'Indicator' : undefined },
+  'derive.spatial_join': { body: SpatialJoinParamsBody, primaryLabel: 'Spatial join', defaultSheetName: 'Spatial joined',
     outputLabel: (key: string) => key === '_merge' ? 'Indicator' : undefined },
   'media.ytdlp_download': {
     body: DownloadMediaOptions,

@@ -21,6 +21,7 @@ from typing import Annotated, Any, Union, get_args, get_origin
 from pydantic import BaseModel, ValidationError
 
 from frisket.actions.registry import ACTION_REGISTRY, NEW_ACTION_IDS
+from frisket.actions.spatial_join_types import SpatialJoinReader
 from frisket.actions.types import discover_references, source_kind
 from frisket.authoring.action_metadata import (
     action_available_in_edition,
@@ -467,7 +468,10 @@ class ActionParamValidationService:
 
                     join_schema = isinstance(
                         terminal, CreateSheet
-                    ) and terminal.capabilities == (JoinedTablesReader,)
+                    ) and terminal.capabilities in (
+                        (JoinedTablesReader,),
+                        (SpatialJoinReader,),
+                    )
                     from frisket.actions.page_capture_types import PageCapturer
 
                     capture_schema = isinstance(

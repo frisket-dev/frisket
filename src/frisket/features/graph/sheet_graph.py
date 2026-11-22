@@ -16,7 +16,7 @@ EDGE_ROLES = (*LINK_ROLES, *JOIN_ROLES)
 
 # changes.kind values whose output sheets carry edge/join membership.
 EDGE_OP_KINDS = {"derive.link_table"}
-JOIN_OP_KINDS = {"derive.join"}
+JOIN_OP_KINDS = {"derive.join", "derive.spatial_join"}
 
 _DEFAULT_LIMIT_NODES = 200
 _DEFAULT_LIMIT_EDGES = 500

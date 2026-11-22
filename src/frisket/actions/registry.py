@@ -63,6 +63,7 @@ from frisket.actions.list_table import TABLE_FROM_LIST
 from frisket.actions.collection_expand import COLLECTION_EXPAND
 from frisket.actions.link_table import LINK_TABLE
 from frisket.actions.joins import JOIN
+from frisket.actions.spatial_join import SPATIAL_JOIN
 from frisket.actions.semantic_join import SEMANTIC_JOIN
 from frisket.actions.media_metadata import EXTRACT_METADATA
 from frisket.actions.pdf_tables import EXTRACT_PDF_TABLES
@@ -204,6 +205,7 @@ DERIVE_ACTIONS = ActionNamespace(
         COLLECTION_EXPAND,
         LINK_TABLE,
         JOIN,
+        SPATIAL_JOIN,
         TRANSCRIPT_SEGMENTS,
         TEMPORAL_SEGMENTS,
     ),
