@@ -229,12 +229,13 @@ class ActionPreviewService:
                         raise ActionPreviewRouteError(
                             400, exc.error.model_dump(mode="json"), bare_json=True
                         ) from exc
-                    estimate = (
-                        _prepared_model_estimate(
+                    if refresh.prepared_group is not None:
+                        estimate = _prepared_model_estimate(
                             typed, refresh.prepared_group, consent_coverage=coverage
                         )
-                        if refresh.prepared_group is not None
-                        else {
+                    else:
+                        assert refresh.prepared is not None
+                        estimate = {
                             "rows": refresh.prepared.row_count,
                             "cost": 0.0,
                             "cost_source": "free_local",
@@ -242,7 +243,6 @@ class ActionPreviewService:
                             "policy_id": default_pricing_policy().policy_id,
                             "requires_confirmation": False,
                         }
-                    )
                     return {
                         "schema_version": ACTION_ESTIMATE_RESULT_SCHEMA_VERSION,
                         "action": {"kind": typed.action.action_id},
@@ -362,6 +362,7 @@ class ActionPreviewService:
             raise _action_error(400, "estimate does not support this action")
 
         if backfill_plan is not None:
+            assert typed is not None
             action_kind = typed.action.action_id
             spec = backfill_plan.spec()
             try:
@@ -369,6 +370,7 @@ class ActionPreviewService:
             except (KeyError, TypeError, ValueError) as exc:
                 raise _action_error(400, str(exc)) from exc
         else:
+            assert typed_plan is not None
             action_kind = typed_plan.request.action_id
             spec = typed_plan.spec_dict()
             program = typed_plan.program

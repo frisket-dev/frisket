@@ -122,6 +122,7 @@ from frisket.execution.attempt import (
 from frisket.execution.attempt_authority import (
     AttemptAuthority,
     DependentChoiceRefusal,
+    UnroutedOnlyAuthority,
 )
 from frisket.execution.resolver import CandidateBinding
 from frisket.execution.runtime_binding import bind_fact_to_route
@@ -434,7 +435,7 @@ class MapRunner:
     allow_action_lifecycle_only_programs: bool = False
     halt_after_consecutive_failures: int | None = DEFAULT_FAILURE_HALT_STREAK
     # Mint once after admission and before any row executes.
-    authority: "AttemptAuthority" = field(kw_only=True)
+    authority: AttemptAuthority | UnroutedOnlyAuthority = field(kw_only=True)
     consent_coverage: ConsentCoverage | None = field(kw_only=True, default=None)
     claimless_direct_effect: bool = field(kw_only=True, default=False)
     # Rating occurs at consent mint; dispatch never rates.
@@ -1145,6 +1146,7 @@ class MapRunner:
             try:
                 if attempt is None:
                     if admitted_attempt_id is not None:
+                        assert isinstance(self.authority, AttemptAuthority)
                         attempt = self.authority.load_admitted(
                             attempt_id=admitted_attempt_id,
                             program=action_program,
