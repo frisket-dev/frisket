@@ -881,10 +881,6 @@ def sample_foreign_registry_csv() -> str:
     )
 
 
-def sample_multilingual_names_csv() -> str:
-    return sample_foreign_registry_csv()
-
-
 def sample_agency_payments_csv() -> str:
     return _csv(
         _AGENCY_PAYMENTS,
