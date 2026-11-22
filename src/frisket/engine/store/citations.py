@@ -24,7 +24,7 @@ from frisket.engine.store.citation_text import (
 from frisket.engine.store.deep_link import compose_deep_link
 from frisket.engine.store.current_value_windows import decode_text_prefix
 from frisket.engine.store.media_blobs import MediaBlobStore
-from frisket.engine.store.project import Project
+from frisket.engine.store.project import Project, ProjectReadSnapshot
 from frisket.engine.store.retrieval_lifecycle import (
     RETRIEVAL_CITATION_ROLES,
     touch_binding_revisions,
@@ -820,7 +820,7 @@ def _group_citation_runs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def citation_temporal_runs(
-    project: Project, citation_ref: int | str
+    project: Project | ProjectReadSnapshot, citation_ref: int | str
 ) -> list[dict[str, Any]]:
     """A citation link's cited (``required=1``) temporal spans on an ``av``
     artifact, grouped into contiguous runs (:data:`CITATION_RUN_GAP_TOLERANCE_MS`).
@@ -882,7 +882,7 @@ def citation_temporal_runs(
 
 
 def resolve_citation_viewer(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     citation_ref: int | str,
     *,
     project_id: str | None = None,
@@ -1206,7 +1206,9 @@ def _text_hash(text: str) -> str:
 
 
 def _text_layer_hash_mismatch(
-    project: Project, link: sqlite3.Row, joined_spans: list[sqlite3.Row]
+    project: Project | ProjectReadSnapshot,
+    link: sqlite3.Row,
+    joined_spans: list[sqlite3.Row],
 ) -> bool:
     """True if any span's stored ``text_layer_hash`` no longer matches the
     link's subject cell's CURRENT live value (evidence-stale-on-reprocess-v1).
@@ -1530,7 +1532,9 @@ def _span_id_for_ref(project: Project, span: dict[str, Any]) -> int:
     return int(row["id"])
 
 
-def _lookup_link(project: Project, citation_ref: int | str) -> sqlite3.Row | None:
+def _lookup_link(
+    project: Project | ProjectReadSnapshot, citation_ref: int | str
+) -> sqlite3.Row | None:
     if isinstance(citation_ref, int):
         return project.db.execute(
             "SELECT * FROM citations WHERE id=?", (citation_ref,)

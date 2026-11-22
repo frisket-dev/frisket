@@ -1981,7 +1981,7 @@ def _run_paid_embedding_dimension_probe(
             sheet_id,
             action.kind,
             model=str(params.model or cap["model_id"]),
-            params=action.params,
+            params=dict(action.params),
             total_rows=1,
         )
     except Exception:
@@ -2442,7 +2442,7 @@ def _create_index(
             )
         if probe_run_store.cancellation_requested(probe_run_id):
             probe = probe_run_store.get_run(probe_run_id)
-            if probe["status"] == "running":
+            if probe is not None and probe["status"] == "running":
                 probe_run_store.finish_run(probe_run_id, "cancelled")
             raise asyncio.CancelledError
         discovered_dimension = int(checkpoint["dimension"])
@@ -2658,7 +2658,7 @@ def _create_index(
         if probe_run_id is not None and probe_run_store is not None:
             if probe_run_store.cancellation_requested(probe_run_id):
                 probe = probe_run_store.get_run(probe_run_id)
-                if probe["status"] == "running":
+                if probe is not None and probe["status"] == "running":
                     probe_run_store.finish_run(probe_run_id, "cancelled")
                 raise asyncio.CancelledError from exc
         if isinstance(exc, StaleAttemptWriter):
@@ -2881,7 +2881,7 @@ def _do_refresh(
     checkpoint_store: EffectCheckpointStore | None = None
     try:
         refreshed = 0
-        batch_result: dict[str, Any] | None = None
+        batch_result: Mapping[str, Any] | None = None
         if to_embed:
             live_req = _RefreshRequest(
                 action=action,
@@ -3256,6 +3256,7 @@ def _do_refresh(
                                 fence=refresh_fence,
                             )
                         else:
+                            assert provider_fact is not None
                             with write_transaction(
                                 project.db, what="embedding refresh provider fact"
                             ):
@@ -3784,7 +3785,7 @@ def _embedding_refresh_effect_unit(
 
 
 def _embedding_provider_fact(
-    result: dict[str, Any] | None,
+    result: Mapping[str, Any] | None,
 ) -> dict[str, Any] | None:
     if result is None:
         return None
@@ -4007,6 +4008,7 @@ class _IndexPolicyUpdater:
             provider_policy=provider_policy,
         )
         updated = store.get_index(index_id)
+        assert updated is not None
         self.result = EmbeddingIndexPolicy(
             index_id=updated["id"],
             space_id=updated["space_id"],
@@ -4195,7 +4197,7 @@ class _IndexCreator(_EmbeddingLifecycleCapability):
         provider_policy=None,
         name=None,
     ) -> CreatedEmbeddingIndex:
-        return self._run(
+        result = self._run(
             dict(
                 source_columns=source_columns,
                 sheet_id=sheet_id,
@@ -4212,6 +4214,8 @@ class _IndexCreator(_EmbeddingLifecycleCapability):
             ),
             create=True,
         )
+        assert isinstance(result, CreatedEmbeddingIndex)
+        return result
 
 
 class _IndexRefresher(_EmbeddingLifecycleCapability):
@@ -4223,7 +4227,7 @@ class _IndexRefresher(_EmbeddingLifecycleCapability):
         trigger_ref=None,
         row_scope=None,
     ) -> RefreshedEmbeddingIndex:
-        return self._run(
+        result = self._run(
             dict(
                 index_id=index_id,
                 mode=mode,
@@ -4232,6 +4236,8 @@ class _IndexRefresher(_EmbeddingLifecycleCapability):
             ),
             create=False,
         )
+        assert isinstance(result, RefreshedEmbeddingIndex)
+        return result
 
 
 def supports_typed_embedding_action(terminal: object) -> TypeGuard[_ProjectAction]:
@@ -4271,12 +4277,14 @@ def run_typed_embedding_action(
         if not skip_replay:
             existing = _receipt_for_idempotency(project, envelope.idempotency_key)
             if existing is not None and existing["status"] != "running":
-                return _replay(
+                replayed = _replay(
                     project,
                     envelope,
                     params_hash=params_hash,
                     project_id=project_id,
                 )
+                if replayed is not None:
+                    return replayed
         capability_type = (
             _IndexCreator
             if terminal.capabilities == (IndexCreator,)

@@ -727,6 +727,7 @@ def register_operational_routes(
                 detail=f"{pull_id}:{row.model_ref}",
             )
         row = model_pull_store.get(queue_engine, pull_id)
+        assert row is not None
         return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(

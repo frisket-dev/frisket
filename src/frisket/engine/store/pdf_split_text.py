@@ -14,16 +14,26 @@ from .value_codec import decode_stored_value
 
 
 class PdfSplitTextBinding(Protocol):
-    operation_id: int
-    generation: str
-    session_id: str
-    row_id: int
-    artifact_id: int
-    source_column_id: int
-    text_column_id: int
-    page_number: int
-    expected_source_value: Any
-    expected_text_value: Any
+    @property
+    def operation_id(self) -> int: ...
+    @property
+    def generation(self) -> str: ...
+    @property
+    def session_id(self) -> str: ...
+    @property
+    def row_id(self) -> int: ...
+    @property
+    def artifact_id(self) -> int: ...
+    @property
+    def source_column_id(self) -> int: ...
+    @property
+    def text_column_id(self) -> int: ...
+    @property
+    def page_number(self) -> int: ...
+    @property
+    def expected_source_value(self) -> Any: ...
+    @property
+    def expected_text_value(self) -> Any: ...
 
 
 def _identity(db: Any, row_id: int, column_id: int) -> dict[str, Any] | None:

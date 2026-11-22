@@ -344,6 +344,7 @@ def _source_plan(
             if child.get("keep_original"):
                 path, digest, size = None, source["sha256"], source["size"]
             else:
+                assert reader is not None
                 path = scratch / f"{index}.pdf"
                 write_pdf_range(reader, path, start, end, should_cancel=stopped)
                 with path.open("rb") as child_source:

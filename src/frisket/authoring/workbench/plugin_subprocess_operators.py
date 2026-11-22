@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from frisket.contracts import plugin_rpc
-from frisket.engine.store import Project
 from frisket.plugins.process_client import (
     PluginProcessError,
 )
@@ -17,7 +16,7 @@ from frisket.authoring.workbench.plugin_subprocess import (
 
 
 def run_plugin_operator_subprocess(
-    project: Project,
+    project: Any,
     *,
     binding: Any,
     payload: dict[str, Any],

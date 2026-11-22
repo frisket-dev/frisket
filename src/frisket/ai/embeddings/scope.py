@@ -14,9 +14,9 @@ from collections.abc import Iterator
 from dataclasses import replace
 from typing import Any
 
-from frisket.engine.store import Project
 from frisket.contracts.query_spec import canonical_json, normalize_query_spec
 from frisket.querysets import (
+    RowScopeReader,
     SheetRowScopePlan,
     SheetRowSetError,
     execute_sheet_row_page_without_total,
@@ -54,7 +54,7 @@ def _safe_obj(value: Any) -> dict[str, Any]:
 
 
 def scope_plan(
-    project: Project, sheet_id: int, spec: dict[str, Any]
+    project: RowScopeReader, sheet_id: int, spec: dict[str, Any]
 ) -> SheetRowScopePlan:
     """Compile one stored named-index source scope.
 
@@ -99,7 +99,7 @@ def scope_plan(
 
 
 def iter_scope_row_pages(
-    project: Project,
+    project: RowScopeReader,
     sheet_id: int,
     spec: dict[str, Any],
     *,
@@ -124,7 +124,7 @@ def iter_scope_row_pages(
 
 
 def resolve_scope_rows(
-    project: Project, sheet_id: int, spec: dict[str, Any]
+    project: RowScopeReader, sheet_id: int, spec: dict[str, Any]
 ) -> list[int]:
     """Materialize a complete scope for explicit all-row action boundaries."""
 
@@ -135,7 +135,7 @@ def resolve_scope_rows(
     ]
 
 
-def index_scope_plan(project: Project, index: Any) -> SheetRowScopePlan | None:
+def index_scope_plan(project: RowScopeReader, index: Any) -> SheetRowScopePlan | None:
     """Compile an index's stored source scope, or None for an unbound index."""
 
     sheet_id = index["sheet_id"]
@@ -145,7 +145,7 @@ def index_scope_plan(project: Project, index: Any) -> SheetRowScopePlan | None:
 
 
 def iter_index_scope_row_pages(
-    project: Project, index: Any, *, page_size: int = DEFAULT_SCOPE_PAGE_SIZE
+    project: RowScopeReader, index: Any, *, page_size: int = DEFAULT_SCOPE_PAGE_SIZE
 ) -> Iterator[list[int]]:
     """Yield an index's source rows in stable stored-scope order."""
 

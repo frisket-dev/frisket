@@ -456,8 +456,8 @@ async def run_preview(
 
     from frisket.execution.dispatch_control import dispatch_for_context
 
-    router = router.for_execution(dispatch_for_context(ctx))
-    ctx.extras["router"] = router
+    bound_router = router.for_execution(dispatch_for_context(ctx))
+    ctx.extras["router"] = bound_router
     values: dict[int, dict[str, dict[str, Any]]] = {}
     total_sample = len(row_ids)
     done = 0
@@ -672,7 +672,7 @@ async def run_preview(
                         ):
                             cells = await execute_row(
                                 project,
-                                router,
+                                bound_router,
                                 throttle,
                                 action_program,
                                 row_input_values,

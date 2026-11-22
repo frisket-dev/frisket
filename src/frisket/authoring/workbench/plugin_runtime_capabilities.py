@@ -29,6 +29,7 @@ from frisket.authoring.workbench.plugin_package_catalog import (
 )
 from frisket.authoring.workbench.plugin_runtime_status import (
     PluginAdmissionRefusal,
+    _ProjectDbReader,
     admit_project_plugin,
     _assert_manifest_ref_module_integrity,
     _effective_required_capabilities,
@@ -63,7 +64,7 @@ class _BackendContributionSnapshot:
 
 
 def project_runtime_binding(
-    project: Project,
+    project: _ProjectDbReader,
     *,
     binding_type: str,
     kind: str,

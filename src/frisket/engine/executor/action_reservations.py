@@ -375,6 +375,7 @@ def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
         return True
 
     if run_id is not None:
+        assert run is not None
         attempts = project.db.execute(
             "SELECT id,state FROM execution_attempts WHERE run_id=?",
             (int(run_id),),
@@ -436,6 +437,7 @@ def _running_receipt_stale_result(
                     project, current, params_hash
                 )
             )
+            assert current is not None
             if current["status"] != "running":
                 terminalized_receipt = current.parsed()
             else:
@@ -602,7 +604,9 @@ def _reserve_running_action_receipt(
     params_hash: str,
     project_id: str,
     reservation_kind: str,
-    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
+    result_from_existing_fn: (
+        Callable[..., ActionResult | dict[str, Any] | None] | None
+    ) = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     params_model: type[BaseModel] | None = None,
     edition_run_context: Mapping[str, Any] | None = None,
@@ -655,7 +659,9 @@ def _reserve_running_action_receipt_in_transaction(
     params_hash: str,
     project_id: str,
     reservation_kind: str,
-    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
+    result_from_existing_fn: (
+        Callable[..., ActionResult | dict[str, Any] | None] | None
+    ) = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     params_model: type[BaseModel] | None = None,
     edition_run_context: Mapping[str, Any] | None = None,
@@ -884,6 +890,7 @@ def _local_endpoint_bindings_for_runner_spec(
 
     bindings: dict[str, str] = {}
     for model_id in sorted(local_model_ids):
+        assert router is not None
         endpoint_id, origin = router.local_endpoint_identity(model_id)
         previous_origin = bindings.setdefault(endpoint_id, origin)
         if previous_origin != origin:
@@ -1595,7 +1602,7 @@ def _finalize_reserved_receipt_write(
     action: _ActionExecutionEnvelope,
     *,
     receipt: Receipt,
-    params_hash: str,
+    params_hash: str | None,
     options: Mapping[str, Any],
 ) -> tuple[str, Any]:
     existing = _receipt_for_idempotency(project, action.idempotency_key)
@@ -1683,7 +1690,9 @@ def _finalize_reserved_action_receipt(
     project_id: str,
     receipt: Receipt,
     reservation_lost_message: str | None = None,
-    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
+    result_from_existing_fn: (
+        Callable[..., ActionResult | dict[str, Any] | None] | None
+    ) = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     result_from_existing_kwargs: dict[str, Any] | None = None,
     require_running_status: bool = True,
@@ -1742,7 +1751,9 @@ def _finalize_reserved_action_receipt_in_transaction(
     action: _ActionExecutionEnvelope,
     *,
     receipt: Receipt,
-    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
+    result_from_existing_fn: (
+        Callable[..., ActionResult | dict[str, Any] | None] | None
+    ) = None,
     before_commit: Callable[[], None] | None = None,
 ) -> ActionResult | None:
     """Finalize one reserved action receipt inside the caller's transaction."""
@@ -1870,17 +1881,19 @@ def _reserved_maprunner_result_from_existing(
             if params is not None
             else spec.params_model.model_validate(action.params)
         )
-        replay_error_fn = None
+        replay_error_fn: Callable[[Receipt], ActionError | None] | None = None
         if spec.replay_error_fn is not None:
             replay_error_spec_fn = spec.replay_error_fn
 
-            def replay_error_fn(receipt: Receipt) -> ActionError | None:
+            def _replay_error(receipt: Receipt) -> ActionError | None:
                 return replay_error_spec_fn(
                     project,
                     typed_params,
                     receipt,
                     action,
                 )
+
+            replay_error_fn = _replay_error
 
         return _reserved_receipt_result_from_existing(
             project,
