@@ -9,7 +9,6 @@ import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
 import {
   ApiError,
-  ConfirmationRequiredError,
   type AlertInfo,
   type AlertPatchInput,
   type AlertCheck,
@@ -17,6 +16,7 @@ import {
   type AlertCheckResult,
   type AlertChecksPage,
 } from '../api/open';
+import { useCostConfirmationRetry } from '../hooks/useCostConfirmationRetry';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { dispatchNotificationsChanged, useNotificationSummary } from './notifications/useNotificationSummary';
@@ -317,6 +317,7 @@ function useAlertsPanelController(canEdit: boolean) {
   }, [invalidateAlertList, pendingCreateAction, alertCheckLinkHandle]);
 
   const { requestCostConfirmation } = useJobsHandle();
+  const runWithCostConfirmation = useCostConfirmationRetry(requestCostConfirmation);
 
   const runAlertAction = useCallback((alertId: number, intent: 'run' | 'refresh_run', status: string, request: () => Promise<AlertCheckResult | null>) => {
     if (!canEdit) return;
@@ -445,33 +446,15 @@ function useAlertsPanelController(canEdit: boolean) {
   // Refresh a blocked embedding alert's index, then re-run the alert.
   const refreshAlertIndex = useCallback((alertId: number, indexId: string) => {
     runAlertAction(alertId, 'refresh_run', 'Refreshing index…', async () => {
-      let confirmation: string | undefined;
-      for (;;) {
-        try {
-          if (confirmation === undefined) {
-            await projectApi.refreshEmbeddingIndex(indexId, 'incremental');
-          } else {
-            await projectApi.refreshEmbeddingIndex(indexId, 'incremental', { confirmation });
-          }
-          break;
-        } catch (caught) {
-          if (
-            !(caught instanceof ConfirmationRequiredError)
-            || !caught.estimate.promise_set_hash
-          ) {
-            throw caught;
-          }
-          const confirmed = await requestCostConfirmation(
-            caught.estimate,
-            caught.message,
-          );
-          if (!confirmed) return null;
-          confirmation = caught.estimate.promise_set_hash;
-        }
-      }
+      const outcome = await runWithCostConfirmation((confirmation) =>
+        confirmation === undefined
+          ? projectApi.refreshEmbeddingIndex(indexId, 'incremental')
+          : projectApi.refreshEmbeddingIndex(indexId, 'incremental', { confirmation }),
+      );
+      if (outcome.status !== 'completed') return null;
       return projectApi.checkAlert(alertId);
     });
-  }, [projectApi, requestCostConfirmation, runAlertAction]);
+  }, [projectApi, runAlertAction, runWithCostConfirmation]);
 
   const toggleRuns = useCallback((alertId: number) => {
     const nextOpen = !expanded[alertId];

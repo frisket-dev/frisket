@@ -43,6 +43,7 @@ from frisket.engine.jobs.model_pull import (
 )
 from frisket.engine.jobs.queue import SERVER_SCOPED_JOB_PAYLOAD_KEY
 from frisket.local_provider_config import (
+    ENV_VAR,
     InvalidProviderConfigError,
     load_local_provider_keys,
     resolve_local_endpoints,
@@ -617,7 +618,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         env = dict(os.environ)
         key = (
             (body.key or "").strip()
-            or env.get(provider_config.ENV_VAR[normalized])
+            or env.get(ENV_VAR[normalized])
             or load_local_provider_keys(root).get(normalized)
         )
         if not key:

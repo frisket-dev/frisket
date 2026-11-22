@@ -11,9 +11,16 @@ from frisket.engine.store.transactions import (
     require_transaction,
     write_transaction,
 )
+from collections.abc import Callable, Collection, Mapping
 import json
 import sqlite3
-from typing import Any, Collection
+from typing import Any
+
+NotificationChannelRow = Mapping[str, Any]
+NotificationChannelResolver = Callable[
+    [sqlite3.Row | None],
+    NotificationChannelRow | None,
+]
 
 TERMINAL_REQUEST_STATUSES = frozenset(
     {"sent", "failed", "skipped", "cancelled", "reconciliation_required"}
@@ -550,14 +557,63 @@ def ensure_default_in_app_notification_channel(project: Any) -> dict[str, Any]:
     )
 
 
-def notification_channel(project: Any, channel_id: int) -> sqlite3.Row | None:
+def set_notification_channel_resolver(
+    project: Any,
+    resolver: NotificationChannelResolver | None,
+    *,
+    delivery_only: bool = False,
+) -> None:
+    """Attach or clear an in-memory resolver for notification channel reads.
+
+    When ``delivery_only=True``, the resolver applies only to the next channel
+    lookup after ``claim_notification_delivery_request`` succeeds on this
+    project handle; the claim flag is cleared before the database read so a
+    failed lookup cannot leak transient credentials to later reads.
+    """
+    project._notification_channel_resolver = resolver
+    project._notification_channel_resolver_delivery_only = bool(delivery_only)
+    project._notification_delivery_claimed = False
+
+
+def _raw_notification_channel(project: Any, channel_id: int) -> sqlite3.Row | None:
     return project.db.execute(
         "SELECT * FROM notification_channels WHERE id=?",
         (int(channel_id),),
     ).fetchone()
 
 
-def require_notification_channel(project: Any, channel_id: int) -> sqlite3.Row:
+def _resolve_notification_channel(
+    project: Any,
+    row: sqlite3.Row | None,
+    *,
+    claimed: bool,
+) -> NotificationChannelRow | None:
+    resolver: NotificationChannelResolver | None = getattr(
+        project, "_notification_channel_resolver", None
+    )
+    if resolver is None:
+        return row
+    delivery_only = bool(
+        getattr(project, "_notification_channel_resolver_delivery_only", False)
+    )
+    if delivery_only and not claimed:
+        return row
+    return resolver(row)
+
+
+def notification_channel(
+    project: Any, channel_id: int
+) -> NotificationChannelRow | None:
+    claimed = bool(getattr(project, "_notification_delivery_claimed", False))
+    if hasattr(project, "_notification_delivery_claimed"):
+        project._notification_delivery_claimed = False
+    row = _raw_notification_channel(project, channel_id)
+    return _resolve_notification_channel(project, row, claimed=claimed)
+
+
+def require_notification_channel(
+    project: Any, channel_id: int
+) -> NotificationChannelRow:
     """The notification channel ``channel_id``; the caller holds it as existing."""
     row = project.notification_channel(channel_id)
     if row is None:
@@ -565,10 +621,16 @@ def require_notification_channel(project: Any, channel_id: int) -> sqlite3.Row:
     return row
 
 
-def notification_channels(project: Any) -> list[sqlite3.Row]:
-    return project.db.execute(
+def notification_channels(project: Any) -> list[NotificationChannelRow]:
+    rows = project.db.execute(
         "SELECT * FROM notification_channels ORDER BY id ASC"
     ).fetchall()
+    resolved: list[NotificationChannelRow] = []
+    for row in rows:
+        item = _resolve_notification_channel(project, row, claimed=False)
+        if item is not None:
+            resolved.append(item)
+    return resolved
 
 
 def update_notification_channel(
@@ -581,7 +643,9 @@ def update_notification_channel(
     secret_ref: str | None = None,
     set_secret_ref: bool = False,
 ) -> dict[str, Any]:
-    row = require_notification_channel(project, channel_id)
+    row = _raw_notification_channel(project, channel_id)
+    if row is None:
+        raise ValueError("notification channel not found")
     next_name = name if name is not None else str(row["name"])
     next_enabled = int(enabled) if enabled is not None else int(row["enabled"])
     next_config = (
@@ -1045,7 +1109,11 @@ def claim_notification_delivery_request(
             ([job_id, *params] if job_id is not None else [None, *params]),
         )
     if cur.rowcount <= 0:
+        if hasattr(project, "_notification_delivery_claimed"):
+            project._notification_delivery_claimed = False
         return None
+    if hasattr(project, "_notification_delivery_claimed"):
+        project._notification_delivery_claimed = True
     return project.public_notification_delivery_request(request_id)
 
 
@@ -1291,7 +1359,9 @@ def _select_notification_ids_for_state_change(
     return [int(row["id"]) for row in rows]
 
 
-def _public_notification_channel_row(project: Any, row: sqlite3.Row) -> dict[str, Any]:
+def _public_notification_channel_row(
+    project: Any, row: NotificationChannelRow
+) -> dict[str, Any]:
     try:
         config = json.loads(row["config_json"] or "{}")
     except (TypeError, ValueError):

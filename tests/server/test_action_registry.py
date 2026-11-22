@@ -1,26 +1,12 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import re
 from typing import Any
 
-from fastapi.testclient import TestClient
-
-from frisket.ai.llm import ModelRouter
 from frisket.server.services import saved_actions
-from helpers import make_client
 
 
 RECIPE_RE = re.compile(r"recipe", re.IGNORECASE)
-
-
-def _client(tmp_path) -> TestClient:
-    return make_client(
-        tmp_path,
-        router=ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-        ),
-    )
 
 
 def _recipe_hits(value: Any, path: str = "$", depth: int = 0) -> list[str]:
@@ -67,9 +53,9 @@ def _publishable_saved_action_spec() -> dict[str, Any]:
 
 
 def test_v1_action_registry_publish_list_get_import_without_public_recipe_language(
-    tmp_path,
+    off_client,
 ) -> None:
-    client = _client(tmp_path)
+    client = off_client
     workspace = client.app.state.workspace
     saved_entry = workspace.save_action(
         "Beat classifier",

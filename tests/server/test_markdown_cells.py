@@ -6,13 +6,7 @@ column.patch action; the op lands in history and undoes/redoes. The frontend
 rendering half is covered by web/tests/e2e/markdown.spec.ts.
 """
 
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-
-from fastapi.testclient import TestClient
-
-from frisket.ai.llm import ModelRouter
 from frisket.server.services.import_inference import _looks_markdown, sniff_markdown
-from helpers import make_client
 from http_test_helpers import (
     post_column_patch_as_v1_action,
     post_operation_redo_as_v1_action,
@@ -24,13 +18,6 @@ MD_CSV = (
     'one,"# Heading\n\n**bold** and a [link](https://example.com)\n\n- item"\n'
     'two,"## Another\n\n*italic* text with `code`\n\n1. listed"\n'
 )
-
-
-def _client(tmp_path) -> TestClient:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-    )
-    return make_client(tmp_path, router=router)
 
 
 def _import(client, pid: str, csv: str) -> int:
@@ -74,17 +61,16 @@ def test_sniff_markdown_tolerates_a_few_plain_rows():
 # Import sniffing + the v1 column.patch round-trip
 
 
-def test_csv_import_sniffs_markdown_column_only(tmp_path):
-    client = _client(tmp_path)
-    pid = client.post("/api/projects", json={"name": "Md"}).json()["id"]
-    sheet_id = _import(client, pid, MD_CSV)
-    cols = _cols(client, pid, sheet_id)
+def test_csv_import_sniffs_markdown_column_only(off_client):
+    pid = off_client.post("/api/projects", json={"name": "Md"}).json()["id"]
+    sheet_id = _import(off_client, pid, MD_CSV)
+    cols = _cols(off_client, pid, sheet_id)
     assert cols["body"]["format"] == "markdown"
     assert cols["title"]["format"] is None  # plain text stays default
 
 
-def test_patch_column_format_set_clear_and_validate(tmp_path):
-    client = _client(tmp_path)
+def test_patch_column_format_set_clear_and_validate(off_client):
+    client = off_client
     pid = client.post("/api/projects", json={"name": "Md"}).json()["id"]
     sheet_id = _import(client, pid, "note\nhello\nworld\n")
     col = _cols(client, pid, sheet_id)["note"]
@@ -113,8 +99,8 @@ def test_patch_column_format_set_clear_and_validate(tmp_path):
     assert r.json()["errors"][0]["code"] == "invalid_column_ref"
 
 
-def test_format_patch_is_undoable(tmp_path):
-    client = _client(tmp_path)
+def test_format_patch_is_undoable(off_client):
+    client = off_client
     pid = client.post("/api/projects", json={"name": "Md"}).json()["id"]
     sheet_id = _import(client, pid, "note\nhello\nworld\n")
     col = _cols(client, pid, sheet_id)["note"]

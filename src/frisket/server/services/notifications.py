@@ -7,7 +7,10 @@ import json
 from typing import Any
 
 from frisket.contracts.http.notifications import (
+    NOTIFICATION_CHANNELS_SCHEMA_VERSION,
+    NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION,
     NOTIFICATION_PAGE_SCHEMA_VERSION,
+    NOTIFICATION_ROUTES_SCHEMA_VERSION,
     NOTIFICATION_SUMMARY_SCHEMA_VERSION,
     AckResult,
     NotificationActorState,
@@ -27,9 +30,6 @@ from frisket.engine.jobs import (
 )
 from frisket.notifications.emit import LOCAL_ACTOR_ID, emit_notification_candidate
 from frisket.server.notifications.service import (
-    NOTIFICATION_CHANNELS_SCHEMA_VERSION,
-    NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION,
-    NOTIFICATION_ROUTES_SCHEMA_VERSION,
     NOTIFICATION_STATES,
     DELIVERY_STATUSES,
     create_notification_test_request,
