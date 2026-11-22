@@ -2641,14 +2641,14 @@ test('sdk-built plugin package mounts through the workbench contract', async ({
   execFileSync(
     'uv',
     [
-      'run', 'frisket', 'plugin', 'init',
+      'run', '--frozen', 'frisket', 'plugin', 'init',
       '--id', generatedPluginId,
       '--output', pluginRoot,
       '--with', 'panel', '--with', 'command',
     ],
     { cwd: repoRoot, stdio: 'pipe' },
   );
-  execFileSync('uv', ['run', 'frisket', 'plugin', 'build', pluginRoot], {
+  execFileSync('uv', ['run', '--frozen', 'frisket', 'plugin', 'build', pluginRoot], {
     cwd: repoRoot,
     stdio: 'pipe',
   });
@@ -2701,14 +2701,14 @@ test('sdk-built plugin view receives live selection', async ({
   execFileSync(
     'uv',
     [
-      'run', 'frisket', 'plugin', 'init',
+      'run', '--frozen', 'frisket', 'plugin', 'init',
       '--id', generatedPluginId,
       '--output', pluginRoot,
       '--with', 'view',
     ],
     { cwd: repoRoot, stdio: 'pipe' },
   );
-  execFileSync('uv', ['run', 'frisket', 'plugin', 'build', pluginRoot], {
+  execFileSync('uv', ['run', '--frozen', 'frisket', 'plugin', 'build', pluginRoot], {
     cwd: repoRoot,
     stdio: 'pipe',
   });

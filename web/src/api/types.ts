@@ -1279,13 +1279,6 @@ export interface ActionCatalogPolicy {
   [key: string]: unknown;
 }
 
-export interface SheetRowScope {
-  sheet_id: number;
-  selector:
-    | { kind: 'all_rows' }
-    | { kind: 'exact_membership'; membership: { row_ids: number[] } };
-}
-
 interface SheetRowScopePolicy {
   kind: 'sheet_rows';
   selectors: Array<'all_rows' | 'exact_membership'>;

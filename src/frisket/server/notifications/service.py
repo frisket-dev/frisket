@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Final
+from typing import Any
 
 from frisket.contracts.http.notifications import (
     NotificationActorState,
@@ -24,12 +24,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.notifications import (
     require_notification_channel,
     require_notification_route,
-)
-
-NOTIFICATION_CHANNELS_SCHEMA_VERSION: Final = "frisket.notification_channels.v1"
-NOTIFICATION_ROUTES_SCHEMA_VERSION: Final = "frisket.notification_routes.v1"
-NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION: Final = (
-    "frisket.notification_delivery_requests.v1"
 )
 
 NOTIFICATION_STATES = {"unseen", "seen", "read", "acknowledged", "all"}

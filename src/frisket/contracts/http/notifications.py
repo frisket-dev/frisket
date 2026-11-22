@@ -32,6 +32,20 @@ NotificationSummarySchemaVersion = Literal["frisket.notifications_summary.v1"]
 NOTIFICATION_SUMMARY_SCHEMA_VERSION: Final[NotificationSummarySchemaVersion] = get_args(
     NotificationSummarySchemaVersion
 )[0]
+NotificationChannelsSchemaVersion = Literal["frisket.notification_channels.v1"]
+NOTIFICATION_CHANNELS_SCHEMA_VERSION: Final[NotificationChannelsSchemaVersion] = (
+    get_args(NotificationChannelsSchemaVersion)[0]
+)
+NotificationRoutesSchemaVersion = Literal["frisket.notification_routes.v1"]
+NOTIFICATION_ROUTES_SCHEMA_VERSION: Final[NotificationRoutesSchemaVersion] = get_args(
+    NotificationRoutesSchemaVersion
+)[0]
+NotificationDeliveryRequestsSchemaVersion = Literal[
+    "frisket.notification_delivery_requests.v1"
+]
+NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION: Final[
+    NotificationDeliveryRequestsSchemaVersion
+] = get_args(NotificationDeliveryRequestsSchemaVersion)[0]
 
 
 class _CompatibleRequest(BaseModel):
@@ -224,7 +238,7 @@ class NotificationChannel(WireModel):
 
 
 class NotificationChannelsPage(WireModel):
-    schema_version: Literal["frisket.notification_channels.v1"]
+    schema_version: NotificationChannelsSchemaVersion
     channels: list[NotificationChannel]
 
 
@@ -250,7 +264,7 @@ class NotificationRoute(WireModel):
 
 
 class NotificationRoutesPage(WireModel):
-    schema_version: Literal["frisket.notification_routes.v1"]
+    schema_version: NotificationRoutesSchemaVersion
     routes: list[NotificationRoute]
 
 
@@ -281,7 +295,7 @@ class NotificationDeliveryRequest(WireModel):
 
 
 class NotificationDeliveryRequestsPage(WireModel):
-    schema_version: Literal["frisket.notification_delivery_requests.v1"]
+    schema_version: NotificationDeliveryRequestsSchemaVersion
     order: Literal["desc"]
     offset: int
     limit: int
@@ -292,7 +306,10 @@ class NotificationDeliveryRequestsPage(WireModel):
 
 
 __all__ = [
+    "NOTIFICATION_CHANNELS_SCHEMA_VERSION",
+    "NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION",
     "NOTIFICATION_PAGE_SCHEMA_VERSION",
+    "NOTIFICATION_ROUTES_SCHEMA_VERSION",
     "NOTIFICATION_SUMMARY_SCHEMA_VERSION",
     "AckResult",
     "NotificationActorState",
