@@ -2,20 +2,26 @@ import { CompareToolbar } from './CompareLayout';
 import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
+  ColumnDef,
   OcrComparePreviewBlock,
   OcrComparePreviewPageResult,
   OcrCompareScratchInput,
   PreviewOverlayCell,
   PreviewSampleResult,
+  Row,
 } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { OcrCompareTarget } from '../actions/ocrCompare';
 import { OCR_ENGINE_FALLBACK, ocrEnginesFromCatalog } from '../actions/engineCatalog';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
+import { readBlobResource } from '../api/raw/blobText';
+import { useLoader } from '../hooks/useLoader';
+import { resolveMediaValue, type ResolvedMediaValue } from '../media/resolveMediaValue';
+import { documentMediaColumns, documentMediaKind } from './documentMedia';
 import { CompareVariantChips, MediaCompareBody } from './MediaCompareShell';
 import { useOcrVariantConfigure } from './useOcrVariantConfigure';
 import { usePaidMediaComparison } from './usePaidMediaComparison';
@@ -34,12 +40,70 @@ import {
 // disposable dropped media. Adding or editing stages work until Run.
 
 const DEFAULT_ENGINE_IDS = ['rapidocr', 'dots.mocr'];
+const DEFAULT_SEED_MAX_ITEMS = 10;
 const MAX_SAMPLE_PAGES = 10;
 const DEFAULT_DPI = 200;
 const DPI_PRESETS = [100, 200, 300];
 const DPI_MIN = 50;
 const DPI_MAX = 600;
 const clampDpi = (dpi: number) => Math.max(DPI_MIN, Math.min(DPI_MAX, Math.round(dpi)));
+
+const OCR_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
+  'application/pdf': '.pdf',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/tiff': '.tiff',
+  'image/bmp': '.bmp',
+};
+
+function classifyOcrFile(file: File): 'pdf' | 'image' | null {
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) return 'pdf';
+  if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|tiff?|bmp)$/i.test(file.name)) return 'image';
+  return null;
+}
+
+function findOcrSeedColumn(columns: readonly ColumnDef[], sourceColumn?: string): ColumnDef | null {
+  if (sourceColumn) {
+    const matched = columns.find(
+      (column) => column.name === sourceColumn || column.id === sourceColumn,
+    );
+    if (matched) return matched;
+  }
+  const mediaColumns = documentMediaColumns({ columns });
+  return mediaColumns.find((column) => column.type === 'file' || column.type === 'image')
+    ?? mediaColumns[0]
+    ?? null;
+}
+
+function isPotentialOcrMedia(media: ResolvedMediaValue, columnType: string): boolean {
+  const kind = documentMediaKind(media, columnType);
+  if (kind === 'pdf' || kind === 'image') return true;
+  return kind === 'other' && !media.mime && (columnType === 'file' || columnType === 'image');
+}
+
+function ocrFilenameForMedia(media: ResolvedMediaValue, mime: string, index: number): string {
+  const baseName = media.filename || media.label || `document-${index + 1}`;
+  if (classifyOcrFile(new File([], baseName, { type: '' })) !== null) return baseName;
+  const extension = OCR_MIME_EXTENSIONS[mime.toLowerCase()];
+  return extension ? `${baseName}${extension}` : baseName;
+}
+
+function collectOcrSeedCandidates(
+  rows: readonly Row[],
+  column: ColumnDef,
+  projectId: string,
+  maxItems: number,
+): ResolvedMediaValue[] {
+  const candidates: ResolvedMediaValue[] = [];
+  for (const row of rows) {
+    if (candidates.length >= maxItems) break;
+    const media = resolveMediaValue(row.cells[column.id] ?? null, projectId);
+    if (!media || !isPotentialOcrMedia(media, column.type)) continue;
+    candidates.push(media);
+  }
+  return candidates;
+}
 
 interface OcrVariantOptions {
   dpi: number;
@@ -140,11 +204,7 @@ function createOcrConfig(
   selectorActionId: 'media.ocr',
   testidPrefix: 'ocr-compare',
   accept: 'application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp',
-  classifyFile: (file) => {
-    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) return 'pdf';
-    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|tiff?|bmp)$/i.test(file.name)) return 'image';
-    return null;
-  },
+  classifyFile: classifyOcrFile,
   acceptHint: 'OCR Compare reads PDF and image files.',
   defaultEngineIds,
   fallbackCatalog: OCR_ENGINE_FALLBACK,
@@ -185,7 +245,7 @@ interface OcrCompareTabProps {
 }
 
 export function OcrCompareTab({ target = null, active = true, onSessionChange }: OcrCompareTabProps) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
   const paid = usePaidMediaComparison<OcrComparePreviewPageResult[], OcrCompareScratchInput>({
     api: projectApi,
     inputFor,
@@ -248,6 +308,109 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
 
   const { clearEstimate } = paid;
   useEffect(() => { clearEstimate(); }, [clearEstimate, estimateInputKey]);
+
+  const ingestFilesRef = useRef(session.ingestFiles);
+  useEffect(() => {
+    ingestFilesRef.current = session.ingestFiles;
+  }, [session.ingestFiles]);
+  const ingestedLaunchRef = useRef<string | null>(null);
+  const [seedingDetail, setSeedingDetail] = useState<{ launchKey: string; message: string } | null>(null);
+
+  const targetSheetId = target?.sheetId;
+  const targetSourceColumn = target?.sourceColumn;
+  const targetMaxItems = Math.max(1, target?.maxItems ?? DEFAULT_SEED_MAX_ITEMS);
+  const targetLaunchId = target?.launchId;
+  const selectedRowIdsKey = target?.selectedRowIds?.join(',') ?? '';
+  const seedLaunchKey = targetSheetId
+    ? targetLaunchId != null
+      ? `launch:${targetLaunchId}`
+      : JSON.stringify([targetSheetId, targetSourceColumn ?? null, selectedRowIdsKey, targetMaxItems])
+    : null;
+
+  const seedLoader = useLoader(
+    async (signal) => {
+      if (!targetSheetId || !seedLaunchKey) return { launchKey: '', files: [] as File[] };
+      const selectedIds = selectedRowIdsKey ? selectedRowIdsKey.split(',') : [];
+      const fallbackLimit = Math.max(targetMaxItems * 5, 50);
+      let candidates: ResolvedMediaValue[] = [];
+
+      if (selectedIds.length > 0) {
+        const requestedIds = selectedIds.slice(0, 100);
+        const requestedNumericIds = requestedIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id));
+        const selectedPage = requestedNumericIds.length > 0
+          ? await projectApi.getSheetData(targetSheetId, 0, requestedNumericIds.length, {
+              rowIds: requestedNumericIds,
+            })
+          : await projectApi.getSheetData(targetSheetId, 0, fallbackLimit);
+        if (signal.aborted) return { launchKey: seedLaunchKey, files: [] as File[] };
+        const targetColumn = findOcrSeedColumn(selectedPage.columns, targetSourceColumn);
+        if (targetColumn) {
+          const rowById = new Map(selectedPage.rows.map((row) => [String(row.id), row]));
+          const orderedRows = requestedNumericIds.length > 0
+            ? requestedIds
+                .map((id) => rowById.get(id))
+                .filter((row): row is Row => row !== undefined)
+            : selectedPage.rows;
+          candidates = collectOcrSeedCandidates(orderedRows, targetColumn, projectId, targetMaxItems);
+          if (candidates.length === 0 && requestedNumericIds.length > 0) {
+            const fallbackPage = await projectApi.getSheetData(targetSheetId, 0, fallbackLimit, {
+              columnIds: [targetColumn.id],
+            });
+            if (signal.aborted) return { launchKey: seedLaunchKey, files: [] as File[] };
+            candidates = collectOcrSeedCandidates(fallbackPage.rows, targetColumn, projectId, targetMaxItems);
+          }
+        }
+      } else {
+        const page = await projectApi.getSheetData(targetSheetId, 0, fallbackLimit);
+        if (signal.aborted) return { launchKey: seedLaunchKey, files: [] as File[] };
+        const targetColumn = findOcrSeedColumn(page.columns, targetSourceColumn);
+        if (targetColumn) {
+          candidates = collectOcrSeedCandidates(page.rows, targetColumn, projectId, targetMaxItems);
+        }
+      }
+
+      if (signal.aborted || candidates.length === 0) {
+        return { launchKey: seedLaunchKey, files: [] as File[] };
+      }
+      setSeedingDetail({
+        launchKey: seedLaunchKey,
+        message: `Loading ${candidates.length} ${candidates.length === 1 ? 'file' : 'files'} from sheet…`,
+      });
+      const loaded = await Promise.all(
+        candidates.map(async (media, index) => {
+          try {
+            const blob = await readBlobResource(media.url, { signal });
+            if (signal.aborted) return null;
+            const mime = media.mime || blob.type || '';
+            const filename = ocrFilenameForMedia(media, mime, index);
+            const file = new File([blob], filename, { type: mime });
+            return classifyOcrFile(file) ? file : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return {
+        launchKey: seedLaunchKey,
+        files: loaded.filter((file): file is File => file !== null),
+      };
+    },
+    [projectApi, projectId, seedLaunchKey],
+    { enabled: Boolean(targetSheetId && seedLaunchKey) },
+  );
+
+  useEffect(() => {
+    const result = seedLoader.data;
+    if (!result || !result.launchKey || ingestedLaunchRef.current === result.launchKey) return;
+    ingestedLaunchRef.current = result.launchKey;
+    if (result.files.length > 0) ingestFilesRef.current(result.files);
+  }, [seedLoader.data]);
+
+  const seedingMessage = seedLoader.loading && seedLaunchKey
+    ? (seedingDetail?.launchKey === seedLaunchKey ? seedingDetail.message : 'Loading files from sheet…')
+    : null;
 
   const variantEditor = useOcrVariantConfigure(session);
 
@@ -352,6 +515,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
         frontDoorTitle="Drop a small sample of PDFs or images"
         frontDoorHint="Nothing uploads to your project — this session is disposable. Configure variants, then Run."
         pendingLabel="not run yet — select Run comparison"
+        loadingMessage={seedingMessage}
       />
       {paid.estimateLine}
       {paid.gate}

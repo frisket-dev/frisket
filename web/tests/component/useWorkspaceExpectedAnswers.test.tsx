@@ -3,7 +3,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ApiError } from '../../src/api/contractErrors';
 import type { GridApiPort } from '../../src/api/ports';
-import type { ActionCatalogEntry, SheetMeta } from '../../src/api/types';
+import type { ActionCatalogEntry, ActionTemplate, SheetMeta } from '../../src/api/types';
 import { useWorkspaceExpectedAnswers } from '../../src/workspace/useWorkspaceExpectedAnswers';
 import { sheetMeta } from '../support/actionFormFixtures';
 
@@ -53,6 +53,116 @@ it('offers the existing Translate engine comparison only when its catalog action
   const { result } = renderHook(() => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, entries, [], '', showError));
   expect(result.current.actionChoices).toEqual([expect.objectContaining({ kind: 'map.translate', group: 'rows' })]);
   expect(result.current.actionChoices).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'media.to_markdown' })]));
+});
+
+it('never gates scratch media compares on the current sheet or its columns', () => {
+  const api = prepare();
+  const entries = [
+    { kind: 'media.ocr', title: 'OCR', ui_hints: {} },
+    { kind: 'media.transcribe', title: 'Transcribe', ui_hints: {} },
+    { kind: 'map.find_topic_sections', title: 'Find topic sections', ui_hints: {} },
+    { kind: 'map.translate', title: 'Translate', ui_hints: {} },
+  ] as ActionCatalogEntry[];
+  const templates: ActionTemplate[] = [
+    {
+      kind: 'media.ocr',
+      name: 'OCR',
+      description: 'Read text from PDFs and images',
+      defaultPrompt: '',
+      defaultFields: [],
+      sourceRequirements: [{
+        id: 'source',
+        mode: 'column',
+        param: 'source',
+        label: 'a file or image column',
+        accepted_column_types: ['file', 'image'],
+        min: 1,
+      }],
+    },
+    {
+      kind: 'media.transcribe',
+      name: 'Transcribe',
+      description: 'Transcribe audio',
+      defaultPrompt: '',
+      defaultFields: [],
+      sourceRequirements: [{
+        id: 'source',
+        mode: 'column',
+        param: 'source',
+        label: 'an audio column',
+        accepted_column_types: ['audio'],
+        min: 1,
+      }],
+    },
+    {
+      kind: 'map.find_topic_sections',
+      name: 'Find topic sections',
+      description: 'Segment transcript',
+      defaultPrompt: '',
+      defaultFields: [],
+      sourceRequirements: [{
+        id: 'source',
+        mode: 'column',
+        param: 'source',
+        label: 'a transcript column',
+        accepted_column_types: ['file'],
+        min: 1,
+      }],
+    },
+    {
+      kind: 'map.translate',
+      name: 'Translate',
+      description: 'Translate text',
+      defaultPrompt: '',
+      defaultFields: [],
+      sourceRequirements: [{
+        id: 'source',
+        mode: 'column',
+        param: 'source',
+        label: 'a text column',
+        accepted_column_types: ['text'],
+        min: 1,
+      }],
+    },
+  ];
+
+  // Number-only sheet (no media or text columns): scratch media compares stay enabled; row translate requires a text column.
+  const numberOnlySheet = sheetMeta([{ id: '11', name: 'amount', type: 'number' }], { id: '1', name: 'Amounts', rowCount: 2 });
+  const { result: withNumberSheet } = renderHook(() =>
+    useWorkspaceExpectedAnswers('p', numberOnlySheet, [numberOnlySheet], api, entries, templates, '', showError),
+  );
+  for (const kind of ['media.ocr', 'media.transcribe', 'map.find_topic_sections']) {
+    expect(withNumberSheet.current.actionChoices.find((choice) => choice.kind === kind)).toEqual({
+      kind,
+      label: expect.any(String),
+      group: 'media',
+    });
+  }
+  expect(withNumberSheet.current.actionChoices.find((choice) => choice.kind === 'map.translate')?.disabledReason)
+    .toBe('Needs a text column');
+
+  // No sheet selected: scratch media compares stay enabled; row translate requires a sheet.
+  const { result: withoutSheet } = renderHook(() =>
+    useWorkspaceExpectedAnswers('p', undefined, [], api, entries, templates, '', showError),
+  );
+  for (const kind of ['media.ocr', 'media.transcribe', 'map.find_topic_sections']) {
+    expect(withoutSheet.current.actionChoices.find((choice) => choice.kind === kind)).not.toHaveProperty('disabledReason');
+  }
+  expect(withoutSheet.current.actionChoices.find((choice) => choice.kind === 'map.translate')?.disabledReason)
+    .toBe('Choose a sheet');
+
+  // Scratch media compares still respect unavailable_reason and missing_credentials.
+  const gatedEntries = [
+    { kind: 'media.ocr', title: 'OCR', ui_hints: { unavailable_reason: 'OCR runtime disabled' } },
+    { kind: 'media.transcribe', title: 'Transcribe', ui_hints: { missing_credentials: ['OPENAI_API_KEY'] } },
+  ] as ActionCatalogEntry[];
+  const { result: gated } = renderHook(() =>
+    useWorkspaceExpectedAnswers('p', undefined, [], api, gatedEntries, templates, '', showError),
+  );
+  expect(gated.current.actionChoices.find((choice) => choice.kind === 'media.ocr')?.disabledReason)
+    .toBe('OCR runtime disabled');
+  expect(gated.current.actionChoices.find((choice) => choice.kind === 'media.transcribe')?.disabledReason)
+    .toBe('Set up credentials first');
 });
 
 it('updates only explicitly changed rules after saving an existing link', async () => {

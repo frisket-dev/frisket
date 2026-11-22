@@ -27,6 +27,8 @@ interface SelectorFieldProps {
   triggerRef?: Ref<HTMLButtonElement>;
   /** Host-specific policy may further narrow offered choices, never broaden them. */
   allowChoice?(choice: SelectorChoice): boolean;
+  /** Fall back to default_choice_id when current_choice_id is unset. Defaults to true. */
+  useDefault?: boolean;
   onCurrentChoiceChange?(choice: SelectorChoice | null, state: SelectorChoicesState): void;
   renderDetailExtra?(context: {
     choice: SelectorChoice;
@@ -178,6 +180,7 @@ function SelectorFieldContent({
   projection: state,
   triggerRef,
   allowChoice = () => true,
+  useDefault = true,
   onCurrentChoiceChange,
   renderDetailExtra,
 }: SelectorFieldProps & { projection: SelectorChoicesState }) {
@@ -186,8 +189,12 @@ function SelectorFieldContent({
     [allowChoice, state.response],
   );
   const { groups, choicesById } = projection;
-  const currentChoiceId = state.response?.current_choice_id ?? state.response?.default_choice_id ?? null;
-  const currentChoice = currentSelectorChoice(state);
+  const currentChoiceId = state.response?.current_choice_id
+    ?? (useDefault ? state.response?.default_choice_id : null)
+    ?? null;
+  const currentChoice = useDefault
+    ? currentSelectorChoice(state)
+    : (currentChoiceId ? choicesById.get(currentChoiceId) ?? null : null);
   useEffect(() => {
     onCurrentChoiceChange?.(currentChoice, state);
   }, [currentChoice, onCurrentChoiceChange, state]);

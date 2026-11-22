@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { EngineOption } from '../api/open';
 import { horizontalViewportShift } from '../hooks/useAnchoredPosition';
-import type { MediaCompareSession } from './mediaCompareSession';
+import type { CompareColumn, MediaCompareSession } from './mediaCompareSession';
 
-type VariantEditorSession = Pick<MediaCompareSession<unknown>,
-  'columns' | 'addBlankColumn' | 'chooseEngine' | 'duplicateColumn' | 'removeColumn'>;
+type VariantEditorSession = Pick<
+  MediaCompareSession<unknown>,
+  'columns' | 'addBlankColumn' | 'chooseEngine' | 'duplicateColumn' | 'removeColumn'
+> & Partial<Pick<MediaCompareSession<unknown>, 'catalog' | 'addEngineColumn'>>;
+
+export function nextEngineForCompareAdd(
+  catalog: readonly EngineOption[],
+  columns: readonly CompareColumn[],
+): string | null {
+  if (catalog.length === 0) return null;
+  const usedIds = new Set(
+    columns.map((column) => column.engineId).filter((id): id is string => id !== null),
+  );
+  const available = catalog.filter((engine) => engine.available !== false);
+  const nextUnusedAvailable = available.find((engine) => !usedIds.has(engine.id));
+  if (nextUnusedAvailable) return nextUnusedAvailable.id;
+  if (available.length > 0) return available[0].id;
+  return catalog[0].id;
+}
 
 /** Inline comparison editors share a lifecycle, not their engine option policy.
  * Only a newly-created, still-blank variant is abandoned when its editor closes. */
@@ -11,7 +29,7 @@ export function useCompareVariantConfigure(
   session: VariantEditorSession,
   resetEngineOptions?: (variantId: string) => void,
 ) {
-  const { columns, addBlankColumn, chooseEngine, duplicateColumn, removeColumn } = session;
+  const { catalog, columns, addBlankColumn, addEngineColumn, chooseEngine, duplicateColumn, removeColumn } = session;
   const [configureVariantId, setConfigureVariantId] = useState<string | null>(null);
   const provisionalId = useRef<string | null>(null);
   const configureAnchorRef = useRef<HTMLDivElement>(null);
@@ -45,10 +63,17 @@ export function useCompareVariantConfigure(
   const addVariant = useCallback(() => {
     discardProvisional();
     returnFocusRef.current = document.activeElement as HTMLElement | null;
+    const nextEngineId = catalog && addEngineColumn ? nextEngineForCompareAdd(catalog, columns) : null;
+    if (nextEngineId !== null && addEngineColumn) {
+      const id = addEngineColumn(nextEngineId);
+      provisionalId.current = null;
+      setConfigureVariantId(id);
+      return;
+    }
     const id = addBlankColumn();
     provisionalId.current = id;
     setConfigureVariantId(id);
-  }, [addBlankColumn, discardProvisional]);
+  }, [addBlankColumn, addEngineColumn, catalog, columns, discardProvisional]);
 
   const onChooseEngine = useCallback((variantId: string, engineId: string) => {
     chooseEngine(variantId, engineId);

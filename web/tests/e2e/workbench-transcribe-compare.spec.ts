@@ -563,10 +563,10 @@ test('no-drift: the transcribe action form and the compare tab render the identi
   await page.getByTestId('transcribe-compare-configure-engine').click();
   const selector = page.getByTestId('engine-selector-dialog');
   await expect(selector).toBeVisible();
-  const remainingEngineIds = await selector.locator('[data-choice-id]').evaluateAll(
+  const selectorEngineIds = await selector.locator('[data-choice-id]').evaluateAll(
     (choices) => choices.map((choice) => choice.getAttribute('data-choice-id') ?? ''),
   );
-  const tabEngineIds = [...configuredEngineIds, ...remainingEngineIds].sort();
+  const tabEngineIds = [...new Set([...configuredEngineIds, ...selectorEngineIds])].sort();
   expect(tabEngineIds.length).toBeGreaterThan(0);
   expect(formEngineIds).toEqual(tabEngineIds);
   await page.keyboard.press('Escape');

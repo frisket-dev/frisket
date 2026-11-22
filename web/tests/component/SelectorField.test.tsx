@@ -738,4 +738,34 @@ describe('SelectorField', () => {
     ));
     expect(dialog).toBeVisible();
   });
+
+  it('does not display default_choice_id when useDefault is false and current_choice_id is null', async () => {
+    const payload = response();
+    payload.current_choice_id = null;
+    payload.default_choice_id = 'ready-model';
+    payload.groups[0].choices[0].is_current = false;
+    const onCurrentChoiceChange = vi.fn();
+    render(<SelectorField
+      projectId="project-a"
+      label="Engine"
+      query={{
+        schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'media.ocr', field: 'engine', params: { engine: '' } },
+      }}
+      recentNamespace="project-a:compare:media.ocr"
+      useDefault={false}
+      load={vi.fn().mockResolvedValue(payload)}
+      onSelect={vi.fn()}
+      onCurrentChoiceChange={onCurrentChoiceChange}
+      testId="blank-engine-selector"
+    />);
+
+    const trigger = await within(screen.getByTestId('blank-engine-selector')).findByRole('button', { name: /Choose engine/i });
+    expect(trigger).toBeVisible();
+    expect(trigger).not.toHaveTextContent('Ready model');
+    expect(onCurrentChoiceChange).toHaveBeenLastCalledWith(
+      null,
+      expect.objectContaining({ loading: false, error: null }),
+    );
+  });
 });

@@ -78,3 +78,13 @@ export async function readDocumentTextResource(
   if (!response.ok) throw new ApiError(response.status, `Could not load this file (${response.status}).`);
   return response.text();
 }
+
+/** Full binary blob read for scratch comparison seeding from sheet cells. */
+export async function readBlobResource(
+  url: string,
+  { signal }: { signal: AbortSignal },
+): Promise<Blob> {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new ApiError(response.status, `Could not load this file (${response.status}).`);
+  return response.blob();
+}

@@ -9,7 +9,7 @@ import { Button } from '../components/Button';
 // inline-absolute, not a top-layer popover candidate); the add-engine menu
 // is a native `popover="manual"` element (useNativePopover).
 import { memo, useCallback, useMemo, useRef, type DragEvent, type ReactNode } from 'react';
-import { Copy, Plus, X } from 'lucide-react';
+import { Copy, Loader2, Plus, X } from 'lucide-react';
 
 import type { EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
@@ -130,6 +130,7 @@ function ConfigureVariantPopover({
           query={mediaSelectorQuery(actionId, column)}
           projection={selectorProjection}
           recentNamespace={`${projectId}:compare:${actionId}`}
+          useDefault={column.engineId !== null}
           allowChoice={(choice) => {
             const authored = choice.authored_selection;
             const engineId = authored.kind === 'engine' || authored.kind === 'engine_model'
@@ -400,6 +401,8 @@ interface MediaCompareBodyProps<R> {
   frontDoorHint: string;
   /** Pending-column empty label ("not run yet — select Run comparison" for staged OCR). */
   pendingLabel: string;
+  /** Lightweight status shown while pre-populating media from a sheet. */
+  loadingMessage?: string | null;
 }
 
 /** The shared bake-off body: front-door dropzone OR [doc list | source peek |
@@ -414,6 +417,7 @@ export function MediaCompareBody<R>({
   frontDoorTitle,
   frontDoorHint,
   pendingLabel,
+  loadingMessage = null,
 }: MediaCompareBodyProps<R>) {
   const t = (suffix: string) => `${testidPrefix}-${suffix}`;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -485,7 +489,18 @@ export function MediaCompareBody<R>({
   return (
     <>
       <CompareDropRejectedNotice t={t} message={rejectedDrop} onDismiss={dismissRejectedDrop} />
-      {docs.length === 0 ? (
+      {loadingMessage && docs.length > 0 ? (
+        <div className="ocr-compare-seeding-banner muted" data-testid={t('seeding-status')} role="status">
+          <Loader2 size={13} className="ocr-compare-spin" aria-hidden />
+          <span>{loadingMessage}</span>
+        </div>
+      ) : null}
+      {docs.length === 0 && loadingMessage ? (
+        <div className="ocr-compare-seeding muted" data-testid={t('seeding-status')} role="status">
+          <Loader2 size={18} className="ocr-compare-spin" aria-hidden />
+          <span>{loadingMessage}</span>
+        </div>
+      ) : docs.length === 0 ? (
         <CompareFrontDoor
           t={t}
           session={session}
