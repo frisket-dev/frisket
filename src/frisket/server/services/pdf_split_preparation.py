@@ -892,7 +892,9 @@ class PdfSplitPreparationAdapter:
                 return True
             op = (
                 self.workspace.get(self.project_id)
-                .db.execute("SELECT status FROM ops WHERE id=?", (work.operation_id,))
+                .db.execute(
+                    "SELECT status FROM changes WHERE id=?", (work.operation_id,)
+                )
                 .fetchone()
             )
             return op is not None and op[0] == "applied"
@@ -904,7 +906,7 @@ class PdfSplitPreparationAdapter:
             self.workspace.get(self.project_id).db,
             session_id=str(row[0]),
             writer_authority=work.generation,
-            op_id=work.operation_id,
+            change_id=work.operation_id,
         )
 
     def _page_reference(self, ref_id: int, page_number: int) -> int:
@@ -1020,7 +1022,7 @@ class PdfSplitPreparationAdapter:
                     return
                 ref = PreparedContentStore(project).stage_reference(
                     source_artifact_id=work.target.source_artifact_id,
-                    producing_op_id=work.operation_id,
+                    producing_change_id=work.operation_id,
                     pages=[
                         PreparedPageDraft(
                             work.target.page_number,

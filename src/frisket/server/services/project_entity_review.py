@@ -84,21 +84,21 @@ class ProjectEntityReviewService:
         offset: int,
         limit: int,
         run_id: int | None,
-        copied_op_id: int | None = None,
+        copied_change_id: int | None = None,
         include_reviewed: bool,
         field_id: int | None,
         order: str,
         cursor: int | None,
     ) -> dict[str, Any]:
         project = self._project(project_id)
-        if copied_op_id is not None:
+        if copied_change_id is not None:
             from frisket.engine.runner.copied_review import copied_review_page
 
             if run_id is not None:
                 raise ValueError("select one review source")
             page = copied_review_page(
                 project,
-                copied_op_id,
+                copied_change_id,
                 offset=offset,
                 limit=limit,
                 include_reviewed=include_reviewed,
@@ -131,12 +131,12 @@ class ProjectEntityReviewService:
         self, project_id: str, request: ReviewBatchRequest
     ) -> dict[str, Any]:
         project = self._project(project_id)
-        if request.copied_op_id is not None:
+        if request.copied_change_id is not None:
             from frisket.engine.runner.copied_review import copied_review_page
 
             page = copied_review_page(
                 project,
-                request.copied_op_id,
+                request.copied_change_id,
                 limit=request.limit
                 if request.kind == "sample"
                 else len(request.row_ids),
@@ -153,7 +153,7 @@ class ProjectEntityReviewService:
                 "bundles": _project_review_download_links(project_id, page["bundles"]),
             }
         if request.run_id is None:
-            raise ValueError("review batch requires run_id or copied_op_id")
+            raise ValueError("review batch requires run_id or copied_change_id")
         if request.kind == "sample":
             page = sample_review_bundle_page(
                 project,
@@ -188,7 +188,7 @@ class ProjectEntityReviewService:
         *,
         sheet_id: int | None,
         run_id: int | None,
-        copied_op_id: int | None = None,
+        copied_change_id: int | None = None,
         offset: int,
         limit: int,
     ) -> dict[str, Any]:
@@ -196,7 +196,7 @@ class ProjectEntityReviewService:
             self._project(project_id),
             sheet_id=sheet_id,
             run_id=run_id,
-            copied_op_id=copied_op_id,
+            copied_change_id=copied_change_id,
             offset=offset,
             limit=limit,
         )

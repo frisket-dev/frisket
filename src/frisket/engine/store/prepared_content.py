@@ -103,14 +103,16 @@ class PreparedContentStore:
 
         return self.project.db
 
-    def _operation(self, producing_op_id: int) -> int:
-        op_id = _positive_int(producing_op_id, "producing_op_id")
-        row = self.db.execute("SELECT status FROM ops WHERE id=?", (op_id,)).fetchone()
+    def _operation(self, producing_change_id: int) -> int:
+        change_id = _positive_int(producing_change_id, "producing_change_id")
+        row = self.db.execute(
+            "SELECT status FROM changes WHERE id=?", (change_id,)
+        ).fetchone()
         if row is None:
-            raise ValueError(f"operation {op_id} does not exist")
+            raise ValueError(f"operation {change_id} does not exist")
         if str(row[0]) != "applied":
-            raise ValueError(f"operation {op_id} is not applied")
-        return op_id
+            raise ValueError(f"operation {change_id} is not applied")
+        return change_id
 
     def _artifact(self, source_artifact_id: int) -> tuple[int, int]:
         artifact_id = _positive_int(source_artifact_id, "source_artifact_id")
@@ -128,14 +130,14 @@ class PreparedContentStore:
         self,
         *,
         source_artifact_id: int,
-        producing_op_id: int,
+        producing_change_id: int,
         pages: list[tuple[int, str, str, str | None]],
         reused: dict[int, int] | None = None,
     ) -> int:
         cursor = self.db.execute(
-            "INSERT INTO prepared_content_sets(source_artifact_id,producing_op_id) "
+            "INSERT INTO prepared_content_sets(source_artifact_id,producing_change_id) "
             "VALUES (?,?)",
-            (source_artifact_id, producing_op_id),
+            (source_artifact_id, producing_change_id),
         )
         set_id = inserted_rowid(cursor)
         versions = dict(reused or {})
@@ -143,14 +145,14 @@ class PreparedContentStore:
             cursor = self.db.execute(
                 "INSERT INTO prepared_page_versions("
                 "source_artifact_id,page_number,prepared_text,content_hash,"
-                "positions_json,producing_op_id) VALUES (?,?,?,?,?,?)",
+                "positions_json,producing_change_id) VALUES (?,?,?,?,?,?)",
                 (
                     source_artifact_id,
                     number,
                     text,
                     digest,
                     positions,
-                    producing_op_id,
+                    producing_change_id,
                 ),
             )
             versions[number] = inserted_rowid(cursor)
@@ -177,7 +179,7 @@ class PreparedContentStore:
         self,
         *,
         source_artifact_id: int,
-        producing_op_id: int,
+        producing_change_id: int,
         pages: Sequence[PreparedPageDraft],
         page_number: int | None = None,
         allow_partial: bool = False,
@@ -185,7 +187,7 @@ class PreparedContentStore:
         """Create one immutable set and selector without owning the transaction."""
 
         require_transaction(self.db, "prepared content write")
-        op_id = self._operation(producing_op_id)
+        change_id = self._operation(producing_change_id)
         artifact_id, page_count = self._artifact(source_artifact_id)
         prepared = _page_drafts(pages)
         selected = (
@@ -206,7 +208,7 @@ class PreparedContentStore:
         try:
             set_id = self._insert_set(
                 source_artifact_id=artifact_id,
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 pages=prepared,
             )
             ref = self._insert_selector(set_id, selected)
@@ -249,7 +251,7 @@ class PreparedContentStore:
         self,
         *,
         base_ref_id: int,
-        producing_op_id: int,
+        producing_change_id: int,
         replacements: Sequence[PreparedPageDraft],
         page_number: int | None = None,
         allow_partial: bool = False,
@@ -261,7 +263,7 @@ class PreparedContentStore:
         """
 
         require_transaction(self.db, "prepared content write")
-        op_id = self._operation(producing_op_id)
+        change_id = self._operation(producing_change_id)
         base_id = _positive_int(base_ref_id, "base_ref_id")
         base = self.db.execute(
             "SELECT ref.set_id,set_record.source_artifact_id "
@@ -317,7 +319,7 @@ class PreparedContentStore:
         try:
             set_id = self._insert_set(
                 source_artifact_id=artifact_id,
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 pages=prepared,
                 reused=reused,
             )
@@ -334,14 +336,14 @@ class PreparedContentStore:
         *,
         base_ref_id: int,
         source_artifact_id: int,
-        producing_op_id: int,
+        producing_change_id: int,
         first_page: int,
         last_page: int,
         allow_partial: bool = False,
     ) -> PreparedContentRef | None:
         """Copy available pages into a child artifact with local page numbers."""
         require_transaction(self.db, "prepared content write")
-        self._operation(producing_op_id)
+        self._operation(producing_change_id)
         first = _positive_int(first_page, "first_page")
         last = _positive_int(last_page, "last_page")
         if last < first:
@@ -385,7 +387,7 @@ class PreparedContentStore:
             return None
         return self.stage_reference(
             source_artifact_id=source_artifact_id,
-            producing_op_id=producing_op_id,
+            producing_change_id=producing_change_id,
             pages=pages,
             allow_partial=allow_partial,
         )

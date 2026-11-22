@@ -204,8 +204,8 @@
                 "title": "Diagnostics",
                 "type": "array"
               },
-              "op_id": {
-                "title": "Op Id",
+              "change_id": {
+                "title": "Change Id",
                 "type": "integer"
               },
               "sheets": {
@@ -219,7 +219,7 @@
             "required": [
               "dataset_name",
               "sheets",
-              "op_id",
+              "change_id",
               "diagnostics"
             ],
             "title": "ImportedEntityDataset",

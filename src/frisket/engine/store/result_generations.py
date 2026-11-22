@@ -90,7 +90,7 @@ class PublishedCellHead:
     confidence: float | None
     justification: str | None
     warnings: tuple[str, ...]
-    op_id: int
+    change_id: int
     prepared_ref_id: int | None
 
 
@@ -230,19 +230,19 @@ class ResultGenerationStore:
                 )
         return outputs
 
-    def bindings_for_op(self, op_id: int) -> list[RunOutputGeneration]:
+    def bindings_for_op(self, change_id: int) -> list[RunOutputGeneration]:
         rows = self.db.execute(
             "SELECT generation.* FROM run_output_generations generation "
             "JOIN runs run ON run.id=generation.run_id "
-            "WHERE run.op_id=? ORDER BY generation.run_id, "
+            "WHERE run.change_id=? ORDER BY generation.run_id, "
             "generation.output_role, generation.column_id",
-            (int(op_id),),
+            (int(change_id),),
         ).fetchall()
         return [self._generation_from_row(row) for row in rows]
 
-    def column_ids_for_op(self, op_id: int) -> frozenset[int]:
+    def column_ids_for_change(self, change_id: int) -> frozenset[int]:
         return frozenset(
-            binding.column_id for binding in self.bindings_for_op(int(op_id))
+            binding.column_id for binding in self.bindings_for_op(int(change_id))
         )
 
     def is_generation_managed(self, column_id: int) -> bool:
@@ -265,7 +265,7 @@ class ResultGenerationStore:
         row = self.db.execute(
             "SELECT generation.run_id FROM run_output_generations generation "
             "JOIN runs run ON run.id=generation.run_id "
-            "JOIN ops op ON op.id=run.op_id "
+            "JOIN changes op ON op.id=run.change_id "
             "WHERE generation.column_id=? AND op.status='applied' "
             "ORDER BY generation.run_id DESC LIMIT 1",
             (int(column_id),),
@@ -286,7 +286,7 @@ class ResultGenerationStore:
         return self.db.execute(
             "SELECT op.id,op.spec,op.undo_info,op.status,op.publication_closed "
             "FROM runs run "
-            "JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+            "JOIN changes op ON op.id=run.change_id WHERE run.id=?",
             (int(run_id),),
         ).fetchone()
 
@@ -327,7 +327,7 @@ class ResultGenerationStore:
         rows = self.db.execute(
             "SELECT DISTINCT op.id,op.undo_info FROM run_output_generations generation "
             "JOIN runs run ON run.id=generation.run_id "
-            "JOIN ops op ON op.id=run.op_id "
+            "JOIN changes op ON op.id=run.change_id "
             "WHERE generation.column_id=? AND generation.state='sealed' "
             "AND op.status='applied' ORDER BY op.id DESC",
             (int(column_id),),
@@ -422,7 +422,7 @@ class ResultGenerationStore:
             "FROM generated_column_claims claim "
             "JOIN columns column ON column.id=claim.column_id "
             "JOIN runs run ON run.id=claim.run_id "
-            "JOIN ops op ON op.id=run.op_id "
+            "JOIN changes op ON op.id=run.change_id "
             "WHERE claim.claim_token=? AND claim.run_id=? AND claim.column_id=? "
             "AND claim.status='active'",
             (claim_token, int(run_id), int(column_id)),
@@ -665,13 +665,17 @@ class ResultGenerationStore:
             incompatible = self.db.execute(
                 "SELECT generation.run_id FROM run_output_generations generation "
                 "JOIN runs run ON run.id=generation.run_id "
-                "JOIN ops op ON op.id=run.op_id "
+                "JOIN changes op ON op.id=run.change_id "
                 "WHERE generation.column_id=? AND generation.compatibility_key<>? "
                 "AND "
                 + _generation_publication_predicate(
                     generation_alias="generation", op_alias="op"
                 )
-                + (" AND run.op_id>=?" if descriptor_boundary_op_id is not None else "")
+                + (
+                    " AND run.change_id>=?"
+                    if descriptor_boundary_op_id is not None
+                    else ""
+                )
                 + " LIMIT 1",
                 (
                     (column_id, compatibility_key, descriptor_boundary_op_id)
@@ -766,7 +770,7 @@ class ResultGenerationStore:
                 }
                 operation_info[PENDING_DESCRIPTOR_REPLACEMENT_KEY] = pending_changes
                 self.db.execute(
-                    "UPDATE ops SET undo_info=? WHERE id=?",
+                    "UPDATE changes SET undo_info=? WHERE id=?",
                     (json.dumps(operation_info), int(operation["id"])),
                 )
             from .cell_projection import invalidate_run_scope
@@ -1054,7 +1058,7 @@ class ResultGenerationStore:
                         )
         info.pop(PENDING_DESCRIPTOR_REPLACEMENT_KEY, None)
         self.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
+            "UPDATE changes SET undo_info=? WHERE id=?",
             (json.dumps(info), int(operation["id"])),
         )
         if publish:
@@ -1076,7 +1080,7 @@ class ResultGenerationStore:
         unpublished.update(int(column_id) for column_id in column_ids)
         info[UNPUBLISHED_GENERATIONS_KEY] = sorted(unpublished)
         self.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
+            "UPDATE changes SET undo_info=? WHERE id=?",
             (json.dumps(info), int(operation["id"])),
         )
 
@@ -1381,7 +1385,7 @@ class ResultGenerationStore:
                 "SELECT head.run_id,head.row_id,head.column_id,"
                 "result.publication_effect,result.value_kind,result.value,result.error,"
                 "result.error_code,result.outcome,result.review_state,"
-                "result.confidence,result.justification,result.warnings,run.op_id "
+                "result.confidence,result.justification,result.warnings,run.change_id "
                 "FROM generated_result_candidates head "
                 "JOIN results result ON result.run_id=head.run_id "
                 "AND result.row_id=head.row_id "
@@ -1416,7 +1420,7 @@ class ResultGenerationStore:
                         else str(row["justification"])
                     ),
                     warnings=decode_result_warnings(row["warnings"]),
-                    op_id=int(row["op_id"]),
+                    change_id=int(row["change_id"]),
                     prepared_ref_id=(
                         int(row["value"])
                         if effect == "publish_value"
@@ -1599,7 +1603,7 @@ class ResultGenerationStore:
                 "ON generation.run_id=result.run_id "
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
-                "JOIN ops op ON op.id=run.op_id "
+                "JOIN changes op ON op.id=run.change_id "
                 "WHERE result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " AND "
@@ -1623,7 +1627,7 @@ class ResultGenerationStore:
                     "AND (head.column_id,head.row_id) IN ("
                     f"SELECT column_id,row_id FROM {key_table}) "
                     "AND head.run_id IN ("
-                    "SELECT run.id FROM runs run WHERE run.op_id<?)",
+                    "SELECT run.id FROM runs run WHERE run.change_id<?)",
                     (column_id, int(boundary_op_id)),
                 )
             refresh_current_cells_from_key_table(self.db, key_table)
@@ -1682,7 +1686,7 @@ class ResultGenerationStore:
                 "ON generation.run_id=result.run_id "
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
-                "JOIN ops op ON op.id=run.op_id "
+                "JOIN changes op ON op.id=run.change_id "
                 "WHERE result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " "
@@ -1704,7 +1708,7 @@ class ResultGenerationStore:
                     continue
                 self.db.execute(
                     "DELETE FROM cell_result_heads WHERE column_id=? AND run_id IN ("
-                    "SELECT run.id FROM runs run WHERE run.op_id<?)",
+                    "SELECT run.id FROM runs run WHERE run.change_id<?)",
                     (int(column_id), int(boundary_op_id)),
                 )
             if affected_column_ids:

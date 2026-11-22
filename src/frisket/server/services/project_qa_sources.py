@@ -73,11 +73,11 @@ def _metadata(
     db: sqlite3.Connection, cell: tuple[int, int, int]
 ) -> tuple[dict[str, Any], CurrentTextMetadata | None]:
     row = db.execute(
-        "SELECT c.origin_kind,c.origin_op_id,c.origin_run_id,c.base_producer_id,"
+        "SELECT c.origin_kind,c.origin_change_id,c.origin_run_id,c.base_producer_id,"
         "c.validity,c.outcome,copy.source_run_id AS copied_run_id,copy.source_row_id AS copied_row_id,"
         "copy.source_column_id AS copied_column_id,col.type AS column_type FROM effective_current_cells c "
         "LEFT JOIN copied_result_outcomes copy ON c.origin_kind='copied_result' "
-        "AND copy.op_id=c.origin_op_id AND copy.row_id=c.row_id AND copy.column_id=c.column_id "
+        "AND copy.change_id=c.origin_change_id AND copy.row_id=c.row_id AND copy.column_id=c.column_id "
         "JOIN rows r ON r.id=c.row_id JOIN columns col ON col.id=c.column_id "
         "JOIN sheets s ON s.id=r.sheet_id "
         "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "

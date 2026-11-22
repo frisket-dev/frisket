@@ -300,10 +300,10 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         "media.enclosure_materialize",
         # Accepted execution-spec outliers are non-provider actions, but they
         # still participate in the complete public run-coordinate partition.
-        "operation.redo",
-        "operation.undo",
-        "operation.revert",
-        "operation.restore",
+        "change.redo",
+        "change.undo",
+        "change.revert",
+        "change.restore",
         "plugin.load",
         "query.preview",
         "replay.accept",
@@ -583,15 +583,15 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
             "evidence through the media family; direct until capture-specific "
             "queue ownership is admitted."
         ),
-        # -- operation history: bounded transactional cursor steps ----------
-        "operation.undo": (
-            "Undo applies one local op-log transition and receipt synchronously."
+        # -- change history: bounded transactional cursor steps -------------
+        "change.undo": (
+            "Undo applies one local change-log transition and receipt synchronously."
         ),
-        "operation.redo": (
-            "Redo applies one local op-log transition and receipt synchronously."
+        "change.redo": (
+            "Redo applies one local change-log transition and receipt synchronously."
         ),
-        "operation.revert": "Revert one selected Change transactionally without moving navigation.",
-        "operation.restore": "Restore one selected Change transactionally without resuming work.",
+        "change.revert": "Revert one selected Change transactionally without moving navigation.",
+        "change.restore": "Restore one selected Change transactionally without resuming work.",
         # join.semantic joined _QUEUED_PROJECT_RUN_KINDS above; it is no
         # longer declared here.
         # -- feed.*: feed metadata/monitor mutation, not project.run ---------

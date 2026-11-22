@@ -163,8 +163,8 @@ def resolve_topic_analysis_sidecar(
     run_id = int(candidate["run_id"])
 
     run = project.db.execute(
-        "SELECT runs.id, op_id, params, action_kind,ops.change_order FROM runs "
-        "JOIN ops ON ops.id=runs.op_id WHERE runs.id=? AND runs.sheet_id=? "
+        "SELECT runs.id, change_id, params, action_kind,changes.change_order FROM runs "
+        "JOIN changes ON changes.id=runs.change_id WHERE runs.id=? AND runs.sheet_id=? "
         "AND runs.status IN ('completed', 'partial')",
         (run_id, sheet_id),
     ).fetchone()
@@ -189,13 +189,13 @@ def resolve_topic_analysis_sidecar(
         if live_ref.get("run_id") != run_id:
             return None
     elif live_ref.get("kind") == "manual_edit":
-        edit_op_id = live_ref.get("op_id")
+        edit_change_id = live_ref.get("change_id")
         edit_order = project.db.execute(
-            "SELECT change_order FROM ops WHERE id=?", (edit_op_id,)
+            "SELECT change_order FROM changes WHERE id=?", (edit_change_id,)
         ).fetchone()
         run_order = run["change_order"]
         if (
-            not _positive_int(edit_op_id)
+            not _positive_int(edit_change_id)
             or edit_order is None
             or edit_order[0] is None
             or run_order is None

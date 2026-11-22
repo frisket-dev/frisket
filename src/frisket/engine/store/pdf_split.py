@@ -159,8 +159,8 @@ class PdfSplitWriter(StreamingSheetWriter):
             expected_cursor,
         )
         operation = self.project.db.execute(
-            "SELECT kind,status FROM ops WHERE id=?",
-            (session.op_id,),
+            "SELECT kind,status FROM changes WHERE id=?",
+            (session.change_id,),
         ).fetchone()
         if (
             operation is None
@@ -177,7 +177,7 @@ class PdfSplitWriter(StreamingSheetWriter):
         db = self.project.db
         with write_transaction(db):
             operation = db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
+                "SELECT undo_info FROM changes WHERE id=?", (self._op_id,)
             ).fetchone()
             undo = json.loads(operation["undo_info"])
             for sheet_id in undo.get("created_sheets", []):
@@ -190,7 +190,8 @@ class PdfSplitWriter(StreamingSheetWriter):
                     "UPDATE columns SET active=0,hidden=1 WHERE id=?", (column_id,)
                 )
             db.execute(
-                "UPDATE ops SET status='discarded',barrier=0 WHERE id=?", (self._op_id,)
+                "UPDATE changes SET status='discarded',barrier=0 WHERE id=?",
+                (self._op_id,),
             )
             sessions = ImportSessionStore(self.project)
             sessions.discard_setup(sessions.get(self._session_id))
@@ -275,7 +276,7 @@ class PdfSplitWriter(StreamingSheetWriter):
                     (base, self._session_id, self._session_id),
                 )
             operation = db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
+                "SELECT undo_info FROM changes WHERE id=?", (self._op_id,)
             ).fetchone()
             undo = json.loads(operation["undo_info"])
             undo["created_rows_import_session_id"] = self._session_id
@@ -334,12 +335,12 @@ class PdfSplitWriter(StreamingSheetWriter):
                     blob_plan.bind_row_ordinals(row_ids),
                     sheet_id=self.sheet_id,
                     column_ids=self._column_ids,
-                    op_id=self._op_id,
+                    change_id=self._op_id,
                     receipt_id=self._receipt_id,
                     import_writer_authority=self._writer_authority,
                 )
             operation = db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
+                "SELECT undo_info FROM changes WHERE id=?", (self._op_id,)
             ).fetchone()
             replace = "replaced_rows_import_session_id" in json.loads(
                 operation["undo_info"]
@@ -485,7 +486,9 @@ class PdfSplitWriter(StreamingSheetWriter):
                 receipt, require_status="running"
             ):
                 raise ImportSessionConflict("split receipt finalization lost its CAS")
-            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (resumable.change_id,))
+            db.execute(
+                "UPDATE changes SET barrier=0 WHERE id=?", (resumable.change_id,)
+            )
             ChangeStore(self.project).close(resumable.change_id)
             ImportSessionStore(self.project).finish(
                 session,
@@ -497,7 +500,7 @@ class PdfSplitWriter(StreamingSheetWriter):
             sheet_id=self.sheet_id,
             sheet_name=self._requested_sheet_name,
             row_count=session.committed_rows,
-            op_id=resumable.change_id,
+            change_id=resumable.change_id,
             receipt_id=self._receipt_id,
             receipt=receipt,
         )

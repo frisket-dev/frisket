@@ -186,8 +186,8 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
                 store_capture(
                     ctx.project,
                     self._target_capture,
-                    owner_op_id=ctx.project.db.execute(
-                        "SELECT op_id FROM runs WHERE id=?", (ctx.extras["run_id"],)
+                    owner_change_id=ctx.project.db.execute(
+                        "SELECT change_id FROM runs WHERE id=?", (ctx.extras["run_id"],)
                     ).fetchone()[0],
                     output_sheet_id=spec["sheet_id"],
                     run_id=ctx.extras["run_id"],

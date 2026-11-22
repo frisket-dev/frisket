@@ -1081,7 +1081,11 @@ class ProjectLifecycleService:
         # Parent-op kind/label carry "how it's made" so the frontend can drop its
         # hardcoded viaAction:'derive'. Store-owned reads keep this SQL-free.
         ops_by_id = project.changes_meta(
-            [int(s["parent_op_id"]) for s in sheets if s["parent_op_id"] is not None]
+            [
+                int(s["parent_change_id"])
+                for s in sheets
+                if s["parent_change_id"] is not None
+            ]
         )
         refreshable_sheet_ids = {
             int(sheet["id"])
@@ -1096,18 +1100,20 @@ class ProjectLifecycleService:
                 "id": sheet_id,
                 "name": sheet["name"],
                 "parent_sheet_id": sheet["parent_sheet_id"],
-                "parent_op_id": sheet["parent_op_id"],
+                "parent_change_id": sheet["parent_change_id"],
                 "rows": project.row_count(sheet_id),
                 # Explicit row-title override, or None when unset (the
                 # frontend computes the grid-order default).
                 "title_column_id": sheet["title_column_id"],
             }
             parent_op = ops_by_id.get(
-                int(sheet["parent_op_id"]) if sheet["parent_op_id"] is not None else -1
+                int(sheet["parent_change_id"])
+                if sheet["parent_change_id"] is not None
+                else -1
             )
             if parent_op is not None:
-                entry["op_kind"] = parent_op["kind"]
-                entry["op_label"] = parent_op["label"]
+                entry["change_kind"] = parent_op["kind"]
+                entry["change_label"] = parent_op["label"]
             # Sheet-shape signal: only edge/join-materialized sheets carry a
             # graph-availability kind.
             materialized_kind = sheet_materialized_kind(

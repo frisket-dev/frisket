@@ -33,7 +33,7 @@ class ProjectLineageResponse(_OpenResponseModel):
     """The stable Monitor Lineage DAG with additive node metadata."""
 
     project_id: str
-    op_cursor: int
+    change_cursor: int
     nodes: list[ProjectLineageNode]
     edges: list[ProjectLineageEdge]
 

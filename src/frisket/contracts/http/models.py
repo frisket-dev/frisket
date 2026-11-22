@@ -247,11 +247,11 @@ class SheetListItem(WireModel):
     id: int
     name: str
     parent_sheet_id: int | None
-    parent_op_id: int | None
+    parent_change_id: int | None
     rows: int = Field(ge=0)
     title_column_id: int | None
-    op_kind: str | None = None
-    op_label: str | None = None
+    change_kind: str | None = None
+    change_label: str | None = None
     materialized_kind: str | None = None
     cited_column_ids: list[int]
     # The narrow annotated-text availability signal:
@@ -318,7 +318,7 @@ class RetainedResultRef(WireModel):
 
 class SheetDataValueRef(WireModel):
     kind: str
-    op_id: int | None
+    change_id: int | None
     row_id: int
     column_id: int
     run_id: int | None

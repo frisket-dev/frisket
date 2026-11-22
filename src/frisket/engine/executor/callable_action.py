@@ -247,8 +247,8 @@ class CallableInvocation:
                 "records": [*self.receipt.records, *update.records],
                 "provider_use": [*self.receipt.provider_use, *update.provider_use],
                 "exports": current_exports,
-                "op_ids": list(
-                    dict.fromkeys((*self.receipt.op_ids, *update.action_ids))
+                "change_ids": list(
+                    dict.fromkeys((*self.receipt.change_ids, *update.action_ids))
                 ),
             },
         ).model_copy(deep=True)
@@ -261,7 +261,7 @@ class CallableInvocation:
         records=(),
         provider_use=(),
         exports=(),
-        op_ids=(),
+        change_ids=(),
         before_commit=None,
     ):
         observed = self._build_observed_receipt(
@@ -271,7 +271,7 @@ class CallableInvocation:
                 records=tuple(records),
                 provider_use=tuple(provider_use),
                 exports=tuple(exports),
-                action_ids=tuple(op_ids),
+                action_ids=tuple(change_ids),
             )
         )
         self._persist_owning(observed, before_commit=before_commit)

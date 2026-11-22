@@ -37,7 +37,7 @@ MAX_QUERY_PREVIEW_LIMIT = 500
 class QueryPreviewResolution:
     output: QueryPreview
     provider_use: tuple[dict[str, Any], ...]
-    source_op_cursor: int
+    source_change_cursor: int
     embedding_binding: EmbeddingQueryBinding | None = None
 
 
@@ -193,7 +193,7 @@ def _resolve_query_preview_in_snapshot(
                 "cost_actual": 0.0,
             },
         ),
-        source_op_cursor=project.op_cursor,
+        source_change_cursor=project.change_cursor,
     )
 
 
@@ -264,7 +264,7 @@ def _resolve_embedding_similarity_preview(
     return QueryPreviewResolution(
         output=output,
         provider_use=tuple(_embedding_provider_use("embedding_similarity", result)),
-        source_op_cursor=project.op_cursor,
+        source_change_cursor=project.change_cursor,
         embedding_binding=result.binding,
     )
 
@@ -330,7 +330,7 @@ def _resolve_embedding_hybrid_preview(
     return QueryPreviewResolution(
         output=output,
         provider_use=tuple(_embedding_provider_use("embedding_hybrid", result)),
-        source_op_cursor=project.op_cursor,
+        source_change_cursor=project.change_cursor,
         embedding_binding=result.binding,
     )
 
@@ -404,7 +404,7 @@ def revalidate_query_preview_resolution(
             code, message = gate
             raise QueryPreviewError(code, message, field="query.embedding_index_id")
         _require_stable_embedding_binding(project, binding, binding)
-    if project.op_cursor != resolved.source_op_cursor:
+    if project.change_cursor != resolved.source_change_cursor:
         raise QueryPreviewError(
             "stale_input",
             "the project changed while the query preview was running; retry",

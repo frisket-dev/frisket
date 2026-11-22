@@ -676,7 +676,7 @@ def _finalize_web_capture_page(
                 "supplemental": supplemental_refs,
             }
 
-        op_id = _web_capture_page_apply_edits_in_txn(
+        change_id = _web_capture_page_apply_edits_in_txn(
             project,
             action,
             params,
@@ -697,7 +697,7 @@ def _finalize_web_capture_page(
             action_kind=action.kind,
             row_results=row_results,
             input_column=input_column,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=receipt_id,
             blob_refs_by_row=blob_refs_by_row,
         )
@@ -713,7 +713,7 @@ def _finalize_web_capture_page(
             output_ref=output_ref,
             row_results=row_results,
             evidence_refs=evidence_refs,
-            op_id=op_id,
+            change_id=change_id,
             status=status,
             status_counts=status_counts,
             errors=errors,
@@ -1013,7 +1013,7 @@ def _write_web_capture_page_citations(
     action_kind: str,
     row_results: list[dict[str, Any]],
     input_column: dict[str, Any],
-    op_id: int,
+    change_id: int,
     receipt_id: str,
     blob_refs_by_row: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1080,7 +1080,7 @@ def _write_web_capture_page_citations(
             sheet_id=input_column["sheet_id"],
             row_id=row_id,
             column_id=input_column["id"],
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=receipt_id,
             link_role="web_capture_page",
             producer={
@@ -1172,7 +1172,7 @@ def _web_capture_page_links_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[write.op_id],
+        change_ids=[write.change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status=status,
@@ -1247,7 +1247,7 @@ def _web_capture_page_receipt(
     output_ref: dict[str, Any],
     row_results: list[dict[str, Any]],
     evidence_refs: list[dict[str, Any]],
-    op_id: int,
+    change_id: int,
     status: ActionResultStatus,
     status_counts: dict[str, int],
     errors: list[ActionError],
@@ -1269,7 +1269,7 @@ def _web_capture_page_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[op_id],
+        change_ids=[change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status=status,
@@ -1449,8 +1449,8 @@ def _web_capture_page_replay_error(
         if ref.get("kind") == "materialized_sheet":
             seen_output = True
             sheet_id = ref.get("sheet_id")
-            op_id = ref.get("op_id")
-            if not isinstance(sheet_id, int) or not isinstance(op_id, int):
+            change_id = ref.get("change_id")
+            if not isinstance(sheet_id, int) or not isinstance(change_id, int):
                 return stale(replay + "receipt has invalid links-sheet refs")
             sheet = project.db.execute(
                 "SELECT id, name, parent_sheet_id FROM sheets WHERE id=? AND hidden=0",
@@ -1463,7 +1463,7 @@ def _web_capture_page_replay_error(
             ):
                 return stale(replay + "links output sheet is missing or renamed")
             op = project.db.execute(
-                "SELECT id FROM ops WHERE id=? AND status='applied'", (op_id,)
+                "SELECT id FROM changes WHERE id=? AND status='applied'", (change_id,)
             ).fetchone()
             if op is None:
                 return stale(replay + "links output operation is missing")
@@ -1586,7 +1586,7 @@ def _web_capture_page_links_replay_error(
     rows_ref = rows_outputs[0].ref
     lineage_ref = lineage_evidence[0].ref
     sheet_id = _positive_receipt_int(sheet_ref.get("sheet_id"))
-    op_id = _positive_receipt_int(sheet_ref.get("op_id"))
+    change_id = _positive_receipt_int(sheet_ref.get("change_id"))
     parent_sheet_id = _positive_receipt_int(sheet_ref.get("parent_sheet_id"))
     row_ids = _positive_receipt_int_list(rows_ref.get("row_ids"))
     parent_row_ids = _positive_receipt_int_list(rows_ref.get("parent_row_ids"))
@@ -1594,13 +1594,13 @@ def _web_capture_page_links_replay_error(
     value_hashes = rows_ref.get("value_hashes")
     if (
         sheet_id is None
-        or op_id is None
+        or change_id is None
         or parent_sheet_id is None
         or rows_ref.get("sheet_id") != sheet_id
-        or rows_ref.get("op_id") != op_id
+        or rows_ref.get("change_id") != change_id
         or lineage_ref.get("child_sheet_id") != sheet_id
         or lineage_ref.get("parent_sheet_id") != parent_sheet_id
-        or lineage_ref.get("op_id") != op_id
+        or lineage_ref.get("change_id") != change_id
         or row_ids is None
         or parent_row_ids is None
         or len(row_ids) != len(parent_row_ids)
@@ -1619,18 +1619,18 @@ def _web_capture_page_links_replay_error(
         return stale("links output receipt lineage pairs changed")
 
     sheet = project.db.execute(
-        "SELECT id, name, parent_sheet_id, parent_op_id FROM sheets "
+        "SELECT id, name, parent_sheet_id, parent_change_id FROM sheets "
         "WHERE id=? AND hidden=0",
         (sheet_id,),
     ).fetchone()
     op = project.db.execute(
-        "SELECT id FROM ops WHERE id=? AND status='applied'", (op_id,)
+        "SELECT id FROM changes WHERE id=? AND status='applied'", (change_id,)
     ).fetchone()
     if (
         sheet is None
         or sheet["name"] != sheet_output.name
         or sheet["parent_sheet_id"] != parent_sheet_id
-        or sheet["parent_op_id"] != op_id
+        or sheet["parent_change_id"] != change_id
         or op is None
     ):
         return stale("links output sheet or operation is missing")
@@ -1655,7 +1655,7 @@ def _web_capture_page_links_replay_error(
         if (
             column_id is None
             or ref.get("sheet_id") != sheet_id
-            or ref.get("op_id") != op_id
+            or ref.get("change_id") != change_id
         ):
             return stale("links generated column ref is invalid", output=name)
         column = project.db.execute(

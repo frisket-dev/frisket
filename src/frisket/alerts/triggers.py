@@ -21,7 +21,7 @@ class FeedPollMaterialization(TypedDict):
     feed_id: int
     feed_check_id: int
     sheet_id: int
-    op_id: int
+    change_id: int
     row_ids: list[int]
     materialized_rows: int
 
@@ -66,8 +66,15 @@ def feed_poll_materialization_from_receipt(
         feed_check.get("feed_check_id") or rows.get("feed_check_id")
     )
     sheet_id = _positive_int_or_none(feed_check.get("sheet_id") or rows.get("sheet_id"))
-    op_id = _positive_int_or_none(feed_check.get("op_id") or rows.get("op_id"))
-    if feed_id is None or feed_check_id is None or sheet_id is None or op_id is None:
+    change_id = _positive_int_or_none(
+        feed_check.get("change_id") or rows.get("change_id")
+    )
+    if (
+        feed_id is None
+        or feed_check_id is None
+        or sheet_id is None
+        or change_id is None
+    ):
         return None
     return {
         "kind": "feed_poll_materialized",
@@ -75,7 +82,7 @@ def feed_poll_materialization_from_receipt(
         "feed_id": feed_id,
         "feed_check_id": feed_check_id,
         "sheet_id": sheet_id,
-        "op_id": op_id,
+        "change_id": change_id,
         "row_ids": row_ids,
         "materialized_rows": materialized_rows,
     }
@@ -90,7 +97,7 @@ def trigger_source_materialized_alerts(
 ) -> list[dict[str, Any]]:
     if (
         materialization.get("kind") != "feed_poll_materialized"
-        or materialization.get("op_id") is None
+        or materialization.get("change_id") is None
         or not materialization.get("row_ids")
     ):
         return []
@@ -132,7 +139,7 @@ def trigger_source_materialized_alerts(
                 "feed_id": materialization["feed_id"],
                 "feed_check_id": materialization["feed_check_id"],
                 "sheet_id": materialization["sheet_id"],
-                "op_id": materialization["op_id"],
+                "change_id": materialization["change_id"],
                 "materialized_row_ids": list(materialization["row_ids"]),
             }
         )

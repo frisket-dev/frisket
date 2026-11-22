@@ -29,7 +29,7 @@ def join_identity(sources: Sequence[tuple[int, str]]) -> str:
     return canonical([roles.get("join_left"), roles.get("join_right")])
 
 
-def establish_identity(db, *, sheet_id, op_id, column_ids, rows, row_ids, identity):
+def establish_identity(db, *, sheet_id, change_id, column_ids, rows, row_ids, identity):
     require_transaction(db, "derived identity")
     if identity.keys is not None and len(identity.keys) != len(row_ids):
         raise ValueError("derived identities must match output rows")
@@ -64,10 +64,11 @@ def establish_identity(db, *, sheet_id, op_id, column_ids, rows, row_ids, identi
             observed_present=True,
         )
     spec = json.loads(
-        db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[0] or "{}"
+        db.execute("SELECT spec FROM changes WHERE id=?", (change_id,)).fetchone()[0]
+        or "{}"
     )
     spec["derived_refresh"] = config
-    db.execute("UPDATE ops SET spec=? WHERE id=?", (canonical(spec), op_id))
+    db.execute("UPDATE changes SET spec=? WHERE id=?", (canonical(spec), change_id))
     return config
 
 
@@ -88,7 +89,7 @@ class DerivedRefreshRow:
 
 
 def reconcile_rows_into_open_change(
-    db, *, op_id, sheet_id, config, columns, rows, policy="keep_changes"
+    db, *, change_id, sheet_id, config, columns, rows, policy="keep_changes"
 ):
     """Publish one bounded, identity-validated batch; never infer absence.
 
@@ -178,7 +179,7 @@ def reconcile_rows_into_open_change(
         for row in db.execute(
             "WITH ranked AS (SELECT effect.object_id,effect.after_visible,owner.kind,owner.spec,"
             "ROW_NUMBER() OVER (PARTITION BY effect.object_id ORDER BY owner.change_order DESC) AS rank "
-            "FROM structural_changes effect JOIN ops owner ON owner.id=effect.op_id "
+            "FROM structural_changes effect JOIN changes owner ON owner.id=effect.change_id "
             "WHERE effect.kind='row' AND effect.object_id IN (SELECT value FROM json_each(?)) "
             "AND owner.status='applied' AND owner.change_order IS NOT NULL) "
             "SELECT object_id FROM ranked WHERE rank=1 AND after_visible=0 "
@@ -204,7 +205,7 @@ def reconcile_rows_into_open_change(
         ).items():
             current[row_id][str(column_id)] = cell.value
     project = SimpleNamespace(db=db)
-    ChangeStore(project).require_publication(op_id)
+    ChangeStore(project).require_publication(change_id)
     from .column_descriptors import set_descriptor
     from frisket.contracts.action import canonical_column_type
 
@@ -215,8 +216,10 @@ def reconcile_rows_into_open_change(
         ).fetchone()
         value = canonical_column_type(column.type)
         if existing["type"] != value:
-            set_descriptor(project, column_id, "type", value, op_id=op_id)
-    producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
+            set_descriptor(project, column_id, "type", value, change_id=change_id)
+    producer_id = create_base_cell_producer(
+        db, stage_id=f"op:{change_id}", change_id=change_id
+    )
     info = {"created_rows": [], "deleted_rows": [], "restored_rows": []}
     max_position = db.execute(
         "SELECT COALESCE(MAX(position),0) FROM rows WHERE sheet_id=?", (sheet_id,)
@@ -272,7 +275,7 @@ def reconcile_rows_into_open_change(
                 db.cursor(),
                 materialized_row_id=row_id,
                 source_row_id=source_id,
-                op_id=op_id,
+                change_id=change_id,
                 role=role,
             )
         observe(
@@ -297,19 +300,19 @@ def reconcile_rows_into_open_change(
                 for column, value in changes.items()
             ],
         )
-    record_structural_changes(db, op_id, info)
-    _refresh_membership_batch(db, op_id, sheet_id, info, owned_columns.values())
+    record_structural_changes(db, change_id, info)
+    _refresh_membership_batch(db, change_id, sheet_id, info, owned_columns.values())
     return output_ids
 
 
-def _refresh_membership_batch(db, op_id, sheet_id, info, initialized_columns=()):
+def _refresh_membership_batch(db, change_id, sheet_id, info, initialized_columns=()):
     from .structural_changes import note_row_additions, project_structural_changes
     from .current_cells import refresh_current_cells
 
     created = info.get("created_rows", [])
     changed = [*info.get("deleted_rows", []), *info.get("restored_rows", [])]
     if created or changed:
-        project_structural_changes(db, op_id, object_ids=[*created, *changed])
+        project_structural_changes(db, change_id, object_ids=[*created, *changed])
     if created:
         note_row_additions(
             db, sheet_id, created, initialized_columns=initialized_columns
@@ -327,18 +330,18 @@ def _refresh_membership_batch(db, op_id, sheet_id, info, initialized_columns=())
         )
 
 
-def restore_derived_rows(db, *, op_id, sheet_id, row_ids):
+def restore_derived_rows(db, *, change_id, sheet_id, row_ids):
     """Publish row restoration chosen by the same keyed field reconciliation."""
     from types import SimpleNamespace
     from .changes import ChangeStore
     from .purge import require_publication_targets
     from .structural_changes import record_structural_changes
 
-    ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
+    ChangeStore(SimpleNamespace(db=db)).require_publication(change_id)
     require_publication_targets(db, sheet_id=sheet_id, row_ids=row_ids)
     info = {"restored_rows": list(row_ids)}
-    record_structural_changes(db, op_id, info)
-    _refresh_membership_batch(db, op_id, sheet_id, info)
+    record_structural_changes(db, change_id, info)
+    _refresh_membership_batch(db, change_id, sheet_id, info)
 
 
 def absent_derived_batches(db, *, config, seen, batch_size=256):
@@ -366,13 +369,13 @@ def absent_derived_batches(db, *, config, seen, batch_size=256):
             yield absent
 
 
-def complete_derived_membership(db, *, op_id, sheet_id, config, observed_rows):
+def complete_derived_membership(db, *, change_id, sheet_id, config, observed_rows):
     """Retire a bounded absent-members batch, only after successful EOF."""
     from types import SimpleNamespace
     from .changes import ChangeStore
     from .structural_changes import record_structural_changes
 
-    ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
+    ChangeStore(SimpleNamespace(db=db)).require_publication(change_id)
     hidden = [int(row["row_id"]) for row in observed_rows if not row["hidden"]]
     db.executemany("UPDATE rows SET hidden=1 WHERE id=?", ((row,) for row in hidden))
     db.executemany(
@@ -380,5 +383,5 @@ def complete_derived_membership(db, *, op_id, sheet_id, config, observed_rows):
         ((config["relationship_id"], row["row_id"]) for row in observed_rows),
     )
     info = {"deleted_rows": hidden}
-    record_structural_changes(db, op_id, info)
-    _refresh_membership_batch(db, op_id, sheet_id, info)
+    record_structural_changes(db, change_id, info)
+    _refresh_membership_batch(db, change_id, sheet_id, info)

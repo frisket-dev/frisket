@@ -448,7 +448,7 @@ def write_find_result(
             superseded_sheet_id = int(target["sheet_id"])
             superseded_name = (
                 f"{params.target_sheet_name} "
-                f"(superseded:{superseded_sheet_id}:{target['parent_op_id']})"
+                f"(superseded:{superseded_sheet_id}:{target['parent_change_id']})"
             )
             project.db.execute(
                 "UPDATE citations SET status='stale', "
@@ -462,7 +462,9 @@ def write_find_result(
             )
         write = write_aggregate_sheet(project.db.cursor(), plan)
         if replacing:
-            project.db.execute("UPDATE ops SET barrier=1 WHERE id=?", (write.op_id,))
+            project.db.execute(
+                "UPDATE changes SET barrier=1 WHERE id=?", (write.change_id,)
+            )
         from frisket.engine.executor.project_run_terminalization import (
             UnclaimedRunTerminalAuthority,
             terminalize_project_run_in_transaction,
@@ -476,7 +478,7 @@ def write_find_result(
 
         run_store = RunResultStore(project)
         run_id = run_store.start_run_in_transaction(
-            write.op_id,
+            write.change_id,
             write.sheet_id,
             action.kind,
             model=params.model,
@@ -510,7 +512,7 @@ def write_find_result(
             action_kind=action.kind,
             receipt_id=receipt_id,
             run_id=run_id,
-            op_id=write.op_id,
+            change_id=write.change_id,
             claim_token=claim_token,
             details={"output_fields": output_fields},
         )
@@ -581,7 +583,7 @@ def write_find_result(
                 spans=spans,
                 sheet_id=write.sheet_id,
                 row_id=child_row_id,
-                op_id=write.op_id,
+                change_id=write.change_id,
                 receipt_id=receipt_id,
                 link_role="primary_support",
                 pinned=True,
@@ -614,7 +616,7 @@ def write_find_result(
                     subject_kind="cell",
                     subject_ref={
                         "kind": "run_result",
-                        "op_id": write.op_id,
+                        "change_id": write.change_id,
                         "row_id": child_row_id,
                         "column_id": column_id,
                         "run_id": run_id,
@@ -624,7 +626,7 @@ def write_find_result(
                     row_id=child_row_id,
                     column_id=column_id,
                     run_id=run_id,
-                    op_id=write.op_id,
+                    change_id=write.change_id,
                     receipt_id=receipt_id,
                     link_role="primary_support",
                     pinned=True,
@@ -647,14 +649,14 @@ def write_find_result(
             terminal_disposition=result_status,
         )
         for column_id in write.column_ids.values():
-            run_store.point_column_at_run(write.op_id, column_id, run_id)
+            run_store.point_column_at_run(write.change_id, column_id, run_id)
         receipt = Receipt(
             receipt_id=receipt_id,
             project_id=project_id,
             action_id=action_id,
             action_kind=action.kind,
             run_id=run_id,
-            op_ids=[write.op_id],
+            change_ids=[write.change_id],
             idempotency_key=action.idempotency_key,
             params_hash=params_hash,
             status=result_status,
@@ -752,7 +754,7 @@ def write_find_result(
         status="completed" if not scan.issues else "partial",
         project_id=project_id,
         run_id=run_id,
-        op_ids=[write.op_id],
+        change_ids=[write.change_id],
         outputs=outputs,
         receipt_id=receipt_id,
         errors=list(scan.issues),

@@ -186,7 +186,7 @@ def persist_cluster_fact(project, fact, *, fence: WriterFence):
             output_column_ids={fact["output"]["column_id"]},
         )
         run = db.execute(
-            "SELECT ops.id,ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            "SELECT changes.id,changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
             (fact["run_id"],),
         ).fetchone()
         provenance = json.loads(run["spec"])
@@ -199,7 +199,7 @@ def persist_cluster_fact(project, fact, *, fence: WriterFence):
             )
         provenance[CLUSTER_RESULT_SPEC_KEY] = fact
         db.execute(
-            "UPDATE ops SET spec=? WHERE id=?",
+            "UPDATE changes SET spec=? WHERE id=?",
             (json.dumps(provenance, sort_keys=True, allow_nan=False), run["id"]),
         )
         db.execute("RELEASE SAVEPOINT value_clusters_evidence")
@@ -237,7 +237,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
             == spec.get("idempotency_key")
             and stored.get("cluster_values") == state
             for row in project.db.execute(
-                "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+                "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id "
                 "JOIN effect_checkpoints ON effect_checkpoints.group_key=CAST(runs.id AS TEXT) "
                 "WHERE runs.action_kind=? AND runs.status='running' "
                 "AND effect_checkpoints.family='model_call' "
@@ -279,14 +279,14 @@ class _ClusterProgram(_TypedMapBatchProgram):
         values = {row_id: row.get(source_name) for row_id, row in values_by_row.items()}
         if not values_by_row and state["source"]["row_ids"]:
             run = ctx.project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?",
+                "SELECT change_id FROM runs WHERE id=?",
                 (int(ctx.extras["run_id"]),),
             ).fetchone()
             op = (
                 None
                 if run is None
                 else ctx.project.db.execute(
-                    "SELECT spec FROM ops WHERE id=?", (int(run["op_id"]),)
+                    "SELECT spec FROM changes WHERE id=?", (int(run["change_id"]),)
                 ).fetchone()
             )
             fact = (

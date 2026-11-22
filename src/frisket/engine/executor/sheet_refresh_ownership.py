@@ -5,13 +5,13 @@ from frisket.actions.types import TableError
 from frisket.engine.store.leases import lease_held
 
 
-def require_refresh_target(project, sheet_id, parent_op_id, *, claim_token=None):
+def require_refresh_target(project, sheet_id, parent_change_id, *, claim_token=None):
     target = project.db.execute(
-        "SELECT s.parent_op_id,s.refresh_claim_token,s.refresh_lease_expires_at FROM sheets s "
+        "SELECT s.parent_change_id,s.refresh_claim_token,s.refresh_lease_expires_at FROM sheets s "
         "JOIN sheets parent ON parent.id=s.parent_sheet_id AND parent.hidden=0 WHERE s.id=? AND s.hidden=0",
         (sheet_id,),
     ).fetchone()
-    if target is None or target["parent_op_id"] != parent_op_id:
+    if target is None or target["parent_change_id"] != parent_change_id:
         raise TableError(
             "invalid_input_ref", "The refresh target or its source is unavailable"
         )
@@ -23,10 +23,10 @@ def require_refresh_target(project, sheet_id, parent_op_id, *, claim_token=None)
         raise TableError("sheet_refresh_busy", "Another refresh is already in progress")
 
 
-def acquire_refresh_claim(project, *, sheet_id, parent_op_id, token):
+def acquire_refresh_claim(project, *, sheet_id, parent_change_id, token):
     if not project.db.in_transaction:
         raise RuntimeError("refresh ownership requires the publication transaction")
-    require_refresh_target(project, sheet_id, parent_op_id, claim_token=token)
+    require_refresh_target(project, sheet_id, parent_change_id, claim_token=token)
     project.db.execute(
         "UPDATE sheets SET refresh_claim_token=?,refresh_lease_expires_at=? WHERE id=?",
         (
@@ -37,25 +37,25 @@ def acquire_refresh_claim(project, *, sheet_id, parent_op_id, token):
     )
 
 
-def require_refresh_writer(project, *, sheet_id, parent_op_id, op_id, token):
+def require_refresh_writer(project, *, sheet_id, parent_change_id, change_id, token):
     from frisket.engine.store.changes import ChangeStore
     from frisket.engine.store.source_dependencies import require_execution_sources
     from frisket.engine.store.purge import require_publication_targets
 
     target = project.db.execute(
-        "SELECT parent_op_id,refresh_claim_token,hidden FROM sheets WHERE id=?",
+        "SELECT parent_change_id,refresh_claim_token,hidden FROM sheets WHERE id=?",
         (sheet_id,),
     ).fetchone()
     if (
         target is None
         or target["hidden"]
-        or target["parent_op_id"] != parent_op_id
+        or target["parent_change_id"] != parent_change_id
         or target["refresh_claim_token"] != token
     ):
         raise TableError("stale_refresh", "The refresh no longer owns its target")
-    ChangeStore(project).start(op_id)
-    ChangeStore(project).require_publication(op_id)
-    require_execution_sources(project, op_id)
+    ChangeStore(project).start(change_id)
+    ChangeStore(project).require_publication(change_id)
+    require_execution_sources(project, change_id)
     require_publication_targets(project.db, sheet_id=sheet_id)
     project.db.execute(
         "UPDATE sheets SET refresh_lease_expires_at=? WHERE id=?",

@@ -142,7 +142,7 @@ def publish_pdf_ocr_sample(
         except DocumentTextUnavailable:
             selection = None
         manual = selection is not None and selection.prepared_ref_id is None
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "media.ocr",
             {"source_column_id": column, "page": int(capture["page_number"])},
             label="OCR sample",
@@ -173,7 +173,7 @@ def publish_pdf_ocr_sample(
             output_column = role.text_column_id
             name = str(project.get_column(output_column)["name"])
         if created:
-            project.set_undo_info(op_id, {"created_columns": created})
+            project.set_undo_info(change_id, {"created_columns": created})
         if selection is not None:
             artifact_id = selection.source_artifact_id
         else:
@@ -210,7 +210,7 @@ def publish_pdf_ocr_sample(
         if base_ref is None:
             ref = store.stage_reference(
                 source_artifact_id=artifact_id,
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 pages=[draft],
                 page_number=selected_page,
                 allow_partial=True,
@@ -218,14 +218,14 @@ def publish_pdf_ocr_sample(
         else:
             ref = store.stage_replacement(
                 base_ref_id=base_ref,
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 replacements=[draft],
                 page_number=selected_page,
                 allow_partial=True,
             )
         runs = RunResultStore(project)
         run_id = runs.start_run_in_transaction(
-            op_id,
+            change_id,
             sheet,
             "media.ocr",
             params=dict(capture["ocr_action_params"]),
@@ -255,7 +255,7 @@ def publish_pdf_ocr_sample(
             action_kind="media.ocr",
             receipt_id=receipt_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             claim_token=token,
             details={"output_fields": [{"name": name, "column_type": "text"}]},
         )
@@ -346,7 +346,7 @@ def publish_pdf_ocr_sample(
             subject_ref={
                 "kind": "run_result",
                 "run_id": run_id,
-                "op_id": op_id,
+                "change_id": change_id,
                 "row_id": row,
                 "column_id": output_column,
                 "prepared_ref_id": ref.ref_id,
@@ -356,7 +356,7 @@ def publish_pdf_ocr_sample(
             row_id=row,
             column_id=output_column,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=receipt_id,
             link_role="media_ocr_grounding",
             producer={
@@ -378,7 +378,7 @@ def publish_pdf_ocr_sample(
         )
         GeneratedColumnClaimStore(project).release(claim_token=token)
     return {
-        "operation_id": op_id,
+        "operation_id": change_id,
         "run_id": run_id,
         "prepared_ref_id": ref.ref_id,
         "source_artifact_id": artifact_id,

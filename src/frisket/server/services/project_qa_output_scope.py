@@ -95,17 +95,17 @@ def _column_coordinates(
     sheet_id = _positive_int(output.ref.get("sheet_id"))
     column_id = _positive_int(output.ref.get("column_id"))
     run_id = _positive_int(output.ref.get("run_id"))
-    op_id = _positive_int(output.ref.get("op_id"))
+    change_id = _positive_int(output.ref.get("change_id"))
     row_ids = _exact_row_ids(output)
-    if None in (sheet_id, column_id, run_id, op_id) or row_ids is None:
+    if None in (sheet_id, column_id, run_id, change_id) or row_ids is None:
         return None
     assert sheet_id is not None
     assert column_id is not None
     assert run_id is not None
-    assert op_id is not None
-    if receipt.run_id != run_id or op_id not in receipt.op_ids:
+    assert change_id is not None
+    if receipt.run_id != run_id or change_id not in receipt.change_ids:
         return None
-    return sheet_id, column_id, run_id, op_id, row_ids
+    return sheet_id, column_id, run_id, change_id, row_ids
 
 
 def _column_is_current(
@@ -114,19 +114,19 @@ def _column_is_current(
     sheet_id: int,
     column_id: int,
     run_id: int,
-    op_id: int,
+    change_id: int,
     row_ids: tuple[int, ...],
 ) -> bool:
     owner = project.db.execute(
         "SELECT 1 FROM runs run "
-        "JOIN ops op ON op.id=run.op_id "
+        "JOIN changes op ON op.id=run.change_id "
         "JOIN sheets sheet ON sheet.id=run.sheet_id "
         "JOIN columns column_def ON column_def.id=? "
-        "WHERE run.id=? AND run.op_id=? AND run.sheet_id=? "
+        "WHERE run.id=? AND run.change_id=? AND run.sheet_id=? "
         "AND run.status='completed' AND op.status='applied' "
         "AND sheet.hidden=0 AND column_def.sheet_id=run.sheet_id "
         "AND column_def.hidden=0",
-        (column_id, run_id, op_id, sheet_id),
+        (column_id, run_id, change_id, sheet_id),
     ).fetchone()
     if owner is None:
         return False
@@ -140,9 +140,9 @@ def _column_is_current(
         "AND cell.column_id=? "
         "WHERE row_def.id IS NULL OR row_def.sheet_id!=? OR row_def.hidden!=0 "
         "OR cell.row_id IS NULL OR cell.origin_kind!='run_result' "
-        "OR cell.origin_run_id!=? OR cell.origin_op_id!=?"
+        "OR cell.origin_run_id!=? OR cell.origin_change_id!=?"
         ")",
-        (requested_rows, column_id, sheet_id, run_id, op_id),
+        (requested_rows, column_id, sheet_id, run_id, change_id),
     ).fetchone()
     return not bool(stale[0])
 
@@ -153,21 +153,21 @@ def _materialized_sheet_coordinates(
     if output.kind != "sheet" or output.ref.get("kind") == "source_sheet":
         return None
     sheet_id = _positive_int(output.ref.get("sheet_id"))
-    op_id = _positive_int(output.ref.get("op_id"))
-    if sheet_id is None or op_id is None or op_id not in receipt.op_ids:
+    change_id = _positive_int(output.ref.get("change_id"))
+    if sheet_id is None or change_id is None or change_id not in receipt.change_ids:
         return None
-    return sheet_id, op_id
+    return sheet_id, change_id
 
 
 def _materialized_sheet_is_current(
-    project: Project, *, sheet_id: int, op_id: int
+    project: Project, *, sheet_id: int, change_id: int
 ) -> bool:
     return (
         project.db.execute(
-            "SELECT 1 FROM sheets sheet JOIN ops op ON op.id=sheet.parent_op_id "
-            "WHERE sheet.id=? AND sheet.parent_op_id=? AND sheet.hidden=0 "
+            "SELECT 1 FROM sheets sheet JOIN changes op ON op.id=sheet.parent_change_id "
+            "WHERE sheet.id=? AND sheet.parent_change_id=? AND sheet.hidden=0 "
             "AND op.status='applied'",
-            (sheet_id, op_id),
+            (sheet_id, change_id),
         ).fetchone()
         is not None
     )
@@ -224,9 +224,9 @@ def derive_output_read_grants(
         for output in result.outputs:
             sheet_coordinates = _materialized_sheet_coordinates(receipt, output)
             if sheet_coordinates is not None:
-                sheet_id, op_id = sheet_coordinates
+                sheet_id, change_id = sheet_coordinates
                 if _materialized_sheet_is_current(
-                    project, sheet_id=sheet_id, op_id=op_id
+                    project, sheet_id=sheet_id, change_id=change_id
                 ):
                     receipt_grants.append(
                         OutputReadGrant(
@@ -254,13 +254,13 @@ def derive_output_read_grants(
                     )
                 )
                 continue
-            sheet_id, column_id, run_id, op_id, row_ids = column_coordinates
+            sheet_id, column_id, run_id, change_id, row_ids = column_coordinates
             if not _column_is_current(
                 project,
                 sheet_id=sheet_id,
                 column_id=column_id,
                 run_id=run_id,
-                op_id=op_id,
+                change_id=change_id,
                 row_ids=row_ids,
             ):
                 receipt_unavailable.append(

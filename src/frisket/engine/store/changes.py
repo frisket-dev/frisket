@@ -41,7 +41,7 @@ def start_change(
             "Pre-upgrade history is read-only; run the action again"
         )
     row = db.execute(
-        "SELECT status,change_order,publication_closed FROM ops WHERE id=?",
+        "SELECT status,change_order,publication_closed FROM changes WHERE id=?",
         (change_id,),
     ).fetchone()
     if row is None or row[0] != "applied":
@@ -53,7 +53,7 @@ def start_change(
     if (
         writing
         and db.execute(
-            "SELECT 1 FROM runs WHERE op_id=? AND cancel_requested_at IS NOT NULL LIMIT 1",
+            "SELECT 1 FROM runs WHERE change_id=? AND cancel_requested_at IS NOT NULL LIMIT 1",
             (change_id,),
         ).fetchone()
     ):
@@ -62,8 +62,8 @@ def start_change(
         if writing and row[2]:
             raise ChangePublicationClosed(f"Change {change_id} publication is closed")
         return int(row[1])
-    db.execute("UPDATE ops SET redo_eligible=0 WHERE status='undone'")
-    db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(change_id),))
+    db.execute("UPDATE changes SET redo_eligible=0 WHERE status='undone'")
+    db.execute("UPDATE meta SET value=? WHERE key='change_cursor'", (str(change_id),))
     db.execute(
         "INSERT INTO meta(key,value) VALUES ('change_sequence','1') "
         "ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1"
@@ -72,7 +72,7 @@ def start_change(
         db.execute("SELECT value FROM meta WHERE key='change_sequence'").fetchone()[0]
     )
     db.execute(
-        "UPDATE ops SET change_order=?,publication_closed=? WHERE id=?",
+        "UPDATE changes SET change_order=?,publication_closed=? WHERE id=?",
         (order, int(not writing), change_id),
     )
     return order
@@ -82,7 +82,7 @@ def close_change(db: sqlite3.Connection, change_id: int) -> None:
     """Close one Change inside the caller's transaction."""
     require_transaction(db, "Change command")
     row = db.execute(
-        "SELECT status,publication_closed FROM ops WHERE id=?", (change_id,)
+        "SELECT status,publication_closed FROM changes WHERE id=?", (change_id,)
     ).fetchone()
     if row is None:
         raise ValueError(f"unknown Change {change_id}")
@@ -91,7 +91,7 @@ def close_change(db: sqlite3.Connection, change_id: int) -> None:
     machine.send("close")
     target = next(iter(machine.configuration)).id
     db.execute(
-        "UPDATE ops SET status=?,publication_closed=? WHERE id=?",
+        "UPDATE changes SET status=?,publication_closed=? WHERE id=?",
         (
             "undone" if target == "inactive" else "applied",
             int(target != "writing"),
@@ -113,7 +113,7 @@ class ChangeStore:
 
     def require_publication(self, change_id: int) -> None:
         row = self.db.execute(
-            "SELECT status,publication_closed,change_order FROM ops WHERE id=?",
+            "SELECT status,publication_closed,change_order FROM changes WHERE id=?",
             (change_id,),
         ).fetchone()
         if row is None or row[0] != "applied" or row[1] or row[2] is None:
@@ -122,7 +122,7 @@ class ChangeStore:
     def _transition(self, change_id: int, event: str) -> None:
         require_transaction(self.db, "Change command")
         row = self.db.execute(
-            "SELECT status,publication_closed FROM ops WHERE id=?", (change_id,)
+            "SELECT status,publication_closed FROM changes WHERE id=?", (change_id,)
         ).fetchone()
         if row is None:
             raise ValueError(f"unknown Change {change_id}")
@@ -133,7 +133,7 @@ class ChangeStore:
         machine.send(event)
         target = next(iter(machine.configuration)).id
         self.db.execute(
-            "UPDATE ops SET status=?,publication_closed=? WHERE id=?",
+            "UPDATE changes SET status=?,publication_closed=? WHERE id=?",
             (
                 "undone" if target == "inactive" else "applied",
                 int(target != "writing"),
@@ -153,7 +153,7 @@ class ChangeStore:
         self.db.execute(
             "UPDATE runs SET cancel_requested_at="
             "COALESCE(cancel_requested_at,datetime('now')) "
-            "WHERE op_id=? AND status='running'",
+            "WHERE change_id=? AND status='running'",
             (int(change_id),),
         )
 

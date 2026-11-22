@@ -185,7 +185,7 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
                 "SELECT main_meta.value,idx_meta.value "
                 "FROM main.meta AS main_meta "
                 "CROSS JOIN idx.retrieval_meta AS idx_meta "
-                "WHERE main_meta.key='op_cursor' "
+                "WHERE main_meta.key='change_cursor' "
                 "AND idx_meta.key='schema_version'"
             ).fetchone()
             if fence is None:
@@ -1070,8 +1070,8 @@ def _material_preparation_coverage(
                          current.row_id
                      AND json_extract(link.subject_ref_json,'$.column_id')=
                          current.column_id
-                     AND json_extract(link.subject_ref_json,'$.op_id') IS
-                         current.origin_op_id
+                     AND json_extract(link.subject_ref_json,'$.change_id') IS
+                         current.origin_change_id
                      AND json_extract(link.subject_ref_json,'$.run_id') IS
                          current.origin_run_id
                      AND EXISTS (

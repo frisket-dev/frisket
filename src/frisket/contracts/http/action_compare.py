@@ -104,7 +104,7 @@ class ActionCompareCurrentBoundedValue(WireModel):
 class ActionCompareCellOrigin(WireModel):
     kind: Literal["source_cell", "run_result", "manual_edit", "missing"]
     run_id: int | None = Field(default=None, gt=0)
-    op_id: int | None = Field(default=None, gt=0)
+    change_id: int | None = Field(default=None, gt=0)
     review_decision: Literal["reject_clear", "edit"] | None = None
 
 

@@ -392,7 +392,7 @@ def record_citation(
     row_id: int | None = None,
     column_id: int | None = None,
     run_id: int | None = None,
-    op_id: int | None = None,
+    change_id: int | None = None,
     receipt_id: str | None = None,
     link_role: str = "support",
     status: str = "active",
@@ -418,7 +418,7 @@ def record_citation(
     cur.execute(
         "INSERT INTO citations ("
         "stable_id, subject_kind, subject_ref_json, sheet_id, row_id, "
-        "column_id, run_id, op_id, receipt_id, link_role, status, "
+        "column_id, run_id, change_id, receipt_id, link_role, status, "
         "confidence, pinned, producer_json, layer_family, stale_reason, metadata"
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
@@ -429,7 +429,7 @@ def record_citation(
             row_id,
             column_id,
             run_id,
-            op_id,
+            change_id,
             receipt_id,
             link_role,
             status,
@@ -472,7 +472,7 @@ def record_citation(
 def copy_citations(
     project: Project,
     *,
-    op_id: int,
+    change_id: int,
     sheet_id: int,
     copies: list[dict[str, Any]],
 ) -> None:
@@ -498,7 +498,7 @@ def copy_citations(
     inserted = project.db.execute(
         "INSERT INTO citations ("
         "stable_id,subject_kind,subject_ref_json,sheet_id,row_id,column_id,"
-        "run_id,op_id,link_role,status,confidence,pinned,producer_json,"
+        "run_id,change_id,link_role,status,confidence,pinned,producer_json,"
         "layer_family,stale_reason,stale_at,metadata) "
         "SELECT item.value->>'$.stable_id',source.subject_kind,"
         "item.value->>'$.subject_ref',?,item.value->>'$.row_id',"
@@ -509,7 +509,7 @@ def copy_citations(
         "FROM json_each(?) item JOIN citations source "
         "ON source.id=item.value->>'$.source_link_id' "
         "RETURNING row_id,column_id,status,link_role",
-        (sheet_id, op_id, payload),
+        (sheet_id, change_id, payload),
     ).fetchall()
     project.db.execute(
         "INSERT INTO citation_spans (citation_id,span_id,rank,span_role,required,note) "
@@ -545,8 +545,8 @@ def sheet_cited_column_ids(project: Project, sheet_id: int) -> list[int]:
     rows = project.db.execute(
         "SELECT DISTINCT column_id FROM citations "
         "WHERE sheet_id=? AND status='active' AND column_id IS NOT NULL "
-        "AND (op_id IS NULL OR EXISTS (SELECT 1 FROM ops "
-        "WHERE ops.id=citations.op_id AND ops.status='applied')) "
+        "AND (change_id IS NULL OR EXISTS (SELECT 1 FROM changes "
+        "WHERE changes.id=citations.change_id AND changes.status='applied')) "
         "ORDER BY column_id",
         (int(sheet_id),),
     ).fetchall()
@@ -1058,7 +1058,7 @@ def resolve_citation_viewer(
             "row_id": link["row_id"],
             "column_id": link["column_id"],
             "run_id": link["run_id"],
-            "op_id": link["op_id"],
+            "change_id": link["change_id"],
             "receipt_id": link["receipt_id"],
             "item_index": item_index,
             "role": link["link_role"],
@@ -1502,7 +1502,7 @@ def _link_row(project: Project, link_id: int) -> dict[str, Any]:
         "row_id": row["row_id"],
         "column_id": row["column_id"],
         "run_id": row["run_id"],
-        "op_id": row["op_id"],
+        "change_id": row["change_id"],
         "receipt_id": row["receipt_id"],
         "link_role": row["link_role"],
         "status": row["status"],

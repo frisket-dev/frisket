@@ -85,7 +85,7 @@ def _resolve_query_citation(
         current = evaluate_query(project, locator["query"], locator["scope"], limit=0)
     except (ValueError, KeyError):
         return result
-    changed = project.op_cursor != locator.get("source_op_cursor")
+    changed = project.change_cursor != locator.get("source_change_cursor")
     return {
         **result,
         "status": "changed" if changed else "current",

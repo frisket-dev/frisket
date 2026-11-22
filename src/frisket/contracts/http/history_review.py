@@ -38,7 +38,7 @@ class HistoryRun(WireModel):
     row_errors: RunRowErrorSummary | None
 
 
-class HistoryOperation(WireModel):
+class HistoryChange(WireModel):
     id: int
     index: int = Field(ge=0)
     kind: str
@@ -59,8 +59,8 @@ class HistoryTarget(WireModel):
 
 class HistoryRevision(WireModel):
     total: int = Field(ge=0)
-    max_op_id: int = Field(ge=0)
-    op_cursor: int = Field(ge=0)
+    max_change_id: int = Field(ge=0)
+    change_cursor: int = Field(ge=0)
 
 
 class HistoryPage(WireModel):
@@ -74,12 +74,12 @@ class HistoryPage(WireModel):
     prev_offset: int | None
     next_offset: int | None
     cursor_index: int
-    cursor_op: HistoryOperation | None
-    cursor_op_loaded: bool
+    cursor_change: HistoryChange | None
+    cursor_change_loaded: bool
     undo_target: HistoryTarget | None
     redo_target: HistoryTarget | None
     revision: HistoryRevision
-    ops: list[HistoryOperation]
+    changes: list[HistoryChange]
 
 
 class ColumnRunColumn(WireModel):
@@ -169,7 +169,7 @@ class ReviewBoundedText(WireModel):
 
 class ReviewBundleItem(WireModel):
     run_id: int | None
-    copied_op_id: int | None = None
+    copied_change_id: int | None = None
     row_id: int
     column_id: int
     column_name: str
@@ -208,7 +208,7 @@ class ReviewBundle(WireModel):
     execution_run_id: int | None = None
     id: str
     run_id: int | None
-    copied_op_id: int | None = None
+    copied_change_id: int | None = None
     row_id: int
     sheet_id: int
     sheet_name: str
@@ -226,14 +226,14 @@ class ReviewBundle(WireModel):
 
 class ReviewBatchScope(WireModel):
     run_id: int | None = Field(default=None, gt=0)
-    copied_op_id: int | None = Field(default=None, gt=0)
+    copied_change_id: int | None = Field(default=None, gt=0)
     field_id: int | None = Field(default=None, gt=0)
     include_reviewed: bool = False
 
     @model_validator(mode="after")
     def _one_owner(self):
-        if (self.run_id is None) == (self.copied_op_id is None):
-            raise ValueError("select exactly one run_id or copied_op_id")
+        if (self.run_id is None) == (self.copied_change_id is None):
+            raise ValueError("select exactly one run_id or copied_change_id")
         return self
 
 
@@ -288,7 +288,7 @@ class ReviewSavedOutput(WireModel):
 
 class ReviewRun(WireModel):
     run_id: int | None = Field(default=None, gt=0)
-    copied_op_id: int | None = Field(default=None, gt=0)
+    copied_change_id: int | None = Field(default=None, gt=0)
     sheet_id: int = Field(gt=0)
     sheet_name: str
     retry_supported: bool = True
@@ -333,7 +333,7 @@ __all__ = [
     "ColumnRun",
     "ColumnRunColumn",
     "ColumnRunsPage",
-    "HistoryOperation",
+    "HistoryChange",
     "HistoryGeneratedColumn",
     "HistoryPage",
     "HistoryRevision",

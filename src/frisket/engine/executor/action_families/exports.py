@@ -1972,7 +1972,7 @@ def _export_work_log_receipt(
         for sheet in payload["sheets"]
     ]
     operation_refs = [
-        {"op_id": op["id"], "kind": op["kind"], "status": op["status"]}
+        {"change_id": op["id"], "kind": op["kind"], "status": op["status"]}
         for op in payload["operations"]
     ]
     receipt_refs = [

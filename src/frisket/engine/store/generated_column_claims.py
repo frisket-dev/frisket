@@ -65,7 +65,7 @@ class GeneratedColumnClaimStore:
         action_kind: str,
         receipt_id: str | None = None,
         run_id: int | None = None,
-        op_id: int | None = None,
+        change_id: int | None = None,
         job_id: int | None = None,
         mode: str = "replace",
         claim_token: str | None = None,
@@ -106,7 +106,7 @@ class GeneratedColumnClaimStore:
                 claim_id = f"claim:{uuid.uuid4()}"
                 self.db.execute(
                     "INSERT INTO generated_column_claims ("
-                    "id, sheet_id, column_id, output_name, run_id, op_id, "
+                    "id, sheet_id, column_id, output_name, run_id, change_id, "
                     "receipt_id, job_id, action_kind, mode, expected_current_run_id, "
                     "claim_token, lease_expires_at, details"
                     ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -116,7 +116,7 @@ class GeneratedColumnClaimStore:
                         int(column["id"]) if column is not None else None,
                         name,
                         run_id,
-                        op_id,
+                        change_id,
                         receipt_id,
                         job_id,
                         action_kind,
@@ -185,10 +185,12 @@ class GeneratedColumnClaimStore:
         job_id: int | None,
         expected_output_names: list[str] | None,
     ) -> int:
-        run = self.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
+        run = self.db.execute(
+            "SELECT change_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
         if run is None:
             raise ValueError(f"cannot bind output claims to missing run {run_id}")
-        op_id = int(run["op_id"])
+        change_id = int(run["change_id"])
         claims = self.db.execute(
             "SELECT id, sheet_id, output_name FROM generated_column_claims "
             "WHERE claim_token=? AND status='active'",
@@ -219,11 +221,11 @@ class GeneratedColumnClaimStore:
                     f"{claim['output_name']!r}"
                 )
             self.db.execute(
-                "UPDATE generated_column_claims SET run_id=?, op_id=?, job_id=?, "
+                "UPDATE generated_column_claims SET run_id=?, change_id=?, job_id=?, "
                 "column_id=? WHERE id=?",
                 (
                     run_id,
-                    op_id,
+                    change_id,
                     job_id,
                     int(column["id"]),
                     claim["id"],
@@ -247,7 +249,7 @@ class GeneratedColumnClaimStore:
             "FROM generated_column_claims c "
             "JOIN columns col ON col.id=c.column_id "
             "JOIN runs run ON run.id=c.run_id "
-            "JOIN ops op ON op.id=run.op_id "
+            "JOIN changes op ON op.id=run.change_id "
             "WHERE c.claim_token=? AND c.run_id=? AND c.status='active' "
             "AND col.name=c.output_name AND col.active=1 "
             "ORDER BY col.position, col.id",

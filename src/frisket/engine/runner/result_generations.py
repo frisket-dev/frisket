@@ -298,7 +298,7 @@ def declare_bound_run_outputs(
         program=action_program,
         action_kind=str(spec["action_kind"]),
     )
-    created_ids = _created_generated_column_ids(project, int(run_row["op_id"]))
+    created_ids = _created_generated_column_ids(project, int(run_row["change_id"]))
     declare_prepared_outputs(
         project,
         run_store,
@@ -310,7 +310,7 @@ def declare_bound_run_outputs(
             out_cols=out_cols,
             output_fields=tuple(dict(field) for field in output_fields),
             created_generated_column_ids=created_ids.intersection(out_cols.values()),
-            op_id=int(run_row["op_id"]),
+            change_id=int(run_row["change_id"]),
             run_id=int(run_id),
             row_count=int(run_row["total_rows"] or 0),
         ),

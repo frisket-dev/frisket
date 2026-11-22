@@ -297,7 +297,7 @@ def _feed_check_refs(
             "new_rows": result.new_rows,
             "error": result.error,
             "sheet_id": feed.sheet_id,
-            "op_id": None,
+            "change_id": None,
         },
         "cursor": {
             "kind": "feed_check_cursor",

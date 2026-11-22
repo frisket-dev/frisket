@@ -14,7 +14,7 @@ from frisket.engine.store.prepared_content import (
 def prepared_edit_values(
     project: Any,
     *,
-    op_id: int,
+    change_id: int,
     targets: Sequence[Mapping[str, Any]],
 ) -> list[Any]:
     """Return stored edit values, replacing only editable page selectors.
@@ -62,7 +62,7 @@ def prepared_edit_values(
         values.append(
             store.stage_replacement(
                 base_ref_id=prepared_ref_id,
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 replacements=(
                     PreparedPageDraft(
                         page_number=prepared.page_number,

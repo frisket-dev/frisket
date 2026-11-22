@@ -20,7 +20,7 @@ CONSUMED_SOURCE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS consumed_source_bundles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   capture_key TEXT NOT NULL UNIQUE,
-  owner_op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
+  owner_change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
   run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
   row_id INTEGER REFERENCES rows(id) ON DELETE CASCADE,
   output_sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS consumed_source_bundles (
   checked_revisions_json TEXT NOT NULL CHECK(json_valid(checked_revisions_json))
 );
 CREATE INDEX IF NOT EXISTS idx_consumed_sources_sheet
-  ON consumed_source_bundles(output_sheet_id,owner_op_id);
+  ON consumed_source_bundles(output_sheet_id,owner_change_id);
 CREATE INDEX IF NOT EXISTS idx_consumed_sources_run_row
   ON consumed_source_bundles(run_id,row_id);
 CREATE INDEX IF NOT EXISTS idx_consumed_sources_fingerprint
@@ -117,7 +117,7 @@ def _identity_ref(ref: Mapping[str, Any] | None) -> dict[str, Any] | None:
         if key
         in {
             "kind",
-            "op_id",
+            "change_id",
             "run_id",
             "producer_id",
             "row_id",
@@ -143,7 +143,7 @@ def _current_refs(
         part = row_ids[offset : offset + 500]
         placeholders = ",".join("?" for _ in part)
         for row in project.db.execute(
-            "SELECT r.id,v.origin_kind,v.origin_op_id,v.origin_run_id,v.base_producer_id,"
+            "SELECT r.id,v.origin_kind,v.origin_change_id,v.origin_run_id,v.base_producer_id,"
             "v.prepared_ref_id,v.outcome,coalesce(v.validity,'missing') AS validity "
             "FROM rows r JOIN sheets s ON s.id=r.sheet_id AND s.hidden=0 "
             "LEFT JOIN current_cell_values v ON v.row_id=r.id AND v.column_id=? "
@@ -153,7 +153,7 @@ def _current_refs(
             row_id = int(row["id"])
             out[row_id] = {
                 "kind": row["origin_kind"] or "missing",
-                "op_id": row["origin_op_id"],
+                "change_id": row["origin_change_id"],
                 "run_id": row["origin_run_id"],
                 "row_id": row_id,
                 "column_id": column_id,
@@ -674,7 +674,7 @@ def store_capture(
     project: Any,
     capture: Mapping[str, Any],
     *,
-    owner_op_id: int,
+    owner_change_id: int,
     output_sheet_id: int,
     run_id: int | None = None,
     row_id: int | None = None,
@@ -683,7 +683,7 @@ def store_capture(
     """Publish capture in the same transaction as its result or checkpoint."""
     if not project.db.in_transaction:
         raise RuntimeError("consumed inputs require the output publication transaction")
-    key = f"{owner_op_id}:{run_id}:{row_id}:{output_sheet_id}"
+    key = f"{owner_change_id}:{run_id}:{row_id}:{output_sheet_id}"
     if shared:
         if capture["kind"] != "aggregate" or row_id is not None:
             raise ValueError("shared inputs require a run-level aggregate capture")
@@ -711,11 +711,11 @@ def store_capture(
         and current == capture["revisions"]
     )
     cursor = project.db.execute(
-        "INSERT INTO consumed_source_bundles(capture_key,owner_op_id,run_id,row_id,"
+        "INSERT INTO consumed_source_bundles(capture_key,owner_change_id,run_id,row_id,"
         "output_sheet_id,kind,input_fingerprint,capture_json,state,checked_revisions_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
         (
             key,
-            owner_op_id,
+            owner_change_id,
             run_id,
             row_id,
             output_sheet_id,

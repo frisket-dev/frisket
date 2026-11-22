@@ -756,7 +756,7 @@ def claim(
             )
 
             owner = db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (run_id,)
+                "SELECT change_id FROM runs WHERE id=?", (run_id,)
             ).fetchone()
             try:
                 if owner is None:

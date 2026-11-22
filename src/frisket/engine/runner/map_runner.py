@@ -809,7 +809,7 @@ class MapRunner:
         row_ids = prepared.row_ids
         out_cols = prepared.out_cols
         output_column_ids = sorted(out_cols.values())
-        op_id = prepared.op_id
+        change_id = prepared.change_id
         run_id = prepared.run_id
         if dispatch_claimed:
             if admitted_attempt is None:
@@ -924,7 +924,7 @@ class MapRunner:
                             store_capture(
                                 self.project,
                                 capture,
-                                owner_op_id=op_id,
+                                owner_change_id=change_id,
                                 output_sheet_id=prepared.sheet_id,
                                 run_id=run_id,
                                 row_id=input_row_id,
@@ -936,7 +936,7 @@ class MapRunner:
                                 batch=batch,
                                 sheet_id=prepared.sheet_id,
                                 run_id=run_id,
-                                op_id=op_id,
+                                change_id=change_id,
                                 output_columns=out_cols,
                                 input_column_ids=col_map,
                                 claim_token=claim_token,
@@ -1054,7 +1054,7 @@ class MapRunner:
             finalize_pre_dispatch_run(
                 self.project,
                 self.run_store,
-                op_id=op_id,
+                change_id=change_id,
                 run_id=run_id,
                 status="failed",
                 out_cols=(
@@ -1086,7 +1086,7 @@ class MapRunner:
             finalize_pre_dispatch_run(
                 self.project,
                 self.run_store,
-                op_id=op_id,
+                change_id=change_id,
                 run_id=run_id,
                 status="cancelled",
                 out_cols=out_cols,
@@ -1138,7 +1138,7 @@ class MapRunner:
                 )
 
                 retire_unbound_created_columns(
-                    self.project, op_id, prepared.created_generated_column_ids
+                    self.project, change_id, prepared.created_generated_column_ids
                 )
             raise
         if not cancelled():
@@ -1371,7 +1371,7 @@ class MapRunner:
                     finalize_dispatched_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         status=(
                             "cancelled"
                             if batch_progress.cancelled
@@ -1396,7 +1396,7 @@ class MapRunner:
                     finalize_pre_dispatch_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         run_id=run_id,
                         status=(
                             "cancelled"
@@ -1432,7 +1432,7 @@ class MapRunner:
                     finalize_dispatched_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
@@ -1445,7 +1445,7 @@ class MapRunner:
                     finalize_pre_dispatch_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
@@ -1477,7 +1477,7 @@ class MapRunner:
                     finalize_dispatched_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
@@ -1495,7 +1495,7 @@ class MapRunner:
                     finalize_pre_dispatch_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
@@ -1535,7 +1535,7 @@ class MapRunner:
                     finalize_dispatched_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
@@ -1550,7 +1550,7 @@ class MapRunner:
                     finalize_pre_dispatch_run(
                         self.project,
                         self.run_store,
-                        op_id=op_id,
+                        change_id=change_id,
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
@@ -1745,7 +1745,7 @@ class MapRunner:
                                 results,
                                 spec,
                                 run_id=run_id,
-                                op_id=op_id,
+                                change_id=change_id,
                                 row_id=row_id,
                                 output_columns=out_cols,
                             )
@@ -1893,7 +1893,7 @@ class MapRunner:
                         results,
                         spec,
                         run_id=run_id,
-                        op_id=op_id,
+                        change_id=change_id,
                         row_id=row_id,
                         output_columns=out_cols,
                     )
@@ -2218,7 +2218,7 @@ class MapRunner:
             finalize_dispatched_run(
                 self.project,
                 self.run_store,
-                op_id=op_id,
+                change_id=change_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
                 keep_zero_success_generated_columns=(
@@ -2246,7 +2246,7 @@ class MapRunner:
             finalize_pre_dispatch_run(
                 self.project,
                 self.run_store,
-                op_id=op_id,
+                change_id=change_id,
                 run_id=run_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,

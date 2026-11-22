@@ -52,7 +52,7 @@ class ImportSession:
     id: str
     sheet_id: int | None
     producer_id: int | None
-    op_id: int
+    change_id: int
     receipt_id: str | None
     writer_authority: str
     cursor: int
@@ -68,7 +68,7 @@ class ImportSession:
             producer_id=(
                 None if row["producer_id"] is None else int(row["producer_id"])
             ),
-            op_id=int(row["op_id"]),
+            change_id=int(row["change_id"]),
             receipt_id=(None if row["receipt_id"] is None else str(row["receipt_id"])),
             writer_authority=str(row["writer_authority"]),
             cursor=int(row["cursor"]),
@@ -88,7 +88,7 @@ class ImportSessionStore:
 
     def get(self, session_id: str) -> ImportSession | None:
         row = self.db.execute(
-            "SELECT id,sheet_id,producer_id,op_id,receipt_id,writer_authority,"
+            "SELECT id,sheet_id,producer_id,change_id,receipt_id,writer_authority,"
             "cursor,committed_rows,committed_bytes,state "
             "FROM import_sessions WHERE id=?",
             (session_id,),
@@ -150,7 +150,7 @@ class ImportSessionStore:
         in the operation, but already recorded the same durable membership.
         """
         operation = self.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (session.op_id,)
+            "SELECT undo_info FROM changes WHERE id=?", (session.change_id,)
         ).fetchone()
         if operation is None:
             raise ImportSessionConflict("import operation is unavailable")
@@ -170,8 +170,8 @@ class ImportSessionStore:
         undo["created_rows"] = []
         undo["created_rows_import_session_id"] = session.id
         self.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
-            (json.dumps(undo), session.op_id),
+            "UPDATE changes SET undo_info=? WHERE id=?",
+            (json.dumps(undo), session.change_id),
         )
 
     def _transition(self, session: ImportSession, event: str) -> ImportSession:
@@ -256,7 +256,7 @@ class ImportSessionStore:
 
 def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
     row = db.execute(
-        "SELECT id,sheet_id,producer_id,op_id,receipt_id,writer_authority,"
+        "SELECT id,sheet_id,producer_id,change_id,receipt_id,writer_authority,"
         "cursor,committed_rows,committed_bytes,state FROM import_sessions "
         "WHERE sheet_id=? AND state IN ('active','paused','cancelled')",
         (int(sheet_id),),
@@ -267,7 +267,7 @@ def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
     # do not lock unrelated sheet mutations; ``created_rows`` marks that narrow
     # scope while import_session_rows carries its durable membership.
     operation = db.execute(
-        "SELECT kind,undo_info FROM ops WHERE id=?", (int(row["op_id"]),)
+        "SELECT kind,undo_info FROM changes WHERE id=?", (int(row["change_id"]),)
     ).fetchone()
     if operation is not None:
         if operation["kind"] == "pdf.split":
@@ -298,15 +298,15 @@ def active_import_session(db: Any, sheet_id: int) -> ImportSession | None:
 def set_import_session_rows_hidden(
     db: Any,
     *,
-    op_id: int,
+    change_id: int,
     session_id: str,
     hidden: bool,
 ) -> int:
     """Toggle rows owned by one import operation through its durable ledger."""
 
     session = db.execute(
-        "SELECT committed_rows FROM import_sessions WHERE id=? AND op_id=?",
-        (session_id, int(op_id)),
+        "SELECT committed_rows FROM import_sessions WHERE id=? AND change_id=?",
+        (session_id, int(change_id)),
     ).fetchone()
     if session is None:
         raise ImportSessionConflict("import operation row membership is unavailable")
@@ -314,9 +314,9 @@ def set_import_session_rows_hidden(
         "UPDATE rows SET hidden=? WHERE id IN ("
         "SELECT member.row_id FROM import_session_rows AS member "
         "JOIN import_sessions AS session ON session.id=member.session_id "
-        "WHERE member.session_id=? AND session.op_id=?"
+        "WHERE member.session_id=? AND session.change_id=?"
         ")",
-        (int(hidden), session_id, int(op_id)),
+        (int(hidden), session_id, int(change_id)),
     )
     updated_rows = int(updated.rowcount)
     if updated_rows != int(session["committed_rows"]):
@@ -325,12 +325,12 @@ def set_import_session_rows_hidden(
 
 
 def set_import_session_replaced_rows_hidden(
-    db: Any, *, op_id: int, session_id: str, hidden: bool
+    db: Any, *, change_id: int, session_id: str, hidden: bool
 ) -> int:
     """Toggle only originals whose source publication committed successfully."""
     session = db.execute(
-        "SELECT committed_rows FROM import_sessions WHERE id=? AND op_id=?",
-        (session_id, int(op_id)),
+        "SELECT committed_rows FROM import_sessions WHERE id=? AND change_id=?",
+        (session_id, int(change_id)),
     ).fetchone()
     if session is None:
         raise ImportSessionConflict("split operation membership is unavailable")
@@ -357,7 +357,7 @@ def set_import_session_replaced_rows_hidden(
 
 
 def import_session_generation_is_applied(
-    db: Any, *, session_id: str, writer_authority: str, op_id: int
+    db: Any, *, session_id: str, writer_authority: str, change_id: int
 ) -> bool:
     """Check admitted PDF preparation against its terminal publication owner.
 
@@ -367,11 +367,11 @@ def import_session_generation_is_applied(
     """
     return (
         db.execute(
-            "SELECT 1 FROM import_sessions AS session JOIN ops ON ops.id=session.op_id "
-            "WHERE session.id=? AND session.writer_authority=? AND session.op_id=? "
+            "SELECT 1 FROM import_sessions AS session JOIN changes ON changes.id=session.change_id "
+            "WHERE session.id=? AND session.writer_authority=? AND session.change_id=? "
             "AND session.state IN ('kept','completed') "
-            "AND ops.kind='pdf.split' AND ops.status='applied'",
-            (session_id, writer_authority, int(op_id)),
+            "AND changes.kind='pdf.split' AND changes.status='applied'",
+            (session_id, writer_authority, int(change_id)),
         ).fetchone()
         is not None
     )
@@ -380,16 +380,16 @@ def import_session_generation_is_applied(
 @dataclass(frozen=True)
 class ImportExecutionOwner:
     session_id: str
-    op_id: int
+    change_id: int
 
     def require_current(self, db: Any) -> None:
         if (
             db.execute(
-                "SELECT 1 FROM import_sessions session JOIN ops ON ops.id=session.op_id "
-                "WHERE session.id=? AND session.op_id=? AND ops.status='applied' "
+                "SELECT 1 FROM import_sessions session JOIN changes ON changes.id=session.change_id "
+                "WHERE session.id=? AND session.change_id=? AND changes.status='applied' "
                 "AND session.state IN ('active','paused','kept','completed') "
                 "AND session.writer_authority NOT LIKE 'undone:%'",
-                (self.session_id, self.op_id),
+                (self.session_id, self.change_id),
             ).fetchone()
             is None
         ):
@@ -404,15 +404,15 @@ def require_import_execution_owner(db: Any, spec: dict[str, Any]) -> None:
         ImportExecutionOwner(**owner).require_current(db)
 
 
-def invalidate_import_generation(project: Any, *, op_id: int) -> None:
+def invalidate_import_generation(project: Any, *, change_id: int) -> None:
     """Undo stops acquisition and owned preparation without erasing returned usage."""
     db = project.db
     if not db.in_transaction:
         raise RuntimeError("Import invalidation requires a history transaction")
     changed = db.execute(
         "UPDATE import_sessions SET writer_authority='undone:' || lower(hex(randomblob(16))),"
-        "updated_at=datetime('now') WHERE op_id=?",
-        (int(op_id),),
+        "updated_at=datetime('now') WHERE change_id=?",
+        (int(change_id),),
     )
     if changed.rowcount == 0:
         return
@@ -420,10 +420,10 @@ def invalidate_import_generation(project: Any, *, op_id: int) -> None:
     from .run_lifecycle import close_run_change
 
     for child in db.execute(
-        "SELECT run.id FROM runs run JOIN ops child ON child.id=run.op_id "
+        "SELECT run.id FROM runs run JOIN changes child ON child.id=run.change_id "
         "WHERE run.status='running' AND child.status='applied' "
-        "AND json_extract(child.spec,'$.import_execution_owner.op_id')=?",
-        (int(op_id),),
+        "AND json_extract(child.spec,'$.import_execution_owner.change_id')=?",
+        (int(change_id),),
     ).fetchall():
         RunResultStore(project).request_cancel_in_transaction(int(child[0]))
         close_run_change(project, int(child[0]))

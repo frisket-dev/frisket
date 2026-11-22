@@ -27,16 +27,16 @@ def execution_source_binding(
     }
 
 
-def require_execution_sources(project: Any, op_id: int) -> None:
+def require_execution_sources(project: Any, change_id: int) -> None:
     row = project.db.execute(
-        "SELECT spec FROM ops WHERE id=?", (int(op_id),)
+        "SELECT spec FROM changes WHERE id=?", (int(change_id),)
     ).fetchone()
     if row is None:
         raise ExecutionSourceUnavailable("The execution no longer exists")
     spec = json.loads(row[0])
     if project.db.execute(
-        "SELECT 1 FROM runs WHERE op_id=? AND cancel_requested_at IS NOT NULL LIMIT 1",
-        (int(op_id),),
+        "SELECT 1 FROM runs WHERE change_id=? AND cancel_requested_at IS NOT NULL LIMIT 1",
+        (int(change_id),),
     ).fetchone():
         raise ExecutionSourceUnavailable(
             "The execution was cancelled; run the action again with available inputs"
@@ -86,7 +86,7 @@ def stop_direct_consumers(
     # Only live producers are examined; completed derivations remain independent.
     stopped = []
     for row in db.execute(
-        "SELECT run.id,run.op_id,op.spec FROM runs run JOIN ops op ON op.id=run.op_id "
+        "SELECT run.id,run.change_id,op.spec FROM runs run JOIN changes op ON op.id=run.change_id "
         "WHERE run.status='running' AND op.status='applied' AND (op.change_order IS NULL OR op.publication_closed=0)"
     ).fetchall():
         spec = json.loads(row["spec"])

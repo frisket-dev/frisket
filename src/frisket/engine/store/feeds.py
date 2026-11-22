@@ -99,14 +99,14 @@ class FeedStore:
         status: str = "ok",
         error: str | None = None,
         cursor: str | None = None,
-        op_id: int | None = None,
+        change_id: int | None = None,
     ) -> int:
         """Log one poll and advance the feed monitoring state in the caller's transaction."""
         require_transaction(self.db, "feed check record")
         cur = self.db.execute(
-            "INSERT INTO feed_checks (feed_id, op_id, status, new_rows, error, "
+            "INSERT INTO feed_checks (feed_id, change_id, status, new_rows, error, "
             "finished_at) VALUES (?,?,?,?,?, datetime('now'))",
-            (feed_id, op_id, status, new_rows, error),
+            (feed_id, change_id, status, new_rows, error),
         )
         self.db.execute(
             "UPDATE feeds SET last_checked_at=datetime('now'), "
@@ -137,7 +137,7 @@ class FeedStore:
         *,
         status: str,
         receipt_id: str | None = None,
-        op_id: int | None = None,
+        change_id: int | None = None,
         new_rows: int = 0,
         skipped_rows: int = 0,
         changed_rows: int = 0,
@@ -152,14 +152,14 @@ class FeedStore:
         """Finish a feed check and advance its feed in the caller's transaction."""
         require_transaction(self.db, "feed check finish")
         self.db.execute(
-            "UPDATE feed_checks SET receipt_id=?, op_id=?, status=?, "
+            "UPDATE feed_checks SET receipt_id=?, change_id=?, status=?, "
             "new_rows=?, skipped_rows=?, changed_rows=?, revisions=?, error=?, "
             "cursor_after=COALESCE(?, cursor_after), duration_ms=?, "
             "warning_count=?, cost_micro=?, summary_json=?, "
             "finished_at=datetime('now') WHERE id=?",
             (
                 receipt_id,
-                op_id,
+                change_id,
                 status,
                 int(new_rows),
                 int(skipped_rows),

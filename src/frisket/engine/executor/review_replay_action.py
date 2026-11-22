@@ -52,10 +52,10 @@ def _is_current_review_value(
 ) -> bool:
     if not isinstance(ref, dict):
         return False
-    if target.get("copied_op_id") is not None:
+    if target.get("copied_change_id") is not None:
         return (
             ref.get("kind") == "copied_result"
-            and ref.get("op_id") == target["copied_op_id"]
+            and ref.get("change_id") == target["copied_change_id"]
         )
     return ref.get("kind") == "run_result" and ref.get("run_id") == target["run_id"]
 
@@ -81,8 +81,8 @@ def _review_target(
         JOIN rows ON rows.id=res.row_id AND rows.sheet_id=c.sheet_id
         WHERE res.run_id=? AND res.row_id=? AND res.column_id=?
           AND res.outcome IN ({REVIEWABLE_OUTCOMES_SQL})
-          AND EXISTS (SELECT 1 FROM ops review_op
-                      WHERE review_op.id=runs.op_id
+          AND EXISTS (SELECT 1 FROM changes review_op
+                      WHERE review_op.id=runs.change_id
                         AND review_op.status='applied')
         """,
         (run_id, row_id, column_id),
@@ -109,16 +109,16 @@ def _review_target(
     return target
 
 
-def _copied_review_row_targets(project, *, copied_op_id, row_id, action_kind):
+def _copied_review_row_targets(project, *, copied_change_id, row_id, action_kind):
     rows = project.db.execute(
         "SELECT copy.*,c.sheet_id,c.name column_name,1 can_edit FROM copied_result_values copy "
-        "JOIN ops ON ops.id=copy.op_id JOIN columns c ON c.id=copy.column_id "
-        "JOIN json_each(ops.spec,'$.output_bindings') binding "
+        "JOIN changes ON changes.id=copy.change_id JOIN columns c ON c.id=copy.column_id "
+        "JOIN json_each(changes.spec,'$.output_bindings') binding "
         "ON json_extract(binding.value,'$.column_id')=copy.column_id "
         "JOIN rows ON rows.id=copy.row_id AND rows.sheet_id=c.sheet_id "
-        "WHERE copy.op_id=? AND copy.row_id=? AND ops.status='applied' "
+        "WHERE copy.change_id=? AND copy.row_id=? AND changes.status='applied' "
         "AND copy.outcome='completed' AND json_extract(binding.value,'$.review_role')='field' ORDER BY copy.column_id",
-        (copied_op_id, row_id),
+        (copied_change_id, row_id),
     ).fetchall()
     if not rows:
         _refuse(
@@ -131,7 +131,7 @@ def _copied_review_row_targets(project, *, copied_op_id, row_id, action_kind):
     for row in rows:
         target = dict(row)
         target["run_id"] = None
-        target["copied_op_id"] = copied_op_id
+        target["copied_change_id"] = copied_change_id
         coordinate = (
             target["source_run_id"],
             target["source_row_id"],
@@ -145,9 +145,12 @@ def _copied_review_row_targets(project, *, copied_op_id, row_id, action_kind):
     return targets
 
 
-def _copied_review_target(project, *, copied_op_id, row_id, column_id, action_kind):
+def _copied_review_target(project, *, copied_change_id, row_id, column_id, action_kind):
     for target in _copied_review_row_targets(
-        project, copied_op_id=copied_op_id, row_id=row_id, action_kind=action_kind
+        project,
+        copied_change_id=copied_change_id,
+        row_id=row_id,
+        action_kind=action_kind,
     ):
         if target["column_id"] == column_id:
             return target
@@ -166,8 +169,8 @@ def _review_row_targets(
     run = project.db.execute(
         "SELECT runs.review_completed_at FROM runs "
         "WHERE runs.id=? "
-        "AND EXISTS (SELECT 1 FROM ops review_op "
-        "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
+        "AND EXISTS (SELECT 1 FROM changes review_op "
+        "WHERE review_op.id=runs.change_id AND review_op.status='applied')",
         (run_id,),
     ).fetchone()
     if run is None:
@@ -306,7 +309,7 @@ class _ReviewDecider(_CallOnce):
         self,
         *,
         run_id: int | None,
-        copied_op_id: int | None,
+        copied_change_id: int | None,
         row_id: int,
         column_id: int,
         decision: Literal["accept", "reject", "reject_clear", "clear"],
@@ -325,7 +328,7 @@ class _ReviewDecider(_CallOnce):
             if run_id is not None
             else _copied_review_target(
                 self._project,
-                copied_op_id=copied_op_id,
+                copied_change_id=copied_change_id,
                 row_id=row_id,
                 column_id=column_id,
                 action_kind=self._action.kind,
@@ -379,7 +382,7 @@ class _ReviewDecider(_CallOnce):
         note_after = (
             target["review_note"] if decision == "clear" or not note_supplied else note
         )
-        key = result_key(run_id, copied_op_id, row_id, column_id)
+        key = result_key(run_id, copied_change_id, row_id, column_id)
         undo_info = {
             "review_states": {key: state_before},
             "review_states_after": {key: state_after},
@@ -402,7 +405,7 @@ class _ReviewDecider(_CallOnce):
         }
         edit_value = None
         if decision == "reject_clear":
-            op_id = _write_edit_overlay(
+            change_id = _write_edit_overlay(
                 self._project,
                 self._cur,
                 label=f"review {decision} {target['column_name']} row {row_id}",
@@ -424,33 +427,33 @@ class _ReviewDecider(_CallOnce):
                 kind=self._action.kind,
             )
         else:
-            op_id = _write_op(
+            change_id = _write_op(
                 self._cur,
                 kind=self._action.kind,
                 label=f"review {decision} {target['column_name']} row {row_id}",
                 spec=_op_spec(self._action, self._params_hash),
                 undo_info=undo_info,
             )
-        project_judgments(self._project, op_id)
+        project_judgments(self._project, change_id)
         edit_ref = None
         if decision == "reject_clear":
             edit_ref = {
                 "kind": "edit_overlay",
-                "op_id": op_id,
+                "change_id": change_id,
                 "row_id": row_id,
                 "column_id": column_id,
                 "value_hash": replay_generated_value_hash(edit_value),
             }
         result = ReviewDecision(
             run_id=run_id,
-            copied_op_id=copied_op_id,
+            copied_change_id=copied_change_id,
             row_id=row_id,
             column_id=column_id,
             decision=decision,
             review_state_before=state_before,
             review_state_after=state_after,
             note=note_after,
-            op_id=op_id,
+            change_id=change_id,
         )
         self.target = target
         self.edit_ref = edit_ref
@@ -463,7 +466,7 @@ class _ReviewNoter(_CallOnce):
         self,
         *,
         run_id: int | None,
-        copied_op_id: int | None,
+        copied_change_id: int | None,
         row_id: int,
         note: str | None,
     ) -> ReviewNote:
@@ -478,20 +481,20 @@ class _ReviewNoter(_CallOnce):
             if run_id is not None
             else _copied_review_row_targets(
                 self._project,
-                copied_op_id=copied_op_id,
+                copied_change_id=copied_change_id,
                 row_id=row_id,
                 action_kind=self._action.kind,
             )
         )
         before = {
-            result_key(run_id, copied_op_id, row_id, int(target["column_id"])): {
+            result_key(run_id, copied_change_id, row_id, int(target["column_id"])): {
                 "decision": target["review_decision"],
                 "note": target["review_note"],
             }
             for target in targets
         }
         after = {key: {"note": note} for key in before}
-        op_id = _write_op(
+        change_id = _write_op(
             self._cur,
             kind=self._action.kind,
             label=f"review note row {row_id}",
@@ -501,14 +504,14 @@ class _ReviewNoter(_CallOnce):
                 "review_metadata_after": after,
             },
         )
-        project_judgments(self._project, op_id)
+        project_judgments(self._project, change_id)
         result = ReviewNote(
             run_id=run_id,
-            copied_op_id=copied_op_id,
+            copied_change_id=copied_change_id,
             row_id=row_id,
             note=note,
             column_count=len(targets),
-            op_id=op_id,
+            change_id=change_id,
         )
         self.targets = targets
         self.result = result
@@ -540,7 +543,7 @@ class _ReplayValueAcceptor(_CallOnce):
             sheet_id, column_id, row_ids=[row_id]
         ).get(row_id)
         current_ref = None
-        op_id = None
+        change_id = None
         if entry is not None:
             if (
                 int(entry["run_id"]) != run_id
@@ -566,7 +569,7 @@ class _ReplayValueAcceptor(_CallOnce):
                     "value_hash": generated_value_hash,
                 }
             )
-            op_id = _write_edit_overlay(
+            change_id = _write_edit_overlay(
                 self._project,
                 self._cur,
                 label="accept newer value",
@@ -592,9 +595,9 @@ class _ReplayValueAcceptor(_CallOnce):
             column_id=column_id,
             run_id=run_id,
             generated_value_hash=generated_value_hash,
-            accepted=op_id is not None,
+            accepted=change_id is not None,
             pending_count=pending_count,
-            op_id=op_id,
+            change_id=change_id,
         )
         self.result = result
         return result
@@ -612,7 +615,7 @@ class _ReplayColumnAcceptor(_CallOnce):
         _claimed_column(self._project, column_id, action_kind=self._action.kind)
         entries = self._project.pending_replay_values(sheet_id, column_id)
         row_ids = tuple(sorted(entries))
-        op_id = None
+        change_id = None
         current_refs: dict[int, dict[str, Any]] = {}
         if row_ids:
             _values, refs = self._project.get_values_with_refs(
@@ -631,7 +634,7 @@ class _ReplayColumnAcceptor(_CallOnce):
                     "from_replay_accept": True,
                 }
             )
-            op_id = _write_edit_overlay(
+            change_id = _write_edit_overlay(
                 self._project,
                 self._cur,
                 label="accept newer values (column)",
@@ -657,7 +660,7 @@ class _ReplayColumnAcceptor(_CallOnce):
             column_id=column_id,
             accepted=len(row_ids),
             pending_count=pending_count,
-            op_id=op_id,
+            change_id=change_id,
         )
         self.run_id = run_id
         self.row_ids = row_ids
@@ -764,8 +767,8 @@ def _review_result_and_receipt(
         "kind": "target_result_cell",
         "run_id": returned.run_id,
         **(
-            {"copied_op_id": returned.copied_op_id}
-            if returned.copied_op_id is not None
+            {"copied_change_id": returned.copied_change_id}
+            if returned.copied_change_id is not None
             else {}
         ),
         "row_id": returned.row_id,
@@ -786,13 +789,13 @@ def _review_result_and_receipt(
         "review_state_before": returned.review_state_before,
         "review_state_after": returned.review_state_after,
         "note": returned.note,
-        "op_id": returned.op_id,
+        "change_id": returned.change_id,
         "target": {
             "kind": "result_cell",
             "run_id": returned.run_id,
             **(
-                {"copied_op_id": returned.copied_op_id}
-                if returned.copied_op_id is not None
+                {"copied_change_id": returned.copied_change_id}
+                if returned.copied_change_id is not None
                 else {}
             ),
             "row_id": returned.row_id,
@@ -803,8 +806,8 @@ def _review_result_and_receipt(
         "kind": "review_state_transition",
         "run_id": returned.run_id,
         **(
-            {"copied_op_id": returned.copied_op_id}
-            if returned.copied_op_id is not None
+            {"copied_change_id": returned.copied_change_id}
+            if returned.copied_change_id is not None
             else {}
         ),
         "row_id": returned.row_id,
@@ -812,7 +815,7 @@ def _review_result_and_receipt(
         "before": returned.review_state_before,
         "after": returned.review_state_after,
         "decision": returned.decision,
-        "op_id": returned.op_id,
+        "change_id": returned.change_id,
     }
     supporting_records = [
         ReceiptRecord(ref=target_ref, retention="pinned"),
@@ -829,7 +832,7 @@ def _review_result_and_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[returned.op_id],
+        change_ids=[returned.change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -860,8 +863,8 @@ def _review_note_result_and_receipt(
         "kind": "review_row",
         "run_id": returned.run_id,
         **(
-            {"copied_op_id": returned.copied_op_id}
-            if returned.copied_op_id is not None
+            {"copied_change_id": returned.copied_change_id}
+            if returned.copied_change_id is not None
             else {}
         ),
         "row_id": returned.row_id,
@@ -878,21 +881,21 @@ def _review_note_result_and_receipt(
         "kind": "review_note",
         "run_id": returned.run_id,
         **(
-            {"copied_op_id": returned.copied_op_id}
-            if returned.copied_op_id is not None
+            {"copied_change_id": returned.copied_change_id}
+            if returned.copied_change_id is not None
             else {}
         ),
         "row_id": returned.row_id,
         "note": returned.note,
         "column_count": returned.column_count,
-        "op_id": returned.op_id,
+        "change_id": returned.change_id,
     }
     receipt = Receipt(
         receipt_id=receipt_id,
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[returned.op_id],
+        change_ids=[returned.change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -914,7 +917,7 @@ def _replay_result_and_receipt(
     params_hash: str,
 ) -> tuple[ActionResult, Receipt]:
     if isinstance(returned, AcceptedReplayValue):
-        op_ids = [returned.op_id] if returned.op_id is not None else []
+        change_ids = [returned.change_id] if returned.change_id is not None else []
         ref = {
             "kind": "replay_accept",
             "sheet_id": returned.sheet_id,
@@ -924,7 +927,7 @@ def _replay_result_and_receipt(
             "generated_value_hash": returned.generated_value_hash,
             "accepted": returned.accepted,
             "pending_count": returned.pending_count,
-            "op_ids": op_ids,
+            "change_ids": change_ids,
         }
         supporting_records = [
             ReceiptRecord(
@@ -941,7 +944,7 @@ def _replay_result_and_receipt(
         ]
     elif isinstance(returned, AcceptedReplayColumn):
         assert isinstance(capability, _ReplayColumnAcceptor)
-        op_ids = [returned.op_id] if returned.op_id is not None else []
+        change_ids = [returned.change_id] if returned.change_id is not None else []
         membership = [
             {"row_id": row_id, "value_hash": value_hash}
             for row_id, value_hash in zip(
@@ -957,7 +960,7 @@ def _replay_result_and_receipt(
             "accepted": returned.accepted,
             "pending_count": returned.pending_count,
             "membership_hash": membership_hash,
-            "op_ids": op_ids,
+            "change_ids": change_ids,
         }
         supporting_records = [
             ReceiptRecord(
@@ -973,7 +976,7 @@ def _replay_result_and_receipt(
             )
         ]
     else:
-        op_ids = []
+        change_ids = []
         ref = {
             "kind": "replay_dismiss",
             "sheet_id": returned.sheet_id,
@@ -1001,7 +1004,7 @@ def _replay_result_and_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=op_ids,
+        change_ids=change_ids,
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",

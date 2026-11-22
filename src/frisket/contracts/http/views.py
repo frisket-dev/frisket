@@ -18,7 +18,7 @@ class View(WireModel):
     name: str
     sheet_id: int | None
     spec: dict[str, JsonValue]
-    op_id: int | None
+    change_id: int | None
     created_at: str
     updated_at: str
     unavailable_reason: str | None

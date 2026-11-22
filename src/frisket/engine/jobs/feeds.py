@@ -285,7 +285,7 @@ def register_feed_poll_handler(
                 "new_rows": summary["new_rows"],
                 "revisions": summary["revisions"],
                 "sheet_id": summary["sheet_id"],
-                "op_id": summary["op_id"],
+                "change_id": summary["change_id"],
                 "enclosure_jobs": len(jobs),
                 "embedding_refresh_jobs": len(embedding_jobs),
                 "triggered_alert_checks": len(triggered_alert_checks),
@@ -398,7 +398,7 @@ def _feed_poll_summary_from_result(
         "new_rows": int(feed_check.get("new_rows") or 0),
         "revisions": int(feed_check.get("revisions") or 0),
         "sheet_id": feed_check.get("sheet_id"),
-        "op_id": feed_check.get("op_id"),
+        "change_id": feed_check.get("change_id"),
         "row_ids": list(rows.get("row_ids") or []),
         "enclosure_row_ids": list(enclosures.get("row_ids") or []),
     }

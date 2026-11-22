@@ -28,7 +28,7 @@ class ProjectFeed(WireModel):
 class ProjectFeedCheck(WireModel):
     id: int
     feed_id: int
-    op_id: int | None
+    change_id: int | None
     receipt_id: str | None
     status: str
     new_rows: int
@@ -115,7 +115,7 @@ class ProjectFeedHealthCheck(WireModel):
     started_at: str
     finished_at: str | None
     receipt_id: str | None
-    op_id: int | None
+    change_id: int | None
     new_rows: int
     skipped_rows: int
     changed_rows: int

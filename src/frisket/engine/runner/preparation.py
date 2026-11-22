@@ -42,7 +42,7 @@ class PreparedRun:
     out_cols: dict[str, int]
     output_fields: tuple[dict[str, Any], ...]
     created_generated_column_ids: frozenset[int]
-    op_id: int
+    change_id: int
     run_id: int
     row_count: int
     resolution_bound: bool = False
@@ -51,10 +51,10 @@ class PreparedRun:
     read_inputs: Callable[[int], dict[str, Any]] | None = None
 
 
-def _created_generated_column_ids(project: Project, op_id: int) -> frozenset[int]:
+def _created_generated_column_ids(project: Project, change_id: int) -> frozenset[int]:
     row = project.db.execute(
-        "SELECT undo_info FROM ops WHERE id=?",
-        (op_id,),
+        "SELECT undo_info FROM changes WHERE id=?",
+        (change_id,),
     ).fetchone()
     if row is None:
         return frozenset()
@@ -80,7 +80,7 @@ def prepared_atomic_generated_columns_for_resume(
 
     error = "prepared atomic output family changed before resume"
     op = project.db.execute(
-        "SELECT undo_info FROM ops WHERE id=?", (int(run_row["op_id"]),)
+        "SELECT undo_info FROM changes WHERE id=?", (int(run_row["change_id"]),)
     ).fetchone()
     try:
         info = json.loads(op["undo_info"] or "{}") if op is not None else {}
@@ -164,7 +164,7 @@ def _validate_managed_resume(
             f"generation-managed run {run_id} changed its output descriptors"
         )
     operation = project.db.execute(
-        "SELECT ops.id,ops.spec,ops.undo_info FROM runs JOIN ops ON ops.id=runs.op_id "
+        "SELECT changes.id,changes.spec,changes.undo_info FROM runs JOIN changes ON changes.id=runs.change_id "
         "WHERE runs.id=?",
         (run_id,),
     ).fetchone()
@@ -685,8 +685,8 @@ def prepare_validated(
     if resume_run_id is not None:
         run_id = resume_run_id
         assert run_row is not None
-        op_id = run_row["op_id"]
-        created_columns = list(_created_generated_column_ids(project, int(op_id)))
+        change_id = run_row["change_id"]
+        created_columns = list(_created_generated_column_ids(project, int(change_id)))
         output_column_ids = sorted(out_cols.values())
         if managed_bindings and output_column_ids != sorted(
             binding.column_id for binding in managed_bindings
@@ -733,7 +733,7 @@ def prepare_validated(
                 column_ids=[col_map[name] for name in program.source_columns(spec)],
             )
         )
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "map",
             operation_spec,
             label=f"{program.name}: {', '.join(out_cols)}",
@@ -745,9 +745,9 @@ def prepare_validated(
         if created_columns:
             undo_info["created_columns"] = created_columns
         if undo_info:
-            project.set_undo_info(op_id, undo_info)
+            project.set_undo_info(change_id, undo_info)
         run_id = run_store.start_run_in_transaction(
-            op_id,
+            change_id,
             sheet_id,
             spec["action_kind"],
             action_version=program.version,
@@ -774,11 +774,11 @@ def prepare_validated(
                     is not None
                 )
                 if not has_managed_history:
-                    run_store.point_column_at_run(op_id, created_cid, run_id)
+                    run_store.point_column_at_run(change_id, created_cid, run_id)
         # Retire dropped output roles instead of exposing stale values.
         retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=program,
             spec=spec,
             columns=columns,
@@ -801,7 +801,7 @@ def prepare_validated(
         created_generated_column_ids=frozenset(created_columns).intersection(
             out_cols.values()
         ),
-        op_id=op_id,
+        change_id=change_id,
         run_id=run_id,
         row_count=row_count,
         resolution_bound=(

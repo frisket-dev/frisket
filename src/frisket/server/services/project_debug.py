@@ -28,7 +28,7 @@ class ProjectDebugService:
 
     def debug(self, project_id: str) -> dict[str, Any]:
         p = self._workspace.get(project_id)
-        cursor = p.op_cursor
+        cursor = p.change_cursor
 
         ops = [
             {
@@ -95,7 +95,7 @@ class ProjectDebugService:
                     "sheet_id": sheet["id"],
                     "name": sheet["name"],
                     "parent_sheet_id": sheet["parent_sheet_id"],
-                    "parent_op_id": sheet["parent_op_id"],
+                    "parent_change_id": sheet["parent_change_id"],
                     "columns": cols,
                 }
             )
@@ -103,8 +103,8 @@ class ProjectDebugService:
         return {
             "project_id": project_id,
             "name": getattr(p, "name", None) or project_id,
-            "op_cursor": cursor,
-            "ops": ops,
+            "change_cursor": cursor,
+            "changes": ops,
             "runs": runs,
             "results": results_summary,
             "cache": self._cache_stats(p.path),
@@ -118,7 +118,7 @@ class ProjectDebugService:
         action_metadata = action_metadata_for_action_kind(run_row_action_kind(row))
         return {
             "run_id": row["id"],
-            "op_id": row["op_id"],
+            "change_id": row["change_id"],
             "sheet_id": row["sheet_id"],
             **action_metadata,
             "action_version": row["action_version"],

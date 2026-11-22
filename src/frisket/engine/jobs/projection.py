@@ -92,13 +92,13 @@ JOB_RESULT_SUMMARY_KEYS_BY_KIND = {
         "new_rows",
         "revisions",
         "sheet_id",
-        "op_id",
+        "change_id",
         "enclosure_jobs",
     ),
     ENCLOSURE_DOWNLOAD_KIND: (
         "status",
         "row_id",
-        "op_id",
+        "change_id",
         "error",
     ),
     ACTION_RUN_KIND: (

@@ -59,12 +59,12 @@ def _semantic_origin(
         if not isinstance(terminal, SemanticJoin):
             return None
         run = project.db.execute(
-            "SELECT action_kind,op_id FROM runs WHERE id=?", (receipt.run_id,)
+            "SELECT action_kind,change_id FROM runs WHERE id=?", (receipt.run_id,)
         ).fetchone()
         if (
             run is None
             or run["action_kind"] != origin
-            or run["op_id"] not in receipt.op_ids
+            or run["change_id"] not in receipt.change_ids
         ):
             return None
         return origin
@@ -89,7 +89,7 @@ def _resolve_semantic_matches(
     if (
         source_action_kind is None
         or source_receipt.status != "completed"
-        or not _receipt_ops_are_applied(project, source_receipt.op_ids)
+        or not _receipt_ops_are_applied(project, source_receipt.change_ids)
     ):
         return _derive_link_table_input_error(
             "source receipt must be a completed, applied semantic-join receipt",
@@ -285,7 +285,7 @@ def _resolve_semantic_matches(
         "source_action_kind": source_action_kind,
         "source_receipt_id": source_receipt.receipt_id,
         "source_run_id": source_run_id,
-        "source_op_ids": list(source_receipt.op_ids),
+        "source_change_ids": list(source_receipt.change_ids),
         "source_sheet_id": source_sheet_id,
         "source_sheet_name": source_ref.get("name"),
         "target_sheet_id": target_sheet_id,
@@ -465,9 +465,9 @@ def _derive_link_table_review_refs(
             or target_ref.get("row_id") not in selected
         ):
             continue
-        if not _receipt_ops_are_applied(project, receipt.op_ids):
+        if not _receipt_ops_are_applied(project, receipt.change_ids):
             continue
-        if not effective_owners.intersection(receipt.op_ids):
+        if not effective_owners.intersection(receipt.change_ids):
             continue
         row_id = int(target_ref["row_id"])
         receipt_ids.append(receipt.receipt_id)
@@ -479,7 +479,7 @@ def _derive_link_table_review_refs(
                 "row_id": row_id,
                 "column_id": int(target_ref["column_id"]),
                 "decision": (receipt.review or {}).get("decision"),
-                "op_ids": list(receipt.op_ids),
+                "change_ids": list(receipt.change_ids),
             }
         )
     return {
@@ -677,7 +677,7 @@ class AdmittedSemanticMatchReader:
                     for key in (
                         "source_receipt_id",
                         "source_run_id",
-                        "source_op_ids",
+                        "source_change_ids",
                         "source_sheet_id",
                         "source_sheet_name",
                         "target_sheet_id",
@@ -731,7 +731,7 @@ class AdmittedSemanticMatchReader:
                     "source_row_ids": [edge["source_row_id"] for edge in edges],
                     "target_row_ids": [edge["target_row_id"] for edge in edges],
                     "edges": edges,
-                    "op_id": write.op_id,
+                    "change_id": write.change_id,
                 },
                 retention="pinned",
             )

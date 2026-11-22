@@ -212,7 +212,7 @@ def publish_row_file_evidence(
     output_key,
     item_path,
     run_id,
-    op_id,
+    change_id,
 ):
     """Publish actual browser facts inside the host's result/evidence savepoint."""
     facts = descriptor["facts"]
@@ -278,7 +278,7 @@ def publish_row_file_evidence(
             row_id=row_id,
             column_id=source["column_id"],
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             link_role="web_capture_page",
             producer=producer,
             metadata=occurrence,
@@ -290,7 +290,7 @@ def publish_row_file_evidence(
         subject_ref={
             "kind": "run_result",
             "run_id": run_id,
-            "op_id": op_id,
+            "change_id": change_id,
             "row_id": row_id,
             "column_id": column_id,
         },
@@ -299,7 +299,7 @@ def publish_row_file_evidence(
         row_id=row_id,
         column_id=column_id,
         run_id=run_id,
-        op_id=op_id,
+        change_id=change_id,
         link_role="screenshot_output",
         producer=producer,
         metadata=occurrence,

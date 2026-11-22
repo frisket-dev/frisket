@@ -32,7 +32,7 @@ from frisket.engine.store.cell_writes import (
 )
 from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.engine.store.changes import ChangeStore
-from frisket.engine.store.op_log import set_undo_info
+from frisket.engine.store.change_log import set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persistence
 
@@ -139,24 +139,24 @@ def _perform_import_rows_in_txn(
         resolved.get("op_kind", action.kind) if resolved is not None else action.kind
     )
     cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, '{}', 0)",
+        "INSERT INTO changes (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, '{}', 0)",
         (
             op_kind,
             f"{op_kind} {materialization.sheet_name}",
             json.dumps(op_spec, sort_keys=True),
         ),
     )
-    op_id = inserted_rowid(cur)
+    change_id = inserted_rowid(cur)
     changes = ChangeStore(project)
-    changes.start(op_id)
+    changes.start(change_id)
     cur.execute(
-        "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
+        "INSERT INTO sheets (name, position, parent_sheet_id, parent_change_id) "
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), NULL, NULL)",
         (materialization.sheet_name,),
     )
     sheet_id = inserted_rowid(cur)
     producer_id = create_base_cell_producer(
-        project.db, stage_id=f"op:{op_id}", op_id=op_id
+        project.db, stage_id=f"op:{change_id}", change_id=change_id
     )
 
     column_ids: dict[str, int] = {}
@@ -198,13 +198,13 @@ def _perform_import_rows_in_txn(
         sheet_id=sheet_id,
         column_ids=column_ids,
         row_ids=row_ids,
-        op_id=op_id,
+        change_id=change_id,
     )
     result = ActionResult(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",
         project_id=project_id,
-        op_ids=[op_id],
+        change_ids=[change_id],
         outputs=result_outputs,
         receipt_id=receipt_id,
     )
@@ -214,7 +214,7 @@ def _perform_import_rows_in_txn(
         project_id=project_id,
         receipt_id=receipt_id,
         params_hash=params_hash,
-        op_id=op_id,
+        change_id=change_id,
         sheet_name=materialization.sheet_name,
         sheet_id=sheet_id,
         column_ids=column_ids,
@@ -243,7 +243,7 @@ def _perform_import_rows_in_txn(
             blob_plan.bind_row_ordinals(row_ids),
             sheet_id=sheet_id,
             column_ids=column_ids,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=receipt_id,
         )
         receipt.records.extend(ReceiptRecord(ref=ref) for ref in published)
@@ -252,7 +252,7 @@ def _perform_import_rows_in_txn(
         result.warnings = list(receipt.warnings)
     set_undo_info(
         project,
-        op_id,
+        change_id,
         {
             "created_sheets": [sheet_id],
             "created_columns": list(column_ids.values()),
@@ -260,7 +260,7 @@ def _perform_import_rows_in_txn(
         },
     )
     ReceiptStore(project).insert_completed(receipt)
-    changes.close(op_id)
+    changes.close(change_id)
     return result
 
 
@@ -270,14 +270,18 @@ def _import_rows_outputs(
     sheet_id: int,
     column_ids: dict[str, int],
     row_ids: list[int],
-    op_id: int,
+    change_id: int,
 ) -> list[ActionOutput]:
     outputs = [
         ActionOutput(
             kind="sheet",
             name=sheet_name,
             sheet_id=sheet_id,
-            ref={"kind": "materialized_sheet", "sheet_id": sheet_id, "op_id": op_id},
+            ref={
+                "kind": "materialized_sheet",
+                "sheet_id": sheet_id,
+                "change_id": change_id,
+            },
         )
     ]
     outputs.extend(
@@ -290,7 +294,7 @@ def _import_rows_outputs(
                 "kind": "source_column",
                 "sheet_id": sheet_id,
                 "column_id": column_id,
-                "op_id": op_id,
+                "change_id": change_id,
             },
         )
         for name, column_id in column_ids.items()
@@ -302,7 +306,7 @@ def _import_rows_outputs(
             sheet_id=sheet_id,
             row_ids=row_ids,
             ref=_compact_import_rowset_ref(
-                sheet_id=sheet_id, row_ids=row_ids, op_id=op_id
+                sheet_id=sheet_id, row_ids=row_ids, change_id=change_id
             ),
         )
     )
@@ -310,7 +314,7 @@ def _import_rows_outputs(
 
 
 def _compact_import_rowset_ref(
-    *, sheet_id: int, row_ids: list[int], op_id: int
+    *, sheet_id: int, row_ids: list[int], change_id: int
 ) -> dict[str, Any]:
     """Bounded identity for an ordered imported rowset.
 
@@ -330,7 +334,7 @@ def _compact_import_rowset_ref(
         "rowset_hash": f"sha256:{digest.hexdigest()}",
         "first_row_id": row_ids[0] if row_ids else None,
         "last_row_id": row_ids[-1] if row_ids else None,
-        "op_id": op_id,
+        "change_id": change_id,
     }
 
 
@@ -341,7 +345,7 @@ def _import_rows_receipt(
     project_id: str,
     receipt_id: str,
     params_hash: str,
-    op_id: int,
+    change_id: int,
     sheet_name: str,
     sheet_id: int,
     column_ids: dict[str, int],
@@ -351,7 +355,11 @@ def _import_rows_receipt(
     outputs = [
         ReceiptIO(
             name=sheet_name,
-            ref={"kind": "materialized_sheet", "sheet_id": sheet_id, "op_id": op_id},
+            ref={
+                "kind": "materialized_sheet",
+                "sheet_id": sheet_id,
+                "change_id": change_id,
+            },
         ),
         *[
             ReceiptIO(
@@ -360,7 +368,7 @@ def _import_rows_receipt(
                     "kind": "source_column",
                     "sheet_id": sheet_id,
                     "column_id": column_id,
-                    "op_id": op_id,
+                    "change_id": change_id,
                 },
             )
             for name, column_id in column_ids.items()
@@ -368,14 +376,14 @@ def _import_rows_receipt(
         ReceiptIO(
             name="rows",
             ref=_compact_import_rowset_ref(
-                sheet_id=sheet_id, row_ids=row_ids, op_id=op_id
+                sheet_id=sheet_id, row_ids=row_ids, change_id=change_id
             ),
         ),
     ]
     supporting_records = [
         ReceiptRecord(
             ref=_compact_import_rowset_ref(
-                sheet_id=sheet_id, row_ids=row_ids, op_id=op_id
+                sheet_id=sheet_id, row_ids=row_ids, change_id=change_id
             )
         )
     ]
@@ -429,7 +437,7 @@ def _import_rows_receipt(
                     "sheet_id": sheet_id,
                     "row_id": row_ids[0],
                     "column_id": column_ids[first_name],
-                    "op_id": op_id,
+                    "change_id": change_id,
                 }
             )
         )
@@ -438,7 +446,7 @@ def _import_rows_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[op_id],
+        change_ids=[change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",

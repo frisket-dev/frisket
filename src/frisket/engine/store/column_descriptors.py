@@ -17,17 +17,17 @@ DESCRIPTOR_FIELDS = {
 
 DESCRIPTOR_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS column_descriptor_changes (
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
+  change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
   property TEXT NOT NULL CHECK(property IN ('type','format','semantic_type')),
-  PRIMARY KEY(column_id,property,op_id)
+  PRIMARY KEY(column_id,property,change_id)
 );
-CREATE INDEX IF NOT EXISTS idx_descriptor_change_op ON column_descriptor_changes(op_id);
+CREATE INDEX IF NOT EXISTS idx_column_descriptor_changes_change ON column_descriptor_changes(change_id);
 """
 
 
 def record_descriptor_changes(
-    db: sqlite3.Connection, op_id: int, info: Mapping[str, Any]
+    db: sqlite3.Connection, change_id: int, info: Mapping[str, Any]
 ) -> None:
     """Index existing before/after facts inside the mutation transaction."""
     require_transaction(db, "descriptor change")
@@ -38,8 +38,8 @@ def record_descriptor_changes(
                 raise ValueError(f"descriptor change lacks {field} before value")
             db.execute(
                 "INSERT OR IGNORE INTO column_descriptor_changes "
-                "(op_id,column_id,property) VALUES (?,?,?)",
-                (op_id, int(column_id), property_name),
+                "(change_id,column_id,property) VALUES (?,?,?)",
+                (change_id, int(column_id), property_name),
             )
 
 
@@ -52,19 +52,19 @@ def _effective_properties(db: sqlite3.Connection, column_id: int):
         "ORDER BY op.change_order) AS baseline_info, "
         "ROW_NUMBER() OVER (PARTITION BY change.property "
         "ORDER BY (op.status='applied') DESC,op.change_order DESC) AS rank "
-        "FROM column_descriptor_changes change JOIN ops op ON op.id=change.op_id "
+        "FROM column_descriptor_changes change JOIN changes op ON op.id=change.change_id "
         "WHERE change.column_id=? AND op.change_order IS NOT NULL) "
         "SELECT property,id,status,undo_info,baseline_info FROM ordered WHERE rank=1",
         (column_id,),
     )
-    for property_name, op_id, status, info_json, baseline_json in rows:
+    for property_name, change_id, status, info_json, baseline_json in rows:
         field = DESCRIPTOR_FIELDS[property_name]
         active = status == "applied"
         info = json.loads(info_json if active else baseline_json)
         yield (
             property_name,
             info[f"{field}_after" if active else field][str(column_id)],
-            int(op_id) if active else 0,
+            int(change_id) if active else 0,
         )
 
 
@@ -101,7 +101,7 @@ def set_descriptor(
     property_name: str,
     value: Any,
     *,
-    op_id: int | None = None,
+    change_id: int | None = None,
     initialize: bool = False,
 ) -> None:
     """Set a descriptor through its owner in the caller's transaction."""
@@ -115,7 +115,7 @@ def set_descriptor(
     if column is None:
         raise KeyError(f"no column {column_id}")
     if initialize:
-        if op_id is not None:
+        if change_id is not None:
             raise ValueError("initial descriptor cannot also specify an owner")
         if db.execute(
             "SELECT 1 FROM column_descriptor_changes WHERE column_id=? UNION ALL SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
@@ -127,27 +127,29 @@ def set_descriptor(
         )
     else:
         from .changes import ChangeStore, start_change
-        from .op_log import append_change_in_transaction, set_undo_info
+        from .change_log import append_change_in_transaction, set_undo_info
 
-        if op_id is None:
-            op_id = append_change_in_transaction(
+        if change_id is None:
+            change_id = append_change_in_transaction(
                 project,
                 "column.descriptor",
                 {"column_id": column_id, "property": property_name},
                 label=f"change column {property_name}",
             )
-            start_change(db, op_id)
+            start_change(db, change_id)
         else:
-            start_change(db, op_id, writing=True)
-            ChangeStore(project).require_publication(op_id)
+            start_change(db, change_id, writing=True)
+            ChangeStore(project).require_publication(change_id)
         info = json.loads(
-            db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()[0]
+            db.execute(
+                "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+            ).fetchone()[0]
             or "{}"
         )
         field = DESCRIPTOR_FIELDS[property_name]
         info.setdefault(field, {}).setdefault(str(column_id), column[0])
         info.setdefault(f"{field}_after", {})[str(column_id)] = value
-        set_undo_info(project, op_id, info)
+        set_undo_info(project, change_id, info)
         project_column_descriptors(db, [column_id])
     from .current_cells import refresh_current_cells
 

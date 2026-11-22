@@ -157,8 +157,8 @@ def _receipt_named_result_output(
     )
 
 
-def _receipt_operation_output(output: ReceiptIO, ref: dict[str, Any]) -> ActionOutput:
-    return ActionOutput(kind="operation", name=output.name, ref=ref)
+def _receipt_change_output(output: ReceiptIO, ref: dict[str, Any]) -> ActionOutput:
+    return ActionOutput(kind="change", name=output.name, ref=ref)
 
 
 def _receipt_run_backfill_output(
@@ -304,7 +304,7 @@ _OUTPUT_REF_RESULT_BUILDERS: Mapping[str, _OutputRefResultBuilder] = {
     "census_demographics_output_column": _receipt_column_rows_output,
     "reduce_summary_output_column": _receipt_column_rows_output,
     "named_result": _receipt_named_result_output,
-    "operation_status_transition": _receipt_operation_output,
+    "change_status_transition": _receipt_change_output,
     "run_backfill": _receipt_run_backfill_output,
     "manual_edit_batch": _receipt_edit_output,
     "updated_import_rows": _receipt_edit_output,
@@ -365,7 +365,7 @@ def _result_from_receipt(receipt: Receipt) -> ActionResult:
         status=receipt.status,
         project_id=receipt.project_id,
         run_id=receipt.run_id,
-        op_ids=receipt.op_ids,
+        change_ids=receipt.change_ids,
         outputs=outputs,
         value=receipt.value,
         receipt_id=receipt.receipt_id,
@@ -390,16 +390,16 @@ def _positive_ref_int(ref: dict[str, Any], field: str) -> int | None:
     return None
 
 
-def _receipt_ops_are_applied(project: Any, op_ids: list[int]) -> bool:
-    if not op_ids:
+def _receipt_ops_are_applied(project: Any, change_ids: list[int]) -> bool:
+    if not change_ids:
         return False
-    placeholders = ",".join("?" for _ in op_ids)
+    placeholders = ",".join("?" for _ in change_ids)
     rows = project.db.execute(
-        f"SELECT id, status FROM ops WHERE id IN ({placeholders})",
-        op_ids,
+        f"SELECT id, status FROM changes WHERE id IN ({placeholders})",
+        change_ids,
     ).fetchall()
     by_id = {int(row["id"]): str(row["status"]) for row in rows}
-    return all(by_id.get(op_id) == "applied" for op_id in op_ids)
+    return all(by_id.get(change_id) == "applied" for change_id in change_ids)
 
 
 FinishedWorkStatus = Literal["completed", "partial", "failed"]

@@ -91,7 +91,7 @@ def publish_keyed_page(
             writer._session_id, writer._writer_authority, expected_cursor
         )
         owner = db.execute(
-            "SELECT status,change_order,publication_closed FROM ops WHERE id=?",
+            "SELECT status,change_order,publication_closed FROM changes WHERE id=?",
             (writer._op_id,),
         ).fetchone()
         if (
@@ -121,7 +121,7 @@ def publish_keyed_page(
         if publication.restored:
             info = json.loads(
                 db.execute(
-                    "SELECT undo_info FROM ops WHERE id=?", (writer._op_id,)
+                    "SELECT undo_info FROM changes WHERE id=?", (writer._op_id,)
                 ).fetchone()[0]
                 or "{}"
             )

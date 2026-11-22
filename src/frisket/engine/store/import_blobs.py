@@ -179,7 +179,7 @@ def publish_import_blobs(
     *,
     sheet_id: int,
     column_ids: Mapping[str, int],
-    op_id: int,
+    change_id: int,
     receipt_id: str,
     import_writer_authority: str | None = None,
 ) -> tuple[dict[str, Any], ...]:
@@ -308,7 +308,7 @@ def publish_import_blobs(
         first_blob, first_page, _first_text = pages[0]
         first_ref = prepared_store.stage_reference(
             source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             pages=[
                 PreparedPageDraft(
                     page_number=page_number,
@@ -348,7 +348,7 @@ def publish_import_blobs(
             rebased = prepared_store.stage_rebased(
                 base_ref_id=blob.prepared_source_ref_id,
                 source_artifact_id=int(artifact["id"]),
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 first_page=packet.page_start,
                 last_page=packet.page_end,
                 allow_partial=True,
@@ -357,7 +357,7 @@ def publish_import_blobs(
                 if blob.prepared_pages:
                     rebased = prepared_store.stage_replacement(
                         base_ref_id=rebased.ref_id,
-                        producing_op_id=op_id,
+                        producing_change_id=change_id,
                         replacements=blob.prepared_pages,
                         allow_partial=True,
                     )
@@ -365,14 +365,14 @@ def publish_import_blobs(
             elif blob.prepared_pages:
                 prepared_refs[blob.occurrence_id] = prepared_store.stage_reference(
                     source_artifact_id=int(artifact["id"]),
-                    producing_op_id=op_id,
+                    producing_change_id=change_id,
                     pages=blob.prepared_pages,
                     allow_partial=True,
                 )
         elif blob.prepared_pages:
             prepared_refs[blob.occurrence_id] = prepared_store.stage_reference(
                 source_artifact_id=int(artifact["id"]),
-                producing_op_id=op_id,
+                producing_change_id=change_id,
                 pages=blob.prepared_pages,
                 allow_partial=True,
             )
@@ -419,7 +419,7 @@ def publish_import_blobs(
                     "mime": blob.mime,
                     "size": blob.size,
                     "sheet_id": sheet_id,
-                    "op_id": op_id,
+                    "change_id": change_id,
                     "artifact_id": artifacts[blob.occurrence_id]["id"],
                 }
             )
@@ -442,7 +442,7 @@ def publish_import_blobs(
             "row_id": cell.row_id,
             "row_index": positions[cell.row_id],
             "column_id": column_id,
-            "op_id": op_id,
+            "change_id": change_id,
         }
         if blob.source_url is not None:
             ref.update(source_url=blob.source_url, provider=blob.provider)
@@ -479,7 +479,7 @@ def publish_import_blobs(
                 sheet_id=sheet_id,
                 row_id=cell.row_id,
                 column_id=column_id,
-                op_id=op_id,
+                change_id=change_id,
                 receipt_id=receipt_id,
                 link_role="source_provenance",
             )
@@ -523,7 +523,7 @@ def publish_import_blobs(
                     sheet_id=sheet_id,
                     row_id=cell.row_id,
                     column_id=int(column_ids[str(blob.prepared_column_name)]),
-                    op_id=op_id,
+                    change_id=change_id,
                     receipt_id=receipt_id,
                 )
         if blob.occurrence_ref is not None:
@@ -565,7 +565,7 @@ def publish_import_blobs(
                 sheet_id=sheet_id,
                 row_id=cell.row_id,
                 column_id=column_id,
-                op_id=op_id,
+                change_id=change_id,
                 receipt_id=receipt_id,
                 link_role="primary_support",
             )
@@ -580,7 +580,7 @@ def _imported_cell_ref(project: Any, row_id: int, column_id: int) -> dict[str, A
     """Bind evidence to the exact published source version, without loading text."""
     current = current_values_sql(project.db, [column_id], [row_id])
     row = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,base_producer_id,"
+        "SELECT origin_kind,origin_change_id,origin_run_id,base_producer_id,"
         f"prepared_ref_id,outcome FROM {current}"
     ).fetchone()
     if row is None or row["origin_kind"] != "source_cell":
@@ -597,7 +597,7 @@ def _publish_packet_ocr_citations(
     sheet_id: int,
     row_id: int,
     column_id: int,
-    op_id: int,
+    change_id: int,
     receipt_id: str,
 ) -> None:
     value_ref = _imported_cell_ref(project, row_id, column_id)
@@ -667,7 +667,7 @@ def _publish_packet_ocr_citations(
         sheet_id=sheet_id,
         row_id=row_id,
         column_id=column_id,
-        op_id=op_id,
+        change_id=change_id,
         receipt_id=receipt_id,
         link_role="media_ocr_grounding"
         if blob.prepared_engine not in (None, "native")

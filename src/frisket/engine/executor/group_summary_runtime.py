@@ -72,13 +72,13 @@ def _reduce_group_summary_replay_error(
     membership_ref = _receipt_ref(receipt, "materialized_row_sources")
     if rows_ref is None or groups_ref is None or membership_ref is None:
         return stale(replay + "receipt lacks materialized refs")
-    op_id = _positive_ref_int(rows_ref, "op_id")
+    change_id = _positive_ref_int(rows_ref, "change_id")
     sheet_id = _positive_ref_int(rows_ref, "sheet_id")
     row_ids = _positive_int_list(rows_ref.get("row_ids"))
-    if op_id is None or sheet_id is None or row_ids is None:
+    if change_id is None or sheet_id is None or row_ids is None:
         return stale(replay + "materialized refs are invalid")
-    if membership_ref.get("op_id") != op_id:
-        return stale(replay + "membership op ref changed", op_id=op_id)
+    if membership_ref.get("change_id") != change_id:
+        return stale(replay + "membership op ref changed", change_id=change_id)
     sheet = project.db.execute(
         "SELECT id FROM sheets WHERE id=? AND hidden=0",
         (sheet_id,),
@@ -100,18 +100,18 @@ def _reduce_group_summary_replay_error(
             return stale(replay + "aggregate row parentage changed", row_ids=row_ids)
     live_membership = load_materialized_row_sources_for_op(
         project.db,
-        op_id=op_id,
+        change_id=change_id,
         roles=("aggregate_source",),
     )
     if not materialized_row_sources_ref_matches(membership_ref, live_membership):
-        return stale(replay + "materialized row sources changed", op_id=op_id)
+        return stale(replay + "materialized row sources changed", change_id=change_id)
     groups = groups_ref.get("groups")
     if not isinstance(groups, list):
-        return stale(replay + "group membership is invalid", op_id=op_id)
+        return stale(replay + "group membership is invalid", change_id=change_id)
     expected_membership: dict[int, set[int]] = {}
     for group in groups:
         if not isinstance(group, dict):
-            return stale(replay + "group membership is invalid", op_id=op_id)
+            return stale(replay + "group membership is invalid", change_id=change_id)
         summary_row_id = group.get("summary_row_id")
         source_row_ids = _positive_int_list(group.get("source_row_ids"))
         if (
@@ -120,7 +120,7 @@ def _reduce_group_summary_replay_error(
             or summary_row_id <= 0
             or source_row_ids is None
         ):
-            return stale(replay + "group membership is invalid", op_id=op_id)
+            return stale(replay + "group membership is invalid", change_id=change_id)
         expected_membership[summary_row_id] = set(source_row_ids)
     active_membership: dict[int, set[int]] = {}
     for membership in active_materialized_row_sources(
@@ -132,7 +132,7 @@ def _reduce_group_summary_replay_error(
             int(membership["source_row_id"])
         )
     if active_membership != expected_membership:
-        return stale(replay + "active membership changed", op_id=op_id)
+        return stale(replay + "active membership changed", change_id=change_id)
     return None
 
 
@@ -309,7 +309,7 @@ def _recoverable_group_run(project, receipt, params_hash):
     ):
         return None
     return project.db.execute(
-        "SELECT run.* FROM runs run JOIN ops op ON op.id=run.op_id "
+        "SELECT run.* FROM runs run JOIN changes op ON op.id=run.change_id "
         "LEFT JOIN execution_attempts attempt ON attempt.id=run.current_attempt_id "
         "WHERE run.id=? AND run.status='running' AND run.cancel_requested_at IS NULL "
         "AND op.status='applied' AND op.publication_closed=0 "
@@ -327,7 +327,7 @@ def _precheck_reduce_group_summary_target(
 
         return validate_target(project, params)
     existing = project.db.execute(
-        "SELECT id,parent_op_id FROM sheets WHERE name=?",
+        "SELECT id,parent_change_id FROM sheets WHERE name=?",
         (params.target_sheet_name,),
     ).fetchone()
     if existing is None:
@@ -337,7 +337,7 @@ def _precheck_reduce_group_summary_target(
         run = _recoverable_group_run(project, receipt, receipt["params_hash"])
         if run is not None and (
             int(run["sheet_id"]) == int(existing["id"])
-            or existing["parent_op_id"] == run["op_id"]
+            or existing["parent_change_id"] == run["change_id"]
         ):
             return None
     return ActionError(
@@ -409,16 +409,16 @@ async def _complete_reduce_group_summaries(
     }
     store = RunResultStore(project)
     if publication.recovery_run is not None:
-        op_id = int(publication.recovery_run["op_id"])
+        change_id = int(publication.recovery_run["change_id"])
         run_id = int(publication.recovery_run["id"])
     else:
-        op_id = project.append_change(
+        change_id = project.append_change(
             params.action_kind,
             {**params.request, "execution_sources": _group_source_binding(resolved)},
             label=f"Grouped summary {params.target_sheet_name}",
         )
         run_id = store.start_run(
-            op_id,
+            change_id,
             resolved["sheet_id"],
             params.action_kind,
             action_version=program.version,
@@ -449,7 +449,7 @@ async def _complete_reduce_group_summaries(
     )
     publication.start(
         resolved,
-        {"op_id": op_id, "run_id": run_id, "attempt_id": commitment.attempt_id},
+        {"change_id": change_id, "run_id": run_id, "attempt_id": commitment.attempt_id},
     )
     write = publication.write
     spec["sheet_id"] = write.sheet_id
@@ -465,7 +465,7 @@ async def _complete_reduce_group_summaries(
         store_capture(
             project,
             resolved["consumed_capture"],
-            owner_op_id=op_id,
+            owner_change_id=change_id,
             output_sheet_id=write.sheet_id,
             run_id=run_id,
             shared=bool(write.row_ids),
@@ -500,7 +500,7 @@ async def _complete_reduce_group_summaries(
         created_generated_column_ids=frozenset()
         if params.refresh_target
         else frozenset([write.column_ids[params.summary_column_name]]),
-        op_id=op_id,
+        change_id=change_id,
         run_id=run_id,
         row_count=len(write.row_ids),
         run_scope_run_id=run_id,
@@ -593,8 +593,8 @@ def _write_reduce_group_summary_result(
             return result
 
         write = publication.write
-        op_id, summary_sheet_id, column_ids, summary_row_ids = (
-            write.op_id,
+        change_id, summary_sheet_id, column_ids, summary_row_ids = (
+            write.change_id,
             write.sheet_id,
             write.column_ids,
             write.row_ids,
@@ -615,11 +615,11 @@ def _write_reduce_group_summary_result(
             claim_token=claim_token,
             terminal_disposition=run_status,
         )
-        run_store.point_column_at_run(op_id, summary_column_id, run_id)
+        run_store.point_column_at_run(change_id, summary_column_id, run_id)
         action_status = receipt_status_from_failures(failed_groups, len(computations))
         outputs = _reduce_group_summary_outputs(
             params=params,
-            op_id=op_id,
+            change_id=change_id,
             run_id=run_id,
             summary_sheet_id=summary_sheet_id,
             column_ids=column_ids,
@@ -635,7 +635,7 @@ def _write_reduce_group_summary_result(
             receipt_id=receipt_id,
             params_hash=params_hash,
             status=action_status,
-            op_id=op_id,
+            change_id=change_id,
             run_id=run_id,
             params=params,
             resolved=resolved,
@@ -692,7 +692,7 @@ def _write_reduce_group_summary_result(
             status=action_status,
             project_id=project_id,
             run_id=run_id,
-            op_ids=[op_id],
+            change_ids=[change_id],
             outputs=outputs,
             receipt_id=receipt_id,
             errors=receipt.errors,
@@ -714,7 +714,7 @@ def _write_reduce_group_summary_result(
 def _reduce_group_summary_outputs(
     *,
     params: GroupSummaryPlan,
-    op_id: int,
+    change_id: int,
     run_id: int,
     summary_sheet_id: int,
     column_ids: dict[str, int],
@@ -729,7 +729,7 @@ def _reduce_group_summary_outputs(
             ref={
                 "kind": "materialized_sheet",
                 "sheet_id": summary_sheet_id,
-                "op_id": op_id,
+                "change_id": change_id,
             },
         )
     ]
@@ -744,7 +744,7 @@ def _reduce_group_summary_outputs(
             "sheet_id": summary_sheet_id,
             "column_id": column_id,
             "column_name": name,
-            "op_id": op_id,
+            "change_id": change_id,
         }
         if kind == "reduce_summary_output_column":
             ref["run_id"] = run_id
@@ -776,7 +776,7 @@ def _reduce_group_summary_outputs(
                     computation["group"]["source_row_ids"]
                     for computation in computations
                 ],
-                "op_id": op_id,
+                "change_id": change_id,
             },
         )
     )
@@ -791,7 +791,7 @@ def _reduce_group_summary_receipt(
     receipt_id: str,
     params_hash: str,
     status: ActionResultStatus,
-    op_id: int,
+    change_id: int,
     run_id: int,
     params: GroupSummaryPlan,
     resolved: dict[str, Any],
@@ -892,7 +892,7 @@ def _reduce_group_summary_receipt(
                 "model_call_ids": model_call_ids,
                 "model_call_count": len(model_call_ids),
                 "failed_groups": failed_groups,
-                "op_id": op_id,
+                "change_id": change_id,
                 "run_id": run_id,
             },
             retention="pinned",
@@ -904,7 +904,7 @@ def _reduce_group_summary_receipt(
                 "model": params.model,
                 "group_count": len(computations),
                 "params_hash": params_hash,
-                "op_id": op_id,
+                "change_id": change_id,
                 "run_id": run_id,
             },
             retention="pinned",
@@ -916,7 +916,7 @@ def _reduce_group_summary_receipt(
                 "completed_groups": len(computations),
                 "failed_groups": failed_groups,
                 "cost_actual": receipt_cost_actual,
-                "op_id": op_id,
+                "change_id": change_id,
                 "run_id": run_id,
             }
         ),
@@ -979,7 +979,7 @@ def _reduce_group_summary_receipt(
         action_id=action_id,
         action_kind=action.kind,
         run_id=run_id,
-        op_ids=[op_id],
+        change_ids=[change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status=status,

@@ -7,7 +7,7 @@ from typing import Any
 
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.citations import mark_citations_stale_for_cell_refs
-from frisket.engine.store.op_log import append_change_in_transaction, set_undo_info
+from frisket.engine.store.change_log import append_change_in_transaction, set_undo_info
 from frisket.engine.store.prepared_edits import prepared_edit_values
 
 
@@ -25,17 +25,17 @@ def write_edit_overlay(
     """Write one edit operation and its citation transition in the caller's txn."""
 
     info = dict(undo_info or {})
-    op_id = append_change_in_transaction(
+    change_id = append_change_in_transaction(
         project,
         kind,
         dict(spec),
         label=label,
         undo_info=info,
     )
-    values = prepared_edit_values(project, op_id=op_id, targets=targets)
+    values = prepared_edit_values(project, change_id=change_id, targets=targets)
     insert_edits(
         project.db,
-        op_id=op_id,
+        change_id=change_id,
         edits=[
             EditCellWrite(
                 row_id=int(target["row_id"]),
@@ -57,9 +57,9 @@ def write_edit_overlay(
             {"stable_id": stable_id, "stale_reason": stale_reason}
             for stable_id in stale_ids
         ]
-        set_undo_info(project, op_id, info)
+        set_undo_info(project, change_id, info)
     if close_change:
         from frisket.engine.store.changes import ChangeStore
 
-        ChangeStore(project).close(op_id)
-    return op_id
+        ChangeStore(project).close(change_id)
+    return change_id

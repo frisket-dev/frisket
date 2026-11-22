@@ -460,7 +460,7 @@ class ProjectQATools:
             "sheet_id": evaluated["sheet_id"],
             "query": evaluated["query"],
             "scope": evaluated["scope"],
-            "source_op_cursor": evaluated["source_op_cursor"],
+            "source_change_cursor": evaluated["source_change_cursor"],
             "total": evaluated["total"],
         }
         receipt["query_hash"] = hashlib.sha256(
@@ -531,7 +531,7 @@ class ProjectQATools:
                     "sheet_id": request.sheet_id,
                     "query": query,
                     "scope": scope,
-                    "source_op_cursor": result["source_op_cursor"],
+                    "source_change_cursor": result["source_change_cursor"],
                     "total": total,
                 },
                 metadata={"complete": True},

@@ -328,8 +328,8 @@ def record_alert_check(
     hits: Iterable[dict[str, Any]],
     status: str = "ok",
     error: str | None = None,
-    op_cursor_before: int,
-    op_cursor_after: int,
+    change_cursor_before: int,
+    change_cursor_after: int,
     resolved_query_hash: str | None = None,
     resolved_query: dict[str, Any] | None = None,
     error_code: str | None = None,
@@ -416,14 +416,14 @@ def record_alert_check(
                     "SELECT COUNT(*) FROM alert_observation.members"
                 ).fetchone()[0]
                 run_id = db.execute(
-                    "INSERT INTO alert_checks (alert_id,status,op_cursor_before,op_cursor_after,"
+                    "INSERT INTO alert_checks (alert_id,status,change_cursor_before,change_cursor_after,"
                     "matched_rows,new_rows,error,resolved_query_hash,resolved_query,detection_policy,error_code,finished_at) "
                     "VALUES (?,?,?,?,?,0,?,?,?,?,?,datetime('now'))",
                     (
                         alert_id,
                         status,
-                        op_cursor_before,
-                        op_cursor_after if advance_cursor else op_cursor_before,
+                        change_cursor_before,
+                        change_cursor_after if advance_cursor else change_cursor_before,
                         matched,
                         error,
                         resolved_query_hash,
@@ -610,9 +610,9 @@ def record_alert_check(
                     (new_count, int(rank > 0), run_id),
                 )
                 db.execute(
-                    "UPDATE alerts SET last_evaluated_op=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
+                    "UPDATE alerts SET last_evaluated_change=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
                     (
-                        op_cursor_after if advance_cursor else op_cursor_before,
+                        change_cursor_after if advance_cursor else change_cursor_before,
                         run_id,
                         status,
                         alert_id,
