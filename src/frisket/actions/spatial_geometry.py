@@ -333,25 +333,3 @@ def point_in_prepared_shape(
         if _point_in_polygon(px, py, poly, eps):
             return True
     return False
-
-
-def point_in_shape(
-    lon: float,
-    lat: float,
-    shape: Any,
-    *,
-    eps: float = EPSILON,
-) -> bool:
-    """Return True if ``(lon, lat)`` lies inside or on a GeoJSON polygon shape.
-
-    Returns ``False`` cleanly for null, NaN/Inf, malformed, or non-polygon
-    geometries (such as ``Point`` or ``LineString``).
-    """
-    px = _to_finite_float(lon)
-    py = _to_finite_float(lat)
-    if px is None or py is None:
-        return False
-    prepared = prepare_shape(shape)
-    if prepared is None:
-        return False
-    return point_in_prepared_shape(px, py, prepared, eps=eps)

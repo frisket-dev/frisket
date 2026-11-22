@@ -11,9 +11,16 @@ import pytest
 from frisket.actions.spatial_geometry import (
     parse_geo_point,
     point_in_prepared_shape,
-    point_in_shape,
     prepare_shape,
 )
+
+
+def point_in_shape(lon: float, lat: float, shape: Any) -> bool:
+    prepared = prepare_shape(shape)
+    if prepared is None:
+        return False
+    return point_in_prepared_shape(lon, lat, prepared)
+
 
 SQUARE = {
     "type": "Polygon",
