@@ -350,7 +350,7 @@ class AdmittedListTableReader:
             source.run_id, "completed"
         ):
             candidate = Receipt.model_validate_json(body)
-            if int(run["op_id"]) not in candidate.op_ids:
+            if int(run["change_id"]) not in candidate.change_ids:
                 continue
             producer_kind = candidate.action_kind
             producer_params_hash = candidate.params_hash
@@ -371,7 +371,7 @@ class AdmittedListTableReader:
                     sheet_id=source.sheet_id,
                     column_id=source.column_id,
                     run_id=source.run_id,
-                    op_id=int(run["op_id"]),
+                    change_id=int(run["change_id"]),
                     route=source.route,
                     schema_name=source.schema_name,
                     producer_spec=producer_spec,

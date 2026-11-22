@@ -623,11 +623,11 @@ def _sample_payload(
 def _compare_cell(db, read, row_id: int, column_id: int) -> dict[str, Any]:
     ref = dict(read.value_ref)
     review_decision = None
-    if ref.get("kind") == "manual_edit" and ref.get("op_id") is not None:
+    if ref.get("kind") == "manual_edit" and ref.get("change_id") is not None:
         row = db.execute(
             "SELECT json_extract(spec,'$.params.decision') decision "
-            "FROM ops WHERE id=?",
-            (int(ref["op_id"]),),
+            "FROM changes WHERE id=?",
+            (int(ref["change_id"]),),
         ).fetchone()
         review_decision = (
             "reject_clear"
@@ -637,7 +637,7 @@ def _compare_cell(db, read, row_id: int, column_id: int) -> dict[str, Any]:
     origin = {
         "kind": str(ref.get("kind") or "missing"),
         "run_id": ref.get("run_id"),
-        "op_id": ref.get("op_id"),
+        "change_id": ref.get("change_id"),
         "review_decision": review_decision,
     }
     cell: dict[str, Any] = {"origin": origin}

@@ -66,7 +66,7 @@ function nerTextPayload(sheetId: number) {
       row_id: 1,
       column_id: 2,
       run_id: 901,
-      op_id: 1,
+      change_id: 1,
       receipt_id: 'receipt-ner',
       role: 'primary_support',
       status: 'active',

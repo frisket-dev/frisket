@@ -32,8 +32,8 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   });
   const historyResponse = await request.get(`/api/projects/${pid}/history?limit=50`);
   expect(historyResponse.ok()).toBeTruthy();
-  const history = await historyResponse.json() as { ops: Array<{ id: number }>; total: number };
-  const templateOpId = history.ops.at(-1)?.id;
+  const history = await historyResponse.json() as { changes: Array<{ id: number }>; total: number };
+  const templateOpId = history.changes.at(-1)?.id;
   expect(typeof templateOpId).toBe('number');
 
   const operationActions: Array<Record<string, unknown>> = [];
@@ -56,7 +56,7 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   });
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (String(payload.action_id).startsWith('operation.')) {
+    if (String(payload.action_id).startsWith('change.')) {
       operationActions.push(payload);
     }
     await route.continue();
@@ -71,7 +71,7 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   await openProject(page, pid, sheetId);
   const historyPage = await (await historyPageResponse).json();
   expect(historyPage.total).toBe(history.total);
-  expect(historyPage.ops.length).toBeLessThanOrEqual(50);
+  expect(historyPage.changes.length).toBeLessThanOrEqual(50);
 
   // History is a bottom-dock tab; activate it to render the log.
   await openHistory(page);
@@ -90,10 +90,10 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
     ?.split(' ') ?? [];
   expect(historyCapabilities).toEqual(expect.arrayContaining([
     'history.list',
-    'operation.revert',
-    'operation.restore',
-    'operation.undo',
-    'operation.redo',
+    'change.revert',
+    'change.restore',
+    'change.undo',
+    'change.redo',
   ]));
 
   // Both ops render as rows, newest carrying the pointer.
@@ -116,7 +116,7 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   await panel.getByTestId(`history-revert-op-${templateOpId}`).click();
   await expect(step1).toHaveClass(/history-state-undone/);
   expect(operationActions[0]).toMatchObject({
-    action_id: 'operation.revert', scope: { kind: 'project' }, params: { op_id: templateOpId },
+    action_id: 'change.revert', scope: { kind: 'project' }, params: { change_id: templateOpId },
   });
   await expect(page.getByTestId('grid')).toBeVisible();
   const resize = await page.getByRole('button', { name: 'Resize bottom dock', exact: true }).boundingBox();
@@ -132,7 +132,7 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   await page.keyboard.press('Enter');
   await expect(step1).toHaveClass(/history-state-applied/);
   expect(operationActions[1]).toMatchObject({
-    action_id: 'operation.restore', params: { op_id: templateOpId },
+    action_id: 'change.restore', params: { change_id: templateOpId },
   });
   await page.getByTestId('undo-button').click();
   await expect(step1).toHaveClass(/history-state-undone/);
@@ -140,7 +140,7 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   await page.getByTestId('redo-button').click();
   await expect(step1).toHaveClass(/history-state-applied/);
   expect(operationActions.map((action) => action.action_id)).toEqual([
-    'operation.revert', 'operation.restore', 'operation.undo', 'operation.redo',
+    'change.revert', 'change.restore', 'change.undo', 'change.redo',
   ]);
   expect(legacyOperationCalls).toEqual([]);
 
@@ -164,13 +164,13 @@ test('history panel navigates older and newer pages in a long op log', async ({
   const firstHistoryResponse = await request.get(`/api/projects/${pid}/history?limit=50`);
   expect(firstHistoryResponse.ok()).toBeTruthy();
   const firstHistory = await firstHistoryResponse.json() as {
-    ops: Array<{ id: number }>;
+    changes: Array<{ id: number }>;
     total: number;
     has_more_before: boolean;
   };
   expect(firstHistory.total).toBeGreaterThan(50);
   expect(firstHistory.has_more_before).toBe(true);
-  const newestOpId = firstHistory.ops.at(-1)?.id;
+  const newestOpId = firstHistory.changes.at(-1)?.id;
   expect(typeof newestOpId).toBe('number');
 
   const historyRequests: string[] = [];

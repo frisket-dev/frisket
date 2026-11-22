@@ -95,10 +95,10 @@ def current_rows(project, sheet_id, output_columns, row_ids):
                     ):
                         error = stored["error"] or "This row failed"
                 rejected_clear = False
-                if ref.get("kind") == "manual_edit" and ref.get("op_id"):
+                if ref.get("kind") == "manual_edit" and ref.get("change_id"):
                     op = project.db.execute(
-                        "SELECT json_extract(spec,'$.params.decision') FROM ops WHERE id=? AND kind='review.decision'",
-                        (ref["op_id"],),
+                        "SELECT json_extract(spec,'$.params.decision') FROM changes WHERE id=? AND kind='review.decision'",
+                        (ref["change_id"],),
                     ).fetchone()
                     rejected_clear = op is not None and op[0] == "reject_clear"
                 if rejected_clear:

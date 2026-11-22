@@ -428,7 +428,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
     assert viewer["link"]["row_id"] == row_id
     assert viewer["link"]["column_id"] == amount_column_id
     assert viewer["link"]["run_id"] == result.run_id
-    assert viewer["link"]["op_id"] == result.op_ids[0]
+    assert viewer["link"]["change_id"] == result.change_ids[0]
     assert viewer["link"]["receipt_id"] == result.receipt_id
     assert viewer["link"]["producer"]["source_action_kind"] == "map.extract"
     assert viewer["link"]["producer"]["field"] == "contract_amount"

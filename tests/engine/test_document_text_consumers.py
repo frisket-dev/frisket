@@ -43,7 +43,7 @@ def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
         )
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact["id"],
-            producing_op_id=op,
+            producing_change_id=op,
             pages=[
                 PreparedPageDraft(index, text) for index, text in enumerate(pages, 1)
             ],
@@ -710,7 +710,7 @@ def test_page_selection_requires_applied_owner_of_primary_support(make_project):
             sheet_id=cell[0],
             row_id=cell[1],
             column_id=cell[2],
-            op_id=op,
+            change_id=op,
             link_role="primary_support",
         )
         ChangeStore(project).close(op)

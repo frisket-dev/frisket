@@ -70,10 +70,12 @@ def _run_id(project: Project) -> int:
     sheet_id = project.add_sheet("accrual")
     cols = {"text": project.add_column(sheet_id, "text")}
     project.add_rows(sheet_id, [{"text": "hello there"}], cols)
-    op_id = project.append_change("map", {"recipe": "accrual_seed"}, label="accrual")
+    change_id = project.append_change(
+        "map", {"recipe": "accrual_seed"}, label="accrual"
+    )
     # A recipe name distinct from the launch tests' "classify" so those can
     # assert that a REFUSED launch created no run row of its own.
-    return RunResultStore(project).start_run(op_id, sheet_id, "test.accrual_seed")
+    return RunResultStore(project).start_run(change_id, sheet_id, "test.accrual_seed")
 
 
 def _call(

@@ -675,16 +675,16 @@ def post_column_set_type_as_v1_action(
 def operation_step_action(
     kind: str,
     *,
-    expected_op_id: int | None = None,
+    expected_change_id: int | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    if kind not in {"operation.undo", "operation.redo"}:
+    if kind not in {"change.undo", "change.redo"}:
         raise ValueError(f"unsupported operation action kind: {kind!r}")
     if idempotency_key is None:
         idempotency_key = f"test-{kind}@sha256:{uuid.uuid4().hex}"
     params: dict[str, Any] = {}
-    if expected_op_id is not None:
-        params["expected_op_id"] = expected_op_id
+    if expected_change_id is not None:
+        params["expected_change_id"] = expected_change_id
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
@@ -698,14 +698,14 @@ def post_operation_step_as_v1_action(
     project_id: str,
     kind: str,
     *,
-    expected_op_id: int | None = None,
+    expected_change_id: int | None = None,
     idempotency_key: str | None = None,
 ):
     return client.post(
         f"/api/projects/{project_id}/actions/v1/run",
         json=operation_step_action(
             kind,
-            expected_op_id=expected_op_id,
+            expected_change_id=expected_change_id,
             idempotency_key=idempotency_key,
         ),
     )
@@ -715,14 +715,14 @@ def post_operation_undo_as_v1_action(
     client: TestClient,
     project_id: str,
     *,
-    expected_op_id: int | None = None,
+    expected_change_id: int | None = None,
     idempotency_key: str | None = None,
 ):
     return post_operation_step_as_v1_action(
         client,
         project_id,
-        "operation.undo",
-        expected_op_id=expected_op_id,
+        "change.undo",
+        expected_change_id=expected_change_id,
         idempotency_key=idempotency_key,
     )
 
@@ -731,14 +731,14 @@ def post_operation_redo_as_v1_action(
     client: TestClient,
     project_id: str,
     *,
-    expected_op_id: int | None = None,
+    expected_change_id: int | None = None,
     idempotency_key: str | None = None,
 ):
     return post_operation_step_as_v1_action(
         client,
         project_id,
-        "operation.redo",
-        expected_op_id=expected_op_id,
+        "change.redo",
+        expected_change_id=expected_change_id,
         idempotency_key=idempotency_key,
     )
 

@@ -61,16 +61,16 @@ CREATE TABLE IF NOT EXISTS sheets (
   name TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0,
   parent_sheet_id INTEGER REFERENCES sheets(id),
-  parent_op_id INTEGER,
+  parent_change_id INTEGER,
   hidden INTEGER NOT NULL DEFAULT 0,
-  -- Derived-sheet staleness watermark (lazy pull idiom, cf. fts_state.indexed_at_op).
-  -- last_verified_op_cursor is the op_cursor a derived sheet was last
+  -- Derived-sheet staleness watermark (lazy pull idiom).
+  -- last_verified_change_cursor is the change_cursor a derived sheet was last
   -- materialized/refreshed against; NULL means "never refreshed since creation"
-  -- and the resolver falls back to parent_op_id. stale_reason/stale_at are an
+  -- and the resolver falls back to parent_change_id. stale_reason/stale_at are an
   -- observability cache computed lazily at read time -- the resolver NEVER trusts
-  -- them across cursor rewinds (undo/redo move op_cursor); it recomputes from the
+  -- them across cursor rewinds (undo/redo move change_cursor); it recomputes from the
   -- watermark every read.
-  last_verified_op_cursor INTEGER,
+  last_verified_change_cursor INTEGER,
   stale_reason TEXT,
   stale_at TEXT,
   -- sheet.refresh claim/lease (mirrors embedding_indexes): a non-null token
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS sheets (
   -- drag order, falling back to canonical column order) via the shared
   -- web/src/workbench/rowTitle.ts helper. Not FK-constrained: a stale id
   -- (its column deleted/hidden-by-undo) is treated as unset by every reader,
-  -- same idiom as parent_op_id.
+  -- same idiom as parent_change_id.
   title_column_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -133,13 +133,13 @@ CREATE INDEX IF NOT EXISTS idx_rows_parent ON rows(parent_row_id);
 
 -- One compact ownership record per logical source/base write. ``stage_id`` is
 -- the durable admitted identity available before a streamed write publishes;
--- publication binds ``op_id`` once instead of rewriting every staged cell.
--- The operation remains the provenance envelope -- this row is only linkage.
+-- publication binds ``change_id`` once instead of rewriting every staged cell.
+-- The change remains the provenance envelope -- this row is only linkage.
 -- BASE_CELL_PRODUCERS_BEGIN
 CREATE TABLE IF NOT EXISTS base_cell_producers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   stage_id TEXT NOT NULL UNIQUE CHECK (length(trim(stage_id)) > 0),
-  op_id INTEGER REFERENCES ops(id) ON DELETE RESTRICT,
+  change_id INTEGER REFERENCES changes(id) ON DELETE RESTRICT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 -- BASE_CELL_PRODUCERS_END
@@ -177,9 +177,9 @@ CREATE TABLE IF NOT EXISTS cells (
 CREATE INDEX IF NOT EXISTS idx_cells_column ON cells(column_id, row_id);
 -- CELL_COLUMN_INDEX_END
 
--- Append-only operation log. spec is declarative JSON. undo_info captures
+-- Append-only change log. spec is declarative JSON. undo_info captures
 -- the pointer state needed to step back (e.g. prior current_run_id per column).
-CREATE TABLE IF NOT EXISTS ops (
+CREATE TABLE IF NOT EXISTS changes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
   label TEXT,
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS ops (
 
 
 
--- Run = one execution of an op over a sheet. The provenance envelope,
+-- Run = one execution of an action over a sheet. The provenance envelope,
 -- stored once. cost figures in USD.
 CREATE TABLE IF NOT EXISTS runs (
   -- AUTOINCREMENT is intentional: paid row-effect checkpoints outlive a
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS runs (
   -- reused ROWID would make that orphan look attached to an unrelated future
   -- run and could replay/refuse the wrong provider effect.
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  op_id INTEGER NOT NULL REFERENCES ops(id),
+  change_id INTEGER NOT NULL REFERENCES changes(id),
   sheet_id INTEGER NOT NULL REFERENCES sheets(id),
   -- Content-free immutable identity survives payload purges. NULL is a root
   -- (including migrated historical singleton runs); retries name that root.
@@ -279,7 +279,7 @@ CREATE TABLE IF NOT EXISTS runs (
   edition_run_context TEXT,
   consent_principal TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_runs_op ON runs(op_id);
+CREATE INDEX IF NOT EXISTS idx_runs_change ON runs(change_id);
 CREATE INDEX IF NOT EXISTS idx_runs_started_id ON runs(started_at DESC, id DESC);
 
 -- Immutable row scope for a run. A full-sheet run records the rows visible at
@@ -542,7 +542,7 @@ CREATE TABLE IF NOT EXISTS import_sessions (
   id TEXT PRIMARY KEY,
   sheet_id INTEGER REFERENCES sheets(id) ON DELETE SET NULL,
   producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE SET NULL,
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT,
+  change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE RESTRICT,
   receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
   writer_authority TEXT NOT NULL,
   cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),
@@ -693,7 +693,7 @@ CREATE TABLE IF NOT EXISTS generated_column_claims (
   column_id INTEGER REFERENCES columns(id) ON DELETE CASCADE,
   output_name TEXT NOT NULL,
   run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
-  op_id INTEGER REFERENCES ops(id) ON DELETE SET NULL,
+  change_id INTEGER REFERENCES changes(id) ON DELETE SET NULL,
   receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
   job_id INTEGER,
   action_kind TEXT NOT NULL,
@@ -837,11 +837,11 @@ WHEN NEW.publication_effect IS NOT NULL
     SELECT 1
     FROM run_output_generations generation
     JOIN runs run ON run.id = generation.run_id
-    JOIN ops op ON op.id = run.op_id
+    JOIN changes ch ON ch.id = run.change_id
     WHERE generation.run_id = NEW.run_id
       AND generation.column_id = NEW.column_id
       AND generation.state IN ('active', 'staged')
-      AND op.status = 'applied'
+      AND ch.status = 'applied'
   )
 BEGIN
   SELECT RAISE(ABORT, 'publication effect requires an open applied generation');
@@ -855,11 +855,11 @@ WHEN OLD.publication_effect IS NULL
     SELECT 1
     FROM run_output_generations generation
     JOIN runs run ON run.id = generation.run_id
-    JOIN ops op ON op.id = run.op_id
+    JOIN changes ch ON ch.id = run.change_id
     WHERE generation.run_id = NEW.run_id
       AND generation.column_id = NEW.column_id
       AND generation.state IN ('active', 'staged')
-      AND op.status = 'applied'
+      AND ch.status = 'applied'
   )
 BEGIN
   SELECT RAISE(ABORT, 'publication effect requires an open applied generation');
@@ -892,11 +892,11 @@ WHEN NEW.publication_effect IS NOT NULL
     SELECT 1
     FROM run_output_generations generation
     JOIN runs run ON run.id = generation.run_id
-    JOIN ops op ON op.id = run.op_id
+    JOIN changes ch ON ch.id = run.change_id
     WHERE generation.run_id = NEW.run_id
       AND generation.column_id = NEW.column_id
       AND generation.state IN ('active', 'staged')
-      AND op.status = 'applied'
+      AND ch.status = 'applied'
   )
 BEGIN
   SELECT RAISE(ABORT, 'publication effect requires an open applied generation');
@@ -997,19 +997,19 @@ BEGIN
 END;
 
 -- Output generations are authoritative redo history, not a cache.  GC may
--- remove one only after its op has become permanently unredoable; head/result
+-- remove one only after its change has become permanently unredoable; head/result
 -- foreign keys then enforce projection-first deletion order.
 CREATE TRIGGER IF NOT EXISTS trg_run_output_generations_delete_discarded_only
 BEFORE DELETE ON run_output_generations
 WHEN EXISTS (
   SELECT 1
   FROM runs run
-  JOIN ops op ON op.id = run.op_id
+  JOIN changes ch ON ch.id = run.change_id
   WHERE run.id = OLD.run_id
-    AND op.status <> 'discarded'
+    AND ch.status <> 'discarded'
 )
 BEGIN
-  SELECT RAISE(ABORT, 'output generation can be deleted only after op discard');
+  SELECT RAISE(ABORT, 'output generation can be deleted only after change discard');
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_cell_result_heads_require_publishable_result
@@ -1021,13 +1021,13 @@ WHEN NOT EXISTS (
     ON generation.run_id = result.run_id
    AND generation.column_id = result.column_id
   JOIN runs run ON run.id = generation.run_id
-  JOIN ops op ON op.id = run.op_id
+  JOIN changes ch ON ch.id = run.change_id
   WHERE result.run_id = NEW.run_id
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
     AND result.publication_effect IN ('publish_value','publish_null','publish_error')
     AND generation.state IN ('active', 'staged', 'sealed')
-    AND op.status = 'applied'
+    AND ch.status = 'applied'
 )
 BEGIN
   SELECT RAISE(ABORT, 'cell head requires an applied publishable result');
@@ -1042,13 +1042,13 @@ WHEN NOT EXISTS (
     ON generation.run_id = result.run_id
    AND generation.column_id = result.column_id
   JOIN runs run ON run.id = generation.run_id
-  JOIN ops op ON op.id = run.op_id
+  JOIN changes ch ON ch.id = run.change_id
   WHERE result.run_id = NEW.run_id
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
     AND result.publication_effect IN ('publish_value','publish_null','publish_error')
     AND generation.state IN ('active', 'staged', 'sealed')
-    AND op.status = 'applied'
+    AND ch.status = 'applied'
 )
 BEGIN
   SELECT RAISE(ABORT, 'cell head requires an applied publishable result');
@@ -1067,7 +1067,7 @@ CREATE TABLE IF NOT EXISTS prepared_page_versions (
     length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'
   ),
   positions_json TEXT CHECK (positions_json IS NULL OR json_valid(positions_json)),
-  producing_op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT
+  producing_change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_prepared_page_versions_artifact_page
   ON prepared_page_versions(source_artifact_id,page_number,id);
@@ -1075,7 +1075,7 @@ CREATE INDEX IF NOT EXISTS idx_prepared_page_versions_artifact_page
 CREATE TABLE IF NOT EXISTS prepared_content_sets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_artifact_id INTEGER REFERENCES source_artifacts(id) ON DELETE SET NULL,
-  producing_op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT
+  producing_change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS prepared_content_set_pages (
@@ -1121,9 +1121,9 @@ SELECT ref.id AS ref_id,ref.set_id,set_record.source_artifact_id,
 FROM prepared_content_refs AS ref
 JOIN prepared_content_sets AS set_record ON set_record.id=ref.set_id;
 
--- Sparse manual-edit overlay. An edit batch is an op in the log.
+-- Sparse manual-edit overlay. An edit batch is a change in the log.
 CREATE TABLE IF NOT EXISTS edits (
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
+  change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
   row_id INTEGER NOT NULL,
   column_id INTEGER NOT NULL,
   value_kind TEXT NOT NULL CHECK (value_kind IN (
@@ -1131,7 +1131,7 @@ CREATE TABLE IF NOT EXISTS edits (
     'prepared_content_ref'
   )),
   value,
-  PRIMARY KEY (op_id, row_id, column_id),
+  PRIMARY KEY (change_id, row_id, column_id),
   CHECK (
     (value_kind='null' AND value IS NULL)
     OR (value_kind='text' AND typeof(value)='text')
@@ -1145,7 +1145,7 @@ CREATE TABLE IF NOT EXISTS edits (
     OR (value_kind='prepared_content_ref' AND typeof(value)='integer' AND value>0)
   )
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS idx_edits_rowcol ON edits(column_id, row_id, op_id);
+CREATE INDEX IF NOT EXISTS idx_edits_rowcol ON edits(column_id, row_id, change_id);
 
 -- Rebuildable visible-cell head projection. Bounded native scalars are copied
 -- beside their head so hot reads avoid an authority lookup; broad text and
@@ -1159,7 +1159,7 @@ CREATE TABLE IF NOT EXISTS current_cells (
   origin_kind TEXT NOT NULL CHECK (
     origin_kind IN ('source_cell', 'run_result', 'manual_edit', 'copied_result')
   ),
-  origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,
+  origin_change_id INTEGER REFERENCES changes(id) ON DELETE CASCADE,
   origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
   base_producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   validity TEXT NOT NULL CHECK (validity IN ('valid', 'missing', 'invalid')),
@@ -1183,23 +1183,23 @@ CREATE TABLE IF NOT EXISTS current_cells (
   CHECK (
     (
       origin_kind='source_cell'
-      AND origin_op_id IS NULL
+      AND origin_change_id IS NULL
       AND origin_run_id IS NULL
     )
     OR (
       origin_kind='run_result'
-      AND origin_op_id IS NOT NULL
+      AND origin_change_id IS NOT NULL
       AND origin_run_id IS NOT NULL
       AND base_producer_id IS NULL
     )
     OR (
       origin_kind='copied_result'
-      AND origin_op_id IS NOT NULL
+      AND origin_change_id IS NOT NULL
       AND base_producer_id IS NULL
     )
     OR (
       origin_kind='manual_edit'
-      AND origin_op_id IS NOT NULL
+      AND origin_change_id IS NOT NULL
       AND origin_run_id IS NULL
       AND base_producer_id IS NULL
     )
@@ -1557,7 +1557,7 @@ CREATE TABLE IF NOT EXISTS citations (
   row_id INTEGER,
   column_id INTEGER,
   run_id INTEGER,
-  op_id INTEGER,
+  change_id INTEGER,
   receipt_id TEXT,
   link_role TEXT NOT NULL DEFAULT 'support',
   status TEXT NOT NULL DEFAULT 'active',
@@ -1634,7 +1634,7 @@ CREATE INDEX IF NOT EXISTS idx_feeds_sheet ON feeds(sheet_id);
 CREATE TABLE IF NOT EXISTS feed_checks (
   id INTEGER PRIMARY KEY,
   feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
-  op_id INTEGER REFERENCES ops(id) ON DELETE SET NULL,
+  change_id INTEGER REFERENCES changes(id) ON DELETE SET NULL,
   receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'ok',     -- ok | error
   new_rows INTEGER NOT NULL DEFAULT 0,
@@ -1661,7 +1661,7 @@ CREATE TABLE IF NOT EXISTS views (
   sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   spec TEXT NOT NULL DEFAULT '{}',
-  op_id INTEGER REFERENCES ops(id),
+  change_id INTEGER REFERENCES changes(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1676,7 +1676,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   detection_policy TEXT NOT NULL DEFAULT '{"kind":"new_matches"}',
   enabled INTEGER NOT NULL DEFAULT 1,
   schedule TEXT DEFAULT '@hourly',
-  last_evaluated_op INTEGER NOT NULL DEFAULT 0,
+  last_evaluated_change INTEGER NOT NULL DEFAULT 0,
   last_run_id INTEGER,
   baseline_run_id INTEGER,
   last_status TEXT,
@@ -1689,8 +1689,8 @@ CREATE TABLE IF NOT EXISTS alert_checks (
   id INTEGER PRIMARY KEY,
   alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'ok',
-  op_cursor_before INTEGER NOT NULL,
-  op_cursor_after INTEGER NOT NULL,
+  change_cursor_before INTEGER NOT NULL,
+  change_cursor_after INTEGER NOT NULL,
   matched_rows INTEGER NOT NULL DEFAULT 0,
   new_rows INTEGER NOT NULL DEFAULT 0,
   error TEXT,

@@ -227,12 +227,12 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
     project: Project, monkeypatch, undo_original, edit_during_call, include_segments
 ):
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     seeded = _seed_transcript_project(project)
     _run_transcribe(seeded, monkeypatch)
     run = project.db.execute(
-        "SELECT id,op_id FROM runs WHERE action_kind='media.transcribe'"
+        "SELECT id,change_id FROM runs WHERE action_kind='media.transcribe'"
     ).fetchone()
     names = {
         row[0]: "Copied transcript" if row[0] == "text" else f"Copied {row[0]}"
@@ -255,7 +255,7 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
     assert copied.status == "completed", copied.errors
     if undo_original:
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=run["op_id"])
+            step_change(project, "revert", change_id=run["change_id"])
     action = _transcript_scalar_extract_action(seeded["sheet_id"])
     action["params"]["source"] = ["Copied transcript"]
     if include_segments:
@@ -318,7 +318,7 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
         row_id = seeded["row_ids"][0]
         assert row_input_state(project, result.run_id, row_id) == "stale"
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=edits[0])
+            step_change(project, "revert", change_id=edits[0])
         assert row_input_state(project, result.run_id, row_id) == "fresh"
 
 

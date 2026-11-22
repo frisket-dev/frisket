@@ -1427,7 +1427,7 @@ class _TypedMapRowsProgram(ActionProgram):
                     key: kwargs[key]
                     for key in (
                         "sheet_id",
-                        "op_id",
+                        "change_id",
                         "output_columns",
                         "input_column_ids",
                     )
@@ -2337,7 +2337,7 @@ def _strict_evaluation_subject_context(
     value_refs = tuple(
         {
             "kind": "run_result",
-            "op_id": heads[row_id].op_id,
+            "change_id": heads[row_id].change_id,
             "row_id": row_id,
             "column_id": subject_column_id,
             "run_id": heads[row_id].run_id,
@@ -3292,7 +3292,7 @@ def _typed_receipt(
                 "kind": "typed_action_request",
                 **request_evidence,
                 "params_hash": params_hash,
-                "op_id": facts.op_id,
+                "change_id": facts.change_id,
                 "run_id": facts.run_id,
             }
         ),
@@ -3311,7 +3311,7 @@ def _typed_receipt(
                     if model_backed and facts.prompt_hash is not None
                     else {}
                 ),
-                "op_id": facts.op_id,
+                "change_id": facts.change_id,
                 "run_id": facts.run_id,
             }
         ),
@@ -3584,7 +3584,7 @@ def _typed_receipt(
                         for call in facts.model_calls
                     ),
                     "cost_actual": facts.cost_actual,
-                    "op_id": facts.op_id,
+                    "change_id": facts.change_id,
                     "run_id": facts.run_id,
                 },
                 retention="pinned" if evaluation is not None else "compactable",
@@ -3603,7 +3603,7 @@ def _typed_receipt(
                     "guidelines_hash": "sha256:"
                     + hashlib.sha256(guidelines.encode("utf-8")).hexdigest(),
                     "judged_column": context.subject_column,
-                    "op_id": facts.op_id,
+                    "change_id": facts.change_id,
                     "run_id": facts.run_id,
                 }
             )

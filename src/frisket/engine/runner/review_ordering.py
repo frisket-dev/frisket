@@ -57,8 +57,8 @@ def select_confidence_bundle_keys(
     run = project.db.execute(
         "SELECT runs.id,runs.sheet_id,runs.action_kind,runs.model FROM runs "
         "WHERE runs.id=? AND runs.status<>'running' "
-        "AND EXISTS (SELECT 1 FROM ops review_op "
-        "WHERE review_op.id=runs.op_id AND review_op.status='applied')",
+        "AND EXISTS (SELECT 1 FROM changes review_op "
+        "WHERE review_op.id=runs.change_id AND review_op.status='applied')",
         (run_id,),
     ).fetchone()
     if run is None or (sheet_id is not None and int(run["sheet_id"]) != sheet_id):

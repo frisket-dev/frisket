@@ -153,9 +153,9 @@ def _claimless_run(
     project, *, attempt_id: str, state: str = "dispatching", execution_root_run_id=None
 ):
     sheet_id = project.db.execute("SELECT id FROM sheets LIMIT 1").fetchone()[0]
-    op_id = project.append_change("map", {"recipe": "extract"})
+    change_id = project.append_change("map", {"recipe": "extract"})
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "map.extract", execution_root_run_id=execution_root_run_id
+        change_id, sheet_id, "map.extract", execution_root_run_id=execution_root_run_id
     )
     project.db.execute(
         "INSERT INTO execution_attempts "

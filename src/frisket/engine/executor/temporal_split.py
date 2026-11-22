@@ -643,7 +643,7 @@ def publish_split_clip(
             output_row_id=output_row_id,
             transcript_column_id=write.column_ids[transcript_name],
             receipt_id=receipt_id,
-            op_id=write.op_id,
+            change_id=write.change_id,
         )
         if projected is not None:
             clip_evidence.append(ReceiptRecord(ref=projected, retention="materialized"))

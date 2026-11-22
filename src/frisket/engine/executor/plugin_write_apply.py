@@ -21,7 +21,7 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
 )
 from frisket.engine.store.temporal_ingress import validate_project_contextual_value
-from frisket.engine.store.op_log import set_undo_info
+from frisket.engine.store.change_log import set_undo_info
 
 
 class WritePlanError(Exception):
@@ -49,13 +49,13 @@ class WritePlanReceipt:
     manifest_sha: str
     plan_hash: str
     counts: dict[str, int]
-    op_id: int
+    change_id: int
     status: str = "applied"
 
 
 @dataclass(frozen=True)
 class AppliedTables:
-    op_id: int
+    change_id: int
     sheet_ids: dict[str, int]
     column_ids: dict[str, int]
     row_ids: dict[str, list[int]]
@@ -160,7 +160,7 @@ def apply_write_plan(
         provenance={"plugin_id": plugin_id, "manifest_sha": manifest_sha},
     )
     return WritePlanReceipt(
-        plugin_id, manifest_sha, digest, applied.counts, applied.op_id
+        plugin_id, manifest_sha, digest, applied.counts, applied.change_id
     )
 
 
@@ -187,14 +187,16 @@ def apply_additive_tables(
     try:
         _validate_temporal_values(project, model)
         cur.execute(
-            "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+            "INSERT INTO changes (kind, label, spec, undo_info, barrier) "
             "VALUES (?, ?, '{}', '{}', 0)",
             (operation_kind, label),
         )
-        op_id = inserted_rowid(cur)
+        change_id = inserted_rowid(cur)
         changes = ChangeStore(project)
-        changes.start(op_id)
-        producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
+        changes.start(change_id)
+        producer_id = create_base_cell_producer(
+            db, stage_id=f"op:{change_id}", change_id=change_id
+        )
 
         sheet_ids: dict[str, int] = {}
         column_ids: dict[str, int] = {}
@@ -262,14 +264,14 @@ def apply_additive_tables(
             "created_rows": created_rows,
         }
         cur.execute(
-            "UPDATE ops SET spec=? WHERE id=?",
-            (json.dumps(op_spec, sort_keys=True), op_id),
+            "UPDATE changes SET spec=? WHERE id=?",
+            (json.dumps(op_spec, sort_keys=True), change_id),
         )
-        set_undo_info(project, op_id, undo_info)
+        set_undo_info(project, change_id, undo_info)
         # This helper owns the complete materialization, even inside a caller's
         # receipt transaction. Empty tables are Changes too; source-cell writes
         # must not be what incidentally makes them navigable.
-        changes.close(op_id)
+        changes.close(change_id)
 
         if nested:
             cur.execute(f"RELEASE SAVEPOINT {savepoint}")
@@ -284,7 +286,7 @@ def apply_additive_tables(
             raise
         raise WritePlanApplyError(str(exc)) from exc
 
-    return AppliedTables(op_id, sheet_ids, column_ids, row_ids, counts)
+    return AppliedTables(change_id, sheet_ids, column_ids, row_ids, counts)
 
 
 def _rollback(db: Any, cur: Any, nested: bool, savepoint: str) -> None:

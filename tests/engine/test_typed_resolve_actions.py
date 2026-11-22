@@ -62,11 +62,11 @@ def _output_values(
     return str(column["type"]), [values.get(row_id) for row_id in row_ids]
 
 
-def _operation(kind: str, *, expected_op_id: int, key: str) -> dict[str, Any]:
+def _operation(kind: str, *, expected_change_id: int, key: str) -> dict[str, Any]:
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -76,7 +76,7 @@ def _counts(project: Project) -> dict[str, int]:
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
         for table in (
             "columns",
-            "ops",
+            "changes",
             "receipts",
             "runs",
             "results",
@@ -98,9 +98,9 @@ def test_empty_column_transform_creates_one_restorable_column(make_project):
     assert result.status == "completed", result.errors
     column = result.outputs[0].column_id
     assert project.get_column(column)["active"] == 1
-    assert project.undo() == result.op_ids[0]
+    assert project.undo() == result.change_ids[0]
     assert project.get_column(column)["active"] == 0
-    assert project.redo() == result.op_ids[0]
+    assert project.redo() == result.change_ids[0]
     assert project.get_column(column)["active"] == 1
     assert project.get_values(sheet, column) == {}
 
@@ -141,7 +141,7 @@ def test_text_resolve_transforms_publish_one_atomic_column(
     assert [
         project.get_values(sheet_id, source_id).get(row_id) for row_id in row_ids
     ] == ["ACME", "acme inc", "misc", " ", None]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert result.receipt_id is not None
 
 
@@ -202,7 +202,7 @@ def test_fill_missing_preserves_zero_and_widens_only_when_needed(
         expected,
     )
     op = project.db.execute(
-        "SELECT label FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT label FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None and op["label"] == "fill source → cleaned"
 
@@ -361,10 +361,10 @@ def test_idempotency_conflict_and_undo_redo_replay(text_project) -> None:
     assert conflict.status == "failed"
     assert conflict.errors[0].code == "idempotency_conflict"
 
-    op_id = first.op_ids[0]
+    change_id = first.change_ids[0]
     undo = run_action_spec(
         project,
-        _operation("operation.undo", expected_op_id=op_id, key="undo"),
+        _operation("change.undo", expected_change_id=change_id, key="undo"),
         project_id=PROJECT_ID,
     )
     assert undo.status == "completed", undo.errors
@@ -374,7 +374,7 @@ def test_idempotency_conflict_and_undo_redo_replay(text_project) -> None:
 
     redo = run_action_spec(
         project,
-        _operation("operation.redo", expected_op_id=op_id, key="redo"),
+        _operation("change.redo", expected_change_id=change_id, key="redo"),
         project_id=PROJECT_ID,
     )
     assert redo.status == "completed", redo.errors
@@ -394,7 +394,9 @@ def test_undone_output_name_gets_fresh_identity_for_new_transform(text_project) 
     output_column_id = first.outputs[0].column_id
     undo = run_action_spec(
         project,
-        _operation("operation.undo", expected_op_id=first.op_ids[0], key="hidden-undo"),
+        _operation(
+            "change.undo", expected_change_id=first.change_ids[0], key="hidden-undo"
+        ),
         project_id=PROJECT_ID,
     )
     assert undo.status == "completed", undo.errors
@@ -416,16 +418,16 @@ def test_undone_output_name_gets_fresh_identity_for_new_transform(text_project) 
     assert _output_values(project, sheet_id, _row_ids, "cleaned")[1][0] == "second"
     statuses = {
         int(row["id"]): str(row["status"])
-        for row in project.db.execute("SELECT id, status FROM ops")
+        for row in project.db.execute("SELECT id, status FROM changes")
     }
-    assert statuses[first.op_ids[0]] == "undone"
+    assert statuses[first.change_ids[0]] == "undone"
     assert (
         project.db.execute(
-            "SELECT redo_eligible FROM ops WHERE id=?", (first.op_ids[0],)
+            "SELECT redo_eligible FROM changes WHERE id=?", (first.change_ids[0],)
         ).fetchone()[0]
         == 0
     )
-    assert statuses[second.op_ids[0]] == "applied"
+    assert statuses[second.change_ids[0]] == "applied"
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM columns WHERE sheet_id=? AND name='cleaned' AND hidden=0",
@@ -439,7 +441,7 @@ def test_same_idempotency_key_race_publishes_once(
     text_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project, sheet_id, _column_id, _row_ids = text_project
-    seeded_op_count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    seeded_op_count = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     request = _request(
         "resolve.substitute",
         sheet_id,
@@ -490,7 +492,7 @@ def test_same_idempotency_key_race_publishes_once(
     assert results[0].status == "completed", results[0].errors
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
     assert (
-        project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         == seeded_op_count + 1
     )
 
@@ -645,8 +647,8 @@ def test_fill_publishes_real_saved_results_and_preserves_unavailable_source(
     )
     assert (
         project.db.execute(
-            "SELECT count(*) FROM consumed_source_bundles WHERE owner_op_id=? AND run_id=?",
-            (result.op_ids[0], receipt.run_id),
+            "SELECT count(*) FROM consumed_source_bundles WHERE owner_change_id=? AND run_id=?",
+            (result.change_ids[0], receipt.run_id),
         ).fetchone()[0]
         == 1
     )

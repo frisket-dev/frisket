@@ -68,7 +68,7 @@ class _RefreshFacts:
     sheet_id: int
     parent_sheet_id: int
     name: str
-    op_id: int
+    change_id: int
     row_count: int
     match_stats: dict[str, Any] | None = None
     reads: tuple[dict[str, Any], ...] = ()
@@ -78,7 +78,7 @@ class _RefreshFacts:
 class _PreparedRefresh:
     sheet_id: int
     parent_sheet_id: int
-    parent_op_id: int
+    parent_change_id: int
     name: str
     stage: Any
     columns: Any
@@ -119,7 +119,7 @@ def _sheet_refresh_plan(
     idempotency_key: str,
 ) -> _SheetRefreshPlan | None:
     """Classify the same refresh families that `_refresh_sheet` can execute."""
-    if sheet["parent_sheet_id"] is None or sheet["parent_op_id"] is None:
+    if sheet["parent_sheet_id"] is None or sheet["parent_change_id"] is None:
         return None
     from frisket.engine.store.derived_updates import refresh_config
 
@@ -172,9 +172,9 @@ def sheet_supports_refresh(project: Project, sheet_id: int) -> bool:
         return False
     parent_op = (
         project.db.execute(
-            "SELECT * FROM ops WHERE id=?", (int(sheet["parent_op_id"]),)
+            "SELECT * FROM changes WHERE id=?", (int(sheet["parent_change_id"]),)
         ).fetchone()
-        if sheet["parent_op_id"] is not None
+        if sheet["parent_change_id"] is not None
         else None
     )
     return (
@@ -242,9 +242,9 @@ class _SheetRefresher:
         ).fetchone()
         parent = (
             self.project.db.execute(
-                "SELECT * FROM ops WHERE id=?", (sheet["parent_op_id"],)
+                "SELECT * FROM changes WHERE id=?", (sheet["parent_change_id"],)
             ).fetchone()
-            if sheet is not None and sheet["parent_op_id"] is not None
+            if sheet is not None and sheet["parent_change_id"] is not None
             else None
         )
         plan = (
@@ -397,20 +397,20 @@ def run_typed_sheet_refresh_action(
         require_refresh_writer(
             project,
             sheet_id=prepared.sheet_id,
-            parent_op_id=prepared.parent_op_id,
-            op_id=started.op_ids[0],
+            parent_change_id=prepared.parent_change_id,
+            change_id=started.change_ids[0],
             token=started.receipt_id,
         )
         sheet_ref = {
             "kind": "materialized_sheet",
             "sheet_id": facts.sheet_id,
             "parent_sheet_id": facts.parent_sheet_id,
-            "op_id": facts.op_id,
+            "change_id": facts.change_id,
         }
         refresh_ref = {
             "kind": "sheet_refresh",
             "sheet_id": facts.sheet_id,
-            "op_id": facts.op_id,
+            "change_id": facts.change_id,
             "refreshed_row_count": facts.row_count,
         }
         supporting_records = [ReceiptRecord(ref=refresh_ref)]
@@ -428,7 +428,7 @@ def run_typed_sheet_refresh_action(
             project_id=project_id,
             action_id=action_id,
             action_kind=kind,
-            op_ids=[facts.op_id],
+            change_ids=[facts.change_id],
             idempotency_key=bound.request.idempotency_key,
             params_hash=request_hash,
             status="completed",
@@ -448,7 +448,7 @@ def run_typed_sheet_refresh_action(
             action=ActionIdentity(kind=kind, action_id=action_id),
             status="completed",
             project_id=project_id,
-            op_ids=[facts.op_id],
+            change_ids=[facts.change_id],
             receipt_id=receipt_id,
             outputs=[
                 ActionOutput(
@@ -461,7 +461,7 @@ def run_typed_sheet_refresh_action(
         )
         from frisket.engine.store.changes import ChangeStore
 
-        ChangeStore(project).close(facts.op_id)
+        ChangeStore(project).close(facts.change_id)
         release_refresh_claim(project, facts.sheet_id, receipt_id)
         if not ReceiptStore(project).update_body_status_in_transaction(
             receipt, require_status="running"
@@ -537,7 +537,7 @@ def _refresh_sheet(
             field="sheet_id",
             details={"sheet_id": sheet_id},
         )
-    if sheet["parent_sheet_id"] is None or sheet["parent_op_id"] is None:
+    if sheet["parent_sheet_id"] is None or sheet["parent_change_id"] is None:
         return _fail(
             project_id=project_id,
             code="refresh_root_sheet_unsupported",
@@ -563,7 +563,7 @@ def _refresh_sheet(
         )
 
     parent_op = cur.execute(
-        "SELECT * FROM ops WHERE id=?", (int(sheet["parent_op_id"]),)
+        "SELECT * FROM changes WHERE id=?", (int(sheet["parent_change_id"]),)
     ).fetchone()
     parent_op_kind = parent_op["kind"] if parent_op is not None else None
     if _retired_refresh_parent(project, parent_op):
@@ -732,7 +732,7 @@ def _refresh_sheet(
             return _PreparedRefresh(
                 sheet_id,
                 int(sheet["parent_sheet_id"]),
-                int(sheet["parent_op_id"]),
+                int(sheet["parent_change_id"]),
                 str(sheet["name"]),
                 stage,
                 tuple(
@@ -783,7 +783,7 @@ def _refresh_join(
             action_kind=bound.action.action_id,
             request_hash=params_hash,
             sheet_id=int(sheet["id"]),
-            parent_op_id=int(parent_op["id"]),
+            parent_change_id=int(parent_op["id"]),
             confirmation=bound.request.confirmation,
         ),
     ) as prepared:
@@ -877,7 +877,7 @@ def _current_refresh_config(cur, sheet_id):
     from frisket.engine.store.derived_updates import refresh_config
 
     parent = cur.execute(
-        "SELECT o.* FROM ops o JOIN sheets s ON s.parent_op_id=o.id WHERE s.id=?",
+        "SELECT o.* FROM changes o JOIN sheets s ON s.parent_change_id=o.id WHERE s.id=?",
         (sheet_id,),
     ).fetchone()
     config = refresh_config(parent)
@@ -916,7 +916,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
     )
 
     receipt_id = _new_id("receipt")
-    op_id = project.append_change_in_transaction(
+    change_id = project.append_change_in_transaction(
         "sheet.refresh",
         {
             "sheet_id": prepared.sheet_id,
@@ -929,13 +929,13 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
         },
         label=f"Refresh sheet {prepared.sheet_id}",
     )
-    require_execution_sources(project, op_id)
+    require_execution_sources(project, change_id)
     receipt = Receipt(
         receipt_id=receipt_id,
         project_id=project_id,
         action_id=_new_id("act"),
         action_kind=bound.action.action_id,
-        op_ids=[op_id],
+        change_ids=[change_id],
         idempotency_key=bound.request.idempotency_key,
         params_hash=request_hash,
         status="running",
@@ -950,7 +950,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
     acquire_refresh_claim(
         project,
         sheet_id=prepared.sheet_id,
-        parent_op_id=prepared.parent_op_id,
+        parent_change_id=prepared.parent_change_id,
         token=receipt.receipt_id,
     )
     return receipt
@@ -964,7 +964,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
     )
     from frisket.engine.store.consumed_sources import merge_captures, store_capture
 
-    op_id = receipt.op_ids[0]
+    change_id = receipt.change_ids[0]
     count = 0
     capture_saved = False
 
@@ -976,7 +976,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
             store_capture(
                 project,
                 merge_captures(prepared.captures),
-                owner_op_id=op_id,
+                owner_change_id=change_id,
                 output_sheet_id=prepared.sheet_id,
             )
         project.db.commit()
@@ -991,8 +991,8 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
         require_refresh_writer(
             project,
             sheet_id=prepared.sheet_id,
-            parent_op_id=prepared.parent_op_id,
-            op_id=receipt.op_ids[0],
+            parent_change_id=prepared.parent_change_id,
+            change_id=receipt.change_ids[0],
             token=receipt.receipt_id,
         )
 
@@ -1000,7 +1000,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
         begin()
         output_ids = reconcile_rows_into_open_change(
             project.db,
-            op_id=op_id,
+            change_id=change_id,
             sheet_id=prepared.sheet_id,
             config=prepared.config,
             columns=prepared.columns,
@@ -1016,7 +1016,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
             propagate_list_item_citations(
                 project,
                 sheet_id=prepared.sheet_id,
-                op_id=op_id,
+                change_id=change_id,
                 child_row_ids=[output_id],
                 sources=[source],
                 item_associations={source: metadata},
@@ -1032,7 +1032,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
         begin()
         complete_derived_membership(
             project.db,
-            op_id=op_id,
+            change_id=change_id,
             sheet_id=prepared.sheet_id,
             config=prepared.config,
             observed_rows=absent,
@@ -1045,7 +1045,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
         prepared.sheet_id,
         prepared.parent_sheet_id,
         prepared.name,
-        op_id,
+        change_id,
         count,
         prepared.match_stats,
         prepared.reads,
@@ -1057,7 +1057,7 @@ def _finish_refresh_failure(project, receipt, error):
 
     project.db.execute("BEGIN IMMEDIATE")
     try:
-        ChangeStore(project).close(receipt.op_ids[0])
+        ChangeStore(project).close(receipt.change_ids[0])
         sheet_id = receipt.inputs[0].ref["sheet_id"]
         release_refresh_claim(project, sheet_id, receipt.receipt_id)
         terminal = receipt.model_copy(

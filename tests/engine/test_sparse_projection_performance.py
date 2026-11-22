@@ -148,7 +148,7 @@ def test_plain_source_and_output_edit_undo_redo_skip_review_recount(
             "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
         ).fetchone()[0]
     )
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [
             {"row_id": row_id, "column_id": source_id, "value": "after"},
             {"row_id": row_id, "column_id": output_id, "value": "manual"},
@@ -163,10 +163,10 @@ def test_plain_source_and_output_edit_undo_redo_skip_review_recount(
 
     monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
 
-    assert project.undo() == edit_op_id
+    assert project.undo() == edit_change_id
     assert project.get_values(sheet_id, source_id) == {row_id: "before"}
     assert project.get_values(sheet_id, output_id) == {row_id: None}
-    assert project.redo() == edit_op_id
+    assert project.redo() == edit_change_id
     assert project.get_values(sheet_id, source_id) == {row_id: "after"}
     assert project.get_values(sheet_id, output_id) == {row_id: "manual"}
     assert refresh_calls == 0
@@ -195,7 +195,7 @@ def test_unknown_edit_transition_metadata_keeps_review_recount(
             "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
         ).fetchone()[0]
     )
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [{"row_id": row_id, "column_id": column_id, "value": "after"}]
     )
     # No edit writes these keys; unrecognised transition metadata must keep
@@ -203,8 +203,8 @@ def test_unknown_edit_transition_metadata_keeps_review_recount(
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
-            (json.dumps(transition_metadata), edit_op_id),
+            "UPDATE changes SET undo_info=? WHERE id=?",
+            (json.dumps(transition_metadata), edit_change_id),
         )
     refresh_calls = 0
 
@@ -215,8 +215,8 @@ def test_unknown_edit_transition_metadata_keeps_review_recount(
 
     monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
 
-    assert project.undo() == edit_op_id
-    assert project.redo() == edit_op_id
+    assert project.undo() == edit_change_id
+    assert project.redo() == edit_change_id
     assert refresh_calls == 2
 
 
@@ -232,7 +232,7 @@ def test_edit_operation_with_generation_metadata_keeps_review_recount(
             "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
         ).fetchone()[0]
     )
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [{"row_id": row_id, "column_id": column_id, "value": "after"}]
     )
     # Edits never own a run; a generation attached to the edit operation is
@@ -241,8 +241,8 @@ def test_edit_operation_with_generation_metadata_keeps_review_recount(
         project.db.execute("BEGIN IMMEDIATE")
         run_id = int(
             project.db.execute(
-                "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
-                (edit_op_id, sheet_id, "map.test"),
+                "INSERT INTO runs (change_id,sheet_id,action_kind) VALUES (?,?,?)",
+                (edit_change_id, sheet_id, "map.test"),
             ).lastrowid
         )
         project.db.execute(
@@ -271,6 +271,6 @@ def test_edit_operation_with_generation_metadata_keeps_review_recount(
 
     monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
 
-    assert project.undo() == edit_op_id
-    assert project.redo() == edit_op_id
+    assert project.undo() == edit_change_id
+    assert project.redo() == edit_change_id
     assert refresh_calls == 2

@@ -101,8 +101,8 @@ def test_local_translation_receipt_keeps_actual_pinned_artifact_without_rereadin
         "kind": "map_translate_artifact",
         **vars(pinned),
         "run_id": result.run_id,
-        "op_id": project.db.execute(
-            "SELECT op_id FROM runs WHERE id=?", (result.run_id,)
+        "change_id": project.db.execute(
+            "SELECT change_id FROM runs WHERE id=?", (result.run_id,)
         ).fetchone()[0],
     }
     replay = run_action_spec(

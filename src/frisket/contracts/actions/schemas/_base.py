@@ -253,7 +253,7 @@ class ActionResult(ContractModel):
     project_id: str
     run_id: int | None = None
     job_id: int | None = None
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     outputs: list[ActionOutput] = Field(default_factory=list)
     value: JsonValue | None = None
     receipt_id: str | None = None
@@ -294,7 +294,7 @@ class Receipt(ContractModel):
     action_id: str
     action_kind: str
     run_id: int | None = None
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     idempotency_key: str | None = None
     params_hash: str | None = None
     status: ActionResultStatus

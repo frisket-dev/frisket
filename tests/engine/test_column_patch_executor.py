@@ -68,7 +68,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
     note_column_id = seeded["note_column_id"]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert result.outputs[0].kind == "column"
     assert result.outputs[0].name == "note"
     assert result.outputs[0].column_id == note_column_id
@@ -78,7 +78,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert _column_format(project, note_column_id) == "markdown"
 
     op = project.db.execute(
-        "SELECT kind, spec, undo_info FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT kind, spec, undo_info FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert op["kind"] == "column.patch"
@@ -97,7 +97,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "column.patch"
-    assert receipt.op_ids == list(result.op_ids)
+    assert receipt.change_ids == list(result.change_ids)
     assert receipt.outputs[0].name == "note"
     assert receipt.outputs[0].ref["kind"] == "column_patch"
     assert {item.ref["kind"] for item in receipt.records} >= {
@@ -174,7 +174,7 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"ops": 1, "receipts": 1},
+        expect_counts={"changes": 1, "receipts": 1},
         check_state=_check_state,
         undo=UndoRerun(
             check_undone=_check_undone,

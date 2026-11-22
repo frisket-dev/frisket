@@ -83,9 +83,9 @@ class TestStartRunCanonicalIdentity:
     ) -> None:
         project = make_project("p")
         sheet = _seed_sheet(project)
-        op_id = project.append_change("map", {"recipe": "extract"}, label="seed")
+        change_id = project.append_change("map", {"recipe": "extract"}, label="seed")
         run_id = RunResultStore(project).start_run(
-            op_id, sheet, "map.extract", action_version="2"
+            change_id, sheet, "map.extract", action_version="2"
         )
         row = _run_row(project, run_id)
         assert row["action_kind"] == "map.extract"
@@ -96,9 +96,11 @@ class TestStartRunCanonicalIdentity:
     def test_start_run_rejects_bare_implementation_identity(self, make_project) -> None:
         project = make_project("p")
         sheet = _seed_sheet(project)
-        op_id = project.append_change("map", {"recipe": "plugin_owned"}, label="seed")
+        change_id = project.append_change(
+            "map", {"recipe": "plugin_owned"}, label="seed"
+        )
         with pytest.raises(ValueError, match="not canonical"):
-            RunResultStore(project).start_run(op_id, sheet, "plugin_owned")
+            RunResultStore(project).start_run(change_id, sheet, "plugin_owned")
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
     def test_start_run_unmapped_recipe_id_falls_back_to_identity(
@@ -106,9 +108,9 @@ class TestStartRunCanonicalIdentity:
     ) -> None:
         project = make_project("p")
         sheet = _seed_sheet(project)
-        op_id = project.append_change("embedding.index_refresh", {}, label="seed")
+        change_id = project.append_change("embedding.index_refresh", {}, label="seed")
         run_id = RunResultStore(project).start_run(
-            op_id, sheet, "embedding.index_refresh"
+            change_id, sheet, "embedding.index_refresh"
         )
         row = _run_row(project, run_id)
         assert row["action_kind"] == "embedding.index_refresh"

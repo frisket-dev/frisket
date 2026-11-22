@@ -61,7 +61,7 @@ def test_public_semantic_preview_samples_source_but_searches_whole_target(
                 "columns",
                 "rows",
                 "cells",
-                "ops",
+                "changes",
                 "runs",
                 "receipts",
                 "results",

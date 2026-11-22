@@ -142,7 +142,7 @@ def test_native_table_uses_shared_publication_and_replay(installed_table, kind):
     repeated = client.post(f"/api/projects/{project_id}/actions/v1/run", json=body)
     assert repeated.json() == result
     assert calls == [kind]  # Replay never reruns the producer.
-    op_spec = json.loads(project.db.execute("SELECT spec FROM ops").fetchone()[0])
+    op_spec = json.loads(project.db.execute("SELECT spec FROM changes").fetchone()[0])
     assert op_spec["action_id"] == body["action_id"]
     assert op_spec["params"] == {}  # Keep supplied-only Params in the saved intent.
 
@@ -178,7 +178,7 @@ def test_generated_form_schema_and_bounded_preview_share_table_source(
     result = payload["result"]
     assert result["sampled"] == 20 and result["total"] is None
     assert result["rows"] == [{"Renamed": {"value": n}} for n in range(20)]
-    for table in ("sheets", "ops", "receipts", "runs"):
+    for table in ("sheets", "changes", "receipts", "runs"):
         assert project.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -189,7 +189,7 @@ def test_late_native_failure_aborts_hidden_batches(installed_table):
     )
     assert result.status == "failed", result
     assert result.errors[0].code == "invalid_params"
-    for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+    for table in ("sheets", "columns", "rows", "cells", "changes", "receipts"):
         assert project.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 

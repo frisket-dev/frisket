@@ -865,7 +865,7 @@ def test_result_undo_keeps_last_successful_layout_affinity(make_project):
     )
     assert layout_rows(project, sheet, layout_id) == [rows[1]]
     result_op_id = project.undo()
-    assert result_op_id in result.op_ids
+    assert result_op_id in result.change_ids
     assert (
         project.db.execute(
             "SELECT hidden FROM sheets WHERE id=?", (result_sheet_id,)

@@ -21,6 +21,7 @@ def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None
 
     with closing(Project.create(path)) as project:
         db = project.db
+        _downgrade_to_pre_citations_schema(db)
         db.execute("BEGIN")
         db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
         db.execute(
@@ -57,9 +58,6 @@ def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None
                 '{"threshold_usd": 1.0}',
             ),
         )
-        db.commit()
-        _downgrade_to_pre_citations_schema(db)
-        db.execute("BEGIN")
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (COPY_PRECEDENCE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

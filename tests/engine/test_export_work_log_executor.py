@@ -10,7 +10,7 @@ from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
 from frisket.engine.store import Project
 from tests.action_test_helpers import run_typed_map_request, typed_map_request
 
-_COUNT_TABLES = ("sheets", "columns", "rows", "runs", "results", "ops", "receipts")
+_COUNT_TABLES = ("sheets", "columns", "rows", "runs", "results", "changes", "receipts")
 
 
 def _run_seed_action(project: Project, action: dict[str, Any]) -> Any:
@@ -157,7 +157,7 @@ def _export_action(
 def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     """A work log worth exporting: import -> map to named results -> derive a
     table -> undo -> redo, so the artifact covers every operation family."""
-    from executor_harness import operation_action
+    from executor_harness import change_action
 
     _run_seed_action(project, _seed_import_action())
     sheet_id = int(
@@ -180,21 +180,21 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             run_id=mapped.run_id,
         ),
     )
-    derive_op_id = derived.op_ids[0]
+    derive_op_id = derived.change_ids[0]
     _run_seed_action(
         project,
-        operation_action(
-            "operation.undo",
+        change_action(
+            "change.undo",
             key="export_undo_derive@sha256:v1",
-            expected_op_id=derive_op_id,
+            expected_change_id=derive_op_id,
         ),
     )
     _run_seed_action(
         project,
-        operation_action(
-            "operation.redo",
+        change_action(
+            "change.redo",
             key="export_redo_derive@sha256:v1",
-            expected_op_id=derive_op_id,
+            expected_change_id=derive_op_id,
         ),
     )
     out_dir = tmp_path / "artifacts"
@@ -221,7 +221,7 @@ def _conflicting_destination_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == []
+    assert result.change_ids == []
     output_path: Path = seeded["out"]
     export_output = next(output for output in result.outputs if output.kind == "export")
     assert export_output.ref["kind"] == "export_artifact"
@@ -238,13 +238,13 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "import.rows",
         "map.python",
         "derive.table_from_list",
-        "operation.undo",
-        "operation.redo",
+        "change.undo",
+        "change.redo",
         "export.work_log",
     ):
         assert kind in text
     assert "lineage_parent_rows" in text
-    assert "operation_status_transition" in text
+    assert "change_status_transition" in text
 
     receipt_row = project.db.execute(
         "SELECT * FROM receipts WHERE id=?", (result.receipt_id,)

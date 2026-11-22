@@ -331,7 +331,7 @@ class GeoProjectionBackend:
 
     def _generation(self, sheet_id: int, column_id: int, col: sqlite3.Row) -> dict:
         """Canonical generation descriptor. Hashing this decides freshness:
-        op_cursor covers edits + undo/redo, the latest applied generation and
+        change_cursor covers edits + undo/redo, the latest applied generation and
         its state cover runs/reruns/publication, and the contract version forces
         a rebuild if geo_point
         validity rules change."""
@@ -344,7 +344,7 @@ class GeoProjectionBackend:
             "column_id": column_id,
             "column_name": col["name"],
             "column_type": col["type"],
-            "op_cursor": self.project.op_cursor,
+            "change_cursor": self.project.change_cursor,
             "latest_run_id": run_id,
             "run_state": run_state,
             "geo_point_contract": GEO_POINT_CONTRACT,
@@ -370,7 +370,7 @@ class GeoProjectionBackend:
             "column_id": column_id,
             "column_name": col["name"],
             "column_type": col["type"],
-            "op_cursor": self.project.op_cursor,
+            "change_cursor": self.project.change_cursor,
             "latest_run_id": run_id,
             "run_state": run_state,
             "geo_shape_contract": GEO_SHAPE_CONTRACT,

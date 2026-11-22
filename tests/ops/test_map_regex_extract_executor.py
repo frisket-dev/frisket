@@ -133,7 +133,9 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert run["failed_rows"] == 0
     assert run["cost_actual"] == 0.0
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=?", (run["op_id"],)).fetchone()
+    op = project.db.execute(
+        "SELECT * FROM changes WHERE id=?", (run["change_id"],)
+    ).fetchone()
     assert op is not None
     assert op["kind"] == "map"
     op_spec = json.loads(op["spec"])
@@ -167,7 +169,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "map.regex_extract"
     assert receipt.run_id == result.run_id
-    assert receipt.op_ids == [run["op_id"]]
+    assert receipt.change_ids == [run["change_id"]]
     assert receipt.provider_use == [
         {
             "provider": "local",
@@ -263,7 +265,7 @@ CASES = [
             "runs": 1,
             "results": 2,
             "model_calls": 0,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

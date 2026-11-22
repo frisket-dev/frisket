@@ -217,7 +217,7 @@ class _BoundMediaDownloader:
 
 
 def publish_download_channel_facts(
-    project, descriptor, *, run_id, op_id, row_id, **_kwargs
+    project, descriptor, *, run_id, change_id, row_id, **_kwargs
 ):
     """Inside accepted file publication, preserve fill-empty edits and undo."""
     facts = descriptor["facts"]
@@ -257,7 +257,11 @@ def publish_download_channel_facts(
     if edits:
         edit_op = project.append_change_in_transaction(
             "edit",
-            {"count": len(edits), "source_run_id": run_id, "source_op_id": op_id},
+            {
+                "count": len(edits),
+                "source_run_id": run_id,
+                "source_change_id": change_id,
+            },
             label="youtube channel backfill",
         )
-        insert_edits(project.db, op_id=edit_op, edits=edits)
+        insert_edits(project.db, change_id=edit_op, edits=edits)

@@ -108,7 +108,7 @@ def pdf_table_receipt_projection(project, plan, facts, refs, receipt_id):
                 sheet_id=facts.sheet_id,
                 column_id=ref["column_id"],
                 run_id=facts.run_id,
-                op_id=facts.op_id,
+                change_id=facts.change_id,
                 route=ref["name"],
                 schema_name="pdf_table_rows",
                 schema_json={

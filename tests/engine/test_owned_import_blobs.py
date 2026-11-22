@@ -2,7 +2,7 @@ import pytest
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-from frisket.engine.store import op_log
+from frisket.engine.store import change_log
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 
 
@@ -47,7 +47,7 @@ def test_owned_inventory_reuses_bytes_and_preserves_distinct_occurrences(
             ]
             prepared = prepare_import_blobs(project, plan)
             with write_transaction(project.db):
-                op = op_log.append_change_in_transaction(
+                op = change_log.append_change_in_transaction(
                     project, "import.files", spec={}
                 )
                 refs = publish_import_blobs(
@@ -55,7 +55,7 @@ def test_owned_inventory_reuses_bytes_and_preserves_distinct_occurrences(
                     prepared,
                     sheet_id=sheet,
                     column_ids=columns,
-                    op_id=op,
+                    change_id=op,
                     receipt_id="owned-import",
                 )
             assert [ref["filename"] for ref in refs] == ["a.pdf", "b.pdf"]
@@ -90,7 +90,7 @@ def test_owned_blob_reader_is_read_only_and_other_project_is_refused(make_projec
                 prepared,
                 sheet_id=1,
                 column_ids={"file": 1},
-                op_id=1,
+                change_id=1,
                 receipt_id="other",
             )
         second.db.rollback()

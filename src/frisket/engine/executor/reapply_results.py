@@ -20,13 +20,13 @@ from frisket.engine.store.copied_results import (
     combined_execution_outcomes,
     copy_staged_outcomes,
 )
-from frisket.engine.store.op_log import set_undo_info
+from frisket.engine.store.change_log import set_undo_info
 from frisket.engine.store.purge import require_restore_available
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 
 
-def _copy_citations(project, op_id: int, sheet_id: int) -> None:
+def _copy_citations(project, change_id: int, sheet_id: int) -> None:
     """Copy link ownership, not source spans or per-cell receipt payloads."""
     from frisket.engine.store.citations import copy_citations
 
@@ -34,9 +34,9 @@ def _copy_citations(project, op_id: int, sheet_id: int) -> None:
         "SELECT link.id,copy.row_id AS target_row_id,copy.column_id AS target_column_id "
         "FROM copied_result_outcomes copy JOIN citations link "
         "ON link.run_id=copy.source_run_id AND link.row_id=copy.source_row_id "
-        "AND link.column_id=copy.source_column_id WHERE copy.op_id=? "
-        "AND (link.op_id IS NULL OR link.op_id=(SELECT op_id FROM runs WHERE id=copy.source_run_id)) ORDER BY link.id",
-        (op_id,),
+        "AND link.column_id=copy.source_column_id WHERE copy.change_id=? "
+        "AND (link.change_id IS NULL OR link.change_id=(SELECT change_id FROM runs WHERE id=copy.source_run_id)) ORDER BY link.id",
+        (change_id,),
     )
     # Read only evidence owned by the producing run, never another copy.
     while batch := links.fetchmany(200):
@@ -53,7 +53,7 @@ def _copy_citations(project, op_id: int, sheet_id: int) -> None:
         }
         copy_citations(
             project,
-            op_id=op_id,
+            change_id=change_id,
             sheet_id=sheet_id,
             copies=[
                 {
@@ -69,14 +69,14 @@ def _copy_citations(project, op_id: int, sheet_id: int) -> None:
         )
 
 
-def _outcome_counts(project, op_id: int) -> dict[str, int]:
+def _outcome_counts(project, change_id: int) -> dict[str, int]:
     counts = {"completed": 0, "failed": 0, "not_completed": 0}
     for state, count in project.db.execute(
         "SELECT outcome,count(*) FROM (SELECT row_id,"
         "CASE WHEN MAX(outcome='failed') THEN 'failed' "
         "WHEN MAX(outcome='not_completed') THEN 'not_completed' ELSE 'completed' END AS outcome "
-        "FROM copied_result_values WHERE op_id=? GROUP BY row_id) GROUP BY outcome",
-        (op_id,),
+        "FROM copied_result_values WHERE change_id=? GROUP BY row_id) GROUP BY outcome",
+        (change_id,),
     ):
         counts[state] = int(count)
     return counts
@@ -173,13 +173,13 @@ def reapply_results(project, project_id, bound):
                                 "generated_column_exists",
                                 "A partial copy requires a compatible output column; choose a new column",
                             )
-                op_id = project.append_change_in_transaction(
+                change_id = project.append_change_in_transaction(
                     "run.reapply",
                     {"action_kind": "run.reapply", "source_run_id": source},
                     label="Reapply saved execution results",
                 )
                 changes = ChangeStore(project)
-                changes.start(op_id)
+                changes.start(change_id)
                 targets, created = {}, []
                 for field in fields:
                     target = preconditions[names[field.key]]
@@ -209,17 +209,17 @@ def reapply_results(project, project_id, bound):
                                     target,
                                     key,
                                     value,
-                                    op_id=op_id,
+                                    change_id=change_id,
                                 )
                     targets[field.key] = target
                 info = json.loads(
                     project.db.execute(
-                        "SELECT undo_info FROM ops WHERE id=?", (op_id,)
+                        "SELECT undo_info FROM changes WHERE id=?", (change_id,)
                     ).fetchone()[0]
                     or "{}"
                 )
                 info["created_columns"] = created
-                set_undo_info(project, op_id, info)
+                set_undo_info(project, change_id, info)
                 from frisket.engine.store.review_stats import ensure_run_review_stats
 
                 ensure_run_review_stats(project.db, source)
@@ -239,14 +239,14 @@ def reapply_results(project, project_id, bound):
                     for binding in bindings
                 }
                 project.db.execute(
-                    "UPDATE ops SET spec=json_set(spec,'$.output_bindings',json(?)) WHERE id=?",
-                    (json.dumps(output_bindings), op_id),
+                    "UPDATE changes SET spec=json_set(spec,'$.output_bindings',json(?)) WHERE id=?",
+                    (json.dumps(output_bindings), change_id),
                 )
-                copy_staged_outcomes(project.db, op_id=op_id, targets=targets)
-                _copy_citations(project, op_id, scope.sheet_id)
-                changes.close(op_id)
+                copy_staged_outcomes(project.db, change_id=change_id, targets=targets)
+                _copy_citations(project, change_id, scope.sheet_id)
+                changes.close(change_id)
                 summary = {
-                    **_outcome_counts(project, op_id),
+                    **_outcome_counts(project, change_id),
                     "unavailable_rows": unavailable,
                 }
                 receipt = Receipt(
@@ -255,7 +255,7 @@ def reapply_results(project, project_id, bound):
                     action_id=f"act_{uuid4().hex}",
                     action_kind="run.reapply",
                     status="completed",
-                    op_ids=[op_id],
+                    change_ids=[change_id],
                     idempotency_key=bound.request.idempotency_key,
                     params_hash=fingerprint,
                     inputs=[

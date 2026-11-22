@@ -80,7 +80,7 @@ def _check_alert(
     project: Project, row: Any, *, embedding_encoder: Any = None
 ) -> dict[str, Any]:
     alert_id = int(row["id"])
-    before = int(row["last_evaluated_op"] or 0)
+    before = int(row["last_evaluated_change"] or 0)
     query, query_hash = {}, None
     error, error_code, status = None, None, "ok"
     with ExitStack() as stack:
@@ -99,7 +99,7 @@ def _check_alert(
                 )
             hits = selected.hits()
             query, query_hash = selected.selection, selected.query_hash
-            after = snapshot.op_cursor
+            after = snapshot.change_cursor
         except (ValueError, RetrievalQueryError, SimilarityError) as exc:
             snapshot = stack.enter_context(project.read_snapshot())
             expected = get_alert(snapshot, alert_id)
@@ -118,8 +118,8 @@ def _check_alert(
             hits=hits,
             status=status,
             error=error,
-            op_cursor_before=before,
-            op_cursor_after=after,
+            change_cursor_before=before,
+            change_cursor_after=after,
             resolved_query_hash=query_hash,
             resolved_query=query,
             error_code=error_code,

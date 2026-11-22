@@ -60,7 +60,7 @@ def _find_target_snapshot(
     project: Any, params: FindOperation
 ) -> dict[str, Any] | ActionError:
     row = project.db.execute(
-        "SELECT id, parent_sheet_id, parent_op_id FROM sheets "
+        "SELECT id, parent_sheet_id, parent_change_id FROM sheets "
         "WHERE name=? AND hidden=0",
         (params.target_sheet_name,),
     ).fetchone()
@@ -68,12 +68,12 @@ def _find_target_snapshot(
         return {"kind": "absent", "name": params.target_sheet_name}
     sheet_id = int(row["id"])
     parent_sheet_id = row["parent_sheet_id"]
-    parent_op_id = row["parent_op_id"]
+    parent_change_id = row["parent_change_id"]
     op = (
         project.db.execute(
-            "SELECT kind FROM ops WHERE id=?", (parent_op_id,)
+            "SELECT kind FROM changes WHERE id=?", (parent_change_id,)
         ).fetchone()
-        if isinstance(parent_op_id, int)
+        if isinstance(parent_change_id, int)
         else None
     )
     if (
@@ -97,7 +97,7 @@ def _find_target_snapshot(
         "name": params.target_sheet_name,
         "sheet_id": sheet_id,
         "parent_sheet_id": int(parent_sheet_id),
-        "parent_op_id": int(parent_op_id),
+        "parent_change_id": int(parent_change_id),
     }
 
 

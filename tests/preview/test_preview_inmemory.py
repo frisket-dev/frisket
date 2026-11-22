@@ -37,7 +37,7 @@ from tests.deterministic_time import controlled_time
 _STARTED_WAIT_SECONDS = 30.0
 
 PREVIEW_URL = "/api/projects/{pid}/actions/v1/preview"
-_ZERO_WRITE_TABLES = ("ops", "runs", "results", "receipts", "model_calls")
+_ZERO_WRITE_TABLES = ("changes", "runs", "results", "receipts", "model_calls")
 _MISSING = object()
 
 

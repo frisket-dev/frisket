@@ -99,23 +99,25 @@ def _backfill_action(
 
 
 def _run_op_id(project: Project, run_id: int) -> int:
-    row = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
+    row = project.db.execute(
+        "SELECT change_id FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
     assert row is not None
-    return int(row["op_id"])
+    return int(row["change_id"])
 
 
 def _assert_run_result_ref(
     ref: dict[str, Any],
     *,
     run_id: int,
-    op_id: int,
+    change_id: int,
     row_id: int,
     column_id: int,
     outcome: str = "completed",
 ) -> None:
     assert ref == {
         "kind": "run_result",
-        "op_id": op_id,
+        "change_id": change_id,
         "row_id": row_id,
         "column_id": column_id,
         "run_id": run_id,
@@ -156,7 +158,7 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
     ) -> None:
         original_write_results(store, run_id, batch, **kwargs)
         run = project.db.execute(
-            "SELECT action_kind, status, op_id FROM runs WHERE id=?", (run_id,)
+            "SELECT action_kind, status, change_id FROM runs WHERE id=?", (run_id,)
         ).fetchone()
         if run is None or str(run["action_kind"]) != "map.python":
             return
@@ -171,7 +173,7 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
             _assert_run_result_ref(
                 refs[row_id],
                 run_id=run_id,
-                op_id=int(run["op_id"]),
+                change_id=int(run["change_id"]),
                 row_id=row_id,
                 column_id=column_id,
             )
@@ -213,7 +215,7 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
         _assert_run_result_ref(
             before[1][row_id],
             run_id=result.run_id,
-            op_id=first_op_id,
+            change_id=first_op_id,
             row_id=row_id,
             column_id=output_id,
         )
@@ -279,14 +281,14 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
         _assert_run_result_ref(
             after[1][row_id],
             run_id=subset.run_id,
-            op_id=subset_op_id,
+            change_id=subset_op_id,
             row_id=row_id,
             column_id=output_id,
         )
     _assert_run_result_ref(
         after[1][row_ids[2]],
         run_id=result.run_id,
-        op_id=first_op_id,
+        change_id=first_op_id,
         row_id=row_ids[2],
         column_id=output_id,
     )
@@ -701,7 +703,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             row_id=error_row,
             column_id=columns["generated_text"],
             run_id=first.run_id,
-            op_id=first_op_id,
+            change_id=first_op_id,
         )
 
     # Same-descriptor replacements publish each completed row family.
@@ -729,7 +731,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             _assert_run_result_ref(
                 staged[1][row_id],
                 run_id=run_id,
-                op_id=_run_op_id(project, run_id),
+                change_id=_run_op_id(project, run_id),
                 row_id=row_id,
                 column_id=column_id,
                 outcome="failed" if result.get("error") else "completed",
@@ -783,7 +785,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
         _assert_run_result_ref(
             after[name][1][untargeted_row],
             run_id=first.run_id,
-            op_id=first_op_id,
+            change_id=first_op_id,
             row_id=untargeted_row,
             column_id=column_id,
         )
@@ -798,7 +800,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     _assert_run_result_ref(
         after["generated_text"][1][value_row],
         run_id=second.run_id,
-        op_id=second_op_id,
+        change_id=second_op_id,
         row_id=value_row,
         column_id=columns["generated_text"],
     )
@@ -814,7 +816,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     _assert_run_result_ref(
         after["generated_nullable"][1][null_row],
         run_id=second.run_id,
-        op_id=second_op_id,
+        change_id=second_op_id,
         row_id=null_row,
         column_id=columns["generated_nullable"],
     )
@@ -823,7 +825,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     _assert_run_result_ref(
         after["generated_text"][1][error_row],
         run_id=second.run_id,
-        op_id=second_op_id,
+        change_id=second_op_id,
         row_id=error_row,
         column_id=columns["generated_text"],
         outcome="failed",
@@ -844,7 +846,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     _assert_run_result_ref(
         error_grid_row["meta"][text_key]["current_value_ref"],
         run_id=second.run_id,
-        op_id=second_op_id,
+        change_id=second_op_id,
         row_id=error_row,
         column_id=columns["generated_text"],
         outcome="failed",

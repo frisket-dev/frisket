@@ -95,13 +95,13 @@ def prepare_ocr_results(project, run_id: int, results: list[dict[str, Any]]) -> 
                 )
             )
             op = project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (run_id,)
+                "SELECT change_id FROM runs WHERE id=?", (run_id,)
             ).fetchone()
             if op is None:
                 raise ValueError("OCR preparation requires an existing run")
             ref_id = store.stage_reference(
                 source_artifact_id=artifact_id,
-                producing_op_id=int(op[0]),
+                producing_change_id=int(op[0]),
                 pages=drafts,
                 page_number=source.get("page"),
                 allow_partial=len(drafts) != len(pages),

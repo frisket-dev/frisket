@@ -38,7 +38,7 @@ def owned(make_project):
     )
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        ChangeStore(project).start(run.op_id)
+        ChangeStore(project).start(run.change_id)
     control = RunDispatch(
         project,
         run.run_id,
@@ -182,7 +182,7 @@ async def test_bound_runs_do_not_mutate_shared_router(owned):
     "mutation",
     [
         "UPDATE execution_attempts SET state='halted'",
-        "UPDATE ops SET publication_closed=1",
+        "UPDATE changes SET publication_closed=1",
         "UPDATE runs SET current_attempt_id=NULL",
     ],
 )

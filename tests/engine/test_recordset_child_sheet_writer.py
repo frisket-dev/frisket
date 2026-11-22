@@ -150,7 +150,7 @@ def test_single_parent_writer_records_rows_undo_and_standard_refs(make_project):
         "SELECT * FROM sheets WHERE id=?", (write.sheet_id,)
     ).fetchone()
     assert child["parent_sheet_id"] == source_sheet_id
-    assert child["parent_op_id"] == write.op_id
+    assert child["parent_change_id"] == write.change_id
     rows = project.db.execute(
         "SELECT id, parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
         (write.sheet_id,),
@@ -162,7 +162,9 @@ def test_single_parent_writer_records_rows_undo_and_standard_refs(make_project):
         {"child_row_id": write.row_ids[0], "parent_row_id": parent_row_ids[0]},
         {"child_row_id": write.row_ids[1], "parent_row_id": parent_row_ids[1]},
     ]
-    op = project.db.execute("SELECT undo_info FROM ops WHERE id=?", (write.op_id,))
+    op = project.db.execute(
+        "SELECT undo_info FROM changes WHERE id=?", (write.change_id,)
+    )
     assert json.loads(op.fetchone()["undo_info"]) == write.undo_info
     score_values = project.get_values(write.sheet_id, write.column_ids["score"])
     assert score_values[write.row_ids[0]] == 0.9

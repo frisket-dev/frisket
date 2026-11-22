@@ -163,7 +163,7 @@ def test_refresh_replaces_rows_in_place_preserving_identity(make_project) -> Non
     # The newly consumed source capture proves the refreshed output current.
     assert compute_sync_states(project)[child_id]["sync_state"] == "synced"
     watermark = project.db.execute(
-        "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
+        "SELECT last_verified_change_cursor FROM sheets WHERE id=?", (child_id,)
     ).fetchone()[0]
     assert watermark is None
 
@@ -178,7 +178,7 @@ def test_refresh_is_idempotent_on_replay(make_project) -> None:
     assert first.status == "completed"
     ops_after_first = int(
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='sheet.refresh'"
+            "SELECT COUNT(*) FROM changes WHERE kind='sheet.refresh'"
         ).fetchone()[0]
     )
     replay = run_action_spec(
@@ -192,7 +192,7 @@ def test_refresh_is_idempotent_on_replay(make_project) -> None:
     assert (
         int(
             project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE kind='sheet.refresh'"
+                "SELECT COUNT(*) FROM changes WHERE kind='sheet.refresh'"
             ).fetchone()[0]
         )
         == ops_after_first
@@ -492,7 +492,7 @@ def test_refresh_support_matches_the_runtime_admission(make_project) -> None:
     snapshot_id = project.add_sheet(
         "Extracted once",
         parent_sheet_id=parent_id,
-        parent_op_id=unsupported_op,
+        parent_change_id=unsupported_op,
     )
     project.db.commit()
 
@@ -506,14 +506,14 @@ def test_refresh_refuses_unsupported_model_op_without_cost_prompt(
 ) -> None:
     project, parent_id, _, _, _ = _build(make_project)
     # Historical provider work does not authorize unsupported rematerialization.
-    op_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
+    change_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
     project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, status, model, cost_estimate) "
+        "INSERT INTO runs (change_id, sheet_id, action_kind, status, model, cost_estimate) "
         "VALUES (?, ?, 'reduce.group_summary', 'completed', 'stub/model', 0.42)",
-        (op_id, parent_id),
+        (change_id, parent_id),
     )
     model_child = project.add_sheet_in_transaction(
-        "Summary", parent_sheet_id=parent_id, parent_op_id=op_id
+        "Summary", parent_sheet_id=parent_id, parent_change_id=change_id
     )
     project.db.commit()
 
@@ -536,14 +536,14 @@ def test_list_refresh_ignores_historical_model_cost(
     from frisket.execution import pricing_policy
 
     project, _, col_id, child_id, row_ids = _build(make_project)
-    parent_op_id = project.db.execute(
-        "SELECT parent_op_id FROM sheets WHERE id=?", (child_id,)
+    parent_change_id = project.db.execute(
+        "SELECT parent_change_id FROM sheets WHERE id=?", (child_id,)
     ).fetchone()[0]
     project.db.execute(
         "INSERT INTO runs "
-        "(op_id, sheet_id, action_kind, status, model, total_rows, cost_estimate) "
+        "(change_id, sheet_id, action_kind, status, model, total_rows, cost_estimate) "
         "VALUES (?, ?, 'derive.table_from_list', 'completed', 'stub/model', 3, ?)",
-        (parent_op_id, child_id, historical_cost),
+        (parent_change_id, child_id, historical_cost),
     )
     project.db.commit()
     edited = run_action_spec(
@@ -617,12 +617,12 @@ def test_refresh_multiparent_sheet_is_unsupported(make_project) -> None:
         ).fetchone()["id"]
     )
     source_row = row_ids[0]
-    op_id = project.append_change("join.semantic", {"sheet_id": child_id})
+    change_id = project.append_change("join.semantic", {"sheet_id": child_id})
     project.db.execute(
         "INSERT INTO materialized_row_sources "
-        "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+        "(materialized_row_id, source_row_id, source_sheet_id, change_id, role) "
         "VALUES (?, ?, ?, ?, 'edge_source')",
-        (child_row, source_row, parent_id, op_id),
+        (child_row, source_row, parent_id, change_id),
     )
     project.db.commit()
 
@@ -693,10 +693,12 @@ def test_historical_refresh_setup_must_be_recreated(make_project, retirement):
     project, parent, column, child, rows = _build(make_project)
     original_child_rows = project.visible_row_ids(child)
     parent_op = project.db.execute(
-        "SELECT parent_op_id FROM sheets WHERE id=?", (child,)
+        "SELECT parent_change_id FROM sheets WHERE id=?", (child,)
     ).fetchone()[0]
     if retirement == "no_order":
-        project.db.execute("UPDATE ops SET change_order=NULL WHERE id=?", (parent_op,))
+        project.db.execute(
+            "UPDATE changes SET change_order=NULL WHERE id=?", (parent_op,)
+        )
     else:
         project.db.execute(
             "INSERT OR REPLACE INTO meta(key,value) VALUES ('domain_history_floor',?)",

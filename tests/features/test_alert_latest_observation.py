@@ -39,8 +39,8 @@ def record(scene, rows, *, status="ok", query_hash="scope-1", hits=None):
         if hits is not None
         else ({"sheet_id": sheet, "row_id": row, "snippet": "match"} for row in rows),
         status=status,
-        op_cursor_before=project.op_cursor,
-        op_cursor_after=project.op_cursor,
+        change_cursor_before=project.change_cursor,
+        change_cursor_after=project.change_cursor,
         resolved_query_hash=query_hash,
     )
 

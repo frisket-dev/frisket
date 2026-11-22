@@ -46,7 +46,7 @@ def test_search_opens_late_passage_and_continues_without_repeating_prefix(source
 def test_keyword_search_uses_search_revision_not_unrelated_operation_cursor(source):
     project, store, _, turn, sheet, _, _ = source
     project.db.execute(
-        "UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='op_cursor'"
+        "UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='change_cursor'"
     )
     project.db.commit()
     result = ProjectQATools(project, turn, store).search_cells("NEEDLE", sheet)

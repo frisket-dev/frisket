@@ -65,7 +65,7 @@ def test_known_field_malformed_params_defer_safely_to_model(
 def _project_counts(project: Project) -> tuple[int, ...]:
     return tuple(
         project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "columns", "rows", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "changes", "receipts")
     )
 
 

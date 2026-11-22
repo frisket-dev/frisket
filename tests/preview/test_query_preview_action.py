@@ -128,7 +128,7 @@ def test_query_preview_route_and_action_share_rowset_and_receipt_replays(
     result = ActionResult.model_validate(run.json())
     assert result.status == "completed"
     assert result.action.kind == "query.preview"
-    assert result.op_ids == []
+    assert result.change_ids == []
     assert result.run_id is None
     assert result.receipt_id is not None
     assert len(result.outputs) == 1
@@ -150,7 +150,7 @@ def test_query_preview_route_and_action_share_rowset_and_receipt_replays(
     assert receipt.action_kind == "query.preview"
     assert receipt.status == "completed"
     assert receipt.run_id is None
-    assert receipt.op_ids == []
+    assert receipt.change_ids == []
     assert receipt.outputs[0].ref == output_ref
     ref_kinds = {item.ref["kind"] for item in receipt.records}
     assert ref_kinds == {"query_preview_rowset"}

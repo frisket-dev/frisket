@@ -159,9 +159,9 @@ def test_inactive_edit_remains_a_physical_blob_root(project):
         [{"row_id": row, "column_id": column, "value": {"note": "new branch"}}]
     )
     assert (
-        project.db.execute("SELECT status FROM ops WHERE id=?", (edit_op,)).fetchone()[
-            0
-        ]
+        project.db.execute(
+            "SELECT status FROM changes WHERE id=?", (edit_op,)
+        ).fetchone()[0]
         == "undone"
     )
 

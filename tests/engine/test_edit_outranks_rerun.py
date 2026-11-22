@@ -98,12 +98,12 @@ class _Sheet:
                 **({"replace_existing": True} if replace else {}),
             }
         )
-        return int(self.project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0])
+        return int(self.project.db.execute("SELECT MAX(id) FROM changes").fetchone()[0])
 
-    def run_id(self, op_id: int) -> int:
+    def run_id(self, change_id: int) -> int:
         return int(
             self.project.db.execute(
-                "SELECT id FROM runs WHERE op_id=?", (op_id,)
+                "SELECT id FROM runs WHERE change_id=?", (change_id,)
             ).fetchone()[0]
         )
 
@@ -510,7 +510,7 @@ def test_projection_rebuild_resolves_the_same_heads(make_project, reapply):
     if reapply:
         sheet.reapply(sheet.first_run)
     db = sheet.project.db
-    columns = "column_id,row_id,origin_kind,origin_op_id,origin_run_id"
+    columns = "column_id,row_id,origin_kind,origin_change_id,origin_run_id"
     cached = db.execute(
         f"SELECT {columns} FROM current_cells WHERE column_id=? ORDER BY row_id",
         (sheet.out,),
@@ -551,21 +551,24 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
     run_heads = canonical_heads_sql(
         "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
     )
-    restore_pre_feeds_tables(db)
     db.execute("BEGIN")
     db.execute(
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "
         f"({run_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.commit()
+    assert sheet.values()[:3] == ["B0", "B1", "B2"]
+    _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
+    restore_pre_feeds_tables(db)
+    db.execute("BEGIN")
     db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
     db.execute(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
+    db.execute("UPDATE meta SET value=? WHERE key='schema_digest'", (DOMAIN_TO_DIGEST,))
     db.commit()
-    _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
-    assert sheet.values()[:3] == ["B0", "B1", "B2"]
     path = sheet.project.path
     sheet.project.close()
 
@@ -590,21 +593,27 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
     copy_heads = canonical_heads_sql(
         "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
     )
-    restore_pre_feeds_tables(db)
     db.execute("BEGIN")
     db.execute(
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "
         f"({copy_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.commit()
+    assert sheet.values()[:3] == ["A0", "A1", "A2"]
+    _stamp_pre_citations_digest(db, EDIT_PRECEDENCE_TO_DIGEST)
+    restore_pre_feeds_tables(db)
+    db.execute("BEGIN")
     db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
     db.execute(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
+    db.execute(
+        "UPDATE meta SET value=? WHERE key='schema_digest'",
+        (EDIT_PRECEDENCE_TO_DIGEST,),
+    )
     db.commit()
-    _stamp_pre_citations_digest(db, EDIT_PRECEDENCE_TO_DIGEST)
-    assert sheet.values()[:3] == ["A0", "A1", "A2"]
     path = sheet.project.path
     sheet.project.close()
 

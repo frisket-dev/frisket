@@ -204,7 +204,7 @@ def test_durable_apply_materializes_three_plus_five_pages_and_replaces_once(
             )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )
@@ -252,10 +252,10 @@ def test_new_sheet_uses_admission_context_snapshot_and_replays_without_reading(
     project.apply_edits(
         [{"row_id": rows[0], "column_id": case_column, "value": "changed later"}]
     )
-    cursor = project.op_cursor
+    cursor = project.change_cursor
     result = _run(workspace, started)
     assert result["status"] == "completed"
-    assert project.op_cursor == cursor
+    assert project.change_cursor == cursor
     assert project.visible_row_ids(sheet) == rows
     children = project.visible_row_ids(started["sheet_id"])
     copied = next(
@@ -354,13 +354,13 @@ def test_prepared_pages_rebase_without_native_reread_and_keep_original_facts(
             },
         )
     operation = project.db.execute(
-        "SELECT op_id FROM base_cell_producers WHERE id=(SELECT producer_id FROM cells WHERE row_id=? LIMIT 1)",
+        "SELECT change_id FROM base_cell_producers WHERE id=(SELECT producer_id FROM cells WHERE row_id=? LIMIT 1)",
         (rows[0],),
     ).fetchone()[0]
     project.db.execute("BEGIN IMMEDIATE")
     saved = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=operation,
+        producing_change_id=operation,
         pages=[
             PreparedPageDraft(
                 page,
@@ -749,7 +749,7 @@ def test_resume_recovers_admission_before_queue_handoff_without_draft_input(
     assert result is not None and isinstance(result["job_id"], int)
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )

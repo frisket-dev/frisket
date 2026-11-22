@@ -17,14 +17,14 @@ def close_run_change(project: Any, run_id: int) -> None:
 
     db = project.db
     require_transaction(db, "run Change closure")
-    run = db.execute("SELECT op_id FROM runs WHERE id=?", (int(run_id),)).fetchone()
+    run = db.execute("SELECT change_id FROM runs WHERE id=?", (int(run_id),)).fetchone()
     if run is None:
         raise ValueError(f"unknown run {int(run_id)}")
 
     from frisket.engine.store.cell_projection import invalidate_run_scopes
     from frisket.engine.store.changes import ChangeStore
 
-    ChangeStore(project).close(int(run["op_id"]))
+    ChangeStore(project).close(int(run["change_id"]))
     columns = db.execute(
         "SELECT column_id FROM run_output_generations WHERE run_id=? ORDER BY column_id",
         (int(run_id),),
@@ -65,7 +65,7 @@ def require_terminal_writer(
         )
     row = project.db.execute(
         "SELECT run.current_attempt_id,run.cancel_requested_at,op.publication_closed,attempt.state "
-        "FROM runs run JOIN ops op ON op.id=run.op_id "
+        "FROM runs run JOIN changes op ON op.id=run.change_id "
         "LEFT JOIN execution_attempts attempt ON attempt.id=? AND attempt.run_id=run.id WHERE run.id=?",
         (writer_attempt_id, run_id),
     ).fetchone()

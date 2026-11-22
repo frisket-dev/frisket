@@ -166,11 +166,11 @@ def test_prepared_text_windows_preserve_page_separators_without_full_assembly(
             media_type="application/pdf",
             page_count=4,
         )
-    op_id = project.append_change("media.ocr")
+    change_id = project.append_change("media.ocr")
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=[
             PreparedPageDraft(1, "a" * (64 * 1024)),
             PreparedPageDraft(2, "😀middle\0after"),

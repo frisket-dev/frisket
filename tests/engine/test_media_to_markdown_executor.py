@@ -279,7 +279,7 @@ CASES = [
             "runs": 1,
             "results": 2,
             "model_calls": 0,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,
@@ -303,8 +303,8 @@ def _mutate_markdown_output_for_replay(project: Project, receipt_id: str) -> Non
     )
     assert ref["value_hash"].startswith("sha256:")
     store = RunResultStore(project)
-    op_id = project.append_change("map")
-    run_id = store.start_run(op_id, ref["sheet_id"], "media.to_markdown")
+    change_id = project.append_change("map")
+    run_id = store.start_run(change_id, ref["sheet_id"], "media.to_markdown")
     write_claimed_test_results(
         project,
         run_id,
@@ -318,7 +318,7 @@ def _mutate_markdown_output_for_replay(project: Project, receipt_id: str) -> Non
     )
     store.finish_run(run_id)
     with write_transaction(store.db):
-        store.point_column_at_run(op_id, ref["column_id"], run_id)
+        store.point_column_at_run(change_id, ref["column_id"], run_id)
     project.db.commit()
 
 

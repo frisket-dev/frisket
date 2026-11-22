@@ -139,7 +139,7 @@ def test_saved_similarity_view_preserves_ranking_and_uses_no_provider(tmp_path):
         ]
         assert refs[0]["similarity_score"] > refs[1]["similarity_score"]
     assert all(
-        row["kind"] != "lens" for row in project.db.execute("SELECT kind FROM ops")
+        row["kind"] != "lens" for row in project.db.execute("SELECT kind FROM changes")
     )
 
 

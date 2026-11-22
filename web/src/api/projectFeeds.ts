@@ -187,7 +187,7 @@ const toFeedHealth = (w: ProjectFeedHealthWire): FeedHealth => ({
     startedAt: sqliteTimestampToIso(run.started_at),
     finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     feedId: run.feed_id,
-    opId: run.op_id ?? null,
+    changeId: run.change_id ?? null,
     errorSummary: run.error_summary ?? null,
     cursorBeforePresent: Boolean(run.cursor_before_present),
     cursorAfterPresent: Boolean(run.cursor_after_present),

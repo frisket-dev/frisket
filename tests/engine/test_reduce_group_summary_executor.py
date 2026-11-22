@@ -165,7 +165,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
     )
     return {
         "sheet_id": sheet_id,
-        "seeded_op_id": project.op_cursor,
+        "seeded_op_id": project.change_cursor,
         "source_row_ids": [
             int(row["id"])
             for row in project.db.execute(
@@ -298,7 +298,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     adapter = _ADAPTERS[0]
     assert len(adapter.requests) == 2
     assert result.run_id == 1
-    assert result.op_ids == [seeded["seeded_op_id"] + 1]
+    assert result.change_ids == [seeded["seeded_op_id"] + 1]
     assert {output.kind for output in result.outputs} == {"sheet", "column", "rows"}
     assert {output.name for output in result.outputs} >= {
         "Beat Summaries",
@@ -320,7 +320,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "SELECT * FROM sheets WHERE name='Beat Summaries'"
     ).fetchone()
     assert summary_sheet["parent_sheet_id"] == sheet_id
-    assert summary_sheet["parent_op_id"] == result.op_ids[0]
+    assert summary_sheet["parent_change_id"] == result.change_ids[0]
     summary_sheet_id = int(summary_sheet["id"])
     columns = {
         row["name"]: row
@@ -514,7 +514,7 @@ CASES = [
             "runs": 1,
             "results": 2,
             "model_calls": 2,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,

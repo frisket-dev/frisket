@@ -158,7 +158,7 @@ def test_undo_of_parent_edit_recomputes_synced(make_project) -> None:
         project_id="p-stale",
     )
     assert _state(project, "Vendors")["sync_state"] == "stale"
-    # Undo rewinds op_cursor and flips the edit op to 'undone'; the resolver
+    # Undo rewinds change_cursor and flips the edit op to 'undone'; the resolver
     # recomputes from live op status and must NOT trust a stale flag.
     undone = project.undo()
     assert undone is not None
@@ -227,11 +227,11 @@ def test_unrelated_review_flip_preserves_consumed_source_freshness(
     # filters on review_state='verified', so a flip changes what it would include
     # -> descendants stale.
     ai_col = project.add_column(parent_id, "score", type="text", generated=True)
-    op_id = project.append_change("map.judge", {"sheet_id": parent_id})
+    change_id = project.append_change("map.judge", {"sheet_id": parent_id})
     cur = project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, status, model) "
+        "INSERT INTO runs (change_id, sheet_id, action_kind, status, model) "
         "VALUES (?, ?, 'map.judge', 'completed', 'stub/model')",
-        (op_id, parent_id),
+        (change_id, parent_id),
     )
     run_id = int(cur.lastrowid)
     project.db.execute(
@@ -310,7 +310,7 @@ def test_row_action_shared_corpus_does_not_become_sheet_derivation(make_project)
     )
     owner = int(
         project.db.execute(
-            "SELECT id FROM ops ORDER BY change_order DESC LIMIT 1"
+            "SELECT id FROM changes ORDER BY change_order DESC LIMIT 1"
         ).fetchone()[0]
     )
     _, _, capture = read_consumed_source(project, parent, [column])
@@ -318,7 +318,7 @@ def test_row_action_shared_corpus_does_not_become_sheet_derivation(make_project)
     store_capture(
         project,
         capture,
-        owner_op_id=owner,
+        owner_change_id=owner,
         output_sheet_id=target,
         row_id=target_row,
     )

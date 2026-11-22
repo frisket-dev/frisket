@@ -305,7 +305,7 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
     assert enclosure_ref["row_ids"]
     runs = [dict(r) for r in FeedStore(reopened).feed_checks_page(sid)]
     assert len(runs) == 1
-    assert runs[0]["op_id"] == source_run_ref["op_id"]
+    assert runs[0]["change_id"] == source_run_ref["change_id"]
     assert (
         enqueue_enclosure_downloads(
             q,

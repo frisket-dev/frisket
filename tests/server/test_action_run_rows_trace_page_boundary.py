@@ -37,13 +37,13 @@ def _seed_run_with_trace_only_error(client: TestClient) -> tuple[str, int, list[
     ).fetchall()
     row_ids = [int(row["id"]) for row in rows]
     output_col = project.add_column(sheet_id, "topic", generated=True)
-    project.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'seed rows')")
-    op_id = project.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
+    project.db.execute("INSERT INTO changes (kind, label) VALUES ('run', 'seed rows')")
+    change_id = project.db.execute("SELECT MAX(id) AS m FROM changes").fetchone()["m"]
     cursor = project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, model, params, status, "
+        "INSERT INTO runs (change_id, sheet_id, action_kind, model, params, status, "
         "total_rows, completed_rows, failed_rows, cost_actual) "
         "VALUES (?, ?, 'map.classify', 'anthropic/test', ?, 'completed', 3, 2, 1, 0.01)",
-        (op_id, sheet_id, json.dumps({"row_ids": row_ids})),
+        (change_id, sheet_id, json.dumps({"row_ids": row_ids})),
     )
     run_id = int(cursor.lastrowid)
     ok_kind, ok_value = encode_stored_value("ok")
@@ -101,13 +101,13 @@ def _seed_run_with_trace_edge_cases(client: TestClient) -> tuple[str, int, list[
     ).fetchall()
     row_ids = [int(row["id"]) for row in rows]
     output_col = project.add_column(sheet_id, "topic", generated=True)
-    project.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'edge rows')")
-    op_id = project.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
+    project.db.execute("INSERT INTO changes (kind, label) VALUES ('run', 'edge rows')")
+    change_id = project.db.execute("SELECT MAX(id) AS m FROM changes").fetchone()["m"]
     cursor = project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, model, params, status, "
+        "INSERT INTO runs (change_id, sheet_id, action_kind, model, params, status, "
         "total_rows, completed_rows, failed_rows, cost_actual) "
         "VALUES (?, ?, 'map.classify', 'anthropic/test', ?, 'completed', 3, 2, 1, 0.01)",
-        (op_id, sheet_id, json.dumps({"row_ids": row_ids[:3]})),
+        (change_id, sheet_id, json.dumps({"row_ids": row_ids[:3]})),
     )
     run_id = int(cursor.lastrowid)
     # The run's row scope (row_ids[3] deliberately excluded, below) is

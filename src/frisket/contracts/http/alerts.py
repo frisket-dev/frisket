@@ -62,8 +62,8 @@ class AlertCheck(WireModel):
     id: int
     alert_id: int
     status: str
-    op_cursor_before: int
-    op_cursor_after: int
+    change_cursor_before: int
+    change_cursor_after: int
     matched_rows: int
     new_rows: int
     error: str | None
@@ -98,7 +98,7 @@ class Alert(WireModel):
     detection_policy: dict[str, JsonValue]
     enabled: bool
     schedule: str | None
-    last_evaluated_op: int
+    last_evaluated_change: int
     last_run_id: int | None
     last_status: str | None
     created_at: str

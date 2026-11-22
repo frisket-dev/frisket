@@ -76,7 +76,7 @@ def _cluster_fact(client, project_id, result: dict):
     assert result["action"]["kind"] == "cluster.values"
     assert isinstance(result["run_id"], int)
     # the commit writes one map op (the {input}_canonical column)
-    assert len(result["op_ids"]) == 1
+    assert len(result["change_ids"]) == 1
     assert result["receipt_id"]
     response = client.get(
         f"/api/projects/{project_id}/actions/v1/receipts/{result['receipt_id']}"
@@ -91,7 +91,7 @@ def _cluster_fact(client, project_id, result: dict):
 
 def _resolve_row_ids(result: dict):
     assert result["action"]["kind"] == "resolve.entities"
-    assert len(result["op_ids"]) == 1
+    assert len(result["change_ids"]) == 1
     assert [output["kind"] for output in result["outputs"]] == [
         "sheet",
         *["column"] * 5,

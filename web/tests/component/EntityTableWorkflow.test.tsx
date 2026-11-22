@@ -23,7 +23,7 @@ import { hasTestPython } from '../support/testPython';
 const SHEET = sheetMeta([], { id: '7', name: 'People' });
 function receipt(receiptId = 'receipt:clusters', overrides: Partial<V1Receipt> = {}): V1Receipt {
   return { schemaVersion: 'frisket.receipt.v1', receiptId, projectId: 'p',
-    actionId: 'action:cluster', actionKind: 'cluster.values', runId: null, opIds: [1],
+    actionId: 'action:cluster', actionKind: 'cluster.values', runId: null, changeIds: [1],
     idempotencyKey: null, paramsHash: null, status: 'completed', inputs: [], outputs: [],
     providerUse: [], records: [], errors: [], ...overrides };
 }

@@ -2,7 +2,7 @@
 
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store.staleness import sheet_freshness
-from frisket.engine.store.op_log import step_operation
+from frisket.engine.store.change_log import step_change
 
 
 def _assert_captured(project, result):
@@ -28,7 +28,7 @@ def _assert_equal_contribution_roundtrip(project, output, sheet, column, row):
     edit = project.apply_edits([{"row_id": row, "column_id": column, "value": value}])
     assert sheet_freshness(project, output) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=edit)
+        step_change(project, "revert", change_id=edit)
     assert sheet_freshness(project, output) == "synced"
 
 
@@ -302,7 +302,7 @@ def test_semantic_capture_tracks_scoped_effective_judgment_but_value_only_captur
             project_id="judgments",
         )
         assert result.status == "completed", result.errors
-        return result.op_ids[0]
+        return result.change_ids[0]
 
     first = decide(row, "first")
     request = _derive_link_action(
@@ -317,7 +317,7 @@ def test_semantic_capture_tracks_scoped_effective_judgment_but_value_only_captur
         value_bundle = store_capture(
             project,
             value_capture,
-            owner_op_id=result.op_ids[0],
+            owner_change_id=result.change_ids[0],
             output_sheet_id=sheet,
         )
     decide(outside, "outside")
@@ -326,11 +326,11 @@ def test_semantic_capture_tracks_scoped_effective_judgment_but_value_only_captur
     assert sheet_freshness(project, output) == "stale"
     assert bundle_state(project, value_bundle) == "fresh"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=second)
+        step_change(project, "revert", change_id=second)
     assert sheet_freshness(project, output) == "synced"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=first)
+        step_change(project, "revert", change_id=first)
     assert sheet_freshness(project, output) == "stale"
     with project.transaction_scope():
-        step_operation(project, "restore", change_id=first)
+        step_change(project, "restore", change_id=first)
     assert sheet_freshness(project, output) == "synced"

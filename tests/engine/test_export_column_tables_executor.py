@@ -353,7 +353,7 @@ def _conflicting_params_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == []
+    assert result.change_ids == []
     export_output = next(o for o in result.outputs if o.kind == "export")
     assert export_output.name == "column_tables"
     ref = export_output.ref

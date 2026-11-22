@@ -182,15 +182,17 @@ def test_collision_hard_fails_and_applies_nothing(make_project) -> None:
 
 def test_atomicity_nth_invalid_op_applies_nothing(make_project) -> None:
     """Disposition #2: a plan whose later op is invalid leaves ZERO partial state —
-    proven by store inspection (no sheet, no op row, op_cursor unmoved)."""
+    proven by store inspection (no sheet, no op row, change_cursor unmoved)."""
     apply_mod = _module(APPLY_MODULE)
     contracts = _module(CONTRACTS_MODULE)
     apply_write_plan = _attr(apply_mod, "apply_write_plan")
     writes_cap = _attr(contracts, "PROJECT_WRITES_CAPABILITY")
 
     project = make_project("writes")
-    cursor_before = project.get_meta("op_cursor")
-    op_rows_before = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
+    cursor_before = project.get_meta("change_cursor")
+    op_rows_before = project.db.execute("SELECT COUNT(*) AS n FROM changes").fetchone()[
+        "n"
+    ]
 
     # Second op appends to a column ref that was never created → invalid mid-plan.
     plan = {
@@ -209,9 +211,9 @@ def test_atomicity_nth_invalid_op_applies_nothing(make_project) -> None:
             declared_capabilities=(writes_cap,),
         )
     assert project.sheets() == [], "the created sheet must have been rolled back"
-    assert project.get_meta("op_cursor") == cursor_before
+    assert project.get_meta("change_cursor") == cursor_before
     assert (
-        project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
+        project.db.execute("SELECT COUNT(*) AS n FROM changes").fetchone()["n"]
         == op_rows_before
     )
 
@@ -242,7 +244,9 @@ def test_success_applies_atomically_records_one_undoable_op_and_a_receipt(
             },
         ],
     }
-    op_rows_before = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
+    op_rows_before = project.db.execute("SELECT COUNT(*) AS n FROM changes").fetchone()[
+        "n"
+    ]
     receipt = apply_write_plan(
         project,
         plan,
@@ -259,7 +263,9 @@ def test_success_applies_atomically_records_one_undoable_op_and_a_receipt(
     assert project.row_count(sheet_id) == 2
 
     # Undo is ONE step: exactly one new op row, and it removes everything the plan created.
-    op_rows_after = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
+    op_rows_after = project.db.execute("SELECT COUNT(*) AS n FROM changes").fetchone()[
+        "n"
+    ]
     assert op_rows_after == op_rows_before + 1
 
     # Receipt carries {plugin id, manifest sha, plan hash, counts}.

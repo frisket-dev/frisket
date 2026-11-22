@@ -483,7 +483,7 @@ def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
         assert baseline["run"]["status"] == "ok"
         assert baseline["run"]["matched_rows"] == 2
         assert _notification_count(env) == 0
-    before = env.project.get_alert(alert_id)["last_evaluated_op"]
+    before = env.project.get_alert(alert_id)["last_evaluated_change"]
     seen = [
         dict(row) for row in env.project.db.execute("SELECT * FROM alert_seen_rows")
     ]
@@ -502,7 +502,7 @@ def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
     assert evaluation["run"]["status"] == "error"
     assert evaluation["run"]["error_code"] == "embedding_backend_unavailable"
     alert = env.project.get_alert(alert_id)
-    assert alert["last_evaluated_op"] == before
+    assert alert["last_evaluated_change"] == before
     assert alert["baseline_run_id"] == (baseline["run_id"] if baseline else None)
     assert [
         dict(row) for row in env.project.db.execute("SELECT * FROM alert_seen_rows")
@@ -540,13 +540,13 @@ def test_embedding_alert_accepts_complete_empty_result(env):
     index_id = _create_index(env, key="empty")
     _full_refresh(env, index_id)
     alert_id = _embedding_alert(env, index_id, anchor)
-    before = int(env.project.get_alert(alert_id)["last_evaluated_op"] or 0)
+    before = int(env.project.get_alert(alert_id)["last_evaluated_change"] or 0)
 
     evaluation = check_alert(env.project, env.project.get_alert(alert_id))
 
     assert evaluation["run"]["status"] == "ok"
     assert evaluation["run"]["matched_rows"] == 0
-    assert env.project.get_alert(alert_id)["last_evaluated_op"] > before
+    assert env.project.get_alert(alert_id)["last_evaluated_change"] > before
     assert _notification_count(env) == 0
 
 
@@ -655,7 +655,7 @@ def test_source_poll_skips_embedding_alerts_inline(env):
         "sheet_id": env.sheet,
         "feed_id": 1,
         "feed_check_id": 1,
-        "op_id": 1,
+        "change_id": 1,
         "row_ids": [_row_id(env, "story 1")],
     }
     affected = {

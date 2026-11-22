@@ -40,10 +40,10 @@ _REDUNDANT_INDEXES = {
 def _seed_ledgers(project: Project) -> None:
     project.db.execute("INSERT INTO sheets(id,name) VALUES(1,'Ledger')")
     project.db.execute(
-        "INSERT INTO ops(id,kind,spec) VALUES(1,'test.index_hygiene','{}')"
+        "INSERT INTO changes(id,kind,spec) VALUES(1,'test.index_hygiene','{}')"
     )
     project.db.execute(
-        "INSERT INTO runs(id,op_id,sheet_id,action_kind,status) "
+        "INSERT INTO runs(id,change_id,sheet_id,action_kind,status) "
         "VALUES(1,1,1,'test.index_hygiene','completed')"
     )
     project.db.execute(

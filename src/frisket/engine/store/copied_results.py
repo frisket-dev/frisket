@@ -14,7 +14,7 @@ from .transactions import require_transaction
 
 COPIED_RESULTS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS copied_result_outcomes (
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT,
+  change_id INTEGER NOT NULL REFERENCES changes(id) ON DELETE RESTRICT,
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
   source_run_id INTEGER,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS copied_result_outcomes (
   review_state TEXT NOT NULL DEFAULT 'unreviewed',
   review_decision TEXT CHECK(review_decision IN ('accept','reject','reject_clear','edit')),
   review_note TEXT,
-  PRIMARY KEY(op_id,row_id,column_id),
+  PRIMARY KEY(change_id,row_id,column_id),
   FOREIGN KEY(source_run_id,source_row_id,source_column_id)
     REFERENCES results(run_id,row_id,column_id) ON DELETE RESTRICT,
   CHECK ((source_run_id IS NULL AND source_row_id IS NULL AND source_column_id IS NULL)
@@ -143,7 +143,7 @@ def combined_execution_outcomes(
 
 
 def copy_staged_outcomes(
-    db: sqlite3.Connection, *, op_id: int, targets: dict[str, int]
+    db: sqlite3.Connection, *, change_id: int, targets: dict[str, int]
 ) -> None:
     """Publish a complete selected family with copied, independently mutable judgments."""
     from types import SimpleNamespace
@@ -153,7 +153,7 @@ def copy_staged_outcomes(
     from .purge import require_publication_targets
 
     require_transaction(db, "saved-result publication")
-    ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
+    ChangeStore(SimpleNamespace(db=db)).require_publication(change_id)
     require_publication_targets(
         db,
         column_ids=targets.values(),
@@ -163,12 +163,12 @@ def copy_staged_outcomes(
     )
     for role, target in targets.items():
         db.execute(
-            "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id,review_state,review_decision,review_note) "
+            "INSERT INTO copied_result_outcomes(change_id,row_id,column_id,source_run_id,source_row_id,source_column_id,review_state,review_decision,review_note) "
             "SELECT ?,selected.row_id,?,selected.source_run_id,selected.source_row_id,selected.source_column_id,"
             "COALESCE(original.review_state,'unreviewed'),original.review_decision,original.review_note "
             "FROM reapply_combined_outcomes selected LEFT JOIN results original "
             "ON original.run_id=selected.source_run_id AND original.row_id=selected.source_row_id "
             "AND original.column_id=selected.source_column_id WHERE selected.output_role=?",
-            (op_id, target, role),
+            (change_id, target, role),
         )
     refresh_current_cells(db, column_ids=list(targets.values()))

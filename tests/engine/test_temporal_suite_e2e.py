@@ -249,7 +249,7 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
             row_id=row_id,
             column_id=transcript_column_id,
             run_id=transcript_run_id,
-            op_id=transcript_op_id,
+            change_id=transcript_op_id,
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata={
@@ -654,7 +654,7 @@ def test_split_stage_failure_publishes_no_partial_children_or_lineage(
             "sheets",
             "columns",
             "rows",
-            "ops",
+            "changes",
             "blobs",
             "blob_derivations",
             "source_artifacts",

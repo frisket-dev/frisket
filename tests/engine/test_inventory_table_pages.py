@@ -85,7 +85,7 @@ def test_inventory_pages_share_action_receipt_and_resume_without_rereading(
         assert final.cursor == final.committed_rows == 5
         assert project.row_count(final.sheet_id) == 5
         assert project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 1
-        assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 1
+        assert project.db.execute("SELECT count(*) FROM changes").fetchone()[0] == 1
         assert (
             project.db.execute("SELECT count(*) FROM base_cell_producers").fetchone()[0]
             == 1

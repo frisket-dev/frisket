@@ -873,7 +873,7 @@ class AdmittedPositionedDocumentReader:
                     sheet_id=write.sheet_id,
                     row_id=output_row_id,
                     column_id=column_id,
-                    op_id=write.op_id,
+                    change_id=write.change_id,
                     receipt_id=receipt_id,
                     link_role="document_extraction",
                     producer={"action_kind": "media.extract_document"},

@@ -109,9 +109,9 @@ def test_run_result_store_reads_do_not_race_across_threads(make_project) -> None
     or other API misuse`` well inside the first few hundred iterations."""
     project = make_project("affinity")
     sheet_id = project.add_sheet("rows")
-    op_id = project.append_change("map.template", {"kind": "map.template"})
+    change_id = project.append_change("map.template", {"kind": "map.template"})
     store = RunResultStore(project)
-    run_id = store.start_run(op_id, sheet_id, "map.template", total_rows=0)
+    run_id = store.start_run(change_id, sheet_id, "map.template", total_rows=0)
     iterations = 2_000
     failures: list[BaseException] = []
     stop = threading.Event()

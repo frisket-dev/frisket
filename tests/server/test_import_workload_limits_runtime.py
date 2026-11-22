@@ -31,8 +31,8 @@ def _assert_no_import_residue(client: TestClient, project_id: str) -> None:
     assert project.sheets(include_hidden=True) == []
     assert {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("blobs", "sheets", "ops", "receipts")
-    } == {"blobs": 0, "sheets": 0, "ops": 0, "receipts": 0}
+        for table in ("blobs", "sheets", "changes", "receipts")
+    } == {"blobs": 0, "sheets": 0, "changes": 0, "receipts": 0}
     assert _visible_sheets(client, project_id) == []
 
 
@@ -80,7 +80,7 @@ def test_cell_edit_query_uses_create_app_deployment_limit(tmp_path: Path) -> Non
     )
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("ops", "edits", "receipts")
+        for table in ("changes", "edits", "receipts")
     }
 
     response = client.post(
@@ -110,7 +110,7 @@ def test_cell_edit_query_uses_create_app_deployment_limit(tmp_path: Path) -> Non
     assert result.errors[0].details == {"row_count": 3, "max_rows": 2}
     assert {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("ops", "edits", "receipts")
+        for table in ("changes", "edits", "receipts")
     } == before
 
 
@@ -411,8 +411,8 @@ def test_bulk_email_over_limit_closes_ingress_without_attachment_or_project_resi
     project = client.app.state.workspace.get(project_id)
     assert {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("blobs", "sheets", "ops", "receipts")
-    } == {"blobs": 0, "sheets": 0, "ops": 0, "receipts": 0}
+        for table in ("blobs", "sheets", "changes", "receipts")
+    } == {"blobs": 0, "sheets": 0, "changes": 0, "receipts": 0}
     assert _visible_sheets(client, project_id) == []
 
 

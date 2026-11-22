@@ -157,10 +157,10 @@ def test_managed_semantic_cells_follow_canonical_owner_not_legacy_head_cache(
     project.db.execute("DELETE FROM cell_result_heads WHERE column_id=?", (column,))
     project.db.commit()
     if revert_owner:
-        from frisket.engine.store.op_log import step_operation
+        from frisket.engine.store.change_log import step_change
 
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=matched.op_ids[0])
+            step_change(project, "revert", change_id=matched.change_ids[0])
     result = run_action_spec(
         project, link_request(matched.receipt_id), project_id="test"
     )

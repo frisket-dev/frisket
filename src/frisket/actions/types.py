@@ -244,7 +244,7 @@ class FeedPollOutput(BaseModel):
     materialized_rows: int
     row_ids: list[int] = Field(default_factory=list)
     enclosure_row_ids: list[int] = Field(default_factory=list)
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
     skipped_rows: int = 0
     changed_rows: int = 0
@@ -609,7 +609,7 @@ class PatchedColumn:
     column_type: str
     format_before: str | None
     format_after: str | None
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
@@ -620,7 +620,7 @@ class CreatedColumn:
     name: str
     column_type: str
     position: int
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
@@ -628,7 +628,7 @@ class CreatedRow:
     sheet_id: int
     row_id: int
     total: int
-    op_id: int
+    change_id: int
     cells: Mapping[str, Any]
     column_ids: Mapping[str, int]
 
@@ -642,7 +642,7 @@ class AppendedRows:
     sheet_id: int
     row_ids: tuple[int, ...]
     total: int
-    op_id: int
+    change_id: int
     column_ids: Mapping[str, int]
     source: Mapping[str, Any]
 
@@ -656,7 +656,7 @@ class UpdatedImportedRows:
     sheet_id: int
     row_ids: tuple[int, ...]
     edit_count: int
-    op_id: int | None
+    change_id: int | None
     column_ids: Mapping[str, int]
     source: Mapping[str, Any]
 
@@ -670,7 +670,7 @@ class DeletedRows:
     sheet_id: int
     row_ids: tuple[int, ...]
     total: int
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
@@ -681,12 +681,12 @@ class RetypedColumn:
     column_name: str
     type_before: str
     type_after: str
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
 class EditedCells:
-    op_id: int
+    change_id: int
     targets: tuple[tuple[int, int], ...]
 
 
@@ -697,30 +697,30 @@ class QueryEditedCells:
     column_name: str
     query_hash: str
     row_ids: tuple[int, ...]
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
 class ReviewDecision:
     run_id: int | None
-    copied_op_id: int | None
+    copied_change_id: int | None
     row_id: int
     column_id: int
     decision: Literal["accept", "reject", "reject_clear", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
     review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
 class ReviewNote:
     run_id: int | None
-    copied_op_id: int | None
+    copied_change_id: int | None
     row_id: int
     note: str | None
     column_count: int
-    op_id: int
+    change_id: int
 
 
 @dataclass(frozen=True)
@@ -732,7 +732,7 @@ class AcceptedReplayValue:
     generated_value_hash: str
     accepted: bool
     pending_count: int
-    op_id: int | None
+    change_id: int | None
 
 
 @dataclass(frozen=True)
@@ -741,7 +741,7 @@ class AcceptedReplayColumn:
     column_id: int
     accepted: int
     pending_count: int
-    op_id: int | None
+    change_id: int | None
 
 
 @dataclass(frozen=True)
@@ -755,9 +755,9 @@ class DismissedReplayValue:
 
 
 @dataclass(frozen=True)
-class OperationTransition:
-    op_id: int
-    operation_kind: str
+class ChangeTransition:
+    change_id: int
+    change_kind: str
     direction: Literal["undo", "redo", "revert", "restore"]
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
@@ -859,7 +859,7 @@ class ColumnPatchActionOutput(BaseModel):
     column_id: int
     format_before: str | None = None
     format_after: str | None = None
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -871,7 +871,7 @@ class ColumnAddActionOutput(BaseModel):
     name: str
     type: str
     position: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -881,7 +881,7 @@ class RowAddActionOutput(BaseModel):
     sheet_id: int
     row_id: int
     total: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -892,7 +892,7 @@ class RowsAppendActionOutput(BaseModel):
     row_ids: list[int] = Field(default_factory=list)
     row_count: int
     total: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -903,7 +903,7 @@ class RowDeleteActionOutput(BaseModel):
     row_ids: list[int] = Field(default_factory=list)
     deleted: int
     total: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -914,7 +914,7 @@ class ColumnSetTypeActionOutput(BaseModel):
     column_id: int
     type_before: str
     type_after: str
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -931,7 +931,7 @@ class CellEditActionOutput(BaseModel):
 
     edit_count: int
     targets: list[CellTargetActionOutput]
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -943,7 +943,7 @@ class CellEditQueryActionOutput(BaseModel):
     query_hash: str
     row_ids: list[int] = Field(default_factory=list)
     edit_count: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -951,14 +951,14 @@ class ReviewDecisionActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     run_id: int | None
-    copied_op_id: int | None
+    copied_change_id: int | None
     row_id: int
     column_id: int
     decision: Literal["accept", "reject", "reject_clear", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
     review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -966,11 +966,11 @@ class ReviewNoteActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     run_id: int | None
-    copied_op_id: int | None
+    copied_change_id: int | None
     row_id: int
     note: str | None
     column_count: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -984,7 +984,7 @@ class ReplayAcceptActionOutput(BaseModel):
     generated_value_hash: str
     accepted: bool
     pending_count: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -995,7 +995,7 @@ class ReplayAcceptColumnActionOutput(BaseModel):
     column_id: int
     accepted: int
     pending_count: int
-    op_ids: list[int] = Field(default_factory=list)
+    change_ids: list[int] = Field(default_factory=list)
     receipt_id: str | None = None
 
 
@@ -1011,11 +1011,11 @@ class ReplayDismissActionOutput(BaseModel):
     receipt_id: str | None = None
 
 
-class OperationStepActionOutput(BaseModel):
+class ChangeStepActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    op_id: int
-    operation_kind: str
+    change_id: int
+    change_kind: str
     direction: Literal["undo", "redo", "revert", "restore"]
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
@@ -1258,7 +1258,7 @@ class ReviewDecider(Protocol):
         self,
         *,
         run_id: int | None,
-        copied_op_id: int | None,
+        copied_change_id: int | None,
         row_id: int,
         column_id: int,
         decision: Literal["accept", "reject", "reject_clear", "clear"],
@@ -1272,7 +1272,7 @@ class ReviewNoter(Protocol):
         self,
         *,
         run_id: int | None,
-        copied_op_id: int | None,
+        copied_change_id: int | None,
         row_id: int,
         note: str | None,
     ) -> ReviewNote: ...
@@ -1308,14 +1308,14 @@ class ReplayValueDismissor(Protocol):
     ) -> DismissedReplayValue: ...
 
 
-class OperationUndoer(Protocol):
-    def undo(self, *, expected_op_id: int | None) -> OperationTransition: ...
-    def revert(self, *, op_id: int) -> OperationTransition: ...
+class ChangeUndoer(Protocol):
+    def undo(self, *, expected_change_id: int | None) -> ChangeTransition: ...
+    def revert(self, *, change_id: int) -> ChangeTransition: ...
 
 
-class OperationRedoer(Protocol):
-    def redo(self, *, expected_op_id: int | None) -> OperationTransition: ...
-    def restore(self, *, op_id: int) -> OperationTransition: ...
+class ChangeRedoer(Protocol):
+    def redo(self, *, expected_change_id: int | None) -> ChangeTransition: ...
+    def restore(self, *, change_id: int) -> ChangeTransition: ...
 
 
 class QueryPreviewer(Protocol):

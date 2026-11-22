@@ -29,7 +29,7 @@ function seed(): ActionComparisonContext {
     sample_row_ids: [101], sample_fingerprint: 'inputs', locked_params: [], source_columns: [], source_rows: {},
     generated_columns: [{ logical_key: 'answer', column_id: 13, current_name: 'answer', column_type: 'text', format: null, hidden: false, schema: {} }],
     expected_output_signature: 'output', replacement_targets: [{ logical_key: 'answer', current_name: 'answer', column_id: 13 }],
-    baseline_rows: { 101: { answer: { state: 'value', value: 'A', origin: { kind: 'run_result', run_id: 41, op_id: 9, review_decision: null } } } },
+    baseline_rows: { 101: { answer: { state: 'value', value: 'A', origin: { kind: 'run_result', run_id: 41, change_id: 9, review_decision: null } } } },
     origin_summary: { mixed_runs: false, includes_manual_edits: false, includes_reject_clear: false },
   };
 }

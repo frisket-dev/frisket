@@ -791,7 +791,7 @@ def review_runs_page(
     *,
     sheet_id: int | None = None,
     run_id: int | None = None,
-    copied_op_id: int | None = None,
+    copied_change_id: int | None = None,
     offset: int = 0,
     limit: int = 25,
 ) -> dict[str, Any]:
@@ -800,10 +800,10 @@ def review_runs_page(
     from .copied_review import copied_review_source
     from frisket.authoring.action_metadata import action_supports_row_retry
 
-    if copied_op_id is not None:
+    if copied_change_id is not None:
         if run_id is not None:
             raise ValueError("select one review source")
-        source = copied_review_source(project, copied_op_id)
+        source = copied_review_source(project, copied_change_id)
         return offset_page_payload(
             "frisket.review_runs_page.v1",
             items=[source] if source else [],
@@ -853,13 +853,13 @@ def review_runs_page(
         f"AND saved.outcome IN ({REVIEWABLE_OUTCOMES_SQL})))))"
     )
     where = " AND ".join(f"({item})" for item in filters)
-    source_sql = f"""SELECT runs.id run_id,NULL copied_op_id,runs.sheet_id,sheets.name sheet_name,
+    source_sql = f"""SELECT runs.id run_id,NULL copied_change_id,runs.sheet_id,sheets.name sheet_name,
         runs.action_kind,runs.model,runs.started_at,runs.review_completed_at,(runs.status='running') running
         FROM runs JOIN sheets ON sheets.id=runs.sheet_id WHERE {where}"""
     if run_id is None:
         copy_filter = "AND col.sheet_id=?" if sheet_id is not None else ""
         source_sql += f""" UNION ALL SELECT NULL,op.id,col.sheet_id,sheet.name,'run.reapply',NULL,op.created_at,NULL,0
-            FROM ops op JOIN copied_result_values copy ON copy.op_id=op.id
+            FROM changes op JOIN copied_result_values copy ON copy.change_id=op.id
             JOIN columns col ON col.id=copy.column_id JOIN sheets sheet ON sheet.id=col.sheet_id
             JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id
             WHERE op.status='applied' AND col.active=1 AND sheet.hidden=0 AND json_extract(binding.value,'$.review_role')='field'
@@ -870,7 +870,7 @@ def review_runs_page(
         project.db.execute(f"SELECT COUNT(*) FROM ({source_sql})", params).fetchone()[0]
     )
     run_rows = project.db.execute(
-        f"SELECT * FROM ({source_sql}) ORDER BY started_at DESC,COALESCE(run_id,copied_op_id) DESC LIMIT ? OFFSET ?",
+        f"SELECT * FROM ({source_sql}) ORDER BY started_at DESC,COALESCE(run_id,copied_change_id) DESC LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
     fields_by_run = {
@@ -880,8 +880,8 @@ def review_runs_page(
     }
     runs = []
     for row in run_rows:
-        if row["copied_op_id"] is not None:
-            source = copied_review_source(project, int(row["copied_op_id"]))
+        if row["copied_change_id"] is not None:
+            source = copied_review_source(project, int(row["copied_change_id"]))
             if source is not None:
                 runs.append(source)
             continue
@@ -986,7 +986,7 @@ def queue_count(project: Project, *, run_id: int | None = None) -> int:
             """
         ).fetchone()
     copies = project.db.execute("""SELECT COUNT(*) FROM copied_result_values copy
-        JOIN ops op ON op.id=copy.op_id JOIN columns col ON col.id=copy.column_id
+        JOIN changes op ON op.id=copy.change_id JOIN columns col ON col.id=copy.column_id
         JOIN sheets sheet ON sheet.id=col.sheet_id JOIN rows target ON target.id=copy.row_id
         JOIN json_each(op.spec,'$.output_bindings') binding ON json_extract(binding.value,'$.column_id')=copy.column_id
         WHERE op.status='applied' AND col.active=1 AND sheet.hidden=0 AND target.hidden=0

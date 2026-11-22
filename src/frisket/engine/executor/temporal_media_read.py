@@ -374,7 +374,7 @@ class AdmittedTemporalMediaReader:
     def publication_supporting_records(self, write, rows, *, receipt_id):
         supporting_records = []
         producer_id = create_base_cell_producer(
-            self.project.db, stage_id=f"op:{write.op_id}", op_id=write.op_id
+            self.project.db, stage_id=f"op:{write.change_id}", change_id=write.change_id
         )
         for bindings, row_id, row in zip(
             self.occurrences, write.row_ids, rows, strict=True

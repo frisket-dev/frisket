@@ -89,7 +89,7 @@ def test_materialized_row_sources_schema_is_created_on_a_fresh_bundle(
     required_indexes = {
         "idx_materialized_row_sources_source",
         "idx_materialized_row_sources_materialized",
-        "idx_materialized_row_sources_op",
+        "idx_materialized_row_sources_change",
     }
     assert "edge_source" in _membership_schema_sql(project)
     assert "edge_target" in _membership_schema_sql(project)
@@ -107,20 +107,20 @@ def test_materialized_row_sources_schema_is_created_on_a_fresh_bundle(
     child_row = project.add_rows(child_sheet, [{"name": "child"}], {"name": child_col})[
         0
     ]
-    op_id = project.append_change("test.materialized_row_sources")
+    change_id = project.append_change("test.materialized_row_sources")
     project.db.execute(
         "INSERT INTO materialized_row_sources "
-        "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+        "(materialized_row_id, source_row_id, source_sheet_id, change_id, role) "
         "VALUES (?, ?, ?, ?, ?)",
-        (child_row, source_row, source_sheet, op_id, "edge_source"),
+        (child_row, source_row, source_sheet, change_id, "edge_source"),
     )
     project.db.commit()
     try:
         project.db.execute(
             "INSERT INTO materialized_row_sources "
-            "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+            "(materialized_row_id, source_row_id, source_sheet_id, change_id, role) "
             "VALUES (?, ?, ?, ?, ?)",
-            (child_row, source_row, source_sheet, op_id, "parent"),
+            (child_row, source_row, source_sheet, change_id, "parent"),
         )
     except sqlite3.IntegrityError:
         project.db.rollback()
@@ -130,9 +130,9 @@ def test_materialized_row_sources_schema_is_created_on_a_fresh_bundle(
     try:
         project.db.execute(
             "INSERT INTO materialized_row_sources "
-            "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+            "(materialized_row_id, source_row_id, source_sheet_id, change_id, role) "
             "VALUES (?, ?, ?, ?, ?)",
-            (child_row, source_row, source_sheet, op_id, "edge_source"),
+            (child_row, source_row, source_sheet, change_id, "edge_source"),
         )
     except sqlite3.IntegrityError:
         project.db.rollback()
@@ -277,9 +277,9 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
 
     rows = project.db.execute(
         "SELECT materialized_row_id, source_row_id, source_sheet_id, role "
-        "FROM materialized_row_sources WHERE op_id=? "
+        "FROM materialized_row_sources WHERE change_id=? "
         "ORDER BY materialized_row_id, role",
-        (result.op_ids[0],),
+        (result.change_ids[0],),
     ).fetchall()
     assert len(rows) == len(child_row_ids) * 2
     by_child = {
@@ -317,7 +317,7 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
     membership_ref = next(
         ref for ref in refs if ref["kind"] == "materialized_row_sources"
     )
-    assert membership_ref["op_id"] == result.op_ids[0]
+    assert membership_ref["change_id"] == result.change_ids[0]
     assert membership_ref["row_count"] == len(rows)
     assert {row["role"] for row in membership_ref["rows"]} == {
         "edge_source",
@@ -354,7 +354,7 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
         project,
         result.receipt_id,
         "materialized_rows",
-        lambda ref: ref.__setitem__("op_id", result.op_ids[0] + 1),
+        lambda ref: ref.__setitem__("change_id", result.change_ids[0] + 1),
     )
     stale_from_op_drift = executor_actions.run_action_spec(
         project,
@@ -368,10 +368,10 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
     first_edge_target = next(row for row in rows if row["role"] == "edge_target")
     project.db.execute(
         "DELETE FROM materialized_row_sources "
-        "WHERE op_id=? AND role='edge_target' "
+        "WHERE change_id=? AND role='edge_target' "
         "AND materialized_row_id=? AND source_row_id=?",
         (
-            result.op_ids[0],
+            result.change_ids[0],
             int(first_edge_target["materialized_row_id"]),
             int(first_edge_target["source_row_id"]),
         ),

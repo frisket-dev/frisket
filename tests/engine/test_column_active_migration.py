@@ -114,7 +114,7 @@ def test_upgrade_frees_only_undone_names_and_preserves_history(tmp_path):
         is not None
     )
     assert project.db.execute(
-        "SELECT op_id,row_id,column_id,value_kind,value FROM edits"
+        "SELECT change_id,row_id,column_id,value_kind,value FROM edits"
     ).fetchone()[:] == (1, 1, 1, "text", "edited")
     assert project.db.execute(
         "SELECT run_id,row_id,column_id,value_kind,value,outcome FROM results"
@@ -126,7 +126,7 @@ def test_upgrade_frees_only_undone_names_and_preserves_history(tmp_path):
         "SELECT value_kind,value FROM current_cell_values WHERE column_id=1"
     ).fetchone()[:] == ("text", "old")
     assert 1 not in {column["id"] for column in project.columns(1, include_hidden=True)}
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 3
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 3
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
     assert project.db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert project.db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0

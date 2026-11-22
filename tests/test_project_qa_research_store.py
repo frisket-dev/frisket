@@ -284,14 +284,12 @@ def test_research_pause_column_migration_preserves_pending_pause(
     }
     paused = store.publish_pause(research_row["id"], pending)
     path = project.path
+    _downgrade_to_pre_citations_schema(project.db)
     project.db.execute("BEGIN")
     project.db.execute(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
-    project.db.commit()
-    _downgrade_to_pre_citations_schema(project.db)
-    project.db.execute("BEGIN")
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",
         (CONSENT_ESTIMATE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

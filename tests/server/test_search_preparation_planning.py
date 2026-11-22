@@ -182,7 +182,7 @@ def test_prepared_pdf_result_must_match_current_page_selector(
         {"document": document},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.read_pdf_text")
+    change_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -196,7 +196,7 @@ def test_prepared_pdf_result_must_match_current_page_selector(
     store = PreparedContentStore(project)
     whole = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(
             PreparedPageDraft(1, "prepared first page"),
             PreparedPageDraft(2, "prepared second page"),
@@ -512,7 +512,7 @@ def test_pdf_preview_uses_latest_current_prepared_output(
         "page_count": 1,
     }
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.read_pdf_text")
+    change_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -526,13 +526,13 @@ def test_pdf_preview_uses_latest_current_prepared_output(
     store = PreparedContentStore(project)
     original = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(PreparedPageDraft(1, "garbled native text"),),
     )
     positions = [{"text": "correct OCR", "bbox": [0.1, 0.2, 0.3, 0.4]}]
     replacement = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(PreparedPageDraft(1, "correct OCR", positions=positions),),
     )
     project.db.commit()
@@ -632,7 +632,7 @@ def test_prepared_pdf_preview_reads_bounded_exact_page_with_nul(
         {"document": document},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("media.read_pdf_text")
+    change_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -646,7 +646,7 @@ def test_prepared_pdf_preview_reads_bounded_exact_page_with_nul(
     body = "prefix\x00" + "é" * 1_000_000
     reference = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(
             PreparedPageDraft(1, "other page" * 100000),
             PreparedPageDraft(2, body),
@@ -717,7 +717,7 @@ def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
     store = PreparedContentStore(project)
     ref = store.stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op,
+        producing_change_id=op,
         pages=[
             PreparedPageDraft(1, "searchable sparse content"),
             PreparedPageDraft(2, ""),
@@ -825,7 +825,7 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
     store = PreparedContentStore(project)
     older = store.stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op,
+        producing_change_id=op,
         pages=[
             PreparedPageDraft(1, "hello one"),
             PreparedPageDraft(2, "hello two"),
@@ -833,7 +833,7 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
     )
     newer = store.stage_reference(
         source_artifact_id=artifact["id"],
-        producing_op_id=op,
+        producing_change_id=op,
         pages=[PreparedPageDraft(n, text) for n, text in newer_pages],
         allow_partial=True,
     )
@@ -928,7 +928,7 @@ def test_empty_native_text_allows_one_ocr_preparation_pass(
         op = project.append_change_in_transaction("media.ocr")
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact,
-            producing_op_id=op,
+            producing_change_id=op,
             pages=[PreparedPageDraft(1, "")],
         )
     project.apply_edits([{"row_id": row, "column_id": text_column, "value": prepared}])

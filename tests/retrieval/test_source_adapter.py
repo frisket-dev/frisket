@@ -197,7 +197,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(make_project) -> 
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change_in_transaction("prepare.test")
+    change_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -207,7 +207,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(make_project) -> 
     store = PreparedContentStore(project)
     selected = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(
             PreparedPageDraft(1, "selected one"),
             PreparedPageDraft(2, "selected two"),
@@ -215,7 +215,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(make_project) -> 
     )
     newer = store.stage_reference(
         source_artifact_id=int(artifact["id"]),
-        producing_op_id=op_id,
+        producing_change_id=change_id,
         pages=(
             PreparedPageDraft(1, "newer one"),
             PreparedPageDraft(2, "newer two"),

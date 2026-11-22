@@ -76,7 +76,7 @@ def _runtime(tmp_path, monkeypatch):
     from pypdf import PdfWriter
     from frisket.ai.llm import LLMResponse, ModelRouter
     from frisket.engine.store.citations import record_source_artifact
-    from frisket.engine.store.op_log import append_change
+    from frisket.engine.store.change_log import append_change
     from frisket.server.services.action_preview_runs import ActionPreviewRunService
     from frisket.server.services.pdf_split_preparation import PdfSplitPreparationAdapter
     from frisket.server.workspace import Workspace
@@ -218,7 +218,7 @@ def test_actual_scratch_receipt_reads_original_page_once_and_retains_reference(
             project.db.execute("SELECT COUNT(*) FROM execution_attempts").fetchone()[0]
             == 1
         )
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+        assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 1
         assert (
             adapter.estimate(targets=[read], plan_token="admitted-plan")["pages"] == 0
         )
@@ -372,7 +372,7 @@ def _admit_split(adapter, project, read, estimated):
     writer.finalize(expected_cursor=1)
     columns = {row["name"]: row["id"] for row in project.columns(writer.sheet_id)}
     binding = PdfSplitChildBinding(
-        session.op_id,
+        session.change_id,
         "generation-one",
         "split-one",
         "first",
@@ -388,7 +388,7 @@ def _admit_split(adapter, project, read, estimated):
     adapter.approve(estimated, confirmation=estimated["estimate"]["promise_set_hash"])
     with PdfSplitPreparationStore(adapter.inventory_path) as store:
         store.admit(
-            operation_id=session.op_id,
+            operation_id=session.change_id,
             generation="generation-one",
             session_id="split-one",
             targets=[read],
@@ -413,16 +413,16 @@ def test_automatic_page_fanout_is_owned_by_split_without_new_operation(
         ]
         estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
         writer = _admit_split(adapter, project, read, estimated)
-        count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        count = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         jobs = adapter.start_pending(generation="generation-one")
         results = _wait_preview(preview, jobs)
         assert results[0]["status"] == "done", results
         assert len(published) == 1
-        assert published[0][0].operation_id == writer.op_id
+        assert published[0][0].operation_id == writer.change_id
         assert (
             PreparedContentStore(project).resolve(published[0][1]).text == "Read page"
         )
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count
+        assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == count
         assert provider.calls == 1
         project.undo()
         project.redo()
@@ -513,7 +513,7 @@ def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebillin
         ]
         estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
         _admit_split(adapter, project, read, estimated)
-        operations = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        operations = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         cells = [tuple(row) for row in project.db.execute("SELECT * FROM cells")]
         jobs = adapter.start_pending(generation="generation-one")
         assert entered.wait(5)
@@ -544,7 +544,8 @@ def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebillin
             tuple(row) for row in project.db.execute("SELECT * FROM cells")
         ] == cells
         assert (
-            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == operations
+            project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+            == operations
         )
         assert (
             project.db.execute(

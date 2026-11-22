@@ -4,7 +4,7 @@ import pytest
 
 from frisket.engine.store.consumed_source_pages import iter_consumed_source_pages
 from frisket.engine.store.consumed_sources import bundle_state, store_capture
-from frisket.engine.store.op_log import step_operation
+from frisket.engine.store.change_log import step_change
 from test_consumed_source_freshness import _seed
 
 
@@ -31,7 +31,7 @@ def test_pages_bound_values_and_refs_and_preserve_whole_vs_selected_intent(
     assert capture["scopes"][0]["cohort"] == (rows[:2] if selected else None)
     with project.transaction_scope():
         bundle = store_capture(
-            project, capture, owner_op_id=owner, output_sheet_id=sheet
+            project, capture, owner_change_id=owner, output_sheet_id=sheet
         )
     assert bundle_state(project, bundle) == "fresh"
     project.add_rows(sheet, [{"input": "appended"}], {"input": column})
@@ -41,7 +41,7 @@ def test_pages_bound_values_and_refs_and_preserve_whole_vs_selected_intent(
     )
     assert bundle_state(project, bundle) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=edit)
+        step_change(project, "revert", change_id=edit)
     assert bundle_state(project, bundle) == ("fresh" if selected else "stale")
 
 
@@ -57,7 +57,7 @@ def test_empty_whole_scope_captures_descriptor_and_membership(make_project):
         )
     with project.transaction_scope():
         bundle = store_capture(
-            project, captures[0], owner_op_id=owner, output_sheet_id=sheet
+            project, captures[0], owner_change_id=owner, output_sheet_id=sheet
         )
     assert bundle_state(project, bundle) == "fresh"
     project.add_rows(sheet, [{"input": "new"}], {"input": column})
@@ -97,6 +97,6 @@ def test_frozen_execution_cohort_retains_independent_source_scope_intent(
     assert consumed == frozen
     with project.transaction_scope():
         bundle = store_capture(
-            project, captures[0], owner_op_id=owner, output_sheet_id=sheet
+            project, captures[0], owner_change_id=owner, output_sheet_id=sheet
         )
     assert bundle_state(project, bundle) == ("stale" if intent == "whole" else "fresh")

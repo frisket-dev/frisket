@@ -73,7 +73,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
     sheet_id = seeded["sheet_id"]
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert result.outputs[0].kind == "rows"
     assert result.outputs[0].name == "added_rows"
     assert len(result.outputs[0].row_ids) == 1
@@ -88,7 +88,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     )
 
     op = project.db.execute(
-        "SELECT * FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT * FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert op["kind"] == "add_row"
@@ -101,7 +101,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "row.add"
-    assert receipt.op_ids == list(result.op_ids)
+    assert receipt.change_ids == list(result.change_ids)
     assert receipt.outputs[0].name == "added_rows"
     assert receipt.outputs[0].ref["kind"] == "added_rows"
     assert {item.ref["kind"] for item in receipt.records} >= {
@@ -167,7 +167,7 @@ CASES = [
                 prepare=_hide_sheet,
             ),
         ),
-        expect_counts={"rows": 1, "cells": 2, "ops": 1, "receipts": 1},
+        expect_counts={"rows": 1, "cells": 2, "changes": 1, "receipts": 1},
         check_state=_check_state,
         undo=UndoRerun(check_undone=_check_undone),
         request_style="typed",
@@ -183,7 +183,7 @@ def test_row_add_rolls_back_mutation_when_receipt_insert_fails(
     project = make_project("row-add-rollback")
     seeded = _seed(project, tmp_path)
     before_rows = project.row_count(seeded["sheet_id"])
-    before_ops = int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
+    before_ops = int(project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0])
 
     def fail_insert(*args, **kwargs):
         raise RuntimeError("receipt unavailable")
@@ -203,6 +203,7 @@ def test_row_add_rolls_back_mutation_when_receipt_insert_fails(
     assert result.errors[0].code == "project_write_failed"
     assert project.row_count(seeded["sheet_id"]) == before_rows
     assert (
-        int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]) == before_ops
+        int(project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0])
+        == before_ops
     )
     assert project.db.execute("SELECT 1 FROM receipts").fetchone() is None

@@ -435,8 +435,10 @@ def _write_media_enclosure_receipt(
     status: FinishedWorkStatus,
     errors: list[ActionError],
 ) -> ActionResult:
-    op_ids = [
-        int(item["op_id"]) for item in row_results if isinstance(item.get("op_id"), int)
+    change_ids = [
+        int(item["change_id"])
+        for item in row_results
+        if isinstance(item.get("change_id"), int)
     ]
     refs = _media_enclosure_refs(
         sheet_id=sheet_id,
@@ -452,7 +454,7 @@ def _write_media_enclosure_receipt(
         project_id=project_id,
         receipt_id=receipt_id,
         params_hash=params_hash,
-        op_ids=op_ids,
+        change_ids=change_ids,
         refs=refs,
         status=status,
         errors=errors,
@@ -472,7 +474,7 @@ def _write_media_enclosure_receipt(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status=status,
         project_id=project_id,
-        op_ids=op_ids,
+        change_ids=change_ids,
         outputs=outputs,
         receipt_id=receipt_id,
         errors=errors,
@@ -505,7 +507,7 @@ def _media_enclosure_row_result(
         "media": media if isinstance(media, dict) else None,
         "media_column_id": media_col,
         "blob": dict(blob_row) if blob_row is not None else None,
-        "op_id": result.get("op_id"),
+        "change_id": result.get("change_id"),
     }
 
 
@@ -591,7 +593,7 @@ def _media_enclosure_refs(
             "filename": (item.get("media") or {}).get("filename")
             if isinstance(item.get("media"), dict)
             else None,
-            "op_id": item.get("op_id"),
+            "change_id": item.get("change_id"),
             "may_feed": ["media.transcribe"]
             if _is_materialized_media_ref(item)
             else [],
@@ -680,7 +682,7 @@ def _media_enclosure_receipt(
     project_id: str,
     receipt_id: str,
     params_hash: str,
-    op_ids: list[int],
+    change_ids: list[int],
     refs: dict[str, Any],
     status: FinishedWorkStatus,
     errors: list[ActionError],
@@ -694,7 +696,7 @@ def _media_enclosure_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=op_ids,
+        change_ids=change_ids,
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status=status,

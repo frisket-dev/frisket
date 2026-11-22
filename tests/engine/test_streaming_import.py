@@ -55,7 +55,7 @@ def _start(
 def _counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "cells", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "cells", "changes", "receipts")
     }
 
 
@@ -103,12 +103,14 @@ def test_resumable_session_reopens_without_duplicate_rows(make_project) -> None:
     session = ImportSessionStore(project).get("import:one")
     assert session is not None and session.state == "completed"
     assert session.cursor == 4 and session.committed_rows == 4
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
-    producer = project.db.execute("SELECT id,op_id FROM base_cell_producers").fetchone()
-    assert producer is not None and producer["op_id"] == publication.op_id
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 1
+    producer = project.db.execute(
+        "SELECT id,change_id FROM base_cell_producers"
+    ).fetchone()
+    assert producer is not None and producer["change_id"] == publication.change_id
     receipt = ReceiptStore(project).find_by_id(publication.receipt_id)
     assert receipt is not None and receipt.status == "completed"
-    assert receipt.parsed().op_ids == [publication.op_id]
+    assert receipt.parsed().change_ids == [publication.change_id]
     assert (
         project.db.execute("SELECT COUNT(DISTINCT producer_id) FROM cells").fetchone()[
             0
@@ -142,7 +144,7 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
     stored = ReceiptStore(project).find_by_id("receipt:inventory-one")
     assert stored is not None
     adopted = stored.parsed()
-    assert adopted.op_ids == [writer._op_id]
+    assert adopted.change_ids == [writer._op_id]
     assert adopted.inputs[:-1] == reserved.inputs
     assert adopted.inputs[-1] == ReceiptIO(
         name="source",
@@ -276,7 +278,7 @@ def test_cancelled_session_removal_retains_saved_data_for_restore(
     )
     project.db.execute(
         "INSERT INTO citations "
-        "(stable_id,subject_kind,sheet_id,op_id,receipt_id) VALUES (?,?,?,?,?)",
+        "(stable_id,subject_kind,sheet_id,change_id,receipt_id) VALUES (?,?,?,?,?)",
         (
             "evidence:session",
             "cell_value",
@@ -307,10 +309,10 @@ def test_cancelled_session_removal_retains_saved_data_for_restore(
     assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
     removed_receipt = ReceiptStore(project).find_by_id("receipt:inventory-one")
     assert removed_receipt is not None and removed_receipt.status == "cancelled"
-    assert removed_receipt.parsed().op_ids == [writer._op_id]
+    assert removed_receipt.parsed().change_ids == [writer._op_id]
     assert (
         project.db.execute(
-            "SELECT barrier FROM ops WHERE id=?", (writer._op_id,)
+            "SELECT barrier FROM changes WHERE id=?", (writer._op_id,)
         ).fetchone()[0]
         == 0
     )
@@ -381,10 +383,10 @@ def test_staging_producer_links_admitted_receipt_before_publish(make_project) ->
     writer = _start(project, receipt_id="receipt:admitted")
 
     producer = project.db.execute(
-        "SELECT stage_id,op_id FROM base_cell_producers"
+        "SELECT stage_id,change_id FROM base_cell_producers"
     ).fetchone()
     assert producer is not None
-    assert producer["op_id"] is None
+    assert producer["change_id"] is None
     assert "receipt:admitted" in producer["stage_id"]
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
@@ -500,7 +502,7 @@ def test_committed_batches_stay_hidden_until_atomic_publish(client) -> None:
         json={"title_column_id": subject_column_id},
     )
     assert patch.status_code == 404, patch.text
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
     published = writer.publish()
@@ -540,7 +542,9 @@ def _publish_with_rows(
     for start in range(0, count, 2):
         writer.append_rows(_records(start, min(start + 2, count)))
     result = writer.publish()
-    op = project.db.execute("SELECT * FROM ops WHERE id=?", (result.op_id,)).fetchone()
+    op = project.db.execute(
+        "SELECT * FROM changes WHERE id=?", (result.change_id,)
+    ).fetchone()
     receipt = project.db.execute(
         "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
     ).fetchone()
@@ -588,7 +592,7 @@ def test_publish_metadata_is_compact_instead_of_enumerating_rows(
         assert receipt.params_hash == f"sha256:caller-{name}"
         assert receipt.action_id == f"act:caller-{name}"
         assert receipt.status == "completed"
-        assert receipt.op_ids == [result.op_id]
+        assert receipt.change_ids == [result.change_id]
         source_input = next(item for item in receipt.inputs if item.name == "source")
         assert source_input.ref == {
             "kind": "file",
@@ -603,7 +607,7 @@ def test_publish_metadata_is_compact_instead_of_enumerating_rows(
         assert sheet_output.ref == {
             "kind": "materialized_sheet",
             "sheet_id": result.sheet_id,
-            "op_id": result.op_id,
+            "change_id": result.change_id,
             "row_count": count,
             "columns": {
                 column["name"]: column["id"]
@@ -619,7 +623,7 @@ def test_publish_metadata_is_compact_instead_of_enumerating_rows(
             "kind": "source_rows",
             "sheet_id": result.sheet_id,
             "row_count": count,
-            "op_id": result.op_id,
+            "change_id": result.change_id,
         }
 
     small_spec = str(small_op["spec"])
@@ -633,9 +637,9 @@ def test_publish_metadata_is_compact_instead_of_enumerating_rows(
 
     assert [row["name"] for row in project.sheets()] == ["Small", "Large"]
     assert project.row_count(large_result.sheet_id) == 80
-    assert project.undo() == large_result.op_id
+    assert project.undo() == large_result.change_id
     assert [row["name"] for row in project.sheets()] == ["Small"]
-    assert project.redo() == large_result.op_id
+    assert project.redo() == large_result.change_id
     assert [row["name"] for row in project.sheets()] == ["Small", "Large"]
     assert project.row_count(large_result.sheet_id) == 80
 
@@ -654,7 +658,7 @@ def test_abort_removes_all_committed_partial_sheet_state(make_project) -> None:
         "columns": 0,
         "rows": 0,
         "cells": 0,
-        "ops": 0,
+        "changes": 0,
         "receipts": 0,
     }
 
@@ -674,7 +678,7 @@ def test_context_failure_aborts_after_multiple_committed_batches(
         "columns": 0,
         "rows": 0,
         "cells": 0,
-        "ops": 0,
+        "changes": 0,
         "receipts": 0,
     }
 
@@ -705,7 +709,7 @@ def test_receipt_insert_failure_cannot_partially_publish(
 
     assert project.db.in_transaction is False
     assert project.sheets() == []
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
     with closing(Project(project.path)) as observer:
@@ -714,7 +718,7 @@ def test_receipt_insert_failure_cannot_partially_publish(
             "SELECT hidden FROM sheets WHERE id=?", (writer.sheet_id,)
         ).fetchone()
         assert staged is None or staged["hidden"] == 1
-        assert observer.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+        assert observer.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
         assert observer.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
     listed = client.get(f"/api/projects/{project_id}/sheets")
@@ -737,7 +741,7 @@ def test_publish_refuses_a_late_name_collision_without_renaming(make_project) ->
     assert [(row["id"], row["name"]) for row in project.sheets()] == [
         (colliding_sheet_id, "Evidence"),
     ]
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
     assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
     assert (
@@ -784,15 +788,16 @@ def test_completion_requires_enumeration_and_preserves_atomic_state(make_project
     assert session.state == "active"
     assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
     op = project.db.execute(
-        "SELECT barrier,publication_closed FROM ops WHERE id=?", (session.op_id,)
+        "SELECT barrier,publication_closed FROM changes WHERE id=?",
+        (session.change_id,),
     ).fetchone()
     assert tuple(op) == (1, 0)
     writer.finalize_session(expected_cursor=1, enumeration_complete=True)
     assert ImportSessionStore(project).get(session.id).state == "completed"
     assert tuple(
         project.db.execute(
-            "SELECT barrier,publication_closed FROM ops WHERE id=?",
-            (session.op_id,),
+            "SELECT barrier,publication_closed FROM changes WHERE id=?",
+            (session.change_id,),
         ).fetchone()
     ) == (0, 1)
     with pytest.raises(ImportSessionConflict):
@@ -822,7 +827,7 @@ def test_cancel_requires_explicit_resolution_and_fences_old_writer(make_project)
 def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows(
     make_project,
 ):
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project = make_project("append-remove")
     sheet = project.add_sheet("Existing")
@@ -857,7 +862,7 @@ def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows
         unrelated[0]: "independent",
     }
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", change_id=writer._op_id)
+    step_change(project, "restore", change_id=writer._op_id)
     project.db.commit()
     assert project.visible_row_ids(sheet) == original + added + unrelated
     assert project.get_values(sheet, column, added) == {added[0]: "imported"}
@@ -906,5 +911,5 @@ def test_session_insert_failure_rolls_back_queued_receipt_start(make_project, ap
             _start_session(project)
     assert _counts(project) == before
     persisted = ReceiptStore(project).find_by_id(receipt.receipt_id)
-    assert persisted.status == "queued" and persisted.parsed().op_ids == []
+    assert persisted.status == "queued" and persisted.parsed().change_ids == []
     assert project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0] == 0

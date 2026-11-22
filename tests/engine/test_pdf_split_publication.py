@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store import op_log
+from frisket.engine.store import change_log
 from frisket.engine.store.import_sessions import (
     ImportInProgress,
     ImportSessionConflict,
@@ -75,13 +75,13 @@ def test_null_split_membership_projects_selective_restore_after_later_deletion(
         tuple(row)
         for row in project.db.execute(
             "SELECT object_id,before_visible,after_visible FROM structural_changes "
-            "WHERE op_id=? AND kind='row'",
-            (publication.op_id,),
+            "WHERE change_id=? AND kind='row'",
+            (publication.change_id,),
         )
     } == {(rows[0], 1, 0), *((child, 0, 1) for child in children)}
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert project.visible_row_ids(sheet) == rows
-    assert project.redo() == publication.op_id
+    assert project.redo() == publication.change_id
     assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
     deleted = run_action_spec(
         project,
@@ -96,17 +96,17 @@ def test_null_split_membership_projects_selective_restore_after_later_deletion(
     assert deleted.status == "completed", deleted.errors
     for direction in ("revert", "restore"):
         with project.transaction_scope():
-            op_log.step_operation(project, direction, change_id=publication.op_id)
+            change_log.step_change(project, direction, change_id=publication.change_id)
     # Restoring the split must respect the independent later deletion.
     assert project.visible_row_ids(sheet) == [children[1], *rows[1:]]
-    assert project.undo() == deleted.op_ids[0]
+    assert project.undo() == deleted.change_ids[0]
     assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
 
 
 def test_partial_split_is_one_fenced_operation_and_one_undo(make_project):
     project = make_project("partial")
     sheet, column, rows, values = _seed(project)
-    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    before = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
     writer = _start(project, sheet, column, rows, values)
     with pytest.raises(ImportInProgress):
         project.add_rows(sheet, [{"file": values[2]}], {"file": column})
@@ -120,19 +120,21 @@ def test_partial_split_is_one_fenced_operation_and_one_undo(make_project):
     project.undo()  # newer operations remain undoable while split is active
     assert project.visible_row_ids(other) == []
     project.redo()
-    cursor = project.op_cursor
+    cursor = project.change_cursor
     writer.fail_source(expected_cursor=1, error="unreadable PDF")
     publication = writer.finalize(expected_cursor=2)
     require_action_sheet_readable(project, sheet)
     assert publication.receipt.status == "partial"
-    assert project.op_cursor == cursor
+    assert project.change_cursor == cursor
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )
-    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before + 2
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == before + 2
+    )
     project.undo()  # unrelated later append
     project.undo()  # completed subset of split
     assert project.visible_row_ids(sheet) == rows
@@ -140,17 +142,17 @@ def test_partial_split_is_one_fenced_operation_and_one_undo(make_project):
     assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
     info = json.loads(
         project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+            "SELECT undo_info FROM changes WHERE id=?", (publication.change_id,)
         ).fetchone()[0]
     )
     assert info["replaced_rows_import_session_id"] == "split:one"
     assert "deleted_rows" not in info
-    assert op_log.validate_operation_undo_info(info) is None
+    assert change_log.validate_change_undo_info(info) is None
     assert {
         "kind": "import_session_rows",
         "session_id": "split:one",
         "membership": "replaced",
-    } in op_log.operation_affected_refs(info)
+    } in change_log.change_affected_refs(info)
 
 
 def test_source_failure_rolls_back_all_children_and_original(make_project, monkeypatch):
@@ -294,7 +296,7 @@ def test_zero_published_sources_never_report_completed(make_project, stopped, st
     assert project.visible_row_ids(sheet) == rows
     assert (
         project.db.execute(
-            "SELECT barrier FROM ops WHERE id=?", (publication.op_id,)
+            "SELECT barrier FROM changes WHERE id=?", (publication.change_id,)
         ).fetchone()[0]
         == 0
     )
@@ -350,7 +352,7 @@ def test_source_checkpoint_resumes_with_new_writer_authority(make_project):
     assert project.visible_row_ids(sheet) == [*first, *second, *rows[2:]]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )
@@ -390,7 +392,7 @@ def test_undo_redo_invalidates_bound_split_preparation_generation(make_project):
             project.db,
             session_id=bound.id,
             writer_authority=bound.writer_authority,
-            op_id=bound.op_id,
+            change_id=bound.change_id,
         )
 
     assert not is_current()  # automatic preparation waits for publication
@@ -399,7 +401,7 @@ def test_undo_redo_invalidates_bound_split_preparation_generation(make_project):
     assert is_current()
     # An aborted history transaction must not invalidate admitted work.
     project.db.execute("BEGIN IMMEDIATE")
-    op_log.step_operation(project, "undo", expected_change_id=bound.op_id)
+    change_log.step_change(project, "undo", expected_change_id=bound.change_id)
     assert not is_current()
     project.db.rollback()
     assert is_current()
@@ -466,7 +468,7 @@ def test_stale_setup_never_adds_history_or_empty_sheet(make_project, replace):
     project = make_project("setup")
     sheet, column, rows, values = _seed(project)
     before_ops = project.db.execute(
-        "SELECT COUNT(*) FROM ops WHERE status='applied'"
+        "SELECT COUNT(*) FROM changes WHERE status='applied'"
     ).fetchone()[0]
     stale = [*values]
     stale[0] = {"blob": "f" * 64}
@@ -475,7 +477,7 @@ def test_stale_setup_never_adds_history_or_empty_sheet(make_project, replace):
     assert [entry["id"] for entry in project.sheets()] == [sheet]
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE status='applied'"
+            "SELECT COUNT(*) FROM changes WHERE status='applied'"
         ).fetchone()[0]
         == before_ops
     )
@@ -495,19 +497,19 @@ def test_setup_recheck_race_discards_only_split_and_preserves_newer_edit(
         project.apply_edits(
             [{"row_id": rows[0], "column_id": column, "value": {"blob": "f" * 64}}]
         )
-        later_cursor = project.op_cursor
+        later_cursor = project.change_cursor
         return reserve(writer, sources, replace=replace)
 
     monkeypatch.setattr(PdfSplitWriter, "_reserve_sources", edit_before_recheck)
     with pytest.raises(ImportSessionConflict):
         _start(project, sheet, column, rows, values, replace=False)
-    assert project.op_cursor == later_cursor
+    assert project.change_cursor == later_cursor
     assert [entry["id"] for entry in project.sheets()] == [sheet]
     assert project.get_values(sheet, column, [rows[0]])[rows[0]] == {"blob": "f" * 64}
     assert (
-        project.db.execute("SELECT status FROM ops WHERE kind='pdf.split'").fetchone()[
-            0
-        ]
+        project.db.execute(
+            "SELECT status FROM changes WHERE kind='pdf.split'"
+        ).fetchone()[0]
         == "discarded"
     )
     project.undo()
@@ -535,7 +537,7 @@ def test_undo_refuses_incomplete_replacement_membership(make_project, corruption
     assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
     assert (
         project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (publication.op_id,)
+            "SELECT status FROM changes WHERE id=?", (publication.change_id,)
         ).fetchone()[0]
         == "applied"
     )
@@ -582,14 +584,14 @@ def test_completed_split_pages_survive_source_deletion_while_remaining_work_stop
         (sheet, rows[1], column, "pending"),
     ]
     # Selective reversion changes application authority, not saved payloads.
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "revert", change_id=publication.op_id)
+    step_change(project, "revert", change_id=publication.change_id)
     project.db.commit()
     assert destination not in [row["id"] for row in project.sheets()]
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", change_id=publication.op_id)
+    step_change(project, "restore", change_id=publication.change_id)
     project.db.commit()
     assert project.visible_row_ids(destination) == children
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 import sqlite3
-from frisket.engine.store.document_text import (
-    DOCUMENT_TEXT_SCHEMA_SQL,
-    LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+from frisket.upgrades.project._pre_changes_ddl import (
+    PRE_CHANGES_DOCUMENT_TEXT_SCHEMA_SQL,
+    PRE_CHANGES_LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
 )
 from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_TO_DIGEST,
@@ -48,10 +48,10 @@ def _apply_document_text(db: sqlite3.Connection) -> None:
         "DROP TRIGGER IF EXISTS trg_run_output_generations_immutable_declaration"
     )
     db.execute(_IMMUTABLE_GENERATION_TRIGGER_SQL)
-    for statement in DOCUMENT_TEXT_SCHEMA_SQL.split(";"):
+    for statement in PRE_CHANGES_DOCUMENT_TEXT_SCHEMA_SQL.split(";"):
         if statement.strip():
             db.execute(statement)
-    db.execute(LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+    db.execute(PRE_CHANGES_LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
 
 
 DOCUMENT_TEXT_STEP: SchemaStep = (

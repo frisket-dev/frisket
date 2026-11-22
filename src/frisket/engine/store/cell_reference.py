@@ -26,7 +26,7 @@ def current_value_ref(
     """One identity shape for full, bounded, and metadata-only cell reads."""
     ref = {
         "kind": row["origin_kind"] or "missing",
-        "op_id": row["origin_op_id"],
+        "change_id": row["origin_change_id"],
         "row_id": row_id,
         "column_id": column_id,
         "run_id": row["origin_run_id"],

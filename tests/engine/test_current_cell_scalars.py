@@ -116,22 +116,22 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
         )
         assert analytics["groups"][0]["metrics"] == {"rows": 4, "sum": 50.0}
 
-        edit_op_id = project.apply_edits(
+        edit_change_id = project.apply_edits(
             [{"row_id": row_ids[0], "column_id": column_id, "value": 99}]
         )
         assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {row_ids[0]: 99}
         assert _inline_value(project, row_ids[0], column_id) == ("integer", 99)
-        assert project.undo() == edit_op_id
+        assert project.undo() == edit_change_id
         assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {row_ids[0]: 10}
         assert _inline_value(project, row_ids[0], column_id) == ("integer", 10)
-        assert project.redo() == edit_op_id
+        assert project.redo() == edit_change_id
         assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {row_ids[0]: 99}
 
         rollback_op_id = project.append_change("edit", {}, label="rolled back edit")
         project.db.execute("BEGIN")
         insert_edits(
             project.db,
-            op_id=rollback_op_id,
+            change_id=rollback_op_id,
             edits=[EditCellWrite(row_ids[0], column_id, 123)],
         )
         assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
@@ -202,7 +202,7 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
         _seal(generations, initial, column_id)
         with write_transaction(project.db):
             RunResultStore(project).point_column_at_run(
-                initial.op_id, column_id, initial.run_id
+                initial.change_id, column_id, initial.run_id
             )
         _release(project, initial)
         initial_released = True
@@ -249,7 +249,7 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
         _seal(generations, replacement, column_id)
         with write_transaction(project.db):
             RunResultStore(project).point_column_at_run(
-                replacement.op_id, column_id, replacement.run_id
+                replacement.change_id, column_id, replacement.run_id
             )
         _release(project, replacement)
         replacement_released = True
@@ -266,7 +266,7 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
             ] == [(None, None), ("text", "gamma"), ("null", None), (None, None)]
 
         assert_replacement()
-        assert project.undo() == replacement.op_id
+        assert project.undo() == replacement.change_id
         assert project.get_values(sheet_id, column_id, row_ids) == {
             row_ids[0]: "alpha",
             row_ids[1]: "beta",
@@ -279,7 +279,7 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
             ("null", None),
             (None, None),
         ]
-        assert project.redo() == replacement.op_id
+        assert project.redo() == replacement.change_id
         assert_replacement()
     finally:
         if project.db.in_transaction:

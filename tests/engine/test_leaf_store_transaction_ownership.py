@@ -14,7 +14,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import cells, citations as evidence, notifications, op_log
+from frisket.engine.store import cells, citations as evidence, notifications, change_log
 from frisket.engine.store.credentials import replace_secret_consumers
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
@@ -169,13 +169,13 @@ def test_joining_write_requires_caller_transaction(project, write):
 
 
 def test_joined_change_append_rolls_back_with_its_caller(project):
-    before = _committed_count(project, "ops")
+    before = _committed_count(project, "changes")
     _open_caller_transaction(project)
 
     project.append_change_in_transaction("edit", {})
     project.db.rollback()
 
-    assert _committed_count(project, "ops") == before
+    assert _committed_count(project, "changes") == before
     assert _committed_sheet_name(project) == "Source"
 
 
@@ -185,7 +185,7 @@ def test_joined_change_append_rolls_back_with_its_caller(project):
 def test_change_append_whose_undo_records_fail_leaves_no_operation(
     project, monkeypatch
 ):
-    before = _committed_count(project, "ops")
+    before = _committed_count(project, "changes")
 
     def fail(*_args, **_kwargs):
         raise RuntimeError("undo records refused")
@@ -195,10 +195,10 @@ def test_change_append_whose_undo_records_fail_leaves_no_operation(
     )
 
     with pytest.raises(RuntimeError, match="undo records refused"):
-        op_log.append_change(project, "edit", {}, undo_info={"created_rows": [1]})
+        change_log.append_change(project, "edit", {}, undo_info={"created_rows": [1]})
 
     _assert_nothing_left_behind(project)
-    assert _committed_count(project, "ops") == before
+    assert _committed_count(project, "changes") == before
 
 
 def test_column_revival_whose_cell_refresh_fails_stays_hidden(project, monkeypatch):

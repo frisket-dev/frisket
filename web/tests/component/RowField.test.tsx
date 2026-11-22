@@ -69,7 +69,7 @@ function openExplainPanelAt(rect: Partial<DOMRect>): { field: HTMLElement; panel
   const col = columnDef({ id: 'topic', name: 'topic', type: 'text', ai: aiMeta() });
   const provenance: Record<string, CellProvenance> = {
     topic: {
-      currentValueRef: { kind: 'run_result', rowId: 'row-1', columnId: 'topic', runId: 'run-9', opId: null },
+      currentValueRef: { kind: 'run_result', rowId: 'row-1', columnId: 'topic', runId: 'run-9', changeId: null },
       model: 'gemini/gemini-2.5-flash',
       actionName: 'Classify',
       cost: 0,
@@ -99,7 +99,7 @@ describe('row drawer field action rail', () => {
   it('shows run warnings while run result details are collapsed and clears them on row change', () => {
     const col = columnDef({ id: 'ocr', name: 'OCR text', type: 'text', ai: aiMeta() });
     const warningRow = row({ ocr: 'Pages one and three' }, { provenance: { ocr: {
-      currentValueRef: { kind: 'run_result', rowId: 'row-1', columnId: 'ocr', runId: 'run-9', opId: null },
+      currentValueRef: { kind: 'run_result', rowId: 'row-1', columnId: 'ocr', runId: 'run-9', changeId: null },
       model: '', actionName: 'OCR', cost: 0, confidence: null, justification: '', runId: 'run-9',
       warnings: ['Page 2 failed during OCR.'],
     } } });
@@ -117,7 +117,7 @@ describe('row drawer field action rail', () => {
     const summary = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });
     const provenance = (rowId: string): Record<string, CellProvenance> => ({
       topic: {
-        currentValueRef: { kind: 'run_result', rowId, columnId: 'topic', runId: 'run-topic', opId: null },
+        currentValueRef: { kind: 'run_result', rowId, columnId: 'topic', runId: 'run-topic', changeId: null },
         model: 'gemini/gemini-2.5-flash',
         actionName: 'Classify topic',
         cost: 0.01,
@@ -126,7 +126,7 @@ describe('row drawer field action rail', () => {
         runId: 'run-topic',
       },
       summary: {
-        currentValueRef: { kind: 'run_result', rowId, columnId: 'summary', runId: 'run-summary', opId: null },
+        currentValueRef: { kind: 'run_result', rowId, columnId: 'summary', runId: 'run-summary', changeId: null },
         model: 'gemini/gemini-2.5-flash',
         actionName: 'Summarize',
         cost: 0.02,
@@ -360,7 +360,7 @@ describe('row drawer field action rail', () => {
           rowId: 'row-1',
           columnId: 'topic',
           runId: 'run-9',
-          opId: null,
+          changeId: null,
         },
         model: 'gemini/gemini-2.5-flash',
         actionName: 'Classify',

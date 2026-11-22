@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
-from frisket.engine.store.op_log import RestorationUnavailable
+from frisket.engine.store.change_log import RestorationUnavailable
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.search_index import drain_index, index_batch
@@ -71,7 +71,7 @@ def _publish_replacement(make_project):
     _seal(generations, second, column_id)
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(
-            second.op_id, column_id, second.run_id
+            second.change_id, column_id, second.run_id
         )
     return project, column_id, row_ids, generations, first, second
 
@@ -82,7 +82,7 @@ def test_undo_releases_owned_claim_then_redo_restores_every_managed_head(
     project, column_id, row_ids, generations, first, second = _publish_replacement(
         make_project
     )
-    assert project.undo() == second.op_id
+    assert project.undo() == second.change_id
     assert (
         project.db.execute(
             "SELECT status FROM generated_column_claims WHERE claim_token=?",
@@ -92,7 +92,7 @@ def test_undo_releases_owned_claim_then_redo_restores_every_managed_head(
     )
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops WHERE id=?", (second.op_id,)
+            "SELECT publication_closed FROM changes WHERE id=?", (second.change_id,)
         ).fetchone()[0]
         == 1
     )
@@ -105,7 +105,7 @@ def test_undo_releases_owned_claim_then_redo_restores_every_managed_head(
         project.redo()
     with project.db:
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_ids[-1],))
-    assert project.redo() == second.op_id
+    assert project.redo() == second.change_id
     reapplied = generations.read_cell_heads(column_id)
     assert set(reapplied) == set(row_ids)
     assert {head.run_id for head in reapplied.values()} == {second.run_id}
@@ -152,7 +152,7 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
             }
         ]
     )
-    manual_op_id = project.op_cursor
+    manual_op_id = project.change_cursor
 
     project.db.execute("CREATE TEMP TABLE projection_audit(kind,row_id,column_id)")
     for table in ("cell_result_heads", "current_cells"):
@@ -173,7 +173,7 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
     project.db.execute("DELETE FROM projection_audit")
     project.db.execute("DELETE FROM search_dirty_scopes")
     project.db.commit()
-    assert project.undo() == second.op_id
+    assert project.undo() == second.change_id
     restored = generations.read_cell_heads(column_id)
     assert {head.run_id for head in restored.values()} == {first.run_id}
     assert project.get_values(sheet_id, column_id)[row_ids[0]] == "first:0"
@@ -202,7 +202,7 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
     project.db.execute("DELETE FROM projection_audit")
     project.db.execute("DELETE FROM search_dirty_scopes")
     project.db.commit()
-    assert project.redo() == second.op_id
+    assert project.redo() == second.change_id
     assert generations.read_cell_heads(column_id)[row_ids[0]].run_id == second.run_id
     assert project.get_values(sheet_id, column_id)[row_ids[0]] == "second:value"
     assert {
@@ -231,16 +231,16 @@ def test_undo_rolls_back_op_flip_when_head_rebuild_fails(
         raise RuntimeError("head rebuild failed")
 
     monkeypatch.setattr(
-        "frisket.engine.store.op_log.refresh_current_cells", fail_rebuild
+        "frisket.engine.store.change_log.refresh_current_cells", fail_rebuild
     )
     with pytest.raises(RuntimeError, match="head rebuild failed"):
         project.undo()
 
     op = project.db.execute(
-        "SELECT status FROM ops WHERE id=?", (second.op_id,)
+        "SELECT status FROM changes WHERE id=?", (second.change_id,)
     ).fetchone()
     assert op is not None and op["status"] == "applied"
-    assert project.op_cursor == second.op_id
+    assert project.change_cursor == second.change_id
     assert generations.read_cell_heads(column_id) == before
     assert first.run_id != second.run_id
 
@@ -253,7 +253,7 @@ def test_direct_edit_undo_and_redo_preserve_values_with_claimed_column(
         project, sheet_id, column_id, row_ids
     )
     claims = GeneratedColumnClaimStore(project)
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [
             {
                 "row_id": row_ids[0],
@@ -270,7 +270,7 @@ def test_direct_edit_undo_and_redo_preserve_values_with_claimed_column(
             claim_token="claim:edit-transition",
         )
     assert len(created) == 1 and conflict is None
-    assert project.undo() == edit_op_id
+    assert project.undo() == edit_change_id
     assert project.get_values(sheet_id, column_id)[row_ids[0]] == "first:0"
     with write_transaction(claims.db):
         claims.release(claim_token="claim:edit-transition")
@@ -282,7 +282,7 @@ def test_direct_edit_undo_and_redo_preserve_values_with_claimed_column(
             claim_token="claim:edit-redo",
         )
     assert len(created) == 1 and conflict is None
-    assert project.redo() == edit_op_id
+    assert project.redo() == edit_change_id
     assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
     with write_transaction(claims.db):
         claims.release(claim_token="claim:edit-redo")
@@ -303,7 +303,7 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(make_project) -> 
         )
     )
     drain_index(project)
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [
             {
                 "row_id": row_ids[0],
@@ -329,7 +329,7 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(make_project) -> 
     )
     project.db.commit()
 
-    assert project.undo() == edit_op_id
+    assert project.undo() == edit_change_id
     assert project.get_values(sheet_id, source_column_id)[row_ids[0]] != "manual"
     assert index_batch(project, batch_size=100).processed == 1
     assert {
@@ -339,7 +339,7 @@ def test_edit_undo_redo_refreshes_only_the_changed_search_cell(make_project) -> 
     project.db.execute("DELETE FROM current_cell_audit")
     project.db.commit()
 
-    assert project.redo() == edit_op_id
+    assert project.redo() == edit_change_id
     assert project.get_values(sheet_id, source_column_id)[row_ids[0]] == "manual"
     assert index_batch(project, batch_size=100).processed == 1
     assert {
@@ -384,7 +384,7 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
     _seal(generations, first, column_id)
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(
-            first.op_id, column_id, first.run_id
+            first.change_id, column_id, first.run_id
         )
     _release(project, first)
 
@@ -411,23 +411,27 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
     _seal(generations, second, column_id)
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(
-            second.op_id, column_id, second.run_id
+            second.change_id, column_id, second.run_id
         )
     _release(project, second)
 
-    assert project.undo() == second.op_id
+    assert project.undo() == second.change_id
     project.gc_blobs()
     assert project.db.execute(
         "SELECT 1 FROM blobs WHERE hash=?", (second_blob,)
     ).fetchone()
 
     project.append_change("branch.after.undo")
-    project.db.execute("UPDATE ops SET status='applied' WHERE id=?", (second.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='applied' WHERE id=?", (second.change_id,)
+    )
     project.db.execute(
         "UPDATE cell_result_heads SET run_id=? WHERE column_id=? AND row_id=?",
         (second.run_id, column_id, row_ids[0]),
     )
-    project.db.execute("UPDATE ops SET status='discarded' WHERE id=?", (second.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='discarded' WHERE id=?", (second.change_id,)
+    )
     project.db.execute(
         "UPDATE columns SET current_run_id=? WHERE id=?",
         (second.run_id, column_id),
@@ -472,7 +476,9 @@ def test_compaction_retains_discarded_base_referenced_by_surviving_generation(
     _release(project, second)
     binding = generations.get_binding(second.run_id, column_id)
     assert binding is not None and binding.expected_base_run_id == first.run_id
-    project.db.execute("UPDATE ops SET status='discarded' WHERE id=?", (first.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='discarded' WHERE id=?", (first.change_id,)
+    )
     project.db.commit()
 
     summary = project.compact(vacuum=False)
@@ -515,7 +521,9 @@ def test_compaction_preserves_discarded_staged_replacement(make_project) -> None
         ],
     )
     _release(project, staged)
-    project.db.execute("UPDATE ops SET status='discarded' WHERE id=?", (staged.op_id,))
+    project.db.execute(
+        "UPDATE changes SET status='discarded' WHERE id=?", (staged.change_id,)
+    )
     project.db.commit()
 
     summary = project.compact(vacuum=False)
@@ -533,11 +541,11 @@ def test_compaction_does_not_mutate_generation_history(make_project) -> None:
         make_project
     )
     _release(project, second)
-    assert project.undo() == second.op_id
+    assert project.undo() == second.change_id
     project.append_change("branch.after.undo")
     assert (
         project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (second.op_id,)
+            "SELECT status FROM changes WHERE id=?", (second.change_id,)
         ).fetchone()[0]
         == "undone"
     )

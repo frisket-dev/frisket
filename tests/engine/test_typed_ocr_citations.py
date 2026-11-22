@@ -160,7 +160,7 @@ def setup(make_project, monkeypatch):
                 )
                 ref = PreparedContentStore(current_project).stage_reference(
                     source_artifact_id=artifact["id"],
-                    producing_op_id=writer_kwargs["op_id"],
+                    producing_change_id=writer_kwargs["change_id"],
                     pages=[
                         PreparedPageDraft(
                             page_number=index,

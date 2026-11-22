@@ -138,7 +138,7 @@ def _public_run(row: Any) -> dict[str, Any]:
         "started_at": _row_get(row, "started_at"),
         "finished_at": _row_get(row, "finished_at"),
         "receipt_id": _row_get(row, "receipt_id"),
-        "op_id": _row_get(row, "op_id"),
+        "change_id": _row_get(row, "change_id"),
         "new_rows": _int_value(_row_get(row, "new_rows"), 0),
         "skipped_rows": _int_value(_row_get(row, "skipped_rows"), 0),
         "changed_rows": _int_value(_row_get(row, "changed_rows"), 0),

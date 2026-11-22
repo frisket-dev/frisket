@@ -130,7 +130,7 @@ def _legacy_envelope_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == [1]
+    assert result.change_ids == [1]
     assert [output.kind for output in result.outputs] == [
         "sheet",
         "column",
@@ -173,7 +173,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "height": 7,
     }
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=1").fetchone()
+    op = project.db.execute("SELECT * FROM changes WHERE id=1").fetchone()
     assert op is not None
     assert op["kind"] == "import.files"
     op_spec = json.loads(op["spec"])
@@ -190,7 +190,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt_row["action_kind"] == "import.files"
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.idempotency_key == "import_files@sha256:stable"
-    assert receipt.op_ids == [1]
+    assert receipt.change_ids == [1]
     file_reads = [
         item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
     ]
@@ -221,7 +221,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "sheet_id": int(sheet["id"]),
         "row_id": next(iter(media_values)),
         "column_id": int(columns["media"]["id"]),
-        "op_id": 1,
+        "change_id": 1,
     }
 
 
@@ -276,7 +276,7 @@ CASES = [
             "sheets": 1,
             "columns": 3,
             "rows": 1,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
             "blobs": 1,
         },
@@ -300,7 +300,7 @@ def test_import_files_replay_survives_source_deletion(
         replay = env.run_primary()
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
+        assert replay.change_ids == first.change_ids
         assert env.counts() == before
 
 
@@ -348,7 +348,7 @@ def test_import_files_replay_does_not_reread_changed_source(
         replay = env.run_primary()
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
+        assert replay.change_ids == first.change_ids
         _check_state(env.project, env.seeded, replay)
         assert env.counts() == before
 
@@ -386,7 +386,7 @@ def test_import_files_multi_file_import_replays_original_order_and_cells(
         replay = env.run(action)
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
+        assert replay.change_ids == first.change_ids
         assert env.project.get_values(sheet_id, columns["media"]) == original
         assert env.counts() == before
 
@@ -414,7 +414,7 @@ def test_import_files_late_source_failure_publishes_nothing(
                     == 0
                 )
                 assert (
-                    env.project.db.execute("SELECT count(*) FROM ops").fetchone()[0]
+                    env.project.db.execute("SELECT count(*) FROM changes").fetchone()[0]
                     == 0
                 )
                 assert (
@@ -444,7 +444,7 @@ def test_import_files_late_source_failure_publishes_nothing(
         assert result.errors[0].code == "invalid_file_source"
         assert env.project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 0
         assert env.project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
-        assert env.project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
+        assert env.project.db.execute("SELECT count(*) FROM changes").fetchone()[0] == 0
         assert (
             env.project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 0
         )

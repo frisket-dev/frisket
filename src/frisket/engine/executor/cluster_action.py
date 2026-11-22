@@ -326,7 +326,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         )
         validate_cluster_source(project, state["source"])
         op = project.db.execute(
-            "SELECT spec,undo_info FROM ops WHERE id=?", (run["op_id"],)
+            "SELECT spec,undo_info FROM changes WHERE id=?", (run["change_id"],)
         ).fetchone()
         op_spec = json.loads(op["spec"])
         fact = op_spec.get(CLUSTER_RESULT_SPEC_KEY)
@@ -418,8 +418,8 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         del op_spec[CLUSTER_RESULT_SPEC_KEY]
         op_spec[CLUSTER_RESULT_STORAGE_SPEC_KEY] = CLUSTER_RESULT_RECEIPT_STORAGE
         project.db.execute(
-            "UPDATE ops SET spec=? WHERE id=?",
-            (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
+            "UPDATE changes SET spec=? WHERE id=?",
+            (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["change_id"]),
         )
         receipt_terminal_status = receipt.status
         if receipt_terminal_status == "needs_confirmation":
@@ -495,7 +495,7 @@ def typed_cluster_queue_spec(bound, *, initial_plan=None, cluster_state=None):
     def guard(project, payload, _params):
         try:
             stored = project.db.execute(
-                "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+                "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
                 (payload["run_id"],),
             ).fetchone()
             state = json.loads(stored["spec"])["cluster_values"]
@@ -590,7 +590,7 @@ def _cluster_abandoned_run(project, bound, *, state=None):
 
     matches = []
     for run in project.db.execute(
-        "SELECT runs.id,runs.edition_run_context,ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.action_kind=? AND runs.status='running'",
+        "SELECT runs.id,runs.edition_run_context,changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.action_kind=? AND runs.status='running'",
         (bound.action.action_id,),
     ).fetchall():
         spec = json.loads(run["spec"])
@@ -652,7 +652,7 @@ def run_typed_cluster_action(
             and receipt.run_id is not None
         ):
             run = project.db.execute(
-                "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+                "SELECT runs.*,changes.spec AS runner_spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
                 (receipt.run_id,),
             ).fetchone()
             from frisket.engine.store.generated_column_claims import (

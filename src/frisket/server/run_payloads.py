@@ -12,7 +12,7 @@ from frisket.authoring.action_metadata import (
 from frisket.engine.executor.action_reservations import QUEUED_ACTION_RUN_MARKER_PARAM
 from frisket.contracts.http.paging import offset_page_meta
 from frisket.engine.store import Project
-from frisket.engine.store.op_log import history_index, operation_target
+from frisket.engine.store.change_log import history_index, change_target
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import FAILURE_OUTCOMES, RunResultStore, outcome_sql_list
 from frisket.operability.trace import read_trace_row_retries
@@ -29,13 +29,13 @@ def _json_loads(value: Any) -> Any:
 
 
 def _batch_history_op_run_payloads(
-    project: Project, op_ids: list[int]
+    project: Project, change_ids: list[int]
 ) -> dict[int, dict[str, Any]]:
     """The FULL run record behind each history op, batched for a whole page.
 
     The history list previously showed only kind/label/status; callers need
     the complete record, including its ID and deep link. Batched (one
-    op_id-partitioned window-function query
+    change_id-partitioned window-function query
     for the latest run per op + one IN-list query for every generated column
     those runs wrote) rather than two extra queries PER op — a page of 50
     ops would otherwise run 100+ queries (the per-row lookup pattern was found on
@@ -43,15 +43,15 @@ def _batch_history_op_run_payloads(
     stay behind the existing on-demand
     /actions/runs/{run_id}/rows?status=error endpoint the frontend already
     has, reused rather than duplicated)."""
-    if not op_ids:
+    if not change_ids:
         return {}
-    op_placeholders = ",".join("?" for _ in op_ids)
+    op_placeholders = ",".join("?" for _ in change_ids)
     run_rows = project.db.execute(
         "SELECT * FROM ("
-        "  SELECT *, ROW_NUMBER() OVER (PARTITION BY op_id ORDER BY id DESC) AS rn"
-        f"  FROM runs WHERE op_id IN ({op_placeholders})"
+        "  SELECT *, ROW_NUMBER() OVER (PARTITION BY change_id ORDER BY id DESC) AS rn"
+        f"  FROM runs WHERE change_id IN ({op_placeholders})"
         ") WHERE rn=1",
-        op_ids,
+        change_ids,
     ).fetchall()
     if not run_rows:
         return {}
@@ -72,7 +72,7 @@ def _batch_history_op_run_payloads(
     row_errors_by_run = RunResultStore(project).batch_row_error_summaries(run_ids)
     payloads: dict[int, dict[str, Any]] = {}
     for row in run_rows:
-        payloads[row["op_id"]] = {
+        payloads[row["change_id"]] = {
             "run_id": row["id"],
             "status": row["status"],
             "action_kind": run_row_action_kind(row),
@@ -131,26 +131,26 @@ def history_page_payload(
     limit: int = 50,
 ) -> dict[str, Any]:
     total = project.history_total()
-    cursor = project.op_cursor
+    cursor = project.change_cursor
     cursor_index = project.history_cursor_index()
     if offset is None:
         offset = max(0, min(max(total - limit, 0), cursor_index - limit + 1))
     rows = project.history_page(offset, limit)
     cursor_row = (
-        project.db.execute("SELECT * FROM ops WHERE id=?", (cursor,)).fetchone()
+        project.db.execute("SELECT * FROM changes WHERE id=?", (cursor,)).fetchone()
         if cursor > 0
         else None
     )
-    undo_row = operation_target(project, "undo")
-    redo_row = operation_target(project, "redo")
+    undo_row = change_target(project, "undo")
+    redo_row = change_target(project, "redo")
     next_offset = offset + len(rows)
     # Batch every op's run payload in two queries total (not two PER op) —
     # the cursor op may lie outside the current page, so its id joins the
     # batch too.
-    op_ids = [row["id"] for row in rows]
-    if cursor_row is not None and cursor_row["id"] not in op_ids:
-        op_ids.append(cursor_row["id"])
-    run_payloads = _batch_history_op_run_payloads(project, op_ids)
+    change_ids = [row["id"] for row in rows]
+    if cursor_row is not None and cursor_row["id"] not in change_ids:
+        change_ids.append(cursor_row["id"])
+    run_payloads = _batch_history_op_run_payloads(project, change_ids)
     return {
         "schema_version": "frisket.history_page.v1",
         "order": "asc",
@@ -162,24 +162,24 @@ def history_page_payload(
         "prev_offset": max(0, offset - limit) if offset > 0 else None,
         "next_offset": next_offset if next_offset < total else None,
         "cursor_index": cursor_index,
-        "cursor_op": (
+        "cursor_change": (
             _history_op_payload(
                 cursor_row, cursor_index, cursor, run_payloads.get(cursor_row["id"])
             )
             if cursor_row is not None
             else None
         ),
-        "cursor_op_loaded": any(row["id"] == cursor for row in rows),
+        "cursor_change_loaded": any(row["id"] == cursor for row in rows),
         "undo_target": _history_target_payload(project, undo_row),
         "redo_target": _history_target_payload(project, redo_row),
         "revision": {
             "total": total,
-            "max_op_id": project.db.execute(
-                "SELECT COALESCE(MAX(id), 0) FROM ops"
+            "max_change_id": project.db.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM changes"
             ).fetchone()[0],
-            "op_cursor": cursor,
+            "change_cursor": cursor,
         },
-        "ops": [
+        "changes": [
             _history_op_payload(
                 row, offset + index, cursor, run_payloads.get(row["id"])
             )

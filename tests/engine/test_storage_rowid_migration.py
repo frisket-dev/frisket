@@ -173,7 +173,7 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
     assert _rows(
         migrated.db,
         "current_cells",
-        "column_id,row_id,origin_kind,origin_op_id,origin_run_id,"
+        "column_id,row_id,origin_kind,origin_change_id,origin_run_id,"
         "base_producer_id,validity",
         "column_id,row_id",
     ) == [row[:2] + row[3:] for row in before_current]

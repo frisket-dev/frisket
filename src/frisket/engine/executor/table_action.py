@@ -189,17 +189,17 @@ def _table_replay_error(project: Project, receipt: Receipt) -> ActionError | Non
     if sheet_ref is None:
         return stale()
     sheet_id = _positive_ref_int(sheet_ref, "sheet_id")
-    op_id = _positive_ref_int(sheet_ref, "op_id")
-    if sheet_id is None or op_id is None:
+    change_id = _positive_ref_int(sheet_ref, "change_id")
+    if sheet_id is None or change_id is None:
         return stale()
     sheet = project.db.execute(
-        "SELECT parent_sheet_id, parent_op_id FROM sheets WHERE id=? AND hidden=0",
+        "SELECT parent_sheet_id, parent_change_id FROM sheets WHERE id=? AND hidden=0",
         (sheet_id,),
     ).fetchone()
     op = project.db.execute(
-        "SELECT id FROM ops WHERE id=? AND status='applied'", (op_id,)
+        "SELECT id FROM changes WHERE id=? AND status='applied'", (change_id,)
     ).fetchone()
-    if sheet is None or op is None or op_id not in receipt.op_ids:
+    if sheet is None or op is None or change_id not in receipt.change_ids:
         return stale()
     if sheet["parent_sheet_id"] != sheet_ref.get("parent_sheet_id"):
         return stale()
@@ -1647,7 +1647,7 @@ def _perform_table_in_txn(
         propagate_list_item_citations(
             project,
             sheet_id=write.sheet_id,
-            op_id=write.op_id,
+            change_id=write.change_id,
             child_row_ids=[
                 row_id
                 for row_id, lineage in zip(write.row_ids, sources, strict=True)
@@ -1676,7 +1676,7 @@ def _perform_table_in_txn(
         store_capture(
             project,
             merge_captures(consumed_captures),
-            owner_op_id=write.op_id,
+            owner_change_id=write.change_id,
             output_sheet_id=write.sheet_id,
         )
     projection_evidence = [
@@ -1695,7 +1695,7 @@ def _perform_table_in_txn(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[write.op_id],
+        change_ids=[write.change_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -1735,7 +1735,7 @@ def _perform_table_in_txn(
             blob_plan.bind_row_ordinals(write.row_ids),
             sheet_id=write.sheet_id,
             column_ids=write.column_ids,
-            op_id=write.op_id,
+            change_id=write.change_id,
             receipt_id=receipt_id,
         )
         receipt.records.extend(ReceiptRecord(ref=ref) for ref in published)
@@ -1752,7 +1752,7 @@ def _perform_table_in_txn(
     from frisket.engine.store.changes import ChangeStore
 
     # Annotation cells, evidence and blobs are part of this same atomic write.
-    ChangeStore(project).close(write.op_id)
+    ChangeStore(project).close(write.change_id)
     return _result_from_receipt(receipt)
 
 
@@ -1784,11 +1784,11 @@ def _parented_table_replay_error(
     assert rows_ref is not None
     assert lineage_ref is not None
     sheet_id = _positive_ref_int(sheet_ref, "sheet_id")
-    sheet_op_id = _positive_ref_int(sheet_ref, "op_id")
+    sheet_op_id = _positive_ref_int(sheet_ref, "change_id")
     rows_sheet_id = _positive_ref_int(rows_ref, "sheet_id")
-    rows_op_id = _positive_ref_int(rows_ref, "op_id")
+    rows_op_id = _positive_ref_int(rows_ref, "change_id")
     lineage_child_sheet_id = _positive_ref_int(lineage_ref, "child_sheet_id")
-    lineage_op_id = _positive_ref_int(lineage_ref, "op_id")
+    lineage_op_id = _positive_ref_int(lineage_ref, "change_id")
     row_ids = _positive_int_list(rows_ref.get("row_ids"))
     parent_row_ids = rows_ref.get("parent_row_ids")
     if not isinstance(parent_row_ids, list) or any(
@@ -1829,10 +1829,10 @@ def _parented_table_replay_error(
     membership = _receipt_ref(receipt, "materialized_row_sources")
     if (
         membership is None
-        or membership.get("op_id") != sheet_op_id
+        or membership.get("change_id") != sheet_op_id
         or not materialized_row_sources_ref_matches(
             membership,
-            load_materialized_row_sources_for_op(project.db, op_id=sheet_op_id),
+            load_materialized_row_sources_for_op(project.db, change_id=sheet_op_id),
         )
     ):
         return receipt_stale_replay_error(
@@ -1840,18 +1840,18 @@ def _parented_table_replay_error(
         )
 
     sheet = project.db.execute(
-        "SELECT id, name, parent_op_id FROM sheets WHERE id=? AND hidden=0",
+        "SELECT id, name, parent_change_id FROM sheets WHERE id=? AND hidden=0",
         (sheet_id,),
     ).fetchone()
     op = project.db.execute(
-        "SELECT id, spec FROM ops WHERE id=? AND status='applied'",
+        "SELECT id, spec FROM changes WHERE id=? AND status='applied'",
         (sheet_op_id,),
     ).fetchone()
-    parent_op_id = sheet["parent_op_id"] if sheet is not None else None
+    parent_change_id = sheet["parent_change_id"] if sheet is not None else None
     if (
         sheet is None
-        or parent_op_id is None
-        or int(parent_op_id) != sheet_op_id
+        or parent_change_id is None
+        or int(parent_change_id) != sheet_op_id
         or op is None
         or sheet["name"] != sheet_ref.get("name")
     ):
@@ -1861,7 +1861,7 @@ def _parented_table_replay_error(
             details={
                 "receipt_id": receipt.receipt_id,
                 "sheet_id": sheet_id,
-                "op_id": sheet_op_id,
+                "change_id": sheet_op_id,
             },
         )
 

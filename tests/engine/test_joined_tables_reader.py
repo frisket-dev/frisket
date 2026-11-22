@@ -249,7 +249,7 @@ def test_refresh_does_not_reuse_saved_consent_and_binds_current_target(project):
     )
     for stale in (
         replace(approved, sheet_id=32),
-        replace(approved, parent_op_id=43),
+        replace(approved, parent_change_id=43),
         replace(approved, request_hash="different"),
     ):
         with pytest.raises(TableReadRefused):

@@ -96,7 +96,7 @@ def test_failed_handoff_preserves_admitted_plan_for_replay(tmp_path, monkeypatch
     assert service.status(pid, frozen.draft_id).state == "committed"
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+            "SELECT COUNT(*) FROM changes WHERE kind='pdf.split'"
         ).fetchone()[0]
         == 1
     )

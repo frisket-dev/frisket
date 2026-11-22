@@ -77,7 +77,7 @@ def test_cutover_keeps_saved_result_and_closes_generation_claim_and_receipt(
     before = [tuple(r) for r in project.db.execute("SELECT * FROM results")]
     operations = {
         int(row["id"]): dict(row)
-        for row in project.db.execute("SELECT * FROM ops").fetchall()
+        for row in project.db.execute("SELECT * FROM changes").fetchall()
     }
     result = retire_legacy_project_work(project)
     assert result == dict(
@@ -86,10 +86,12 @@ def test_cutover_keeps_saved_result_and_closes_generation_claim_and_receipt(
     assert [tuple(r) for r in project.db.execute("SELECT * FROM results")] == before
     operations_after = {
         int(row["id"]): dict(row)
-        for row in project.db.execute("SELECT * FROM ops").fetchall()
+        for row in project.db.execute("SELECT * FROM changes").fetchall()
     }
-    expected_operations = {op_id: dict(row) for op_id, row in operations.items()}
-    expected_operations[run.op_id]["publication_closed"] = 1
+    expected_operations = {
+        change_id: dict(row) for change_id, row in operations.items()
+    }
+    expected_operations[run.change_id]["publication_closed"] = 1
     assert operations_after == expected_operations
     assert RunResultStore(project).get_run(run.run_id)["status"] == "cancelled"
     assert ReceiptStore(project).parsed_by_id("receipt_live").status == "cancelled"
@@ -118,9 +120,9 @@ def test_cutover_retires_runless_attempt_and_chat_and_receiptless_local_run(
         (receipt.receipt_id,),
     )
     project.db.commit()
-    op_id = project.append_change("map.regex_extract", {})
+    change_id = project.append_change("map.regex_extract", {})
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "map.regex_extract", row_ids=rows
+        change_id, sheet_id, "map.regex_extract", row_ids=rows
     )
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Before upgrade")

@@ -35,9 +35,9 @@ def test_mcp_status_does_not_report_terminal_run_as_live(tmp_path) -> None:
     root.mkdir()
     project = Project.create(root / "demo.frisket", name="demo")
     sheet_id = project.add_sheet("data")
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.template",
         total_rows=0,
@@ -59,9 +59,9 @@ def test_mcp_status_uses_the_public_all_failed_projection(tmp_path) -> None:
     root.mkdir()
     project = Project.create(root / "demo.frisket", name="demo")
     sheet_id = project.add_sheet("data")
-    op_id = project.append_change("map", {"recipe": "template"})
+    change_id = project.append_change("map", {"recipe": "template"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.template",
         total_rows=1,

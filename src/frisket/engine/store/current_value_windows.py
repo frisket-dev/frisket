@@ -116,7 +116,7 @@ class CurrentTextMetadata:
 _AUTHORITY_CTE = """
 heads AS MATERIALIZED (
   SELECT r.id AS row_id,head.retrieval_revision,head.origin_kind,
-         head.origin_op_id,head.origin_run_id,head.base_producer_id,
+         head.origin_change_id,head.origin_run_id,head.base_producer_id,
          COALESCE(head.validity,'missing') AS validity,head.outcome,
          copy.source_run_id AS copied_run_id,copy.source_row_id AS copied_row_id,
          copy.source_column_id AS copied_column_id
@@ -128,7 +128,7 @@ heads AS MATERIALIZED (
              WHERE column_id=:column_id AND row_id IN ({row_ids})) AS head
     ON head.row_id=r.id AND head.column_id=:column_id
   LEFT JOIN copied_result_outcomes copy ON head.origin_kind='copied_result'
-    AND copy.op_id=head.origin_op_id AND copy.row_id=r.id AND copy.column_id=:column_id
+    AND copy.change_id=head.origin_change_id AND copy.row_id=r.id AND copy.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
 ),
 authority AS NOT MATERIALIZED (
@@ -148,11 +148,11 @@ authority AS NOT MATERIALIZED (
       WHEN 'copied_result' THEN (
         SELECT CASE WHEN copy.outcome='completed' THEN copy.value_kind END
         FROM copied_result_values copy
-        WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
+        WHERE copy.change_id=head.origin_change_id AND copy.row_id=head.row_id
           AND copy.column_id=:column_id)
       WHEN 'manual_edit' THEN (
         SELECT edit.value_kind FROM edits AS edit
-        WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
+        WHERE edit.change_id=head.origin_change_id AND edit.row_id=head.row_id
           AND edit.column_id=:column_id)
     END AS stored_kind,
     CASE head.origin_kind
@@ -168,11 +168,11 @@ authority AS NOT MATERIALIZED (
       WHEN 'copied_result' THEN (
         SELECT CASE WHEN copy.outcome='completed' THEN copy.value END
         FROM copied_result_values copy
-        WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
+        WHERE copy.change_id=head.origin_change_id AND copy.row_id=head.row_id
           AND copy.column_id=:column_id)
       WHEN 'manual_edit' THEN (
         SELECT edit.value FROM edits AS edit
-        WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
+        WHERE edit.change_id=head.origin_change_id AND edit.row_id=head.row_id
           AND edit.column_id=:column_id)
     END AS stored_value
   FROM heads AS head
@@ -185,7 +185,7 @@ def _authority_cte(
     column_id: int,
     row_ids: list[int],
     *,
-    exclude_op_id: int | None = None,
+    exclude_change_id: int | None = None,
 ) -> str:
     from .current_read_sql import current_heads_sql
 
@@ -193,9 +193,9 @@ def _authority_cte(
 
     heads = (
         current_heads_sql(db, [column_id], row_ids)
-        if exclude_op_id is None
+        if exclude_change_id is None
         else reconciliation_heads_sql(
-            db, column_id, row_ids, exclude_op_id=exclude_op_id
+            db, column_id, row_ids, exclude_change_id=exclude_change_id
         )
     )
     placeholders = ",".join(f":row_{index}" for index in range(len(row_ids)))
@@ -566,7 +566,7 @@ def read_current_column(
     bounded: bool,
     preserve_invalid: bool = False,
     include_hidden: bool = False,
-    _exclude_op_id: int | None = None,
+    _exclude_change_id: int | None = None,
 ) -> dict[int, CurrentCellRead]:
     """Read one column for a row page, omitting only oversized bounded values."""
 
@@ -577,8 +577,8 @@ def read_current_column(
             continue
         sql = (
             "WITH "
-            + _authority_cte(db, column_id, chunk, exclude_op_id=_exclude_op_id)
-            + " SELECT row_id,retrieval_revision,origin_kind,origin_op_id,"
+            + _authority_cte(db, column_id, chunk, exclude_change_id=_exclude_change_id)
+            + " SELECT row_id,retrieval_revision,origin_kind,origin_change_id,"
             "origin_run_id,base_producer_id,validity,stored_kind,outcome,"
             "copied_run_id,copied_row_id,copied_column_id,"
             "CASE WHEN stored_kind IN ('text','json','bigint','legacy_invalid') "

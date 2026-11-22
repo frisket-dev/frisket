@@ -204,7 +204,7 @@ class CitationViewerLink(WireModel):
     row_id: int | None
     column_id: int | None
     run_id: int | None
-    op_id: int | None
+    change_id: int | None
     receipt_id: str | None
     item_index: int | None = Field(default=None, ge=0)
     role: str

@@ -433,7 +433,7 @@ def _document_browse(
             "AND link.sheet_id=? AND link.status='active' "
             "AND link.subject_kind='cell_value' AND link.link_role='source_provenance' "
             "AND json_extract(link.subject_ref_json,'$.kind') IS cell.origin_kind "
-            "AND json_extract(link.subject_ref_json,'$.op_id') IS cell.origin_op_id "
+            "AND json_extract(link.subject_ref_json,'$.change_id') IS cell.origin_change_id "
             "AND json_extract(link.subject_ref_json,'$.run_id') IS cell.origin_run_id "
             "AND json_extract(link.subject_ref_json,'$.row_id') IS cell.row_id "
             "AND json_extract(link.subject_ref_json,'$.column_id') IS cell.column_id "

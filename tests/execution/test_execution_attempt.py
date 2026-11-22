@@ -157,13 +157,13 @@ def consented_run(project):
     """A run with the persisted artifacts a routed admission needs: a promise
     set, the consent the user gave for it, and the head route."""
     sheet_id = project.add_sheet("S")
-    op_id = project.db.execute(
-        "INSERT INTO ops (kind, spec) VALUES (?,?)",
+    change_id = project.db.execute(
+        "INSERT INTO changes (kind, spec) VALUES (?,?)",
         ("transcribe", "{}"),
     ).lastrowid
     run_id = project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, params) VALUES (?,?,?,?)",
-        (op_id, sheet_id, "media.transcribe", json.dumps(SPEC)),
+        "INSERT INTO runs (change_id, sheet_id, action_kind, params) VALUES (?,?,?,?)",
+        (change_id, sheet_id, "media.transcribe", json.dumps(SPEC)),
     ).lastrowid
     project.db.commit()
     return (run_id, *_consent_and_route(project, run_id))
@@ -427,9 +427,9 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
     sheet_id = project.add_sheet("S")
-    op_id = project.append_change("media.transcribe")
+    change_id = project.append_change("media.transcribe")
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "media.transcribe", params=dict(SPEC)
+        change_id, sheet_id, "media.transcribe", params=dict(SPEC)
     )
     route = next(
         route
@@ -1026,7 +1026,7 @@ def test_running_queue_admission_refuses_a_closed_cancelled_change(
     assert admission.transient_cancel_requested_at is None
     assert store.cancellation_requested(run_id) is True
     change = project.db.execute(
-        "SELECT op.publication_closed FROM runs run JOIN ops op ON op.id=run.op_id "
+        "SELECT op.publication_closed FROM runs run JOIN changes op ON op.id=run.change_id "
         "WHERE run.id=?",
         (run_id,),
     ).fetchone()
@@ -1101,15 +1101,15 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     from frisket.engine.store.runs import RunResultStore
 
     sheet_id = project.add_sheet("S")
-    op_id = project.append_change("transcribe")
+    change_id = project.append_change("transcribe")
     run_id = RunResultStore(project).start_run(
-        op_id, sheet_id, "media.transcribe", params=dict(SPEC)
+        change_id, sheet_id, "media.transcribe", params=dict(SPEC)
     )
     from frisket.engine.store.changes import ChangeStore
 
     project.db.execute("BEGIN IMMEDIATE")
-    ChangeStore(project).start(op_id, writing=True)
-    ChangeStore(project).close(op_id)
+    ChangeStore(project).start(change_id, writing=True)
+    ChangeStore(project).close(change_id)
     project.db.commit()
     _route, promise_set, consent = _consent_and_route(project, run_id)
     attempt = _mint(project, run_id)
@@ -1134,14 +1134,14 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     set_attempt_state(project, attempt.attempt_id, "effected")
 
     # Undo, then a new op so the undone branch is no longer redoable.
-    assert project.undo() == op_id
+    assert project.undo() == change_id
     noop_op = project.append_change("noop")
     project.db.execute("BEGIN IMMEDIATE")
     ChangeStore(project).start(noop_op, writing=True)
     ChangeStore(project).close(noop_op)
     project.db.commit()
     discarded = project.db.execute(
-        "SELECT status,redo_eligible FROM ops WHERE id=?", (op_id,)
+        "SELECT status,redo_eligible FROM changes WHERE id=?", (change_id,)
     ).fetchone()
     assert tuple(discarded) == ("undone", 0)
 

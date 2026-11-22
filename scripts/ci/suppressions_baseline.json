@@ -377,7 +377,7 @@
   "src/frisket/engine/runner/map_runner.py": 1,
   "src/frisket/engine/runner/preview.py": 1,
   "src/frisket/engine/store/import_sessions.py": 1,
-  "src/frisket/engine/store/op_log.py": 1,
+  "src/frisket/engine/store/change_log.py": 1,
   "src/frisket/engine/store/table_import_intake.py": 4,
   "src/frisket/execution/definitions.py": 5,
   "src/frisket/notifications/candidates.py": 1,

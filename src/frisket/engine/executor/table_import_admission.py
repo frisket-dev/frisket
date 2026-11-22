@@ -259,8 +259,8 @@ def admit_table_import(
             compact_request["params"]["row_count"] = frozen.exact_rows
             with project.db:
                 project.db.execute(
-                    "UPDATE ops SET spec=? WHERE id=?",
-                    (json.dumps(compact_request), session.op_id),
+                    "UPDATE changes SET spec=? WHERE id=?",
+                    (json.dumps(compact_request), session.change_id),
                 )
         header = read_import_header(directory)
 

@@ -677,13 +677,13 @@ def _seed_timestamped_transcripts(
         "timestamped_transcript",
         generated=True,
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
     )
     runs = RunResultStore(project)
     run_id = runs.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.transcribe",
         params={"output_name": "transcript"},
@@ -708,7 +708,7 @@ def _seed_timestamped_transcripts(
     )
     runs.finish_run(run_id)
     with write_transaction(runs.db):
-        runs.point_column_at_run(op_id, transcript_column_id, run_id)
+        runs.point_column_at_run(change_id, transcript_column_id, run_id)
 
     span_refs = []
     for rank, (start_ms, end_ms, quote) in enumerate(
@@ -743,7 +743,7 @@ def _seed_timestamped_transcripts(
             row_id=row_ids[0],
             column_id=transcript_column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata={

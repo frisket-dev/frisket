@@ -109,7 +109,7 @@ def resolve_investigative_rowset(
             "id": sheet["id"],
             "name": sheet["name"],
             "parent_sheet_id": sheet["parent_sheet_id"],
-            "parent_op_id": sheet["parent_op_id"],
+            "parent_change_id": sheet["parent_change_id"],
             "is_materialized": sheet["parent_sheet_id"] is not None,
         },
         "columns": columns,
@@ -160,7 +160,7 @@ def _resolve_sheet(project: Project, sheet_id: int) -> dict[str, Any]:
             details=exc.details or {"sheet_id": sheet_id},
         ) from exc
     row = project.db.execute(
-        "SELECT id, name, parent_sheet_id, parent_op_id "
+        "SELECT id, name, parent_sheet_id, parent_change_id "
         "FROM sheets WHERE id=? AND hidden=0",
         (sheet_id,),
     ).fetchone()
@@ -177,8 +177,10 @@ def _resolve_sheet(project: Project, sheet_id: int) -> dict[str, Any]:
         "parent_sheet_id": (
             int(row["parent_sheet_id"]) if row["parent_sheet_id"] is not None else None
         ),
-        "parent_op_id": (
-            int(row["parent_op_id"]) if row["parent_op_id"] is not None else None
+        "parent_change_id": (
+            int(row["parent_change_id"])
+            if row["parent_change_id"] is not None
+            else None
         ),
     }
 
@@ -378,8 +380,8 @@ def _lineage_ref(
     sheet: dict[str, Any], parent_row_id: int | None
 ) -> dict[str, Any] | None:
     parent_sheet_id = sheet["parent_sheet_id"]
-    parent_op_id = sheet["parent_op_id"]
-    if parent_sheet_id is None and parent_row_id is None and parent_op_id is None:
+    parent_change_id = sheet["parent_change_id"]
+    if parent_sheet_id is None and parent_row_id is None and parent_change_id is None:
         return None
     return {
         "parent_sheet_ref": (
@@ -390,7 +392,7 @@ def _lineage_ref(
             if parent_sheet_id is not None and parent_row_id is not None
             else None
         ),
-        "parent_op_id": parent_op_id,
+        "parent_change_id": parent_change_id,
     }
 
 

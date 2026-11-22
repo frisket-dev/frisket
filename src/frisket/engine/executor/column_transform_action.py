@@ -393,7 +393,7 @@ def _write_column(
 
     cur = project.db.cursor()
     cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, 0)",
+        "INSERT INTO changes (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, 0)",
         (
             action_id,
             f"{action_id.rsplit('.', 1)[-1].removesuffix('_missing')} "
@@ -402,8 +402,8 @@ def _write_column(
             "{}",
         ),
     )
-    op_id = inserted_rowid(cur)
-    ChangeStore(project).start(op_id)
+    change_id = inserted_rowid(cur)
+    ChangeStore(project).start(change_id)
     position = int(
         cur.execute(
             "SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?",
@@ -416,8 +416,8 @@ def _write_column(
         (sheet_id, output_name, output_type, position),
     )
     column_id = inserted_rowid(cur)
-    project.set_undo_info(op_id, {"created_columns": [column_id]})
-    return op_id, column_id
+    project.set_undo_info(change_id, {"created_columns": [column_id]})
+    return change_id, column_id
 
 
 def _receipt(
@@ -431,7 +431,7 @@ def _receipt(
     output_name: str,
     output_type: str,
     output_column_id: int,
-    op_id: int,
+    change_id: int,
     run_id: int,
 ) -> Receipt:
     source_ref = {
@@ -448,7 +448,7 @@ def _receipt(
         "column_id": output_column_id,
         "name": output_name,
         "type": output_type,
-        "op_id": op_id,
+        "change_id": change_id,
         "row_ids": list(source["row_ids"]),
         "row_count": len(source["row_ids"]),
     }
@@ -456,14 +456,14 @@ def _receipt(
         "kind": "typed_action_request",
         **normalized_typed_request_identity(bound),
         "params_hash": params_hash,
-        "op_id": op_id,
+        "change_id": change_id,
     }
     return Receipt(
         receipt_id=receipt_id,
         project_id=project_id,
         action_id=action_instance_id,
         action_kind=bound.action.action_id,
-        op_ids=[op_id],
+        change_ids=[change_id],
         run_id=run_id,
         idempotency_key=bound.request.idempotency_key,
         params_hash=params_hash,
@@ -491,7 +491,7 @@ def _receipt(
                     "completed_rows": len(source["eligible_row_ids"]),
                     "not_completed_rows": len(source["unavailable"]),
                     "failed_rows": 0,
-                    "op_id": op_id,
+                    "change_id": change_id,
                 }
             ),
         ],
@@ -499,7 +499,9 @@ def _receipt(
 
 
 def column_transform_replay_error(project: Any, receipt: Receipt) -> ActionError | None:
-    if not receipt.op_ids or not _receipt_ops_are_applied(project, receipt.op_ids):
+    if not receipt.change_ids or not _receipt_ops_are_applied(
+        project, receipt.change_ids
+    ):
         return receipt_stale_replay_error(
             receipt, "column transform commit is no longer applied"
         )
@@ -653,7 +655,7 @@ def run_typed_column_transform_action(
             },
             "output_name": output_name,
         }
-        op_id, output_column_id = _write_column(
+        change_id, output_column_id = _write_column(
             project,
             action_id=bound.action.action_id,
             sheet_id=int(source["sheet_id"]),
@@ -664,7 +666,7 @@ def run_typed_column_transform_action(
         )
         runs = RunResultStore(project)
         run_id = runs.start_run_in_transaction(
-            op_id,
+            change_id,
             int(source["sheet_id"]),
             bound.action.action_id,
             params=bound.params.model_dump(mode="json"),
@@ -682,7 +684,7 @@ def run_typed_column_transform_action(
             output_name=output_name,
             output_type=output_type,
             output_column_id=output_column_id,
-            op_id=op_id,
+            change_id=change_id,
             run_id=run_id,
         )
         receipts = ReceiptStore(project)
@@ -697,7 +699,7 @@ def run_typed_column_transform_action(
             action_kind=bound.action.action_id,
             receipt_id=receipt_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             claim_token=token,
             details={"output_fields": [field]},
         )
@@ -739,7 +741,7 @@ def run_typed_column_transform_action(
         store_capture(
             project,
             source["capture"],
-            owner_op_id=op_id,
+            owner_change_id=change_id,
             output_sheet_id=int(source["sheet_id"]),
             run_id=run_id,
         )

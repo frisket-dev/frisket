@@ -176,7 +176,7 @@ def test_url_staging_cleanup_on_bad_output_or_atomic_write_failure(
     result = run_action_spec(project, request, project_id="p")
     assert result.status == "failed"
     assert stages and all(not path.exists() for path in stages)
-    for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts"):
+    for table in ("sheets", "rows", "cells", "blobs", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -383,7 +383,7 @@ def test_import_urls_action_uses_the_injected_limit_before_network_or_mutation(
     assert seen == exact
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts")
+        for table in ("sheets", "rows", "cells", "blobs", "changes", "receipts")
     }
 
     refused = run_action_spec(
@@ -405,6 +405,6 @@ def test_import_urls_action_uses_the_injected_limit_before_network_or_mutation(
     assert seen == exact
     after = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts")
+        for table in ("sheets", "rows", "cells", "blobs", "changes", "receipts")
     }
     assert after == before

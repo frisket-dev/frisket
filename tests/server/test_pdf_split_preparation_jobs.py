@@ -214,7 +214,7 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
         assert content.pins[0].positions["source_page_number"] == 2
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE kind='media.ocr'"
+                "SELECT COUNT(*) FROM changes WHERE kind='media.ocr'"
             ).fetchone()[0]
             == 1
         )  # earlier explicit preview op only
@@ -223,13 +223,13 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
         assert setup_calls[0][1]["enabled"] is True
         assert setup_calls[0][1]["confirmation"] == "reviewed-semantic-download"
         assert setup_calls[0][1]["import_receipt_id"] == started["receipt_id"]
-        from frisket.engine.store.op_log import step_operation
+        from frisket.engine.store.change_log import step_change
 
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=session["op_id"])
+            step_change(project, "revert", change_id=session["change_id"])
         assert project.visible_row_ids(session["sheet_id"]) == []
         with project.transaction_scope():
-            step_operation(project, "restore", change_id=session["op_id"])
+            step_change(project, "restore", change_id=session["change_id"])
         setup_count = len(setup_calls)
         preparation.progress_pdf_import("pages", import_ref)
         assert len(setup_calls) == setup_count

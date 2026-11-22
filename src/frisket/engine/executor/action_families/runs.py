@@ -229,7 +229,7 @@ def _resolve_backfill_target(
         )
     run_id = source_run_ids[0]
     run_row = project.db.execute(
-        "SELECT id, op_id, params, action_kind FROM runs WHERE id=?",
+        "SELECT id, change_id, params, action_kind FROM runs WHERE id=?",
         (run_id,),
     ).fetchone()
     if run_row is None:
@@ -388,7 +388,7 @@ def _resolve_backfill_target(
     return {
         "column_id": column_id,
         "run_id": int(run_id),
-        "op_id": int(run_row["op_id"]),
+        "change_id": int(run_row["change_id"]),
         "runner_spec": runner_spec,
         "unrun_row_ids": unrun_row_ids,
     }

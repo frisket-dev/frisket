@@ -66,7 +66,7 @@ def record_local_reading(
             project_id=project_id,
             action_id="act_" + receipt_id.removeprefix("receipt_")[:24],
             action_kind=reading.action_kind,
-            op_ids=list(reading.change_ids),
+            change_ids=list(reading.change_ids),
             status=reading.status,
             params_hash=hashlib.sha256(
                 json.dumps(dict(reading.settings), sort_keys=True).encode()

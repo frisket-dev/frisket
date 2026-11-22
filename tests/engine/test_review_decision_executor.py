@@ -14,7 +14,7 @@ from executor_harness import (
     ExecutorCase,
     Gate,
     case_env,
-    operation_action,
+    change_action,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
@@ -141,7 +141,7 @@ def _seed_review(
     seeded = {
         "sheet_id": sheet_id,
         "run_id": mapped.run_id,
-        "map_op_id": mapped.op_ids[0],
+        "map_op_id": mapped.change_ids[0],
         "row_ids": [
             int(row["id"])
             for row in project.db.execute(
@@ -275,7 +275,7 @@ def _conflicting_row_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     review_output = next(output for output in result.outputs if output.kind == "review")
     assert review_output.ref["kind"] == "review_decision"
     assert review_output.ref["decision"] == "accept"
@@ -287,7 +287,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     ).fetchone()
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "review.decision"
-    assert receipt.op_ids == result.op_ids
+    assert receipt.change_ids == result.change_ids
     assert receipt.review == {
         "decision": "accept",
         "review_state_before": "unreviewed",
@@ -345,7 +345,7 @@ CASES = [
                 "row_id",
                 "column_id",
                 "decision",
-                "copied_op_id",
+                "copied_change_id",
                 "note",
             ),
             output_schema_properties=(
@@ -384,7 +384,7 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"ops": 1, "edits": 0, "results": 0, "receipts": 1},
+        expect_counts={"changes": 1, "edits": 0, "results": 0, "receipts": 1},
         check_state=_check_state,
         request_style="typed",
     ),
@@ -415,7 +415,7 @@ CASES = [
                 }
             ),
             cost_policy_kind="none",
-            input_schema_properties=("run_id", "copied_op_id", "row_id", "note"),
+            input_schema_properties=("run_id", "copied_change_id", "row_id", "note"),
             output_schema_properties=(
                 "run_id",
                 "row_id",
@@ -426,7 +426,7 @@ CASES = [
         ),
         seed=_seed,
         make_action=_review_note_action,
-        expect_counts={"ops": 1, "edits": 0, "results": 0, "receipts": 1},
+        expect_counts={"changes": 1, "edits": 0, "results": 0, "receipts": 1},
         check_state=_check_note_state,
         request_style="typed",
     ),
@@ -529,9 +529,9 @@ def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
     answer_id = project.add_column(sheet_id, "answer", generated=True)
     error_id = project.add_column(sheet_id, "other", generated=True)
     row_id = project.add_rows(sheet_id, [{}], {})[0]
-    op_id = project.append_change("map", {"fixture": "mixed review outcomes"})
+    change_id = project.append_change("map", {"fixture": "mixed review outcomes"})
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "map.extract",
         row_ids=[row_id],
@@ -837,7 +837,7 @@ def test_row_note_persists_after_all_fields_are_reviewed_and_refuses_completed_r
             "row_id": seeded["row_ids"][0],
             "note": "Checked against the source row.",
             "column_count": 1,
-            "op_id": noted.op_ids[0],
+            "change_id": noted.change_ids[0],
         }
         assert _review_metadata(project, seeded, seeded["row_ids"][0]) == (
             "accept",
@@ -921,10 +921,10 @@ def test_row_note_uses_stable_legacy_note_and_normalizes_primary_siblings(
         }
 
         undone = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="undo_review_note@sha256:v1",
-                expected_op_id=noted.op_ids[0],
+                expected_change_id=noted.change_ids[0],
             )
         )
         assert undone.status == "completed", undone.errors
@@ -939,10 +939,10 @@ def test_row_note_uses_stable_legacy_note_and_normalizes_primary_siblings(
         ]
 
         redone = env.run(
-            operation_action(
-                "operation.redo",
+            change_action(
+                "change.redo",
                 key="redo_review_note@sha256:v1",
-                expected_op_id=noted.op_ids[0],
+                expected_change_id=noted.change_ids[0],
             )
         )
         assert redone.status == "completed", redone.errors
@@ -992,10 +992,10 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
         )
 
         undo = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="undo_review_edit@sha256:v1",
-                expected_op_id=edited.op_ids[0],
+                expected_change_id=edited.change_ids[0],
             )
         )
         assert undo.status == "completed", undo.errors
@@ -1054,10 +1054,10 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
         assert review_bundle_page(project, run_id=seeded["run_id"] + 100)["total"] == 0
 
         redoable = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="undo_review_reject_clear@sha256:v1",
-                expected_op_id=cleared.op_ids[0],
+                expected_change_id=cleared.change_ids[0],
             )
         )
         assert redoable.status == "completed", redoable.errors
@@ -1069,10 +1069,10 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
         assert _live_risk(project, seeded, row_id) == "low"
 
         redone = env.run(
-            operation_action(
-                "operation.redo",
+            change_action(
+                "change.redo",
                 key="redo_review_reject_clear@sha256:v1",
-                expected_op_id=cleared.op_ids[0],
+                expected_change_id=cleared.change_ids[0],
             )
         )
         assert redone.status == "completed", redone.errors
@@ -1115,7 +1115,7 @@ def test_null_cell_edit_replays_without_judgment(
         assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 2
 
         op = project.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (first.op_ids[0],)
+            "SELECT spec FROM changes WHERE id=?", (first.change_ids[0],)
         ).fetchone()
         assert json.loads(op["spec"])["params"]["edits"][0]["value"] is None
 
@@ -1173,7 +1173,7 @@ def _attach_cell_evidence(
             row_id=row_id,
             column_id=seeded["risk_column_id"],
             run_id=seeded["run_id"],
-            op_id=seeded["map_op_id"],
+            change_id=seeded["map_op_id"],
             producer={
                 "source_action_kind": "map.python",
                 "field": "risk",
@@ -1282,10 +1282,10 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
         )
 
         undone = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="undo-review-edit-evidence-history@sha256:v1",
-                expected_op_id=edited.op_ids[0],
+                expected_change_id=edited.change_ids[0],
             )
         )
         assert undone.status == "completed", undone.errors
@@ -1295,10 +1295,10 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
         assert restored["stale_at"] is None
 
         redone = env.run(
-            operation_action(
-                "operation.redo",
+            change_action(
+                "change.redo",
                 key="redo-review-edit-evidence-history@sha256:v1",
-                expected_op_id=edited.op_ids[0],
+                expected_change_id=edited.change_ids[0],
             )
         )
         assert redone.status == "completed", redone.errors
@@ -1318,10 +1318,10 @@ def test_review_state_only_undo_does_not_dirty_value_search(
         project.db.commit()
 
         undone = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="undo-review-without-search@sha256:v1",
-                expected_op_id=accepted.op_ids[0],
+                expected_change_id=accepted.change_ids[0],
             )
         )
 
@@ -1349,10 +1349,10 @@ def test_review_note_undo_does_not_mutate_claimed_values(
         assert len(claims) == 1
 
         blocked = env.run(
-            operation_action(
-                "operation.undo",
+            change_action(
+                "change.undo",
                 key="undo-claimed-review-note@sha256:v1",
-                expected_op_id=noted.op_ids[0],
+                expected_change_id=noted.change_ids[0],
             )
         )
 

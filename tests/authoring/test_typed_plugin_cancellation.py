@@ -14,7 +14,7 @@ pytest_plugins = ("tests.authoring.test_typed_plugin_table_host",)
 
 
 def _assert_no_publication(project):
-    for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+    for table in ("sheets", "columns", "rows", "cells", "changes", "receipts"):
         assert project.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 

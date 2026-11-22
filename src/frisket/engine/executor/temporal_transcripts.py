@@ -151,12 +151,14 @@ def _candidate_payload(
         return None
     if value_ref_kind == "copied_result":
         retained = value_ref.get("retained_result")
-        if not isinstance(retained, dict) or link["op_id"] != value_ref.get("op_id"):
+        if not isinstance(retained, dict) or link["change_id"] != value_ref.get(
+            "change_id"
+        ):
             return None
         copy = project.db.execute(
             "SELECT source_run_id,source_row_id,source_column_id FROM copied_result_outcomes "
-            "WHERE op_id=? AND row_id=? AND column_id=?",
-            (value_ref.get("op_id"), row_id, column_id),
+            "WHERE change_id=? AND row_id=? AND column_id=?",
+            (value_ref.get("change_id"), row_id, column_id),
         ).fetchone()
         if (
             copy is None
@@ -176,7 +178,7 @@ def _candidate_payload(
         # Extract Range publishes generated values through the operation/edit
         # layer so undo remains atomic. Only the exact producer op qualifies;
         # a later user edit has a different ref and invalidates the link.
-        if link["op_id"] != value_ref.get("op_id"):
+        if link["change_id"] != value_ref.get("change_id"):
             return None
     elif value_ref_kind != "source_cell":
         return None
@@ -673,7 +675,7 @@ def persist_projected_transcript_citations(
     output_row_id: int,
     transcript_column_id: int,
     receipt_id: str,
-    op_id: int,
+    change_id: int,
 ) -> dict[str, Any] | None:
     """Persist clip-local spans and bind them to the projected text cell."""
 
@@ -710,7 +712,7 @@ def persist_projected_transcript_citations(
         row_id=output_row_id,
         column_id=transcript_column_id,
         run_id=transcript.transcript_run_id,
-        op_id=op_id,
+        change_id=change_id,
         receipt_id=receipt_id,
         link_role="temporal_transcript_projection",
         producer={

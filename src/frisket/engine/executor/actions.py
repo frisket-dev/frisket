@@ -618,9 +618,9 @@ def run_action_spec(
             run_typed_mutation_action,
             supports_typed_mutation_action,
         )
-        from frisket.engine.executor.operation_action import (
-            run_typed_operation_action,
-            supports_typed_operation_action,
+        from frisket.engine.executor.change_action import (
+            run_typed_change_action,
+            supports_typed_change_action,
         )
 
         from frisket.engine.executor.plugin_load_action import (
@@ -678,7 +678,7 @@ def run_action_spec(
             name
             for name, supports in (
                 ("mutation", supports_typed_mutation_action),
-                ("operation", supports_typed_operation_action),
+                ("operation", supports_typed_change_action),
                 ("feed", supports_typed_feed_action),
                 ("feed_poll", supports_typed_feed_poll_action),
                 ("export", supports_typed_export_action),
@@ -732,7 +732,7 @@ def run_action_spec(
                 enclosure_fetcher=executor_deps.enclosure_fetcher,
             )
         if owners[0] == "operation":
-            return run_typed_operation_action(project, project_id, typed)
+            return run_typed_change_action(project, project_id, typed)
         if owners[0] == "feed":
             return run_typed_feed_action(project, project_id, typed)
         if owners[0] == "feed_poll":

@@ -82,7 +82,7 @@ const SHEET_LIST_WIRE = [
     id: 1,
     name: 'Stories',
     parent_sheet_id: null,
-    parent_op_id: null,
+    parent_change_id: null,
     rows: 3,
     title_column_id: null,
     cited_column_ids: [],
@@ -125,7 +125,7 @@ const SHEET_DATA_WIRE = {
 // error toast (see workspaceMountHistoryFailure.test.tsx), muddying the
 // cost-gate assertions below.
 const HISTORY_WIRE = {
-  ops: [],
+  changes: [],
   offset: 0,
   limit: 50,
   total: 0,
@@ -134,11 +134,11 @@ const HISTORY_WIRE = {
   prev_offset: null,
   next_offset: null,
   cursor_index: -1,
-  cursor_op: null,
-  cursor_op_loaded: true,
+  cursor_change: null,
+  cursor_change_loaded: true,
   undo_target: null,
   redo_target: null,
-  revision: { total: 0, max_op_id: 0, op_cursor: 0 },
+  revision: { total: 0, max_change_id: 0, change_cursor: 0 },
 };
 
 const EFFECT_REQUIRES_RUN_MESSAGE =

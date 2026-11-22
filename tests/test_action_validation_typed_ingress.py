@@ -37,7 +37,7 @@ KINDS = ["plugin.load", "cell.edit", "map.python", "map.ner"]
 # quirks with int make it worth calling out explicitly).
 BAD_PARAMS: list[Any] = [None, [], [1, 2], "x", 3, 1.5, True]
 
-_WRITE_TABLES = ("runs", "ops", "receipts", "model_calls", "sheets", "rows")
+_WRITE_TABLES = ("runs", "changes", "receipts", "model_calls", "sheets", "rows")
 
 
 def _table_counts(project: Any) -> dict[str, int]:
@@ -68,7 +68,7 @@ def test_typed_csv_refuses_non_dict_params_before_file_or_project_work(
     result = run_action_spec(project, request, project_id="p")
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_action_request"
-    for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+    for table in ("sheets", "columns", "rows", "cells", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 

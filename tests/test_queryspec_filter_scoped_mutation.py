@@ -71,11 +71,13 @@ def _edit_query_action(
     }
 
 
-def _operation_action(kind: str, *, key: str, expected_op_id: int) -> dict[str, Any]:
+def _operation_action(
+    kind: str, *, key: str, expected_change_id: int
+) -> dict[str, Any]:
     return {
         "action_id": kind,
         "scope": {"kind": "project"},
-        "params": {"expected_op_id": expected_op_id},
+        "params": {"expected_change_id": expected_change_id},
         "idempotency_key": key,
     }
 
@@ -144,8 +146,8 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
     assert result.status == "completed"
     assert result.action.kind == "cell.edit_query"
     assert result.receipt_id is not None
-    assert len(result.op_ids) == 1
-    edit_op_id = result.op_ids[0]
+    assert len(result.change_ids) == 1
+    edit_change_id = result.change_ids[0]
     assert result.outputs[0].kind == "edit"
     assert result.outputs[0].sheet_id == sheet_id
     assert result.outputs[0].column_id == columns["status"]
@@ -171,7 +173,7 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
     assert receipt_row is not None
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "cell.edit_query"
-    assert receipt.op_ids == [edit_op_id]
+    assert receipt.change_ids == [edit_change_id]
     assert receipt.outputs[0].ref == result.outputs[0].ref
     assert receipt.provider_use == [
         {
@@ -220,9 +222,9 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
     undo_later = client.post(
         f"/api/projects/{pid}/actions/v1/run",
         json=_operation_action(
-            "operation.undo",
+            "change.undo",
             key="undo-later-edit@sha256:v1",
-            expected_op_id=later_edit_id,
+            expected_change_id=later_edit_id,
         ),
     )
     assert undo_later.status_code == 200, undo_later.text
@@ -231,9 +233,9 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
     undo = client.post(
         f"/api/projects/{pid}/actions/v1/run",
         json=_operation_action(
-            "operation.undo",
+            "change.undo",
             key="undo-filter-cell-edit@sha256:v1",
-            expected_op_id=edit_op_id,
+            expected_change_id=edit_change_id,
         ),
     )
     assert undo.status_code == 200, undo.text
@@ -250,9 +252,9 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
     redo = client.post(
         f"/api/projects/{pid}/actions/v1/run",
         json=_operation_action(
-            "operation.redo",
+            "change.redo",
             key="redo-filter-cell-edit@sha256:v1",
-            expected_op_id=edit_op_id,
+            expected_change_id=edit_change_id,
         ),
     )
     assert redo.status_code == 200, redo.text
@@ -330,7 +332,7 @@ def test_filter_scoped_cell_edit_rejects_empty_rowset_without_history(
     project = client.app.state.workspace.get(pid)
     before = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("ops", "edits", "receipts")
+        for table in ("changes", "edits", "receipts")
     }
 
     run = client.post(f"/api/projects/{pid}/actions/v1/run", json=action)
@@ -341,6 +343,6 @@ def test_filter_scoped_cell_edit_rejects_empty_rowset_without_history(
     assert result.errors[0].message == "cell.edit_query resolved zero rows to edit"
     after = {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("ops", "edits", "receipts")
+        for table in ("changes", "edits", "receipts")
     }
     assert after == before

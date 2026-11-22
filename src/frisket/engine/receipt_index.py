@@ -42,8 +42,8 @@ def _ref_kind_set(body: dict[str, Any], section: str) -> list[str]:
 
 
 def _op_ids(body: dict[str, Any]) -> list[Any]:
-    op_ids = body.get("op_ids")
-    return op_ids if isinstance(op_ids, list) else []
+    change_ids = body.get("change_ids")
+    return change_ids if isinstance(change_ids, list) else []
 
 
 def _export_artifacts_from_body(
@@ -131,7 +131,7 @@ def _receipt_projection(row: Any, body: dict[str, Any]) -> dict[str, Any]:
         "records": _ref_kind_set(body, "records"),
         "inputs": _ref_kind_set(body, "inputs"),
         "outputs": _ref_kind_set(body, "outputs"),
-        "op_ids": _op_ids(body),
+        "change_ids": _op_ids(body),
         "export_artifacts": _export_artifacts_from_body(
             body,
             default_export_kind="work_log",
@@ -252,7 +252,7 @@ def work_log_receipt_summaries(project: Any) -> list[dict[str, Any]]:
                 "id": receipt_id,
                 "action_kind": item.get("action_kind"),
                 "status": item.get("status"),
-                "op_ids": item.get("op_ids") or [],
+                "change_ids": item.get("change_ids") or [],
                 "outputs": item.get("outputs") or [],
                 "records": item.get("records") or [],
                 "created_at": metadata.get("created_at"),

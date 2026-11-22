@@ -261,7 +261,7 @@ def ingest_rss(
 ) -> dict[str, Any]:
     """Fetch, parse, dedup, and insert NEW items from an rss source.
 
-    Returns a summary dict ``{new_rows, revisions, op_id, sheet_id, run_id}``.
+    Returns a summary dict ``{new_rows, revisions, change_id, sheet_id, run_id}``.
     ``fetch`` is injectable (tests pass fixture text; default is the SSRF-guarded
     fetch). On any fetch/parse error a source_run is logged with status='error'
     and the error re-raised as ``IngestError`` — the poll is never silently lost.
@@ -360,7 +360,7 @@ def ingest_rss(
         return {
             "new_rows": 0,
             "revisions": 0,
-            "op_id": None,
+            "change_id": None,
             "sheet_id": sheet_id,
             "run_id": run_id,
             "row_ids": [],
@@ -382,7 +382,7 @@ def ingest_rss(
     # --- one logged op for the whole poll's inserts (undo/provenance) ---
     inserted_records = new_records + revision_records
     with write_transaction(project.db, what="feed poll rows"):
-        op_id = project.append_change_in_transaction(
+        change_id = project.append_change_in_transaction(
             "ingest",
             {
                 "source_id": source_id,
@@ -394,7 +394,7 @@ def ingest_rss(
             label=f"ingest {total_new} from {source['name']}",
         )
         producer_id = create_base_cell_producer(
-            project.db, stage_id=f"op:{op_id}", op_id=op_id
+            project.db, stage_id=f"op:{change_id}", change_id=change_id
         )
         row_ids = project.add_rows_in_transaction(
             sheet_id,
@@ -409,7 +409,7 @@ def ingest_rss(
             new_rows=total_new,
             status="ok",
             cursor=json.dumps(seen),
-            op_id=op_id,
+            change_id=change_id,
         )
     enclosure_row_ids = [
         row_id
@@ -420,7 +420,7 @@ def ingest_rss(
     return {
         "new_rows": len(new_records),
         "revisions": len(revision_records),
-        "op_id": op_id,
+        "change_id": change_id,
         "sheet_id": sheet_id,
         "run_id": run_id,
         "row_ids": row_ids,

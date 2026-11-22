@@ -441,7 +441,7 @@ def test_replay_refuses_changed_or_missing_source_and_undone_publication(
     first = _run(project, request)
     assert first.status == "completed", first.errors
     if change == "undo":
-        assert project.undo() == first.op_ids[0]
+        assert project.undo() == first.change_ids[0]
     else:
         project.apply_edits(
             [
@@ -569,7 +569,7 @@ def test_receipt_failure_rolls_back_entire_collection_publication(
     seed = _seed_source_cell(project)
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("sheets", "rows", "columns", "ops", "receipts")
+        for table in ("sheets", "rows", "columns", "changes", "receipts")
     }
 
     def fail(*args, **kwargs):

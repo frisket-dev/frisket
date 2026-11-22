@@ -99,7 +99,7 @@ def generated_result_coordinate_sql(coordinate_alias: str) -> str:
     return "(" + generated_candidates_sql(f"({scoped}) contribution") + ")"
 
 
-def reconciliation_heads_sql(db, column_id, row_ids, *, exclude_op_id):
+def reconciliation_heads_sql(db, column_id, row_ids, *, exclude_change_id):
     """Recover working values beneath this writer's mask, using real authority.
 
     Internal reconciliation reads never consult cached heads or suppress later
@@ -108,7 +108,7 @@ def reconciliation_heads_sql(db, column_id, row_ids, *, exclude_op_id):
     from .change_schema import canonical_heads_sql
 
     owner = db.execute(
-        "SELECT change_order FROM ops WHERE id=?", (exclude_op_id,)
+        "SELECT change_order FROM changes WHERE id=?", (exclude_change_id,)
     ).fetchone()
     if owner is None or owner[0] is None:
         raise ValueError("Reconciliation requires an ordered owning Change")

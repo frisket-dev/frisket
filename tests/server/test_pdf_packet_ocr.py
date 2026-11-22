@@ -382,7 +382,7 @@ def test_original_sample_runs_accounted_preview_then_binds_cached_page_to_second
 
     provider.complete = complete
     try:
-        before = project.op_cursor
+        before = project.change_cursor
         estimated = coordinator.estimate_sample(
             project_id="pages",
             sources=[source],
@@ -401,7 +401,7 @@ def test_original_sample_runs_accounted_preview_then_binds_cached_page_to_second
                 ocr_selection=selection,
                 confirmation=None,
             )
-        assert project.op_cursor == before
+        assert project.change_cursor == before
         started = coordinator.start_sample(
             project_id="pages",
             sources=[source],

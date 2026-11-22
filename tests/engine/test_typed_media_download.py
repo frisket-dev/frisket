@@ -363,7 +363,7 @@ def test_channel_backfill_rechecks_current_source(make_project):
             }
         },
         run_id=1,
-        op_id=1,
+        change_id=1,
         row_id=row_id,
     )
     assert list(project.get_values(sheet, cols["channel_id"]).values()) == [None]

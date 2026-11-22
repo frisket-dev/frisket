@@ -85,7 +85,7 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
     assert result.status == "completed", result.model_dump_json(indent=2)
     assert (
         project.db.execute(
-            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "SELECT publication_closed FROM changes JOIN runs ON runs.change_id=changes.id "
             "WHERE runs.id=?",
             (result.run_id,),
         ).fetchone()[0]
@@ -158,7 +158,7 @@ def test_cluster_computes_from_captured_rows_after_equal_text_new_contribution(
 ):
     from frisket.engine.executor import cluster_program
     from frisket.engine.store.consumed_sources import row_input_state
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project, sheet, source, execute = cluster_project
     row = project.visible_row_ids(sheet)[0]
@@ -190,7 +190,7 @@ def test_cluster_computes_from_captured_rows_after_equal_text_new_contribution(
     assert result.status == "completed", result.errors
     assert row_input_state(project, result.run_id, row) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=edits[0])
+        step_change(project, "revert", change_id=edits[0])
     assert row_input_state(project, result.run_id, row) == "fresh"
 
 
@@ -375,7 +375,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     assert project.db.execute("SELECT status FROM receipts").fetchone()[0] == "running"
     staged = json.loads(
         project.db.execute(
-            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+            "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id "
             "WHERE runs.action_kind='custom.cluster' ORDER BY runs.id DESC LIMIT 1"
         ).fetchone()[0]
     )
@@ -386,7 +386,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     assert len(calls) == 1
     terminal = json.loads(
         project.db.execute(
-            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+            "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id "
             "WHERE runs.action_kind='custom.cluster' ORDER BY runs.id DESC LIMIT 1"
         ).fetchone()[0]
     )
@@ -495,7 +495,7 @@ def test_cluster_publishes_actual_groups_with_canonical_values(
     assert fact["source"]["column_id"] == source
     assert fact["output"]["column_id"] == output["id"]
     run = project.db.execute(
-        "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
         (result.run_id,),
     ).fetchone()
     op_spec = json.loads(run["spec"])

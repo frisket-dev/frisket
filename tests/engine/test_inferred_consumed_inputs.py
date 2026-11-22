@@ -5,13 +5,13 @@ from contextlib import contextmanager
 import pytest
 
 from frisket.engine.store.consumed_sources import row_input_state, verify_bundle
-from frisket.engine.store.op_log import step_operation
+from frisket.engine.store.change_log import step_change
 from tests.ops.test_formula_host import _run
 
 
 def _revert(project, op):
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=op)
+        step_change(project, "revert", change_id=op)
 
 
 @pytest.mark.parametrize("count", [3, 1001])

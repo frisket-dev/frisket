@@ -125,7 +125,7 @@ function mapReceipt(wire: ReceiptWire): V1Receipt {
     actionId: wire.action_id,
     actionKind: wire.action_kind,
     runId: wire.run_id == null ? null : String(wire.run_id),
-    opIds: wire.op_ids ?? [],
+    changeIds: wire.change_ids ?? [],
     idempotencyKey: wire.idempotency_key ?? null,
     paramsHash: wire.params_hash ?? null,
     status: wire.status,

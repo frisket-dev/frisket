@@ -124,7 +124,7 @@ function actionReceipt(overrides: Partial<V1Receipt> = {}): V1Receipt {
     actionId: 'action-7',
     actionKind: 'media.extract_document',
     runId: '88',
-    opIds: [9],
+    changeIds: [9],
     idempotencyKey: 'queued-action-7',
     paramsHash: 'sha256:queued-action-7',
     status: 'completed',

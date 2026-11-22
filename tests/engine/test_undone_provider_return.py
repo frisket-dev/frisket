@@ -136,8 +136,8 @@ def test_undo_during_provider_call_retains_usage_and_response_without_publicatio
         )
         assert tuple(
             project.db.execute(
-                "SELECT status,publication_closed FROM ops WHERE id=?",
-                (run["op_id"],),
+                "SELECT status,publication_closed FROM changes WHERE id=?",
+                (run["change_id"],),
             ).fetchone()
         ) == ("undone", 1)
         assert {column["name"] for column in project.columns(sheet)} == {"text"}
@@ -170,7 +170,7 @@ def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_pa
 
         class Transport:
             async def execute_llm(self, attempt, request):
-                assert project.undo() == run.op_id
+                assert project.undo() == run.change_id
                 return _response(execution_id="cloud-purchase")
 
         coordinator = CloudLLMCheckpointCoordinator(

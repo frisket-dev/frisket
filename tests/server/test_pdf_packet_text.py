@@ -29,7 +29,7 @@ def test_stored_pages_reused_without_native_sampling(tmp_path, monkeypatch):
     project_id = str(workspace.create("Text", project_id="text")["id"])
     project = workspace.get(project_id)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
-    op_id = project.append_change("media.read_pdf_text")
+    change_id = project.append_change("media.read_pdf_text")
     with write_transaction(project.db):
         artifact = record_source_artifact(
             project,
@@ -41,7 +41,7 @@ def test_stored_pages_reused_without_native_sampling(tmp_path, monkeypatch):
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             pages=[PreparedPageDraft(1, "Stored text here")],
         )
     path = tmp_path / "unread.pdf"
@@ -85,9 +85,9 @@ def test_empty_ocr_page_is_retained_without_resampling(tmp_path, monkeypatch):
     project = workspace.get(project_id)
     sheet = project.add_sheet("Rows")
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
-    op_id = project.append_change("media.ocr")
+    change_id = project.append_change("media.ocr")
     RunResultStore(project).start_run(
-        op_id, sheet, "media.ocr", row_ids=[], total_rows=0
+        change_id, sheet, "media.ocr", row_ids=[], total_rows=0
     )
     with write_transaction(project.db):
         artifact = record_source_artifact(
@@ -100,7 +100,7 @@ def test_empty_ocr_page_is_retained_without_resampling(tmp_path, monkeypatch):
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             pages=[PreparedPageDraft(1, "")],
         )
     source = AdmittedPacketSource(
@@ -166,7 +166,7 @@ def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
-            producing_op_id=op,
+            producing_change_id=op,
             pages=[PreparedPageDraft(1, "native")],
         )
     run = RunResultStore(project).start_run(
@@ -271,7 +271,7 @@ def test_retained_ocr_from_import_keeps_ocr_provenance(tmp_path):
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
-            producing_op_id=op,
+            producing_change_id=op,
             pages=[PreparedPageDraft(1, "", {"engine": "rapidocr", "blocks": []})],
         )
     source = AdmittedPacketSource(

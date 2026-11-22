@@ -11,11 +11,11 @@ from frisket.engine.store.feeds import FeedStore
 from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.alerts.triggers import feed_poll_materialization_from_receipt
 from frisket.feeds.health import build_feed_health
-from frisket.upgrades.project.feeds_migration import (
-    FEEDS_FROM_DIGEST,
-    FEEDS_TO_DIGEST,
+from frisket.upgrades.project.feeds_migration import FEEDS_FROM_DIGEST
+from tests.engine.historical_schema import (
+    restore_pre_changes_schema,
+    restore_pre_feeds_tables,
 )
-from historical_schema import restore_pre_feeds_tables
 
 
 def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
@@ -23,7 +23,7 @@ def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
     sheet_id = project.add_sheet("Notices")
     col_id = project.add_column(sheet_id, "title", type="text")
     row_ids = project.add_rows(sheet_id, [{"title": "Alpha"}], {"title": col_id})
-    op_id = int(project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0])
+    op_id = int(project.db.execute("SELECT MAX(id) FROM changes").fetchone()[0])
     channel = project.create_notification_channel(
         kind="email",
         name="Ops",
@@ -35,6 +35,7 @@ def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
 
     db = sqlite3.connect(bundle_path / "project.db")
     try:
+        restore_pre_changes_schema(db)
         db.execute("PRAGMA foreign_keys = OFF")
         restore_pre_feeds_tables(db)
         db.execute(
@@ -316,7 +317,7 @@ def test_feeds_migration_preserves_data_and_rewrites_receipts_and_notifications(
         digest = project.db.execute(
             "SELECT value FROM meta WHERE key='schema_digest'"
         ).fetchone()[0]
-        assert digest == SCHEMA_DIGEST == FEEDS_TO_DIGEST
+        assert digest == SCHEMA_DIGEST
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
         tables = {

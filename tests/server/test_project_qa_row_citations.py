@@ -159,7 +159,7 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
             row_id=row,
             column_id=text_column,
             run_id=run,
-            op_id=op,
+            change_id=op,
             link_role="media_ocr_grounding",
             producer={"action_kind": "media.ocr", "engine": "rapidocr"},
         )

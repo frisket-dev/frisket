@@ -57,7 +57,7 @@ def test_custom_semantic_action_uses_declared_refs_not_builtin_names(case, monke
     assert result.status == "completed", result
     assert (
         case.project.db.execute(
-            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "SELECT publication_closed FROM changes JOIN runs ON runs.change_id=changes.id "
             "WHERE runs.id=?",
             (result.run_id,),
         ).fetchone()[0]
@@ -151,7 +151,7 @@ def test_actual_receipt_can_feed_match_reader(case):
 
 def test_target_edit_changes_semantic_join_input_freshness(case):
     from frisket.engine.store.consumed_sources import row_input_state
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     result = case.run()
     assert result.status == "completed", result
@@ -162,7 +162,7 @@ def test_target_edit_changes_semantic_join_input_freshness(case):
     )
     assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
     with case.project.transaction_scope():
-        step_operation(case.project, "revert", change_id=edit)
+        step_change(case.project, "revert", change_id=edit)
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
 
 
@@ -187,7 +187,7 @@ def test_semantic_rows_share_one_corpus_capture(case):
 
 def test_target_membership_changes_semantic_join_freshness(case):
     from frisket.engine.store.consumed_sources import row_input_state
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     result = case.run()
     assert result.status == "completed", result
@@ -198,10 +198,10 @@ def test_target_membership_changes_semantic_join_freshness(case):
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
 
     case.project.add_rows(case.right, [{"company": "Other"}], {"company": case.company})
-    append = case.project.db.execute("SELECT max(id) FROM ops").fetchone()[0]
+    append = case.project.db.execute("SELECT max(id) FROM changes").fetchone()[0]
     assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
     with case.project.transaction_scope():
-        step_operation(case.project, "revert", change_id=append)
+        step_change(case.project, "revert", change_id=append)
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
 
 
@@ -215,7 +215,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
 
     from frisket.engine.store.consumed_sources import row_input_state
     from frisket.engine.store.runs import RunResultStore
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
     from test_map_row_effect_checkpoint import _age_silent_attempt
     from frisket.engine.executor.actions import _default_map_runner_factory
     from frisket.engine.executor import semantic_join_action
@@ -262,7 +262,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     # Resume the saved runner as the queue recovery path does; the direct
     # action route correctly reports an in-progress receipt until rows finish.
     stored = case.project.db.execute(
-        "SELECT runs.id,ops.spec,c.claim_token FROM runs JOIN ops ON ops.id=runs.op_id "
+        "SELECT runs.id,changes.spec,c.claim_token FROM runs JOIN changes ON changes.id=runs.change_id "
         "JOIN generated_column_claims c ON c.run_id=runs.id WHERE c.status='active' LIMIT 1"
     ).fetchone()
     runner = _default_map_runner_factory(case.project, None)
@@ -283,15 +283,15 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     if undo_before_retry:
         run_op_id = int(
             case.project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (stored["id"],)
-            ).fetchone()["op_id"]
+                "SELECT change_id FROM runs WHERE id=?", (stored["id"],)
+            ).fetchone()["change_id"]
         )
-        edit_op_id = int(
+        edit_change_id = int(
             case.project.db.execute(
-                "SELECT id FROM ops WHERE change_order=(SELECT MAX(change_order) FROM ops)"
+                "SELECT id FROM changes WHERE change_order=(SELECT MAX(change_order) FROM changes)"
             ).fetchone()["id"]
         )
-        assert case.project.undo() == edit_op_id
+        assert case.project.undo() == edit_change_id
         assert case.project.undo() == run_op_id
         result = case.run()
         assert result.status == "cancelled", result.errors
@@ -328,7 +328,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     assert json.loads(actual[0])["shared_inputs"] == saved["shared_inputs"]
     assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
     with case.project.transaction_scope():
-        step_operation(case.project, "revert", change_id=edit)
+        step_change(case.project, "revert", change_id=edit)
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
     # A retained result inherits only its own corpus, not the unused newer
     # corpus read while its old response was recovered.
@@ -348,8 +348,8 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
         bundle = store_capture(
             case.project,
             retained,
-            owner_op_id=case.project.db.execute(
-                "SELECT op_id FROM runs WHERE id=?", (result.run_id,)
+            owner_change_id=case.project.db.execute(
+                "SELECT change_id FROM runs WHERE id=?", (result.run_id,)
             ).fetchone()[0],
             output_sheet_id=case.left,
         )

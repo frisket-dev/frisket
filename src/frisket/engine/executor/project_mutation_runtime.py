@@ -62,7 +62,7 @@ def write_op(
     undo_info: Mapping[str, Any],
 ) -> int:
     cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+        "INSERT INTO changes (kind, label, spec, undo_info, barrier) "
         "VALUES (?, ?, ?, ?, 0)",
         (
             kind,
@@ -71,19 +71,19 @@ def write_op(
             json.dumps(undo_info, sort_keys=True),
         ),
     )
-    op_id = inserted_rowid(cur)
+    change_id = inserted_rowid(cur)
     from frisket.engine.store.changes import start_change
     from frisket.engine.store.column_descriptors import record_descriptor_changes
 
-    start_change(cur.connection, op_id, writing=True)
-    record_descriptor_changes(cur.connection, op_id, undo_info)
+    start_change(cur.connection, change_id, writing=True)
+    record_descriptor_changes(cur.connection, change_id, undo_info)
     from frisket.engine.store.review_judgments import record_judgment_changes
 
-    record_judgment_changes(cur.connection, op_id, undo_info)
+    record_judgment_changes(cur.connection, change_id, undo_info)
     from frisket.engine.store.structural_changes import record_structural_changes
 
-    record_structural_changes(cur.connection, op_id, undo_info)
-    return op_id
+    record_structural_changes(cur.connection, change_id, undo_info)
+    return change_id
 
 
 def write_edit_overlay(

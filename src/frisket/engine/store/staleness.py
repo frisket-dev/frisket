@@ -43,27 +43,27 @@ def compute_sync_states(
         # owning Change. Shared inputs count only when the deriving Change
         # actually published a row that references them.
         bundles = project.db.execute(
-            "SELECT b.id,b.owner_op_id,b.capture_json,o.kind,o.spec FROM consumed_source_bundles b "
-            "JOIN ops o ON o.id=b.owner_op_id "
+            "SELECT b.id,b.owner_change_id,b.capture_json,o.kind,o.spec FROM consumed_source_bundles b "
+            "JOIN changes o ON o.id=b.owner_change_id "
             "JOIN sheets target ON target.id=b.output_sheet_id "
-            "LEFT JOIN ops materializer ON materializer.id=target.parent_op_id "
+            "LEFT JOIN changes materializer ON materializer.id=target.parent_change_id "
             "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND o.status='applied' "
             "AND (b.row_id IS NULL OR "
             "json_extract(o.spec,'$.derived_refresh.relationship_id')="
             "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
             "AND (instr(b.capture_key,':shared:')=0 OR ("
-            "(o.id=target.parent_op_id OR "
+            "(o.id=target.parent_change_id OR "
             "json_extract(o.spec,'$.derived_refresh.relationship_id')="
             "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
             "AND EXISTS(SELECT 1 FROM consumed_source_bundles row_input "
             "JOIN json_each(row_input.capture_json,'$.shared_inputs') ref "
-            "WHERE row_input.owner_op_id=b.owner_op_id AND row_input.kind='row' "
+            "WHERE row_input.owner_change_id=b.owner_change_id AND row_input.kind='row' "
             "AND ref.value=b.input_fingerprint))) "
             "AND o.change_order IS NOT NULL "
             "ORDER BY o.change_order DESC,b.id",
             (sheet_id,),
         ).fetchall()
-        latest_owner = int(bundles[0]["owner_op_id"]) if bundles else None
+        latest_owner = int(bundles[0]["owner_change_id"]) if bundles else None
         states = []
         owner_spec = json.loads(bundles[0]["spec"]) if bundles else {}
         if bundles and (
@@ -76,14 +76,14 @@ def compute_sync_states(
             if (
                 receipt is None
                 or receipt["status"] != "completed"
-                or latest_owner not in json.loads(receipt["body"]).get("op_ids", ())
+                or latest_owner not in json.loads(receipt["body"]).get("change_ids", ())
             ):
                 # Inputs may have been read completely while only some output
                 # batches committed. The exact owning receipt proves coverage.
                 states.append("unknown")
         source_ids = {int(parents[sheet_id])}
         for bundle in bundles:
-            if int(bundle["owner_op_id"]) != latest_owner:
+            if int(bundle["owner_change_id"]) != latest_owner:
                 break
             states.append(
                 bundle_state(

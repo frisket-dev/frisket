@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store.op_log import step_operation
+from frisket.engine.store.change_log import step_change
 from test_review_decision_executor import (
     _seed,
     _review_action,
@@ -21,12 +21,12 @@ def _decide(project, seeded, decision, key, **extra):
     request["params"].update(extra)
     result = run_action_spec(project, request, project_id="review-ownership")
     assert result.status == "completed", result.errors
-    return result.op_ids[0]
+    return result.change_ids[0]
 
 
-def _transition(project, op_id, direction):
+def _transition(project, change_id, direction):
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, direction, change_id=op_id)
+    step_change(project, direction, change_id=change_id)
     project.db.commit()
 
 
@@ -73,7 +73,7 @@ def test_note_does_not_own_unchanged_decision(tmp_path: Path, make_project):
 
 
 def test_copied_result_judgment_is_independent(tmp_path: Path, make_project):
-    from frisket.engine.store.op_log import append_change_in_transaction
+    from frisket.engine.store.change_log import append_change_in_transaction
     from frisket.engine.store.changes import start_change
 
     project = make_project("p")
@@ -96,7 +96,7 @@ def test_copied_result_judgment_is_independent(tmp_path: Path, make_project):
     )
     start_change(project.db, copy)
     project.db.execute(
-        "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
+        "INSERT INTO copied_result_outcomes(change_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
         (copy, row, column, seeded["run_id"], row, seeded["risk_column_id"]),
     )
     project.db.commit()
@@ -110,10 +110,10 @@ def test_copied_result_judgment_is_independent(tmp_path: Path, make_project):
     page = copied_review_page(project, copy)
     ReviewBundlesPage.model_validate(page)
     assert page["bundles"][0]["fields"][0]["value"] == "high"
-    assert page["bundles"][0]["fields"][0]["copied_op_id"] == copy
+    assert page["bundles"][0]["fields"][0]["copied_change_id"] == copy
     assert page["bundles"][0]["run_id"] is None
     sources = review_runs_page(project)
-    assert any(source["copied_op_id"] == copy for source in sources["runs"])
+    assert any(source["copied_change_id"] == copy for source in sources["runs"])
     for source in sources["runs"]:
         source.setdefault("action_name", "Test")
     ReviewRunsPage.model_validate(sources)
@@ -121,7 +121,7 @@ def test_copied_result_judgment_is_independent(tmp_path: Path, make_project):
         "action_id": "review.decision",
         "scope": {"kind": "project"},
         "params": {
-            "copied_op_id": copy,
+            "copied_change_id": copy,
             "row_id": row,
             "column_id": column,
             "decision": "accept",
@@ -138,7 +138,7 @@ def test_copied_result_judgment_is_independent(tmp_path: Path, make_project):
         ).fetchone()[0]
         == "verified"
     )
-    _transition(project, result.op_ids[0], "revert")
+    _transition(project, result.change_ids[0], "revert")
     assert (
         project.db.execute(
             "SELECT review_state FROM copied_result_outcomes"

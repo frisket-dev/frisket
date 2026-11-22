@@ -153,22 +153,22 @@ def add_sheet_in_transaction(
     project: Any,
     name: str,
     parent_sheet_id: int | None = None,
-    parent_op_id: int | None = None,
+    parent_change_id: int | None = None,
     *,
     close_change: bool = True,
 ) -> int:
     require_transaction(project.db, "sheet add")
-    if parent_op_id is not None:
+    if parent_change_id is not None:
         from .changes import close_change as _close_change, start_change
 
-        start_change(project.db, int(parent_op_id), writing=True)
+        start_change(project.db, int(parent_change_id), writing=True)
     cur = project.db.execute(
-        "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
+        "INSERT INTO sheets (name, position, parent_sheet_id, parent_change_id) "
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
-        (name, parent_sheet_id, parent_op_id),
+        (name, parent_sheet_id, parent_change_id),
     )
-    if parent_op_id is not None and close_change:
-        _close_change(project.db, int(parent_op_id))
+    if parent_change_id is not None and close_change:
+        _close_change(project.db, int(parent_change_id))
     return inserted_rowid(cur)
 
 
@@ -176,7 +176,7 @@ def add_sheet(
     project: Any,
     name: str,
     parent_sheet_id: int | None = None,
-    parent_op_id: int | None = None,
+    parent_change_id: int | None = None,
     *,
     close_change: bool = True,
 ) -> int:
@@ -185,7 +185,7 @@ def add_sheet(
             project,
             name,
             parent_sheet_id,
-            parent_op_id,
+            parent_change_id,
             close_change=close_change,
         )
 
@@ -385,7 +385,7 @@ def set_column_type(
     column_id: int,
     type: str,
     *,
-    op_id: int | None = None,
+    change_id: int | None = None,
     initialize: bool = False,
 ) -> None:
     """Retype a column through a Change inside the caller's transaction."""
@@ -398,7 +398,7 @@ def set_column_type(
         column_id,
         "type",
         type,
-        op_id=op_id,
+        change_id=change_id,
         initialize=initialize,
     )
 
@@ -408,7 +408,7 @@ def set_column_format(
     column_id: int,
     format: str | None,
     *,
-    op_id: int | None = None,
+    change_id: int | None = None,
     initialize: bool = False,
 ) -> None:
     """Set a column display format inside the caller's transaction."""
@@ -421,7 +421,7 @@ def set_column_format(
         column_id,
         "format",
         format,
-        op_id=op_id,
+        change_id=change_id,
         initialize=initialize,
     )
 
@@ -431,7 +431,7 @@ def set_column_semantic_type(
     column_id: int,
     semantic_type: str | None,
     *,
-    op_id: int | None = None,
+    change_id: int | None = None,
     initialize: bool = False,
 ) -> None:
     """Set a column semantic type inside the caller's transaction."""
@@ -442,7 +442,7 @@ def set_column_semantic_type(
         column_id,
         "semantic_type",
         semantic_type,
-        op_id=op_id,
+        change_id=change_id,
         initialize=initialize,
     )
 
@@ -485,20 +485,20 @@ def add_rows_in_transaction(
                 if name in column_ids and value is not None
             )
         if producer_id is None:
-            op_id = project.append_change_in_transaction(
+            change_id = project.append_change_in_transaction(
                 "add_rows",
                 {"sheet_id": sheet_id, "row_count": len(row_ids)},
                 label=f"add {len(row_ids)} rows",
             )
-            project.set_undo_info(op_id, {"created_rows": row_ids})
+            project.set_undo_info(change_id, {"created_rows": row_ids})
             producer_id = create_base_cell_producer(
-                db, stage_id=f"op:{op_id}", op_id=op_id
+                db, stage_id=f"op:{change_id}", change_id=change_id
             )
         from .changes import start_change
         from .structural_changes import note_row_additions
 
         owner = db.execute(
-            "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+            "SELECT change_id FROM base_cell_producers WHERE id=?", (producer_id,)
         ).fetchone()
         if owner is not None and owner[0] is not None:
             start_change(db, int(owner[0]), writing=True)
@@ -512,8 +512,8 @@ def add_rows_in_transaction(
         if owned_change:
             from .changes import ChangeStore
 
-            ChangeStore(project).start(op_id)
-            ChangeStore(project).close(op_id)
+            ChangeStore(project).start(change_id)
+            ChangeStore(project).close(change_id)
         db.execute(f"RELEASE SAVEPOINT {savepoint}")
         return row_ids
     except BaseException:
@@ -566,7 +566,7 @@ def add_row_with_undo(
     )
     row_id = cur.lastrowid
     cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+        "INSERT INTO changes (kind, label, spec, undo_info, barrier) "
         "VALUES (?, ?, ?, ?, 0)",
         (
             "add_row",
@@ -575,14 +575,14 @@ def add_row_with_undo(
             json.dumps({"created_rows": [row_id]}),
         ),
     )
-    op_id = cur.lastrowid
+    change_id = cur.lastrowid
     from .changes import start_change
     from .structural_changes import record_structural_changes
 
-    start_change(project.db, op_id, writing=True)
-    record_structural_changes(project.db, op_id, {"created_rows": [row_id]})
+    start_change(project.db, change_id, writing=True)
+    record_structural_changes(project.db, change_id, {"created_rows": [row_id]})
     producer_id = create_base_cell_producer(
-        project.db, stage_id=f"op:{op_id}", op_id=op_id
+        project.db, stage_id=f"op:{change_id}", change_id=change_id
     )
     initialize_base_cells(
         project.db,
@@ -607,7 +607,7 @@ def add_row_with_undo(
     )
     from .changes import ChangeStore
 
-    ChangeStore(project).close(op_id)
+    ChangeStore(project).close(change_id)
     return row_id
 
 
@@ -665,11 +665,11 @@ def _current_cell_rows(
     )
     fields = "r.id, c.value_kind, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
-        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id, c.base_producer_id, c.outcome"
+        fields += ", c.origin_kind, c.origin_change_id, c.origin_run_id, c.prepared_ref_id, c.base_producer_id, c.outcome"
         fields += ", copy.source_run_id AS copied_run_id, copy.source_row_id AS copied_row_id, copy.source_column_id AS copied_column_id"
     copy_join = (
         " LEFT JOIN copied_result_outcomes copy ON c.origin_kind='copied_result' "
-        "AND copy.op_id=c.origin_op_id AND copy.row_id=r.id AND copy.column_id=c.column_id "
+        "AND copy.change_id=c.origin_change_id AND copy.row_id=r.id AND copy.column_id=c.column_id "
         if with_refs
         else " "
     )
@@ -829,7 +829,7 @@ def apply_edits(
         op_spec: dict[str, Any] = {"count": len(edits)}
         if spec:
             op_spec.update(spec)
-        op_id = write_edit_overlay(
+        change_id = write_edit_overlay(
             project,
             kind="edit",
             label=label,
@@ -850,7 +850,7 @@ def apply_edits(
         except BaseException:
             db.rollback()
             raise
-    return op_id
+    return change_id
 
 
 def pending_replay_values(
@@ -1012,7 +1012,7 @@ def _replay_candidate_query(
         + "JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = ? AND rr.hidden = 0 "
         "JOIN effective_current_cells current ON current.row_id=res.row_id "
         "AND current.column_id=res.column_id AND current.origin_kind='manual_edit' "
-        "JOIN edits e ON e.op_id=current.origin_op_id "
+        "JOIN edits e ON e.change_id=current.origin_change_id "
         "AND e.row_id=current.row_id AND e.column_id=current.column_id "
         "WHERE res.run_id = ? AND res.column_id = ? "
         "AND res.error IS NULL AND res.value IS NOT NULL" + row_filter

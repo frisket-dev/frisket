@@ -130,10 +130,10 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         nonlocal changed
         assert not store.db.in_transaction
         store.db.execute("BEGIN IMMEDIATE")
-        op_id = store.project.append_change_in_transaction("edit")
+        change_id = store.project.append_change_in_transaction("edit")
         insert_edits(
             store.db,
-            op_id=op_id,
+            change_id=change_id,
             edits=[
                 EditCellWrite(
                     changed_row_id,
@@ -240,7 +240,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
                 == 1
             )
         op = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+            "SELECT undo_info FROM changes WHERE id=?", (run["change_id"],)
         ).fetchone()
         assert text_id not in json.loads(op[0]).get(
             "unpublished_generation_columns", []
@@ -269,9 +269,9 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
             spend_cap_micro=1_000_000,
         )
     store = RunResultStore(project)
-    op_id = project.append_change("media.ocr", {"action_kind": "media.ocr"})
+    change_id = project.append_change("media.ocr", {"action_kind": "media.ocr"})
     run_id = store.start_run(
-        op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+        change_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
     )
 
     authority = run_writer_authority_fixture(
@@ -324,7 +324,7 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
     edit_op = project.append_change_in_transaction("edit")
     insert_edits(
         project.db,
-        op_id=edit_op,
+        change_id=edit_op,
         edits=[
             EditCellWrite(
                 row_id, source_id, {"blob": _OTHER_BLOB, "mime": "application/pdf"}

@@ -45,7 +45,7 @@ from frisket.engine.store.keyed_publication import (
     index_keyed_targets,
     publish_keyed_records,
 )
-from frisket.engine.store.op_log import append_change_in_transaction, set_undo_info
+from frisket.engine.store.change_log import append_change_in_transaction, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
 from frisket.feeds.rss import (
@@ -338,7 +338,7 @@ def _perform_feed_poll_in_txn(
                 "materialized_rows": 0,
                 "error": poll_error,
                 "sheet_id": feed_before.get("sheet_id"),
-                "op_id": None,
+                "change_id": None,
                 "row_ids": [],
                 "cursor_before": cursor_before_text,
                 "cursor_after": cursor_before_text,
@@ -355,7 +355,7 @@ def _perform_feed_poll_in_txn(
             project_id=project_id,
             receipt_id=receipt_id,
             params_hash=params_hash,
-            op_ids=[],
+            change_ids=[],
             refs=refs,
             status="failed",
             warnings=warnings,
@@ -387,7 +387,7 @@ def _perform_feed_poll_in_txn(
             action=ActionIdentity(kind=action.kind, action_id=action_id),
             status="failed",
             project_id=project_id,
-            op_ids=[],
+            change_ids=[],
             outputs=_feed_poll_outputs(refs),
             receipt_id=receipt_id,
             errors=[error],
@@ -429,7 +429,9 @@ def _perform_feed_poll_in_txn(
         project_id=project_id,
         receipt_id=receipt_id,
         params_hash=params_hash,
-        op_ids=[int(summary["op_id"])] if summary.get("op_id") is not None else [],
+        change_ids=[int(summary["change_id"])]
+        if summary.get("change_id") is not None
+        else [],
         refs=refs,
         status="completed",
         warnings=list(poll_result.warnings),
@@ -440,14 +442,14 @@ def _perform_feed_poll_in_txn(
     # a FK to receipts.id).
     from frisket.engine.store.changes import ChangeStore
 
-    for op_id in receipt.op_ids:
-        ChangeStore(project).close(op_id)
+    for change_id in receipt.change_ids:
+        ChangeStore(project).close(change_id)
     ReceiptStore(project).insert_finished_in_transaction(receipt)
     feed_store.finish_feed_check(
         feed_check_id,
         status="ok",
         receipt_id=receipt_id,
-        op_id=summary.get("op_id"),
+        change_id=summary.get("change_id"),
         new_rows=int(summary["new_rows"]),
         skipped_rows=int(summary["skipped_rows"]),
         changed_rows=int(summary["changed_rows"]),
@@ -462,7 +464,7 @@ def _perform_feed_poll_in_txn(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",
         project_id=project_id,
-        op_ids=receipt.op_ids,
+        change_ids=receipt.change_ids,
         outputs=_feed_poll_outputs(refs),
         receipt_id=receipt_id,
         warnings=list(poll_result.warnings),
@@ -554,7 +556,7 @@ def _materialize_registered_feed_poll_in_txn(
     if not records:
         return {
             "sheet_id": sheet_id,
-            "op_id": None,
+            "change_id": None,
             "row_ids": [],
             "enclosure_row_ids": [],
             "new_rows": 0,
@@ -574,22 +576,22 @@ def _materialize_registered_feed_poll_in_txn(
     )
     if policy not in ("keep_changes", "incoming_wins"):
         raise ValueError("unknown feed update policy")
-    op_id = None
+    change_id = None
     producer_id = None
 
     def writer():
-        nonlocal op_id, producer_id
-        if op_id is None:
-            op_id = append_change_in_transaction(
+        nonlocal change_id, producer_id
+        if change_id is None:
+            change_id = append_change_in_transaction(
                 project,
                 "feed.poll",
                 {"feed_id": feed_id, "feed_check_id": feed_check_id},
                 label=f"feed poll {feed_before['name']}",
             )
             producer_id = create_base_cell_producer(
-                project.db, stage_id=f"op:{op_id}", op_id=op_id
+                project.db, stage_id=f"op:{change_id}", change_id=change_id
             )
-        return op_id, producer_id
+        return change_id, producer_id
 
     def create_rows(ordinals, producer):
         return project.add_rows_in_transaction(
@@ -631,10 +633,10 @@ def _materialize_registered_feed_poll_in_txn(
         if poll_result.items[ordinal - 1].row.get("enclosure_url")
         or poll_result.items[ordinal - 1].row.get("enclosures")
     ]
-    if op_id is not None:
+    if change_id is not None:
         set_undo_info(
             project,
-            op_id,
+            change_id,
             {
                 "created_rows": publication.created,
                 "restored_rows": publication.restored,
@@ -642,7 +644,7 @@ def _materialize_registered_feed_poll_in_txn(
         )
     return {
         "sheet_id": sheet_id,
-        "op_id": op_id,
+        "change_id": change_id,
         "row_ids": row_ids,
         "enclosure_row_ids": enclosure_row_ids,
         "new_rows": len(publication.created),
@@ -766,7 +768,7 @@ def _feed_poll_sheet_id_in_txn(project: Project, cur: Any, feed: dict[str, Any])
         return int(sheet_id)
     name = str(feed.get("name") or "source")[:80] or "source"
     cur.execute(
-        "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
+        "INSERT INTO sheets (name, position, parent_sheet_id, parent_change_id) "
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), NULL, NULL)",
         (name,),
     )
@@ -991,7 +993,7 @@ def _feed_poll_refs(
         "cost_micro": int(summary.get("cost_micro") or 0),
         "error": summary.get("error"),
         "sheet_id": sheet_id,
-        "op_id": summary.get("op_id"),
+        "change_id": summary.get("change_id"),
     }
     return {
         "feed": feed_ref,
@@ -1016,7 +1018,7 @@ def _feed_poll_refs(
             "feed_check_id": summary.get("feed_check_id"),
             "sheet_id": sheet_id,
             "row_ids": row_ids,
-            "op_id": summary.get("op_id"),
+            "change_id": summary.get("change_id"),
         },
         "cursor": {
             "kind": "feed_poll_cursor",
@@ -1081,7 +1083,7 @@ def _feed_poll_receipt(
     project_id: str,
     receipt_id: str,
     params_hash: str,
-    op_ids: list[int],
+    change_ids: list[int],
     refs: dict[str, dict[str, Any]],
     status: ActionResultStatus,
     warnings: list[str],
@@ -1093,7 +1095,7 @@ def _feed_poll_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=op_ids,
+        change_ids=change_ids,
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status=status,

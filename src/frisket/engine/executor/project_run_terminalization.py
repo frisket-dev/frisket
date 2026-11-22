@@ -310,9 +310,9 @@ def _terminalize_project_run_body(
     db = project.db
     run = db.execute(
         "SELECT runs.status, runs.finished_at, runs.current_attempt_id, "
-        "runs.cancel_requested_at, ops.spec AS runner_spec, "
-        "ops.id AS op_id, ops.status AS change_status, ops.publication_closed "
-        "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        "runs.cancel_requested_at, changes.spec AS runner_spec, "
+        "changes.id AS change_id, changes.status AS change_status, changes.publication_closed "
+        "FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
         (run_id,),
     ).fetchone()
     if run is None:
@@ -1004,19 +1004,19 @@ def _terminalize_project_run_body(
             project,
             RunResultStore(project),
             run_id,
-            int(run["op_id"]),
+            int(run["change_id"]),
             output_columns,
         )
         if zero_success:
             hide_zero_success_created_columns(
                 project,
-                int(run["op_id"]),
+                int(run["change_id"]),
                 output_columns,
                 only_columns=zero_success,
             )
         reveal_recovered_columns(
             project,
-            int(run["op_id"]),
+            int(run["change_id"]),
             output_columns,
             still_zero_success=zero_success,
         )

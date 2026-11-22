@@ -243,9 +243,9 @@ class PdfSplitPreparationJobs:
                             continue
                         provenance = project.db.execute(
                             "SELECT span.artifact_id FROM citations link JOIN citation_spans linked ON linked.citation_id=link.id "
-                            "JOIN source_spans span ON span.id=linked.span_id WHERE link.op_id=? AND link.row_id=? AND link.column_id=? "
+                            "JOIN source_spans span ON span.id=linked.span_id WHERE link.change_id=? AND link.row_id=? AND link.column_id=? "
                             "AND link.link_role='source_provenance' AND span.page_start<=? AND span.page_end>=? ORDER BY link.id LIMIT 1",
-                            (session.op_id, row_id, media_column, page, page),
+                            (session.change_id, row_id, media_column, page, page),
                         ).fetchone()
                         artifact = project.db.execute(
                             "SELECT id FROM source_artifacts WHERE source_row_id=? AND source_column_id=? AND page_count=? ORDER BY id DESC LIMIT 1",
@@ -290,7 +290,7 @@ class PdfSplitPreparationJobs:
                             )
                         )
                         binding = PdfSplitChildBinding(
-                            session.op_id,
+                            session.change_id,
                             session.writer_authority,
                             session.id,
                             key,
@@ -304,7 +304,7 @@ class PdfSplitPreparationJobs:
                             text_identity,
                         )
                         store.admit(
-                            operation_id=session.op_id,
+                            operation_id=session.change_id,
                             generation=session.writer_authority,
                             session_id=session.id,
                             targets=[target],
@@ -365,7 +365,7 @@ class PdfSplitPreparationJobs:
             project.db,
             session_id=session.id,
             writer_authority=generation,
-            op_id=int(session.op_id),
+            change_id=int(session.change_id),
         )
 
     def _record_local_reading(self, project, directory: Path, generation: str) -> bool:

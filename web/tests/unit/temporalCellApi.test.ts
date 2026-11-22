@@ -35,7 +35,7 @@ describe('temporal sheet-data values', () => {
           '7': {
             current_value_ref: {
               kind: 'run_result',
-              op_id: 8,
+              change_id: 8,
               row_id: 11,
               column_id: 7,
               run_id: 9,

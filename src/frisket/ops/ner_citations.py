@@ -39,7 +39,7 @@ def capture_result_evidence(
     spec: dict[str, Any],
     *,
     run_id: int,
-    op_id: int,
+    change_id: int,
     row_id: int,
     output_columns: dict[str, int],
 ) -> None:
@@ -58,7 +58,7 @@ def capture_result_evidence(
         return
     result_ref = {
         "run_id": run_id,
-        "op_id": op_id,
+        "change_id": change_id,
         "row_id": row_id,
         "column_id": int(output_column_id),
     }
@@ -191,7 +191,7 @@ def _write_entity_spans(
     sheet_id: int,
     output_column_id: int,
     run_id: int,
-    op_id: int,
+    change_id: int,
     receipt_id: str,
     input_column_ids: dict[str, int],
     row_ids: list[int],
@@ -251,7 +251,7 @@ def _write_entity_spans(
             raw_value,
             expected_result_ref={
                 "run_id": run_id,
-                "op_id": op_id,
+                "change_id": change_id,
                 "row_id": row_id,
                 "column_id": output_column_id,
             },
@@ -410,7 +410,7 @@ def _write_entity_spans(
         )
         subject_ref = {
             "kind": "run_result",
-            "op_id": op_id if managed else None,
+            "change_id": change_id if managed else None,
             "row_id": row_id,
             "column_id": output_column_id,
             "run_id": run_id,
@@ -431,7 +431,7 @@ def _write_entity_spans(
             row_id=row_id,
             column_id=output_column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             receipt_id=receipt_id,
             layer_family="entities" if any(validated_positions) else None,
             producer={"kind": "map.ner", "engine": engine},
@@ -476,7 +476,7 @@ def _write_ner_result_citations(
     batch: list[dict[str, Any]],
     sheet_id: int,
     run_id: int,
-    op_id: int,
+    change_id: int,
     output_columns: dict[str, int],
     input_column_ids: dict[str, int],
     claim_token: str | None,
@@ -494,7 +494,7 @@ def _write_ner_result_citations(
             item.get("value"),
             expected_result_ref={
                 "run_id": run_id,
-                "op_id": op_id,
+                "change_id": change_id,
                 "row_id": int(item["row_id"]),
                 "column_id": int(output_column_id),
             },
@@ -507,9 +507,9 @@ def _write_ner_result_citations(
         return
     claim = project.db.execute(
         "SELECT receipt_id FROM generated_column_claims "
-        "WHERE claim_token=? AND run_id=? AND op_id=? AND column_id=? "
+        "WHERE claim_token=? AND run_id=? AND change_id=? AND column_id=? "
         "AND status='active'",
-        (claim_token, run_id, op_id, int(output_column_id)),
+        (claim_token, run_id, change_id, int(output_column_id)),
     ).fetchone()
     if claim is None or not isinstance(claim["receipt_id"], str):
         return
@@ -519,7 +519,7 @@ def _write_ner_result_citations(
         sheet_id=sheet_id,
         output_column_id=int(output_column_id),
         run_id=run_id,
-        op_id=op_id,
+        change_id=change_id,
         receipt_id=str(claim["receipt_id"]),
         input_column_ids=input_column_ids,
         row_ids=sorted(captures),

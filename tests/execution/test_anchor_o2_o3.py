@@ -71,11 +71,11 @@ def _make_run(project) -> int:
     sheet_id = project.add_sheet("Media")
     project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(sheet_id, [{}], {})
-    cur = project.db.execute("INSERT INTO ops (kind, spec) VALUES ('map', '{}')")
-    op_id = int(cur.lastrowid)
+    cur = project.db.execute("INSERT INTO changes (kind, spec) VALUES ('map', '{}')")
+    change_id = int(cur.lastrowid)
     project.db.commit()
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.transcribe",
         row_ids=row_ids,

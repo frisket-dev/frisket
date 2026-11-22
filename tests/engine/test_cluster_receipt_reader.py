@@ -193,10 +193,10 @@ def test_reader_requires_actual_persisted_capability_facts(seeded, change):
     )
     if change == "missing_facts":
         project.db.execute(
-            "UPDATE ops SET spec=json_remove("
+            "UPDATE changes SET spec=json_remove("
             "json_remove(spec,'$.value_clusters_result'),"
             "'$.value_clusters_result_storage') "
-            "WHERE id=(SELECT op_id FROM runs WHERE id=?)",
+            "WHERE id=(SELECT change_id FROM runs WHERE id=?)",
             (receipt["run_id"],),
         )
     else:
@@ -225,7 +225,7 @@ def test_reader_accepts_legacy_op_with_full_cluster_fact(seeded):
         if item["ref"].get("kind") == "value_clusters"
     )
     op = project.db.execute(
-        "SELECT ops.id,ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+        "SELECT changes.id,changes.spec FROM runs JOIN changes ON changes.id=runs.change_id "
         "WHERE runs.id=?",
         (receipt["run_id"],),
     ).fetchone()
@@ -233,7 +233,8 @@ def test_reader_accepts_legacy_op_with_full_cluster_fact(seeded):
     spec.pop("value_clusters_result_storage", None)
     spec["value_clusters_result"] = fact
     project.db.execute(
-        "UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec, sort_keys=True), op["id"])
+        "UPDATE changes SET spec=? WHERE id=?",
+        (json.dumps(spec, sort_keys=True), op["id"]),
     )
     project.db.commit()
 
@@ -273,7 +274,10 @@ def test_order_overrides_renames_and_replay_bind_all_outputs(seeded):
         )
     )
     replay = run_action_spec(project, request, project_id="p")
-    assert replay.receipt_id == result.receipt_id and replay.op_ids == result.op_ids
+    assert (
+        replay.receipt_id == result.receipt_id
+        and replay.change_ids == result.change_ids
+    )
     project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["Sources"], "value": []}]
     )
@@ -323,8 +327,8 @@ def test_reviewed_overrides_and_exclusions_reach_entity_materialization(seeded):
     source_rows = {
         row[0]
         for row in project.db.execute(
-            "SELECT source_row_id FROM materialized_row_sources WHERE op_id=?",
-            (result.op_ids[0],),
+            "SELECT source_row_id FROM materialized_row_sources WHERE change_id=?",
+            (result.change_ids[0],),
         )
     }
     assert source_rows == set(rows[:2])

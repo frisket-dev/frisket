@@ -259,7 +259,7 @@ def _write_extract_in_transaction(
     op_spec = bound.request.model_dump(mode="json", exclude_none=True)
     op_spec["params_hash"] = params_hash
     cur.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+        "INSERT INTO changes (kind, label, spec, undo_info, barrier) "
         "VALUES (?, ?, ?, '{}', 0)",
         (
             bound.action.action_id,
@@ -267,10 +267,10 @@ def _write_extract_in_transaction(
             json.dumps(op_spec, sort_keys=True, allow_nan=False),
         ),
     )
-    op_id = inserted_rowid(cur)
+    change_id = inserted_rowid(cur)
     from frisket.engine.store.changes import ChangeStore
 
-    ChangeStore(project).start(op_id)
+    ChangeStore(project).start(change_id)
     cur.execute(
         "INSERT INTO columns (sheet_id, name, type, position, generated, hidden) "
         "VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM columns "
@@ -285,7 +285,7 @@ def _write_extract_in_transaction(
     output_column_id = inserted_rowid(cur)
     insert_edits(
         project.db,
-        op_id=op_id,
+        change_id=change_id,
         edits=[
             EditCellWrite(
                 row_id=item.clip.source.row_id,
@@ -326,7 +326,7 @@ def _write_extract_in_transaction(
                 )
         insert_edits(
             project.db,
-            op_id=op_id,
+            change_id=change_id,
             edits=transcript_edits,
             close_change=False,
         )
@@ -351,7 +351,7 @@ def _write_extract_in_transaction(
         annotation_column_id = inserted_rowid(cur)
         annotation_column_ids[source_column_id] = annotation_column_id
         created_column_ids.append(annotation_column_id)
-    project.set_undo_info(op_id, {"created_columns": created_column_ids})
+    project.set_undo_info(change_id, {"created_columns": created_column_ids})
 
     from frisket.engine.executor.temporal_transcripts import (
         persist_projected_transcript_citations,
@@ -398,7 +398,7 @@ def _write_extract_in_transaction(
             annotation_column_id = annotation_column_ids[annotation.column_id]
             insert_edits(
                 project.db,
-                op_id=op_id,
+                change_id=change_id,
                 edits=[
                     EditCellWrite(
                         row_id=source.row_id,
@@ -441,7 +441,7 @@ def _write_extract_in_transaction(
                 output_row_id=source.row_id,
                 transcript_column_id=transcript_column_id,
                 receipt_id=receipt_id,
-                op_id=op_id,
+                change_id=change_id,
             )
             if transcript_citations is not None:
                 receipt_records.append(
@@ -456,7 +456,7 @@ def _write_extract_in_transaction(
         "kind": "materialized_column",
         "sheet_id": params.sheet_id,
         "column_id": output_column_id,
-        "op_id": op_id,
+        "change_id": change_id,
         "row_ids": [item.clip.source.row_id for item in staged],
     }
     transcript_refs = {
@@ -464,7 +464,7 @@ def _write_extract_in_transaction(
             "kind": "materialized_column",
             "sheet_id": params.sheet_id,
             "column_id": transcript_column_ids[source_column_id],
-            "op_id": op_id,
+            "change_id": change_id,
             "row_ids": row_ids,
         }
         for source_column_id, row_ids in transcript_row_ids.items()
@@ -475,7 +475,7 @@ def _write_extract_in_transaction(
             "kind": "materialized_column",
             "sheet_id": params.sheet_id,
             "column_id": annotation_column_ids[source_column_id],
-            "op_id": op_id,
+            "change_id": change_id,
             "row_ids": row_ids,
         }
         for source_column_id, row_ids in annotation_row_ids.items()
@@ -544,7 +544,7 @@ def _write_extract_in_transaction(
             "project_id": project_id,
             "action_id": action_id,
             "action_kind": bound.action.action_id,
-            "op_ids": [op_id],
+            "change_ids": [change_id],
             "idempotency_key": bound.request.idempotency_key,
             "params_hash": params_hash,
             "status": "completed",
@@ -572,5 +572,5 @@ def _write_extract_in_transaction(
     )
     if not updated:
         raise RuntimeError("temporal extract receipt update did not land")
-    ChangeStore(project).close(op_id)
+    ChangeStore(project).close(change_id)
     return _result_from_receipt(receipt)

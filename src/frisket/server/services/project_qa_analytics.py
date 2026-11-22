@@ -366,7 +366,7 @@ def _evaluate(
         "has_more": len(rows) > request.limit,
         "excluded_null_groups": int(metadata["__excluded_null_groups"]),
         "denominators": denominators,
-        "source_op_cursor": snapshot.op_cursor,
+        "source_change_cursor": snapshot.change_cursor,
     }
     if not request.groups and groups:
         result["quality"] = groups[0].pop("quality")

@@ -33,7 +33,7 @@ def _diagnostic_codes(result: dict[str, Any]) -> set[str]:
 def _sheet_counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "ops", "receipts")
+        for table in ("sheets", "columns", "rows", "changes", "receipts")
     }
 
 

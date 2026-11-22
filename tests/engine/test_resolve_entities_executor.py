@@ -164,7 +164,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
     assert result.run_id is None
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert [output.kind for output in result.outputs] == [
         "sheet",
         *["column"] * 5,
@@ -181,7 +181,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     jon_key = seeded["jon_key"]
 
     op = project.db.execute(
-        "SELECT kind, status, spec FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT kind, status, spec FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert op["kind"] == "resolve.entities"
@@ -269,7 +269,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.action_kind == "resolve.entities"
     assert receipt.status == "completed"
     assert receipt.run_id is None
-    assert receipt.op_ids == result.op_ids
+    assert receipt.change_ids == result.change_ids
     # Local receipt reading is not a fabricated provider call.
     assert receipt.provider_use == []
     refs = [
@@ -376,7 +376,7 @@ CASES = [
             "sheets": 1,
             "columns": 5,
             "rows": 1,
-            "ops": 1,
+            "changes": 1,
             "receipts": 1,
         },
         check_state=_check_state,
@@ -403,7 +403,7 @@ def test_resolve_entities_normalizes_padded_params(
 
         op_spec = json.loads(
             env.project.db.execute(
-                "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+                "SELECT spec FROM changes WHERE id=?", (result.change_ids[0],)
             ).fetchone()["spec"]
         )
         params = op_spec["params"]

@@ -171,7 +171,7 @@ def _replay_error(project, receipt):
         return None
     try:
         stored = project.db.execute(
-            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
             (receipt.run_id,),
         ).fetchone()
         state = json.loads(stored["spec"])["semantic_join"]
@@ -283,10 +283,10 @@ def _materialize(
         prior_captures = [
             json.loads(row["capture_json"])
             for row in project.db.execute(
-                "SELECT b.capture_json FROM consumed_source_bundles b JOIN ops op ON op.id=b.owner_op_id "
+                "SELECT b.capture_json FROM consumed_source_bundles b JOIN changes op ON op.id=b.owner_change_id "
                 "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND b.row_id IS NULL AND op.status='applied' "
-                "AND instr(b.capture_key,':shared:')=0 AND b.owner_op_id=("
-                "SELECT b2.owner_op_id FROM consumed_source_bundles b2 JOIN ops op2 ON op2.id=b2.owner_op_id "
+                "AND instr(b.capture_key,':shared:')=0 AND b.owner_change_id=("
+                "SELECT b2.owner_change_id FROM consumed_source_bundles b2 JOIN changes op2 ON op2.id=b2.owner_change_id "
                 "WHERE b2.output_sheet_id=b.output_sheet_id AND b2.kind='aggregate' AND b2.row_id IS NULL "
                 "AND instr(b2.capture_key,':shared:')=0 AND op2.status='applied' AND op2.change_order IS NOT NULL "
                 "ORDER BY op2.change_order DESC,b2.id DESC LIMIT 1)",
@@ -354,7 +354,7 @@ def _materialize(
         # An older child without consumed identities cannot acquire invented
         # historical certainty merely because a later delta was backfilled.
         capture["incomplete"] = True
-    op_id = project.append_change_in_transaction(
+    change_id = project.append_change_in_transaction(
         "derive",
         {
             "from_sheet": sheet_id,
@@ -373,9 +373,9 @@ def _materialize(
     )
     from frisket.engine.store.changes import ChangeStore, start_change
 
-    start_change(project.db, op_id, writing=True)
+    start_change(project.db, change_id, writing=True)
     producer_id = create_base_cell_producer(
-        project.db, stage_id=f"op:{op_id}", op_id=op_id
+        project.db, stage_id=f"op:{change_id}", change_id=change_id
     )
     child_id = existing_child_id
     old_rows = []
@@ -383,7 +383,7 @@ def _materialize(
         child_id = project.add_sheet_in_transaction(
             state["child_name"],
             parent_sheet_id=sheet_id,
-            parent_op_id=op_id,
+            parent_change_id=change_id,
             close_change=False,
         )
     else:
@@ -423,15 +423,15 @@ def _materialize(
         else []
     )
     project.set_undo_info(
-        op_id,
+        change_id,
         {
             "created_rows": child_rows,
             "deleted_rows": old_rows,
             **({"created_sheets": [child_id]} if existing_child_id is None else {}),
         },
     )
-    store_capture(project, capture, owner_op_id=op_id, output_sheet_id=child_id)
-    ChangeStore(project).close(op_id)
+    store_capture(project, capture, owner_change_id=change_id, output_sheet_id=child_id)
+    ChangeStore(project).close(change_id)
     edges = [
         {
             "child_row_id": child,
@@ -445,14 +445,14 @@ def _materialize(
         for child, parent in zip(child_rows, parents, strict=True)
     ]
     return (
-        op_id,
+        change_id,
         child_id,
         {
             "kind": "semantic_join_link_edges",
             "sheet_id": sheet_id,
             "target_sheet_id": target_id,
             "child_sheet_id": child_id,
-            "op_id": op_id,
+            "change_id": change_id,
             "child_row_ids": child_rows,
             "source_row_ids": parents,
             "target_row_ids": [edge["target_row_id"] for edge in edges],
@@ -613,7 +613,7 @@ def finalize_semantic_join(
             publish=True,
         )
         op = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+            "SELECT undo_info FROM changes WHERE id=?", (run["change_id"],)
         ).fetchone()
         created = json.loads(op["undo_info"] or "{}").get("created_columns", [])
         for column_id in created:
@@ -647,7 +647,7 @@ def finalize_semantic_join(
                 for item in origin_receipt.outputs
                 if item.ref.get("kind") == "semantic_join_link_edges"
             )
-            child, link_op = existing_child_id, edges["op_id"]
+            child, link_op = existing_child_id, edges["change_id"]
         else:
             link_op, child, edges = _materialize(
                 project,
@@ -702,7 +702,7 @@ def finalize_semantic_join(
                     "name": state["child_name"],
                     "sheet_id": child,
                     "parent_sheet_id": state["source"]["sheet_id"],
-                    "op_id": link_op,
+                    "change_id": link_op,
                     "row_ids": edges["child_row_ids"],
                 },
             ),
@@ -738,7 +738,7 @@ def finalize_semantic_join(
                         **(
                             {
                                 "run_id": run_id,
-                                "op_id": run["op_id"],
+                                "change_id": run["change_id"],
                                 "request_hash": kwargs["params_hash"],
                             }
                             if role == "source"
@@ -770,7 +770,7 @@ def finalize_semantic_join(
             update={
                 "inputs": inputs,
                 "outputs": outputs,
-                "op_ids": [run["op_id"], link_op],
+                "change_ids": [run["change_id"], link_op],
                 "records": [
                     *receipt.records,
                     *match_evidence,
@@ -842,7 +842,7 @@ def typed_semantic_join_queue_spec(bound, *, initial_plan=None, semantic_state=N
     def guard(project, payload, _params):
         try:
             stored = project.db.execute(
-                "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+                "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
                 (payload["run_id"],),
             ).fetchone()
             state = json.loads(stored["spec"])["semantic_join"]
@@ -916,7 +916,7 @@ def _semantic_resume_run_id(project, bound, state):
 
     matches = []
     for run in project.db.execute(
-        "SELECT runs.id, ops.spec FROM runs JOIN ops ON ops.id=runs.op_id "
+        "SELECT runs.id, changes.spec FROM runs JOIN changes ON changes.id=runs.change_id "
         "WHERE runs.action_kind=? AND runs.status='running'",
         (bound.action.action_id,),
     ).fetchall():
@@ -1010,7 +1010,7 @@ def recover_typed_semantic_join_publication(project, project_id, bound):
     if receipt.params_hash != typed_request_hash(bound) or receipt.run_id is None:
         return None
     run = project.db.execute(
-        "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        "SELECT runs.*,changes.spec AS runner_spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
         (receipt.run_id,),
     ).fetchone()
     if (

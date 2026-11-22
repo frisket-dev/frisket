@@ -402,12 +402,12 @@ def _stage_prepared_reference(
         PreparedPageDraft,
     )
 
-    op_id = project.append_change("media.ocr", {}, label="prepare exact OCR")
+    change_id = project.append_change("media.ocr", {}, label="prepare exact OCR")
     project.db.execute("BEGIN IMMEDIATE")
     try:
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact_id,
-            producing_op_id=op_id,
+            producing_change_id=change_id,
             pages=[
                 PreparedPageDraft(
                     page_number=page_number,

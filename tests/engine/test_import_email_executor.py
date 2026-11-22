@@ -134,7 +134,15 @@ def _values(project: Project, sheet_id: int, column: Any) -> list[Any]:
 def _visible_counts(project: Project) -> dict[str, int]:
     return {
         table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        for table in ("sheets", "columns", "rows", "cells", "blobs", "ops", "receipts")
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "cells",
+            "blobs",
+            "changes",
+            "receipts",
+        )
     }
 
 
@@ -234,7 +242,7 @@ def test_import_email_publishes_one_sorted_sheet_and_canonical_attachment(
     )
 
     assert result.status == "completed", result.errors
-    assert len(result.op_ids) == 1
+    assert len(result.change_ids) == 1
     assert len(result.warnings) == 1
     assert "bad/bad.eml" in result.warnings[0]
 
@@ -290,7 +298,7 @@ def test_import_email_publishes_one_sorted_sheet_and_canonical_attachment(
         "rows": 4,
         "cells": 36,
         "blobs": 1,
-        "ops": 1,
+        "changes": 1,
         "receipts": 1,
     }
 
@@ -315,7 +323,7 @@ def test_import_email_all_invalid_fails_without_an_empty_sheet(
         "rows": 0,
         "cells": 0,
         "blobs": 0,
-        "ops": 0,
+        "changes": 0,
         "receipts": 0,
     }
 
@@ -351,7 +359,7 @@ def test_import_email_never_opens_an_opaque_ref_without_trusted_ingress(
         "rows": 0,
         "cells": 0,
         "blobs": 0,
-        "ops": 0,
+        "changes": 0,
         "receipts": 0,
     }
 
@@ -439,7 +447,7 @@ def test_import_email_storage_failure_rolls_back_all_visible_database_state(
         "rows": 0,
         "cells": 0,
         "blobs": 0,
-        "ops": 0,
+        "changes": 0,
         "receipts": 0,
     }
     assert (
@@ -473,7 +481,7 @@ def test_email_temp_cleanup_failure_aborts_hidden_stage(
         def __exit__(self, *args: Any) -> bool:
             counts = _visible_counts(project)
             assert counts["rows"] == 1
-            assert counts["blobs"] == counts["ops"] == counts["receipts"] == 0
+            assert counts["blobs"] == counts["changes"] == counts["receipts"] == 0
             cleanup_observed.append(True)
             self._inner.cleanup()
             raise OSError("simulated attachment scratch cleanup failure")
@@ -492,7 +500,7 @@ def test_email_temp_cleanup_failure_aborts_hidden_stage(
     assert result.errors[0].code == "project_write_failed"
     counts = _visible_counts(project)
     assert counts["sheets"] == counts["columns"] == counts["rows"] == 0
-    assert counts["cells"] == counts["ops"] == counts["receipts"] == 0
+    assert counts["cells"] == counts["changes"] == counts["receipts"] == 0
     assert counts["blobs"] == 0
     assert (
         project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=1").fetchone()[0]

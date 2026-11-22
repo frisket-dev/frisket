@@ -180,7 +180,7 @@ def test_later_groups_use_the_staged_read_and_capture_survives_source_edit(
         _summary_router,
     )
     from frisket.engine.store.staleness import sheet_freshness
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project = make_project("staged-actual")
     source = _seed(project, tmp_path)
@@ -219,7 +219,7 @@ def test_later_groups_use_the_staged_read_and_capture_survives_source_edit(
     output = result.outputs[0].sheet_id
     assert sheet_freshness(project, output) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", change_id=edits[0])
+        step_change(project, "revert", change_id=edits[0])
     assert sheet_freshness(project, output) == "synced"
 
 

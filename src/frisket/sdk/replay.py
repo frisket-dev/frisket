@@ -52,13 +52,13 @@ def _replay_generated_column_row(
     if row is None:
         return None
     if row["hidden"]:
-        op_ids = receipt.op_ids
-        if not op_ids:
+        change_ids = receipt.change_ids
+        if not change_ids:
             return None
-        placeholders = ",".join("?" for _ in op_ids)
+        placeholders = ",".join("?" for _ in change_ids)
         rows = project.db.execute(
-            f"SELECT id, status, undo_info FROM ops WHERE id IN ({placeholders})",
-            op_ids,
+            f"SELECT id, status, undo_info FROM changes WHERE id IN ({placeholders})",
+            change_ids,
         ).fetchall()
         zero_success_hidden = False
         for op_row in rows:
@@ -72,7 +72,7 @@ def _replay_generated_column_row(
         if not zero_success_hidden and not (allow_hidden and row["generated"]):
             return None
         by_id = {int(op_row["id"]): str(op_row["status"]) for op_row in rows}
-        if not all(by_id.get(op_id) == "applied" for op_id in op_ids):
+        if not all(by_id.get(change_id) == "applied" for change_id in change_ids):
             return None
     return row
 

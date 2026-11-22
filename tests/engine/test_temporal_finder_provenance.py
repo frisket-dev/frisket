@@ -109,20 +109,20 @@ def _start_run(
     row_ids: list[int],
     action_kind: str = "map.find_topic_sections",
 ) -> tuple[int, int, RunResultStore]:
-    op_id = project.append_change(
+    change_id = project.append_change(
         action_kind,
         {"action_kind": action_kind},
         label=action_kind,
     )
     store = RunResultStore(project)
     run_id = store.start_run(
-        op_id,
+        change_id,
         sheet_id,
         action_kind,
         total_rows=len(row_ids),
         row_ids=row_ids,
     )
-    return op_id, run_id, store
+    return change_id, run_id, store
 
 
 def _seed_completed_topic_run(
@@ -153,7 +153,7 @@ def _seed_completed_topic_run(
         )
     )
     payload = _sidecar()
-    op_id, run_id, store = _start_run(
+    change_id, run_id, store = _start_run(
         project,
         sheet_id=sheet_id,
         row_ids=list(row_ids),
@@ -182,9 +182,9 @@ def _seed_completed_topic_run(
     )
     store.finish_run(run_id)
     with write_transaction(store.db):
-        store.point_column_at_run(op_id, selection_column_id, run_id)
+        store.point_column_at_run(change_id, selection_column_id, run_id)
     with write_transaction(store.db):
-        store.point_column_at_run(op_id, sidecar_column_id, run_id)
+        store.point_column_at_run(change_id, sidecar_column_id, run_id)
     return _SeededTopicRun(
         project=project,
         sheet_id=sheet_id,
@@ -431,11 +431,11 @@ def test_later_topic_run_never_claims_an_older_manual_edit(project: Project) -> 
     assert _resolve(seed) is None
 
     # Reverting the edit exposes the later run with its own provenance.
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     with seed.project.transaction_scope():
-        step_operation(
-            seed.project, "revert", change_id=int(live_refs[row_id]["op_id"])
+        step_change(
+            seed.project, "revert", change_id=int(live_refs[row_id]["change_id"])
         )
     live_values, live_refs = seed.project.get_values_with_refs(
         seed.sheet_id, seed.selection_column_id, row_ids=[row_id]
@@ -621,7 +621,7 @@ def test_completed_partial_run_resolves_only_rows_with_successful_sidecars(
         {"Source": source_column_id},
     )
     payload = _sidecar()
-    op_id, run_id, store = _start_run(
+    change_id, run_id, store = _start_run(
         project,
         sheet_id=sheet_id,
         row_ids=[successful_row, failed_row, missing_sidecar_row],
@@ -659,9 +659,9 @@ def test_completed_partial_run_resolves_only_rows_with_successful_sidecars(
     )
     store.finish_run(run_id)
     with write_transaction(store.db):
-        store.point_column_at_run(op_id, selection_column_id, run_id)
+        store.point_column_at_run(change_id, selection_column_id, run_id)
     with write_transaction(store.db):
-        store.point_column_at_run(op_id, sidecar_column_id, run_id)
+        store.point_column_at_run(change_id, sidecar_column_id, run_id)
 
     def resolve(row_id: int):
         return resolve_topic_analysis_sidecar(

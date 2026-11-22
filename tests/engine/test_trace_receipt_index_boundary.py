@@ -84,7 +84,7 @@ def _write_trace_sidecar(bundle_path: Path, run_id: int) -> Path:
 
 def _receipt_body(
     *,
-    op_ids: list[int],
+    change_ids: list[int],
     evidence_kind: str,
     output_kind: str,
     export_path: str | None = None,
@@ -104,7 +104,7 @@ def _receipt_body(
             }
         )
     return {
-        "op_ids": op_ids,
+        "change_ids": change_ids,
         "inputs": [{"ref": {"kind": "source_cell"}}],
         "outputs": outputs,
         "records": [{"ref": {"kind": evidence_kind}}],
@@ -134,7 +134,7 @@ def _receipt_project(project: Project) -> Project:
         receipt_id="wf_import_a",
         action_kind="import.csv",
         body=_receipt_body(
-            op_ids=[1], evidence_kind="source_file", output_kind="sheet"
+            change_ids=[1], evidence_kind="source_file", output_kind="sheet"
         ),
         created_at="2026-06-19 10:00:00",
     )
@@ -143,7 +143,7 @@ def _receipt_project(project: Project) -> Project:
         receipt_id="wf_import_b",
         action_kind="import.csv",
         body=_receipt_body(
-            op_ids=[2], evidence_kind="source_file", output_kind="sheet"
+            change_ids=[2], evidence_kind="source_file", output_kind="sheet"
         ),
         created_at="2026-06-19 10:01:00",
     )
@@ -152,7 +152,7 @@ def _receipt_project(project: Project) -> Project:
         receipt_id="wf_export",
         action_kind="export.work_log",
         body=_receipt_body(
-            op_ids=[3],
+            change_ids=[3],
             evidence_kind="exported_receipts",
             output_kind="artifact",
             export_path="/tmp/selected-work-log.md",
@@ -164,7 +164,7 @@ def _receipt_project(project: Project) -> Project:
         receipt_id="unrelated_export",
         action_kind="export.work_log",
         body=_receipt_body(
-            op_ids=[4],
+            change_ids=[4],
             evidence_kind="unrelated",
             output_kind="artifact",
             export_path="/tmp/unrelated-work-log.md",

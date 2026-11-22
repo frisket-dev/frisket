@@ -77,14 +77,14 @@ def _seed_timestamped_transcript(
         "timestamped_transcript",
         generated=True,
     )
-    op_id = project.append_change(
+    change_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
         label="transcribe",
     )
     runs = RunResultStore(project)
     run_id = runs.start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.transcribe",
         params={"output_name": "transcript"},
@@ -104,7 +104,7 @@ def _seed_timestamped_transcript(
     )
     runs.finish_run(run_id)
     with write_transaction(runs.db):
-        runs.point_column_at_run(op_id, transcript_column_id, run_id)
+        runs.point_column_at_run(change_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(span_values):
         with write_transaction(project.db):
@@ -133,7 +133,7 @@ def _seed_timestamped_transcript(
             row_id=row_id,
             column_id=transcript_column_id,
             run_id=run_id,
-            op_id=op_id,
+            change_id=change_id,
             link_role="media_transcribe_temporal",
             producer={"action_kind": "media.transcribe"},
             metadata={
@@ -433,14 +433,14 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
             }
         ],
     }
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.find_topic_sections",
         {"action_kind": "map.find_topic_sections"},
         label="find topic sections",
     )
     runs = RunResultStore(project)
     topic_run_id = runs.start_run(
-        op_id,
+        change_id,
         int(seeded["sheet_id"]),
         "map.find_topic_sections",
         total_rows=1,
@@ -483,9 +483,9 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
     )
     runs.finish_run(topic_run_id)
     with write_transaction(runs.db):
-        runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
+        runs.point_column_at_run(change_id, topic_column_id, topic_run_id)
     with write_transaction(runs.db):
-        runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
+        runs.point_column_at_run(change_id, sidecar_column_id, topic_run_id)
     result = _run(
         project,
         seeded,

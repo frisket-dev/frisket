@@ -84,7 +84,7 @@ def test_run_backfill_writes_receipt_backed_activity_for_fresh_generation(
     assert add_response.status_code == 200, add_response.text
 
     project = client.app.state.workspace.get(pid)
-    before_ops = int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
+    before_ops = int(project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0])
     response = post_v1_action_with_exact_confirmation(
         client,
         pid,
@@ -92,7 +92,7 @@ def test_run_backfill_writes_receipt_backed_activity_for_fresh_generation(
     )
     assert response.status_code == 200, response.text
     action_body = response.json()
-    after_ops = int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
+    after_ops = int(project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0])
     assert after_ops == before_ops + 1
     receipt_row = project.db.execute(
         "SELECT body FROM receipts WHERE id=?",

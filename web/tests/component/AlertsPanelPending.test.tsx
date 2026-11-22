@@ -34,7 +34,7 @@ function alert(id: number, name: string): AlertInfo {
     schedule: '@hourly',
   detectionPolicy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
     enabled: true,
-    lastEvaluatedOp: 0,
+    lastEvaluatedChange: 0,
     lastRunId: null,
     lastStatus: null,
     createdAt: '2026-08-31 00:00:00',
@@ -48,7 +48,7 @@ function blockedEmbeddingAlert(id: number, name: string): AlertInfo {
     ...alert(id, name),
     lastStatus: 'error',
     latestRun: {
-      id: 3, alertId: id, status: 'error', opCursorBefore: 0, opCursorAfter: 0, matchedRows: 0, newRows: 0,
+      id: 3, alertId: id, status: 'error', changeCursorBefore: 0, changeCursorAfter: 0, matchedRows: 0, newRows: 0,
       error: 'embedding index is stale', errorCode: 'embedding_index_stale', resolvedQueryHash: null,
       resolvedQuery: { similarity: { kind: 'embedding_similarity', embedding_index_id: 'idx-1' } },
       startedAt: '2026-08-31 00:00:00', finishedAt: null,

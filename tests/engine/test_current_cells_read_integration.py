@@ -34,7 +34,7 @@ def test_current_reads_and_querysets_follow_candidate_beneath_edit_undo_redo(
     assert {ref["kind"] for ref in refs.values()} == {"run_result"}
     assert {ref["run_id"] for ref in refs.values()} == {run.run_id}
 
-    edit_op_id = project.apply_edits(
+    edit_change_id = project.apply_edits(
         [{"row_id": row_ids[0], "column_id": column_id, "value": "manual"}]
     )
     live, live_refs = project.get_values_with_refs(sheet_id, column_id, [row_ids[0]])
@@ -60,11 +60,11 @@ def test_current_reads_and_querysets_follow_candidate_beneath_edit_undo_redo(
     assert manual.row_ids == [row_ids[0]]
     assert sorted_rows.row_ids == [*row_ids[1:], row_ids[0]]
 
-    assert project.undo() == edit_op_id
+    assert project.undo() == edit_change_id
     assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
         row_ids[0]: "first:0"
     }
-    assert project.redo() == edit_op_id
+    assert project.redo() == edit_change_id
     assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
         row_ids[0]: "manual"
     }
@@ -177,7 +177,7 @@ def test_current_cell_grid_payload_handles_a_page_larger_than_sqlite_bind_chunk(
     assert payload["rows"][-1]["cells"][str(column_id)] == 900
     assert payload["rows"][-1]["meta"][str(column_id)]["current_value_ref"] == {
         "kind": "source_cell",
-        "op_id": None,
+        "change_id": None,
         "row_id": row_ids[-1],
         "column_id": column_id,
         "run_id": None,

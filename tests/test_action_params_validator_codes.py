@@ -279,7 +279,14 @@ def test_reduce_group_summary_emitted_output_collisions_refuse_at_prepare(
     def _counts(project: Project) -> dict[str, int]:
         return {
             table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("sheets", "columns", "runs", "ops", "receipts", "model_calls")
+            for table in (
+                "sheets",
+                "columns",
+                "runs",
+                "changes",
+                "receipts",
+                "model_calls",
+            )
         }
 
     project = make_project("Ledger")

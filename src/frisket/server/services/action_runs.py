@@ -327,7 +327,7 @@ class ActionRunService:
         ):
             return None
         row = project.db.execute(
-            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            "SELECT changes.spec FROM runs JOIN changes ON changes.id=runs.change_id WHERE runs.id=?",
             (stored.run_id,),
         ).fetchone()
         if row is None:

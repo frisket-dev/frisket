@@ -191,30 +191,30 @@ def test_commit_row_blob_plan_requires_and_rolls_back_with_caller_transaction(pr
     assert _committed_count(project, "blobs") == 0
 
 
-# -- op_log.set_undo_info ----------------------------------------------------
+# -- change_log.set_undo_info ----------------------------------------------------
 
 
 def test_set_undo_info_requires_and_rolls_back_with_caller_transaction(project):
     col_id = project.add_column(_sheet_id(project), "generated", generated=True)
-    op_id = project.append_change("map", {"recipe": "probe"})
+    change_id = project.append_change("map", {"recipe": "probe"})
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        project.set_undo_info(op_id, {"created_columns": [col_id]})
+        project.set_undo_info(change_id, {"created_columns": [col_id]})
     assert not project.db.in_transaction
-    assert _committed(project, "SELECT undo_info FROM ops WHERE id=?", (op_id,)) == [
-        ("{}",)
-    ]
+    assert _committed(
+        project, "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ) == [("{}",)]
 
     _open_caller_transaction(project)
-    project.set_undo_info(op_id, {"created_columns": [col_id]})
+    project.set_undo_info(change_id, {"created_columns": [col_id]})
     assert project.db.in_transaction
-    assert _committed(project, "SELECT undo_info FROM ops WHERE id=?", (op_id,)) == [
-        ("{}",)
-    ]
+    assert _committed(
+        project, "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ) == [("{}",)]
     project.db.rollback()
-    assert _committed(project, "SELECT undo_info FROM ops WHERE id=?", (op_id,)) == [
-        ("{}",)
-    ]
+    assert _committed(
+        project, "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ) == [("{}",)]
 
 
 # -- project_settings --------------------------------------------------------
@@ -323,7 +323,7 @@ class _RetireProgram(ActionProgram):
 
 def test_retire_dropped_generated_columns_requires_caller_txn_and_is_atomic(project):
     sheet_id = _sheet_id(project)
-    op_id = project.append_change("map", {"action_kind": "map.fake"})
+    change_id = project.append_change("map", {"action_kind": "map.fake"})
     project.add_column(sheet_id, "out", generated=True)
     dropped = project.add_column(sheet_id, "out_confidence", generated=True)
     columns = project.columns(sheet_id, include_hidden=True)
@@ -331,7 +331,7 @@ def test_retire_dropped_generated_columns_requires_caller_txn_and_is_atomic(proj
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
         retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=_RetireProgram(),
             spec={"action_kind": "map.fake"},
             columns=columns,
@@ -342,12 +342,12 @@ def test_retire_dropped_generated_columns_requires_caller_txn_and_is_atomic(proj
         project, "SELECT default_hidden FROM columns WHERE id=?", (dropped,)
     ) == [(0,)]
 
-    _refuse(project, "UPDATE", "ops")
+    _refuse(project, "UPDATE", "changes")
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         with write_transaction(project.db):
             retire_dropped_generated_columns(
                 project,
-                op_id=op_id,
+                change_id=change_id,
                 program=_RetireProgram(),
                 spec={"action_kind": "map.fake"},
                 columns=columns,
@@ -358,43 +358,45 @@ def test_retire_dropped_generated_columns_requires_caller_txn_and_is_atomic(proj
     assert _committed(
         project, "SELECT default_hidden FROM columns WHERE id=?", (dropped,)
     ) == [(0,)]
-    assert _committed(project, "SELECT undo_info FROM ops WHERE id=?", (op_id,)) == [
-        ("{}",)
-    ]
+    assert _committed(
+        project, "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+    ) == [("{}",)]
 
 
 def test_retire_unbound_created_columns_owns_and_rolls_back_atomically(project):
     sheet_id = _sheet_id(project)
     draft_col = project.add_column(sheet_id, "draft", generated=True)
-    op_id = project.append_change("map", {"action_kind": "map.fake"})
+    change_id = project.append_change("map", {"action_kind": "map.fake"})
     with write_transaction(project.db):
-        project.set_undo_info(op_id, {"created_columns": [draft_col]})
+        project.set_undo_info(change_id, {"created_columns": [draft_col]})
 
     _open_caller_transaction(project)
     with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
-        retire_unbound_created_columns(project, op_id, frozenset({draft_col}))
+        retire_unbound_created_columns(project, change_id, frozenset({draft_col}))
     _assert_caller_work_kept_uncommitted(project)
     assert _committed(
         project, "SELECT active, hidden FROM columns WHERE id=?", (draft_col,)
     ) == [(1, 0)]
     project.db.rollback()
 
-    _refuse(project, "UPDATE", "ops")
+    _refuse(project, "UPDATE", "changes")
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
-        retire_unbound_created_columns(project, op_id, frozenset({draft_col}))
+        retire_unbound_created_columns(project, change_id, frozenset({draft_col}))
 
     _assert_nothing_left_behind(project)
     assert _committed(
         project, "SELECT active, hidden FROM columns WHERE id=?", (draft_col,)
     ) == [(1, 0)]
 
-    project.db.execute("DROP TRIGGER temp.refuse_update_ops")
-    retire_unbound_created_columns(project, op_id, frozenset({draft_col}))
+    project.db.execute("DROP TRIGGER temp.refuse_update_changes")
+    retire_unbound_created_columns(project, change_id, frozenset({draft_col}))
     assert not project.db.in_transaction
     assert _committed(
         project, "SELECT active, hidden FROM columns WHERE id=?", (draft_col,)
     ) == [(0, 1)]
     stored_info = json.loads(
-        _committed(project, "SELECT undo_info FROM ops WHERE id=?", (op_id,))[0][0]
+        _committed(project, "SELECT undo_info FROM changes WHERE id=?", (change_id,))[
+            0
+        ][0]
     )
     assert stored_info["created_columns"] == []

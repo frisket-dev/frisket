@@ -203,7 +203,9 @@ def test_internal_queued_enclosure_worker_marks_and_downloads(tmp_path, monkeypa
     sheet_id, row_id = _row_with_enclosure(project)
     ws = client.app.state.workspace
 
-    op_id = enclosures.mark_enclosure_queued(project, sheet_id=sheet_id, row_id=row_id)
+    change_id = enclosures.mark_enclosure_queued(
+        project, sheet_id=sheet_id, row_id=row_id
+    )
     job_id = ws.queue.enqueue(
         enclosures.ENCLOSURE_DOWNLOAD_KIND,
         {
@@ -214,7 +216,7 @@ def test_internal_queued_enclosure_worker_marks_and_downloads(tmp_path, monkeypa
         },
         max_attempts=1,
     )
-    assert op_id
+    assert change_id
     assert job_id
     assert _cell(client, pid, sheet_id, row_id, "media_status") == "queued"
 

@@ -683,7 +683,7 @@ _ZERO_WRITE_TABLES = {
     "effect_checkpoints",
     "execution_attempts",
     "model_calls",
-    "ops",
+    "changes",
     "generated_column_claims",
     "promise_sets",
     "receipts",

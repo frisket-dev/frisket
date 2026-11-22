@@ -215,12 +215,12 @@ def consented_run(project):
     sheet_id = project.add_sheet("S")
     project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(sheet_id, [{}, {}], {})
-    op_id = project.db.execute(
-        "INSERT INTO ops (kind, spec) VALUES (?,?)", ("transcribe", "{}")
+    change_id = project.db.execute(
+        "INSERT INTO changes (kind, spec) VALUES (?,?)", ("transcribe", "{}")
     ).lastrowid
     project.db.commit()
     run_id = RunResultStore(project).start_run(
-        int(op_id),
+        int(change_id),
         sheet_id,
         "media.transcribe",
         params=SPEC,
@@ -233,7 +233,7 @@ def consented_run(project):
             output_names=["transcript"],
             action_kind="media.transcribe",
             run_id=run_id,
-            op_id=int(op_id),
+            change_id=int(change_id),
             claim_token=claim_token,
         )
     assert conflict is None
@@ -401,11 +401,11 @@ def _record_call(
 def _peer_run(project, source_run_id: int) -> int:
     """A second run in the same project, for horizontal-ownership attacks."""
     source = project.db.execute(
-        "SELECT op_id, sheet_id FROM runs WHERE id=?", (source_run_id,)
+        "SELECT change_id, sheet_id FROM runs WHERE id=?", (source_run_id,)
     ).fetchone()
     assert source is not None
     return RunResultStore(project).start_run(
-        int(source["op_id"]),
+        int(source["change_id"]),
         int(source["sheet_id"]),
         "media.transcribe",
         params=SPEC,
@@ -1727,12 +1727,12 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
         [{"audio": {"duration_seconds": 60}} for _ in range(40)],
         {"audio": source_column_id},
     )
-    op_id = project.db.execute(
-        "INSERT INTO ops (kind, spec) VALUES (?,?)", ("transcribe", "{}")
+    change_id = project.db.execute(
+        "INSERT INTO changes (kind, spec) VALUES (?,?)", ("transcribe", "{}")
     ).lastrowid
     project.db.commit()
     run_id = RunResultStore(project).start_run(
-        op_id,
+        change_id,
         sheet_id,
         "media.transcribe",
         params=SPEC,
@@ -1745,7 +1745,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
             output_names=["transcript"],
             action_kind="media.transcribe",
             run_id=run_id,
-            op_id=int(op_id),
+            change_id=int(change_id),
             claim_token=claim_token,
         )
     assert conflict is None

@@ -77,7 +77,7 @@ def _column(p: Project, cid: int):
 
 def test_declared_dropped_roles_are_retired(project: Project):
     sheet = project.add_sheet("data")
-    op_id = project.append_change("map", {"recipe": "fake"})
+    change_id = project.append_change("map", {"recipe": "fake"})
     live = _generated_column(project, sheet, "out")  # the current output (reused)
     conf = _generated_column(project, sheet, "out_confidence")  # dropped
     just = _generated_column(project, sheet, "out_justification")  # dropped
@@ -85,7 +85,7 @@ def test_declared_dropped_roles_are_retired(project: Project):
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=_FakeProgram(),
             spec={"action_kind": "map.fake"},
             columns=project.columns(sheet, include_hidden=True),
@@ -99,9 +99,9 @@ def test_declared_dropped_roles_are_retired(project: Project):
     assert _column(project, live)["default_hidden"] == 0
     # provenance recorded on the op
     info = json.loads(
-        project.db.execute("SELECT undo_info FROM ops WHERE id=?", (op_id,)).fetchone()[
-            "undo_info"
-        ]
+        project.db.execute(
+            "SELECT undo_info FROM changes WHERE id=?", (change_id,)
+        ).fetchone()["undo_info"]
         or "{}"
     )
     names = {e["name"] for e in info["retired_output_columns"]}
@@ -110,7 +110,7 @@ def test_declared_dropped_roles_are_retired(project: Project):
 
 def test_a_role_still_in_the_current_output_is_not_retired(project: Project):
     sheet = project.add_sheet("data")
-    op_id = project.append_change("map", {"recipe": "fake"})
+    change_id = project.append_change("map", {"recipe": "fake"})
     _generated_column(project, sheet, "out")
     conf = _generated_column(project, sheet, "out_confidence")
 
@@ -118,7 +118,7 @@ def test_a_role_still_in_the_current_output_is_not_retired(project: Project):
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=_FakeProgram(),
             spec={"action_kind": "map.fake"},
             columns=project.columns(sheet, include_hidden=True),
@@ -132,12 +132,12 @@ def _run_with_params(
     p: Project, sheet_id: int, action_kind: str, params: dict[str, object]
 ) -> int:
     """A completed run row attributed to one canonical action kind."""
-    op_id = p.append_change("map", {"action_kind": action_kind})
+    change_id = p.append_change("map", {"action_kind": action_kind})
     p.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, action_kind, params, status) "
+        "INSERT INTO runs (change_id, sheet_id, action_kind, params, status) "
         "VALUES (?, ?, ?, ?, ?)",
         (
-            op_id,
+            change_id,
             sheet_id,
             action_kind,
             json.dumps(params),
@@ -219,7 +219,7 @@ def test_output_instance_guard_across_two_generic_outputs(project: Project):
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=b_op,
+            change_id=b_op,
             program=_AbsoluteDetectedProgram(),
             spec={
                 "action_kind": "map.translate",
@@ -245,7 +245,7 @@ def test_output_instance_guard_retires_own_detected_language(project: Project):
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=a_rerun_op,
+            change_id=a_rerun_op,
             program=_AbsoluteDetectedProgram(),
             spec={
                 "action_kind": "map.translate",
@@ -268,11 +268,11 @@ def test_unattributed_absolute_name_survives_a_cross_action_rerun(project: Proje
     detected = _generated_column(
         project, sheet, "detected_language"
     )  # NULL pointer, absolute
-    op_id = project.append_change("map", {"recipe": "translate"})
+    change_id = project.append_change("map", {"recipe": "translate"})
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=_AbsoluteDetectedProgram(),
             spec={"action_kind": "map.translate", "output_name": "es"},
             columns=project.columns(sheet, include_hidden=True),
@@ -288,11 +288,11 @@ def test_unattributed_absolute_name_survives_same_action_other_output(project: P
     sheet = project.add_sheet("data")
     _generated_column(project, sheet, "other")
     detected = _generated_column(project, sheet, "detected_language")  # NULL, absolute
-    op_id = project.append_change("map", {"recipe": "transcribe"})
+    change_id = project.append_change("map", {"recipe": "transcribe"})
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=_AbsoluteDetectedProgram(),
             spec={
                 "action_kind": "map.translate",
@@ -316,11 +316,11 @@ def test_output_name_comparison_is_case_folded(project: Project):
     detected = _generated_column(project, sheet, "es_detected_language")
     _point(project, detected, prior)
 
-    op_id = project.append_change("map", {"recipe": "translate"})
+    change_id = project.append_change("map", {"recipe": "translate"})
     with write_transaction(project.db):
         retired = retire_dropped_generated_columns(
             project,
-            op_id=op_id,
+            change_id=change_id,
             program=_DerivedDetectedProgram(),
             spec={"action_kind": "map.translate", "output_name": "es"},
             columns=project.columns(sheet, include_hidden=True),
@@ -332,13 +332,13 @@ def test_output_name_comparison_is_case_folded(project: Project):
 
 def test_recipe_with_nothing_to_retire_is_a_noop(project: Project):
     sheet = project.add_sheet("data")
-    op_id = project.append_change("map", {"recipe": "plain"})
+    change_id = project.append_change("map", {"recipe": "plain"})
     _generated_column(project, sheet, "out")
     with write_transaction(project.db):
         assert (
             retire_dropped_generated_columns(
                 project,
-                op_id=op_id,
+                change_id=change_id,
                 program=ActionProgram(),  # base: retired_output_names == []
                 spec={},
                 columns=project.columns(sheet, include_hidden=True),
@@ -379,12 +379,12 @@ def test_typed_transcribe_only_touches_declared_outputs(project: Project):
     _, queued, program = typed_queued_map_spec(bound)
     spec = queued.runner_spec_fn(bound.params)
     assert program.retired_output_names(spec) == []
-    op_id = project.append_change("map", spec)
+    change_id = project.append_change("map", spec)
     with write_transaction(project.db):
         assert (
             retire_dropped_generated_columns(
                 project,
-                op_id=op_id,
+                change_id=change_id,
                 program=program,
                 spec=spec,
                 columns=project.columns(sheet, include_hidden=True),

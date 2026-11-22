@@ -88,7 +88,7 @@ def _child(tmp_path, monkeypatch, *, child_count=1):
         original_page_number=1,
     )
     binding = PdfSplitChildBinding(
-        session.op_id,
+        session.change_id,
         session.writer_authority,
         session.id,
         "first",
@@ -109,7 +109,7 @@ def _child(tmp_path, monkeypatch, *, child_count=1):
                 PreparedContentStore(project)
                 .stage_reference(
                     source_artifact_id=read.source_artifact_id,
-                    producing_op_id=session.op_id,
+                    producing_change_id=session.change_id,
                     pages=[
                         PreparedPageDraft(
                             page,
@@ -129,7 +129,7 @@ def test_finished_pages_merge_partial_refs_and_one_undo_restores_saved_text(
 ):
     adapter, preview, project, binding, refs = _child(tmp_path, monkeypatch)
     try:
-        before = project.op_cursor
+        before = project.change_cursor
         assert publish_pdf_split_page(project, binding, refs[0])
         first = resolve_document_text_selection(
             project,
@@ -163,7 +163,7 @@ def test_finished_pages_merge_partial_refs_and_one_undo_restores_saved_text(
         assert content.text == "Page 1\n\nPage 2"
         assert content.pins[1].positions["source_page_number"] == 2
         assert content.pins[1].positions["page_number"] == 2
-        assert project.op_cursor > before
+        assert project.change_cursor > before
         assert (
             project.db.execute("SELECT COUNT(*) FROM search_dirty_scopes").fetchone()[0]
             > 0
@@ -181,17 +181,17 @@ def test_finished_pages_merge_partial_refs_and_one_undo_restores_saved_text(
             PreparedContentStore(project).resolve(restored.prepared_ref_id).text
             == content.text
         )
-        count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        count = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         assert publish_pdf_split_page(project, binding, refs[0])
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count
-        from frisket.engine.store.op_log import step_operation
+        assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == count
+        from frisket.engine.store.change_log import step_change
 
         with project.transaction_scope():
-            step_operation(project, "revert", change_id=binding.operation_id)
+            step_change(project, "revert", change_id=binding.operation_id)
         with project.transaction_scope():
-            step_operation(project, "restore", change_id=binding.operation_id)
+            step_change(project, "restore", change_id=binding.operation_id)
         assert not publish_pdf_split_page(project, binding, refs[0])
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count
+        assert project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == count
     finally:
         preview._registry.shutdown()
         project.close()
@@ -318,7 +318,7 @@ def test_merged_original_cache_is_narrowed_before_real_child_fanout(
         with project.transaction_scope():
             merged = PreparedContentStore(project).stage_reference(
                 source_artifact_id=artifact,
-                producing_op_id=1,
+                producing_change_id=1,
                 pages=[
                     PreparedPageDraft(
                         page,
@@ -407,20 +407,24 @@ def test_page_fanout_has_one_separate_preparation_change(tmp_path, monkeypatch):
             expected_source_value=source,
             expected_text_value=text,
         )
-        count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        count = project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
         assert publish_pdf_split_pages(project, [binding, second], refs[0]) == [
             True,
             True,
         ]
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count + 1
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM changes").fetchone()[0]
+            == count + 1
+        )
         child = project.db.execute(
-            "SELECT id,publication_closed,spec FROM ops WHERE kind='pdf.prepare_text'"
+            "SELECT id,publication_closed,spec FROM changes WHERE kind='pdf.prepare_text'"
         ).fetchone()
         assert child["publication_closed"] == 1
-        assert json.loads(child["spec"])["import_op_id"] == binding.operation_id
+        assert json.loads(child["spec"])["import_change_id"] == binding.operation_id
         assert (
             project.db.execute(
-                "SELECT publication_closed FROM ops WHERE id=?", (binding.operation_id,)
+                "SELECT publication_closed FROM changes WHERE id=?",
+                (binding.operation_id,),
             ).fetchone()[0]
             == 1
         )

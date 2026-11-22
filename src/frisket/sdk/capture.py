@@ -72,7 +72,7 @@ class CapturedFacts:
     run: Any  # raw `runs` row, for op-specific status/error helpers
     run_id: int
     params_hash: str
-    op_id: int
+    change_id: int
     sheet_id: int
     total_rows: int
     completed_rows: int
@@ -147,7 +147,7 @@ def maprunner_output_refs(
             "sheet_id": facts.sheet_id,
             "column_id": fact.column_id,
             "run_id": facts.run_id,
-            "op_id": facts.op_id,
+            "change_id": facts.change_id,
             "row_ids": facts.row_ids,
             "value_hash": fact.value_hash,
         }
@@ -317,7 +317,7 @@ def capture_maprunner_facts(
     """Capture a prepared program's terminal facts from explicit output descriptors."""
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-    op_id = int(run["op_id"])
+    change_id = int(run["change_id"])
     sheet_id = int(run["sheet_id"])
     has_scope = (
         project.db.execute(
@@ -428,7 +428,7 @@ def capture_maprunner_facts(
         run=run,
         run_id=run_id,
         params_hash=params_hash,
-        op_id=op_id,
+        change_id=change_id,
         sheet_id=sheet_id,
         total_rows=int(run["total_rows"] or 0),
         completed_rows=int(run["completed_rows"] or 0),

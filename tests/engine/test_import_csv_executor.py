@@ -98,7 +98,7 @@ def _invalid_value_action(seeded: dict[str, Any]) -> dict[str, Any]:
 def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.contracts.action import Receipt
 
-    assert result.op_ids == [1]
+    assert result.change_ids == [1]
     assert [output.kind for output in result.outputs] == [
         "sheet",
         "column",
@@ -122,7 +122,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     scores = project.get_values(int(sheet["id"]), int(columns["score"]["id"]))
     assert list(scores.values()) == [9, 2]
 
-    op = project.db.execute("SELECT * FROM ops WHERE id=1").fetchone()
+    op = project.db.execute("SELECT * FROM changes WHERE id=1").fetchone()
     assert op is not None
     assert op["kind"] == "import.csv"
     op_spec = json.loads(op["spec"])
@@ -142,7 +142,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.schema_version == "frisket.receipt.v1"
     assert receipt.action_kind == "import.csv"
     assert receipt.idempotency_key == "import_csv@sha256:stable"
-    assert receipt.op_ids == [1]
+    assert receipt.change_ids == [1]
     file_read = next(
         item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
     )
@@ -208,7 +208,13 @@ CASES = [
             ),
             Gate("invalid_csv_value", _invalid_value_action, "invalid_csv_value"),
         ),
-        expect_counts={"sheets": 1, "columns": 3, "rows": 2, "ops": 1, "receipts": 1},
+        expect_counts={
+            "sheets": 1,
+            "columns": 3,
+            "rows": 2,
+            "changes": 1,
+            "receipts": 1,
+        },
         check_state=_check_state,
         request_style="typed",
     )
@@ -302,7 +308,7 @@ def test_import_csv_default_allows_more_than_10000_file_rows(
     assert len(body.encode("utf-8")) < 100_000
     assert "Record 10000" not in body
     op = project.db.execute(
-        "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+        "SELECT spec FROM changes WHERE id=?", (result.change_ids[0],)
     ).fetchone()
     assert op is not None
     assert json.loads(op["spec"])["import_row_count"] == 10_001

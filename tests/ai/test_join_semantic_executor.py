@@ -167,7 +167,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     source_row_ids = seeded["source_row_ids"]
     target_row_ids = seeded["target_row_ids"]
     assert result.run_id is not None
-    assert len(result.op_ids) == 2
+    assert len(result.change_ids) == 2
     assert _EMBED_CALLS
 
     source_columns = {
@@ -215,7 +215,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "join.semantic"
     assert receipt.run_id == result.run_id
-    assert receipt.op_ids == result.op_ids
+    assert receipt.change_ids == result.change_ids
     assert receipt.provider_use[0]["provider"] == "stub"
     assert receipt.provider_use[0]["engine"] == "stub/semantic-join"
     # The injected non-fastembed backend returned vectors without usage or
@@ -313,7 +313,7 @@ CASES = [
             "columns": 7,
             "rows": 2,
             "runs": 1,
-            "ops": 2,
+            "changes": 2,
             "receipts": 1,
         },
         check_state=_check_state,

@@ -201,7 +201,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "output_names": {"answer": "answer", "search_results": "search_results"},
         "replace_existing": False,
         "params_hash": receipt.params_hash,
-        "op_id": result.op_ids[0],
+        "change_id": result.change_ids[0],
         "run_id": result.run_id,
     }
     assert receipt.outputs[0].ref["value_hash"].startswith("sha256:")
@@ -266,7 +266,13 @@ CASES = [
                 after_primary_run=True,
             ),
         ),
-        expect_counts={"columns": 2, "runs": 1, "results": 4, "ops": 1, "receipts": 1},
+        expect_counts={
+            "columns": 2,
+            "runs": 1,
+            "results": 4,
+            "changes": 1,
+            "receipts": 1,
+        },
         check_state=_check_state,
         request_style="typed",
     )
@@ -313,7 +319,7 @@ def test_above_allowance_requires_exact_confirmation_before_egress(
     action = _action(seeded["sheet_id"])
     before = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in ("runs", "results", "ops", "receipts")
+        for table in ("runs", "results", "changes", "receipts")
     }
 
     deps = ExecutorDeps(

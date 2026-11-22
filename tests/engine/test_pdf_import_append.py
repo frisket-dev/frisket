@@ -116,16 +116,16 @@ def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
         "two.pdf",
     ]
     op = project.db.execute(
-        "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+        "SELECT undo_info FROM changes WHERE id=?", (publication.change_id,)
     ).fetchone()
     assert json.loads(op["undo_info"]) == {
         "created_rows": [],
         "created_rows_import_session_id": "pdf-commit:one",
         "created_columns": [],
     }
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-    assert project.redo() == publication.op_id
+    assert project.redo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == [
         "before.pdf",
         "one.pdf",
@@ -166,12 +166,12 @@ def test_append_undo_hides_columns_created_for_the_import(make_project) -> None:
     assert created_column is not None
     undo_info = json.loads(
         project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+            "SELECT undo_info FROM changes WHERE id=?", (publication.change_id,)
         ).fetchone()["undo_info"]
     )
     assert undo_info["created_columns"] == [int(created_column["id"])]
 
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert (
         project.db.execute(
             "SELECT 1 FROM columns WHERE id=? AND active=1",
@@ -194,10 +194,10 @@ def test_pre_upgrade_append_undo_includes_rows_added_after_restart(
     session = ImportSessionStore(project).get("pdf-commit:one")
     assert session is not None
     project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?",
+        "UPDATE changes SET undo_info=? WHERE id=?",
         (
             json.dumps({"created_rows": old_rows, "created_columns": []}),
-            session.op_id,
+            session.change_id,
         ),
     )
     project.db.commit()
@@ -214,9 +214,9 @@ def test_pre_upgrade_append_undo_includes_rows_added_after_restart(
         [{"filename": "after-upgrade.pdf"}], expected_cursor=1, next_cursor=2
     )
     publication = resumed.finalize_session(expected_cursor=2, enumeration_complete=True)
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-    assert project.redo() == publication.op_id
+    assert project.redo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == [
         "before.pdf",
         "before-upgrade.pdf",
@@ -242,7 +242,7 @@ def test_cancelled_append_is_kept_then_removed_by_normal_undo(make_project) -> N
     ]
     session = ImportSessionStore(project).get("pdf-commit:one")
     assert session is not None and session.state == "kept"
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
 
 
@@ -299,10 +299,10 @@ def test_pdf_created_sheet_remove_preserves_unrelated_row_for_restore(
         == 2
     )
     assert ImportSessionStore(project).get("pdf-new").state == "removed"
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.change_log import step_change
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", change_id=writer._op_id)
+    step_change(project, "restore", change_id=writer._op_id)
     project.db.commit()
     assert _visible_names(project, writer.sheet_id, filename_column) == [
         "imported.pdf",
@@ -335,7 +335,7 @@ def test_append_adds_missing_import_columns_without_touching_existing_data(
     columns = {str(row["name"]): int(row["id"]) for row in project.columns(sheet_id)}
     assert {"notes", "filename", "media", "size"} <= set(columns)
     assert project.get_values(sheet_id, notes)[old_row] == "keep"
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert project.get_values(sheet_id, notes)[old_row] == "keep"
     assert {str(row["name"]) for row in project.columns(sheet_id)} == {"notes"}
 
@@ -356,7 +356,7 @@ def test_unrelated_write_during_append_keeps_normal_history_order(
         [{"filename": "user-added.pdf", "size": 2}],
         columns,
     )[0]
-    unrelated_op = project.op_cursor
+    unrelated_op = project.change_cursor
     publication = writer.finalize_session(expected_cursor=1, enumeration_complete=True)
 
     assert project.undo() == unrelated_op
@@ -364,7 +364,7 @@ def test_unrelated_write_during_append_keeps_normal_history_order(
         "before.pdf",
         "imported.pdf",
     ]
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
     assert (
         project.db.execute(
@@ -372,7 +372,7 @@ def test_unrelated_write_during_append_keeps_normal_history_order(
         ).fetchone()["hidden"]
         == 1
     )
-    assert project.redo() == publication.op_id
+    assert project.redo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == [
         "before.pdf",
         "imported.pdf",
@@ -405,7 +405,7 @@ def test_large_append_keeps_undo_metadata_bounded(make_project) -> None:
         metadata_sizes.append(
             len(
                 project.db.execute(
-                    "SELECT undo_info FROM ops WHERE id=?", (writer._op_id,)
+                    "SELECT undo_info FROM changes WHERE id=?", (writer._op_id,)
                 ).fetchone()["undo_info"]
             )
         )
@@ -414,7 +414,7 @@ def test_large_append_keeps_undo_metadata_bounded(make_project) -> None:
     )
 
     undo_info = project.db.execute(
-        "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+        "SELECT undo_info FROM changes WHERE id=?", (publication.change_id,)
     ).fetchone()["undo_info"]
     assert json.loads(undo_info) == {
         "created_rows": [],
@@ -431,14 +431,14 @@ def test_large_append_keeps_undo_metadata_bounded(make_project) -> None:
         == 10_000
     )
 
-    assert project.undo() == publication.op_id
+    assert project.undo() == publication.change_id
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=1", (sheet_id,)
         ).fetchone()[0]
         == 10_000
     )
-    assert project.redo() == publication.op_id
+    assert project.redo() == publication.change_id
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
@@ -471,7 +471,9 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
         label="PDF native text",
         replace_existing=True,
     )
-    project.db.execute("UPDATE ops SET kind=? WHERE id=?", (text_action, derived.op_id))
+    project.db.execute(
+        "UPDATE changes SET kind=? WHERE id=?", (text_action, derived.change_id)
+    )
     project.db.execute(
         "UPDATE runs SET action_kind=? WHERE id=?", (text_action, derived.run_id)
     )
@@ -510,8 +512,8 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
     assert project.get_values(sheet_id, columns["text"])[imported_row] == (
         "generated document text"
     )
-    assert project.undo() == derived.op_id
-    assert project.undo() == publication.op_id
+    assert project.undo() == derived.change_id
+    assert project.undo() == publication.change_id
     assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
     existing_row = project.db.execute(
         "SELECT id FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
@@ -644,7 +646,7 @@ def test_existing_import_files_page_adapter_uses_append_writer(
             "before.pdf",
             "new.pdf",
         ]
-        assert project.undo() == session.op_id
+        assert project.undo() == session.change_id
         assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
     finally:
         inventory.close()

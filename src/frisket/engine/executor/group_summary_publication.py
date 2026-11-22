@@ -172,7 +172,7 @@ class GroupPublication:
 
         self.envelope = envelope
         project, params, db = self.project, self.params, self.project.db
-        op_id, run_id = int(envelope["op_id"]), int(envelope["run_id"])
+        change_id, run_id = int(envelope["change_id"]), int(envelope["run_id"])
         self.resolved = resolved
         op_spec = dict(params.request)
         op_spec["params"] = dict(op_spec["params"])
@@ -225,7 +225,7 @@ class GroupPublication:
             receipt = receipt.model_copy(
                 update={
                     "run_id": run_id,
-                    "op_ids": [op_id],
+                    "change_ids": [change_id],
                     "inputs": [
                         *receipt.inputs,
                         ReceiptIO(
@@ -243,22 +243,24 @@ class GroupPublication:
                 receipt, require_status="running"
             ):
                 raise ValueError("Grouped receipt reservation was lost")
-            ChangeStore(project).start(op_id)
+            ChangeStore(project).start(change_id)
             db.commit()
             db.execute("BEGIN IMMEDIATE")
             existing_sheet = (
                 db.execute(
-                    "SELECT id FROM sheets WHERE parent_op_id=? AND name=? AND hidden=0",
-                    (op_id, params.target_sheet_name),
+                    "SELECT id FROM sheets WHERE parent_change_id=? AND name=? AND hidden=0",
+                    (change_id, params.target_sheet_name),
                 ).fetchone()
                 if self.recovery_run is not None
                 else None
             )
             if params.refresh_target is None and existing_sheet is not None:
                 self.config = refresh_config(
-                    db.execute("SELECT * FROM ops WHERE id=?", (op_id,)).fetchone()
+                    db.execute(
+                        "SELECT * FROM changes WHERE id=?", (change_id,)
+                    ).fetchone()
                 )
-                write = self._saved_write(op_id, int(existing_sheet["id"]))
+                write = self._saved_write(change_id, int(existing_sheet["id"]))
             elif params.refresh_target is None:
                 write = write_aggregate_sheet(
                     db.cursor(),
@@ -270,7 +272,7 @@ class GroupPublication:
                         op_spec=op_spec,
                         columns=columns,
                         rows=[],
-                        reuse_op_id=op_id,
+                        reuse_op_id=change_id,
                         refresh_identity=MaterializedIdentity(
                             "group",
                             [],
@@ -286,7 +288,9 @@ class GroupPublication:
                     ),
                 )
                 self.config = refresh_config(
-                    db.execute("SELECT * FROM ops WHERE id=?", (op_id,)).fetchone()
+                    db.execute(
+                        "SELECT * FROM changes WHERE id=?", (change_id,)
+                    ).fetchone()
                 )
             else:
                 refusal = validate_target(project, params)
@@ -295,19 +299,20 @@ class GroupPublication:
                 target = params.refresh_target
                 self.config = refresh_config(
                     db.execute(
-                        "SELECT * FROM ops WHERE id=?", (target.parent_op_id,)
+                        "SELECT * FROM changes WHERE id=?", (target.parent_change_id,)
                     ).fetchone()
                 )
-                ChangeStore(project).start(op_id)
+                ChangeStore(project).start(change_id)
                 op_spec.update(
                     sheet_id=target.sheet_id,
                     policy=target.policy,
                     derived_refresh=self.config,
                 )
                 db.execute(
-                    "UPDATE ops SET spec=? WHERE id=?", (json.dumps(op_spec), op_id)
+                    "UPDATE changes SET spec=? WHERE id=?",
+                    (json.dumps(op_spec), change_id),
                 )
-                write = self._saved_write(op_id, target.sheet_id)
+                write = self._saved_write(change_id, target.sheet_id)
             self.write = write
             self._acquire_writer()
             db.commit()
@@ -317,7 +322,7 @@ class GroupPublication:
                 self._require_writer()
                 ids = reconcile_rows_into_open_change(
                     db,
-                    op_id=op_id,
+                    change_id=change_id,
                     sheet_id=write.sheet_id,
                     config=self.config,
                     columns=columns,
@@ -360,14 +365,14 @@ class GroupPublication:
                     self.positions[row.key] = row_id
                 rows.extend(ids)
             memberships = load_materialized_row_sources_for_op(
-                db, op_id=op_id, roles=("aggregate_source",)
+                db, change_id=change_id, roles=("aggregate_source",)
             )
             self.write = replace(
                 write,
                 row_ids=rows,
                 source_row_ids_by_row=[g["source_row_ids"] for g in resolved["groups"]],
                 materialized_row_sources_ref=materialized_row_sources_ref(
-                    op_id=op_id, rows=memberships, include_rows=False
+                    change_id=change_id, rows=memberships, include_rows=False
                 ),
             )
             db.execute("BEGIN IMMEDIATE")
@@ -396,7 +401,7 @@ class GroupPublication:
             acquire_refresh_claim(
                 self.project,
                 sheet_id=target.sheet_id,
-                parent_op_id=target.parent_op_id,
+                parent_change_id=target.parent_change_id,
                 token=self.receipt_id,
             )
         claims = GeneratedColumnClaimStore(self.project)
@@ -419,7 +424,7 @@ class GroupPublication:
                 action_kind=self.params.action_kind,
                 receipt_id=self.receipt_id,
                 run_id=run_id,
-                op_id=self._started_write.op_id,
+                change_id=self._started_write.change_id,
                 claim_token=self.claim_token,
                 lease_seconds=300,
                 details={
@@ -443,7 +448,7 @@ class GroupPublication:
             raise GroupPublicationError(
                 "Grouped refresh lease renewal failed"
             ) from self._lease_failure
-        ChangeStore(self.project).require_publication(self._started_write.op_id)
+        ChangeStore(self.project).require_publication(self._started_write.change_id)
         GeneratedColumnClaimStore.require_current_writer(
             self.project.db,
             fence=WriterFence(
@@ -457,8 +462,8 @@ class GroupPublication:
             require_refresh_writer(
                 self.project,
                 sheet_id=target.sheet_id,
-                parent_op_id=target.parent_op_id,
-                op_id=self._started_write.op_id,
+                parent_change_id=target.parent_change_id,
+                change_id=self._started_write.change_id,
                 token=self.receipt_id,
             )
         GeneratedColumnClaimStore(self.project).renew(
@@ -502,11 +507,11 @@ class GroupPublication:
             await asyncio.gather(task, return_exceptions=True)
 
     def _saved_write(
-        self, op_id, sheet_id, *, row_ids=(), source_row_ids=(), memberships=()
+        self, change_id, sheet_id, *, row_ids=(), source_row_ids=(), memberships=()
     ):
         """Describe an existing materialization without creating another sheet."""
         return AggregateSheetWrite(
-            op_id=op_id,
+            change_id=change_id,
             sheet_id=sheet_id,
             column_ids=self._started_config["columns"],
             row_ids=list(row_ids),
@@ -516,19 +521,19 @@ class GroupPublication:
             materialized_sheet_ref={
                 "kind": "materialized_sheet",
                 "sheet_id": sheet_id,
-                "op_id": op_id,
+                "change_id": change_id,
             },
             materialized_column_refs={},
             materialized_rows_ref={},
             materialized_row_sources_ref=materialized_row_sources_ref(
-                op_id=op_id, rows=memberships, include_rows=False
+                change_id=change_id, rows=memberships, include_rows=False
             ),
         )
 
     def _resume(self, resolved, envelope):
         project, db, params = self.project, self.project.db, self.params
-        op_id, run_id = int(envelope["op_id"]), int(envelope["run_id"])
-        ChangeStore(project).require_publication(op_id)
+        change_id, run_id = int(envelope["change_id"]), int(envelope["run_id"])
+        ChangeStore(project).require_publication(change_id)
         bindings = ResultGenerationStore(project).bindings_for_run(run_id)
         if any(binding.state == "sealed" for binding in bindings):
             raise ValueError("A closed grouped generation cannot resume")
@@ -537,7 +542,7 @@ class GroupPublication:
             raise ValueError("A grouped generation cannot resume without its run")
         sheet_id = int(run["sheet_id"])
         self.config = refresh_config(
-            db.execute("SELECT * FROM ops WHERE id=?", (op_id,)).fetchone()
+            db.execute("SELECT * FROM changes WHERE id=?", (change_id,)).fetchone()
         )
         rows = RunResultStore(project).run_row_scope(run_id)
         for row in db.execute(
@@ -553,10 +558,10 @@ class GroupPublication:
                 "Grouped identities changed during recovery; start a new grouped action"
             )
         memberships = load_materialized_row_sources_for_op(
-            db, op_id=op_id, roles=("aggregate_source",)
+            db, change_id=change_id, roles=("aggregate_source",)
         )
         self.write = self._saved_write(
-            op_id,
+            change_id,
             sheet_id,
             row_ids=[
                 self.positions[str(g["identity_key"])] for g in resolved["groups"]
@@ -573,10 +578,12 @@ class GroupPublication:
             raise
         if params.refresh_target:
             self._recover_working_values(
-                rows, self._started_config["columns"][params.summary_column_name], op_id
+                rows,
+                self._started_config["columns"][params.summary_column_name],
+                change_id,
             )
 
-    def _recover_working_values(self, rows, column_id, op_id):
+    def _recover_working_values(self, rows, column_id, change_id):
         # The normal pending mask intentionally hides the previous working
         # value. Recovery reads the canonical contributions excluding itself.
         current = read_current_column(
@@ -587,7 +594,7 @@ class GroupPublication:
             bounded=False,
             preserve_invalid=True,
             include_hidden=True,
-            _exclude_op_id=op_id,
+            _exclude_change_id=change_id,
         )
         field = str(column_id)
         for row_id in rows:
@@ -635,7 +642,7 @@ class GroupPublication:
                 self._require_writer()
                 complete_derived_membership(
                     db,
-                    op_id=self._started_write.op_id,
+                    change_id=self._started_write.change_id,
                     sheet_id=self._started_write.sheet_id,
                     config=self.config,
                     observed_rows=batch,

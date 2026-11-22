@@ -69,13 +69,13 @@ try:
     row_a = project.add_rows(sheet_id, [{"Source": "hearingA.wav"}], {"Source": source_col})[0]
     row_b = project.add_rows(sheet_id, [{"Source": "hearingB.wav"}], {"Source": source_col})[0]
 
-    op_id = project.append_change(
+    change_id = project.append_change(
         "map.extract",
         {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"output_name": "Finding"}},
         label="extract findings",
     )
     run_id = run_store.start_run(
-        op_id, sheet_id, "map.extract", model="local/stub",
+        change_id, sheet_id, "map.extract", model="local/stub",
         params={"output_name": "Finding"}, total_rows=2, row_ids=[row_a, row_b],
     )
     write_claimed_test_results(
@@ -88,7 +88,7 @@ try:
     )
     run_store.finish_run(run_id)
     with write_transaction(project.db):
-        run_store.point_column_at_run(op_id, finding_col, run_id)
+        run_store.point_column_at_run(change_id, finding_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, finding_col, row_ids=[row_a, row_b])
 
     media_bytes = base64.b64decode(media_b64)
@@ -123,7 +123,7 @@ try:
         link_a = record_citation(
             project, subject_kind="cell_value", subject_ref=refs[row_a],
             sheet_id=sheet_id, row_id=row_a, column_id=finding_col,
-            run_id=run_id, op_id=op_id, receipt_id="receipt-a",
+            run_id=run_id, change_id=change_id, receipt_id="receipt-a",
             link_role="primary_support", confidence=0.9,
             producer={"action_kind": "map.extract", "grounding_method": "segment_indices"},
             spans=[
@@ -136,7 +136,7 @@ try:
         link_b = record_citation(
             project, subject_kind="cell_value", subject_ref=refs[row_b],
             sheet_id=sheet_id, row_id=row_b, column_id=finding_col,
-            run_id=run_id, op_id=op_id, receipt_id="receipt-b",
+            run_id=run_id, change_id=change_id, receipt_id="receipt-b",
             link_role="primary_support", confidence=0.9,
             producer={"action_kind": "map.extract", "grounding_method": "segment_indices"},
             spans=[

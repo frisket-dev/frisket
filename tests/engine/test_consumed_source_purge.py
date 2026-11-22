@@ -34,7 +34,7 @@ def test_purge_forgets_capture_but_retains_independent_output(make_project):
     bundle_id = store_capture(
         project,
         capture,
-        owner_op_id=owner,
+        owner_change_id=owner,
         output_sheet_id=output_sheet,
         run_id=run_id,
         row_id=output_row,

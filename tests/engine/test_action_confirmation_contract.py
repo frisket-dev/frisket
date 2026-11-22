@@ -133,7 +133,7 @@ def _counts(project: Project) -> dict[str, int]:
             "rows",
             "runs",
             "results",
-            "ops",
+            "changes",
             "receipts",
             "generated_column_claims",
             "blobs",

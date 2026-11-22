@@ -121,7 +121,7 @@ def prepared(project, text):
         op = project.append_change_in_transaction("prepare.test")
         return PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact["id"],
-            producing_op_id=op,
+            producing_change_id=op,
             pages=[PreparedPageDraft(1, text)],
         )
 
