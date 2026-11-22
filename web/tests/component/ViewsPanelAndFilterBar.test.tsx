@@ -284,6 +284,8 @@ describe('FriendlyFiltersPanel query controls in Filter sidebar', () => {
     const limitInput = screen.getByTestId('sheet-filter-limit');
     expect(searchInput).toBeVisible();
     expect(limitInput).toBeVisible();
+    expect(searchInput.closest('.friendly-query-row')).toBe(limitInput.closest('.friendly-query-row'));
+    expect(screen.queryByTestId('facets-blurb')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sheet-filter-sort')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sheet-filter-show-all')).not.toBeInTheDocument();
 
