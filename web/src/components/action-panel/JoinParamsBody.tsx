@@ -11,12 +11,17 @@ import { MultiColumnPicker } from '../MultiColumnPicker';
 import { ToggleRow } from '../PanelPrimitives';
 import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
 import { useEditorProblem } from './useEditorProblem';
+import { useRegisterRightSheetLookup } from './joinSheetLookupContext';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
 export const JoinParamsBody = sheetRequired(JoinParamsBodyForSheet);
 
 function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }: SheetBoundParamsBodyProps<'derive.join'>) {
   const { sheets, loading, error, refresh } = useJoinSheets(sheet);
+  useRegisterRightSheetLookup((name) => {
+    const found = sheets.find((item) => item.name === name);
+    return found ? Number(found.id) : null;
+  });
   const blocked = loading || Boolean(error);
   const left = sheets.find((item) => item.id === sheet.id) ?? sheet;
   const right = sheets.find((item) => Number(item.id) === params.right?.sheet_id);

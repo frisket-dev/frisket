@@ -46,7 +46,8 @@ function launch(actionKind: string, previews: unknown[]) {
     <WalkthroughContext.Provider value={{ active: false, canResume: false, guideSeen: true,
       introOpen: false, guideHintVisible: false, guideEmphasized: false,
       openWalkthroughChooser: vi.fn(), enterSampleProject: vi.fn(), dismissGuideHint: vi.fn(),
-      resumeWalkthrough: vi.fn(), startWalkthrough: vi.fn(), stopWalkthrough: vi.fn() }}>
+      resumeWalkthrough: vi.fn(), startWalkthrough: vi.fn(), stopWalkthrough: vi.fn(),
+      registerWalkthroughFiller: vi.fn(() => () => undefined) }}>
       <ProjectRoute projectId={project.id} actionKind={actionKind} />
     </WalkthroughContext.Provider>
   </EditionModuleProvider>);

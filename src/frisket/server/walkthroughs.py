@@ -12,13 +12,14 @@ class WalkthroughMetadata:
 
 
 WALKTHROUGHS: tuple[WalkthroughMetadata, ...] = (
-    WalkthroughMetadata("regex-extract", ("Regex", "Joins")),
-    WalkthroughMetadata("lawsuit-documents", ("PDFs", "AI extraction")),
+    WalkthroughMetadata("project-ask", ("Project Ask", "Citations")),
+    WalkthroughMetadata("lawsuit-documents", ("PDFs", "OCR", "Review")),
+    WalkthroughMetadata("civic-ai-triage", ("AI triage", "Views", "Judge")),
+    WalkthroughMetadata("combine-values", ("Data cleanup", "Clustering")),
     WalkthroughMetadata("council-audio", ("Audio", "Transcription")),
-    WalkthroughMetadata("civic-ai-triage", ("AI extraction",)),
-    WalkthroughMetadata("rss-import", ("RSS", "AI classification")),
-    WalkthroughMetadata("combine-values", ("Data cleanup",)),
-    WalkthroughMetadata("multilingual-names", ("Multilingual text", "Data cleanup")),
+    WalkthroughMetadata("rss-import", ("RSS", "Views", "Alerts")),
+    WalkthroughMetadata("multilingual-names", ("Translate", "Transliterate")),
+    WalkthroughMetadata("regex-extract", ("Regex", "Joins")),
     WalkthroughMetadata("local-model-lab", ("Local AI",)),
 )
 

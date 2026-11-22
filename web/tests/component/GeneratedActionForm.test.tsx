@@ -18,7 +18,11 @@ import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { resolveWalkthroughTarget } from '../../src/walkthrough/targets';
-import { LAWSUIT_DOCUMENT_WALKTHROUGH } from '../../src/walkthrough/walkthroughs';
+import { WalkthroughProvider } from '../../src/walkthrough/WalkthroughProvider';
+import { useWalkthrough } from '../../src/walkthrough/context';
+import { EditionModuleProvider } from '../../src/editions/module';
+import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
+import { LAWSUIT_DOCUMENT_WALKTHROUGH, REGEX_EXTRACT_WALKTHROUGH } from '../../src/walkthrough/walkthroughs';
 import type { SelectorChoicesState } from '../../src/engine-selector/useSelectorChoices';
 
 type SelectorFixtureChoice = {
@@ -510,11 +514,11 @@ describe('GeneratedActionForm', () => {
       />,
     );
 
-    const converterStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.find(
-      (step) => step.id === 'choose-converter',
+    const ocrEngineStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.find(
+      (step) => step.id === 'choose-ocr-engine',
     );
-    expect(converterStep).toBeDefined();
-    expect(resolveWalkthroughTarget(converterStep!.target)).toBe(
+    expect(ocrEngineStep).toBeDefined();
+    expect(resolveWalkthroughTarget(ocrEngineStep!.target)).toBe(
       screen.getByTestId('field-engine').parentElement,
     );
     act(() => selectorHarness.emitCurrent?.({
@@ -1778,6 +1782,60 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onRun).not.toHaveBeenCalled();
+  });
+
+  it('fills GeneratedActionForm React state via Walkthrough Fill for me without calling onExecute', async () => {
+    const onExecute = vi.fn();
+    const entry = generatedEntry('map.regex_extract');
+    const dispatchesSheet = sheetMeta([
+      columnDef({ id: '11', name: 'headline', type: 'text' }),
+      columnDef({ id: '12', name: 'story', type: 'text' }),
+    ], { id: '7', name: 'Dispatches', rowCount: 24 });
+
+    function StartRegexWalkthrough() {
+      const walkthrough = useWalkthrough();
+      return (
+        <button type="button" onClick={() => walkthrough.startWalkthrough(REGEX_EXTRACT_WALKTHROUGH.id)}>
+          Start regex guide
+        </button>
+      );
+    }
+
+    render(
+      <EditionModuleProvider edition={LOCAL_EDITION_MODULE}>
+        <WalkthroughProvider>
+          <StartRegexWalkthrough />
+          <GeneratedActionForm
+            catalogEntry={entry}
+            actionTemplate={generatedTemplate(entry)}
+            sheet={dispatchesSheet}
+            running={false}
+            resolveParams={vi.fn(async (): Promise<ActionParamResolution> => ({
+              diagnostics: {},
+              logical_outputs: [{ key: 'extracted', column_type: 'text' }],
+            }))}
+            onExecute={onExecute}
+            onClose={vi.fn()}
+          />
+        </WalkthroughProvider>
+      </EditionModuleProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start regex guide' }));
+    const configureIndex = REGEX_EXTRACT_WALKTHROUGH.steps.findIndex((step) => step.id === 'configure-regex');
+    for (let i = 0; i < configureIndex; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    }
+
+    const fillButton = await screen.findByTestId('walkthrough-fill-for-me');
+    fireEvent.click(fillButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('field-pattern')).toHaveValue('\\bCTR-\\d{4}-\\d{3}\\b');
+      expect(screen.getByTestId('field-output-extracted')).toHaveValue('contract_id');
+    });
+    expect(screen.getByRole('heading', { name: 'Run the extraction' })).toBeInTheDocument();
+    expect(onExecute).not.toHaveBeenCalled();
   });
 
 });

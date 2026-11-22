@@ -28,7 +28,9 @@ SAMPLE_DOCKET_SHEET_NAME = "Court docket"
 SAMPLE_FILINGS_SHEET_NAME = "Court filings"
 SAMPLE_COUNCIL_MEETINGS_SHEET_NAME = "Council meetings"
 SAMPLE_COUNCIL_AUDIO_SHEET_NAME = "Council audio"
-SAMPLE_MULTILINGUAL_SHEET_NAME = "Multilingual names"
+SAMPLE_FOREIGN_REGISTRY_SHEET_NAME = "Foreign registry"
+# Compatibility alias retained for existing callers and tests.
+SAMPLE_MULTILINGUAL_SHEET_NAME = SAMPLE_FOREIGN_REGISTRY_SHEET_NAME
 SAMPLE_AGENCY_PAYMENTS_SHEET_NAME = "Agency payments"
 SAMPLE_SMALL_MODEL_LAB_SHEET_NAME = "Small model lab"
 # Kept in the response for the existing HTTP contract. There is intentionally
@@ -51,66 +53,78 @@ def _owned_upload(
     )
 
 
-_MULTILINGUAL_NAMES: tuple[dict[str, str], ...] = (
+_FOREIGN_REGISTRY: tuple[dict[str, str], ...] = (
     {
-        "record_id": "NAME-001",
+        "record_id": "REG-001",
         "name_as_written": "Александр Петров",
         "source": "Bulgarian company register",
-        "record_note": "Director listed on the 2024 annual return",
+        "record_note": "Директор, указанный в годовом отчете за 2024 год по морским перевозкам.",
     },
     {
-        "record_id": "NAME-002",
-        "name_as_written": "Александр П. Петров",
-        "source": "Ukrainian court index",
-        "record_note": "Respondent named with a middle initial",
+        "record_id": "REG-002",
+        "name_as_written": "ALEKSANDR PETROV",
+        "source": "Customs export ledger",
+        "record_note": "Consignataire nommé dans le manifeste portuaire d'importation de janvier.",
     },
     {
-        "record_id": "NAME-003",
+        "record_id": "REG-003",
         "name_as_written": "ألكسندر بيتروف",
         "source": "Arabic-language shipping notice",
-        "record_note": "Consignee named in a translated port filing",
+        "record_note": "Representante legal del postor adjudicatario en el contrato de suministro.",
     },
     {
-        "record_id": "NAME-004",
-        "name_as_written": "Αλεξάντερ Πετρόφ",
-        "source": "Greek procurement notice",
-        "record_note": "Representative listed for the winning bidder",
-    },
-    {
-        "record_id": "NAME-005",
+        "record_id": "REG-004",
         "name_as_written": "アレクサンドル・ペトロフ",
         "source": "Japanese corporate directory",
-        "record_note": "Overseas officer rendered in katakana",
+        "record_note": "Bevollmächtigter Geschäftsführer im Handelsregister der Hafenholding.",
     },
     {
-        "record_id": "NAME-006",
-        "name_as_written": "Aleksandr Petrov",
-        "source": "English-language sanctions notice",
-        "record_note": "Alternate Latin transliteration",
+        "record_id": "REG-005",
+        "name_as_written": "Елена Морозова",
+        "source": "Russian property registry",
+        "record_note": "Бенефициарный владелец, зарегистрированный по договору аренды склада.",
     },
     {
-        "record_id": "NAME-007",
-        "name_as_written": "Alexander Petrov",
-        "source": "Riverton vendor disclosure",
-        "record_note": "Name supplied directly in English",
+        "record_id": "REG-006",
+        "name_as_written": "Έλενα Μορόζοβα",
+        "source": "Cyprus corporate filing",
+        "record_note": "Directrice financière nommée lors de l'assemblée générale annuelle.",
     },
     {
-        "record_id": "NAME-008",
-        "name_as_written": "ALEXANDER PETROV",
-        "source": "Customs spreadsheet",
-        "record_note": "Name exported in all caps",
+        "record_id": "REG-007",
+        "name_as_written": "エレナ・モロゾワ",
+        "source": "Tokyo branch disclosure",
+        "record_note": "Socia mayoritaria declarada en la auditoría fiscal del ejercicio 2025.",
     },
     {
-        "record_id": "NAME-009",
-        "name_as_written": "Alexánder Petróv",
+        "record_id": "REG-008",
+        "name_as_written": "Eléna Morózova",
         "source": "Spanish-language trade bulletin",
-        "record_note": "Editor-added diacritics in a profile",
+        "record_note": "Zeichnungsberechtigte Prokuristin laut aktuellem Bankauszug.",
     },
     {
-        "record_id": "NAME-010",
-        "name_as_written": "Alexander  Petrov",
-        "source": "Leaked address book",
-        "record_note": "Duplicate whitespace from OCR cleanup",
+        "record_id": "REG-009",
+        "name_as_written": "Харбор Маритайм Холдингс",
+        "source": "Black Sea freight manifest",
+        "record_note": "Оператор судна, зафрахтованного для доставки строительных материалов.",
+    },
+    {
+        "record_id": "REG-010",
+        "name_as_written": "Χάρμπορ Μάριταϊμ Χόλντινγκς",
+        "source": "Piraeus vessel registry",
+        "record_note": "Société mère mentionnée comme garant bancaire dans le dossier douanier.",
+    },
+    {
+        "record_id": "REG-011",
+        "name_as_written": "Harbor Maritime Holdings",
+        "source": "Riverton vendor disclosure",
+        "record_note": "Empresa propietaria del buque registrada bajo bandera de conveniencia.",
+    },
+    {
+        "record_id": "REG-012",
+        "name_as_written": "HARBOR MARITIME HOLDINGS",
+        "source": "Port insurance certificate",
+        "record_note": "Eigentümergesellschaft laut Hafenbehörde und Versicherungsnachweis.",
     },
 )
 
@@ -745,7 +759,8 @@ SAMPLE_DISPATCH_ROWS = len(_DISPATCHES)
 SAMPLE_CONTRACT_ROWS = len(_CONTRACTS)
 SAMPLE_LAWSUIT_ROWS = len(SAMPLE_LAWSUITS)
 SAMPLE_COUNCIL_AUDIO_ROWS = len(SAMPLE_COUNCIL_AUDIO)
-SAMPLE_MULTILINGUAL_ROWS = len(_MULTILINGUAL_NAMES)
+SAMPLE_FOREIGN_REGISTRY_ROWS = len(_FOREIGN_REGISTRY)
+SAMPLE_MULTILINGUAL_ROWS = SAMPLE_FOREIGN_REGISTRY_ROWS
 SAMPLE_AGENCY_PAYMENT_ROWS = len(_AGENCY_PAYMENTS)
 SAMPLE_LOCAL_MODEL_LAB_ROWS = len(LOCAL_MODEL_LAB_ROWS)
 # Compatibility name used by existing callers and tests.
@@ -859,11 +874,15 @@ def sample_council_meetings_csv() -> str:
     )
 
 
-def sample_multilingual_names_csv() -> str:
+def sample_foreign_registry_csv() -> str:
     return _csv(
-        _MULTILINGUAL_NAMES,
+        _FOREIGN_REGISTRY,
         ["record_id", "name_as_written", "source", "record_note"],
     )
+
+
+def sample_multilingual_names_csv() -> str:
+    return sample_foreign_registry_csv()
 
 
 def sample_agency_payments_csv() -> str:
@@ -1028,18 +1047,12 @@ class SampleProjectSeedService:
             content=sample_docket_csv(),
         )
         self._ensure_file_sheet(project_id)
-        self._ensure_sheet(
-            project_id,
-            name=SAMPLE_COUNCIL_MEETINGS_SHEET_NAME,
-            filename="ann_arbor_council_meetings.csv",
-            content=sample_council_meetings_csv(),
-        )
         self._ensure_audio_sheet(project_id)
         self._ensure_sheet(
             project_id,
-            name=SAMPLE_MULTILINGUAL_SHEET_NAME,
-            filename="multilingual_names.csv",
-            content=sample_multilingual_names_csv(),
+            name=SAMPLE_FOREIGN_REGISTRY_SHEET_NAME,
+            filename="foreign_registry.csv",
+            content=sample_foreign_registry_csv(),
         )
         self._ensure_sheet(
             project_id,

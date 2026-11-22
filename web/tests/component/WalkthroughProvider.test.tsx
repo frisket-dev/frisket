@@ -13,14 +13,16 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WalkthroughProvider } from '../../src/walkthrough/WalkthroughProvider';
-import { useWalkthrough } from '../../src/walkthrough/context';
+import { useWalkthrough, useWalkthroughFiller } from '../../src/walkthrough/context';
 import { resolveWalkthroughTarget } from '../../src/walkthrough/targets';
 import { walkthroughToMarkdown } from '../../src/walkthrough/guide';
 import {
   COMBINE_VALUES_WALKTHROUGH,
+  COUNCIL_AUDIO_WALKTHROUGH,
   LAWSUIT_DOCUMENT_WALKTHROUGH,
   LOCAL_MODEL_LAB_WALKTHROUGH,
   MULTILINGUAL_NAMES_WALKTHROUGH,
+  PROJECT_ASK_WALKTHROUGH,
   REGEX_EXTRACT_WALKTHROUGH,
   WALKTHROUGHS,
 } from '../../src/walkthrough/walkthroughs';
@@ -388,26 +390,32 @@ describe('Regex walkthrough', () => {
     expect(markdown).toContain('## 1. Open Dispatches');
     expect(markdown).toContain('## 3. Read the source stories');
     expect(markdown).toContain('## 4. Open Analyze');
-    expect(markdown).toContain('## 20. Inspect the contract trail');
+    expect(markdown).toContain(`## ${REGEX_EXTRACT_WALKTHROUGH.steps.length}. Inspect the contract trail`);
     expect(markdown).toContain('**Then:** Stories with a contract reference');
   });
 
-  it('teaches the model-free transliteration and reviewed-substitution boundary', () => {
+  it('teaches the foreign-registry Translate, Transliterate, and Cluster workflow', () => {
     const markdown = walkthroughToMarkdown(MULTILINGUAL_NAMES_WALKTHROUGH);
-    expect(markdown).toContain('# Standardize a multilingual name list');
-    expect(markdown).toContain('Transliteration changes scripts');
-    expect(markdown).toContain('Transliteration alone cannot safely make it for you');
-    expect(markdown).toContain('`Alexander Petrov`');
-    expect(markdown).toContain('latin_text_clean');
+    expect(markdown).toContain('# Standardize a foreign registry');
+    expect(markdown).toContain('Foreign registry');
+    expect(markdown).toContain('record_note_en');
+    expect(markdown).toContain('Transliteration changes scripts locally');
+    expect(markdown).toContain('entity_canonical');
   });
 
-  it('renders the Combine values workflow and its before-and-after counting payoff', () => {
+  it('renders the Cluster + Combine + Join agency cleanup workflow', () => {
     const markdown = walkthroughToMarkdown(COMBINE_VALUES_WALKTHROUGH);
-    expect(markdown).toContain('# Clean up a messy agency column');
+    expect(markdown).toContain('# Clean messy agencies & summarize spend');
     expect(markdown).toContain('12 exact values');
-    expect(markdown).toContain('Dotted leading or trailing regions');
+    expect(markdown).toContain('Cluster duplicate values');
     expect(markdown).toContain('Public Works Department 6');
     expect(markdown).toContain('agency_clean');
+  });
+
+  it('renders the Project Ask cross-sheet guide', () => {
+    const markdown = walkthroughToMarkdown(PROJECT_ASK_WALKTHROUGH);
+    expect(markdown).toContain('# Ask across your whole project');
+    expect(markdown).toContain('Which vendors appear in both emergency contracts and lawsuits');
   });
 
   it('renders local-model setup, easy-task, and capability-limit steps from one definition', () => {
@@ -423,7 +431,7 @@ describe('Regex walkthrough', () => {
     expect(markdown).toContain('larger local model, a cloud model, or a deterministic rule');
   });
 
-  it('explains the lawsuit case-number regex with code and an external learning link', () => {
+  it('explains the contract regex with code and an external learning link', () => {
     render(
       <WalkthroughProvider>
         <Launcher />
@@ -431,19 +439,19 @@ describe('Regex walkthrough', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    fireEvent.click(screen.getByTestId('walkthrough-choice-lawsuit-documents'));
-    const patternStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.findIndex(
-      (step) => step.id === 'enter-case-pattern',
+    fireEvent.click(screen.getByTestId('walkthrough-choice-regex-extract'));
+    const patternStep = REGEX_EXTRACT_WALKTHROUGH.steps.findIndex(
+      (step) => step.id === 'configure-regex',
     );
     for (let index = 0; index < patternStep; index += 1) {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     }
 
-    expect(screen.getByRole('heading', { name: 'Enter the case-number pattern' })).toBeVisible();
-    const code = screen.getByText('RV-CV-\\d{4}-\\d{5}');
+    expect(screen.getByRole('heading', { name: 'Configure the contract pattern' })).toBeVisible();
+    const code = screen.getByText('\\bCTR-\\d{4}-\\d{3}\\b');
     expect(code.tagName).toBe('CODE');
     expect(code.closest('p')).toHaveTextContent(
-      'This is a regular expression. It means RV-CV-(four digits)-(five digits).',
+      'This regular expression matches CTR-(four digits)-(three digits)',
     );
     const link = within(code.closest('p')!).getByRole('link', {
       name: 'Learn more about regular expressions',
@@ -451,6 +459,15 @@ describe('Regex walkthrough', () => {
     expect(link).toHaveAttribute('href', 'https://docs.python.org/3/howto/regex.html');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('distinguishes To Markdown from OCR and includes Review and Join expected answers in lawsuit-documents', () => {
+    const markdown = walkthroughToMarkdown(LAWSUIT_DOCUMENT_WALKTHROUGH);
+    expect(markdown).toContain('To Markdown');
+    expect(markdown).toContain('OCR');
+    expect(markdown).toContain('Review');
+    expect(markdown).toContain('Join expected answers');
+    expect(markdown).toContain('Court docket');
   });
 
   it('advances through the real tab and submenu clicks', async () => {
@@ -464,11 +481,12 @@ describe('Regex walkthrough', () => {
         <span data-testid="grid-column-story" data-walkthrough-grid-column="story" />
         <button type="button" data-testid="ribbon-tab-analyze">Analyze</button>
         <button type="button" data-testid="ribbon-action-map.regex_extract">Extract text with regex</button>
-        <button type="button" data-testid="field-input_columns">Story</button>
+        <input data-testid="field-pattern" />
       </WalkthroughProvider>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(screen.getByTestId('walkthrough-choice-project-ask')).toBeInTheDocument();
     expect(screen.getByTestId('walkthrough-choice-lawsuit-documents')).toBeInTheDocument();
     expect(screen.getByTestId('walkthrough-choice-council-audio')).toBeInTheDocument();
     expect(screen.getByTestId('walkthrough-choice-civic-ai-triage')).toBeInTheDocument();
@@ -516,10 +534,10 @@ describe('Regex walkthrough', () => {
 
     fireEvent.click(screen.getByTestId('ribbon-action-map.regex_extract'));
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Choose the source text' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Configure the contract pattern' })).toBeInTheDocument();
       expect(screen.getByTestId('walkthrough-target-box')).toHaveAttribute(
         'data-target-testid',
-        'field-input_columns',
+        'field-pattern',
       );
     });
   });
@@ -735,12 +753,107 @@ describe('Regex walkthrough', () => {
     fireEvent.click(screen.getByTestId('walkthrough-choice-regex-extract'));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByText('3 of 20')).toBeInTheDocument();
+    expect(screen.getByText(`3 of ${REGEX_EXTRACT_WALKTHROUGH.steps.length}`)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     fireEvent.click(screen.getByTestId('walkthrough-choice-council-audio'));
     expect(screen.getByRole('heading', { name: 'Open the meeting audio' })).toBeInTheDocument();
-    expect(screen.getByText('1 of 21')).toBeInTheDocument();
+    expect(screen.getByText(`1 of ${COUNCIL_AUDIO_WALKTHROUGH.steps.length}`)).toBeInTheDocument();
+  });
+
+  it('populates registered form state via Fill for me without running and advances to the Run step', async () => {
+    const onRun = vi.fn();
+    function MockRegexForm({ open }: { open: boolean }) {
+      const [pattern, setPattern] = useState('');
+      const [outputName, setOutputName] = useState('extracted');
+      useWalkthroughFiller(open ? 'action-form:map.regex_extract' : null, (spec) => {
+        if (spec.kind !== 'action-form' || spec.actionKind !== 'map.regex_extract') return false;
+        if (typeof spec.values.pattern === 'string') setPattern(spec.values.pattern);
+        if (spec.outputNames?.extracted) setOutputName(spec.outputNames.extracted);
+        return true;
+      });
+      if (!open) return null;
+      return (
+        <div>
+          <input data-testid="field-pattern" value={pattern} onChange={(e) => setPattern(e.target.value)} />
+          <input data-testid="field-output-extracted" value={outputName} onChange={(e) => setOutputName(e.target.value)} />
+          <button type="button" data-testid="generated-action-run" onClick={onRun}>Run</button>
+        </div>
+      );
+    }
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <WalkthroughProvider>
+          <Launcher />
+          <button type="button" data-testid="toggle-form" onClick={() => setOpen((v) => !v)}>Toggle</button>
+          <MockRegexForm open={open} />
+        </WalkthroughProvider>
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByTestId('walkthrough-choice-regex-extract'));
+    const fillStepIndex = REGEX_EXTRACT_WALKTHROUGH.steps.findIndex((s) => s.id === 'configure-regex');
+    for (let i = 0; i < fillStepIndex; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    }
+    expect(screen.getByRole('heading', { name: 'Configure the contract pattern' })).toBeInTheDocument();
+    // Form is not mounted yet, so Fill for me is not rendered.
+    expect(screen.queryByTestId('walkthrough-fill-for-me')).not.toBeInTheDocument();
+
+    // Mounting the matching form immediately surfaces Fill for me.
+    fireEvent.click(screen.getByTestId('toggle-form'));
+    const fillButton = await screen.findByTestId('walkthrough-fill-for-me');
+    expect(fillButton).toHaveTextContent('Fill for me');
+
+    fireEvent.click(fillButton);
+    expect(screen.getByTestId('field-pattern')).toHaveValue('\\bCTR-\\d{4}-\\d{3}\\b');
+    expect(screen.getByTestId('field-output-extracted')).toHaveValue('contract_id');
+    expect(onRun).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Run the extraction' })).toBeInTheDocument();
+  });
+
+  it('re-portals the walkthrough overlay into a newly opened Review dialog:modal via MutationObserver', async () => {
+    // Polyfill :modal matching for jsdom so topLayerPortalRoot detects open dialogs.
+    const originalQuerySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, 'querySelectorAll').mockImplementation(((selector: string) => {
+      if (selector === 'dialog:modal') {
+        return originalQuerySelectorAll('dialog[open]');
+      }
+      return originalQuerySelectorAll(selector);
+    }) as typeof document.querySelectorAll);
+
+    function ModalHarness() {
+      const [modalOpen, setModalOpen] = useState(false);
+      return (
+        <WalkthroughProvider>
+          <Launcher />
+          <button type="button" data-testid="open-review" onClick={() => setModalOpen(true)}>Open Review</button>
+          {modalOpen && (
+            <dialog open data-testid="review-queue">
+              <div data-testid="review-output-panel">Review fields</div>
+            </dialog>
+          )}
+        </WalkthroughProvider>
+      );
+    }
+
+    render(<ModalHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByTestId('walkthrough-choice-lawsuit-documents'));
+
+    // Initially portaled into document.body.
+    expect(screen.getByTestId('walkthrough-card').parentElement).toBe(document.body);
+
+    // Opening the Review <dialog open> triggers the MutationObserver and re-portals into the dialog.
+    fireEvent.click(screen.getByTestId('open-review'));
+    await waitFor(() => {
+      const reviewDialog = screen.getByTestId('review-queue');
+      expect(reviewDialog.contains(screen.getByTestId('walkthrough-card'))).toBe(true);
+    });
   });
 });
 

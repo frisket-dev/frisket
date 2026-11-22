@@ -17,6 +17,7 @@ import { FeedConfigFields } from '../feeds/FeedConfigFields';
 import { buildFeedInput, emptyFeedDefinition, INTERVALS, FEED_KINDS,
   selectedKind, feedDefinitionError, feedKindLabel, type KnownFeedKind } from '../feeds/feedConfig';
 import { errorMessage } from '../../hooks/errorMessage';
+import { useWalkthroughFiller } from '../../walkthrough/context';
 
 function telemetrySourceKind(kind: KnownFeedKind): SourceKind {
   if (kind === 'tiktok_profile') return 'other';
@@ -125,6 +126,17 @@ export function FeedImportForm({
     ...(patch.url !== undefined || patch.kind !== undefined || patch.apiListPath !== undefined ? { error: null } : {}),
   }));
   const kindTouchedRef = useRef(false);
+  useWalkthroughFiller('feed-import', (spec) => {
+    if (spec.kind !== 'feed-import') return false;
+    const resolvedKind = (spec.feedKind as KnownFeedKind | undefined) ?? detectFeedKind(spec.url);
+    kindTouchedRef.current = Boolean(spec.feedKind);
+    updateForm({
+      url: spec.url,
+      kind: resolvedKind,
+      name: spec.name ?? '',
+    });
+    return true;
+  });
   // A successful
   // create does NOT close the workspace — it swaps to a "Populate feed?"
   // prompt offering the same run this source's Sources-panel row would (Poll

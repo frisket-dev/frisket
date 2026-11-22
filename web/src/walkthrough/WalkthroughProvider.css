@@ -65,10 +65,17 @@
 .walkthrough-unavailable { color: var(--amber); }
 .walkthrough-card-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   margin-top: 13px;
+}
+.walkthrough-card-actions-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 .walkthrough-click-hint { color: var(--text-light); font-size: 11.5px; }
 .walkthrough-close { margin: -5px -5px 0 0; }

@@ -15,14 +15,20 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { topLayerPortalRoot } from '../topLayerPortal';
-import { WalkthroughContext, type WalkthroughContextValue } from './context';
+import {
+  WalkthroughContext,
+  type WalkthroughContextValue,
+  type WalkthroughFillerFn,
+} from './context';
 import { resolveWalkthroughTarget } from './targets';
 import { sendProductTelemetry, setTelemetryWalkthrough, telemetryWalkthrough } from '../telemetry/productTelemetry';
 import { useTelemetryDisclosureReady } from '../telemetry/disclosureReady';
 import { useEditionModule } from '../editions/module';
 import styles from './WalkthroughProvider.module.css';
 import {
+  walkthroughFillerKey,
   type WalkthroughDefinition,
+  type WalkthroughFillSpec,
   type WalkthroughInstruction,
 } from './walkthroughs';
 
@@ -59,7 +65,7 @@ function revealWalkthroughTarget(target: HTMLElement): void {
     '.action-panel.action-drawer-form-host',
   );
   if (!drawer || !scrollHost) {
-    target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     return;
   }
 
@@ -74,7 +80,7 @@ function revealWalkthroughTarget(target: HTMLElement): void {
   const visibleTop = Math.max(hostRect.top, headerBottom);
   const visibleBottom = Math.min(hostRect.bottom, footerTop);
   if (targetRect.top < visibleTop || targetRect.bottom > visibleBottom) {
-    target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    target.scrollIntoView?.({ block: 'center', inline: 'nearest' });
   }
 }
 
@@ -179,19 +185,50 @@ function targetBoxFor(target: HTMLElement): TargetBox {
   };
 }
 
+/** Stay portaled inside the active `<dialog:modal>` when Review or another modal opens/closes. */
+function useTopLayerPortalRoot(): Element {
+  const [portalRoot, setPortalRoot] = useState<Element>(() => topLayerPortalRoot());
+
+  useEffect(() => {
+    const sync = () => {
+      const next = topLayerPortalRoot();
+      setPortalRoot((current) => (current === next ? current : next));
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['open'],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  return portalRoot;
+}
+
 function WalkthroughHost({
   walkthrough,
   stepIndex,
   onStepIndexChange,
   onPause,
   onFinish,
+  hasFiller,
+  applyFill,
+  subscribeFillers,
 }: {
   walkthrough: WalkthroughDefinition;
   stepIndex: number;
   onStepIndexChange(stepIndex: number): void;
   onPause(): void;
   onFinish(): void;
+  hasFiller(spec: WalkthroughFillSpec): boolean;
+  applyFill(spec: WalkthroughFillSpec): boolean;
+  subscribeFillers(listener: () => void): () => void;
 }) {
+  const portalRoot = useTopLayerPortalRoot();
+  const [fillerVersion, setFillerVersion] = useState(0);
   const [target, setTarget] = useState<HTMLElement | null>(null);
   const [targetBox, setTargetBox] = useState<TargetBox | null>(null);
   const [position, setPosition] = useState<CardPosition>(() => cardPositionFor(null));
@@ -209,6 +246,12 @@ function WalkthroughHost({
   } | null>(null);
   const step = walkthrough.steps[stepIndex];
   const isFinal = stepIndex === walkthrough.steps.length - 1;
+
+  useEffect(() => subscribeFillers(() => {
+    setFillerVersion((version) => version + 1);
+  }), [subscribeFillers]);
+
+  const canFill = step.fill !== undefined && fillerVersion >= 0 && hasFiller(step.fill);
 
   useNativePopover(cardRef, onPause, { escape: false, outside: false });
 
@@ -286,8 +329,8 @@ function WalkthroughHost({
   }, [target]);
 
   // A modal dialog opened by the highlighted control enters the browser's top
-  // layer after this card. Re-show the manual popover when a step/target changes
-  // so the instruction card remains the newest (topmost) top-layer element.
+  // layer after this card. Re-show the manual popover when a step/target/portal
+  // root changes so the instruction card remains the newest (topmost) element.
   useLayoutEffect(() => {
     const card = cardRef.current;
     if (!card || typeof card.showPopover !== 'function') return;
@@ -297,7 +340,7 @@ function WalkthroughHost({
     } catch {
       // The z-index fallback remains usable in browsers without Popover API.
     }
-  }, [stepIndex, target]);
+  }, [stepIndex, target, portalRoot]);
 
   useEffect(() => {
     if (!target || step.advance !== 'click-target') return undefined;
@@ -428,13 +471,26 @@ function WalkthroughHost({
           {step.advance === 'click-target' && (
             <span className="walkthrough-click-hint">Click the highlighted control</span>
           )}
-          <Button type="button" className="btn-primary" onClick={advance}>
-            {isFinal ? 'Finish' : 'Next'}
-          </Button>
+          <div className="walkthrough-card-actions-end">
+            {canFill && step.fill && (
+              <Button
+                type="button"
+                data-testid="walkthrough-fill-for-me"
+                onClick={() => {
+                  if (step.fill && applyFill(step.fill)) advance();
+                }}
+              >
+                {step.fill.label ?? 'Fill for me'}
+              </Button>
+            )}
+            <Button type="button" className="btn-primary" onClick={advance}>
+              {isFinal ? 'Finish' : 'Next'}
+            </Button>
+          </div>
         </div>
       </aside>
     </>,
-    topLayerPortalRoot(),
+    portalRoot,
   );
 }
 
@@ -511,6 +567,7 @@ function WalkthroughChooser({
   onStart(id: string): void;
   onClose(): void;
 }) {
+  const portalRoot = useTopLayerPortalRoot();
   const chooserRef = useRef<HTMLElement>(null);
   useNativePopover(chooserRef, onClose, { escape: false, outside: false });
 
@@ -551,7 +608,7 @@ function WalkthroughChooser({
         autoFocus
       />
     </aside>,
-    topLayerPortalRoot(),
+    portalRoot,
   );
 }
 
@@ -784,6 +841,34 @@ export function WalkthroughProvider({
   const [guideHintVisible, setGuideHintVisible] = useState(false);
   const nextRunId = useRef(1);
   const restoredProjectId = useRef(projectId);
+  const fillersRef = useRef<Map<string, WalkthroughFillerFn>>(new Map());
+  const fillerListenersRef = useRef<Set<() => void>>(new Set());
+  const notifyFillerListeners = useCallback(() => {
+    fillerListenersRef.current.forEach((listener) => listener());
+  }, []);
+  const registerWalkthroughFiller = useCallback((id: string, filler: WalkthroughFillerFn) => {
+    fillersRef.current.set(id, filler);
+    notifyFillerListeners();
+    return () => {
+      if (fillersRef.current.get(id) === filler) {
+        fillersRef.current.delete(id);
+        notifyFillerListeners();
+      }
+    };
+  }, [notifyFillerListeners]);
+  const hasFiller = useCallback((spec: WalkthroughFillSpec) => (
+    fillersRef.current.has(walkthroughFillerKey(spec))
+  ), []);
+  const applyFill = useCallback((spec: WalkthroughFillSpec) => {
+    const filler = fillersRef.current.get(walkthroughFillerKey(spec));
+    return filler ? filler(spec) : false;
+  }, []);
+  const subscribeFillers = useCallback((listener: () => void) => {
+    fillerListenersRef.current.add(listener);
+    return () => {
+      fillerListenersRef.current.delete(listener);
+    };
+  }, []);
   const visibleRun = run
     && (!run.projectId || run.projectId === projectId)
     && walkthroughs.some(
@@ -918,6 +1003,7 @@ export function WalkthroughProvider({
     resumeWalkthrough,
     startWalkthrough,
     stopWalkthrough,
+    registerWalkthroughFiller,
   }), [
     chooserOpen,
     dismissGuideHint,
@@ -930,6 +1016,7 @@ export function WalkthroughProvider({
     visibleRun,
     startWalkthrough,
     stopWalkthrough,
+    registerWalkthroughFiller,
     walkthroughVisible,
     sampleProjectActive,
   ]);
@@ -970,6 +1057,9 @@ export function WalkthroughProvider({
             } }, projectId);
             stopWalkthrough();
           }}
+          hasFiller={hasFiller}
+          applyFill={applyFill}
+          subscribeFillers={subscribeFillers}
         />
       )}
     </WalkthroughContext.Provider>

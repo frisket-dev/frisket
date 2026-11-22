@@ -52,6 +52,11 @@ import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
 import { errorMessage } from '../../hooks/errorMessage';
+import { useWalkthroughFiller } from '../../walkthrough/context';
+import {
+  JoinRightSheetLookupContext,
+  type RightSheetLookup,
+} from './joinSheetLookupContext';
 import { useJoinColumnPins } from './useJoinSheets';
 
 interface RichSourceEditorState {
@@ -1391,6 +1396,11 @@ function GeneratedActionFormContents({
     )}
   </>;
 
+  const rightSheetLookupRef = useRef<RightSheetLookup | null>(null);
+  const registerRightSheetLookup = useCallback((lookup: RightSheetLookup | null) => {
+    rightSheetLookupRef.current = lookup;
+  }, []);
+
   const prefixConfig = customization?.outputPrefix;
   const prefixOutput = outputs.find(({ key }) => key === prefixConfig?.keys?.[0]);
   const prefixLabel = typeof prefixConfig?.label === 'function'
@@ -1408,6 +1418,57 @@ function GeneratedActionFormContents({
           ),
     ])));
   };
+
+  useWalkthroughFiller(paramsOnly ? null : `action-form:${catalogEntry.kind}`, (spec) => {
+    if (spec.kind !== 'action-form' || spec.actionKind !== catalogEntry.kind) return false;
+    const updates: Record<string, CanonicalFieldValue> = {};
+    for (const [name, value] of Object.entries(spec.values)) {
+      updates[name] = value as CanonicalFieldValue;
+    }
+    if (spec.rightSheetName) {
+      const rightSheetId = rightSheetLookupRef.current?.(spec.rightSheetName);
+      if (rightSheetId !== null && rightSheetId !== undefined) {
+        updates.right = { sheet_id: rightSheetId };
+      }
+    }
+    const updatedKeys = Object.keys(updates);
+    if (updatedKeys.length > 0) {
+      updatedKeys.forEach(markFieldTouched);
+      setParamsEdited(true);
+      writeFields(updates);
+      setRichSourceEditors((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const [name, value] of Object.entries(updates)) {
+          const control = catalogEntry.ui_hints.semantic_controls[name];
+          if (control !== 'rich_source' && control !== 'column_or_template') continue;
+          const singleColumn = control === 'column_or_template';
+          next[name] = {
+            mode: singleColumn && typeof value === 'string'
+              ? 'column'
+              : Array.isArray(value) ? 'columns' : 'template',
+            columns: Array.isArray(value)
+              ? value.filter((item): item is string => typeof item === 'string')
+              : singleColumn && typeof value === 'string' ? [value] : [],
+            template: templateText(value),
+          };
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    }
+    if (spec.outputPrefix !== undefined && prefixConfig) {
+      updateOutputPrefix(spec.outputPrefix);
+    }
+    if (spec.outputNames && Object.keys(spec.outputNames).length > 0) {
+      markOutputNamesEdited(Object.keys(spec.outputNames));
+      setOutputNames((current) => ({ ...current, ...spec.outputNames }));
+    }
+    if (spec.sheetName !== undefined) {
+      setSheetName(spec.sheetName);
+    }
+    return true;
+  });
 
   return (
     <form className="action-form generated-action-form" data-testid="generated-action-form"
@@ -1435,6 +1496,7 @@ function GeneratedActionFormContents({
 
       {ParamsBody ? (
         <fieldset disabled={running} className="resolve-drawer-body-fields">
+          <JoinRightSheetLookupContext.Provider value={registerRightSheetLookup}>
           <GeneratedFieldContext.Provider value={{ actionTemplate, draft: displayDraft, columns,
             diagnostics: displayedDiagnostics, renderField, onFieldChange: updateField,
             lockedParams, lockReason }}>
@@ -1447,6 +1509,7 @@ function GeneratedActionFormContents({
               sampleColumnValues={sampleColumnValues} structureLocked={structureLocked}
               lockReason={lockReason} />
           </GeneratedFieldContext.Provider>
+          </JoinRightSheetLookupContext.Provider>
         </fieldset>
       ) : (
         <GenericSchemaRenderer
