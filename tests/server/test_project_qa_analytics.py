@@ -1,21 +1,55 @@
-"""Scoped SQL analytics for Project Ask."""
+"""Project Ask scoped SQL analytics, composed flow, tracing, and failure attribution tests."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import asyncio
+import json
 import threading
+import time
+from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from helpers import make_client
+from opentelemetry import trace
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import (
+    BatchSpanProcessor,
+    SpanExporter,
+    SpanExportResult,
+)
+from opentelemetry.trace import StatusCode
+from pydantic_ai import Agent
+from pydantic_ai.models.instrumented import InstrumentationSettings
+from pydantic_ai.models.test import TestModel
 
 import frisket.querysets as querysets
-from frisket.server.services import project_qa_analytics, project_qa_query
+from frisket.ai.llm import LLMError, ModelRouter
+from frisket.ai.llm.types import LLMResponse
+from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
+from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.server.services import project_qa as project_qa_service
+from frisket.server.services import (
+    project_qa_analytics,
+    project_qa_query,
+    project_qa_tracing,
+)
+from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.project_qa_query import (
-    AnalyticsRequest,
     AnalyticsCancelled,
+    AnalyticsRequest,
     NumericOverflowError,
     evaluate_analytics,
     evaluate_query,
 )
+from frisket.server.services.project_qa_runner import run_turn
+from frisket.server.services.project_qa_tools import ProjectQATools
+from frisket.server.services.project_qa_tracing import ProjectQATracing
+from frisket.server.workspace import Workspace
+from tests.execution_composition_helpers import RecordingPurchasePolicy
+
+# --- analytics ---
 
 
 def _seed(make_project):
@@ -888,3 +922,709 @@ def test_group_drilldown_retains_filter_on_same_date_column(make_project):
     )
     assert replayed["total"] == january["metrics"]["rows"] == 2
     assert set(replayed["row_ids"]) == set(rows[1:3])
+
+
+# --- composed ---
+
+
+def test_ask_calculation_opens_exact_underlying_records(tmp_path, monkeypatch):
+    class Provider:
+        calls = 0
+
+        async def complete(self, request, client):
+            self.calls += 1
+            observations = [
+                json.loads(m["content"])
+                for m in request.messages
+                if m.get("role") == "tool"
+            ]
+            if self.calls == 1:
+                name, args = (
+                    "analytics",
+                    {
+                        "request": {
+                            "sheet_id": 1,
+                            "filter": {"status": {"eq": "awarded"}},
+                            "groups": [{"column_id": 1}],
+                            "metrics": [
+                                {"id": "total", "kind": "sum", "column_id": 3},
+                                {"id": "middle", "kind": "median", "column_id": 3},
+                            ],
+                            "sort": [
+                                {
+                                    "kind": "metric",
+                                    "metric_id": "total",
+                                    "direction": "desc",
+                                }
+                            ],
+                        }
+                    },
+                )
+            elif self.calls == 2:
+                [group] = observations[-1]["groups"]
+                assert group["metrics"] == {"total": 4, "middle": 2.0}
+                assert group["row_count"] == 2
+                name, args = "open_source", {"citation_id": group["citation_id"]}
+            else:
+                assert observations[-1]["row_ids"] == [1, 2]
+                name = next(
+                    t["name"]
+                    for t in request.tools
+                    if {"text", "citation_ids"}
+                    <= set(t["parameters"].get("properties", {}))
+                )
+                args = {
+                    "text": "Awarded contracts total 4; their median is 2.",
+                    "citation_ids": [observations[-1]["citation_id"]],
+                }
+            return LLMResponse(
+                content=None,
+                data=None,
+                tokens_in=10,
+                tokens_out=5,
+                cost=0.01,
+                model=request.model,
+                tool_calls=[{"name": name, "args": args, "id": f"call-{self.calls}"}],
+            )
+
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
+    )
+    provider = Provider()
+    router._adapters["anthropic"] = provider
+    monkeypatch.setattr(Workspace, "router_for", lambda self, project: router)
+    with make_client(tmp_path) as client:
+        pid = client.post("/api/projects", json={"name": "Contracts"}).json()["id"]
+        project = client.app.state.workspace.get(pid)
+        sheet = project.add_sheet("Contracts")
+        columns = {
+            name: project.add_column(sheet, name, type=kind)
+            for name, kind in [
+                ("supplier", "text"),
+                ("status", "text"),
+                ("amount", "number"),
+            ]
+        }
+        project.add_rows(
+            sheet,
+            [
+                {"supplier": "A", "status": "awarded", "amount": 1},
+                {"supplier": "A", "status": "awarded", "amount": 3},
+                {"supplier": "A", "status": "draft", "amount": 1000},
+            ],
+            columns,
+        )
+        path = f"/api/projects/{pid}/qa/threads"
+        thread = client.post(path, json={"scope": {"kind": "project"}}).json()
+        path += "/" + thread["id"]
+        submitted = client.post(
+            path + "/turns",
+            json={
+                "request_id": "one",
+                "question": "Total and median of awarded contracts by supplier?",
+                "scope": {"kind": "project"},
+                "model": "anthropic/test",
+            },
+        )
+        assert submitted.status_code == 200, submitted.text
+        deadline = time.monotonic() + 5  # realtime: bound real background turn
+        while True:
+            page = client.get(path + "/events").json()
+            if page["active_turn"] is None:
+                break
+            assert time.monotonic() < deadline, page  # realtime: detect stalled turn
+            time.sleep(0.01)  # realtime: yield while real worker threads finish
+        answer = next(e for e in page["events"] if e["kind"] == "answer")
+        citation = client.get(
+            path + "/citations/" + answer["payload"]["citation_ids"][0]
+        ).json()
+        assert citation["status"] == "current"
+        target = citation["target"]
+        assert target["total"] == 2
+        grid = client.get(
+            f"/api/projects/{pid}/sheets/{sheet}/data",
+            params={
+                "filter": json.dumps(target["filter"]),
+                "limit": 1,
+            },
+        )
+        assert grid.status_code == 200, grid.text
+        assert grid.json()["total"] == 2
+        assert provider.calls == 3
+        assert len([e for e in page["events"] if e["kind"] == "usage"]) == 3
+        assert (
+            "Awarded contracts total 4"
+            in client.get(path + "/report").json()["markdown"]
+        )
+
+
+# --- tracing ---
+
+
+class _CaptureExporter(SpanExporter):
+    def __init__(
+        self, *, result: SpanExportResult = SpanExportResult.SUCCESS, **kwargs
+    ):
+        self.kwargs = kwargs
+        self.result = result
+        self.spans: list[ReadableSpan] = []
+        self.shutdown_calls = 0
+
+    def export(self, spans):
+        self.spans.extend(spans)
+        return self.result
+
+    def shutdown(self):
+        self.shutdown_calls += 1
+
+
+def test_standard_otlp_environment_builds_private_http_provider(monkeypatch):
+    exporters: list[_CaptureExporter] = []
+
+    def exporter(**kwargs):
+        created = _CaptureExporter(**kwargs)
+        exporters.append(created)
+        return created
+
+    global_provider = trace.get_tracer_provider()
+    monkeypatch.setattr(project_qa_tracing, "OTLPSpanExporter", exporter)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel/")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "Authorization=Bearer%20not-a-real-key,x-bt-parent=project_name%3AReporting",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    monkeypatch.setenv("FRISKET_ASK_TRACE_CONTENT", "true")
+
+    tracing = project_qa_tracing.build_project_qa_tracing()
+    assert tracing is not None
+    assert trace.get_tracer_provider() is global_provider
+    assert tracing.instrumentation.include_content is True
+    assert tracing.instrumentation.include_binary_content is False
+    assert exporters[0].kwargs == {
+        "endpoint": "https://api.example/otel/v1/traces",
+        "headers": {
+            "authorization": "Bearer not-a-real-key",
+            "x-bt-parent": "project_name:Reporting",
+        },
+    }
+    tracing.shutdown()
+    assert exporters[0].shutdown_calls == 1
+
+
+def test_trace_specific_otlp_values_take_precedence(monkeypatch):
+    exporters: list[_CaptureExporter] = []
+
+    def exporter(**kwargs):
+        created = _CaptureExporter(**kwargs)
+        exporters.append(created)
+        return created
+
+    monkeypatch.setattr(project_qa_tracing, "OTLPSpanExporter", exporter)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://generic.example/otel")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "https://traces.example/custom",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "generic=value")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "traces=value")
+
+    tracing = project_qa_tracing.build_project_qa_tracing()
+    assert tracing is not None
+    assert exporters[0].kwargs == {
+        "endpoint": "https://traces.example/custom",
+        "headers": {"traces": "value"},
+    }
+    tracing.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OTEL_SDK_DISABLED", "true"),
+        ("OTEL_TRACES_EXPORTER", "none"),
+    ],
+)
+def test_standard_otlp_opt_outs_disable_ask_tracing(monkeypatch, name, value):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
+    monkeypatch.setenv(name, value)
+    assert project_qa_tracing.build_project_qa_tracing() is None
+
+
+def test_unsupported_protocol_disables_only_tracing(monkeypatch, caplog):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+    assert project_qa_tracing.build_project_qa_tracing() is None
+    assert "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL" in caplog.text
+    assert "grpc" not in caplog.text
+
+
+def test_malformed_headers_do_not_reach_errors_or_logs(monkeypatch, caplog):
+    secret = "not-a-real-secret-value"
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", f"Authorization {secret}")
+    assert project_qa_tracing.build_project_qa_tracing() is None
+    assert "OTEL_EXPORTER_OTLP_HEADERS" in caplog.text
+    assert secret not in caplog.text
+
+
+def test_actual_http_export_honors_content_opt_in(monkeypatch):
+    received: list[tuple[str, dict[str, str], bytes]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers["Content-Length"])
+            received.append(
+                (
+                    self.path,
+                    {name.lower(): value for name, value in self.headers.items()},
+                    self.rfile.read(length),
+                )
+            )
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    # realtime: receive actual OTLP HTTP requests; shutdown joins before assertions.
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        host, port = server.server_address
+        monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", f"http://{host}:{port}")
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer%20local-test"
+        )
+        monkeypatch.setenv("FRISKET_ASK_TRACE_CONTENT", "true")
+
+        tracing = project_qa_tracing.build_project_qa_tracing()
+        assert tracing is not None
+        agent = Agent(
+            TestModel(custom_output_text="private-content-answer-sentinel"),
+            name="project_ask",
+        )
+        agent.instrument = tracing.instrumentation
+        agent.run_sync("private-content-question-sentinel")
+        tracing.shutdown()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    assert received
+    for path, headers, _ in received:
+        assert path == "/v1/traces"
+        assert headers["authorization"] == "Bearer local-test"
+        assert headers["content-type"] == "application/x-protobuf"
+    body = b"".join(body for _, _, body in received)
+    assert b"private-content-question-sentinel" in body
+    assert b"private-content-answer-sentinel" in body
+
+
+def test_ask_only_metadata_spans_survive_export_failure_and_shutdown_once(
+    tmp_path, monkeypatch
+):
+    async def scenario():
+        exporter = _CaptureExporter(result=SpanExportResult.FAILURE)
+        provider = TracerProvider(shutdown_on_exit=False)
+        provider.add_span_processor(
+            BatchSpanProcessor(exporter, schedule_delay_millis=1)
+        )
+        tracing = ProjectQATracing(
+            instrumentation=InstrumentationSettings(
+                tracer_provider=provider,
+                include_content=False,
+                include_binary_content=False,
+            ),
+            provider=provider,
+        )
+        monkeypatch.setattr(
+            project_qa_service, "build_project_qa_tracing", lambda: tracing
+        )
+        global_provider = trace.get_tracer_provider()
+
+        question = "private-question-sentinel"
+        answer = "private-answer-sentinel"
+        sheet_name = "private-sheet-sentinel"
+
+        class Adapter:
+            calls = 0
+
+            async def complete(self, request, client):
+                self.calls += 1
+                if self.calls == 1:
+                    name = "inspect_sheets"
+                    args = {}
+                    call_id = "inspect"
+                else:
+                    name = "final_result"
+                    args = {"text": answer, "citation_ids": []}
+                    call_id = "answer"
+                return LLMResponse(
+                    content=None,
+                    data=None,
+                    model=request.model,
+                    tokens_in=2,
+                    tokens_out=3,
+                    cost=0.02,
+                    tool_calls=[
+                        {
+                            "name": name,
+                            "id": call_id,
+                            "args": args,
+                        }
+                    ],
+                )
+
+        router = ModelRouter(
+            model_call_policy=RecordingPurchasePolicy(),
+            keys={"anthropic": "test"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        router._adapters["anthropic"] = Adapter()
+        workspace = Workspace(tmp_path / "ws", router=router)
+        pid = workspace.create("Ask")["id"]
+        workspace.get(pid).add_sheet(sheet_name)
+        service = ProjectQAService(workspace)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        await service.submit(
+            pid,
+            thread["id"],
+            AskTurnRequest(
+                request_id="trace-once",
+                question=question,
+                scope={"kind": "project"},
+                model="anthropic/test",
+            ),
+        )
+        await asyncio.gather(*list(service._tasks.values()))
+        detail = await service.detail(pid, thread["id"])
+        assert detail["history"]["events"][-1]["payload"]["status"] == "completed"
+
+        await Agent(TestModel(custom_output_text="untraced sibling")).run(
+            "sibling-agent-sentinel"
+        )
+        await asyncio.gather(service.shutdown(), service.shutdown())
+
+        assert trace.get_tracer_provider() is global_provider
+        assert exporter.shutdown_calls == 1
+        assert exporter.spans
+        trace_text = repr(
+            [
+                (span.name, span.attributes, span.events, span.status.description)
+                for span in exporter.spans
+            ]
+        )
+        assert "project_ask" in trace_text
+        assert "inspect_sheets" in trace_text
+        assert question not in trace_text
+        assert answer not in trace_text
+        assert sheet_name not in trace_text
+        assert "sibling-agent-sentinel" not in trace_text
+        assert "untraced sibling" not in trace_text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("include_content", [False, True], ids=["metadata", "content"])
+def test_ask_tool_exception_details_follow_content_setting(
+    tmp_path, monkeypatch, include_content
+):
+    async def scenario():
+        exporters: list[_CaptureExporter] = []
+
+        def exporter(**kwargs):
+            created = _CaptureExporter(**kwargs)
+            exporters.append(created)
+            return created
+
+        monkeypatch.setattr(project_qa_tracing, "OTLPSpanExporter", exporter)
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example/otel")
+        monkeypatch.setenv(
+            "FRISKET_ASK_TRACE_CONTENT", "true" if include_content else "false"
+        )
+        tracing = project_qa_tracing.build_project_qa_tracing()
+        assert tracing is not None
+
+        secret = "private-project-tool-exception-sentinel"
+
+        class Adapter:
+            async def complete(self, request, client):
+                return LLMResponse(
+                    content=None,
+                    data=None,
+                    model=request.model,
+                    tokens_in=1,
+                    tokens_out=1,
+                    cost=0.0,
+                    tool_calls=[
+                        {
+                            "name": "read_rows",
+                            "args": {"sheet_id": 1},
+                            "id": "read-1",
+                        }
+                    ],
+                )
+
+        router = ModelRouter(
+            model_call_policy=RecordingPurchasePolicy(),
+            keys={"anthropic": "test"},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        router._adapters["anthropic"] = Adapter()
+        workspace = Workspace(tmp_path / "ws", router=router)
+        pid = workspace.create("Ask")["id"]
+        project = workspace.get(pid)
+        project.add_sheet("Evidence")
+        store = ProjectQAStore(project)
+        thread = store.create_thread(title="Ask", scope={"kind": "project"})
+        turn = store.submit_turn(
+            thread["id"],
+            request_id="tool-error",
+            question="private question",
+            scope={"kind": "project"},
+            model="anthropic/test",
+        )
+
+        def broken_read(*args, **kwargs):
+            raise RuntimeError(secret)
+
+        monkeypatch.setattr(ProjectQATools, "read_rows", broken_read)
+        try:
+            with pytest.raises(RuntimeError, match=secret):
+                await run_turn(
+                    project,
+                    router,
+                    turn,
+                    store,
+                    instrumentation=tracing.instrumentation,
+                )
+        finally:
+            tracing.shutdown()
+            project.close()
+
+        spans = exporters[0].spans
+        exception_events = [
+            event
+            for span in spans
+            for event in span.events
+            if event.name == "exception"
+        ]
+        assert exception_events
+        assert any(
+            str((event.attributes or {}).get("exception.type", "")).endswith(
+                "RuntimeError"
+            )
+            for event in exception_events
+        )
+        assert any(span.status.status_code is StatusCode.ERROR for span in spans)
+        trace_text = repr(
+            [
+                (
+                    span.name,
+                    span.attributes,
+                    [(event.name, event.attributes) for event in span.events],
+                    span.status.description,
+                )
+                for span in spans
+            ]
+        )
+
+        if include_content:
+            assert any(
+                secret in str((event.attributes or {}).get("exception.message", ""))
+                for event in exception_events
+            )
+            assert any(
+                secret in str((event.attributes or {}).get("exception.stacktrace", ""))
+                for event in exception_events
+            )
+            assert any(secret in str(span.status.description) for span in spans)
+        else:
+            assert all(
+                "exception.message" not in (event.attributes or {})
+                and "exception.stacktrace" not in (event.attributes or {})
+                for event in exception_events
+            )
+            assert all(span.status.description is None for span in spans)
+            assert secret not in trace_text
+
+    asyncio.run(scenario())
+
+
+def test_provider_error_is_sanitized_before_metadata_only_export(tmp_path, monkeypatch):
+    async def scenario():
+        exporter = _CaptureExporter()
+        provider = TracerProvider(shutdown_on_exit=False)
+        provider.add_span_processor(
+            BatchSpanProcessor(exporter, schedule_delay_millis=1)
+        )
+        tracing = ProjectQATracing(
+            instrumentation=InstrumentationSettings(
+                tracer_provider=provider,
+                include_content=False,
+                include_binary_content=False,
+            ),
+            provider=provider,
+        )
+        monkeypatch.setattr(
+            project_qa_service, "build_project_qa_tracing", lambda: tracing
+        )
+
+        secret = "provider-secret-sentinel"
+
+        class Adapter:
+            async def complete(self, request, client):
+                raise LLMError(f"api_key={secret}")
+
+        router = ModelRouter(
+            model_call_policy=RecordingPurchasePolicy(),
+            keys={"anthropic": secret},
+            key_sources={"anthropic": "platform_key"},
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
+        router._adapters["anthropic"] = Adapter()
+        workspace = Workspace(tmp_path / "ws", router=router)
+        pid = workspace.create("Ask")["id"]
+        service = ProjectQAService(workspace)
+        thread = await service.create(pid, AskThreadCreate(scope={"kind": "project"}))
+        await service.submit(
+            pid,
+            thread["id"],
+            AskTurnRequest(
+                request_id="trace-error",
+                question="private-error-question",
+                scope={"kind": "project"},
+                model="anthropic/test",
+            ),
+        )
+        await asyncio.gather(*list(service._tasks.values()))
+        await service.shutdown()
+
+        trace_text = repr(
+            [
+                (span.attributes, span.events, span.status.description)
+                for span in exporter.spans
+            ]
+        )
+        assert secret not in trace_text
+
+    asyncio.run(scenario())
+
+
+# --- failure attribution ---
+
+
+@pytest.mark.parametrize(
+    ("completed", "expected_tool"),
+    [
+        (["inspect_sheets"], "search_actions"),
+        ([], None),
+        (["inspect_sheets", "search_actions"], None),
+    ],
+)
+def test_failure_attributes_only_one_unfinished_tool(
+    tmp_path, completed, expected_tool
+):
+    async def scenario():
+        workspace = Workspace(tmp_path / "ws")
+        project_id = workspace.create("Tool diagnostics")["id"]
+
+        async def runner(project, router, turn, store):
+            for tool in ("inspect_sheets", "search_actions"):
+                store.append_event(
+                    turn["id"], kind="tool_started", payload={"tool": tool}
+                )
+            for tool in completed:
+                store.append_event(
+                    turn["id"], kind="tool_completed", payload={"tool": tool}
+                )
+            raise RuntimeError("Internal catalog failure")
+
+        service = ProjectQAService(workspace, runner=runner)
+        try:
+            thread = await service.create(
+                project_id, AskThreadCreate(scope={"kind": "project"})
+            )
+            await service.submit(
+                project_id,
+                thread["id"],
+                AskTurnRequest(
+                    request_id="parallel-tools",
+                    question="Which action should I use?",
+                    scope={"kind": "project"},
+                    model="openai/test",
+                ),
+            )
+            await asyncio.gather(*list(service._tasks.values()))
+            detail = await service.detail(project_id, thread["id"])
+            failure = detail["history"]["events"][-1]["payload"]
+            assert failure["status"] == "failed"
+            assert failure["diagnostic"]["code"] == "internal_error"
+            assert failure["diagnostic"].get("tool") == expected_tool
+        finally:
+            await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_internal_error_reporter_failure_does_not_prevent_terminal_turn(tmp_path):
+    async def scenario():
+        workspace = Workspace(tmp_path / "ws")
+        project_id = workspace.create("Reporter failure")["id"]
+        reports = []
+
+        async def runner(project, router, turn, store):
+            raise RuntimeError("sensitive prompt must not reach reporter")
+
+        def report(*args):
+            state = ProjectQAStore(workspace.get(project_id)).get_turn(args[2])[
+                "status"
+            ]
+            reports.append((args, state))
+            raise RuntimeError("reporter unavailable")
+
+        service = ProjectQAService(
+            workspace, runner=runner, internal_error_reporter=report
+        )
+        try:
+            thread = await service.create(
+                project_id, AskThreadCreate(scope={"kind": "project"})
+            )
+            turn = await service.submit(
+                project_id,
+                thread["id"],
+                AskTurnRequest(
+                    request_id="failed-reporter",
+                    question="Question",
+                    scope={"kind": "project"},
+                    model="openai/test",
+                ),
+            )
+            await asyncio.gather(*list(service._tasks.values()))
+            detail = await service.detail(project_id, thread["id"])
+            failure = detail["history"]["events"][-1]["payload"]
+            assert failure["status"] == "failed"
+            assert failure["diagnostic"]["code"] == "internal_error"
+            assert reports == [
+                ((project_id, thread["id"], turn["id"], "RuntimeError"), "failed")
+            ]
+        finally:
+            await service.shutdown()
+
+    asyncio.run(scenario())

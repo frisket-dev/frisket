@@ -10,7 +10,8 @@ from datetime import UTC, date, datetime, timedelta
 import json
 import math
 import re
-from typing import Any
+import sqlite3
+from typing import Any, Protocol
 
 from frisket.authoring.column_types import range_facet_value_kind
 from frisket.calendar_dates import normalize_utc_calendar_date
@@ -214,8 +215,17 @@ class SheetRowScopePlan:
         return [*self.join_params, *self.where_params, *self.order_params]
 
 
+class RowScopeReader(Protocol):
+    @property
+    def db(self) -> sqlite3.Connection: ...
+
+    def columns(
+        self, sheet_id: int, include_hidden: bool = False
+    ) -> list[sqlite3.Row]: ...
+
+
 def sheet_row_scope_plan(
-    project: Project,
+    project: RowScopeReader,
     sheet_id: int,
     *,
     parent_row_id: int | None = None,
@@ -238,7 +248,7 @@ def sheet_row_scope_plan(
 
 
 def sheet_row_scope_query(
-    project: Project,
+    project: RowScopeReader,
     sheet_id: int,
     *,
     parent_row_id: int | None = None,
@@ -268,7 +278,7 @@ def sheet_row_scope_query(
 
 
 def _sheet_row_scope_plan(
-    project: Project,
+    project: RowScopeReader,
     sheet_id: int,
     *,
     parent_row_id: int | None = None,
@@ -777,7 +787,7 @@ def _sheet_order_terms(
 
 
 def execute_sheet_row_page(
-    project: Project,
+    project: RowScopeReader,
     plan: SheetRowScopePlan,
     *,
     limit: int,
@@ -803,7 +813,7 @@ def execute_sheet_row_page(
 
 
 def execute_sheet_row_page_without_total(
-    project: Project,
+    project: RowScopeReader,
     plan: SheetRowScopePlan,
     *,
     limit: int,
@@ -824,7 +834,7 @@ def execute_sheet_row_page_without_total(
 
 
 def resolve_sheet_filter_rows(
-    project: Project,
+    project: RowScopeReader,
     sheet_id: int,
     *,
     parent_row_id: int | None = None,
@@ -1460,7 +1470,7 @@ def _parse_list_contains_any_filter(
 def _parse_sheet_filter(
     raw: str | None,
     columns_by_name: dict[str, Any],
-    project: Project,
+    project: RowScopeReader,
     columns_by_id: dict[int, Any] | None = None,
 ) -> list[SheetFilter]:
     if raw is None or raw == "":
@@ -1731,7 +1741,7 @@ def _parse_sheet_filter(
     return out
 
 
-def _runtime_operator_bindings(project: Project) -> dict[str, Any]:
+def _runtime_operator_bindings(project: RowScopeReader) -> dict[str, Any]:
     from frisket.authoring.plugin_registry import default_registry
     from frisket.authoring.workbench.plugin_runtime_capabilities import (
         project_runtime_binding,
@@ -1750,7 +1760,7 @@ def _runtime_operator_bindings(project: Project) -> dict[str, Any]:
 
 
 def _runtime_operator_where(
-    project: Project,
+    project: RowScopeReader,
     sheet_id: int,
     filter_item: RuntimeSheetFilter,
     *,

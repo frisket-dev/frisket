@@ -462,7 +462,9 @@ class PdfSplitPreparationStore:
                 == 1
             )
 
-    def finish(self, work_key: str, *, generation: str, prepared_ref_id: int) -> bool:
+    def finish(
+        self, work_key: str, *, generation: str, prepared_ref_id: int | None
+    ) -> bool:
         if prepared_ref_id is not None and prepared_ref_id < 1:
             raise ValueError("source page preparation requires a prepared reference")
         with self.db:

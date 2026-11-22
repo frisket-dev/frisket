@@ -32,7 +32,7 @@ vi.mock('../../src/api/open', () => ({
 }));
 
 import { AdminPage } from '../../src/components/AdminPage';
-import type { AdminAuditEvent, AdminAuditFilters, AdminUsers } from '../../src/api/types';
+import type { AdminAuditEvent, AdminAuditFilters, AdminErrors, AdminUsers } from '../../src/api/types';
 import { EditionModuleProvider } from '../../src/editions/module';
 import { TEAM_EDITION_MODULE } from '../../src/editions/openModules';
 
@@ -301,5 +301,131 @@ describe('AdminPage users and audit panels', () => {
     await waitFor(() => expect(table).toHaveTextContent('pat_created'));
     expect(table).not.toHaveTextContent('project_role_set');
     expect(requestedFilters.at(-1)?.action).toBe('pat_created');
+  });
+
+  it('exposes recent browser, worker, and diagnostic errors with safe route links', async () => {
+    const errorsFeed: AdminErrors = {
+      schema_version: 'frisket.admin_errors.v1',
+      errors: [
+        {
+          id: 'client:9',
+          record_id: 9,
+          kind: 'browser',
+          source: 'browser',
+          severity: 'error',
+          name: 'TypeError',
+          message: "Cannot read properties of undefined (reading 'toFixed')",
+          stack: null,
+          route: '/p/investigation/s/12?token=sk-secret-token#trace',
+          organization_id: 1,
+          user_id: 1,
+          project_id: 'investigation',
+          sheet_id: '12',
+          run_id: '77',
+          job_id: null,
+          trace_id: 'trace-abc',
+          context: { browser: 'Chromium' },
+          bundle: null,
+          at: '2026-06-14T12:00:00Z',
+        },
+        {
+          id: 'job:42',
+          record_id: null,
+          kind: 'job',
+          source: 'worker',
+          severity: 'error',
+          name: 'feed.poll',
+          message: 'feed response exceeded 52428800 bytes',
+          stack: null,
+          route: null,
+          organization_id: 1,
+          user_id: null,
+          project_id: 'sources',
+          sheet_id: null,
+          run_id: null,
+          job_id: '42',
+          trace_id: null,
+          context: { status: 'failed' },
+          bundle: null,
+          at: '2026-06-14T11:59:00Z',
+        },
+        {
+          id: 'client:10',
+          record_id: 10,
+          kind: 'diagnostic',
+          source: 'diagnostic_report',
+          severity: 'info',
+          name: 'diagnostic_bundle',
+          message: 'diagnostic_bundle: user report',
+          stack: null,
+          route: '/p/investigation/s/12',
+          organization_id: 1,
+          user_id: 1,
+          project_id: 'investigation',
+          sheet_id: '12',
+          run_id: null,
+          job_id: null,
+          trace_id: 'diag-trace',
+          context: { project_id: 'investigation', raw_cells: '[redacted]' },
+          bundle: {
+            route: '/p/investigation/s/12',
+            context: { project_id: 'investigation', raw_cells: '[redacted]' },
+            recent_errors: [{ message: 'recent browser crash' }],
+          },
+          at: '2026-06-14T11:58:00Z',
+        },
+        {
+          id: 'client:11',
+          record_id: 11,
+          kind: 'browser',
+          source: 'browser',
+          severity: 'error',
+          name: 'RouteError',
+          message: 'legacy unsafe route',
+          stack: null,
+          route: 'javascript:alert(1)',
+          organization_id: 1,
+          user_id: 1,
+          project_id: null,
+          sheet_id: null,
+          run_id: null,
+          job_id: null,
+          trace_id: null,
+          context: {},
+          bundle: null,
+          at: '2026-06-14T11:57:00Z',
+        },
+      ],
+    };
+    api.getAdminJobs.mockResolvedValue({ summary: {}, jobs: [] });
+    api.getAdminErrors.mockResolvedValue(errorsFeed);
+
+    const user = userEvent.setup();
+    renderAdmin('/admin/errors');
+
+    const panel = await screen.findByTestId('admin-errors-panel');
+    await waitFor(() => expect(within(panel).getByTestId('admin-error-count')).toHaveTextContent('4'));
+    const table = within(panel).getByTestId('admin-errors-table');
+    expect(table).toHaveTextContent('browser');
+    expect(table).toHaveTextContent('worker');
+    expect(table).toHaveTextContent('diagnostic');
+    expect(table).toHaveTextContent('toFixed');
+    expect(table).toHaveTextContent('project investigation · sheet 12 · run 77');
+    expect(table).toHaveTextContent('trace-abc');
+    expect(table).toHaveTextContent('feed response exceeded 52428800 bytes');
+
+    const diagnosticBundle = within(table).getByTestId('admin-error-bundle-10');
+    await user.click(within(diagnosticBundle).getByText('Diagnostic bundle'));
+    expect(diagnosticBundle).toHaveTextContent('recent browser crash');
+    expect(diagnosticBundle).toHaveTextContent('[redacted]');
+
+    const openLinks = within(table).getAllByRole('link', { name: 'Open' });
+    expect(openLinks[0]).toHaveAttribute('href', '/p/investigation/s/12');
+
+    const unsafeRouteRow = within(table)
+      .getAllByRole('row')
+      .find((row) => row.textContent?.includes('legacy unsafe route'));
+    expect(unsafeRouteRow).toBeDefined();
+    expect(within(unsafeRouteRow!).queryByRole('link', { name: 'Open' })).toBeNull();
   });
 });

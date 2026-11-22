@@ -1096,7 +1096,9 @@ def run_action_run_job(
     from frisket.execution.dispatch_control import QueuedDispatch
 
     execution = QueuedDispatch(project, receipt_id, should_cancel)
-    executor = executor_lookup(action_kind) if executor_lookup is not None else None
+    executor: ActionJobExecutor | None = (
+        executor_lookup(action_kind) if executor_lookup is not None else None
+    )
     try:
         execution.check()
         bound = bind_typed_action_job(envelope, project=project)
@@ -1149,19 +1151,27 @@ def run_action_run_job(
                 )
                 from frisket.engine.executor.actions import _default_map_runner_factory
 
-                def executor(current, intent, *, execution):
+                def _inferred_batch_executor(
+                    project: Any,
+                    envelope: ActionJobEnvelope,
+                    *,
+                    execution: DispatchControl,
+                ) -> ActionResult:
+                    del execution
                     return run_inferred_batch(
-                        current,
-                        intent.project_id,
+                        project,
+                        envelope.project_id,
                         bound,
                         None,
                         _default_map_runner_factory,
                         reservation={
-                            "action_id": intent.action_id,
-                            "receipt_id": intent.receipt_id,
+                            "action_id": envelope.action_id,
+                            "receipt_id": envelope.receipt_id,
                         },
                         should_cancel=should_cancel,
                     )
+
+                executor = _inferred_batch_executor
 
         if executor is None and not isinstance(bound, ActionResult):
             from frisket.actions.types import RowsUpdater
@@ -1174,13 +1184,21 @@ def run_action_run_job(
                 )
                 from frisket.engine.executor.action_inventory import ExecutorDeps
 
-                def executor(current, intent, *, execution):
+                def _rows_updater_executor(
+                    project: Any,
+                    envelope: ActionJobEnvelope,
+                    *,
+                    execution: DispatchControl,
+                ) -> ActionResult:
+                    del execution
                     return run_rows_updater(
-                        current,
-                        intent.project_id,
+                        project,
+                        envelope.project_id,
                         bound,
                         ExecutorDeps(cancelled=should_cancel),
                     )
+
+                executor = _rows_updater_executor
 
         if executor is None:
             from frisket.actions.core import CreateSheet
@@ -1315,14 +1333,15 @@ def run_action_run_job(
                 error=error,
                 job_id=job_id,
             )
-        return action_job_success_result(
-            project,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            action_kind=action_kind,
-            status=result.status,
-            job_id=job_id,
-        )
+        if result.status == "completed" or result.status == "partial":
+            return action_job_success_result(
+                project,
+                project_id=project_id,
+                receipt_id=receipt_id,
+                action_kind=action_kind,
+                status=result.status,
+                job_id=job_id,
+            )
     return action_job_failure_result(
         project,
         project_id=project_id,
@@ -1391,11 +1410,11 @@ def reconcile_exhausted_action_run_jobs(
             continue
         project: Any | None = None
         try:
-            project = (
-                Project(project_path)
-                if project_opener is None
-                else project_opener(storage_key, project_path)
-            )
+            if project_opener is None:
+                project = Project(project_path)
+            else:
+                assert storage_key is not None
+                project = project_opener(storage_key, project_path)
             stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
             if stored is None or stored.status in FINISHED_RECEIPT_STATUSES:
                 continue

@@ -17,7 +17,7 @@ from frisket.engine.executor.project_run_terminalization import (
 )
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.project_qa import ProjectQAStore
-from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.receipts import ReceiptStatus, ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import set_attempt_state_in_transaction
@@ -171,13 +171,21 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                     if abandoned
                     else UnclaimedRunTerminalAuthority
                 )
+                receipt_status: ReceiptStatus
+                match stored.status:
+                    case "queued" | "running":
+                        receipt_status = "cancelled"
+                    case "completed" | "partial" | "failed" | "cancelled":
+                        receipt_status = stored.status
+                    case _:
+                        raise ProjectCutoverRefused(
+                            f"run {run_id}: unexpected receipt status {stored.status!r}"
+                        )
                 outcome = terminalize_project_run_in_transaction(
                     project,
                     run_id=run_id,
                     receipt_id=stored.id,
-                    status="cancelled"
-                    if stored.status in {"queued", "running"}
-                    else stored.status,
+                    status=receipt_status,
                     run_status=target,
                     authority=authority_type(
                         claimless_direct_effect=not owned_claims,

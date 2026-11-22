@@ -208,7 +208,7 @@ class _ReservedMaprunnerActionSpec:
     params_model: type[BaseModel]
     runner_spec_fn: Callable[[Any], dict[str, Any]]
     resolve_fn: Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError]
-    precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None]
+    precheck_fn: Callable[..., ActionError | None]
     write_fn: Callable[..., ActionResult]
     reservation_kind: str
     params_hash_fn: Callable[[_ActionExecutionEnvelope], str]
@@ -265,7 +265,7 @@ class _ActionCoreSpec:
     resolve_fn: (
         Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError] | None
     ) = None
-    precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None] | None = None
+    precheck_fn: Callable[..., ActionError | None] | None = None
     write_fn: Callable[..., ActionResult] | None = None
     # optional resume seam (see _ReservedMaprunnerActionSpec.resume_run_id_fn): threaded into
     # MapRunner.run(resume_run_id=...). Default None keeps the create path byte-equal.
@@ -358,7 +358,7 @@ class _QueuedActionSpec:
     params_model: type[BaseModel]
     runner_spec_fn: Callable[[Any], dict[str, Any]]
     resolve_fn: Callable[..., dict[str, Any] | ActionError]
-    precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None]
+    precheck_fn: Callable[..., ActionError | None]
     reservation_kind: str
     queue_job_kind: str
     payload_codecs: tuple[_QueuedPayloadCodec, ...]

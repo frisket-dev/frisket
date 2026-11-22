@@ -10,29 +10,15 @@ Both environment and project-secret resolution remain covered here.
 """
 
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from typing import Any
-
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.credentials import missing_required_credentials, resolve_credential
-from frisket.ai.llm import ModelRouter
 from frisket.security.secrets import encrypt_secret
 from frisket.server.action_enqueue import MISSING_ACTION_CREDENTIAL_ERROR_CODE
 from frisket.server.services.action_runs import v1_action_result_http_status
-from helpers import make_client
-
-
-def _client(tmp_path) -> TestClient:
-    return make_client(
-        tmp_path,
-        router=ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-        ),
-    )
 
 
 def _census_action(
@@ -52,11 +38,11 @@ def _census_action(
     }
 
 
-def test_census_demographics_declares_required_credential(tmp_path) -> None:
+def test_census_demographics_declares_required_credential(off_client) -> None:
     definition = ACTION_REGISTRY.get("enrich.census_demographics")
     assert definition.catalog_entry()["required_credentials"] == ["CENSUS_API_KEY"]
     # Exercise the actual served merged catalog, not the legacy-only registry.
-    with _client(tmp_path) as client:
+    with off_client as client:
         response = client.get("/api/actions/v1/catalog")
         assert response.status_code == 200, response.text
         payload = response.json()
@@ -70,10 +56,10 @@ def test_census_demographics_declares_required_credential(tmp_path) -> None:
     assert MISSING_ACTION_CREDENTIAL_ERROR_CODE in error_codes
 
 
-def test_only_census_demographics_declares_a_required_credential(tmp_path) -> None:
+def test_only_census_demographics_declares_a_required_credential(off_client) -> None:
     # The mechanism is generic; verify it stays opt-in (empty default) for
     # every other action rather than silently gating unrelated actions.
-    with _client(tmp_path) as client:
+    with off_client as client:
         response = client.get("/api/actions/v1/catalog")
         assert response.status_code == 200, response.text
         gated = sorted(
@@ -109,10 +95,10 @@ def test_resolve_credential_falls_back_to_project_secret(
 
 
 def test_queued_run_refuses_without_credential_distinct_from_cost_gate(
-    tmp_path, monkeypatch
+    off_client, monkeypatch
 ) -> None:
     monkeypatch.delenv("CENSUS_API_KEY", raising=False)
-    client = _client(tmp_path)
+    client = off_client
     project_id = client.post("/api/projects", json={"name": "Census Gate"}).json()["id"]
 
     response = client.post(
@@ -141,10 +127,10 @@ def test_queued_run_refuses_without_credential_distinct_from_cost_gate(
 
 
 def test_queued_run_succeeds_past_gate_once_project_secret_configured(
-    tmp_path, monkeypatch
+    off_client, monkeypatch
 ) -> None:
     monkeypatch.delenv("CENSUS_API_KEY", raising=False)
-    client = _client(tmp_path)
+    client = off_client
     project_id = client.post("/api/projects", json={"name": "Census Gate Ok"}).json()[
         "id"
     ]

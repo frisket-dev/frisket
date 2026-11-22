@@ -724,6 +724,7 @@ def register_model_pull_handler(
                     terminal=True,
                     is_final_attempt=is_final_attempt,
                 )
+            assert art.ollama_ref is not None
             client = build_client()
             try:
                 return _run_pull(

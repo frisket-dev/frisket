@@ -27,6 +27,7 @@ from frisket.ai.llm import (
     classify_llm_error,
     classify_resumable_provider_error,
 )
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ai.llm.types import ModelRouterTransport
 from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
 from frisket.engine.store.writer_fence import WriterFence
@@ -101,7 +102,7 @@ async def _await_owned_tasks(*coroutines: Any) -> None:
 
 async def execute_row(
     project: Project,
-    router: ModelRouter,
+    router: ModelRouter | ExecutionModelRouter,
     throttle: AdaptiveThrottle,
     program: ActionProgram,
     values: dict,
@@ -517,7 +518,7 @@ def _failed_cells(
 
 async def _execute_row(
     project: Project,
-    router: ModelRouter,
+    router: ModelRouter | ExecutionModelRouter,
     throttle: AdaptiveThrottle,
     program: ActionProgram,
     values: dict,

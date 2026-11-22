@@ -16,6 +16,7 @@ from typing import (
     Literal,
     Mapping,
     TypedDict,
+    TypeGuard,
     TypeVar,
     get_type_hints,
 )
@@ -263,6 +264,7 @@ from frisket.actions.types import (
 
 P = TypeVar("P", bound=ActionParams)
 OutputT = TypeVar("OutputT", bound=BaseModel)
+_ClassT = TypeVar("_ClassT")
 _LOCAL_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 _REQUEST_FIELDS = frozenset(
     "action_id scope sheet_id row_ids output_name output_names replace_existing sheet_name "
@@ -1835,50 +1837,7 @@ class MapRows(Generic[P, OutputT]):
         return options.normalize(engine)
 
     def resolve_output_fields(self, params: P) -> tuple[OutputField, ...]:
-        if self.active_outputs is not None:
-            selected = self.active_outputs(params)
-            if isinstance(selected, (str, bytes, MappingABC)):
-                raise TypeError(
-                    "active_outputs must return an iterable of logical keys"
-                )
-            keys = tuple(selected)
-            if not keys or any(
-                not isinstance(key, str) or not key or key != key.strip()
-                for key in keys
-            ):
-                raise TypeError(
-                    "active_outputs must return non-empty, trimmed logical keys"
-                )
-            if len(set(keys)) != len(keys):
-                raise TypeError("active_outputs must not repeat logical keys")
-            unknown = set(keys) - {field.key for field in self.output_fields}
-            if unknown:
-                raise TypeError(f"unknown active outputs: {', '.join(sorted(unknown))}")
-            fields = tuple(field for field in self.output_fields if field.key in keys)
-        else:
-            fields = _resolve_output_fields(
-                self.output_fields, self.dynamic_outputs, params
-            )
-        if TopicSectionsReader in self.capabilities:
-            sidecars = topic_sidecar_names(
-                field.key
-                for field in fields
-                if field.column_type == "timeline_ranges" and not field.hidden
-            )
-            if set(sidecars.values()) & {field.key for field in fields}:
-                raise TypeError(
-                    "topic analysis output collides with a host-owned sidecar"
-                )
-            fields = (
-                *fields,
-                *(
-                    OutputField(
-                        name, "json", {"type": "object"}, JsonValue, hidden=True
-                    )
-                    for name in sidecars.values()
-                ),
-            )
-        return fields
+        return _resolve_row_output_fields(self, params)
 
 
 @dataclass(frozen=True)
@@ -1948,7 +1907,7 @@ class ModelRows(Generic[P, OutputT]):
         return False
 
     def resolve_output_fields(self, params: P) -> tuple[OutputField, ...]:
-        return MapRows.resolve_output_fields(self, params)
+        return _resolve_row_output_fields(self, params)
 
     @property
     def capabilities(self) -> tuple[type, ...]:
@@ -1957,6 +1916,48 @@ class ModelRows(Generic[P, OutputT]):
     def validate_source(self, params: P) -> None:
         _validate_model_rows_source(getattr(params, self.source_param))
         self.uses_model(params)
+
+
+def _resolve_row_output_fields(
+    terminal: MapRows[P, OutputT] | ModelRows[P, OutputT], params: P
+) -> tuple[OutputField, ...]:
+    if terminal.active_outputs is not None:
+        selected = terminal.active_outputs(params)
+        if isinstance(selected, (str, bytes, MappingABC)):
+            raise TypeError("active_outputs must return an iterable of logical keys")
+        keys = tuple(selected)
+        if not keys or any(
+            not isinstance(key, str) or not key or key != key.strip() for key in keys
+        ):
+            raise TypeError(
+                "active_outputs must return non-empty, trimmed logical keys"
+            )
+        if len(set(keys)) != len(keys):
+            raise TypeError("active_outputs must not repeat logical keys")
+        unknown = set(keys) - {field.key for field in terminal.output_fields}
+        if unknown:
+            raise TypeError(f"unknown active outputs: {', '.join(sorted(unknown))}")
+        fields = tuple(field for field in terminal.output_fields if field.key in keys)
+    else:
+        fields = _resolve_output_fields(
+            terminal.output_fields, terminal.dynamic_outputs, params
+        )
+    if TopicSectionsReader in terminal.capabilities:
+        sidecars = topic_sidecar_names(
+            field.key
+            for field in fields
+            if field.column_type == "timeline_ranges" and not field.hidden
+        )
+        if set(sidecars.values()) & {field.key for field in fields}:
+            raise TypeError("topic analysis output collides with a host-owned sidecar")
+        fields = (
+            *fields,
+            *(
+                OutputField(name, "json", {"type": "object"}, JsonValue, hidden=True)
+                for name in sidecars.values()
+            ),
+        )
+    return fields
 
 
 @dataclass(frozen=True)
@@ -2427,7 +2428,7 @@ def _resolve_output_fields(
     return tuple(fields)
 
 
-def _is_subclass(value: Any, parent: type[Any]) -> bool:
+def _is_subclass(value: Any, parent: type[_ClassT]) -> TypeGuard[type[_ClassT]]:
     return isinstance(value, type) and issubclass(value, parent)
 
 
@@ -2535,6 +2536,7 @@ def _engine_parameter(
     if len(references) > 1:
         raise TypeError("an injected capability has at most one EngineRef")
     for name, annotation in references:
+        assert annotation is not None
         args = annotation.__pydantic_generic_metadata__.get("args", ())
         if len(args) != 1 or args[0] not in (
             *routed,
@@ -2638,7 +2640,8 @@ def _handler_hints(
         for cap in capabilities
     ):
         raise TypeError("row-bound capabilities require map_rows")
-    return params_model, hints.get("return"), injections
+    typed_injections = tuple(kind for kind in injections if isinstance(kind, type))
+    return params_model, hints.get("return"), typed_injections
 
 
 def _value_annotation(annotation: Any) -> Any:
@@ -2683,8 +2686,10 @@ def _column_type(annotation: Any) -> str:
     column_types = {_COLUMN_TYPE_BY_VALUE.get(choice) for choice in choices}
     if column_types == {"integer", "number"}:
         return "number"
-    if len(column_types) == 1 and None not in column_types:
-        return next(iter(column_types))
+    if len(column_types) == 1:
+        column_type = next(iter(column_types))
+        if column_type is not None:
+            return column_type
     raise TypeError(f"unsupported output field type {annotation!r}")
 
 
@@ -3378,16 +3383,17 @@ def _project_action(handler: Callable[..., Any]) -> _ProjectAction[Any, Any]:
     params_model = hints.get(parameters[0].name)
     if not _is_subclass(params_model, ActionParams):
         raise TypeError("project action params must inherit ActionParams")
-    injections = tuple(hints.get(parameter.name) for parameter in parameters[1:])
+    raw_injections = tuple(hints.get(parameter.name) for parameter in parameters[1:])
     if any(
         kind not in (InvocationContext, PluginSecrets)
         and kind not in _PROJECT_CAPABILITY_SPECS
-        for kind in injections
+        for kind in raw_injections
     ):
         raise TypeError(
             "project action injections must be admitted capabilities, "
             "InvocationContext, or PluginSecrets"
         )
+    injections = tuple(kind for kind in raw_injections if isinstance(kind, type))
     if injections.count(InvocationContext) > 1:
         raise TypeError("project action accepts at most one InvocationContext")
     if injections.count(PluginSecrets) > 1:
@@ -3459,8 +3465,8 @@ def create_sheet(
     params_model = hints.get(parameters[0].name)
     if not _is_subclass(params_model, ActionParams):
         raise TypeError("create_sheet params must inherit ActionParams")
-    injections = tuple(hints.get(parameter.name) for parameter in parameters[1:])
-    capabilities = tuple(kind for kind in injections if kind is not PluginSecrets)
+    raw_injections = tuple(hints.get(parameter.name) for parameter in parameters[1:])
+    capabilities = tuple(kind for kind in raw_injections if kind is not PluginSecrets)
     if any(
         capability
         not in {
@@ -3489,6 +3495,7 @@ def create_sheet(
             "create_sheet supports only EmbeddingIndexReader, LocalFileReader, FileInventoryReader, PacketSplitReader, "
             "ListTableReader, SheetRowsReader, CollectionReader, SemanticMatchReader, JoinedTablesReader, TranscriptReader, ClusterReceiptReader, EmailSourceReader, RuntimeImporter, UrlImporter, ImportBlobStager and PdfPageRenderer injection"
         )
+    injections = tuple(kind for kind in raw_injections if isinstance(kind, type))
     if len(injections) != len(set(injections)):
         raise TypeError("create_sheet injections must not be repeated")
     return_type = hints.get("return")
@@ -3611,40 +3618,54 @@ def action(
         raise TypeError("action category must be an ActionCategory")
     if not isinstance(row_scope, RowScope):
         raise TypeError("action row_scope must be a RowScope")
-    if callable(run) and not isinstance(
-        run,
-        (
-            MapRows,
-            MapBatch,
-            ModelRows,
-            ColumnTransform,
-            CreateSheet,
-            _ProjectAction,
-            GoogleSheetsExport,
-        ),
-    ):
-        run = _project_action(run)
+    resolved_run: (
+        MapRows[Any, Any]
+        | MapBatch[Any, Any]
+        | ModelRows[Any, Any]
+        | ColumnTransform[Any, Any]
+        | CreateSheet[Any, Any]
+        | GoogleSheetsExport[Any]
+        | _ProjectAction[Any, Any]
+    ) = (
+        run
+        if isinstance(
+            run,
+            (
+                MapRows,
+                MapBatch,
+                ModelRows,
+                ColumnTransform,
+                CreateSheet,
+                _ProjectAction,
+                GoogleSheetsExport,
+            ),
+        )
+        else _project_action(run)
+    )
     if (
-        isinstance(run, (_ProjectAction, GoogleSheetsExport, CreateSheet))
+        isinstance(resolved_run, (_ProjectAction, GoogleSheetsExport, CreateSheet))
         and row_scope is not RowScope.SELECTABLE_ROWS
         and not (
-            isinstance(run, _ProjectAction)
-            and run.capabilities in ((ValueClusterer,), (RowsAppender,), (RowsUpdater,))
+            isinstance(resolved_run, _ProjectAction)
+            and resolved_run.capabilities
+            in ((ValueClusterer,), (RowsAppender,), (RowsUpdater,))
         )
     ):
         raise TypeError("project actions do not accept row scope controls")
-    if isinstance(run, _ProjectAction) and run.capabilities == (ValueClusterer,):
+    if isinstance(resolved_run, _ProjectAction) and resolved_run.capabilities == (
+        ValueClusterer,
+    ):
         row_scope = RowScope.ALL_ROWS
     if export_target is not None and not isinstance(
-        run, (_ProjectAction, GoogleSheetsExport)
+        resolved_run, (_ProjectAction, GoogleSheetsExport)
     ):
         raise TypeError("export targets require project actions")
-    if isinstance(run, ColumnTransform) and row_scope is not RowScope.ALL_ROWS:
+    if isinstance(resolved_run, ColumnTransform) and row_scope is not RowScope.ALL_ROWS:
         raise TypeError("column_transform actions must use RowScope.ALL_ROWS")
-    params = run.params_model
+    params = resolved_run.params_model
     reserved_fields = (
         _PROJECT_REQUEST_FIELDS
-        if isinstance(run, (_ProjectAction, GoogleSheetsExport, CreateSheet))
+        if isinstance(resolved_run, (_ProjectAction, GoogleSheetsExport, CreateSheet))
         else _REQUEST_FIELDS
     )
     reserved = reserved_fields.intersection(params.model_fields)
@@ -3670,7 +3691,7 @@ def action(
         title.strip(),
         description.strip(),
         category,
-        run,
+        resolved_run,
         row_scope,
         export_target,
         form=form,
@@ -3956,6 +3977,7 @@ class RegisteredAction:
         if isinstance(terminal, SemanticJoin):
             # The child has additional columns, not additional source outputs.
             # Validate the shared rename envelope against the entire child shape.
+            assert output_fields is not None
             keys = {
                 *(field.key for field in output_fields),
                 *terminal.child_output_keys(validated),
@@ -4014,7 +4036,7 @@ class RegisteredAction:
                 (ColumnTransform, CreateSheet, _ProjectAction, GoogleSheetsExport),
             )
             and not _is_single_project_capability(
-                self.definition.run, {RetainedResultPublisher}
+                self.definition.run, frozenset({RetainedResultPublisher})
             )
         ):
             raise ValueError(
@@ -4354,8 +4376,9 @@ def _semantic_metadata(
                 "template_columns": "exact",
             }
         elif control == "column":
+            assert annotation is not None
             accepted_types = column_ref_types(annotation)
-            details = (
+            details: dict[str, Any] = (
                 {"accepted_column_types": list(accepted_types)}
                 if accepted_types is not None
                 else {}
@@ -4411,15 +4434,16 @@ def _semantic_metadata(
             while typing.get_origin(columns_annotation) is typing.Annotated:
                 columns_annotation = typing.get_args(columns_annotation)[0]
             item_annotation = typing.get_args(columns_annotation)[0]
+            rich_types = column_ref_types(item_annotation)
+            assert rich_types is not None
             details = {
-                "accepted_column_types": list(column_ref_types(item_annotation)),
+                "accepted_column_types": list(rich_types),
                 "template_columns": "exact",
                 "accepted_cell_kinds": [
                     "text",
                     *(
                         ["blob"]
-                        if set(column_ref_types(item_annotation))
-                        & {"image", "audio", "video", "file"}
+                        if set(rich_types) & {"image", "audio", "video", "file"}
                         else []
                     ),
                     "template",

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.retrieval.contracts import (
     RankingPolicy,
     RetrievalScope,
@@ -48,7 +49,7 @@ class HybridResult:
 
 
 def resolve_embedding_hybrid(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     query: dict[str, Any],
     *,
     gateway: Any = None,

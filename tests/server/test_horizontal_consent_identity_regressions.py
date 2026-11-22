@@ -20,18 +20,16 @@ from tests.execution_composition_helpers import open_attempt_authority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import persisted_action_program_invocation_halt
 from helpers import make_client
-from http_test_helpers import drain_queue, post_cell_edit_as_v1_action
-from tests.server.test_r70_behavioral_pin import (
-    _add_audio_row,
-    _client,
-    _drain_one_job,
-    _launch_consented_run,
-    _run_row,
-    _seed_audio_project,
-    _transcribe_action,
+from http_test_helpers import (
+    add_audio_row,
+    drain_one_project_run_job,
+    drain_queue,
+    launch_consented_audio_run,
+    post_cell_edit_as_v1_action,
+    run_row,
+    seed_audio_project,
+    transcribe_action,
 )
-
-pytest_plugins = ("tests.server.test_r70_behavioral_pin",)
 
 
 class _RecordingClassifyAdapter:
@@ -176,12 +174,11 @@ def test_confirmation_echo_keeps_scope_and_reads_edited_content(
 
 
 def test_exact_match_consent_does_not_cross_to_a_different_equal_estimate_row(
-    tmp_path, gateway_env, run_engine_stub
+    client, audio_consent_gateway_env, audio_transcribe_engine_stub
 ) -> None:
     """Consent to send row A cannot silently authorize equal-price row B."""
-    client = _client(tmp_path)
-    project_id, project, sheet_id = _seed_audio_project(client, name="Scope rows")
-    _add_audio_row(project, sheet_id, duration_seconds=2.0)
+    project_id, project, sheet_id = seed_audio_project(client, name="Scope rows")
+    add_audio_row(project, sheet_id, duration_seconds=2.0)
     row_a, row_b = [
         int(row["id"])
         for row in project.db.execute(
@@ -189,7 +186,7 @@ def test_exact_match_consent_does_not_cross_to_a_different_equal_estimate_row(
         ).fetchall()
     ]
 
-    first = _transcribe_action(sheet_id, key="scope-row-a@sha256:consent")
+    first = transcribe_action(sheet_id, key="scope-row-a@sha256:consent")
     first["scope"]["row_ids"] = [row_a]
     gated = client.post(f"/api/projects/{project_id}/actions/v1/run", json=first)
     assert gated.status_code == 402, gated.text
@@ -200,21 +197,21 @@ def test_exact_match_consent_does_not_cross_to_a_different_equal_estimate_row(
     accepted = client.post(f"/api/projects/{project_id}/actions/v1/run", json=confirmed)
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["status"] == "queued"
-    assert _drain_one_job(client, worker_id="scope-row-a") is True
-    assert len(run_engine_stub) == 1
+    assert drain_one_project_run_job(client, worker_id="scope-row-a") is True
+    assert len(audio_transcribe_engine_stub) == 1
 
     runs_before = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-    second = _transcribe_action(sheet_id, key="scope-row-b@sha256:fresh")
+    second = transcribe_action(sheet_id, key="scope-row-b@sha256:fresh")
     second["scope"]["row_ids"] = [row_b]
     second["replace_existing"] = True
     unconfirmed = client.post(f"/api/projects/{project_id}/actions/v1/run", json=second)
-    drained = _drain_one_job(client, worker_id="scope-row-b")
+    drained = drain_one_project_run_job(client, worker_id="scope-row-b")
 
     observed = {
         "http_status": unconfirmed.status_code,
         "action_status": unconfirmed.json().get("status"),
         "runs": project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
-        "provider_calls": len(run_engine_stub),
+        "provider_calls": len(audio_transcribe_engine_stub),
         "second_job_drained": drained,
     }
     assert observed == {
@@ -227,7 +224,7 @@ def test_exact_match_consent_does_not_cross_to_a_different_equal_estimate_row(
 
 
 def test_worker_refuses_when_confirmed_source_changes_after_enqueue(
-    tmp_path, gateway_env, run_engine_stub
+    client, audio_consent_gateway_env, audio_transcribe_engine_stub
 ) -> None:
     """Worker admission rechecks the scope that the request-time 402 bound.
 
@@ -235,11 +232,10 @@ def test_worker_refuses_when_confirmed_source_changes_after_enqueue(
     was removed: source-scope identity remains direct authorization and must
     refuse before the provider sees the replacement.
     """
-    client = _client(tmp_path)
-    project_id, project, sheet_id = _seed_audio_project(
+    project_id, project, sheet_id = seed_audio_project(
         client, name="Post-enqueue scope"
     )
-    run_id, receipt_id = _launch_consented_run(
+    run_id, receipt_id = launch_consented_audio_run(
         client,
         project_id,
         project,
@@ -283,7 +279,7 @@ def test_worker_refuses_when_confirmed_source_changes_after_enqueue(
     assert edited.status_code == 200, edited.text
     assert edited.json()["status"] == "completed"
 
-    assert _drain_one_job(client, worker_id="post-enqueue-scope") is True
+    assert drain_one_project_run_job(client, worker_id="post-enqueue-scope") is True
 
     # Typed admission's input snapshot now catches the changed source before
     # routed dispatch. It does not require a resumable invocation halt.
@@ -296,11 +292,11 @@ def test_worker_refuses_when_confirmed_source_changes_after_enqueue(
     )
     assert egress_claim["basis"]["work_scope"]
 
-    run_row = _run_row(project, run_id)
-    assert run_row["status"] == "failed", dict(run_row)
-    halt = persisted_action_program_invocation_halt(run_row["params"])
+    current_run_row = run_row(project, run_id)
+    assert current_run_row["status"] == "failed", dict(current_run_row)
+    halt = persisted_action_program_invocation_halt(current_run_row["params"])
     assert halt is None
-    assert run_engine_stub == []
+    assert audio_transcribe_engine_stub == []
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)

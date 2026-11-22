@@ -88,7 +88,7 @@ def get_alert(project: Any, alert_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def _validate_schedule(schedule: str | None) -> None:
+def _validate_schedule(schedule: object) -> None:
     from frisket.engine.jobs.schedule import _schedule_interval
 
     if schedule is not None and (
@@ -407,18 +407,19 @@ def record_alert_check(
                     "SELECT * FROM alert_checks WHERE id=? AND alert_id=? AND status='ok'",
                     (current["baseline_run_id"], alert_id),
                 ).fetchone()
-                baseline = (
+                if (
                     previous is not None
                     and previous["resolved_query_hash"] == resolved_query_hash
-                )
-                previous_policy = (
-                    detection_conditions(
+                ):
+                    baseline = True
+                    previous_policy = detection_conditions(
                         _decode_alert_detection_policy(previous["detection_policy"])
                     )
-                    if baseline
-                    else {}
-                )
-                previous_count = int(previous["matched_rows"]) if baseline else 0
+                    previous_count = int(previous["matched_rows"])
+                else:
+                    baseline = False
+                    previous_policy = {}
+                    previous_count = 0
                 matched = db.execute(
                     "SELECT COUNT(*) FROM alert_observation.members"
                 ).fetchone()[0]
@@ -512,6 +513,7 @@ def record_alert_check(
                         and previous_policy.get("count_changed")
                         and previous_count != matched
                     ):
+                        assert previous is not None
                         record(
                             count_changed_event(
                                 run_id=run_id,
@@ -530,6 +532,7 @@ def record_alert_check(
                             direction=threshold["direction"],
                         )
                         if crossing:
+                            assert previous is not None
                             record(
                                 threshold_crossed_event(
                                     run_id=run_id,

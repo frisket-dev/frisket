@@ -189,7 +189,7 @@ class ProjectDeleteRequest(WireModel):
     confirm_name: str
     # Hosted deletion may bind the confirmation to one control-plane project
     # lifetime. Omission preserves the local/team deletion contract.
-    project_row_id: int = Field(default=None, gt=0)
+    project_row_id: int | None = Field(default=None, gt=0)
 
 
 class UpdateProjectSensitivityRequest(WireModel):

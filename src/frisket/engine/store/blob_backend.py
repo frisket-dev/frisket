@@ -95,7 +95,7 @@ class ProjectBlobStore(Protocol):
         ...
 
 
-def validate_blob_digest(digest: str) -> str:
+def validate_blob_digest(digest: object) -> str:
     if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise ValueError("blob digest must be 64 lowercase hexadecimal characters")
     return digest

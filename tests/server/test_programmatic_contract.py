@@ -1,5 +1,4 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -8,17 +7,6 @@ from fastapi.testclient import TestClient
 from action_test_helpers import typed_map_request
 from frisket.authoring.actions import ACTION_SCHEMA_VERSION, stable_json
 from frisket.contracts.action import ActionResult
-from frisket.ai.llm import ModelRouter
-from helpers import make_client
-
-
-def _client(tmp_path) -> TestClient:
-    return make_client(
-        tmp_path,
-        router=ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-        ),
-    )
 
 
 def _seed(client: TestClient) -> tuple[str, int]:
@@ -37,8 +25,8 @@ def _seed(client: TestClient) -> tuple[str, int]:
     return pid, sheet
 
 
-def test_action_schema_and_project_read_contract(tmp_path):
-    client = _client(tmp_path)
+def test_action_schema_and_project_read_contract(off_client):
+    client = off_client
     pid, sheet = _seed(client)
 
     schema = client.get("/api/actions/schema").json()
@@ -63,8 +51,8 @@ def test_action_schema_and_project_read_contract(tmp_path):
     assert "age" not in page["rows"][0]["cells"]
 
 
-def test_action_run_status_trace_and_export_contract(tmp_path):
-    client = _client(tmp_path)
+def test_action_run_status_trace_and_export_contract(off_client):
+    client = off_client
     pid, sheet = _seed(client)
     action = typed_map_request(
         "map.template",

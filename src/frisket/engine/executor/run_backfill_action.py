@@ -137,17 +137,17 @@ def _resolve_retry_requested_rows(
             else set(scope.row_ids)
         )
     try:
-        matched = (
-            evaluate_sheet_view_row_ids(
+        if scope.view_id is not None:
+            matched = evaluate_sheet_view_row_ids(
                 project, sheet_id=scope.sheet_id, view_id=scope.view_id
             )
-            if scope.view_id is not None
-            else evaluate_sheet_selection_row_ids(
+        else:
+            assert scope.selection is not None
+            matched = evaluate_sheet_selection_row_ids(
                 project,
                 sheet_id=scope.sheet_id,
                 selection=scope.selection.model_dump(mode="json", exclude_none=True),
             )
-        )
     except SelectionUnavailable as exc:
         raise BackfillRefused(
             ActionError(

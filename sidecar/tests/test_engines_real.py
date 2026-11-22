@@ -32,7 +32,10 @@ def client() -> TestClient:
 def test_capabilities_reflect_installed_extras(client):
     """Whatever subset is installed, capabilities must tell the truth —
     a partial install still serves what it has."""
-    body = client.get("/capabilities", headers=AUTH).json()
+    resp = client.get("/capabilities", headers=AUTH)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["engines"]
     for entry in body["engines"]:
         if not entry["available"]:  # missing extra or failed loader
             assert entry["loaded"] is False

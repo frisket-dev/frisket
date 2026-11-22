@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import copy
 import uuid
+from typing import Any
 
 from frisket.ai.research.row_answer import model_call_accounting
 from frisket.ai.models.accounting import merge_accounting_meta
-from frisket.ai.llm.types import wire_responses
+from frisket.ai.llm.types import LLMRequest, LLMResponse, wire_responses
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import attempt_in_scope
@@ -30,8 +31,23 @@ class AccountedAgentRouter:
         self._responses = []
         self._facts = []
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._router, name)
+
+    def has_provider(self, provider: str) -> bool:
+        return self._router.has_provider(provider)
+
+    def local_endpoint_identity(self, model: str) -> tuple[str, str]:
+        return self._router.local_endpoint_identity(model)
+
+    def secret_values_for_model(self, model: str) -> tuple[str, ...]:
+        return self._router.secret_values_for_model(model)
+
+    def note_schema_reject(self, provider: str) -> None:
+        self._router.note_schema_reject(provider)
+
+    async def complete(self, req: LLMRequest, **kwargs: Any) -> LLMResponse:
+        return await self._router.complete(req, **kwargs)
 
     def retain_unrecorded_error_calls(self, error):
         """Hand off stable accounting and only wires not yet owned by this capability."""
@@ -48,15 +64,15 @@ class AccountedAgentRouter:
                 if id(response) not in recorded
             ]
 
-    async def complete_transport(self, request, **kwargs):
-        if request.model != self._model:
+    async def complete_transport(self, req: LLMRequest, **kwargs: Any) -> LLMResponse:
+        if req.model != self._model:
             raise ValueError("Agent model differs from its admitted model")
         attempt = require_agent_attempt(self._ctx)
         from frisket.execution.dispatch_control import dispatch_for_context
 
         dispatch_for_context(self._ctx).check()
         try:
-            response = await self._router.complete_transport(request, **kwargs)
+            response = await self._router.complete_transport(req, **kwargs)
         except BaseException as error:
             self._record_returned(
                 wire_responses(getattr(error, "wire_calls", ()) or ()), attempt

@@ -1,15 +1,65 @@
-"""Ask reads complete sources in bounded, versioned, scope-checked pieces."""
+"""Project Ask sources, source limits, search integrity, search purchase, contracts, and capabilities tests."""
 
 from __future__ import annotations
 
-import pytest
+import asyncio
+from pathlib import Path
+from typing import Literal
 
-from frisket.search import drain_index
+import httpx
+import pytest
+from pydantic import ValidationError
+from pydantic_ai.workspaces import ReadOnlyWorkspace, WorkspaceReadOnlyError
+from pydantic_ai_harness import Skills
+from pydantic_ai_harness.compaction import SummarizingCompaction, TieredCompaction
+
+import frisket.retrieval.service as retrieval_service
+from frisket.ai.research.search import SearchService
+from frisket.contracts.http.project_qa import AskCitation, AskScope, AskTurnRequest
+from frisket.engine.store.citations import (
+    record_citation,
+    record_source_artifact,
+    record_source_span,
+)
+from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.project_qa import ProjectQAStore
-from frisket.server.services.project_qa_citations import resolve_citation
-from frisket.server.services.project_qa_sources import read_source_text
-from frisket.server.services.project_qa_tools import ProjectQAScopeError, ProjectQATools
 from frisket.engine.store.transactions import write_transaction
+from frisket.execution.dispatch_control import STANDALONE, TransientDispatch
+from frisket.execution.purchases import (
+    PurchaseAdmission,
+    PurchasePolicyRequired,
+    PurchaseRecordingError,
+)
+from frisket.retrieval.contracts import (
+    BindingRevision,
+    IndexedPart,
+    LocatedHit,
+    PageRange,
+    ResultGroup,
+    RetrievalContribution,
+    ScopedBinding,
+    SearchCoverage,
+    SearchResponse,
+    SourceLocator,
+    SourceRevision,
+    TextQuery,
+    TimeRange,
+)
+from frisket.search import drain_index
+from frisket.server.services.project_qa_capabilities import (
+    ProjectQACapabilityError,
+    compose_project_qa_capabilities,
+)
+from frisket.server.services.project_qa_citations import resolve_citation
+from frisket.server.services.project_qa_runner import _search_with_purchase
+from frisket.server.services.project_qa_sources import (
+    MAX_SCAN_CHARS,
+    find_source_text,
+    read_source_text,
+)
+from frisket.server.services.project_qa_tools import ProjectQAScopeError, ProjectQATools
+
+# --- sources ---
 
 
 @pytest.fixture
@@ -446,10 +496,6 @@ def test_citation_freshness_uses_the_saved_source_version(source):
 
 
 def test_literal_find_crosses_scan_boundary_and_preserves_unicode_offsets(source):
-    from frisket.server.services.project_qa_sources import (
-        MAX_SCAN_CHARS,
-        find_source_text,
-    )
 
     project, _, _, _, sheet, column, row = source
     start = MAX_SCAN_CHARS - 3
@@ -521,11 +567,6 @@ def test_hidden_source_is_omitted_before_returning_its_label(source):
 def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     source, monkeypatch
 ):
-    from frisket.engine.store.citations import (
-        record_citation,
-        record_source_artifact,
-        record_source_span,
-    )
 
     project, store, _, turn, sheet, column, row = source
     _, refs = project.get_values_with_refs(sheet, column, [row])
@@ -565,13 +606,6 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
 
 
 def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
-    from frisket.engine.store.citations import (
-        record_citation,
-        record_source_artifact,
-        record_source_span,
-    )
-    from frisket.engine.store.media_blobs import media_cell
-    from frisket.server.services.project_qa_citations import resolve_citation
 
     project = make_project("Prepared")
     sheet = project.add_sheet("Documents")
@@ -707,3 +741,622 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
     stale_file = tools.open_source(citation_id)
     assert stale_file["needs_preparation"] is True
     assert all(part["kind"] != "prepared_evidence" for part in stale_file["passages"])
+
+
+# --- source limits ---
+
+
+def test_read_rows_clips_each_value_without_stopping_later_rows(make_project):
+    project = make_project("Source limits")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "Text")
+    rows = project.add_rows(
+        sheet,
+        [{"Text": "a" * 4_000}, {"Text": "b" * 4_000}],
+        {"Text": column},
+    )
+    store = ProjectQAStore(project)
+    thread = store.create_thread(title="Ask")
+    turn = store.submit_turn(thread["id"], request_id="rows", question="Read")
+
+    result = ProjectQATools(project, turn, store).read_rows(sheet, rows, [column])
+
+    assert [row["row_id"] for row in result["rows"]] == rows
+    assert all(row["cells"][0]["truncated"] for row in result["rows"])
+    assert result["observation_truncated"] is False
+
+
+# --- search integrity ---
+
+
+def _response(
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    revision: int,
+    *,
+    locator: SourceLocator | None = None,
+    dependencies: tuple[BindingRevision, ...] | None = None,
+    mode: Literal["lexical", "semantic"] = "lexical",
+) -> SearchResponse:
+    hit = LocatedHit(
+        part=IndexedPart(
+            part_id="part:oldneedle",
+            source=SourceRevision(
+                source_id=f"cell:{row_id}:{column_id}",
+                source_kind="text",
+                version_kind="retrieval_revision",
+                version_value=revision,
+            ),
+            producer_slice_id="slice:text-v1",
+            part_kind="text",
+            locator=locator or SourceLocator(kind="text"),
+        ),
+        binding=ScopedBinding(
+            binding_id="binding:oldneedle",
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            dependencies=dependencies
+            or (
+                BindingRevision(
+                    row_id=row_id,
+                    column_id=column_id,
+                    retrieval_revision=revision,
+                ),
+            ),
+        ),
+        contributions=(
+            RetrievalContribution(method=mode, channel="text", rank=1, score=1.0),
+        ),
+        rank_score=1.0,
+        precision="source_unit",
+        snippet="oldneedle",
+    )
+    return SearchResponse(
+        results=(ResultGroup(group_key="source:text", primary=hit),),
+        coverage=SearchCoverage(
+            requested_mode=mode,
+            effective_modes=(mode,),
+            state="complete",
+            searched_channels=("text",),
+            is_top_k=True,
+            truncated=False,
+        ),
+    )
+
+
+def _ask_project(make_project):
+    project = make_project("Race")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "Text")
+    [row] = project.add_rows(sheet, [{"Text": "oldneedle"}], {"Text": column})
+    store = ProjectQAStore(project)
+    thread = store.create_thread(title="Ask")
+    turn = store.submit_turn(thread["id"], request_id="one", question="Find it")
+    revision = int(
+        project.db.execute(
+            "SELECT retrieval_revision FROM current_cells "
+            "WHERE row_id=? AND column_id=?",
+            (row, column),
+        ).fetchone()[0]
+    )
+    return project, store, turn, sheet, row, column, revision
+
+
+def test_keyword_search_does_not_pair_stale_excerpt_with_new_value_ref(
+    make_project, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
+
+    def search_then_edit(_project, request, **_kwargs):
+        assert isinstance(request.query, TextQuery)
+        project.apply_edits(
+            [{"row_id": row, "column_id": column, "value": "replacement"}]
+        )
+        return _response(sheet, row, column, revision)
+
+    monkeypatch.setattr(retrieval_service, "search_with_encoding", search_then_edit)
+    result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
+    assert result["hits"] == []
+    assert result["partial"] is True
+    assert result["coverage"]["reason"] == "source_changed"
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM project_qa_citations WHERE turn_id=?",
+            (turn["id"],),
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_keyword_search_mints_citation_after_dependency_recheck(
+    make_project, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_with_encoding",
+        lambda _project, _request, **_kwargs: _response(sheet, row, column, revision),
+    )
+    result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
+    [hit] = result["hits"]
+    citation = store.get_citation(hit["citation_id"])
+    assert citation["source_kind"] == "cell"
+    assert citation["locator"]["sheet_id"] == sheet
+    assert citation["locator"]["row_id"] == row
+    assert citation["locator"]["column_id"] == column
+    assert citation["locator"]["retrieval_source"] == {
+        "source_id": f"cell:{row}:{column}",
+        "source_kind": "text",
+        "version_kind": "retrieval_revision",
+        "version_value": revision,
+    }
+
+    def whole_source_read(*_args, **_kwargs):
+        raise AssertionError("citation resolution loaded the whole source")
+
+    monkeypatch.setattr(project, "get_values_with_refs", whole_source_read)
+    assert (
+        resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
+        == "current"
+    )
+    assert result["partial"] is False
+
+
+def test_semantic_search_uses_shared_runtime_and_mints_a_citation(
+    make_project, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
+    runtime = object()
+    observed = []
+
+    def semantic_search(_project, request, **kwargs):
+        observed.append((request.mode, kwargs["runtime"]))
+        return _response(sheet, row, column, revision, mode="semantic")
+
+    monkeypatch.setattr(retrieval_service, "search_with_encoding", semantic_search)
+    result = ProjectQATools(
+        project,
+        turn,
+        store,
+        embedding_runtime=runtime,
+        setup_scope="workspace",
+    ).search_cells("oldneedle", sheet, mode="semantic")
+
+    assert observed == [("semantic", runtime)]
+    [hit] = result["hits"]
+    assert store.get_citation(hit["citation_id"])["source_kind"] == "cell"
+    assert result["coverage"]["requested_mode"] == "semantic"
+    assert result["partial"] is False
+
+
+def test_located_media_hit_mints_navigable_evidence_citation(make_project, monkeypatch):
+
+    project, store, turn, sheet, row, column, _revision = _ask_project(make_project)
+    _, refs = project.get_values_with_refs(sheet, column, [row])
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="video",
+            media_type="video/mp4",
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=column,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="video_clip",
+            page_start=2,
+            page_end=2,
+            start_ms=4250,
+            end_ms=9500,
+        )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=column,
+        )
+    revision = int(
+        project.db.execute(
+            "SELECT retrieval_revision FROM current_cells "
+            "WHERE row_id=? AND column_id=?",
+            (row, column),
+        ).fetchone()[0]
+    )
+    located = SourceLocator(
+        kind="video_clip",
+        pages=PageRange(2, 2),
+        time=TimeRange(4.25, 9.5),
+        source_span_ids=(span["stable_id"],),
+    )
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_with_encoding",
+        lambda _project, _request, **_kwargs: _response(
+            sheet, row, column, revision, locator=located
+        ),
+    )
+    result = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)
+    citation = store.get_citation(result["hits"][0]["citation_id"])
+    assert citation["source_kind"] == "citation"
+    assert citation["locator"]["citation_id"] == link["stable_id"]
+    assert citation["locator"]["artifact_id"] == artifact["stable_id"]
+    assert citation["locator"]["span_id"] == span["stable_id"]
+    assert citation["locator"]["location"]["time"] == {
+        "start_seconds": 4.25,
+        "end_seconds": 9.5,
+    }
+
+
+def test_page_time_hit_without_evidence_keeps_document_navigation(
+    make_project, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
+    located = SourceLocator(
+        kind="video_clip",
+        pages=PageRange(3, 3),
+        time=TimeRange(12.5, 18.0),
+    )
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_with_encoding",
+        lambda _project, _request, **_kwargs: _response(
+            sheet, row, column, revision, locator=located
+        ),
+    )
+    [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
+        "hits"
+    ]
+    citation = store.get_citation(hit["citation_id"])
+    assert citation["source_kind"] == "cell"
+
+    current = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+    assert current["status"] == "current"
+    typed = AskCitation.model_validate(current)
+    assert typed.target is not None
+    assert current["target"]["navigation"] == {
+        "kind": "document",
+        "sheet_id": sheet,
+        "row_id": row,
+        "column_id": column,
+        "page": 3,
+        "time_seconds": 12.5,
+    }
+
+    project.apply_edits([{"row_id": row, "column_id": column, "value": "replacement"}])
+    changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+    assert changed["status"] == "changed"
+    assert "navigation" not in changed["target"]
+
+
+def test_citation_becomes_stale_when_any_binding_dependency_changes(
+    make_project, monkeypatch
+):
+    project, store, turn, sheet, row, column, revision = _ask_project(make_project)
+    context_column = project.add_column(sheet, "Context")
+    project.apply_edits(
+        [{"row_id": row, "column_id": context_column, "value": "supporting"}]
+    )
+    context_revision = int(
+        project.db.execute(
+            "SELECT retrieval_revision FROM current_cells "
+            "WHERE row_id=? AND column_id=?",
+            (row, context_column),
+        ).fetchone()[0]
+    )
+    dependencies = (
+        BindingRevision(row, column, revision),
+        BindingRevision(row, context_column, context_revision),
+    )
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_with_encoding",
+        lambda _project, _request, **_kwargs: _response(
+            sheet,
+            row,
+            column,
+            revision,
+            locator=SourceLocator(kind="document", pages=PageRange(1, 1)),
+            dependencies=dependencies,
+        ),
+    )
+    [hit] = ProjectQATools(project, turn, store).search_cells("oldneedle", sheet)[
+        "hits"
+    ]
+    assert (
+        resolve_citation(project, turn["thread_id"], hit["citation_id"])["status"]
+        == "current"
+    )
+
+    project.apply_edits(
+        [{"row_id": row, "column_id": context_column, "value": "changed"}]
+    )
+    changed = resolve_citation(project, turn["thread_id"], hit["citation_id"])
+    assert changed["status"] == "changed"
+    assert "navigation" not in changed["target"]
+
+
+# --- search purchase ---
+
+
+class RecordingPolicy:
+    def __init__(self, *, fail_record=False):
+        self.fail_record = fail_record
+        self.admissions = []
+        self.observations = []
+        self.failures = []
+
+    def admit_purchase(self, request):
+        self.admissions.append(request)
+        return PurchaseAdmission("metered", "operation-test")
+
+    def record_purchase(self, request, admission, observation):
+        self.observations.append(observation)
+        if self.fail_record:
+            raise RuntimeError("private accounting failure details")
+
+    def fail_purchase(self, request, admission, error):
+        self.failures.append((request, admission, error))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_when", ["before", "after_response"])
+async def test_search_cancellation_stops_new_work_but_keeps_returned_usage(cancel_when):
+    calls = []
+    cancelled = cancel_when == "before"
+    policy = RecordingPolicy()
+
+    def transport(request):
+        nonlocal cancelled
+        calls.append(request)
+        cancelled = True
+        return httpx.Response(
+            200, json={"results": [], "costDollars": {"total": 0.007}}
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as http:
+        service = SearchService(
+            preference="exa",
+            effective_keys={"exa": "fake-key"},
+            credential_source="platform_key",
+            http=http,
+        )
+        operation = _search_with_purchase(
+            service,
+            "query",
+            policy=policy,
+            dispatch=TransientDispatch(lambda: cancelled),
+        )
+        if cancel_when == "before":
+            with pytest.raises(asyncio.CancelledError):
+                await operation
+            assert calls == policy.admissions == policy.observations == []
+            assert policy.failures == []
+        else:
+            result = await operation
+            assert result.usage.provider_cost_usd == 0.007
+            assert len(calls) == len(policy.admissions) == len(policy.observations) == 1
+            assert policy.observations[0].provider_cost_micro == 7000
+            assert policy.failures == []
+
+
+@pytest.mark.asyncio
+async def test_search_accounting_failure_retains_result_without_retry(caplog):
+    calls = []
+    policy = RecordingPolicy(fail_record=True)
+
+    def transport(request):
+        calls.append(request)
+        return httpx.Response(
+            200, json={"results": [], "costDollars": {"total": 0.007}}
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as http:
+        service = SearchService(
+            preference="exa",
+            effective_keys={"exa": "fake-key"},
+            credential_source="platform_key",
+            http=http,
+        )
+        result = await _search_with_purchase(
+            service,
+            "private search query",
+            policy=policy,
+            dispatch=STANDALONE,
+        )
+    assert result.usage.provider_cost_usd == 0.007
+    assert len(calls) == len(policy.admissions) == len(policy.observations) == 1
+    assert len(policy.failures) == 1
+    request, admission, error = policy.failures[0]
+    assert request is policy.admissions[0]
+    assert admission.operation_id == "operation-test"
+    assert isinstance(error, PurchaseRecordingError)
+    assert error.provider_result is result
+    assert error.observation is policy.observations[0]
+    assert error.observation.provider_cost_micro == 7000
+    assert "purchase accounting could not be recorded" in caplog.text
+    assert "private search query" not in caplog.text
+    assert "private accounting failure details" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_search_without_accounting_owner_refuses_before_egress():
+    calls = []
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: calls.append(request))
+    ) as http:
+        service = SearchService(
+            preference="exa",
+            effective_keys={"exa": "fake-key"},
+            credential_source="platform_key",
+            http=http,
+        )
+        with pytest.raises(PurchasePolicyRequired):
+            await _search_with_purchase(
+                service,
+                "query",
+                policy=None,
+                dispatch=STANDALONE,
+            )
+    assert calls == []
+
+
+# --- contracts ---
+
+
+def test_turn_snapshots_existing_source_scope_and_options():
+    request = AskTurnRequest.model_validate(
+        {
+            "request_id": "first-question",
+            "question": "What changed?",
+            "scope": {
+                "kind": "sources",
+                "sources": [
+                    {"kind": "rows", "sheet_id": 1, "row_ids": [2, 3]},
+                    {"kind": "file", "sheet_id": 4, "row_id": 5, "column_id": 6},
+                ],
+            },
+            "web": False,
+            "suggest_actions": True,
+        }
+    )
+    assert request.scope.kind == "sources"
+    assert request.model is None
+    assert request.web is False
+
+
+@pytest.mark.parametrize(
+    "extra", [{"confirmed": True}, {"execute": True}, {"project_id": "other"}]
+)
+def test_question_cannot_grant_write_authority_or_change_project(extra):
+    with pytest.raises(ValidationError):
+        AskTurnRequest.model_validate(
+            {
+                "request_id": "question",
+                "question": "Read this",
+                "scope": {"kind": "project"},
+                **extra,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        {"kind": "sources", "sources": []},
+        {"kind": "project", "sources": [{"kind": "sheet", "sheet_id": 1}]},
+        {"kind": "sources", "sources": [{"kind": "file", "path": "/secret"}]},
+        {
+            "kind": "sources",
+            "sources": [{"kind": "rows", "sheet_id": 1, "row_ids": [1, 1]}],
+        },
+        {
+            "kind": "sources",
+            "sources": [
+                {"kind": "rows", "sheet_id": 1, "row_ids": list(range(1, 602))},
+                {"kind": "rows", "sheet_id": 2, "row_ids": list(range(1, 602))},
+            ],
+        },
+    ],
+)
+def test_invalid_or_overlarge_source_scope_is_not_silently_broadened(scope):
+    with pytest.raises(ValidationError):
+        AskScope.model_validate(scope)
+
+
+# --- capabilities ---
+
+
+class _Model:
+    def __init__(self, context_window: int | None):
+        self.context_window = context_window
+
+
+def _skill(name: str = "source-check") -> dict[str, object]:
+    return {
+        "name": name,
+        "revision": 7,
+        "content": (
+            "---\n"
+            f"name: {name}\n"
+            "description: Check claims against exact source material.\n"
+            "---\n\n"
+            "Inspect the cited passage before accepting a claim.\n"
+        ),
+    }
+
+
+@pytest.mark.anyio
+async def test_composition_materializes_a_read_only_progressive_skill_library() -> None:
+    library_root: Path | None = None
+
+    with compose_project_qa_capabilities(_Model(1_000_000), [_skill()]) as capabilities:
+        assert [type(capability) for capability in capabilities] == [
+            Skills,
+            TieredCompaction,
+        ]
+        skills = capabilities[0]
+        assert isinstance(skills, Skills)
+        assert isinstance(skills.workspace, ReadOnlyWorkspace)
+        assert skills.workspace.read_only is True
+        assert skills.workspace.ref is not None
+        library_root = Path(skills.workspace.ref.id)
+        assert (library_root / "skills/source-check/SKILL.md").read_text() == _skill()[
+            "content"
+        ]
+
+        with pytest.raises(WorkspaceReadOnlyError):
+            await skills.workspace.write_text("skills/source-check/SKILL.md", "changed")
+        with pytest.raises(WorkspaceReadOnlyError):
+            await skills.workspace.run(["pwd"])
+
+        compaction = capabilities[1]
+        assert isinstance(compaction, TieredCompaction)
+        assert compaction.target_fraction == 0.75
+        [summary] = compaction.tiers
+        assert isinstance(summary, SummarizingCompaction)
+        assert summary.model is None
+        assert summary.receipts is True
+        assert "source and citation IDs" in summary.summary_prompt
+        assert "pending action and tool-call references" in summary.summary_prompt
+
+    assert library_root is not None
+    assert not library_root.exists()
+
+
+def test_composition_rejects_unsafe_or_ambiguous_skill_snapshots() -> None:
+    with pytest.raises(ProjectQACapabilityError, match="canonical"):
+        with compose_project_qa_capabilities(_Model(1_000_000), [_skill("../escape")]):
+            pass
+
+    duplicate = _skill()
+    with pytest.raises(ProjectQACapabilityError, match="duplicate"):
+        with compose_project_qa_capabilities(
+            _Model(1_000_000), [duplicate, dict(duplicate)]
+        ):
+            pass
+
+    invalid_revision = _skill()
+    invalid_revision["revision"] = "7"
+    with pytest.raises(ProjectQACapabilityError, match="revision"):
+        with compose_project_qa_capabilities(_Model(1_000_000), [invalid_revision]):
+            pass
+
+
+def test_compaction_requires_known_capacity_or_explicit_disable() -> None:
+    with pytest.raises(ProjectQACapabilityError, match="context capacity"):
+        with compose_project_qa_capabilities(_Model(None), []):
+            pass
+
+    with compose_project_qa_capabilities(
+        _Model(None), [_skill()], enable_compaction=False
+    ) as capabilities:
+        assert [type(capability) for capability in capabilities] == [Skills]

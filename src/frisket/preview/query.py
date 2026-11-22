@@ -17,6 +17,7 @@ from frisket.querysets import (
     resolve_sheet_filter_rows,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.search import SearchIndexNotReady
 from frisket.contracts.query_spec import (
     canonical_json,
@@ -88,7 +89,7 @@ def resolve_query_preview_resolution(
 
 
 def _resolve_query_preview_in_snapshot(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     query: dict[str, Any],
     *,
     limit: int,
@@ -204,7 +205,7 @@ EMBEDDING_SIMILARITY_EVALUATOR = {
 
 
 def _resolve_embedding_similarity_preview(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     normalized: dict[str, Any],
     *,
     limit: int,
@@ -276,7 +277,7 @@ EMBEDDING_HYBRID_EVALUATOR = {
 
 
 def _resolve_embedding_hybrid_preview(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     normalized: dict[str, Any],
     *,
     limit: int,
@@ -376,7 +377,7 @@ def _embedding_provider_use(kind: str, result: Any) -> list[dict[str, Any]]:
 
 
 def _require_stable_embedding_binding(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     before: EmbeddingQueryBinding | None,
     resolved: EmbeddingQueryBinding,
 ) -> None:
@@ -412,7 +413,9 @@ def revalidate_query_preview_resolution(
         )
 
 
-def _require_visible_sheet(project: Project, sheet_id: int) -> None:
+def _require_visible_sheet(
+    project: Project | ProjectReadSnapshot, sheet_id: int
+) -> None:
     if any(int(sheet["id"]) == sheet_id for sheet in project.sheets()):
         return
     raise QueryPreviewError(

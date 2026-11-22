@@ -14,7 +14,6 @@ import type {
   RegisteredActionDraft,
   RegisteredActionRequest,
   RunActionInvocationOptions,
-  SheetRowScope,
 } from './types';
 
 export interface V1ActionSpecActionOutput {
@@ -77,22 +76,6 @@ export function throwIfActionAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw actionAbortReason(signal);
 }
 
-function canonicalSheetRowScope(rowScope: SheetRowScope): SheetRowScope {
-  if (rowScope.selector.kind === 'all_rows' || rowScope.selector.kind === 'view') {
-    return rowScope;
-  }
-  return {
-    sheet_id: rowScope.sheet_id,
-    selector: {
-      kind: 'exact_membership',
-      membership: {
-        row_ids: [...new Set(rowScope.selector.membership.row_ids)]
-          .sort((left, right) => left - right),
-      },
-    },
-  };
-}
-
 export interface V1ActionResultPostOptions {
   clearIdempotency?: 'afterPost' | 'finally' | 'never' | 'onSuccess';
   postMode?: 'default' | 'operation';
@@ -117,9 +100,8 @@ function specKindAndParams(
 ): {
   kind: string;
   params: Record<string, unknown>;
-  rowScope?: SheetRowScope;
 } | null {
-  const kind = typeof spec.action_id === 'string' ? spec.action_id : spec.kind;
+  const kind = spec.action_id;
   const params = spec.params;
   if (
     typeof kind !== 'string' ||
@@ -129,22 +111,14 @@ function specKindAndParams(
   ) {
     return null;
   }
-  const rowScope = spec.row_scope;
-  if (
-    rowScope !== undefined
-    && (rowScope === null || typeof rowScope !== 'object' || Array.isArray(rowScope))
-  ) return null;
   return {
     kind,
-    params: typeof spec.action_id === 'string'
-      ? {
-          params,
-          scope: spec.scope,
-          output_names: spec.output_names ?? {},
-          ...(spec.sheet_name == null ? {} : { sheet_name: spec.sheet_name }),
-        }
-      : params as Record<string, unknown>,
-    ...(rowScope === undefined ? {} : { rowScope: rowScope as SheetRowScope }),
+    params: {
+      params,
+      scope: spec.scope,
+      output_names: spec.output_names ?? {},
+      ...(spec.sheet_name == null ? {} : { sheet_name: spec.sheet_name }),
+    },
   };
 }
 
@@ -156,9 +130,8 @@ export class V1ActionIdempotencyKeys {
     actionKind: string,
     params: Record<string, unknown>,
     projectId?: string,
-    rowScope?: SheetRowScope,
   ): string {
-    const semantic = v1ActionIdempotencySignature(actionKind, params, rowScope);
+    const semantic = v1ActionIdempotencySignature(actionKind, params);
     return projectId === undefined
       ? semantic
       : JSON.stringify({ projectId, semantic });
@@ -168,9 +141,8 @@ export class V1ActionIdempotencyKeys {
     actionKind: string,
     params: Record<string, unknown>,
     projectId?: string,
-    rowScope?: SheetRowScope,
   ): string {
-    const signature = this.signature(actionKind, params, projectId, rowScope);
+    const signature = this.signature(actionKind, params, projectId);
     const existing = this.pending.get(signature);
     if (existing) return existing;
     const key = newV1IdempotencyKey(actionKind);
@@ -182,9 +154,8 @@ export class V1ActionIdempotencyKeys {
     actionKind: string,
     params: Record<string, unknown>,
     projectId?: string,
-    rowScope?: SheetRowScope,
   ): void {
-    this.pending.delete(this.signature(actionKind, params, projectId, rowScope));
+    this.pending.delete(this.signature(actionKind, params, projectId));
   }
 
   release(
@@ -197,14 +168,12 @@ export class V1ActionIdempotencyKeys {
     params: Record<string, unknown>,
     projectId: string,
     windowMs?: number,
-    rowScope?: SheetRowScope,
   ): void;
   release(
     actionKind: string,
     params: Record<string, unknown>,
     projectIdOrWindowMs?: string | number,
     windowMs = V1_ACTION_KEY_REPLAY_WINDOW_MS,
-    rowScope?: SheetRowScope,
   ): void {
     const projectId = typeof projectIdOrWindowMs === 'string'
       ? projectIdOrWindowMs
@@ -212,7 +181,7 @@ export class V1ActionIdempotencyKeys {
     const replayWindowMs = typeof projectIdOrWindowMs === 'number'
       ? projectIdOrWindowMs
       : windowMs;
-    const signature = this.signature(actionKind, params, projectId, rowScope);
+    const signature = this.signature(actionKind, params, projectId);
     const key = this.pending.get(signature);
     if (!key) return;
     setTimeout(() => {
@@ -224,7 +193,6 @@ export class V1ActionIdempotencyKeys {
 export const v1ActionIdempotencySignature = (
   actionKind: string,
   params: Record<string, unknown>,
-  rowScope?: SheetRowScope,
 ): string => {
   const identityParams = { ...params };
   delete identityParams.confirmed;
@@ -232,7 +200,6 @@ export const v1ActionIdempotencySignature = (
   return canonicalJson({
     actionKind,
     params: identityParams,
-    ...(rowScope ? { rowScope: canonicalSheetRowScope(rowScope) } : {}),
   });
 };
 
@@ -328,7 +295,6 @@ class V1ActionSessionImpl implements V1ActionSession {
         parsed.kind,
         parsed.params,
         projectId,
-        parsed.rowScope,
       );
     }
   }
@@ -344,8 +310,6 @@ class V1ActionSessionImpl implements V1ActionSession {
         parsed.kind,
         parsed.params,
         projectId,
-        undefined,
-        parsed.rowScope,
       );
     }
   }
