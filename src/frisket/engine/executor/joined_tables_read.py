@@ -79,6 +79,25 @@ def _sheet(project, sheet_id, requested=None):
     return {"sheet_id": sheet_id, "name": str(sheet["name"]), "row_ids": rows}, columns
 
 
+def allocate_join_column_name(
+    base: str,
+    used: set[str],
+    natural: set[str],
+    *,
+    generated: bool = False,
+) -> str:
+    """Allocate a unique output column name for a join projection."""
+    if base not in used and not (generated and base in natural):
+        used.add(base)
+        return base
+    index = 2
+    while f"{base}_{index}" in (used | natural):
+        index += 1
+    result = f"{base}_{index}"
+    used.add(result)
+    return result
+
+
 def _projection(keys, picks, left, right, indicator):
     """One logical-name authority, including explicit ordered/repeated picks."""
     descriptors = [
@@ -118,19 +137,10 @@ def _projection(keys, picks, left, right, indicator):
     # Keep the indicator's stable logical key even if a source is named _merge.
     used = {"_merge"} if indicator else set()
 
-    def name(base, *, generated=False):
-        if base not in used and not (generated and base in natural):
-            used.add(base)
-            return base
-        index = 2
-        while f"{base}_{index}" in used | natural:
-            index += 1
-        result = f"{base}_{index}"
-        used.add(result)
-        return result
-
     for descriptor in descriptors:
-        descriptor["name"] = name(descriptor["name"])
+        descriptor["name"] = allocate_join_column_name(
+            descriptor["name"], used, natural
+        )
     for pick in picks:
         column = (left if pick.side == "left" else right).get(pick.column)
         if column is None:
@@ -143,7 +153,9 @@ def _projection(keys, picks, left, right, indicator):
         base = f"{pick.column}_{pick.side}" if conflict else pick.column
         descriptors.append(
             {
-                "name": name(base, generated=conflict),
+                "name": allocate_join_column_name(
+                    base, used, natural, generated=conflict
+                ),
                 "type": column["type"],
                 "role": pick.side,
                 "source_col_id": column["id"],

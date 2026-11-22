@@ -42,6 +42,7 @@ from frisket.engine.executor.joined_tables_read import (
     JoinRefreshAdmission,
     _digest,
     _sheet,
+    allocate_join_column_name,
     validate_joined_tables_source,
 )
 from frisket.engine.runner.confirmation_context import (
@@ -119,17 +120,6 @@ def _spatial_projection(
         natural.add("_merge")
     used: set[str] = {"_merge"} if indicator else set()
 
-    def allocate(base: str, *, generated: bool = False) -> str:
-        if base not in used and not (generated and base in natural):
-            used.add(base)
-            return base
-        index = 2
-        while f"{base}_{index}" in (used | natural):
-            index += 1
-        result = f"{base}_{index}"
-        used.add(result)
-        return result
-
     descriptors: list[dict[str, Any]] = []
     for col_name in left_names:
         col = left_columns[col_name]
@@ -137,7 +127,9 @@ def _spatial_projection(
         base = f"{col_name}_left" if conflict else col_name
         descriptors.append(
             {
-                "name": allocate(base, generated=conflict),
+                "name": allocate_join_column_name(
+                    base, used, natural, generated=conflict
+                ),
                 "type": col["type"],
                 "role": "left",
                 "source_col_id": col["id"],
@@ -149,7 +141,9 @@ def _spatial_projection(
         base = f"{col_name}_right" if conflict else col_name
         descriptors.append(
             {
-                "name": allocate(base, generated=conflict),
+                "name": allocate_join_column_name(
+                    base, used, natural, generated=conflict
+                ),
                 "type": col["type"],
                 "role": "right",
                 "source_col_id": col["id"],
