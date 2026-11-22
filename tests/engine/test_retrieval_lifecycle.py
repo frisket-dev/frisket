@@ -217,12 +217,12 @@ def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path: Path) -
     history_before = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id,kind,spec,undo_info,status FROM changes ORDER BY id"
+            "SELECT id,kind,spec,undo_info,status FROM ops ORDER BY id"
         )
     ]
     current_before = tuple(
         project.db.execute(
-            "SELECT origin_kind,origin_change_id,origin_run_id,base_producer_id "
+            "SELECT origin_kind,origin_op_id,origin_run_id,base_producer_id "
             "FROM current_cells WHERE row_id=? AND column_id=?",
             (row_id, column_id),
         ).fetchone()

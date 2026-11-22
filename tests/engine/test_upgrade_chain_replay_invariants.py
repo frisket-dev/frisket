@@ -37,7 +37,10 @@ from frisket.server.services.action_history import editable_action_draft
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
-from historical_schema import restore_pre_changes_schema, restore_pre_feeds_tables
+from tests.engine.historical_schema import (
+    restore_pre_changes_schema,
+    restore_pre_feeds_tables,
+)
 
 _PRE_ALERTS_WATCH_SCHEMA_SQL = """
 CREATE TABLE watches (

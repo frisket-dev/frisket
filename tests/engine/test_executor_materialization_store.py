@@ -158,8 +158,8 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(make_pr
 
 def test_materialized_lineage_upgrade_preserves_edges_and_foreign_keys():
     import sqlite3
-    from frisket.engine.store.materialized_lineage import (
-        MATERIALIZED_LINEAGE_SCHEMA_SQL,
+    from frisket.upgrades.project._pre_changes_ddl import (
+        PRE_CHANGES_MATERIALIZED_LINEAGE_SCHEMA_SQL,
     )
     from frisket.upgrades.project.domain_identity_migration import (
         migrate_materialized_lineage,
@@ -173,10 +173,12 @@ def test_materialized_lineage_upgrade_preserves_edges_and_foreign_keys():
         CREATE TABLE ops(id INTEGER PRIMARY KEY,status TEXT,change_order INTEGER);
         INSERT INTO sheets VALUES(1);
         INSERT INTO rows VALUES(1),(2);
-        INSERT INTO changes VALUES(1,'applied',1);
+        INSERT INTO ops VALUES(1,'applied',1);
     """)
-    old_schema = MATERIALIZED_LINEAGE_SCHEMA_SQL.split("CREATE VIEW")[0].replace(
-        "PRIMARY KEY (materialized_row_id, source_row_id, role, change_id)",
+    old_schema = PRE_CHANGES_MATERIALIZED_LINEAGE_SCHEMA_SQL.split("CREATE VIEW")[
+        0
+    ].replace(
+        "PRIMARY KEY (materialized_row_id, source_row_id, role, op_id)",
         "PRIMARY KEY (materialized_row_id, source_row_id, role)",
     )
     db.executescript(old_schema)

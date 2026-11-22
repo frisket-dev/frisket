@@ -1154,7 +1154,7 @@ class TestRunAction:
         assert result["done"] is True
         assert result["receipt_id"]
         [output] = result["outputs"]
-        assert output["kind"] == "operation"
+        assert output["kind"] == "change"
         assert output["ref"]["direction"] == "undo"
         assert output["ref"]["change_id"] == change_id
 

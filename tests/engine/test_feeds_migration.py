@@ -12,7 +12,10 @@ from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.alerts.triggers import feed_poll_materialization_from_receipt
 from frisket.feeds.health import build_feed_health
 from frisket.upgrades.project.feeds_migration import FEEDS_FROM_DIGEST
-from historical_schema import restore_pre_changes_schema, restore_pre_feeds_tables
+from tests.engine.historical_schema import (
+    restore_pre_changes_schema,
+    restore_pre_feeds_tables,
+)
 
 
 def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:

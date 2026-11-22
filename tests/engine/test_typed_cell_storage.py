@@ -203,18 +203,18 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
     _restore_legacy_authorities(db)
     raw = '"prefix\\ud800suffix"'
     db.executemany(
-        "INSERT INTO changes (id,kind,spec) VALUES (?,?, '{}')",
+        "INSERT INTO ops (id,kind,spec) VALUES (?,?, '{}')",
         [(1, "source.write"), (2, "map.test"), (3, "edit")],
     )
     db.execute(
-        "INSERT INTO base_cell_producers (id,stage_id,change_id) VALUES (1,'op:1',1)"
+        "INSERT INTO base_cell_producers (id,stage_id,op_id) VALUES (1,'op:1',1)"
     )
     db.execute(
         "INSERT INTO cells (row_id,column_id,value,producer_id) VALUES (100,10,?,1)",
         (raw,),
     )
     db.execute(
-        "INSERT INTO runs (id,change_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
+        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
     )
     db.execute(
         "INSERT INTO run_output_generations "
@@ -231,12 +231,12 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,101,20)"
     )
     db.execute(
-        "INSERT INTO edits (change_id,row_id,column_id,value) VALUES (3,102,10,?)",
+        "INSERT INTO edits (op_id,row_id,column_id,value) VALUES (3,102,10,?)",
         (raw,),
     )
     db.executemany(
         "INSERT INTO current_cells "
-        "(column_id,row_id,value,origin_kind,origin_change_id,origin_run_id,"
+        "(column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
         "base_producer_id,validity) VALUES (10,?,?,?,?,?,?, 'valid')",
         [
             (100, raw, "source_cell", None, None, 1),

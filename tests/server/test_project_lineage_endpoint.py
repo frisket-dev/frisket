@@ -102,7 +102,7 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(client) -> None:
     assert child_node["derived"] is True
     assert child_node["syncState"] == "synced"
     # HOW IT'S MADE: the real op kind is carried, not a hardcoded 'derive'.
-    assert child_node["op_kind"] == "derive.table_from_list"
+    assert child_node["change_kind"] == "derive.table_from_list"
 
     edges = body["edges"]
     derive_edge = next(

@@ -539,8 +539,8 @@ def test_distinct_list_item_tokens_share_one_canonical_row_membership(make_proje
         "missing_refs",
         "sheet_id_dict",
         "sheet_id_list",
-        "op_id_dict",
-        "op_id_list",
+        "change_id_dict",
+        "change_id_list",
     ],
 )
 def test_parented_table_replay_rejects_tampered_publication_without_read(

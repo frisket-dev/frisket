@@ -31,7 +31,10 @@ from frisket.upgrades.project.generated_columns_migration import (
 from frisket.upgrades.project.receipt_records_migration import (
     RECEIPT_RECORDS_TO_DIGEST,
 )
-from historical_schema import restore_pre_changes_schema, restore_pre_feeds_tables
+from tests.engine.historical_schema import (
+    restore_pre_changes_schema,
+    restore_pre_feeds_tables,
+)
 from tests.engine.test_alerts_migration import _PRE_UPGRADE_WATCH_TABLES_SQL
 
 

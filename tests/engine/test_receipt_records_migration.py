@@ -32,7 +32,7 @@ from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
 from tests.engine.test_generated_columns_migration import (
     _downgrade_generated_columns_schema,
 )
-from historical_schema import restore_pre_changes_schema
+from tests.engine.historical_schema import restore_pre_changes_schema
 
 
 def _downgrade_to_citations_digest(db: sqlite3.Connection) -> None:

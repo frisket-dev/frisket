@@ -551,21 +551,24 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
     run_heads = canonical_heads_sql(
         "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
     )
-    restore_pre_feeds_tables(db)
     db.execute("BEGIN")
     db.execute(
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "
         f"({run_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.commit()
+    assert sheet.values()[:3] == ["B0", "B1", "B2"]
+    _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
+    restore_pre_feeds_tables(db)
+    db.execute("BEGIN")
     db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
     db.execute(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
+    db.execute("UPDATE meta SET value=? WHERE key='schema_digest'", (DOMAIN_TO_DIGEST,))
     db.commit()
-    _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
-    assert sheet.values()[:3] == ["B0", "B1", "B2"]
     path = sheet.project.path
     sheet.project.close()
 
@@ -590,21 +593,27 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
     copy_heads = canonical_heads_sql(
         "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
     )
-    restore_pre_feeds_tables(db)
     db.execute("BEGIN")
     db.execute(
         "INSERT OR REPLACE INTO current_cells SELECT * FROM "
         f"({copy_heads}) WHERE column_id=?",
         (sheet.out,),
     )
+    db.commit()
+    assert sheet.values()[:3] == ["A0", "A1", "A2"]
+    _stamp_pre_citations_digest(db, EDIT_PRECEDENCE_TO_DIGEST)
+    restore_pre_feeds_tables(db)
+    db.execute("BEGIN")
     db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
     db.execute(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
+    db.execute(
+        "UPDATE meta SET value=? WHERE key='schema_digest'",
+        (EDIT_PRECEDENCE_TO_DIGEST,),
+    )
     db.commit()
-    _stamp_pre_citations_digest(db, EDIT_PRECEDENCE_TO_DIGEST)
-    assert sheet.values()[:3] == ["A0", "A1", "A2"]
     path = sheet.project.path
     sheet.project.close()
 

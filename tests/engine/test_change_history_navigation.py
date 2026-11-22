@@ -168,7 +168,7 @@ def test_typed_selective_actions_keep_navigation_and_return_actual_state(make_pr
         result = run_action_spec(
             project,
             {
-                "action_id": f"operation.{kind}",
+                "action_id": f"change.{kind}",
                 "scope": {"kind": "project"},
                 "params": {"change_id": edit},
                 "idempotency_key": f"operation-{kind}",

@@ -26,7 +26,7 @@ from frisket.upgrades.project.research_pause_migration import (
 from tests.engine.test_generated_columns_migration import (
     _downgrade_generated_columns_schema,
 )
-from historical_schema import restore_pre_changes_schema
+from tests.engine.historical_schema import restore_pre_changes_schema
 
 _LEGACY_TABLES_DDL = """
 CREATE TABLE evidence_links (

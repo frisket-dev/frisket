@@ -278,7 +278,7 @@ def _operation_receipt(project: Project, result: Any) -> Any:
 def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     derive_op_id = seeded["derive_op_id"]
     assert result.change_ids == [derive_op_id]
-    transition = next(output for output in result.outputs if output.kind == "operation")
+    transition = next(output for output in result.outputs if output.kind == "change")
     assert transition.ref["kind"] == "change_status_transition"
     assert transition.ref["direction"] == "undo"
     assert transition.ref["change_id"] == derive_op_id
@@ -316,7 +316,7 @@ def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> 
 def _check_redo_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     derive_op_id = seeded["derive_op_id"]
     assert result.change_ids == [derive_op_id]
-    transition = next(output for output in result.outputs if output.kind == "operation")
+    transition = next(output for output in result.outputs if output.kind == "change")
     assert transition.ref["direction"] == "redo"
     assert transition.ref["status_before"] == "undone"
     assert transition.ref["status_after"] == "applied"

@@ -56,7 +56,7 @@ test('op history is a bottom-dock list/detail panel with selective Revert/Restor
   });
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (String(payload.action_id).startsWith('operation.')) {
+    if (String(payload.action_id).startsWith('change.')) {
       operationActions.push(payload);
     }
     await route.continue();

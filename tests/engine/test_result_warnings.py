@@ -212,7 +212,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
             dict(row)
             for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1,2")
         ]
-        for table in ("changes", "current_cells", "cell_result_heads")
+        for table in ("ops", "current_cells", "cell_result_heads")
     }
     before = [
         dict(row) for row in project.db.execute("SELECT * FROM results ORDER BY row_id")

@@ -35,7 +35,7 @@ from frisket.upgrades.project.changes_migration import (
     CHANGES_FROM_DIGEST,
     CHANGES_TO_DIGEST,
 )
-from historical_schema import restore_pre_changes_schema
+from tests.engine.historical_schema import restore_pre_changes_schema
 
 
 def _seed_rich_bundle(bundle_path: Path) -> dict[str, int | str]:

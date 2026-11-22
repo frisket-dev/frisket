@@ -185,6 +185,10 @@
               }
             },
             "properties": {
+              "change_id": {
+                "title": "Change Id",
+                "type": "integer"
+              },
               "dataset_name": {
                 "anyOf": [
                   {
@@ -203,10 +207,6 @@
                 },
                 "title": "Diagnostics",
                 "type": "array"
-              },
-              "change_id": {
-                "title": "Change Id",
-                "type": "integer"
               },
               "sheets": {
                 "items": {

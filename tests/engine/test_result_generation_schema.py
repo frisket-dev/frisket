@@ -513,7 +513,7 @@ def test_generation_binding_delete_requires_permanent_op_discard(
     else:
         with pytest.raises(
             sqlite3.IntegrityError,
-            match="output generation can be deleted only after op discard",
+            match="output generation can be deleted only after change discard",
         ):
             project.db.execute(
                 "DELETE FROM run_output_generations WHERE run_id=? AND column_id=?",
