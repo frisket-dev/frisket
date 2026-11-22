@@ -159,7 +159,7 @@ def _sheet_id_by_name(project: Project, name: str) -> int:
 
 def test_catalog_entry_is_local_zero_cost_with_geo_point_requirement() -> None:
     entry = ACTION_REGISTRY.get("derive.spatial_join").catalog_entry()
-    assert entry["title"] == "Spatial join (point in polygon)"
+    assert entry["title"] == "Spatial join"
     assert entry["cost_policy"]["kind"] == "none"
     assert entry["cost_policy"]["requires_confirmation"] is False
     assert entry["row_scope_policy"]["kind"] == "sheet_rows"

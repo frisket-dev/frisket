@@ -60,7 +60,7 @@ def spatial_join(
 
 SPATIAL_JOIN = action(
     name="spatial_join",
-    title="Spatial join (point in polygon)",
+    title="Spatial join",
     description=(
         "Join each row's geo_point column against a target sheet's geo_shape "
         "polygon column to create a new sheet containing matched polygon attributes."

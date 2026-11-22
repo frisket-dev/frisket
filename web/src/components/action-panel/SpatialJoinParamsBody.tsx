@@ -236,8 +236,8 @@ function SpatialJoinParamsBodyForSheet({
               value={params.match ?? 'all'}
               disabled={blocked}
               options={[
-                { value: 'all', label: 'All matching polygons' },
-                { value: 'first', label: 'First matching polygon' },
+                { value: 'all', label: 'All matches' },
+                { value: 'first', label: 'First match' },
               ]}
               onValueChange={(match) => setParams({ ...params, match: match as 'all' | 'first' })}
             />
