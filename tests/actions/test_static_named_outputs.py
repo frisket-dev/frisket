@@ -4,8 +4,10 @@ from pydantic import BaseModel, Field, create_model
 from frisket.actions.core import ActionCategory, RegisteredAction, action, map_rows
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionParams, ColumnRef, Outcome, Row, RowResult
+from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.recordsets import is_feedable_named_result_ref
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.sdk.ops import transcribe_engines
 
 
@@ -63,8 +65,8 @@ def project(make_project, monkeypatch):
     yield project
 
 
-def run(project, body):
-    result = run_action_spec(project, body, project_id="named")
+def run(project, body, *, router=None):
+    result = run_action_spec(project, body, project_id="named", router=router)
     if result.status == "needs_confirmation":
         result = run_action_spec(
             project,
@@ -73,6 +75,7 @@ def run(project, body):
                 "confirmation": result.errors[0].details["promise_set_hash"],
             },
             project_id="named",
+            router=router,
         )
     return result
 
@@ -186,6 +189,7 @@ def test_static_named_output_reuses_visible_column_and_feeds_pinned_derivation(
             "replace_existing": True,
             "idempotency_key": "replace",
         },
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="fresh"),
     )
     assert replaced.status == "completed", replaced.errors
     assert next(iter(project.get_values(sheet, named.ref["column_id"]).values()))[0][
