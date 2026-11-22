@@ -83,16 +83,17 @@ def emit_notification_candidate(
         normalized.get("payload", {}),
         max_string_chars=DEFAULT_LOG_STRING_MAX_CHARS,
     )
-    normalized = {
-        **normalized,
-        "source_kind": redact_text(normalized["source_kind"], max_chars=4096),
-        "source_ref": safe_source_ref if isinstance(safe_source_ref, dict) else {},
-        "dedupe_key": redact_text(normalized["dedupe_key"], max_chars=4096),
-        "title": redact_text(normalized["title"], max_chars=4096),
-        "summary": redact_text(normalized["summary"], max_chars=4096, one_line=False),
-        "deep_link": safe_deep_link if isinstance(safe_deep_link, dict) else {},
-        "payload": safe_payload if isinstance(safe_payload, dict) else {},
-    }
+    normalized["source_kind"] = redact_text(normalized["source_kind"], max_chars=4096)
+    normalized["source_ref"] = (
+        safe_source_ref if isinstance(safe_source_ref, dict) else {}
+    )
+    normalized["dedupe_key"] = redact_text(normalized["dedupe_key"], max_chars=4096)
+    normalized["title"] = redact_text(normalized["title"], max_chars=4096)
+    normalized["summary"] = redact_text(
+        normalized["summary"], max_chars=4096, one_line=False
+    )
+    normalized["deep_link"] = safe_deep_link if isinstance(safe_deep_link, dict) else {}
+    normalized["payload"] = safe_payload if isinstance(safe_payload, dict) else {}
     source_ref = _canonical_object(normalized["source_ref"])
     event_ids = sorted({int(value) for value in normalized.get("source_event_ids", [])})
     event_kinds = _event_kinds_for_candidate(project, normalized, event_ids)
@@ -100,6 +101,8 @@ def emit_notification_candidate(
     payload = _redact_payload(normalized.get("payload", {}))
     deep_link = _canonical_object(normalized.get("deep_link", {}))
 
+    severity = normalized.get("severity", "info")
+    event_count = normalized.get("event_count", 1)
     existing = project.notification_item_by_dedupe_key(dedupe_key)
     deduped = existing is not None
     if existing is None and not _requested_by_a_route(
@@ -108,7 +111,7 @@ def emit_notification_candidate(
             "source_kind": normalized["source_kind"],
             "source_ref": _json(source_ref),
             "event_kinds": _json(event_kinds),
-            "severity": normalized["severity"],
+            "severity": severity,
         },
         occurred_at=normalized.get("occurred_at"),
     ):
@@ -120,11 +123,11 @@ def emit_notification_candidate(
                 source_ref=_json(source_ref),
                 dedupe_key=dedupe_key,
                 source_event_ids=_json(event_ids),
-                event_count=normalized["event_count"],
+                event_count=event_count,
                 event_kinds=_json(event_kinds),
                 title=normalized["title"],
                 summary=normalized["summary"],
-                severity=normalized["severity"],
+                severity=severity,
                 deep_link=_json(deep_link),
                 payload=_json(payload),
             )
@@ -153,12 +156,12 @@ def emit_notification_candidate(
             "event_count": max(
                 int(existing["event_count"] or 1),
                 len(merged_event_ids),
-                normalized["event_count"],
+                event_count,
             ),
             "event_kinds": _json(merged_event_kinds),
             "title": normalized["title"],
             "summary": normalized["summary"],
-            "severity": normalized["severity"],
+            "severity": severity,
             "deep_link": _json(deep_link),
             "payload": _json(payload),
         }

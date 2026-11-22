@@ -12010,7 +12010,7 @@ export type HttpProjectDelete = ({
 
 export type HttpProjectDeleteRequest = ({
   "confirm_name": (string);
-  "project_row_id"?: (number);
+  "project_row_id"?: (((number)) | ((null)));
 });
 
 type HttpProjectFeedDetail_JsonValue = JsonValue;

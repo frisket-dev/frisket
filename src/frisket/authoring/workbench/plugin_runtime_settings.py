@@ -280,8 +280,6 @@ def patch_workbench_plugin_settings(
             normalized[setting_id] = _validate_plugin_setting_value(setting, value)
         except ValueError as exc:
             field_errors.append({"id": setting_id, "message": str(exc)})
-        except WorkbenchPluginLifecycleError as exc:
-            raise exc
     if field_errors:
         raise WorkbenchPluginLifecycleError(
             "invalid_plugin_settings",

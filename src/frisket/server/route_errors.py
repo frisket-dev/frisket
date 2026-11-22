@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar, overload
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -97,14 +97,37 @@ def register_route_error_handler(app: FastAPI) -> None:
     app.add_exception_handler(Exception, _handle_unexpected_error)
 
 
+_ExcT = TypeVar("_ExcT", bound=Exception)
 ExceptionTypes = type[Exception] | tuple[type[Exception], ...]
+
+
+@overload
+def register_typed_error(
+    app: FastAPI,
+    exception_types: type[_ExcT],
+    status_code: int | None = None,
+    detail: Any | Callable[[_ExcT], Any] = str,
+    *,
+    bare_json: bool = False,
+) -> None: ...
+
+
+@overload
+def register_typed_error(
+    app: FastAPI,
+    exception_types: tuple[type[Exception], ...],
+    status_code: int | None = None,
+    detail: Any | Callable[[Exception], Any] = str,
+    *,
+    bare_json: bool = False,
+) -> None: ...
 
 
 def register_typed_error(
     app: FastAPI,
     exception_types: ExceptionTypes,
     status_code: int | None = None,
-    detail: Any | Callable[[Exception], Any] = str,
+    detail: Any | Callable[[Any], Any] = str,
     *,
     bare_json: bool = False,
 ) -> None:
