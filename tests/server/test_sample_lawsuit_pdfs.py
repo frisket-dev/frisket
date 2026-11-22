@@ -47,7 +47,9 @@ def test_court_filings_mix_four_born_digital_and_two_scanned_image_pdfs() -> Non
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         assert len(reader.pages) == len(lawsuit.pages)
         text = "\n".join((page.extract_text() or "").strip() for page in reader.pages)
-        assert text.strip() == "", f"Scanned filing {lawsuit.filename} must have no embedded text layer"
+        assert text.strip() == "", (
+            f"Scanned filing {lawsuit.filename} must have no embedded text layer"
+        )
         # Ensure rasterized image pages render cleanly via PDFium.
         doc = pdfium.PdfDocument(pdf_bytes)
         try:
@@ -67,12 +69,19 @@ def test_lawsuit_pdf_bytes_is_deterministic_and_cached() -> None:
     assert info.hits >= 2
 
 
-def test_foreign_registry_has_twelve_rows_across_three_entities_and_foreign_notes() -> None:
+def test_foreign_registry_has_twelve_rows_across_three_entities_and_foreign_notes() -> (
+    None
+):
     assert SAMPLE_FOREIGN_REGISTRY_SHEET_NAME == "Foreign registry"
     assert SAMPLE_MULTILINGUAL_SHEET_NAME == SAMPLE_FOREIGN_REGISTRY_SHEET_NAME
     rows = list(csv.DictReader(io.StringIO(sample_foreign_registry_csv())))
     assert len(rows) == SAMPLE_FOREIGN_REGISTRY_ROWS == 12
-    assert set(rows[0].keys()) == {"record_id", "name_as_written", "source", "record_note"}
+    assert set(rows[0].keys()) == {
+        "record_id",
+        "name_as_written",
+        "source",
+        "record_note",
+    }
     names = {row["name_as_written"] for row in rows}
     # Covers Cyrillic, Arabic, Greek, Katakana, and accented/cased Latin across 3 entities.
     assert "Александр Петров" in names

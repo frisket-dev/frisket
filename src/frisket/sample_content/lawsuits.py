@@ -423,7 +423,9 @@ def _page_one_header_and_caption(lawsuit: SampleLawsuit) -> tuple[list[str], flo
     for idx, line in enumerate(counsel_lines):
         font = "/F2 9 Tf" if idx == 0 else ("/F3 8.5 Tf" if idx == 3 else "/F1 8.5 Tf")
         commands.append(font)
-        commands.append(f"1 0 0 1 {_BODY_LEFT_X:.1f} {y:.1f} Tm ({_pdf_escape(line)}) Tj")
+        commands.append(
+            f"1 0 0 1 {_BODY_LEFT_X:.1f} {y:.1f} Tm ({_pdf_escape(line)}) Tj"
+        )
         y -= 11.5
     commands.append("ET")
 
@@ -525,7 +527,9 @@ def _body_commands(
     commands: list[str] = ["BT", "0.08 0.10 0.12 rg"]
     y = start_y
     min_y = 76.0
-    paragraphs = [block.strip() for block in text.strip().split("\n\n") if block.strip()]
+    paragraphs = [
+        block.strip() for block in text.strip().split("\n\n") if block.strip()
+    ]
     for block in paragraphs:
         if y < min_y:
             break
