@@ -110,12 +110,17 @@ def add_alert(
 ) -> int:
     """Create the one Alert a view may carry, in one owned transaction."""
     from .views import get_view
-    from frisket.engine.views.specs import stored_selection, normalize_selection
+    from frisket.engine.views.specs import (
+        normalize_selection,
+        stored_selection,
+        validate_alert_selection,
+    )
 
     view = get_view(project, view_id)
     if view is None:
         raise ValueError("view not found")
-    normalize_selection(project, stored_selection(json.loads(view["spec"])))
+    selection = normalize_selection(project, stored_selection(json.loads(view["spec"])))
+    validate_alert_selection(selection)
     if project.db.execute(
         "SELECT 1 FROM alerts WHERE view_id=?", (view_id,)
     ).fetchone():

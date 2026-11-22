@@ -72,9 +72,16 @@ def update_view(
         sets.append("name=?")
         vals.append(name)
     if spec is not None:
-        from frisket.engine.views.specs import normalize_view_spec
+        from frisket.engine.views.specs import (
+            normalize_view_spec,
+            validate_alert_selection,
+        )
 
         spec = normalize_view_spec(project, spec)
+        if project.db.execute(
+            "SELECT 1 FROM alerts WHERE view_id=? LIMIT 1", (view_id,)
+        ).fetchone():
+            validate_alert_selection(spec["selection"])
         sets.extend(["spec=?", "sheet_id=?"])
         vals.extend([json.dumps(spec), spec["selection"]["scope"].get("sheet_id")])
     if not sets:

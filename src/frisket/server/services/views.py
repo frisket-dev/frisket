@@ -95,7 +95,11 @@ class ViewService:
         row = _require_view(project, view_id)
         try:
             definition = stored_selection(json.loads(row["spec"]))
-            with open_selection(project, definition) as selected:
+            with open_selection(
+                project,
+                definition,
+                embedding_encoder=self._workspace.embedding_runtime,
+            ) as selected:
                 refs = [
                     {
                         key: hit[key]

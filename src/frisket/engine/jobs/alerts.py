@@ -22,6 +22,7 @@ from frisket.engine.jobs.notifications_delivery import (
     enqueue_notification_emit_result,
 )
 from frisket.alerts.service import AlertBindingError, check_alert
+from frisket.engine.views.specs import is_local_retrieval_similarity
 
 from .queue import JobQueue, TERMINAL, claimed_project_location
 from .project_opener import (
@@ -304,7 +305,9 @@ def register_alert_evaluate_handler(
             project = project_opener(claimed, project_path)
             delivery_storage_organization_id = claimed.storage_organization_id
 
-        def continue_after_indexing(processed: int) -> dict:
+        def continue_after_indexing(
+            processed: int, *, include_preparation: bool = False
+        ) -> dict:
             from .search_index import index_work_marker
 
             continuation = {
@@ -319,7 +322,10 @@ def register_alert_evaluate_handler(
                 )
             if isinstance(context.trusted_job_organization_id, int):
                 continuation["organization_id"] = context.trusted_job_organization_id
-            marker = index_work_marker(project, include_preparation=False) or "repair"
+            marker = (
+                index_work_marker(project, include_preparation=include_preparation)
+                or "repair"
+            )
             trigger_key = _alert_eval_dedupe_key(alert_id, continuation["trigger_ref"])
             queue.enqueue(
                 ALERT_EVALUATE_KIND,
@@ -358,28 +364,40 @@ def register_alert_evaluate_handler(
                     "skipped": True,
                     "reason": "manual_only",
                 }
-            if _alert_query(row).get("search"):
+            query = _alert_query(row)
+            needs_local_retrieval = is_local_retrieval_similarity(query)
+            if query.get("search") or needs_local_retrieval:
                 from .search_index import index_work_marker, process_index_batches
 
-                # Keyword alerts depend only on lexical publication. Running
-                # optional semantic preparation here could let contention for
-                # the shared encoder delay or exhaust an otherwise-ready alert.
-                processed, _complete = process_index_batches(
-                    project, embedding_encoder=None
-                )
-                # A source write can enqueue a fresh scope after the indexer
-                # reports its quantum complete. Re-read durable work before
-                # evaluating so that run cannot advance past an unseen row.
-                # Semantic preparation may remain after the lexical dependency
-                # is ready and must not delay a keyword-only alert.
-                if index_work_marker(project, include_preparation=False) is not None:
-                    return continue_after_indexing(processed)
+                active_encoder = embedding_encoder if needs_local_retrieval else None
+                if not needs_local_retrieval or (
+                    active_encoder is not None and active_encoder.available()
+                ):
+                    processed, _complete = process_index_batches(
+                        project, embedding_encoder=active_encoder
+                    )
+                    remaining = index_work_marker(
+                        project, include_preparation=needs_local_retrieval
+                    )
+                    if remaining is not None and (
+                        not needs_local_retrieval
+                        or processed > 0
+                        or index_work_marker(project, include_preparation=False)
+                        is not None
+                    ):
+                        return continue_after_indexing(
+                            processed, include_preparation=needs_local_retrieval
+                        )
             try:
-                evaluation = check_alert(project, row)
+                evaluation = check_alert(
+                    project, row, embedding_encoder=embedding_encoder
+                )
             except AlertBindingError as exc:
                 if exc.code != "search_index_not_ready":
                     raise
-                return continue_after_indexing(0)
+                return continue_after_indexing(
+                    0, include_preparation=needs_local_retrieval
+                )
             enqueue_notification_emit_result(
                 queue,
                 workspace_root=project_root,

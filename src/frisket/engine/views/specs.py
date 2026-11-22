@@ -6,8 +6,157 @@ import hashlib
 from copy import deepcopy
 from typing import Any
 
-from frisket.contracts.query_spec import canonical_json
+from frisket.contracts.query_spec import (
+    EMBEDDING_SIMILARITY_KIND,
+    LOCAL_RETRIEVAL_SIMILARITY_KIND,
+    canonical_json,
+    normalize_query_spec,
+)
 from frisket.querysets import sheet_row_scope_plan
+from frisket.retrieval.contracts import (
+    BindingRevision,
+    PageRange,
+    ScopedBinding,
+    SourceAnchor,
+    SourceLocator,
+    SourceRevision,
+    TextRange,
+    TimeRange,
+)
+from frisket.retrieval.encoding import EmbeddingGemma2Space
+
+
+def is_local_retrieval_similarity(selection: dict[str, Any]) -> bool:
+    similarity = selection.get("similarity")
+    return (
+        isinstance(similarity, dict)
+        and similarity.get("kind") == LOCAL_RETRIEVAL_SIMILARITY_KIND
+    )
+
+
+def validate_alert_selection(selection: dict[str, Any]) -> None:
+    """Forbid top-K limit eviction on Alert-bound local_retrieval views."""
+    if is_local_retrieval_similarity(selection) and selection.get("limit") is not None:
+        raise ValueError(
+            "Alerts bound to local_retrieval views cannot use a top-K limit; "
+            "use min_score threshold instead."
+        )
+
+
+def source_anchor_from_spec(spec: dict[str, Any]) -> SourceAnchor:
+    """Reconstruct a validated retrieval SourceAnchor from a normalized spec dict."""
+    raw_source = spec["source"]
+    raw_locator = spec["locator"]
+    raw_binding = spec.get("binding")
+    source = SourceRevision(
+        source_id=str(raw_source["source_id"]),
+        source_kind=str(raw_source["source_kind"]),
+        version_kind=str(raw_source["version_kind"]),
+        version_value=raw_source["version_value"],
+        content_hash=raw_source.get("content_hash"),
+    )
+    locator = SourceLocator(
+        kind=str(raw_locator["kind"]),
+        text=TextRange(**raw_locator["text"]) if raw_locator.get("text") else None,
+        pages=PageRange(**raw_locator["pages"]) if raw_locator.get("pages") else None,
+        time=TimeRange(**raw_locator["time"]) if raw_locator.get("time") else None,
+        source_span_ids=tuple(raw_locator.get("source_span_ids") or ()),
+    )
+    binding = (
+        ScopedBinding(
+            binding_id=str(raw_binding["binding_id"]),
+            sheet_id=int(raw_binding["sheet_id"]),
+            row_id=int(raw_binding["row_id"]),
+            column_id=(
+                int(raw_binding["column_id"])
+                if raw_binding.get("column_id") is not None
+                else None
+            ),
+            dependencies=tuple(
+                BindingRevision(
+                    row_id=int(dep["row_id"]),
+                    column_id=int(dep["column_id"]),
+                    retrieval_revision=int(dep["retrieval_revision"]),
+                )
+                for dep in raw_binding.get("dependencies") or ()
+            ),
+        )
+        if raw_binding is not None
+        else None
+    )
+    return SourceAnchor(
+        source=source,
+        locator=locator,
+        binding=binding,
+        exclude_exact=bool(spec.get("exclude_exact", True)),
+    )
+
+
+def _normalize_local_retrieval_criterion(
+    scope: dict[str, Any], raw_similarity: dict[str, Any]
+) -> dict[str, Any]:
+    view_scope: dict[str, Any] = (
+        {"kind": "sheet", "sheet_id": scope["sheet_id"]}
+        if scope["kind"] == "sheet"
+        else {"kind": "project"}
+    )
+    query = normalize_query_spec(raw_similarity, scope=view_scope)
+    if query["scope"] != view_scope:
+        raise SelectionUnavailable(
+            "The local_retrieval similarity scope does not match the view scope.",
+            code="local_retrieval_scope_mismatch",
+        )
+    expected_space_id = EmbeddingGemma2Space().identity
+    if query.get("space_id") not in (None, expected_space_id):
+        raise SelectionUnavailable(
+            "This local retrieval view requires a different embedding space.",
+            code="local_embedding_space_unavailable",
+        )
+    if "source_anchor" in query:
+        source_anchor_from_spec(query["source_anchor"])
+    return query
+
+
+def _normalize_similarity_criterion(
+    project: Any, scope: dict[str, Any], raw_similarity: Any
+) -> dict[str, Any]:
+    if (
+        isinstance(raw_similarity, dict)
+        and str(raw_similarity.get("kind") or "").strip().lower()
+        == LOCAL_RETRIEVAL_SIMILARITY_KIND
+    ):
+        return _normalize_local_retrieval_criterion(scope, raw_similarity)
+    query = normalize_query_spec(raw_similarity, allow_row_cell=True)
+    if query["kind"] != EMBEDDING_SIMILARITY_KIND:
+        raise ValueError(
+            "similarity requires an embedding_similarity or local_retrieval query"
+        )
+    from frisket.ai.embeddings import EmbeddingStore
+    from frisket.ai.embeddings.similarity import (
+        SimilarityError,
+        validate_row_cell_anchor,
+    )
+
+    index = EmbeddingStore(project).get_index(query["embedding_index_id"])
+    if index is None:
+        raise SelectionUnavailable(
+            "The similarity index is unavailable.", code="embedding_index_not_found"
+        )
+    if (
+        scope["kind"] != "sheet"
+        or index["sheet_id"] != scope["sheet_id"]
+        or query["scope"].get("sheet_id") != scope["sheet_id"]
+    ):
+        raise SelectionUnavailable(
+            "The view's sheet does not match the similarity index sheet.",
+            code="embedding_index_sheet_mismatch",
+        )
+    try:
+        validate_row_cell_anchor(project, index, query["anchor"])
+    except SimilarityError as exc:
+        raise SelectionUnavailable(str(exc), code=exc.code) from exc
+    query.pop("limit", None)
+    return query
 
 
 class SelectionUnavailable(ValueError):
@@ -124,37 +273,9 @@ def normalize_selection(project: Any, value: Any) -> dict[str, Any]:
             raise ValueError("search requires nonempty text")
         out["search"] = {"text": search["text"].strip()}
     if value.get("similarity") is not None:
-        from frisket.contracts.query_spec import normalize_query_spec
-
-        query = normalize_query_spec(value["similarity"], allow_row_cell=True)
-        if query["kind"] != "embedding_similarity":
-            raise ValueError("similarity requires an embedding similarity query")
-        from frisket.ai.embeddings import EmbeddingStore
-        from frisket.ai.embeddings.similarity import (
-            validate_row_cell_anchor,
-            SimilarityError,
+        out["similarity"] = _normalize_similarity_criterion(
+            project, scope, value["similarity"]
         )
-
-        index = EmbeddingStore(project).get_index(query["embedding_index_id"])
-        if index is None:
-            raise SelectionUnavailable(
-                "The similarity index is unavailable.", code="embedding_index_not_found"
-            )
-        if (
-            scope["kind"] != "sheet"
-            or index["sheet_id"] != scope["sheet_id"]
-            or query["scope"].get("sheet_id") != scope["sheet_id"]
-        ):
-            raise SelectionUnavailable(
-                "The view's sheet does not match the similarity index sheet.",
-                code="embedding_index_sheet_mismatch",
-            )
-        try:
-            validate_row_cell_anchor(project, index, query["anchor"])
-        except SimilarityError as exc:
-            raise SelectionUnavailable(str(exc), code=exc.code) from exc
-        query.pop("limit", None)
-        out["similarity"] = query
     if value.get("ranking") is not None:
         if (
             value["ranking"] != "hybrid"
