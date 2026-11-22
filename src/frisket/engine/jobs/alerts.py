@@ -22,6 +22,7 @@ from frisket.engine.jobs.notifications_delivery import (
     enqueue_notification_emit_result,
 )
 from frisket.alerts.service import AlertBindingError, check_alert
+from frisket.engine.views.specs import is_local_retrieval_similarity
 
 from .queue import JobQueue, TERMINAL, claimed_project_location
 from .project_opener import (
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 
 
 ALERT_EVALUATE_KIND = "alert.evaluate"
+_MAX_INDEX_CONTINUATIONS = 64
 
 
 def _alert_query(row: Any) -> dict[str, Any]:
@@ -272,6 +274,40 @@ def enqueue_keyword_alert_evaluations(
     return job_ids
 
 
+def _advance_alert_index(
+    project: Project,
+    query: dict[str, Any],
+    *,
+    embedding_encoder: PreparationEncoder | None,
+    continuation_step: int,
+) -> tuple[bool, int]:
+    """Run one bounded indexing quantum; return (should_continue, processed)."""
+    needs_local_retrieval = is_local_retrieval_similarity(query)
+    if not query.get("search") and not needs_local_retrieval:
+        return False, 0
+    from .search_index import index_work_marker, process_index_batches
+
+    active_encoder = embedding_encoder if needs_local_retrieval else None
+    if needs_local_retrieval and (
+        active_encoder is None or not active_encoder.available()
+    ):
+        return False, 0
+    before_marker = index_work_marker(
+        project, include_preparation=needs_local_retrieval
+    )
+    processed, _complete = process_index_batches(
+        project, embedding_encoder=active_encoder
+    )
+    remaining = index_work_marker(project, include_preparation=needs_local_retrieval)
+    made_progress = remaining != before_marker or processed > 0
+    should_continue = (
+        remaining is not None
+        and continuation_step < _MAX_INDEX_CONTINUATIONS
+        and (made_progress or not needs_local_retrieval)
+    )
+    return should_continue, processed
+
+
 def register_alert_evaluate_handler(
     registry: HandlerRegistry,
     *,
@@ -304,14 +340,18 @@ def register_alert_evaluate_handler(
             project = project_opener(claimed, project_path)
             delivery_storage_organization_id = claimed.storage_organization_id
 
-        def continue_after_indexing(processed: int) -> dict:
+        def continue_after_indexing(
+            processed: int, *, include_preparation: bool = False
+        ) -> dict:
             from .search_index import index_work_marker
 
+            next_step = int(payload.get("index_continuation_step") or 0) + 1
             continuation = {
                 "project_id": project_id,
                 "alert_id": alert_id,
                 "trigger_ref": payload.get("trigger_ref") or {},
                 "workspace_root": str(project_root),
+                "index_continuation_step": next_step,
             }
             if delivery_storage_organization_id is not None:
                 continuation["storage_organization_id"] = (
@@ -319,11 +359,17 @@ def register_alert_evaluate_handler(
                 )
             if isinstance(context.trusted_job_organization_id, int):
                 continuation["organization_id"] = context.trusted_job_organization_id
-            marker = index_work_marker(project, include_preparation=False) or "repair"
+            marker = (
+                index_work_marker(project, include_preparation=include_preparation)
+                or "repair"
+            )
             trigger_key = _alert_eval_dedupe_key(alert_id, continuation["trigger_ref"])
             queue.enqueue(
                 ALERT_EVALUATE_KIND,
-                {**continuation, "dedupe_key": f"{trigger_key}:index:{marker}"},
+                {
+                    **continuation,
+                    "dedupe_key": f"{trigger_key}:index:{next_step}:{marker}",
+                },
                 max_attempts=3,
             )
             return {
@@ -358,28 +404,28 @@ def register_alert_evaluate_handler(
                     "skipped": True,
                     "reason": "manual_only",
                 }
-            if _alert_query(row).get("search"):
-                from .search_index import index_work_marker, process_index_batches
-
-                # Keyword alerts depend only on lexical publication. Running
-                # optional semantic preparation here could let contention for
-                # the shared encoder delay or exhaust an otherwise-ready alert.
-                processed, _complete = process_index_batches(
-                    project, embedding_encoder=None
+            query = _alert_query(row)
+            needs_local_retrieval = is_local_retrieval_similarity(query)
+            should_continue, processed = _advance_alert_index(
+                project,
+                query,
+                embedding_encoder=embedding_encoder,
+                continuation_step=int(payload.get("index_continuation_step") or 0),
+            )
+            if should_continue:
+                return continue_after_indexing(
+                    processed, include_preparation=needs_local_retrieval
                 )
-                # A source write can enqueue a fresh scope after the indexer
-                # reports its quantum complete. Re-read durable work before
-                # evaluating so that run cannot advance past an unseen row.
-                # Semantic preparation may remain after the lexical dependency
-                # is ready and must not delay a keyword-only alert.
-                if index_work_marker(project, include_preparation=False) is not None:
-                    return continue_after_indexing(processed)
             try:
-                evaluation = check_alert(project, row)
+                evaluation = check_alert(
+                    project, row, embedding_encoder=embedding_encoder
+                )
             except AlertBindingError as exc:
                 if exc.code != "search_index_not_ready":
                     raise
-                return continue_after_indexing(0)
+                return continue_after_indexing(
+                    0, include_preparation=needs_local_retrieval
+                )
             enqueue_notification_emit_result(
                 queue,
                 workspace_root=project_root,

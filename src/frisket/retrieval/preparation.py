@@ -92,6 +92,7 @@ from frisket.retrieval.source_adapter import (
     resolve_cell_transcript_source,
 )
 from frisket.retrieval.sources import (
+    canonical_json,
     cell_source_binding_id,
     identity_digest,
     input_hash,
@@ -1154,6 +1155,130 @@ def _blob_image_batch(
             return tuple(items), continuation
 
 
+def _validate_blob_image_args(channel: str, max_parts: int) -> None:
+    if channel not in {IMAGE_CHANNEL, PDF_PAGE_CHANNEL}:
+        raise ValueError("blob image channel must be image or pdf_page")
+    if max_parts < 1:
+        raise ValueError("max_parts must be positive")
+
+
+def _blob_image_policy_matches(
+    channel: str, slice_id: str, policy: PreparationPolicy
+) -> bool:
+    if channel == IMAGE_CHANNEL:
+        return policy.image_enabled and slice_id == IMAGE_BYTES_RECIPE_ID
+    return policy.pdf_pages_enabled and slice_id == PDF_PAGE_RECIPE_ID
+
+
+_BLOB_IMAGE_ERROR_CODES: tuple[tuple[type[Exception], str], ...] = (
+    (BlobNotFoundError, "missing_blob"),
+    (BlobIntegrityError, "blob_integrity_failed"),
+    (PdfPageOutOfRange, "pdf_page_out_of_range"),
+    (PdfRenderError, "pdf_render_failed"),
+)
+
+
+def _blob_image_error_code(exc: Exception) -> str:
+    return next(
+        (
+            code
+            for exc_type, code in _BLOB_IMAGE_ERROR_CODES
+            if isinstance(exc, exc_type)
+        ),
+        "invalid_blob_input",
+    )
+
+
+def _reuse_prepared_pdf_page(
+    store: RetrievalStore,
+    resolved: ResolvedCellBlobSource,
+    work: PreparationWork,
+    *,
+    space: EmbeddingGemma2Space,
+) -> bool:
+    """Bind an authored PDF page to an already-prepared whole-PDF page vector."""
+    if (
+        work.channel != PDF_PAGE_CHANNEL
+        or work.cursor_json is not None
+        or resolved.page_number is None
+    ):
+        return False
+    slice_id = work.slice_id
+    locator = SourceLocator(
+        kind="pdf_page_image",
+        pages=PageRange(resolved.page_number, resolved.page_number),
+    )
+    row = store.db.execute(
+        "SELECT rep.representation_id,rep.input_hash "
+        "FROM sources AS whole_source "
+        "JOIN parts AS whole_part ON whole_part.source_key=whole_source.source_key "
+        "JOIN part_representations AS part_rep ON part_rep.part_key=whole_part.part_key "
+        "JOIN representations AS rep ON rep.representation_key=part_rep.representation_key "
+        "WHERE whole_source.source_id=? AND whole_source.source_kind='blob' "
+        "AND whole_source.version_kind='blob_digest' "
+        "AND whole_source.version_value=? AND whole_source.version_type='text' "
+        "AND whole_part.slice_id=? AND whole_part.publication_channel=? "
+        "AND whole_part.locator_json=? AND part_rep.channel=? "
+        "AND rep.space_id=? AND rep.dimension=? LIMIT 1",
+        (
+            f"blob:{resolved.blob_hash}",
+            resolved.blob_hash,
+            slice_id,
+            PDF_PAGE_CHANNEL,
+            canonical_json(locator),
+            PDF_PAGE_CHANNEL,
+            space.identity,
+            space.dimensions,
+        ),
+    ).fetchone()
+    if row is None:
+        return False
+    reused_part_id = "part:" + identity_digest(
+        "reused_pdf_page_part",
+        {
+            "source": resolved.source,
+            "slice_id": slice_id,
+            "locator": locator,
+            "input_hash": str(row["input_hash"]),
+        },
+    )
+    store.begin_preparation(
+        resolved.source,
+        slice_id=slice_id,
+        channel=PDF_PAGE_CHANNEL,
+        space_id=space.identity,
+    )
+    published = store.publish_source(
+        SourcePublication(
+            source_revision=resolved.source,
+            slice_id=slice_id,
+            channel=PDF_PAGE_CHANNEL,
+            parts=(
+                StoredPart(
+                    part_id=reused_part_id,
+                    kind="pdf_page_image",
+                    locator=locator,
+                    group_key=resolved.source.source_id,
+                ),
+            ),
+            bindings=(),
+            representations=(),
+            attachments=(
+                PartRepresentation(
+                    part_id=reused_part_id,
+                    representation_id=str(row["representation_id"]),
+                    channel=PDF_PAGE_CHANNEL,
+                ),
+            ),
+            complete=True,
+            space_id=space.identity,
+        )
+    )
+    if not published:
+        raise RuntimeError("blob preparation was superseded during publication")
+    return True
+
+
 def process_blob_image_preparation_batch(
     project,
     *,
@@ -1166,10 +1291,7 @@ def process_blob_image_preparation_batch(
 ) -> PreparationProgress:
     """Prepare one bounded image or rendered-PDF-page batch."""
 
-    if channel not in {IMAGE_CHANNEL, PDF_PAGE_CHANNEL}:
-        raise ValueError("blob image channel must be image or pdf_page")
-    if max_parts < 1:
-        raise ValueError("max_parts must be positive")
+    _validate_blob_image_args(channel, max_parts)
     _check_cancelled(cancelled)
     with RetrievalStore(project).open() as store:
         work = store.next_preparation(channel=channel, space_id=space.identity)
@@ -1203,16 +1325,12 @@ def process_blob_image_preparation_batch(
                 is not None
             )
             return PreparationProgress(0, pending, not pending)
-        expected_slice = (
-            IMAGE_BYTES_RECIPE_ID if channel == IMAGE_CHANNEL else PDF_PAGE_RECIPE_ID
-        )
-        enabled = (
-            policy.image_enabled
-            if channel == IMAGE_CHANNEL
-            else policy.pdf_pages_enabled
-        )
-        if not enabled or work.slice_id != expected_slice:
+        if not _blob_image_policy_matches(channel, work.slice_id, policy):
             return PreparationProgress(0, True, False)
+        if _reuse_prepared_pdf_page(store, resolved, work, space=space):
+            return _remaining_progress(
+                store, channel=channel, space_id=space.identity, processed_parts=1
+            )
         store.begin_preparation(
             resolved.source,
             slice_id=work.slice_id,
@@ -1237,23 +1355,12 @@ def process_blob_image_preparation_batch(
             PdfRenderError,
             ValueError,
         ) as exc:
-            error_code = (
-                "missing_blob"
-                if isinstance(exc, BlobNotFoundError)
-                else "blob_integrity_failed"
-                if isinstance(exc, BlobIntegrityError)
-                else "pdf_page_out_of_range"
-                if isinstance(exc, PdfPageOutOfRange)
-                else "pdf_render_failed"
-                if isinstance(exc, PdfRenderError)
-                else "invalid_blob_input"
-            )
             store.fail_preparation(
                 resolved.source,
                 slice_id=work.slice_id,
                 channel=channel,
                 space_id=space.identity,
-                error_code=error_code,
+                error_code=_blob_image_error_code(exc),
                 error_message=str(exc),
             )
             pending = (

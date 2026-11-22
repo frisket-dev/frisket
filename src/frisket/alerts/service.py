@@ -13,6 +13,7 @@ from frisket.engine.views.specs import (
     stored_selection,
     normalize_selection,
     membership_hash,
+    validate_alert_selection,
 )
 from frisket.retrieval.query import RetrievalQueryError
 from frisket.ai.embeddings.similarity import SimilarityError
@@ -43,6 +44,7 @@ def alert_match_dict(row: Any) -> dict[str, Any]:
 
 def resolve_alert_check(project: Project, row: Any) -> dict[str, Any]:
     query = normalize_selection(project, alert_query(row))
+    validate_alert_selection(query)
     return {
         "alert": dict(row),
         "resolved_query": query,
@@ -50,15 +52,23 @@ def resolve_alert_check(project: Project, row: Any) -> dict[str, Any]:
     }
 
 
-def evaluate_alert(project: Project, row: Any) -> list[dict[str, Any]]:
-    with open_selection(project, alert_query(row)) as selected:
+def evaluate_alert(
+    project: Project, row: Any, *, embedding_encoder: Any = None
+) -> list[dict[str, Any]]:
+    selection = alert_query(row)
+    validate_alert_selection(selection)
+    with open_selection(
+        project, selection, embedding_encoder=embedding_encoder
+    ) as selected:
         return list(selected.hits())
 
 
-def check_alert(project: Project, row: Any) -> dict[str, Any]:
+def check_alert(
+    project: Project, row: Any, *, embedding_encoder: Any = None
+) -> dict[str, Any]:
     for attempt in range(2):
         try:
-            return _check_alert(project, row)
+            return _check_alert(project, row, embedding_encoder=embedding_encoder)
         except AlertCheckConflict as exc:
             row = project.get_alert(int(row["id"]))
             if row is None or attempt:
@@ -66,14 +76,20 @@ def check_alert(project: Project, row: Any) -> dict[str, Any]:
     raise AssertionError("unreachable")
 
 
-def _check_alert(project: Project, row: Any) -> dict[str, Any]:
+def _check_alert(
+    project: Project, row: Any, *, embedding_encoder: Any = None
+) -> dict[str, Any]:
     alert_id = int(row["id"])
     before = int(row["last_evaluated_change"] or 0)
     query, query_hash = {}, None
     error, error_code, status = None, None, "ok"
     with ExitStack() as stack:
         try:
-            selected = stack.enter_context(open_selection(project, alert_query(row)))
+            selection = alert_query(row)
+            validate_alert_selection(selection)
+            selected = stack.enter_context(
+                open_selection(project, selection, embedding_encoder=embedding_encoder)
+            )
             snapshot = selected.snapshot
             # Definition, membership and monitored values belong to this same read.
             expected = get_alert(snapshot, alert_id)

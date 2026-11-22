@@ -4,22 +4,51 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, nullcontext
 from itertools import islice
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
-from frisket.contracts.query_spec import canonical_json
+from frisket.ai.embeddings.facade import EmbeddingFacade
+from frisket.ai.embeddings.runtime import EmbeddingRuntime
+from frisket.contracts.query_spec import (
+    LOCAL_RETRIEVAL_SIMILARITY_KIND,
+    canonical_json,
+)
 from frisket.querysets import sheet_row_scope_plan
 from frisket.retrieval.contracts import (
     RetrievalScope,
     SearchRequest,
     SheetScope,
+    SourceAnchor,
     TextQuery,
+    WeightedSemanticQuery,
+    WeightedTerm,
 )
-from frisket.retrieval.query import RetrievalQueryService
+from frisket.retrieval.encoding import (
+    EmbeddingGemma2Space,
+    EncodingError,
+    EncodingInput,
+    EncodingPurpose,
+    TextEncodingInput,
+)
+from frisket.retrieval.located_anchor import resolve_located_anchor
 from frisket.retrieval.native import Vec1Unavailable
-from .specs import SelectionUnavailable, membership_hash, normalize_selection
+from frisket.retrieval.query import (
+    RetrievalQueryError,
+    RetrievalQueryService,
+    SemanticQueryVectors,
+    source_anchor_vectors,
+)
+from frisket.retrieval.ranking import compose_weighted_vectors
+from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
+from .specs import (
+    SelectionUnavailable,
+    membership_hash,
+    normalize_selection,
+    source_anchor_from_spec,
+)
 
 _MAX_ROWS = 9223372036854775807
 
@@ -143,8 +172,212 @@ def _require_available_filter_inputs(snapshot: Any, selection: dict[str, Any]) -
         )
 
 
+def _encode_local_inputs(
+    project: Any,
+    inputs: Sequence[EncodingInput],
+    *,
+    purpose: EncodingPurpose,
+    space: EmbeddingGemma2Space,
+    embedding_encoder: Any,
+) -> list[tuple[float, ...]]:
+    owned_runtime: EmbeddingRuntime | None = None
+    try:
+
+        def _encode_fresh(
+            fresh_inputs: Sequence[EncodingInput],
+            *,
+            purpose: EncodingPurpose,
+            space: EmbeddingGemma2Space,
+        ) -> list[tuple[float, ...]]:
+            nonlocal owned_runtime
+            encoder: Any = embedding_encoder
+            if encoder is None:
+                owned_runtime = EmbeddingRuntime()
+                encoder = owned_runtime
+            if not encoder.available():
+                raise EncodingError(
+                    "model_unavailable",
+                    "Install the local search model to evaluate this local retrieval view.",
+                )
+            return encoder.encode(fresh_inputs, purpose=purpose, space=space)
+
+        with RetrievalStore(project) as cache:
+            return [
+                tuple(vector)
+                for vector in EmbeddingFacade(cache).encode(
+                    inputs,
+                    encoder=_encode_fresh,
+                    purpose=purpose,
+                    space=space,
+                    space_id=space.identity,
+                )
+            ]
+    except EncodingError as exc:
+        if exc.code == "model_unavailable":
+            raise SelectionUnavailable(
+                "Install the local search model to evaluate this local retrieval view.",
+                code="local_embedding_model_unavailable",
+            ) from exc
+        raise SelectionUnavailable(str(exc), code=exc.code) from exc
+    finally:
+        if owned_runtime is not None:
+            owned_runtime.close()
+
+
+def _resolve_local_anchor_vector(
+    snapshot: Any,
+    anchor: SourceAnchor,
+    *,
+    space: EmbeddingGemma2Space,
+    embedding_encoder: Any,
+) -> tuple[SourceAnchor, tuple[float, ...]]:
+    try:
+        vectors = source_anchor_vectors(
+            snapshot,
+            SearchRequest(
+                scope=RetrievalScope(),
+                query=anchor,
+                mode="semantic",
+                group_by="row",
+                limit=1,
+                space_id=space.identity,
+            ),
+        )
+        return anchor, tuple(float(value) for value in vectors.term_vectors[0])
+    except RetrievalQueryError as exc:
+        if exc.code != "source_anchor_not_found":
+            raise
+        if anchor.binding is None:
+            raise SelectionUnavailable(str(exc), code=exc.code) from exc
+        resolved = resolve_located_anchor(snapshot, anchor)
+        if resolved.input is None:
+            raise SelectionUnavailable(
+                "The selected source anchor has no encodable input.",
+                code="source_anchor_unavailable",
+            ) from exc
+        encoded = _encode_local_inputs(
+            snapshot,
+            (resolved.input,),
+            purpose=EncodingPurpose.DOCUMENT,
+            space=space,
+            embedding_encoder=embedding_encoder,
+        )
+        return resolved.anchor, encoded[0]
+
+
+def _prepare_local_retrieval_request(
+    snapshot: Any,
+    query: dict[str, Any],
+    *,
+    scope: RetrievalScope,
+    embedding_encoder: Any,
+) -> tuple[SearchRequest, SemanticQueryVectors]:
+    if not (Path(snapshot.path) / RETRIEVAL_DB_NAME).is_file():
+        raise SelectionUnavailable(
+            "Local retrieval index is not prepared yet.",
+            code="retrieval_not_prepared",
+        )
+    space = EmbeddingGemma2Space()
+    if query.get("space_id") not in (None, space.identity):
+        raise SelectionUnavailable(
+            "This local retrieval view requires a different embedding space.",
+            code="local_embedding_space_unavailable",
+        )
+    anchor: SourceAnchor | None = None
+    anchor_vector: tuple[float, ...] | None = None
+    if "source_anchor" in query:
+        anchor, anchor_vector = _resolve_local_anchor_vector(
+            snapshot,
+            source_anchor_from_spec(query["source_anchor"]),
+            space=space,
+            embedding_encoder=embedding_encoder,
+        )
+    text_vector: tuple[float, ...] | None = None
+    if "query_text" in query:
+        text_vector = _encode_local_inputs(
+            snapshot,
+            (TextEncodingInput(query["query_text"]),),
+            purpose=EncodingPurpose.QUERY,
+            space=space,
+            embedding_encoder=embedding_encoder,
+        )[0]
+    if anchor is not None and anchor_vector is not None:
+        query_vector = (
+            compose_weighted_vectors((text_vector, anchor_vector), (1.0, 1.0))
+            if text_vector is not None
+            else anchor_vector
+        )
+        return (
+            SearchRequest(
+                scope=scope,
+                query=anchor,
+                mode="semantic",
+                group_by="row",
+                limit=_MAX_ROWS,
+                space_id=space.identity,
+            ),
+            SemanticQueryVectors(term_vectors=(query_vector,)),
+        )
+    assert text_vector is not None
+    return (
+        SearchRequest(
+            scope=scope,
+            query=WeightedSemanticQuery(
+                terms=(WeightedTerm(query["query_text"]),),
+                minimum_similarity=float(query["min_score"]),
+            ),
+            mode="semantic",
+            group_by="row",
+            limit=_MAX_ROWS,
+            space_id=space.identity,
+        ),
+        SemanticQueryVectors(term_vectors=(text_vector,)),
+    )
+
+
+def _prepare_similarity_criterion(
+    snapshot: Any,
+    query: dict[str, Any],
+    *,
+    scope: RetrievalScope,
+    embedding_encoder: Any,
+) -> tuple[SearchRequest, SemanticQueryVectors | None]:
+    if query.get("kind") == LOCAL_RETRIEVAL_SIMILARITY_KIND:
+        return _prepare_local_retrieval_request(
+            snapshot, query, scope=scope, embedding_encoder=embedding_encoder
+        )
+    from frisket.ai.embeddings import EmbeddingStore
+    from frisket.ai.embeddings.freshness import index_freshness
+    from frisket.ai.embeddings.similarity import prepared_similarity_request
+
+    index = EmbeddingStore(snapshot).get_index(query["embedding_index_id"])
+    if index is None:
+        raise SelectionUnavailable("The similarity index is unavailable.")
+    fresh = index_freshness(snapshot, index, scope=scope)
+    if not fresh.scope_resolved or fresh.missing_count or fresh.stale_count:
+        raise SelectionUnavailable(
+            "Refresh the similarity index before checking this view.",
+            code="embedding_index_stale"
+            if fresh.stale_count
+            else "embedding_index_incomplete",
+        )
+    return prepared_similarity_request(snapshot, query, scope=scope)
+
+
+def _hit_passes_similarity_threshold(similarity: dict[str, Any], score: float) -> bool:
+    if similarity.get("kind") == LOCAL_RETRIEVAL_SIMILARITY_KIND:
+        return score >= float(similarity["min_score"])
+    threshold = similarity.get("threshold")
+    return threshold is None or 1 - score <= threshold
+
+
 def _stage_matches(
-    snapshot: Any, selection: dict[str, Any], scope: RetrievalScope, path: Path
+    snapshot: Any,
+    selection: dict[str, Any],
+    scope: RetrievalScope,
+    path: Path,
+    *,
+    embedding_encoder: Any = None,
 ) -> None:
     stage = sqlite3.connect(path)
     try:
@@ -177,23 +410,12 @@ def _stage_matches(
                 )
             )
         if "similarity" in selection:
-            from frisket.ai.embeddings import EmbeddingStore
-            from frisket.ai.embeddings.freshness import index_freshness
-            from frisket.ai.embeddings.similarity import prepared_similarity_request
-
-            query = selection["similarity"]
-            index = EmbeddingStore(snapshot).get_index(query["embedding_index_id"])
-            if index is None:
-                raise SelectionUnavailable("The similarity index is unavailable.")
-            fresh = index_freshness(snapshot, index, scope=scope)
-            if not fresh.scope_resolved or fresh.missing_count or fresh.stale_count:
-                raise SelectionUnavailable(
-                    "Refresh the similarity index before checking this view.",
-                    code="embedding_index_stale"
-                    if fresh.stale_count
-                    else "embedding_index_incomplete",
-                )
-            request, vectors = prepared_similarity_request(snapshot, query, scope=scope)
+            request, vectors = _prepare_similarity_criterion(
+                snapshot,
+                selection["similarity"],
+                scope=scope,
+                embedding_encoder=embedding_encoder,
+            )
             criteria.append(("similarity", request, vectors))
         for kind, request, vectors in criteria:
             stream = RetrievalQueryService(snapshot).iter_row_matches(
@@ -204,10 +426,10 @@ def _stage_matches(
                 values = []
                 for hit in batch:
                     rank += 1
-                    if kind == "similarity":
-                        threshold = selection["similarity"].get("threshold")
-                        if threshold is not None and 1 - hit["score"] > threshold:
-                            continue
+                    if kind == "similarity" and not _hit_passes_similarity_threshold(
+                        selection["similarity"], float(hit["score"])
+                    ):
+                        continue
                     values.append((hit["sheet_id"], hit["row_id"], hit["score"], rank))
                 stage.executemany(
                     f"INSERT INTO matches(sheet_id,row_id,{kind}_score,{kind}_rank) VALUES(?,?,?,?) "
@@ -220,7 +442,12 @@ def _stage_matches(
 
 
 @contextmanager
-def open_selection(project: Any, definition: dict[str, Any]) -> Iterator[SelectionRead]:
+def open_selection(
+    project: Any,
+    definition: dict[str, Any],
+    *,
+    embedding_encoder: Any = None,
+) -> Iterator[SelectionRead]:
     """Own one read lifetime; temporary match storage closes after its snapshot.
 
     The ordinary filter-only path stays a direct SQL query. Search scores use a
@@ -243,7 +470,13 @@ def open_selection(project: Any, definition: dict[str, Any]) -> Iterator[Selecti
             )
             match_schema = "view_" + uuid.uuid4().hex
             try:
-                _stage_matches(snapshot, selection, retrieval_scope, path)
+                _stage_matches(
+                    snapshot,
+                    selection,
+                    retrieval_scope,
+                    path,
+                    embedding_encoder=embedding_encoder,
+                )
             except Vec1Unavailable as exc:
                 raise SelectionUnavailable(
                     str(exc), code="embedding_backend_unavailable"

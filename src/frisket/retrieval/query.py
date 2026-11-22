@@ -486,20 +486,23 @@ class RetrievalQueryService:
             raise ValueError("row matches require lexical or semantic row retrieval")
         with PinnedRetrievalReader(self.project) as reader:
             scope = compile_scope(_PinnedScopeReader(reader), request.scope)
-            channels = (
-                ("lexical",)
-                if request.mode == "lexical"
-                else _semantic_coverage_channels(reader, request, scope)
-                or ("semantic",)
-            )
-            coverage = self._coverage(reader, request, scope, channels=channels)
-            if coverage.state != "complete" or any(
-                channel.state != "ready" for channel in coverage.channels
-            ):
-                raise RetrievalQueryError(
-                    "selection_incomplete",
-                    "Search preparation is incomplete for this view.",
+            if request.mode == "semantic" and request.named_index_id is None:
+                _require_local_semantic_readiness(reader, request, scope)
+            else:
+                channels = (
+                    ("lexical",)
+                    if request.mode == "lexical"
+                    else _semantic_coverage_channels(reader, request, scope)
+                    or ("semantic",)
                 )
+                coverage = self._coverage(reader, request, scope, channels=channels)
+                if coverage.state != "complete" or any(
+                    channel.state != "ready" for channel in coverage.channels
+                ):
+                    raise RetrievalQueryError(
+                        "selection_incomplete",
+                        "Search preparation is incomplete for this view.",
+                    )
             if request.mode == "lexical":
                 rows, _ = self._lexical_cursor(
                     reader, request, scope, limit=request.limit, group_hit_limit=1
@@ -1143,6 +1146,69 @@ def _scoped_dirty_work(
             (*scope.params, SIDECAR_ID_META_KEY, PROJECT_SIDECAR_META_KEY),
         ).fetchone()[0]
     )
+
+
+def _require_local_semantic_readiness(
+    reader: PinnedRetrievalReader,
+    request: SearchRequest,
+    scope: CompiledRetrievalScope,
+) -> None:
+    if not request.space_id:
+        raise RetrievalQueryError(
+            "embedding_space_required", "semantic retrieval requires space_id"
+        )
+    if _scoped_dirty_work(reader, scope):
+        raise RetrievalQueryError(
+            "selection_incomplete",
+            "Search preparation is incomplete for this view.",
+        )
+    binding_where = (
+        _visible_column("retrieval_binding")
+        + " AND "
+        + _binding_is_current("retrieval_binding")
+    )
+    row = reader.db.execute(
+        f"""WITH {scope.cte_sql}
+        SELECT
+          MAX(preparation.status IN ('pending','preparing')) AS has_pending,
+          MAX(preparation.status='failed') AS has_failed,
+          MAX(preparation.status='unavailable'
+              AND COALESCE(preparation.error_code,'encoder_unavailable')
+                  ='encoder_unavailable') AS has_encoder_unavailable,
+          MAX(preparation.status='unavailable'
+              AND COALESCE(preparation.error_code,'')
+                  NOT IN ('encoder_unavailable','policy_disabled','unsupported_media'))
+              AS has_other_unavailable
+        FROM scoped_bindings AS scoped
+        JOIN idx.bindings AS retrieval_binding
+          ON retrieval_binding.sheet_id=scoped.sheet_id
+         AND retrieval_binding.row_id=scoped.row_id
+         AND (scoped.column_id IS NULL
+              OR scoped.column_id=retrieval_binding.column_id)
+        JOIN idx.sources AS retrieval_source
+          ON retrieval_source.source_key=retrieval_binding.source_key
+        JOIN idx.preparation AS preparation
+          ON preparation.source_id=retrieval_source.source_id
+         AND preparation.target_version_kind=retrieval_source.version_kind
+         AND preparation.target_version_value=retrieval_source.version_value
+         AND preparation.target_version_type=retrieval_source.version_type
+        WHERE {binding_where}
+          AND preparation.space_id=?
+          AND preparation.status!='ready'""",
+        (*scope.params, request.space_id),
+    ).fetchone()
+    if row is None:
+        return
+    if row["has_encoder_unavailable"]:
+        raise RetrievalQueryError(
+            "local_embedding_model_unavailable",
+            "Install the local search model to evaluate this local retrieval view.",
+        )
+    if row["has_pending"] or row["has_failed"] or row["has_other_unavailable"]:
+        raise RetrievalQueryError(
+            "selection_incomplete",
+            "Local semantic search preparation is incomplete for this view.",
+        )
 
 
 def _preparation_dataset_filter(request: SearchRequest) -> tuple[str, tuple[Any, ...]]:
