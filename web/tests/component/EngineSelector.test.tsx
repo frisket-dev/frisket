@@ -417,7 +417,7 @@ describe('EngineSelector', () => {
     else expect(progress).toHaveAttribute('aria-valuenow', String(percent));
   });
 
-  it('renders a visible Loading… state with aria-busy and shimmer class while loading', () => {
+  it('renders a calm vertically centered Loading engines… state with aria-busy while loading', () => {
     const { rerender } = render(
       <EngineSelector
         label="OCR engine"
@@ -435,7 +435,8 @@ describe('EngineSelector', () => {
     expect(trigger).toBeDisabled();
     expect(trigger).toHaveAttribute('aria-busy', 'true');
     expect(trigger).toHaveClass('engine-selector__trigger--loading');
-    expect(within(trigger).getByText('Loading…')).toBeVisible();
+    expect(within(trigger).getByText('Loading engines…')).toBeVisible();
+    expect(trigger.querySelector('small')).toBeNull();
     expect(trigger.querySelector('.engine-selector__status--loading')).not.toBeNull();
 
     rerender(
@@ -452,6 +453,7 @@ describe('EngineSelector', () => {
     expect(trigger).not.toHaveAttribute('aria-busy');
     expect(trigger).not.toHaveClass('engine-selector__trigger--loading');
     expect(within(trigger).getByText('Parakeet')).toBeVisible();
+    expect(trigger.querySelector('small')).toHaveTextContent('Fast speech recognition');
   });
 
   it('portals setup forms and stops their submit from reaching the action form', async () => {

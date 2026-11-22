@@ -8,6 +8,55 @@
 .friendly-filter-intro p {
   margin: 3px 0 0; color: var(--text-light); font-size: 10.5px; line-height: 1.4;
 }
+.friendly-query-controls {
+  display: flex; flex-direction: column; gap: var(--space-6);
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.friendly-query-search {
+  display: flex; align-items: center; gap: 5px; padding: 3px 6px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-6);
+  background: var(--bg); color: var(--text-light);
+}
+.friendly-query-search:focus-within {
+  outline: 2px solid var(--accent-bg); border-color: var(--accent);
+}
+.friendly-query-search-icon {
+  flex: none; color: var(--text-light); pointer-events: none;
+}
+.friendly-query-search-input {
+  flex: 1; width: 100%; min-width: 0; padding: 0; border: 0; outline: 0;
+  background: transparent; color: var(--text); font: inherit; font-size: var(--font-size-meta);
+}
+.friendly-query-search-clear {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: var(--radius-4); color: var(--text-light);
+}
+.friendly-query-search-clear:hover {
+  background: var(--bg-hover); color: var(--text);
+}
+.friendly-query-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-8);
+  min-height: 26px; font-size: var(--font-size-meta);
+}
+.friendly-query-field {
+  display: inline-flex; align-items: center; gap: var(--space-6); min-width: 0;
+  color: var(--text-mid); font-size: var(--font-size-meta);
+}
+.friendly-query-field-label {
+  color: var(--text-light); white-space: nowrap;
+}
+.friendly-query-field .form-input.friendly-query-limit-input {
+  width: 72px;
+}
+.friendly-query-sort-field {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+}
+.friendly-query-sort-field select.panel-select-control.friendly-query-sort-select {
+  width: 100%; min-width: 0; padding: 3px 26px 3px 6px; font-size: var(--font-size-meta);
+}
+.friendly-query-reset {
+  flex-shrink: 0; white-space: nowrap;
+}
 .friendly-active-filters { display: flex; flex-direction: column; gap: var(--space-4); }
 .friendly-active-heading {
   display: flex; align-items: center; justify-content: space-between;

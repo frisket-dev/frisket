@@ -413,8 +413,8 @@ export function EngineSelector({
           aria-hidden
         />
         <span className="engine-selector__trigger-copy">
-          <strong>{loading ? 'Loading…' : (triggerCopy?.label ?? `Choose ${label.toLowerCase()}`)}</strong>
-          <small>{loading ? '' : triggerSecondaryCopy}</small>
+          <strong>{loading ? 'Loading engines…' : (triggerCopy?.label ?? `Choose ${label.toLowerCase()}`)}</strong>
+          {!loading && triggerSecondaryCopy && <small>{triggerSecondaryCopy}</small>}
           {!loading && triggerActivity && <progress
             className="engine-selector__trigger-progress"
             aria-label={`${triggerCopy?.label ?? label}: ${triggerActivity.label}`}

@@ -4,10 +4,43 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { View, ViewDefinitionInput, ViewSelection } from '../../src/api/open';
+import type { SheetMeta, View, ViewDefinitionInput, ViewSelection } from '../../src/api/open';
+import { createProjectApi } from '../../src/api/real';
+import { FriendlyFiltersPanel } from '../../src/components/FriendlyFiltersPanel';
 import type { ViewsEditor } from '../../src/state/viewsStore';
 import { SheetFilterBar } from '../../src/workspace/SheetFilterBar';
 import { ViewsPanel } from '../../src/workspace/ViewsPanel';
+import { sheetMeta } from '../support/actionFormFixtures';
+import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+
+const api = createProjectApi('test-project');
+vi.spyOn(api, 'columnValuesPreview').mockResolvedValue({
+  sheetId: '1',
+  columnId: '2',
+  inputColumn: 'status',
+  totalRows: 10,
+  distinct: 2,
+  missing: 0,
+  values: [
+    { value: 'open', count: 6 },
+    { value: 'closed', count: 4 },
+  ],
+  offset: 0,
+  limit: 21,
+  truncated: false,
+  valueHash: 'hash-status',
+  search: null,
+  distribution: null,
+});
+const { render: renderInWorkspace } = createWorkspaceTestHarness({
+  projectId: 'test-project',
+  api: { projectApi: api },
+});
+
+const SHEET: SheetMeta = sheetMeta(
+  [{ id: '2', name: 'status', type: 'text' }],
+  { id: '1', name: 'Cases', rowCount: 10 },
+);
 
 afterEach(() => {
   cleanup();
@@ -145,35 +178,114 @@ describe('ViewsPanel save-what-I-see workflow', () => {
   });
 });
 
-describe('SheetFilterBar shaping controls', () => {
-  it('hides score sort and Show all rows until shaping is active, then wires search, sort, limit, and reset', () => {
-    vi.useFakeTimers();
-    const onSelectionChange = vi.fn();
-    const onClearSelection = vi.fn();
-    const initial = baseSelection();
-
-    const { rerender } = render(
+describe('SheetFilterBar above-grid active chips', () => {
+  it('renders nothing above the grid when no filters, search, similarity, limit, sort, or scope are active', () => {
+    const { container } = render(
       <SheetFilterBar
-        currentSelection={initial}
-        onSelectionChange={onSelectionChange}
-        onClearSelection={onClearSelection}
+        currentSelection={baseSelection()}
+        onSelectionChange={vi.fn()}
         activeGridFilter={null}
         activeGridFilterValueLabel={null}
         activeGridSort={null}
         scopeRowIds={null}
-        activeViewId={null}
         onClearGridFilter={vi.fn()}
         onClearGridSort={vi.fn()}
         onClearScopeRowIds={vi.fn()}
       />,
     );
 
-    const searchInput = screen.getByLabelText('Search sheet content');
-    const limitInput = screen.getByLabelText('Limit results');
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId('sheet-filter-search')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sheet-filter-limit')).not.toBeInTheDocument();
+  });
+
+  it('renders dismissible chips only for active search, similarity, limit, filter, sort, and row scope', () => {
+    const onSelectionChange = vi.fn();
+    const onClearGridFilter = vi.fn();
+    const onClearGridSort = vi.fn();
+    const onClearScopeRowIds = vi.fn();
+    const activeSelection = baseSelection({
+      search: { text: 'albany' },
+      similarity: { index_id: 9, query_row_id: 3, top_k: 20 },
+      limit: 25,
+      order: [
+        { score: 'search', dir: 'desc' },
+        { score: 'similarity', dir: 'desc' },
+      ],
+    });
+
+    render(
+      <SheetFilterBar
+        currentSelection={activeSelection}
+        onSelectionChange={onSelectionChange}
+        activeGridFilter={{ status: { eq: 'open' } }}
+        activeGridFilterValueLabel={null}
+        activeGridSort={[{ column: 'status', dir: 'asc' }]}
+        scopeRowIds={[1, 2]}
+        onClearGridFilter={onClearGridFilter}
+        onClearGridSort={onClearGridSort}
+        onClearScopeRowIds={onClearScopeRowIds}
+      />,
+    );
+
+    expect(screen.getByTestId('grid-active-bar')).toBeVisible();
+    expect(screen.getByTestId('active-grid-search')).toHaveTextContent('Search: “albany”');
+    expect(screen.getByTestId('active-grid-similarity')).toHaveTextContent('Similarity filter');
+    expect(screen.getByTestId('active-grid-limit')).toHaveTextContent('Limit: 25 rows');
+    expect(screen.getByTestId('active-grid-filter')).toHaveTextContent('Filter: status eq open');
+    expect(screen.getByTestId('active-grid-sort')).toHaveTextContent('Sort: status asc');
+
+    fireEvent.click(screen.getByTestId('clear-grid-search'));
+    expect(onSelectionChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: undefined,
+        order: [{ score: 'similarity', dir: 'desc' }],
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId('clear-grid-similarity'));
+    expect(onSelectionChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        similarity: undefined,
+        order: [{ score: 'search', dir: 'desc' }],
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId('clear-grid-limit'));
+    expect(onSelectionChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: null }),
+    );
+
+    fireEvent.click(screen.getByTestId('clear-grid-filter'));
+    expect(onClearGridFilter).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('clear-grid-sort'));
+    expect(onClearGridSort).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('FriendlyFiltersPanel query controls in Filter sidebar', () => {
+  it('hides Sort results and Show all rows until active, then wires debounced search, sort, limit, and reset', () => {
+    vi.useFakeTimers();
+    const onSelectionChange = vi.fn();
+    const onClearSelection = vi.fn();
+
+    const view = renderInWorkspace(
+      <FriendlyFiltersPanel
+        sheets={[SHEET]}
+        activeSheetId="1"
+        currentSelection={baseSelection()}
+        onSelectionChange={onSelectionChange}
+        onClearSelection={onClearSelection}
+      />,
+    );
+
+    const searchInput = screen.getByTestId('sheet-filter-search');
+    const limitInput = screen.getByTestId('sheet-filter-limit');
     expect(searchInput).toBeVisible();
     expect(limitInput).toBeVisible();
-    expect(screen.queryByLabelText('Sort results')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('show-all-rows')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sheet-filter-sort')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sheet-filter-show-all')).not.toBeInTheDocument();
 
     fireEvent.change(searchInput, { target: { value: 'albany' } });
     expect(onSelectionChange).not.toHaveBeenCalled();
@@ -182,24 +294,17 @@ describe('SheetFilterBar shaping controls', () => {
       expect.objectContaining({ search: { text: 'albany' } }),
     );
 
-    const searchedSelection = baseSelection({ search: { text: 'albany' } });
-    rerender(
-      <SheetFilterBar
-        currentSelection={searchedSelection}
+    view.rerender(
+      <FriendlyFiltersPanel
+        sheets={[SHEET]}
+        activeSheetId="1"
+        currentSelection={baseSelection({ search: { text: 'albany' } })}
         onSelectionChange={onSelectionChange}
         onClearSelection={onClearSelection}
-        activeGridFilter={null}
-        activeGridFilterValueLabel={null}
-        activeGridSort={null}
-        scopeRowIds={null}
-        activeViewId={null}
-        onClearGridFilter={vi.fn()}
-        onClearGridSort={vi.fn()}
-        onClearScopeRowIds={vi.fn()}
       />,
     );
 
-    const sortSelect = screen.getByTestId('sheet-score-order');
+    const sortSelect = screen.getByTestId('sheet-filter-sort');
     expect(sortSelect).toBeVisible();
     fireEvent.change(sortSelect, { target: { value: 'search' } });
     expect(onSelectionChange).toHaveBeenLastCalledWith(
@@ -214,35 +319,56 @@ describe('SheetFilterBar shaping controls', () => {
       expect.objectContaining({ limit: 25 }),
     );
 
-    const resetButton = screen.getByTestId('show-all-rows');
+    const resetButton = screen.getByTestId('sheet-filter-show-all');
     expect(resetButton).toBeVisible();
     fireEvent.click(resetButton);
     expect(onClearSelection).toHaveBeenCalledTimes(1);
     expect(searchInput).toHaveValue('');
   });
 
-  it('clears search immediately via the inline clear button without losing focus', () => {
+  it('commits immediately on Enter and clears via Escape or the inline clear button without losing focus', () => {
+    vi.useFakeTimers();
     const onSelectionChange = vi.fn();
-    render(
-      <SheetFilterBar
-        currentSelection={baseSelection({ search: { text: 'budget' }, order: [{ score: 'search', dir: 'desc' }] })}
+
+    const view = renderInWorkspace(
+      <FriendlyFiltersPanel
+        sheets={[SHEET]}
+        activeSheetId="1"
+        currentSelection={baseSelection()}
         onSelectionChange={onSelectionChange}
         onClearSelection={vi.fn()}
-        activeGridFilter={null}
-        activeGridFilterValueLabel={null}
-        activeGridSort={null}
-        scopeRowIds={null}
-        activeViewId={null}
-        onClearGridFilter={vi.fn()}
-        onClearGridSort={vi.fn()}
-        onClearScopeRowIds={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByTestId('clear-sheet-search'));
+    const searchInput = screen.getByTestId('sheet-filter-search');
+    fireEvent.change(searchInput, { target: { value: 'budget' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter' });
     expect(onSelectionChange).toHaveBeenCalledWith(
+      expect.objectContaining({ search: { text: 'budget' } }),
+    );
+
+    view.rerender(
+      <FriendlyFiltersPanel
+        sheets={[SHEET]}
+        activeSheetId="1"
+        currentSelection={baseSelection({
+          search: { text: 'budget' },
+          order: [{ score: 'search', dir: 'desc' }],
+        })}
+        onSelectionChange={onSelectionChange}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('sheet-filter-search-clear'));
+    expect(onSelectionChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ search: undefined, order: [] }),
     );
-    expect(screen.getByTestId('sheet-search-input')).toHaveFocus();
+    expect(searchInput).toHaveFocus();
+
+    fireEvent.change(searchInput, { target: { value: 'draft' } });
+    fireEvent.keyDown(searchInput, { key: 'Escape' });
+    expect(searchInput).toHaveValue('');
+    expect(searchInput).toHaveFocus();
   });
 });

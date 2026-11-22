@@ -57,7 +57,7 @@ function response(): HttpSelectorChoicesResponse {
 }
 
 describe('SelectorField', () => {
-  it('shows a visible Loading… shimmer trigger until choices arrive', async () => {
+  it('shows a calm Loading engines… trigger until choices arrive', async () => {
     let complete!: (value: ReturnType<typeof response>) => void;
     const load = vi.fn(() => new Promise<ReturnType<typeof response>>((resolve) => { complete = resolve; }));
     render(<SelectorField projectId="project-a" label="Model"
@@ -67,7 +67,8 @@ describe('SelectorField', () => {
     expect(trigger).toBeDisabled();
     expect(trigger).toHaveAttribute('aria-busy', 'true');
     expect(trigger).toHaveClass('engine-selector__trigger--loading');
-    expect(within(trigger).getByText('Loading…')).toBeVisible();
+    expect(within(trigger).getByText('Loading engines…')).toBeVisible();
+    expect(trigger.querySelector('small')).toBeNull();
     expect(screen.getByTestId('engine-selector')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Loading choices…')).not.toBeInTheDocument();
     await act(async () => complete(response()));
@@ -75,7 +76,7 @@ describe('SelectorField', () => {
     expect(trigger).toBeEnabled();
     expect(trigger).not.toHaveAttribute('aria-busy');
     expect(trigger).not.toHaveClass('engine-selector__trigger--loading');
-    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading engines…')).not.toBeInTheDocument();
     expect(screen.getByTestId('engine-selector')).not.toHaveAttribute('aria-busy');
   });
 
