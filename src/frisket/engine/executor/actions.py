@@ -303,11 +303,18 @@ def resolve_map_preview(
                     admission=False,
                 )
         except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            field = getattr(exc, "field", None)
+            if isinstance(exc, SelectionUnavailable) and field is None:
+                field = (
+                    "scope.view_id"
+                    if exc.code in {"view_not_found", "view_sheet_mismatch"}
+                    else "scope"
+                )
             return ActionError(
                 code=getattr(exc, "code", "invalid_action_request"),
                 message=str(exc),
                 action_kind=str(data["action_id"]),
-                field=getattr(exc, "field", None),
+                field=field,
                 details=dict(getattr(exc, "details", {})),
             )
         preview_scope = _resolve_bounded_preview_scope(

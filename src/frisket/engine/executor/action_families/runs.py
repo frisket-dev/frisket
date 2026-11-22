@@ -22,7 +22,10 @@ from frisket.engine.executor.selection_scope import (
 from frisket.engine.views.specs import SelectionUnavailable
 from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.engine.store import Project
-from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.result_generations import (
+    ResultGenerationStore,
+    _generation_publication_predicate,
+)
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.runs import (
     FAILURE_OUTCOMES,
@@ -115,20 +118,80 @@ def _backfill_parent_run_id(receipts: ReceiptStore, run_id: int) -> int | None:
     return None
 
 
+def _lineage_root(
+    receipts: ReceiptStore,
+    run_id: int,
+    parent_cache: dict[int, int | None],
+) -> int:
+    current = run_id
+    visited: set[int] = set()
+    while current not in visited:
+        visited.add(current)
+        if current not in parent_cache:
+            parent_cache[current] = _backfill_parent_run_id(receipts, current)
+        next_id = parent_cache[current]
+        if next_id is None:
+            return current
+        current = next_id
+    return current
+
+
+def _inherited_lineage_view_id(
+    project: Project,
+    *,
+    run_id: int,
+    runner_spec: dict[str, Any],
+) -> int | None:
+    root_id = _lineage_root(ReceiptStore(project), run_id, {})
+    if root_id == run_id:
+        return stored_view_id_from_runner_spec(runner_spec)
+    root_row = project.db.execute(
+        "SELECT params FROM runs WHERE id=?", (int(root_id),)
+    ).fetchone()
+    if root_row is None:
+        return stored_view_id_from_runner_spec(runner_spec)
+    try:
+        root_spec = json.loads(root_row["params"] or "{}")
+    except (TypeError, ValueError):
+        return stored_view_id_from_runner_spec(runner_spec)
+    if not isinstance(root_spec, dict):
+        return stored_view_id_from_runner_spec(runner_spec)
+    return stored_view_id_from_runner_spec(root_spec)
+
+
 def _empty_view_generation_origin(project: Project, column_id: int) -> list[int]:
+    predicate = _generation_publication_predicate(
+        generation_alias="generation", op_alias="op"
+    )
     empty_gen_rows = project.db.execute(
         "SELECT generation.run_id, run.params FROM run_output_generations generation "
         "JOIN runs run ON run.id=generation.run_id "
         "JOIN changes op ON op.id=run.change_id "
         "JOIN run_scopes scope ON scope.run_id=generation.run_id "
-        "WHERE generation.column_id=? AND op.status='applied' "
-        "AND scope.row_count=0 ORDER BY generation.run_id DESC LIMIT 2",
+        f"WHERE generation.column_id=? AND {predicate} "
+        "AND scope.row_count=0 ORDER BY generation.run_id DESC",
         (int(column_id),),
     ).fetchall()
-    if len(empty_gen_rows) != 1:
+    if not empty_gen_rows:
         return []
+    receipts = ReceiptStore(project)
+    parent_cache: dict[int, int | None] = {}
+    roots = {
+        _lineage_root(receipts, int(row["run_id"]), parent_cache)
+        for row in empty_gen_rows
+    }
+    if len(roots) != 1:
+        return []
+    root_id = next(iter(roots))
+    params_by_run = {int(row["run_id"]): row["params"] for row in empty_gen_rows}
+    root_params = params_by_run.get(root_id)
+    if root_params is None:
+        root_row = project.db.execute(
+            "SELECT params FROM runs WHERE id=?", (int(root_id),)
+        ).fetchone()
+        root_params = root_row["params"] if root_row is not None else None
     try:
-        stored_spec = json.loads(empty_gen_rows[0]["params"] or "{}")
+        stored_spec = json.loads(root_params or "{}")
     except (TypeError, ValueError):
         return []
     if (
@@ -158,21 +221,7 @@ def _single_backfill_lineage_run_id(
 
     receipts = ReceiptStore(project)
     parent_cache: dict[int, int | None] = {}
-
-    def _lineage_root(run_id: int) -> int:
-        current = run_id
-        visited: set[int] = set()
-        while current not in visited:
-            visited.add(current)
-            if current not in parent_cache:
-                parent_cache[current] = _backfill_parent_run_id(receipts, current)
-            next_id = parent_cache[current]
-            if next_id is None:
-                return current
-            current = next_id
-        return current
-
-    roots = {_lineage_root(run_id) for run_id in origin_ids}
+    roots = {_lineage_root(receipts, run_id, parent_cache) for run_id in origin_ids}
     if len(roots) == 1:
         return [origin_ids[0]]
     return generation_store.origin_run_ids(column_id, limit=2)
@@ -195,7 +244,12 @@ def _apply_backfill_sweep_view_scope(
     ctx: _BackfillSweepContext,
 ) -> list[int] | ActionError:
     try:
-        stored_view_id = stored_view_id_from_runner_spec(runner_spec)
+        stored_view_id_from_runner_spec(runner_spec)
+        inherited_view_id = _inherited_lineage_view_id(
+            project,
+            run_id=ctx.run_id,
+            runner_spec=runner_spec,
+        )
     except ValueError as exc:
         return ActionError(
             code="invalid_run_params",
@@ -204,12 +258,21 @@ def _apply_backfill_sweep_view_scope(
             field="params.column",
             details={"run_id": int(ctx.run_id)},
         )
+    # Preserve the column lineage's inherited default row_scope across ad-hoc
+    # backfill overrides so a one-off selection/view backfill never widens or
+    # narrows future plain backfills.
+    if inherited_view_id is not None:
+        runner_spec["row_scope"] = {
+            "kind": "view",
+            "view_id": int(inherited_view_id),
+        }
+    else:
+        runner_spec.pop("row_scope", None)
     done_row_ids = {
         row_id
         for row_id, head in ctx.heads.items()
         if head.outcome not in FAILURE_OUTCOMES
     }
-    effective_view_id = ctx.view_id if ctx.view_id is not None else stored_view_id
     if ctx.selection is not None:
         try:
             matched_rows = set(
@@ -226,12 +289,12 @@ def _apply_backfill_sweep_view_scope(
                 action_kind=ctx.action_kind,
                 field="scope.selection",
             )
-        runner_spec.pop("row_scope", None)
         return [
             row_id
             for row_id in ctx.all_row_ids
             if row_id in matched_rows and row_id not in done_row_ids
         ]
+    effective_view_id = ctx.view_id if ctx.view_id is not None else inherited_view_id
     if effective_view_id is not None:
         try:
             matched_rows = set(
@@ -249,16 +312,11 @@ def _apply_backfill_sweep_view_scope(
                 field="scope.view_id" if ctx.view_id is not None else "params.column",
                 details={"view_id": int(effective_view_id)},
             )
-        runner_spec["row_scope"] = {
-            "kind": "view",
-            "view_id": int(effective_view_id),
-        }
         return [
             row_id
             for row_id in ctx.all_row_ids
             if row_id in matched_rows and row_id not in done_row_ids
         ]
-    runner_spec.pop("row_scope", None)
     return [row_id for row_id in ctx.all_row_ids if row_id not in done_row_ids]
 
 

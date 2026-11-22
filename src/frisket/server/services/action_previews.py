@@ -24,6 +24,7 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
     bound_typed_program_request_from_runner_spec,
 )
+from frisket.engine.executor.selection_scope import resolve_action_selection
 from frisket.actions.types import (
     IndexCreator,
     IndexRefresher,
@@ -299,6 +300,7 @@ class ActionPreviewService:
                     }
 
                 if capabilities in ((FindScanner,), (GroupSummarizer,)):
+                    typed = resolve_action_selection(get_project(), typed)
                     prepare = (
                         prepare_find_action
                         if capabilities == (FindScanner,)

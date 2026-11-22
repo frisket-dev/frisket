@@ -618,12 +618,13 @@ export function ActionPanel({
               ? null
               : viewName}
             viewSelection={openAction.generatedDraft?.scope.kind === 'sheet_rows' ? openAction.generatedDraft.scope.selection ?? null : viewSelection}
-            hasExactRowScopeInitializer={hasExactRowScopeInitializer
-              || (savedScope?.kind === 'sheet_rows' && (
-                savedScope.row_ids !== undefined
-                || savedScope.view_id !== undefined
-                || savedScope.selection !== undefined
-              ))}
+            hasExactRowScopeInitializer={openAction.generatedDraft
+              ? (savedScope?.kind === 'sheet_rows' && (
+                  savedScope.row_ids !== undefined
+                  || savedScope.view_id !== undefined
+                  || savedScope.selection !== undefined
+                ))
+              : hasExactRowScopeInitializer}
             initialSourceColumn={openAction.initial?.sourceColumn}
             initialPrompt={openAction.initial?.prompt}
             initialDraft={openAction.generatedDraft}

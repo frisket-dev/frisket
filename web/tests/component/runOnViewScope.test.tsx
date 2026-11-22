@@ -138,4 +138,74 @@ describe('GeneratedActionForm view scope and view backfill', () => {
     fireEvent.click(backfillBtn);
     expect(onBackfill).toHaveBeenCalledWith('extracted', undefined, 42);
   });
+
+  it('allows running on view without hasExactRowScopeInitializer and hides full-sheet count on view option when switched to all rows', async () => {
+    const entry = regexCatalogEntry();
+    const template = generatedActionTemplateFromCatalogEntry(entry);
+    if (!template) throw new Error('Expected generated action template');
+    const sheet = sheetMeta([
+      columnDef({ id: '11', name: 'story', type: 'text' }),
+    ], { id: '7', name: 'Filings', rowCount: 10 });
+
+    const estimateAction = vi.fn(async (req: { scope: { kind: string; view_id?: number } }): Promise<RunEstimate> => ({
+      cost: 0,
+      cost_source: 'free_local',
+      rows: req.scope.kind === 'sheet_rows' && req.scope.view_id === 42 ? 3 : 10,
+      requires_confirmation: false,
+    }));
+    const onExecute = vi.fn();
+
+    render(
+      <GeneratedActionForm
+        catalogEntry={entry}
+        actionTemplate={template}
+        sheet={sheet}
+        initialDraft={{
+          action_id: 'map.regex_extract',
+          scope: { kind: 'sheet_rows', sheet_id: 7 },
+          params: { input_columns: ['story'], pattern: '\\d+' },
+          output_names: { extracted: 'extracted' },
+        }}
+        viewId={42}
+        viewName="High Priority"
+        running={false}
+        resolveParams={async () => ({ diagnostics: {}, logical_outputs: [{ key: 'extracted', column_type: 'text' }] })}
+        estimateAction={estimateAction}
+        onExecute={onExecute}
+        onClose={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/3 rows in view “High Priority”/i)).toBeInTheDocument();
+    });
+
+    // Submitting without hasExactRowScopeInitializer still executes view-scoped request.
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => {
+      expect(onExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: { kind: 'sheet_rows', sheet_id: 7, view_id: 42 },
+        }),
+        'run',
+      );
+    });
+
+    // Switch scope to all rows (10 rows); the View menu item must NOT show "10 rows".
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
+    fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+
+    await waitFor(() => {
+      expect(estimateAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: { kind: 'sheet_rows', sheet_id: 7 },
+        }),
+      );
+    });
+
+    fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
+    const viewOption = screen.getByTestId('generated-action-row-scope-selected');
+    expect(viewOption).toHaveTextContent('Current view');
+    expect(viewOption).not.toHaveTextContent('10 rows');
+  });
 });

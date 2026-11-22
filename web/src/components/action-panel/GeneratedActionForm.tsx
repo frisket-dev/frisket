@@ -1250,10 +1250,15 @@ function GeneratedActionFormContents({
   const estimateWarning = displayedEstimate?.warning?.trim() || null;
   const estimateRowCount = displayedEstimate?.rows
     ?? (sheet ? effectiveRunScope === 'selected' ? hasViewScope ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
+  const viewEstimateRows = effectiveRunScope === 'selected'
+    && !previousEstimate
+    && displayedEstimate?.rows !== undefined
+    ? displayedEstimate.rows
+    : null;
   const viewScopeLabel = viewName ? `view “${viewName}”` : 'current view';
   const selectedScopeSummary = hasViewScope
-    ? displayedEstimate?.rows !== undefined
-      ? `${displayedEstimate.rows.toLocaleString()} ${displayedEstimate.rows === 1 ? 'row' : 'rows'} in ${viewScopeLabel}`
+    ? viewEstimateRows !== null
+      ? `${viewEstimateRows.toLocaleString()} ${viewEstimateRows === 1 ? 'row' : 'rows'} in ${viewScopeLabel}`
       : viewName
         ? `View: ${viewName}`
         : 'Current view'
@@ -1288,7 +1293,7 @@ function GeneratedActionFormContents({
 
   const submit = async (scope: 'all' | 'selected', intent: 'preview' | 'run') => {
     if (!canRun || launchPending || submissionInFlight.current || (!projectScoped && scope === 'selected'
-      && scopeSelectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
+      && scopeSelectedRowIds.length === 0 && !hasExactRowScopeInitializer && !hasViewScope)) return;
     const request = {
       ...estimateDraft,
       scope: scopeFor(scope),
@@ -1603,8 +1608,8 @@ function GeneratedActionFormContents({
               : 'Run on this view'
           : replacementLaunch ? 'Replace selected rows' : 'Run on selected'}
         selectedScopeDetail={hasViewScope
-          ? displayedEstimate?.rows !== undefined
-            ? `${displayedEstimate.rows.toLocaleString()} ${displayedEstimate.rows === 1 ? 'row' : 'rows'}`
+          ? viewEstimateRows !== null
+            ? `${viewEstimateRows.toLocaleString()} ${viewEstimateRows === 1 ? 'row' : 'rows'}`
             : 'Current view'
           : undefined}
         showAllScopeOption={launchMode?.kind !== 'compare-setup' && (!launchMode || editComparePrimary || effectiveRunScope === 'selected')}

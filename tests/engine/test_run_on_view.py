@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionRequest, SheetRows
 from frisket.contracts.action import SheetRowScope, ViewSelector
-from frisket.engine.executor.actions import run_action_spec
+from frisket.engine.executor.actions import resolve_map_preview, run_action_spec
 from frisket.engine.jobs.search_index import process_index_batches
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -1132,5 +1132,420 @@ def test_true_mixed_origin_column_still_refuses_view_backfill(tmp_path: Path) ->
         )
         assert refused.status_code == 400, refused.text
         assert refused.json()["errors"][0]["code"] == "mixed_origin_column_unsupported"
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("kind", ["map.find", "reduce.group_summary"])
+def test_estimate_find_and_group_summary_respect_view_scope_and_confirmation_parity(
+    tmp_path: Path, kind: str
+) -> None:
+    client = _client(tmp_path)
+    try:
+        pid, sheet_id, cols, _row_ids = _seed_priority_sheet(client)
+        project = client.app.state.workspace.get(pid)
+        view_id = _save_priority_view(
+            project, sheet_id=sheet_id, priority_col_id=cols["priority"]
+        )
+        other_sheet_id = project.add_sheet("Other Sheet")
+        other_col_id = project.add_column(other_sheet_id, "label", "text")
+        other_view_id = _save_priority_view(
+            project,
+            sheet_id=other_sheet_id,
+            priority_col_id=other_col_id,
+            name="Other Sheet View",
+            priority_value="high",
+        )
+
+        def _request(target_view_id: int, *, key: str) -> dict[str, Any]:
+            if kind == "map.find":
+                return {
+                    "action_id": "map.find",
+                    "scope": {
+                        "kind": "sheet_rows",
+                        "sheet_id": sheet_id,
+                        "view_id": target_view_id,
+                    },
+                    "sheet_name": "View Findings",
+                    "params": {
+                        "source": "story",
+                        "instruction": "Find contract numbers.",
+                        "fields": [],
+                        "model": "anthropic/unpriced-test-model",
+                    },
+                    "idempotency_key": key,
+                }
+            return {
+                "action_id": "reduce.group_summary",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "view_id": target_view_id,
+                },
+                "sheet_name": "View Summary",
+                "params": {
+                    "source": ["story"],
+                    "instruction": "Summarize contracts.",
+                    "model": "anthropic/unpriced-test-model",
+                },
+                "idempotency_key": key,
+            }
+
+        valid_req = _request(view_id, key=f"est-{kind}-valid@v1")
+        est = client.post(
+            f"/api/projects/{pid}/actions/v1/estimate", json={"action": valid_req}
+        )
+        assert est.status_code == 200, est.text
+        est_body = est.json()["estimate"]
+        assert est_body["rows"] == 2
+        est_hash = est_body.get("promise_set_hash")
+        assert est_hash is not None
+
+        # /run challenge MUST mint the exact same confirmation_hash as /estimate.
+        challenge = client.post(f"/api/projects/{pid}/actions/v1/run", json=valid_req)
+        assert challenge.status_code == 402, challenge.text
+        run_hash = confirmation_hash_from_action_result(challenge.json())
+        assert run_hash == est_hash
+        if kind == "map.find":
+            assert challenge.json()["errors"][0]["details"]["estimate"]["rows"] == 2
+
+        # Missing view -> HTTP 400 view_not_found on scope.view_id.
+        missing = client.post(
+            f"/api/projects/{pid}/actions/v1/estimate",
+            json={"action": _request(99999, key=f"est-{kind}-missing@v1")},
+        )
+        assert missing.status_code == 400, missing.text
+        assert missing.json()["code"] == "view_not_found"
+        assert missing.json()["field"] == "scope.view_id"
+
+        # Cross-sheet view -> HTTP 400 view_sheet_mismatch on scope.view_id.
+        cross = client.post(
+            f"/api/projects/{pid}/actions/v1/estimate",
+            json={"action": _request(other_view_id, key=f"est-{kind}-cross@v1")},
+        )
+        assert cross.status_code == 400, cross.text
+        assert cross.json()["code"] == "view_sheet_mismatch"
+        assert cross.json()["field"] == "scope.view_id"
+
+        # Pending-cell filter input -> HTTP 400 selection_incomplete.
+        queued_filter = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "map.regex_extract",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "row_ids": [_row_ids[0]],
+                },
+                "params": {"input_columns": ["story"], "pattern": r"\d+"},
+                "output_names": {"extracted": "pending_flag"},
+                "idempotency_key": f"est-{kind}-seed-pending@v1",
+            },
+        )
+        assert queued_filter.status_code == 200, queued_filter.text
+        pending_col = _column_id(project, sheet_id, "pending_flag")
+        pending_view_id = _save_priority_view(
+            project,
+            sheet_id=sheet_id,
+            priority_col_id=pending_col,
+            name="Pending Filter",
+            priority_value="101",
+        )
+        incomplete = client.post(
+            f"/api/projects/{pid}/actions/v1/estimate",
+            json={"action": _request(pending_view_id, key=f"est-{kind}-pending@v1")},
+        )
+        assert incomplete.status_code == 400, incomplete.text
+        assert incomplete.json()["code"] == "selection_incomplete"
+    finally:
+        client.close()
+
+
+def test_zero_row_view_noop_backfill_does_not_brick_future_backfill(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    try:
+        pid, sheet_id, cols, _row_ids = _seed_priority_sheet(client)
+        project = client.app.state.workspace.get(pid)
+        urgent_view_id = _save_priority_view(
+            project,
+            sheet_id=sheet_id,
+            priority_col_id=cols["priority"],
+            name="Urgent Only",
+            priority_value="urgent",
+        )
+
+        # R1: 0-row View run.
+        r1 = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json=_regex_view_action(sheet_id, view_id=urgent_view_id, key="z0-r1@v1"),
+        )
+        assert r1.status_code == 200, r1.text
+        drain_queue(client)
+
+        # R2: No-op backfill while the View still matches 0 rows.
+        r2 = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"column": "code_num"},
+                "output_names": {},
+                "idempotency_key": "z0-r2-noop@v1",
+            },
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["outputs"][0]["ref"]["filled_row_ids"] == []
+
+        # New rows arrive: one matches Urgent, one does not.
+        row_urgent = project.add_rows(
+            sheet_id, [{"story": "urgent contract 777", "priority": "urgent"}], cols
+        )[0]
+        row_low = project.add_rows(
+            sheet_id, [{"story": "low contract 888", "priority": "low"}], cols
+        )[0]
+
+        # R3: Future backfill MUST still work and populate ONLY row_urgent.
+        r3 = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"column": "code_num"},
+                "output_names": {},
+                "idempotency_key": "z0-r3-fill@v1",
+            },
+        )
+        assert r3.status_code == 200, r3.text
+        assert r3.json()["outputs"][0]["ref"]["filled_row_ids"] == [row_urgent]
+        code_values = project.get_values(
+            sheet_id, _column_id(project, sheet_id, "code_num")
+        )
+        assert code_values.get(row_urgent) == "777"
+        assert code_values.get(row_low) is None
+
+        # Undoing R3, the added rows, R2, and R1 removes published empty generations cleanly.
+        for _ in range(5):
+            assert project.undo() is not None
+        after_undo = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"column": "code_num"},
+                "output_names": {},
+                "idempotency_key": "z0-after-undo@v1",
+            },
+        )
+        assert after_undo.status_code == 400, after_undo.text
+    finally:
+        client.close()
+
+
+def test_adhoc_selection_and_view_backfill_preserve_inherited_lineage_row_scope(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    try:
+        pid, sheet_id, cols, _row_ids = _seed_priority_sheet(client)
+        project = client.app.state.workspace.get(pid)
+        high_view_id = _save_priority_view(
+            project,
+            sheet_id=sheet_id,
+            priority_col_id=cols["priority"],
+            name="High Priority",
+            priority_value="high",
+        )
+
+        # Scenario A: View-origin column + ad-hoc scope.selection backfill
+        # MUST NOT widen subsequent plain backfill to all rows on the sheet!
+        r1 = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json=_regex_view_action(sheet_id, view_id=high_view_id, key="lin-a1@v1"),
+        )
+        assert r1.status_code == 200, r1.text
+        drain_queue(client)
+
+        row_med = project.add_rows(
+            sheet_id, [{"story": "med contract 901", "priority": "medium"}], cols
+        )[0]
+        row_high = project.add_rows(
+            sheet_id, [{"story": "high contract 902", "priority": "high"}], cols
+        )[0]
+        row_low = project.add_rows(
+            sheet_id, [{"story": "low contract 903", "priority": "low"}], cols
+        )[0]
+
+        adhoc_sel = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "selection": {
+                        "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                        "filters": [
+                            {
+                                "column_id": cols["priority"],
+                                "condition": {"eq": "medium"},
+                            }
+                        ],
+                        "order": [],
+                        "limit": None,
+                    },
+                },
+                "params": {"column": "code_num"},
+                "output_names": {},
+                "idempotency_key": "lin-a2-adhoc-sel@v1",
+            },
+        )
+        assert adhoc_sel.status_code == 200, adhoc_sel.text
+        assert adhoc_sel.json()["outputs"][0]["ref"]["filled_row_ids"] == [row_med]
+
+        plain_after_sel = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"column": "code_num"},
+                "output_names": {},
+                "idempotency_key": "lin-a3-plain@v1",
+            },
+        )
+        assert plain_after_sel.status_code == 200, plain_after_sel.text
+        assert plain_after_sel.json()["outputs"][0]["ref"]["filled_row_ids"] == [
+            row_high
+        ]
+        code_values = project.get_values(
+            sheet_id, _column_id(project, sheet_id, "code_num")
+        )
+        assert code_values.get(row_high) == "902"
+        assert code_values.get(row_low) is None
+
+        # Scenario B: All-rows-origin column + ad-hoc scope.view_id backfill
+        # MUST NOT narrow subsequent plain backfill to that View (nor break if deleted)!
+        all_r1 = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "map.regex_extract",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"input_columns": ["story"], "pattern": r"\d+"},
+                "output_names": {"extracted": "all_code"},
+                "idempotency_key": "lin-b1-all@v1",
+            },
+        )
+        assert all_r1.status_code == 200, all_r1.text
+        drain_queue(client)
+
+        row_high2 = project.add_rows(
+            sheet_id, [{"story": "high contract 911", "priority": "high"}], cols
+        )[0]
+        row_low2 = project.add_rows(
+            sheet_id, [{"story": "low contract 912", "priority": "low"}], cols
+        )[0]
+
+        adhoc_view = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet_id,
+                    "view_id": high_view_id,
+                },
+                "params": {"column": "all_code"},
+                "output_names": {},
+                "idempotency_key": "lin-b2-adhoc-view@v1",
+            },
+        )
+        assert adhoc_view.status_code == 200, adhoc_view.text
+        assert adhoc_view.json()["outputs"][0]["ref"]["filled_row_ids"] == [row_high2]
+
+        # Delete the ad-hoc View; plain backfill on the all-rows column MUST still work!
+        project.delete_view(high_view_id)
+        plain_after_view = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json={
+                "action_id": "run.backfill",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": {"column": "all_code"},
+                "output_names": {},
+                "idempotency_key": "lin-b3-plain@v1",
+            },
+        )
+        assert plain_after_view.status_code == 200, plain_after_view.text
+        assert plain_after_view.json()["outputs"][0]["ref"]["filled_row_ids"] == [
+            row_low2
+        ]
+        all_values = project.get_values(
+            sheet_id, _column_id(project, sheet_id, "all_code")
+        )
+        assert all_values.get(row_low2) == "912"
+    finally:
+        client.close()
+
+
+def test_action_history_and_map_preview_view_validation(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    try:
+        pid, sheet_id, cols, _row_ids = _seed_priority_sheet(client)
+        project = client.app.state.workspace.get(pid)
+        view_id = _save_priority_view(
+            project, sheet_id=sheet_id, priority_col_id=cols["priority"]
+        )
+        other_sheet_id = project.add_sheet("Other Sheet")
+        other_col_id = project.add_column(other_sheet_id, "label", "text")
+        other_view_id = _save_priority_view(
+            project,
+            sheet_id=other_sheet_id,
+            priority_col_id=other_col_id,
+            name="Other View",
+        )
+
+        # resolve_map_preview reports field="scope.view_id" for missing/cross-sheet views.
+        missing_err = resolve_map_preview(
+            project,
+            _regex_view_action(sheet_id, view_id=99999, key="prev-missing@v1"),
+        )
+        assert getattr(missing_err, "code", None) == "view_not_found"
+        assert getattr(missing_err, "field", None) == "scope.view_id"
+
+        cross_err = resolve_map_preview(
+            project,
+            _regex_view_action(sheet_id, view_id=other_view_id, key="prev-cross@v1"),
+        )
+        assert getattr(cross_err, "code", None) == "view_sheet_mismatch"
+        assert getattr(cross_err, "field", None) == "scope.view_id"
+
+        # Action history restores view_id while View exists and marks unavailable after delete.
+        run_resp = client.post(
+            f"/api/projects/{pid}/actions/v1/run",
+            json=_regex_view_action(sheet_id, view_id=view_id, key="hist-view@v1"),
+        )
+        assert run_resp.status_code == 200, run_resp.text
+
+        history_resp = client.get(
+            f"/api/projects/{pid}/actions/history",
+            params={"action_id": "map.regex_extract"},
+        )
+        assert history_resp.status_code == 200, history_resp.text
+        items = history_resp.json()["items"]
+        assert items
+        history_id = items[0]["id"]
+
+        detail_before = client.get(f"/api/projects/{pid}/actions/history/{history_id}")
+        assert detail_before.status_code == 200, detail_before.text
+        assert detail_before.json()["unavailable_reason"] is None
+        assert detail_before.json()["draft"]["scope"]["view_id"] == view_id
+
+        project.delete_view(view_id)
+        detail_after = client.get(f"/api/projects/{pid}/actions/history/{history_id}")
+        assert detail_after.status_code == 200, detail_after.text
+        assert detail_after.json()["draft"] is None
+        assert detail_after.json()["unavailable_reason"] == (
+            "The original view is no longer available."
+        )
     finally:
         client.close()

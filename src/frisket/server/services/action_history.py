@@ -21,9 +21,10 @@ from frisket.server.services.run_action_drafts import reconstruct_run_action_dra
 
 def editable_action_draft(body: dict[str, Any]) -> ActionHistoryDraft:
     """Keep authored settings, never execution context or consent authority."""
-    return ActionHistoryDraft.model_validate(
-        {key: body[key] for key in ActionHistoryDraft.model_fields if key in body}
-    )
+    payload = {key: body[key] for key in ActionHistoryDraft.model_fields if key in body}
+    payload.setdefault("output_names", {})
+    payload.setdefault("sheet_name", None)
+    return ActionHistoryDraft.model_validate(payload)
 
 
 def save_action_submission(project: Any, body: dict[str, Any]) -> int | None:
@@ -34,7 +35,7 @@ def save_action_submission(project: Any, body: dict[str, Any]) -> int | None:
     key = body.get("idempotency_key")
     return record_submission(
         project.db,
-        draft.model_dump(mode="json"),
+        draft.model_dump(mode="json", exclude_unset=True),
         request_key=key if isinstance(key, str) and key else None,
     )
 
@@ -145,6 +146,14 @@ class ActionHistoryService:
                 ).fetchone()[0]
                 if not ids or count != len(ids):
                     reason = "The original row selection is no longer available."
+            elif draft.scope.view_id is not None:
+                view = project.get_view(draft.scope.view_id)
+                if (
+                    view is None
+                    or view["sheet_id"] is None
+                    or int(view["sheet_id"]) != draft.scope.sheet_id
+                ):
+                    reason = "The original view is no longer available."
         return ActionHistoryDetail(
             item=item,
             draft=draft if reason is None else None,
