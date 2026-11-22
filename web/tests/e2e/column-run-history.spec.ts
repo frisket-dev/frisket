@@ -53,7 +53,7 @@ function columnRunsPage(offset: number, limit: number): HttpColumnRunsPage {
       id: 0,
       name: 'topic',
       type: 'text',
-      ai_generated: true,
+      generated: true,
       mixed_origins: false,
       current_run_id: 9001,
       latest_run_id: 9025,
@@ -81,7 +81,7 @@ test('column drawer navigates paged version history', async ({ page }) => {
   const columns = await sheetColumns(page.request, pid, sheetId);
   const topic = columns.find((column) => column.name === 'topic');
   expect(topic).toBeTruthy();
-  expect(topic!.ai_generated).toBe(true);
+  expect(topic!.generated).toBe(true);
 
   const requestedOffsets: string[] = [];
   await page.route(`**/api/projects/${pid}/columns/${topic!.id}/runs?*`, async (route) => {

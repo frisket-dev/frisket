@@ -154,7 +154,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert model_use["cost_actual"] > 0
     assert receipt.inputs[0].ref == {
         "kind": "model_rows_input_column",
-        "ai_generated": False,
+        "generated": False,
         "source_receipt_id": None,
         "source_run_id": None,
         "name": "country",
@@ -178,9 +178,9 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
             "cost_actual": 0.0,
         }
     ]
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     calls = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "web_search_call"
+        item.ref for item in receipt.records if item.ref["kind"] == "web_search_call"
     ]
     assert len({call["call_id"] for call in calls}) == 2
     assert all(call["succeeded"] and "query" not in call for call in calls)
@@ -238,7 +238,7 @@ CASES = [
                 {
                     "invalid_action_request",
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "model_cost_requires_confirmation",
                     "model_run_failed",
                     "idempotency_conflict",
@@ -256,7 +256,9 @@ CASES = [
         patch=_patch_provider,
         gates=(
             Gate("invalid_input_ref", _missing_source, "invalid_input_ref"),
-            Gate("output_column_exists", _output_collision, "output_column_exists"),
+            Gate(
+                "generated_column_exists", _output_collision, "generated_column_exists"
+            ),
             Gate(
                 "idempotency_conflict",
                 _conflict,
@@ -283,26 +285,23 @@ def _run_with_confirmation(
 
 
 def test_search_without_selected_model_refuses_without_provider_calls(
-    tmp_path, monkeypatch
+    make_project, tmp_path, monkeypatch
 ):
     _patch_provider(monkeypatch)
     calls = patch_quick_search_model(monkeypatch)
-    project = Project.create(tmp_path / "missing-model")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _action(seeded["sheet_id"])
-        del action["params"]["model"]
-        result = run_typed_map_request(project, action, project_id="missing-model")
-        assert result.status == "failed"
-        assert any("model" in error.message.lower() for error in result.errors)
-        assert _FakeDDGS.seen == []
-        assert calls == []
-        assert {column["name"] for column in project.columns(seeded["sheet_id"])} == {
-            "country",
-            "region",
-        }
-    finally:
-        project.close()
+    project = make_project("missing-model")
+    seeded = _seed(project, tmp_path)
+    action = _action(seeded["sheet_id"])
+    del action["params"]["model"]
+    result = run_typed_map_request(project, action, project_id="missing-model")
+    assert result.status == "failed"
+    assert any("model" in error.message.lower() for error in result.errors)
+    assert _FakeDDGS.seen == []
+    assert calls == []
+    assert {column["name"] for column in project.columns(seeded["sheet_id"])} == {
+        "country",
+        "region",
+    }
 
 
 def test_above_allowance_requires_exact_confirmation_before_egress(
@@ -438,7 +437,7 @@ def test_all_rows_failed_retries_four_times_and_replays_failed_receipt(
     )
     observed = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "web_search_call"
     ]
     assert len(observed) == 8
@@ -507,7 +506,7 @@ def test_cancelled_search_receipt_counts_only_completed_successes(
     ]
     counts = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_rows_run_counts"
     )
     assert (

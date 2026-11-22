@@ -287,7 +287,7 @@ def test_expected_generated_columns_refuses_a_target_created_after_preparation(
         scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
         params={"source": "source", "template": {"text": "{{note}}"}},
         output_names={"rendered": "combined"},
-        expected_output_columns={"combined": None},
+        expected_generated_columns={"combined": None},
         idempotency_key="render@expected-output",
     )
     bound = BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request)
@@ -295,11 +295,11 @@ def test_expected_generated_columns_refuses_a_target_created_after_preparation(
         "combined": None
     }
 
-    store.add_column(sheet_id, "combined", ai_generated=True)
+    store.add_column(sheet_id, "combined", generated=True)
 
     with pytest.raises(TypedMapRowsPlanError) as error:
         build_typed_map_rows_plan(store, bound)
-    assert error.value.code in {"output_target_changed", "output_column_exists"}
+    assert error.value.code in {"output_target_changed", "generated_column_exists"}
 
 
 def test_expected_generated_columns_are_part_of_the_typed_request_identity(
@@ -314,7 +314,7 @@ def test_expected_generated_columns_are_part_of_the_typed_request_identity(
         "idempotency_key": "render@identity",
     }
     ordinary = ActionRequest(**base)
-    constrained = ActionRequest(**base, expected_output_columns={"combined": None})
+    constrained = ActionRequest(**base, expected_generated_columns={"combined": None})
     assert typed_request_hash(
         BoundTypedActionRequest.bind(REGISTRY.get(ordinary.action_id), ordinary)
     ) != typed_request_hash(
@@ -458,7 +458,7 @@ def test_output_schema_is_projected_from_typed_output_model(
         (
             {"source": "source", "template": {"text": "literal"}},
             {"rendered": "note"},
-            "output_column_exists",
+            "generated_column_exists",
             ["note"],
         ),
     ],

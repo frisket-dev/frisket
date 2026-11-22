@@ -57,7 +57,6 @@ interface SheetGridDependencies {
   /** The project API remains the action-session composition root. */
   v1ActionSession: Pick<
     V1ActionSession,
-    | 'v1ActionSpec'
     | 'registeredProjectActionSpec'
     | 'withV1ActionResult'
     | 'assertCompletedV1ActionResult'

@@ -17,18 +17,21 @@ LOG = logging.getLogger(__name__)
 def bundle_opener(
     direct: Callable[[Path], Project],
     project_opener: ProjectOpener | None,
-    storage_org_id: int | None,
+    storage_organization_id: int | None,
 ) -> Callable[[Path], Project]:
     """How a scan opens each bundle: ``direct``, or through the injected opener
     keyed by the root's DECLARED storage organization (never the directory name). A scan
     that injects an opener refuses outright when that identity is missing."""
     if project_opener is None:
         return direct
-    org_id = require_opener_storage_organization_id(storage_org_id)
+    organization_id = require_opener_storage_organization_id(storage_organization_id)
 
     def open_bundle(bundle: Path) -> Project:
         return project_opener(
-            ProjectStorageKey(storage_org_id=org_id, project_slug=bundle.stem), bundle
+            ProjectStorageKey(
+                storage_organization_id=organization_id, project_slug=bundle.stem
+            ),
+            bundle,
         )
 
     return open_bundle

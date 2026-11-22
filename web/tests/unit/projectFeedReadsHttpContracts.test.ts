@@ -212,11 +212,6 @@ interface ProjectSourcesActionSession {
     actionId: string,
     params: Record<string, unknown>,
   ): Record<string, unknown>;
-  v1ActionSpec(
-    kind: string,
-    capabilities: string[],
-    params: Record<string, unknown>,
-  ): Record<string, unknown>;
   withV1ActionResult<T>(
     spec: Record<string, unknown>,
     handler: (result: { status?: string; job_id?: number; outputs?: Array<{ kind: string; sheet_id?: number; ref?: unknown }> }) => T | Promise<T>,
@@ -255,9 +250,6 @@ describe("project-source generated HTTP reads", () => {
     const actionSession: ProjectSourcesActionSession = {
       registeredProjectActionSpec: () => {
         throw new Error('source reads must not create registered actions');
-      },
-      v1ActionSpec: () => {
-        throw new Error('source reads must not create v1 actions');
       },
       withV1ActionResult: () => {
         throw new Error('source reads must not post v1 actions');
@@ -328,8 +320,11 @@ describe("project-source generated HTTP reads", () => {
     if (!module) return;
 
     const specs: Array<{
-      kind: string;
-      capabilities: string[];
+      action_id?: string;
+      scope?: { kind: string };
+      output_names?: Record<string, string>;
+      kind?: string;
+      capabilities?: string[];
       params: Record<string, unknown>;
     }> = [];
     const postOptions: Array<{ clearIdempotency?: 'finally' } | undefined> = [];
@@ -384,10 +379,6 @@ describe("project-source generated HTTP reads", () => {
         const spec = { action_id: actionId, scope: { kind: "project" }, params, output_names: {} };
         specs.push(spec);
         return spec;
-      },
-      v1ActionSpec(kind, capabilities, params) {
-        specs.push({ kind, capabilities, params });
-        return { kind, capabilities, params };
       },
       async withV1ActionResult(spec, handler, options) {
         postOptions.push(options);
@@ -748,7 +739,6 @@ it("returns a queued feed's empty destination without waiting for its rows", asy
   if (!module) return;
   const session: ProjectSourcesActionSession = {
     registeredProjectActionSpec: (action_id, params) => ({ action_id, params }),
-    v1ActionSpec: () => ({}),
     withV1ActionResult: async (_spec, handler) => handler({
       status: 'queued', job_id: 42, outputs: [{ kind: 'sheet', sheet_id: 3 }],
     }),

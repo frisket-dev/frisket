@@ -34,7 +34,7 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.engine.runner.validation import ExecutionResolutionRefused
-from frisket.engine.store.execution_routes import CONSENT_BASIS_PREAPPROVED
+from frisket.engine.store.execution_routes import CONSENT_BASIS_ALLOWANCE
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.runs import RunResultStore
@@ -162,7 +162,7 @@ def test_queued_composition_uses_claimed_and_durable_facts_then_replays_without_
     observed.clear()
     snapshot = {"reservation_id": 17, "owner": {"kind": "edition"}}
     attach_run_edition_run_context(project, run_id, snapshot)
-    storage_key = ProjectStorageKey(storage_org_id=41, project_slug="proj")
+    storage_key = ProjectStorageKey(storage_organization_id=41, project_slug="proj")
     payload[CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY] = storage_key
     payload["edition_run_context"] = {"reservation_id": "payload-is-not-authority"}
 
@@ -267,7 +267,7 @@ def test_scene5_free_gateway_uses_allowance_for_its_selected_provider(
     assert validated.est["billed_cost"] == 0
     assert validated.est["requires_confirmation"] is False
     assert validated.consent_required is True
-    assert validated.consent_basis == CONSENT_BASIS_PREAPPROVED
+    assert validated.consent_basis == CONSENT_BASIS_ALLOWANCE
     assert validated.resolved_execution is not None
     claims = [
         promise
@@ -330,7 +330,7 @@ def test_scene7_three_refusals_speak_distinct_vocabularies(
     receipt_body = json.loads(receipt_row["body"])
     prepared = next(
         evidence["ref"]
-        for evidence in receipt_body["evidence"]
+        for evidence in receipt_body["records"]
         if evidence["ref"].get("kind") == "queued_action_run_prepared"
     )
     prepared["attempt_id"] = "attempt_missing_scene7"

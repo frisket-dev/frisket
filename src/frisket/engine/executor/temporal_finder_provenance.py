@@ -18,10 +18,11 @@ from pydantic import ValidationError
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.runs import RunResultStore
 from frisket.contracts.temporal_values import (
+    TimelineRangesValue,
     canonical_temporal_hash,
     parse_temporal_value,
 )
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
@@ -61,6 +62,8 @@ def resolve_topic_section_unit_ids(
     try:
         ranges = parse_temporal_value("timeline_ranges", selection_value)
     except (LookupError, TypeError, ValueError, ValidationError):
+        return None
+    if not isinstance(ranges, TimelineRangesValue):
         return None
     locking = sidecar.payload.get("locking")
     if not isinstance(locking, dict) or locking.get(

@@ -16,7 +16,7 @@ from frisket.engine.store.document_text import (
     resolve_document_text_selection,
 )
 from frisket.engine.store.document_text_adoption import adopt_document_text_role
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -135,11 +135,9 @@ def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
         [{"Document": None}, {"Document": None}],
         {"Document": source_column_id},
     )
-    text_column_id = project.add_column(
-        sheet_id, "Text", type="text", ai_generated=True
-    )
+    text_column_id = project.add_column(sheet_id, "Text", type="text", generated=True)
     ordinary_column_id = project.add_column(
-        sheet_id, "Ordinary output", type="text", ai_generated=True
+        sheet_id, "Ordinary output", type="text", generated=True
     )
     with project.transaction_scope():
         ensure_document_text_role(
@@ -245,8 +243,8 @@ def test_native_and_ocr_preparation_share_one_designated_text_column(
     assert role is not None
     assert native["output_names"]["text"] == "text"
     assert ocr["output_names"]["text"] == "text"
-    assert native["expected_output_columns"]["text"] == role.text_column_id
-    assert ocr["expected_output_columns"]["text"] == role.text_column_id
+    assert native["expected_generated_columns"]["text"] == role.text_column_id
+    assert ocr["expected_generated_columns"]["text"] == role.text_column_id
     assert ocr["output_names"]["blocks"] == "Search positions · Document"
 
 
@@ -285,12 +283,12 @@ def test_designated_text_name_is_unique_without_claiming_a_collision(
     assert role is not None
     assert role.text_column_id not in occupied
     assert body["output_names"]["text"] == expected_name
-    assert body["expected_output_columns"][expected_name] == role.text_column_id
+    assert body["expected_generated_columns"][expected_name] == role.text_column_id
     assert [project.get_column(column_id)["name"] for column_id in occupied] == [
         name for name, _hidden in occupied_columns
     ]
     assert all(
-        project.get_column(column_id)["ai_generated"] == 0 for column_id in occupied
+        project.get_column(column_id)["generated"] == 0 for column_id in occupied
     )
 
 
@@ -315,7 +313,7 @@ def test_existing_designated_text_name_and_identity_are_reused_without_rename(
             kind=kind,
         )
         assert body["output_names"]["text"] == "Text"
-        assert body["expected_output_columns"]["Text"] == text_column_id
+        assert body["expected_generated_columns"]["Text"] == text_column_id
     assert [(column["id"], column["name"]) for column in project.columns(sheet_id)] == [
         (source_column_id, "Document"),
         (text_column_id, "Text"),
@@ -337,7 +335,7 @@ def test_image_ocr_preparation_uses_the_designated_text_column(make_project) -> 
     role = document_text_role(project, source_column_id=source_column_id)
     assert role is not None
     assert body["output_names"]["text"] == "text"
-    assert body["expected_output_columns"]["text"] == role.text_column_id
+    assert body["expected_generated_columns"]["text"] == role.text_column_id
 
 
 def test_hidden_designated_role_keeps_exact_target_without_fallback(
@@ -368,7 +366,7 @@ def test_hidden_designated_role_keeps_exact_target_without_fallback(
 
     assert replacement["output_names"]["text"] == first["output_names"]["text"]
     assert (
-        replacement["expected_output_columns"][first["output_names"]["text"]]
+        replacement["expected_generated_columns"][first["output_names"]["text"]]
         == role.text_column_id
     )
     assert [
@@ -431,12 +429,10 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
 ) -> None:
     project = make_project("legacy-adoption")
     sheet_id, source_column_id = _source(project)
-    legacy_a = project.add_column(
-        sheet_id, "Search text", type="text", ai_generated=True
-    )
-    legacy_b = project.add_column(sheet_id, "OCR text", type="text", ai_generated=True)
+    legacy_a = project.add_column(sheet_id, "Search text", type="text", generated=True)
+    legacy_b = project.add_column(sheet_id, "OCR text", type="text", generated=True)
     hidden_legacy = project.add_column(
-        sheet_id, "Hidden text", type="text", ai_generated=True
+        sheet_id, "Hidden text", type="text", generated=True
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -517,9 +513,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
     )
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (hidden_legacy,))
     project.db.commit()
-    text_column_id = project.add_column(
-        sheet_id, "Text", type="text", ai_generated=True
-    )
+    text_column_id = project.add_column(sheet_id, "Text", type="text", generated=True)
     with project.transaction_scope():
         ensure_document_text_role(
             project,
@@ -654,7 +648,7 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(
         {"Document": source_column_id},
     )
     legacy_column_id = project.add_column(
-        sheet_id, "Search text", type="text", ai_generated=True
+        sheet_id, "Search text", type="text", generated=True
     )
     op_id = project.append_change("media.read_pdf_text")
     legacy_ref = _prepared_ref(
@@ -692,7 +686,7 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(
     row = PlannedSearchPreparationBatchRow(
         id="batch",
         workspace_root=str(project.path),
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id="project",
         trigger_receipt_id=None,
         import_ref=None,
@@ -803,7 +797,7 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
         project, tmp_path, pdf=_pdf_bytes("old generated text")
     )
     legacy_column_id = project.add_column(
-        sheet_id, "Search text", type="text", ai_generated=True
+        sheet_id, "Search text", type="text", generated=True
     )
     op_id = project.append_change("media.read_pdf_text")
     old_ref = _prepared_ref(
@@ -854,7 +848,7 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
         "params": body["params"],
         "output_names": body["output_names"],
         "replace_existing": True,
-        "expected_output_columns": body["expected_output_columns"],
+        "expected_generated_columns": body["expected_generated_columns"],
     }
 
     result = run_action_spec(project, request, project_id="legacy-new-native")
@@ -877,7 +871,7 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
         "params": replacement_body["params"],
         "output_names": replacement_body["output_names"],
         "replace_existing": True,
-        "expected_output_columns": replacement_body["expected_output_columns"],
+        "expected_generated_columns": replacement_body["expected_generated_columns"],
     }
     result = run_action_spec(project, replacement, project_id="legacy-old-native")
     assert result.status == "completed", result.errors

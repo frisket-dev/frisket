@@ -34,10 +34,11 @@ from frisket.engine.store.artifact_timeline import (
     canonical_json_hash,
     root_clock_extent,
     resolve_timeline,
+    resolve_timeline_in_transaction,
     validate_timeline_anchor,
     write_rate1_timeline_segment,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
@@ -663,12 +664,12 @@ def revalidate_temporal_media_source(
         revalidate_temporal_annotation(project, annotation)
 
 
-def revalidate_action_sources(
+def _revalidate_action_sources(
     project: Any,
     sources: tuple[ResolvedTemporalSource, ...],
+    *,
+    timeline_resolver: Callable[..., TimelineLease],
 ) -> None:
-    """TOCTOU fence used immediately before staging and in final transaction."""
-
     for source in sources:
         values, refs = project.get_values_with_refs(
             source.sheet_id, source.column_id, row_ids=[source.row_id]
@@ -680,7 +681,7 @@ def revalidate_action_sources(
             or current_ref != source.value_ref
         ):
             raise TimelineError("stale_input", "source cell changed during execution")
-        lease = resolve_timeline(
+        lease = timeline_resolver(
             project,
             sheet_id=source.sheet_id,
             row_id=source.row_id,
@@ -719,6 +720,24 @@ def revalidate_action_sources(
                 raise TimelineError(
                     "stale_input", "temporal selection changed during execution"
                 )
+
+
+def revalidate_action_sources(
+    project: Any,
+    sources: tuple[ResolvedTemporalSource, ...],
+) -> None:
+    """TOCTOU fence used immediately before staging (owns timeline resolution)."""
+    _revalidate_action_sources(project, sources, timeline_resolver=resolve_timeline)
+
+
+def revalidate_action_sources_in_transaction(
+    project: Any,
+    sources: tuple[ResolvedTemporalSource, ...],
+) -> None:
+    """TOCTOU fence inside the final publication transaction."""
+    _revalidate_action_sources(
+        project, sources, timeline_resolver=resolve_timeline_in_transaction
+    )
 
 
 def normalize_selection(
@@ -1397,6 +1416,7 @@ __all__ = [
     "child_sheet_receipt_outputs",
     "prepare_bound_sources",
     "revalidate_action_sources",
+    "revalidate_action_sources_in_transaction",
     "selection_snapshot_ref",
     "source_snapshot_ref",
     "source_range_value",

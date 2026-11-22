@@ -21,7 +21,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_timeline,
     write_rate1_timeline_segment,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_artifact,
@@ -45,7 +45,7 @@ def _add_timestamped_transcript(
     marked: bool = True,
     language: str | None = None,
 ):
-    column_id = project.add_column(sheet_id, name, type_name, ai_generated=True)
+    column_id = project.add_column(sheet_id, name, type_name, generated=True)
     op_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": name}},
@@ -66,7 +66,8 @@ def _add_timestamped_transcript(
         [{"row_id": row_id, "column_id": column_id, "value": text}],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, column_id, run_id)
 
     spans = []
     for index, (start, end, quote) in enumerate(span_values):
@@ -90,20 +91,21 @@ def _add_timestamped_transcript(
         }
         if language is not None:
             metadata["language"] = language
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=spans,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata=metadata,
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=spans,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata=metadata,
+        )
     return column_id, link
 
 
@@ -280,14 +282,14 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
             blob_hash=derived_blob,
             duration_ms=3000,
         )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=int(derived["id"]),
-        source_artifact_id=source.lease.anchor.artifact_id,
-        source_start_ms=2000,
-        source_end_ms=5000,
-        precision="exact",
-    )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=int(derived["id"]),
+            source_artifact_id=source.lease.anchor.artifact_id,
+            source_start_ms=2000,
+            source_end_ms=5000,
+            precision="exact",
+        )
     op_id = project.append_change("test", {}, label="test")
     project.db.execute("BEGIN IMMEDIATE")
     evidence = persist_projected_transcript_citations(
@@ -377,14 +379,14 @@ def test_root_compatible_sibling_transcript_is_rebased_to_source_clock(
             blob_hash=sibling_blob,
             duration_ms=2_000,
         )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=int(sibling["id"]),
-        source_artifact_id=source.lease.anchor.artifact_id,
-        source_start_ms=4_000,
-        source_end_ms=6_000,
-        precision="exact",
-    )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=int(sibling["id"]),
+            source_artifact_id=source.lease.anchor.artifact_id,
+            source_start_ms=4_000,
+            source_end_ms=6_000,
+            precision="exact",
+        )
     _add_timestamped_transcript(
         project,
         sheet_id=source.sheet_id,
@@ -492,7 +494,7 @@ def test_marked_transcript_evidence_requires_positive_run_identity(
     # Model a host/hand-created link that carries the clean-cutover marker
     # and valid spans/value identity but omits a real producing run.
     project.db.execute(
-        "UPDATE evidence_links SET run_id=? WHERE id=?",
+        "UPDATE citations SET run_id=? WHERE id=?",
         (invalid_run_id, link["id"]),
     )
     project.db.commit()
@@ -525,7 +527,7 @@ def test_timestamped_transcript_rejects_malformed_or_out_of_segment_words(
     project = make_project("invalid-transcript-words")
     source, transcript_column_id, link = _seed_source(project)
     span_id = project.db.execute(
-        "SELECT span_id FROM evidence_link_spans WHERE link_id=? ORDER BY rank LIMIT 1",
+        "SELECT span_id FROM citation_spans WHERE citation_id=? ORDER BY rank LIMIT 1",
         (link["id"],),
     ).fetchone()[0]
     project.db.execute(

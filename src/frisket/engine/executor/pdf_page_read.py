@@ -55,6 +55,11 @@ class AdmittedPdfPageRenderer:
         source = self._blobs.describe(document)
         if source.role != "document":
             raise ValueError("PDF rendering requires an admitted PDF document")
+        source_path = source.path
+        if source_path is None:
+            raise TableError(
+                "invalid_media_cell", "PDF rendering requires a local PDF file path"
+            )
         if type(dpi) is not int or not 50 <= dpi <= 600:
             raise ValueError("PDF dpi must be between 50 and 600")
         if self._page_limit == 0:
@@ -66,7 +71,7 @@ class AdmittedPdfPageRenderer:
                 # reaping; source and scratch stay alive until it settles.
                 rendered = run_media_sync(
                     lambda should_cancel: render_pdf_pages(
-                        source.path,
+                        source_path,
                         directory,
                         dpi=dpi,
                         page_limit=self._page_limit,

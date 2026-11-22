@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
+from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from tests.engine.test_row_media_reader import jpeg_bytes
 
 # Reset by _patch_face_sandbox at the start of every harness test for this
@@ -104,14 +104,13 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
 
 
 @pytest.fixture(params=["frames", "faces"])
-def media_case(request, monkeypatch, tmp_path):
+def media_case(request, monkeypatch, tmp_path, project):
     from tests.ops.test_media_video_frames_executor import (
         _patch_ffmpeg_sandbox,
         _seed as seed_video,
         _video_frames_action,
     )
 
-    project = Project.create(tmp_path / "typed.frisket")
     if request.param == "frames":
         _patch_ffmpeg_sandbox(monkeypatch)
         seeded = seed_video(project, tmp_path)
@@ -122,10 +121,7 @@ def media_case(request, monkeypatch, tmp_path):
         seeded = _seed(project, tmp_path)
         make = _extract_faces_action
         image_key = "face"
-    try:
-        yield project, seeded, make, request.param, image_key
-    finally:
-        project.close()
+    yield project, seeded, make, request.param, image_key
 
 
 def test_typed_media_results_named_routes_durable_occurrences_and_replay(
@@ -157,7 +153,7 @@ def test_typed_media_results_named_routes_durable_occurrences_and_replay(
     assert named["may_feed"] == ["derive.table_from_list"]
     observations = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "row_file_output"
     ]
     assert len(observations) == sum(len(items) for items in values.values())
@@ -194,8 +190,7 @@ def test_typed_media_results_named_routes_durable_occurrences_and_replay(
     assert replay.receipt_id == result.receipt_id
     assert replay.run_id == result.run_id
     assert (
-        ReceiptStore(project).parsed_by_id(result.receipt_id).evidence
-        == receipt.evidence
+        ReceiptStore(project).parsed_by_id(result.receipt_id).records == receipt.records
     )
 
 
@@ -299,7 +294,7 @@ def test_typed_media_repeated_backfill_keeps_output_identity_and_named_route(
         assert named["row_ids"] == [rows[0]]
         occurrences = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "row_file_output"
         ]
         assert len(occurrences) == (2 if key == "frames" else 1)
@@ -338,7 +333,7 @@ def test_zero_images_preserve_actual_read_facts_and_feedable_empty_list(
     ]
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     observations = [
-        item.ref for item in receipt.evidence if item.ref.get("kind") == "row_file_call"
+        item.ref for item in receipt.records if item.ref.get("kind") == "row_file_call"
     ]
     assert len(observations) == 2
     assert {item["source"]["blob_hash"] for item in observations} == set(
@@ -350,7 +345,7 @@ def test_zero_images_preserve_actual_read_facts_and_feedable_empty_list(
         for item in observations
     )
     assert not any(
-        item.ref.get("kind") == "row_file_output" for item in receipt.evidence
+        item.ref.get("kind") == "row_file_output" for item in receipt.records
     )
     named = next(item.ref for item in receipt.outputs if item.kind == "named_result")
     assert named["row_ids"] == seeded["row_ids"]

@@ -313,7 +313,7 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
         return ExecutionComposition(
             facts=CompositionFacts(
                 edition="cloud",
-                org_id="org-a",
+                organization_id="org-a",
                 funding=funding,
             ),
             provider=provider,

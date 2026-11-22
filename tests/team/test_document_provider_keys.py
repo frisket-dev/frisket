@@ -161,11 +161,12 @@ def test_organization_key_setup_selector_and_queued_ocr(
     )
     assert organization_scope["can_mutate"]
     checked = owner.post(
-        "/api/org/keys/validate", json={"provider": provider, "key": "org-document-key"}
+        "/api/organization/keys/validate",
+        json={"provider": provider, "key": "org-document-key"},
     )
     assert checked.status_code == 200 and checked.json()["ok"], checked.text
     saved = owner.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={
             "provider": provider,
             "key": "org-document-key",
@@ -174,9 +175,9 @@ def test_organization_key_setup_selector_and_queued_ocr(
     )
     assert saved.status_code == 200, saved.text
     assert "org-document-key" not in saved.text
-    assert any(k["provider"] == provider for k in owner.get("/api/org/keys").json()), (
-        owner.get("/api/org/keys").json()
-    )
+    assert any(
+        k["provider"] == provider for k in owner.get("/api/organization/keys").json()
+    ), owner.get("/api/organization/keys").json()
     from frisket.execution.provider import ExecutionCompositionContext
 
     composed = workspace.execution_composition_for(
@@ -255,11 +256,12 @@ def test_organization_key_setup_selector_and_queued_ocr(
     # Rotation between admission and execution must use the current organization key.
     expected_key = "rotated-org-document-key"
     checked = owner.post(
-        "/api/org/keys/validate", json={"provider": provider, "key": expected_key}
+        "/api/organization/keys/validate",
+        json={"provider": provider, "key": expected_key},
     )
     assert checked.status_code == 200, checked.text
     saved = owner.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={
             "provider": provider,
             "key": expected_key,
@@ -305,7 +307,7 @@ def test_organization_key_setup_selector_and_queued_ocr(
         for value in project.get_values(sheet, text_column["id"]).values()
     )
     assert calls
-    assert owner.delete(f"/api/org/keys/{provider}").status_code == 200
+    assert owner.delete(f"/api/organization/keys/{provider}").status_code == 200
     assert choice()["status"] == "needs_setup"
     asyncio.run(transport.aclose())
 
@@ -350,9 +352,9 @@ def test_worker_action_port_uses_only_trusted_organization_identity():
     seen = []
 
     class Port:
-        def action_credential_resolver(self, *, org_id, control_database_url):
-            seen.append(org_id)
-            return OrganizationDocumentCredentials(org_id, {})
+        def action_credential_resolver(self, *, organization_id, control_database_url):
+            seen.append(organization_id)
+            return OrganizationDocumentCredentials(organization_id, {})
 
     ports = WorkerPorts(action_credential_port=Port())
     resolver = resolve_run_action_credentials(
@@ -360,7 +362,7 @@ def test_worker_action_port_uses_only_trusted_organization_identity():
         ports=ports,
         control_database_url="sqlite:///control",
     )
-    assert resolver.org_id == 17 and seen == [17]
+    assert resolver.organization_id == 17 and seen == [17]
     with pytest.raises(ValueError, match="trusted job identity"):
         resolve_run_action_credentials(
             handler_context=JobHandlerContext.without_job_row(),

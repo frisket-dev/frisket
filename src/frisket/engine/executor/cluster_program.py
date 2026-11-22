@@ -7,13 +7,12 @@ import json
 import hashlib
 import inspect
 from contextlib import asynccontextmanager
-from typing import TypedDict
 
 from frisket.actions.cluster_types import ClusterOptions
 from frisket.ai.embeddings import backends as embedding_backends
 from frisket.ai.embeddings.analytics import encode_project_legacy_texts_async
 from frisket.engine.executor.embedding_batches import (
-    record_embedding_batch,
+    record_embedding_batch_in_transaction,
 )
 from frisket.engine.executor.map_rows_action import _TypedMapBatchProgram
 from frisket.engine.executor.value_cluster import (
@@ -23,7 +22,14 @@ from frisket.engine.executor.value_cluster import (
     missing_cluster_vectors,
     validate_cluster_source,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointStore,
+    canonical_json,
+    is_operator_attestation,
+    model_call_ref,
+)
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import attempt_in_scope
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.cost_source import free_local_estimate, unknown_cost_estimate
@@ -40,29 +46,10 @@ def _cache_only_embedding(_texts):
     )
 
 
-class _CheckpointUnit(TypedDict):
-    family: str
-    group_key: str
-    unit_key: str
-    action_kind: str
-    identity: str
-
-
-class _WriterFence(TypedDict):
-    run_id: int | None
-    writer_attempt_id: str | None
-    claim_token: str | None
-
-
 class _ClusterEmbeddingBatch:
     """The existing paid checkpoint lifecycle around one fixed admitted batch."""
 
     def __init__(self, ctx, state, texts, embed, action_kind):
-        from frisket.engine.store.effect_checkpoints import (
-            EffectCheckpointStore,
-            canonical_json,
-        )
-
         self.ctx, self.embed, self.model = ctx, embed, state["embedding_model"]
         self.store = EffectCheckpointStore(ctx.project.db)
         self.identity = canonical_json(
@@ -70,31 +57,29 @@ class _ClusterEmbeddingBatch:
         )
         self.id = "cluster_embed_" + hashlib.sha256(self.identity.encode()).hexdigest()
         self.texts = texts
-        self.unit = _CheckpointUnit(
-            family="model_call",
+        self.ref = model_call_ref(
+            self.id,
             group_key=str(ctx.extras["run_id"]),
             unit_key=self.id,
             action_kind=action_kind,
             identity=self.identity,
         )
         attempt = attempt_in_scope(ctx.extras)
-        self.fence = _WriterFence(
+        writer_attempt_id = attempt.attempt_id if attempt else None
+        self.fence = WriterFence(
             run_id=ctx.extras["run_id"],
-            writer_attempt_id=attempt.attempt_id if attempt else None,
+            writer_attempt_id=writer_attempt_id,
             claim_token=ctx.extras["claim_token"],
+            authorized_attempt_id=writer_attempt_id,
         )
 
-    async def __call__(self, texts):
-        from frisket.engine.store.effect_checkpoints import is_operator_attestation
-
+    async def __call__(self, texts: list[str]) -> embedding_backends.EmbeddingResult:
         checkpoint = self.store.get(self.id)
         if checkpoint is None:
             created = self.store.reserve(
-                self.id,
-                **self.unit,
-                **self.fence,
-                authorized_attempt_id=self.fence["writer_attempt_id"],
+                self.ref,
                 payload={"texts": self.texts},
+                fence=self.fence,
             )
             if not created:
                 checkpoint = self.store.get(self.id)
@@ -121,7 +106,7 @@ class _ClusterEmbeddingBatch:
                     "idempotency_checkpoint_ambiguous",
                     "A previous embedding has an unknown provider outcome; refusing another call",
                 )
-            recovered = self.store.returned_for_replay(**self.unit)["payload"]
+            recovered = self.store.returned_for_replay(self.ref.unit)["payload"]
             try:
                 vectors = dict(
                     zip(recovered["returned_inputs"], recovered["vectors"], strict=True)
@@ -133,9 +118,15 @@ class _ClusterEmbeddingBatch:
                     "Returned embeddings do not cover the missing vectors",
                 ) from exc
         async_embed = getattr(self.embed, "embed_batch_async", None)
-        result = async_embed(texts) if callable(async_embed) else self.embed(texts)
-        if inspect.isawaitable(result):
-            result = await result
+        raw = async_embed(texts) if callable(async_embed) else self.embed(texts)
+        if inspect.isawaitable(raw):
+            raw = await raw
+        if not isinstance(raw, (list, dict)):
+            raise ActionProgramInvocationHalt(
+                "invalid_embedding_response",
+                "Embedding backend returned an unexpected result",
+            )
+        result: embedding_backends.EmbeddingResult = raw
         vectors = result.get("vectors") if isinstance(result, dict) else result
         payload = {"returned_inputs": texts, "vectors": vectors}
         try:
@@ -143,18 +134,16 @@ class _ClusterEmbeddingBatch:
         except (TypeError, ValueError):
             payload = {"invalid_response": True}
         self.store.complete(
-            self.id,
-            **self.unit,
-            **self.fence,
+            self.ref,
             payload=payload,
-            accrue=lambda _checkpoint: record_embedding_batch(
+            accrue=lambda _checkpoint: record_embedding_batch_in_transaction(
                 self.ctx,
                 self.model,
                 result,
                 texts,
-                commit=False,
                 identity_texts=self.texts,
             ),
+            fence=self.fence,
         )
         return result
 
@@ -187,15 +176,13 @@ def cluster_fact(project, state, computation, *, run_id, output_name):
     }
 
 
-def persist_cluster_fact(project, fact, *, writer_attempt_id, claim_token):
+def persist_cluster_fact(project, fact, *, fence: WriterFence):
     db = project.db
     db.execute("SAVEPOINT value_clusters_evidence")
     try:
-        OutputColumnClaimStore.require_current_writer(
+        GeneratedColumnClaimStore.require_current_writer(
             db,
-            run_id=fact["run_id"],
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
             output_column_ids={fact["output"]["column_id"]},
         )
         run = db.execute(
@@ -414,8 +401,13 @@ class _ClusterProgram(_TypedMapBatchProgram):
             persist_cluster_fact(
                 ctx.project,
                 fact,
-                writer_attempt_id=attempt.attempt_id if attempt is not None else None,
-                claim_token=ctx.extras["claim_token"],
+                fence=WriterFence(
+                    run_id=fact["run_id"],
+                    writer_attempt_id=attempt.attempt_id
+                    if attempt is not None
+                    else None,
+                    claim_token=ctx.extras["claim_token"],
+                ),
             )
         return {
             row_id: {self._output_names["canonical"]: value}

@@ -82,7 +82,7 @@ const NAVIGATION_DISPATCHED_COMMANDS: ReadonlySet<WorkspaceCommand['type']> = ne
   'openRow',
   'openColumn',
   'openFeed',
-  'openEvidence',
+  'openCitation',
   'openMap',
   'openGraph',
   'openActionRoute',

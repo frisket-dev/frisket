@@ -9,12 +9,10 @@ from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor.action_bindings import action_job_bindings
 from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.action_jobs import run_action_run_job
-from frisket.engine.store import Project
 from tests.engine.test_map_find_runtime import _queued_find
 
 
-def test_cancel_before_find_repair_preserves_returned_usage(tmp_path):
-    project = Project.create(tmp_path / "find-cancel")
+def test_cancel_before_find_repair_preserves_returned_usage(project):
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test"},
@@ -86,4 +84,3 @@ def test_cancel_before_find_repair_preserves_returned_usage(tmp_path):
         )
     finally:
         asyncio.run(router.aclose())
-        project.close()

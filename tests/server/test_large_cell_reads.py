@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import tracemalloc
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.current_value_windows import read_current_value_window
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -15,7 +14,6 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.value_codec import PreparedContentRef
 from frisket.engine.store.runs import RunResultStore
-from frisket.server.app import create_app
 from frisket.server.services.project_qa_sources import (
     find_source_text,
     read_source_text,
@@ -28,8 +26,7 @@ from helpers import write_claimed_test_results
 from frisket.engine.store.transactions import write_transaction
 
 
-def _project(tmp_path: Path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def _project(client: TestClient):
     project_id = client.post("/api/projects", json={"name": "large"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("documents")
@@ -39,9 +36,9 @@ def _project(tmp_path: Path):
 
 
 def test_bounded_grid_omits_large_values_but_exact_api_and_filter_stay_exact(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, project, sheet_id, text_column, json_column = _project(tmp_path)
+    client, project_id, project, sheet_id, text_column, json_column = _project(client)
     text = "😀" + "a" * (20 * 1024 * 1024) + "TAIL-UNIQUE"
     boxes = {"boxes": "b" * (5 * 1024 * 1024)}
     [row_id] = project.add_rows(
@@ -98,10 +95,10 @@ def test_bounded_grid_omits_large_values_but_exact_api_and_filter_stay_exact(
     assert [item["id"] for item in filtered.json()["rows"]] == [row_id]
 
 
-def test_text_windows_are_revision_bound_and_download_is_exact(tmp_path: Path) -> None:
-    client, project_id, project, sheet_id, text_column, _json_column = _project(
-        tmp_path
-    )
+def test_text_windows_are_revision_bound_and_download_is_exact(
+    client: TestClient,
+) -> None:
+    client, project_id, project, sheet_id, text_column, _json_column = _project(client)
     text = ("ab😀cd\n" * 20_000) + "tail"
     [row_id] = project.add_rows(sheet_id, [{"body": text}], {"body": text_column})
     bounded = client.get(
@@ -159,11 +156,9 @@ def test_text_windows_are_revision_bound_and_download_is_exact(tmp_path: Path) -
 
 
 def test_prepared_text_windows_preserve_page_separators_without_full_assembly(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, project, sheet_id, text_column, _json_column = _project(
-        tmp_path
-    )
+    client, project_id, project, sheet_id, text_column, _json_column = _project(client)
     with write_transaction(project.db):
         artifact = record_source_artifact(
             project,
@@ -225,10 +220,8 @@ def test_prepared_text_windows_preserve_page_separators_without_full_assembly(
     assert download.content == logical.encode()
 
 
-def test_hidden_or_non_text_cells_fail_closed(tmp_path: Path) -> None:
-    client, project_id, project, sheet_id, text_column, _json_column = _project(
-        tmp_path
-    )
+def test_hidden_or_non_text_cells_fail_closed(client: TestClient) -> None:
+    client, project_id, project, sheet_id, text_column, _json_column = _project(client)
     number_column = project.add_column(sheet_id, "count", type="integer")
     [row_id] = project.add_rows(
         sheet_id,
@@ -261,9 +254,9 @@ def test_hidden_or_non_text_cells_fail_closed(tmp_path: Path) -> None:
 
 
 def test_nul_and_split_utf8_characters_keep_absolute_offsets_and_exact_download(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, project, sheet_id, column, _json_column = _project(tmp_path)
+    client, project_id, project, sheet_id, column, _json_column = _project(client)
     # The emoji crosses the 64 KiB BLOB fallback chunk boundary.
     text = "ab\0" + "x" * 65_532 + "😀tail\0NEEDLE" + "z" * 10_000
     [row] = project.add_rows(sheet_id, [{"body": text}], {"body": column})
@@ -301,9 +294,9 @@ def test_nul_and_split_utf8_characters_keep_absolute_offsets_and_exact_download(
 
 
 def test_window_reader_does_not_allocate_a_whole_large_python_value(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    _client, _pid, project, sheet_id, column, _json_column = _project(tmp_path)
+    _client, _pid, project, sheet_id, column, _json_column = _project(client)
     [row] = project.add_rows(
         sheet_id, [{"body": "x" * (5 * 1024 * 1024) + "😀tail"}], {"body": column}
     )
@@ -321,9 +314,9 @@ def test_window_reader_does_not_allocate_a_whole_large_python_value(
 
 
 def test_manual_edit_limit_is_utf8_bytes_and_small_cells_keep_exact_values(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, pid, project, sheet_id, column, _json_column = _project(tmp_path)
+    client, pid, project, sheet_id, column, _json_column = _project(client)
     exact = "😀" * 16_384
     large = exact + "a"
     rows = project.add_rows(
@@ -343,12 +336,14 @@ def test_manual_edit_limit_is_utf8_bytes_and_small_cells_keep_exact_values(
     assert len(descriptor["preview"].encode()) == 8192
 
 
-def test_generated_grid_metadata_does_not_decode_large_results(tmp_path: Path) -> None:
-    _client, _pid, project, sheet_id, column, _json_column = _project(tmp_path)
+def test_generated_grid_metadata_does_not_decode_large_results(
+    client: TestClient,
+) -> None:
+    _client, _pid, project, sheet_id, column, _json_column = _project(client)
     row, small_row = project.add_rows(
         sheet_id, [{"body": "input"}, {"body": "small"}], {"body": column}
     )
-    output = project.add_column(sheet_id, "generated", type="json", ai_generated=True)
+    output = project.add_column(sheet_id, "generated", type="json", generated=True)
     op = project.append_change("map.extract", label="Fixture OCR")
     run = RunResultStore(project).start_run(
         op, sheet_id, "map.extract", row_ids=[row, small_row]
@@ -441,11 +436,11 @@ def test_generated_grid_metadata_does_not_decode_large_results(tmp_path: Path) -
 
 @pytest.mark.parametrize("count,width", [(129, 8), (80, 1024)])
 def test_bounded_grid_defers_large_replay_counts_but_keeps_viewport_comparison(
-    tmp_path: Path, count: int, width: int
+    client: TestClient, count: int, width: int
 ) -> None:
-    _client, _pid, project, sheet_id, column, _json_column = _project(tmp_path)
+    _client, _pid, project, sheet_id, column, _json_column = _project(client)
     rows = project.add_rows(sheet_id, [{"body": "input"}] * count, {"body": column})
-    output = project.add_column(sheet_id, "generated", type="text", ai_generated=True)
+    output = project.add_column(sheet_id, "generated", type="text", generated=True)
     op = project.append_change("map.extract", label="Replay budget fixture")
     run = RunResultStore(project).start_run(op, sheet_id, "map.extract", row_ids=rows)
     generated = "x" * width
@@ -475,9 +470,9 @@ def test_bounded_grid_defers_large_replay_counts_but_keeps_viewport_comparison(
 
 
 def test_windows_reassemble_long_lines_tables_and_line_boundaries_exactly(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, pid, project, sheet_id, column, _json_column = _project(tmp_path)
+    client, pid, project, sheet_id, column, _json_column = _project(client)
     text = "line😀\n" * 500 + "| x " * 250_000 + "tail"
     [row] = project.add_rows(sheet_id, [{"body": text}], {"body": column})
     start = 0

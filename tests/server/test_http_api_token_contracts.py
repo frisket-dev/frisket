@@ -59,7 +59,7 @@ def test_api_token_create_list_and_revoke_are_truthful(tmp_path: Path) -> None:
     owner = claim_server(app, workspace_name="API token contracts")
 
     created = owner.post(
-        "/api/org/tokens",
+        "/api/organization/tokens",
         json={"name": "  automation  "},
     )
     assert created.status_code == 200, created.text
@@ -81,7 +81,7 @@ def test_api_token_create_list_and_revoke_are_truthful(tmp_path: Path) -> None:
     assert payload["token"] not in repr(stored._mapping)
     assert _audit_details(app, "pat_created") == [str(token_id)]
 
-    listed = owner.get("/api/org/tokens")
+    listed = owner.get("/api/organization/tokens")
     assert listed.status_code == 200, listed.text
     assert listed.json() == [
         {
@@ -95,7 +95,10 @@ def test_api_token_create_list_and_revoke_are_truthful(tmp_path: Path) -> None:
             "revoked": False,
         }
     ]
-    assert not ({"token", "token_hash", "org_id", "revoked_at"} & set(listed.json()[0]))
+    assert not (
+        {"token", "token_hash", "org_id", "organization_id", "revoked_at"}
+        & set(listed.json()[0])
+    )
     assert payload["token"] not in listed.text
 
     used_at = datetime(2026, 8, 11, 12, 30, tzinfo=UTC)
@@ -105,13 +108,13 @@ def test_api_token_create_list_and_revoke_are_truthful(tmp_path: Path) -> None:
             .where(api_tokens.c.id == token_id)
             .values(last_used_at=used_at)
         )
-    used = owner.get("/api/org/tokens").json()[0]
+    used = owner.get("/api/organization/tokens").json()[0]
     assert used["last_used_at"] == used_at.replace(tzinfo=None).isoformat()
 
-    revoked = owner.delete(f"/api/org/tokens/{token_id}")
+    revoked = owner.delete(f"/api/organization/tokens/{token_id}")
     assert revoked.status_code == 200, revoked.text
     assert revoked.json() == {"ok": True, "revoked": True}
-    assert owner.get("/api/org/tokens").json() == []
+    assert owner.get("/api/organization/tokens").json() == []
     with app.state.control_engine.connect() as cx:
         tombstone = cx.execute(
             sa.select(api_tokens.c.revoked_at).where(api_tokens.c.id == token_id)
@@ -119,7 +122,7 @@ def test_api_token_create_list_and_revoke_are_truthful(tmp_path: Path) -> None:
     assert tombstone is not None
     assert _audit_details(app, "pat_revoked") == [str(token_id)]
 
-    repeated = owner.delete(f"/api/org/tokens/{token_id}")
+    repeated = owner.delete(f"/api/organization/tokens/{token_id}")
     assert repeated.status_code == 200, repeated.text
     assert repeated.json() == {"ok": True, "revoked": True}
     assert _audit_details(app, "pat_revoked") == [str(token_id), str(token_id)]
@@ -134,26 +137,33 @@ def test_api_token_management_remains_browser_only_and_actor_scoped(
     member = TestClient(app)
     _login(member, app, "member@example.com")
 
-    created = owner.post("/api/org/tokens", json={"name": "owner token"}).json()
+    created = owner.post(
+        "/api/organization/tokens", json={"name": "owner token"}
+    ).json()
     token_id = created["id"]
     pat_headers = {"Authorization": f"Bearer {created['token']}"}
 
     anonymous = TestClient(app)
-    assert anonymous.get("/api/org/tokens").status_code == 401
-    assert anonymous.post("/api/org/tokens", json={"name": "nope"}).status_code == 401
-    assert owner.get("/api/org/tokens", headers=pat_headers).status_code == 403
+    assert anonymous.get("/api/organization/tokens").status_code == 401
+    assert (
+        anonymous.post("/api/organization/tokens", json={"name": "nope"}).status_code
+        == 401
+    )
+    assert owner.get("/api/organization/tokens", headers=pat_headers).status_code == 403
     assert (
         owner.post(
-            "/api/org/tokens", headers=pat_headers, json={"name": "nested"}
+            "/api/organization/tokens", headers=pat_headers, json={"name": "nested"}
         ).status_code
         == 403
     )
 
-    assert member.get("/api/org/tokens").json() == []
-    not_owned = member.delete(f"/api/org/tokens/{token_id}")
+    assert member.get("/api/organization/tokens").json() == []
+    not_owned = member.delete(f"/api/organization/tokens/{token_id}")
     assert not_owned.status_code == 200, not_owned.text
     assert not_owned.json() == {"ok": False, "revoked": False}
-    assert [row["id"] for row in owner.get("/api/org/tokens").json()] == [token_id]
+    assert [row["id"] for row in owner.get("/api/organization/tokens").json()] == [
+        token_id
+    ]
 
 
 def test_api_token_openapi_exposes_only_the_three_json_contracts(
@@ -162,9 +172,9 @@ def test_api_token_openapi_exposes_only_the_three_json_contracts(
     document = _app(tmp_path).openapi()
     paths = document["paths"]
 
-    create = paths["/api/org/tokens"]["post"]
-    listed = paths["/api/org/tokens"]["get"]
-    revoked = paths["/api/org/tokens/{token_id}"]["delete"]
+    create = paths["/api/organization/tokens"]["post"]
+    listed = paths["/api/organization/tokens"]["get"]
+    revoked = paths["/api/organization/tokens/{token_id}"]["delete"]
     assert create["requestBody"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ApiTokenCreateRequest"
     }

@@ -33,7 +33,6 @@ from frisket.engine.executor.http_request import (
 )
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.engine.store import Project
 from frisket.ops.base import ActionContext
 
 
@@ -107,13 +106,12 @@ def test_registered_only_in_typed_registry():
     assert "external:api_call" in entry["required_capabilities"]
 
 
-def test_output_fields_single_default_hidden_json_column(tmp_path):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_output_fields_single_default_hidden_json_column(project):
+    project, sheet = _sheet_with_columns(project)
     plan = build_typed_map_rows_plan(project, _bound(sheet, output="payload"))
     (field,) = plan.output_fields
     assert field["name"] == "payload" and field["column_type"] == "json"
     assert field["default_hidden"] is True and not field["hidden"]
-    project.close()
 
 
 @pytest.mark.parametrize(
@@ -128,10 +126,8 @@ def test_output_fields_single_default_hidden_json_column(tmp_path):
         "__field_errors__",
     ],
 )
-def test_control_like_output_names_are_safe_typed_columns(
-    tmp_path, _allow_egress, name
-):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_control_like_output_names_are_safe_typed_columns(project, _allow_egress, name):
+    project, sheet = _sheet_with_columns(project)
     project.add_rows(sheet, [{}], {})
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
@@ -151,7 +147,6 @@ def test_control_like_output_names_are_safe_typed_columns(
         {"error": "ordinary data", "confidence": 0.9}
     ]
     asyncio.run(router._client.aclose())
-    project.close()
 
 
 @pytest.mark.parametrize(
@@ -165,12 +160,11 @@ def test_control_like_output_names_are_safe_typed_columns(
         ("max_requests_per_second", 1e-309),
     ],
 )
-def test_invalid_limits_refuse_before_project_writes(tmp_path, field, value):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_invalid_limits_refuse_before_project_writes(project, field, value):
+    project, sheet = _sheet_with_columns(project)
     with pytest.raises(ValueError):
         _bound(sheet, request={"url": "https://api.test.example/items", field: value})
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    project.close()
 
 
 def test_semantic_request_discovers_only_active_column_tokens():
@@ -261,34 +255,20 @@ def test_non_json_2xx_errors_invalid_json(_allow_egress):
 @pytest.mark.parametrize(
     "payload",
     [
-        b'{"score": NaN}',
-        b'{"score": Infinity}',
-        b'{"score": -Infinity}',
-        b'{"score": 1e999}',
+        pytest.param(b'{"score": NaN}', id="nan"),
+        pytest.param(b'{"score": Infinity}', id="inf"),
+        pytest.param(b'{"score": -Infinity}', id="neg_inf"),
+        pytest.param(b'{"score": 1e999}', id="overflow"),
+        pytest.param(b'{"role": "user", "role": "admin"}', id="duplicate_top_key"),
+        pytest.param(
+            b'{"result": {"role": "user", "role": "admin"}}',
+            id="duplicate_nested_key",
+        ),
     ],
 )
-def test_non_finite_json_response_errors_invalid_json(_allow_egress, payload):
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            content=payload,
-            headers={"content-type": "application/json"},
-        )
-
-    spec = {"method": "GET", "url": "https://api.test.example/page"}
-    out = _run({}, spec, _ctx(handler))
-    assert out["error_code"] == "invalid_json"
-    assert "200" in out["error"]
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        b'{"role": "user", "role": "admin"}',
-        b'{"result": {"role": "user", "role": "admin"}}',
-    ],
-)
-def test_duplicate_json_response_key_errors_invalid_json(_allow_egress, payload):
+def test_non_finite_or_duplicate_key_json_response_errors_invalid_json(
+    _allow_egress, payload
+):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -434,13 +414,12 @@ def test_existing_blank_referenced_column_still_executes(_allow_egress):
     assert out == {"api_result": {"ok": True}}
 
 
-def test_recipe_allows_all_empty_source_values(tmp_path):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_recipe_allows_all_empty_source_values(project):
+    project, sheet = _sheet_with_columns(project)
     assert (
         build_typed_map_rows_plan(project, _bound(sheet)).program.allow_all_empty_input
         is True
     )
-    project.close()
 
 
 def test_blank_rate_limit_normalizes_to_unlimited():
@@ -658,16 +637,15 @@ def test_referenced_columns_json_keys_not_scanned():
 # request, so a missing-column failure here is a pre-egress guard (critical for
 # POST/PATCH writes). The columns that DO exist are recorded in input_column_ids
 # for provenance, the same population every other map op's receipt reads.
-def _sheet_with_columns(tmp_path):
-    p = Project.create(tmp_path / "api.frisket", name="api")
-    sheet = p.add_sheet("s")
-    p.add_column(sheet, "id", type="text")
-    p.add_column(sheet, "term", type="text")
-    return p, sheet
+def _sheet_with_columns(project):
+    sheet = project.add_sheet("s")
+    project.add_column(sheet, "id", type="text")
+    project.add_column(sheet, "term", type="text")
+    return project, sheet
 
 
-def test_resolve_rejects_missing_referenced_column(tmp_path):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_resolve_rejects_missing_referenced_column(project):
+    project, sheet = _sheet_with_columns(project)
     with pytest.raises(ValueError, match="referenced input columns do not exist"):
         build_typed_map_rows_plan(
             project,
@@ -679,11 +657,10 @@ def test_resolve_rejects_missing_referenced_column(tmp_path):
                 },
             ),
         )
-    project.close()
 
 
-def test_resolve_records_existing_columns_for_provenance(tmp_path):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_resolve_records_existing_columns_for_provenance(project):
+    project, sheet = _sheet_with_columns(project)
     plan = build_typed_map_rows_plan(
         project,
         _bound(
@@ -693,11 +670,10 @@ def test_resolve_records_existing_columns_for_provenance(tmp_path):
     )
     assert set(plan.source_column_ids) == {"id", "term"}
     assert dict(plan.source_column_types) == {"id": "text", "term": "text"}
-    project.close()
 
 
-def test_resolve_ignores_secret_tokens(tmp_path):
-    project, sheet = _sheet_with_columns(tmp_path)
+def test_resolve_ignores_secret_tokens(project):
+    project, sheet = _sheet_with_columns(project)
     plan = build_typed_map_rows_plan(
         project,
         _bound(
@@ -709,7 +685,6 @@ def test_resolve_ignores_secret_tokens(tmp_path):
         ),
     )
     assert set(plan.source_column_ids) == {"id"}
-    project.close()
 
 
 @pytest.mark.parametrize(
@@ -717,9 +692,9 @@ def test_resolve_ignores_secret_tokens(tmp_path):
     [(0, "completed"), (1, "partial"), (2, "failed")],
 )
 def test_receipt_status_provider_and_aggregate_errors(
-    tmp_path, _allow_egress, failed_rows, expected_status
+    project, _allow_egress, failed_rows, expected_status
 ):
-    project, sheet = _sheet_with_columns(tmp_path)
+    project, sheet = _sheet_with_columns(project)
     cols = {item["name"]: item["id"] for item in project.columns(sheet)}
     project.add_rows(sheet, [{"id": "0"}, {"id": "1"}], cols)
 
@@ -753,4 +728,3 @@ def test_receipt_status_provider_and_aggregate_errors(
     else:
         assert receipt.errors == []
     asyncio.run(router._client.aclose())
-    project.close()

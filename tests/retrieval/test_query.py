@@ -8,9 +8,8 @@ from time import perf_counter
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -88,8 +87,8 @@ def packaged_query_native(monkeypatch: pytest.MonkeyPatch, query_native_root: Pa
     monkeypatch.setattr(native, "_NATIVE_ROOT", query_native_root)
 
 
-def _project(tmp_path):
-    project = Project.create(tmp_path / "query.frisket", name="query")
+def _project(make_project):
+    project = make_project("query")
     sheet = project.add_sheet("Documents")
     status = project.add_column(sheet, "status", type="category")
     body = project.add_column(sheet, "body")
@@ -165,11 +164,11 @@ def _publish(
         memberships.append(
             NamedDatasetMember("named:included", part_id, representation_id)
         )
-    store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+    store.begin_preparation(revision, slice_id="passages:v1", channel="text")
     assert store.publish_source(
         SourcePublication(
             source_revision=revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             parts=tuple(stored_parts),
             bindings=(
@@ -190,8 +189,8 @@ def _publish(
     )
 
 
-def _prepare_project(tmp_path):
-    project, sheet, status, body, rows = _project(tmp_path)
+def _prepare_project(make_project):
+    project, sheet, status, body, rows = _project(make_project)
     values = [
         ("target global best", (1.0, 0.0, 0.0)),
         ("target eligible second", (0.8, 0.6, 0.0)),
@@ -435,7 +434,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -450,7 +449,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
             PreparedPageDraft(2, "The council approved the bluewharf repair."),
         ),
     )
-    project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
+    project.add_rows_in_transaction(sheet, [{"body": prepared}], {"body": column})
     project.db.commit()
     drain_index(project)
 
@@ -492,7 +491,7 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
         {"File": file_column, "Notes": notes_column},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("prepare.test", commit=False)
+    op_id = project.append_change_in_transaction("prepare.test")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -569,10 +568,8 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
 
     project = make_project("prepared-ocr-canonical")
     sheet = project.add_sheet("Scans")
-    ocr_text = project.add_column(sheet, "OCR text", ai_generated=True)
-    positions = project.add_column(
-        sheet, "OCR positions", type="json", ai_generated=True
-    )
+    ocr_text = project.add_column(sheet, "OCR text", generated=True)
+    positions = project.add_column(sheet, "OCR positions", type="json", generated=True)
     notes = project.add_column(sheet, "notes", type="json")
     phrase = "Inspection of the western pier"
     row = project.add_rows(
@@ -654,18 +651,19 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
             bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
         )
     _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row],
-        spans=[{"span_id": int(region["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=ocr_text,
-        op_id=op_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": "fixture"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row],
+            spans=[{"span_id": int(region["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=ocr_text,
+            op_id=op_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr", "engine": "fixture"},
+        )
 
     drain_index(project)
     response = search(project, request)
@@ -803,67 +801,53 @@ def test_quoted_lexical_match_ignores_literal_snippet_markup(make_project):
     assert text[location.text.start : location.text.end] == match
 
 
-def test_semantic_scope_and_freshness_are_applied_before_top_k(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by="source",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
+def test_semantic_scope_and_freshness_are_applied_before_top_k(make_project):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by="source",
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
 
-        assert [group.primary.binding.row_id for group in response.results] == [
-            rows[1],
-            rows[2],
-        ]
-        assert rows[0] not in [
-            group.primary.binding.row_id for group in response.results
-        ]
-        assert rows[3] not in [
-            group.primary.binding.row_id for group in response.results
-        ]
-        assert rows[4] not in [
-            group.primary.binding.row_id for group in response.results
-        ]
-        assert (
-            response.results[0].primary.binding.dependencies[0].retrieval_revision > 0
-        )
-        assert "<b>target eligible second</b>" in (
-            response.results[0].primary.snippet or ""
-        )
-    finally:
-        project.close()
+    assert [group.primary.binding.row_id for group in response.results] == [
+        rows[1],
+        rows[2],
+    ]
+    assert rows[0] not in [group.primary.binding.row_id for group in response.results]
+    assert rows[3] not in [group.primary.binding.row_id for group in response.results]
+    assert rows[4] not in [group.primary.binding.row_id for group in response.results]
+    assert response.results[0].primary.binding.dependencies[0].retrieval_revision > 0
+    assert "<b>target eligible second</b>" in (
+        response.results[0].primary.snippet or ""
+    )
 
 
 def test_lexical_search_hydrates_authoritative_text_and_honors_named_membership(
-    tmp_path,
+    make_project,
 ):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target AND eligible"),
-                mode="lexical",
-                group_by="source",
-                named_index_id="named:included",
-                limit=10,
-            ),
-        )
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target AND eligible"),
+            mode="lexical",
+            group_by="source",
+            named_index_id="named:included",
+            limit=10,
+        ),
+    )
 
-        assert [group.primary.binding.row_id for group in response.results] == [rows[1]]
-        assert "<b>target</b>" in (response.results[0].primary.snippet or "")
-        assert response.results[0].primary.precision == "source_unit"
-    finally:
-        project.close()
+    assert [group.primary.binding.row_id for group in response.results] == [rows[1]]
+    assert "<b>target</b>" in (response.results[0].primary.snippet or "")
+    assert response.results[0].primary.precision == "source_unit"
 
 
 def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
@@ -885,7 +869,7 @@ def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
     )
     locator = SourceLocator("transcript_chunk", source_span_ids=("span:spoken",))
     with RetrievalStore(project).open() as store:
-        store.begin_preparation(source, recipe_id="transcript:v1", channel="transcript")
+        store.begin_preparation(source, slice_id="transcript:v1", channel="transcript")
         assert store.publish_source(
             SourcePublication(
                 source,
@@ -925,147 +909,137 @@ def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
     assert "<b>needle</b>" in (response.results[0].primary.snippet or "")
 
 
-def test_semantic_threshold_exclusion_and_source_grouping(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        request = SearchRequest(
+def test_semantic_threshold_exclusion_and_source_grouping(make_project):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    request = SearchRequest(
+        scope=_included_scope(sheet, body),
+        query=WeightedSemanticQuery(
+            terms=(WeightedTerm("target"),),
+            exclusions=(SemanticExclusion("eligible", threshold=0.9),),
+            minimum_similarity=-0.1,
+        ),
+        mode="semantic",
+        group_by="source",
+        space_id="space:test",
+        limit=10,
+    )
+    response = search(
+        project,
+        request,
+        semantic_vectors=SemanticQueryVectors(
+            term_vectors=((1.0, 0.0, 0.0),),
+            exclusion_vectors=((0.8, 0.6, 0.0),),
+        ),
+    )
+    assert [group.primary.binding.row_id for group in response.results] == [rows[2]]
+
+
+def test_source_anchor_uses_exact_authorized_part_and_excludes_only_that_part(
+    make_project,
+):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    initial = search(
+        project,
+        SearchRequest(
             scope=_included_scope(sheet, body),
-            query=WeightedSemanticQuery(
-                terms=(WeightedTerm("target"),),
-                exclusions=(SemanticExclusion("eligible", threshold=0.9),),
-                minimum_similarity=-0.1,
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by="part",
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    selected = initial.results[0].primary
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=SourceAnchor(
+                source=selected.part.source,
+                locator=selected.part.locator,
+                binding=selected.binding,
             ),
+            mode="semantic",
+            group_by="part",
+            space_id="space:test",
+            limit=10,
+        ),
+    )
+
+    assert selected.binding.row_id == rows[1]
+    assert [group.primary.binding.row_id for group in response.results] == [rows[2]]
+    assert all(
+        group.primary.part.part_id != selected.part.part_id
+        for group in response.results
+    )
+
+
+def test_source_anchor_accepts_an_explicit_vector_when_location_is_not_prepared(
+    make_project,
+):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    source = SourceRevision(
+        "resolved:external-anchor",
+        "text",
+        "resolved_snapshot",
+        "snapshot:one",
+        input_hash("an exact source chosen outside the retrieval index"),
+    )
+    locator = SourceLocator(
+        kind="text",
+        text=TextRange(
+            text_surface_id=source.source_id,
+            content_hash=source.content_hash or "missing",
+            start=0,
+            end=15,
+        ),
+    )
+
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=SourceAnchor(source=source, locator=locator),
             mode="semantic",
             group_by="source",
             space_id="space:test",
             limit=10,
-        )
-        response = search(
-            project,
-            request,
-            semantic_vectors=SemanticQueryVectors(
-                term_vectors=((1.0, 0.0, 0.0),),
-                exclusion_vectors=((0.8, 0.6, 0.0),),
-            ),
-        )
-        assert [group.primary.binding.row_id for group in response.results] == [rows[2]]
-    finally:
-        project.close()
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    assert [group.primary.binding.row_id for group in response.results] == [
+        rows[1],
+        rows[2],
+    ]
 
 
-def test_source_anchor_uses_exact_authorized_part_and_excludes_only_that_part(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        initial = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by="part",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-        selected = initial.results[0].primary
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=SourceAnchor(
-                    source=selected.part.source,
-                    locator=selected.part.locator,
-                    binding=selected.binding,
-                ),
-                mode="semantic",
-                group_by="part",
-                space_id="space:test",
-                limit=10,
-            ),
-        )
+def test_hybrid_fuses_source_ranks_and_retains_both_contributions(make_project):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target"),
+            mode="hybrid",
+            group_by="source",
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
 
-        assert selected.binding.row_id == rows[1]
-        assert [group.primary.binding.row_id for group in response.results] == [rows[2]]
-        assert all(
-            group.primary.part.part_id != selected.part.part_id
-            for group in response.results
-        )
-    finally:
-        project.close()
-
-
-def test_source_anchor_accepts_an_explicit_vector_when_location_is_not_prepared(
-    tmp_path,
-):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        source = SourceRevision(
-            "resolved:external-anchor",
-            "text",
-            "resolved_snapshot",
-            "snapshot:one",
-            input_hash("an exact source chosen outside the retrieval index"),
-        )
-        locator = SourceLocator(
-            kind="text",
-            text=TextRange(
-                text_surface_id=source.source_id,
-                content_hash=source.content_hash or "missing",
-                start=0,
-                end=15,
-            ),
-        )
-
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=SourceAnchor(source=source, locator=locator),
-                mode="semantic",
-                group_by="source",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-
-        assert [group.primary.binding.row_id for group in response.results] == [
-            rows[1],
-            rows[2],
-        ]
-    finally:
-        project.close()
-
-
-def test_hybrid_fuses_source_ranks_and_retains_both_contributions(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="hybrid",
-                group_by="source",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-
-        assert {group.primary.binding.row_id for group in response.results} == {
-            rows[1],
-            rows[2],
-        }
-        assert {
-            contribution.method
-            for group in response.results
-            for contribution in group.primary.contributions
-        } == {"lexical", "semantic"}
-        assert response.results[0].primary.rank_score < 1.0
-    finally:
-        project.close()
+    assert {group.primary.binding.row_id for group in response.results} == {
+        rows[1],
+        rows[2],
+    }
+    assert {
+        contribution.method
+        for group in response.results
+        for contribution in group.primary.contributions
+    } == {"lexical", "semantic"}
+    assert response.results[0].primary.rank_score < 1.0
 
 
 @pytest.mark.parametrize("sparse", [False, True])
@@ -1106,11 +1080,11 @@ def test_composite_binding_is_invalidated_when_any_dependency_changes(
             native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
             3,
         )
-        store.begin_preparation(revision, recipe_id="row:v1", channel="row")
+        store.begin_preparation(revision, slice_id="row:v1", channel="row")
         assert store.publish_source(
             SourcePublication(
                 source_revision=revision,
-                recipe_id="row:v1",
+                slice_id="row:v1",
                 channel="row",
                 parts=(part,),
                 bindings=(
@@ -1393,110 +1367,102 @@ def test_source_hit_counts_other_authorized_bindings(make_project):
     (("source", 1, 4), ("row", 2, 4), ("part", 2, 2)),
 )
 def test_semantic_group_aggregation_preserves_global_binding_counts_and_channels(
-    tmp_path, group_by, group_count, hits_per_group
+    make_project, group_by, group_count, hits_per_group
 ):
-    project = Project.create(tmp_path / f"aggregate-{group_by}.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        body = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet,
-            [{"body": "shared target"}, {"body": "shared target"}],
-            {"body": body},
+    project = make_project(f"aggregate-{group_by}")
+    sheet = project.add_sheet("Documents")
+    body = project.add_column(sheet, "body")
+    rows = project.add_rows(
+        sheet,
+        [{"body": "shared target"}, {"body": "shared target"}],
+        {"body": body},
+    )
+    revisions = [
+        read_binding_revision(project.db, row_id=row, column_id=body) for row in rows
+    ]
+    assert None not in revisions
+    revision = SourceRevision(
+        f"cell:{rows[0]}:{body}",
+        "text",
+        "retrieval_revision",
+        revisions[0],
+        input_hash("shared target"),
+    )
+    locator = SourceLocator(kind="row_composite")
+    parts = tuple(
+        StoredPart(f"part:{index}", "text_passage", locator) for index in range(2)
+    )
+    representations = tuple(
+        CachedRepresentation(
+            f"representation:{index}",
+            "space:test",
+            f"input:{index}",
+            native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
+            3,
         )
-        revisions = [
-            read_binding_revision(project.db, row_id=row, column_id=body)
-            for row in rows
-        ]
-        assert None not in revisions
-        revision = SourceRevision(
-            f"cell:{rows[0]}:{body}",
-            "text",
-            "retrieval_revision",
-            revisions[0],
-            input_hash("shared target"),
-        )
-        locator = SourceLocator(kind="row_composite")
-        parts = tuple(
-            StoredPart(f"part:{index}", "text_passage", locator) for index in range(2)
-        )
-        representations = tuple(
-            CachedRepresentation(
-                f"representation:{index}",
-                "space:test",
-                f"input:{index}",
-                native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
-                3,
-            )
-            for index in range(2)
-        )
-        attachments = tuple(
-            PartRepresentation(part.part_id, representation.representation_id, channel)
-            for part, representation in zip(parts, representations, strict=True)
-            for channel in ("text", "transcript")
-        )
-        with RetrievalStore(project).open() as store:
-            store.begin_preparation(revision, recipe_id="ties:v1", channel="text")
-            assert store.publish_source(
-                SourcePublication(
-                    source_revision=revision,
-                    recipe_id="ties:v1",
-                    channel="text",
-                    parts=parts,
-                    bindings=(
-                        StoredBinding(
-                            "binding:z",
-                            sheet,
-                            rows[0],
-                            column_id=body,
-                            dependencies=(
-                                BindingDependency(rows[0], body, revisions[0]),
-                            ),
-                        ),
-                        StoredBinding(
-                            "binding:a",
-                            sheet,
-                            rows[1],
-                            column_id=body,
-                            dependencies=(
-                                BindingDependency(rows[1], body, revisions[1]),
-                            ),
-                        ),
+        for index in range(2)
+    )
+    attachments = tuple(
+        PartRepresentation(part.part_id, representation.representation_id, channel)
+        for part, representation in zip(parts, representations, strict=True)
+        for channel in ("text", "transcript")
+    )
+    with RetrievalStore(project).open() as store:
+        store.begin_preparation(revision, slice_id="ties:v1", channel="text")
+        assert store.publish_source(
+            SourcePublication(
+                source_revision=revision,
+                slice_id="ties:v1",
+                channel="text",
+                parts=parts,
+                bindings=(
+                    StoredBinding(
+                        "binding:z",
+                        sheet,
+                        rows[0],
+                        column_id=body,
+                        dependencies=(BindingDependency(rows[0], body, revisions[0]),),
                     ),
-                    representations=representations,
-                    attachments=attachments,
-                )
+                    StoredBinding(
+                        "binding:a",
+                        sheet,
+                        rows[1],
+                        column_id=body,
+                        dependencies=(BindingDependency(rows[1], body, revisions[1]),),
+                    ),
+                ),
+                representations=representations,
+                attachments=attachments,
             )
-
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope((SheetScope(sheet),)),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by=group_by,
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
         )
 
-        assert len(response.results) == group_count
-        for group in response.results:
-            hits = (group.primary, *group.supporting)
-            assert len(hits) == hits_per_group
-            assert {hit.contributions[0].channel for hit in hits} == {
-                "text",
-                "transcript",
-            }
-            assert {hit.additional_binding_count for hit in hits} == {1}
-            assert group.additional_count == 0
-        if group_by != "row":
-            assert {group.primary.binding.binding_id for group in response.results} == {
-                "binding:a"
-            }
-    finally:
-        project.close()
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope((SheetScope(sheet),)),
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by=group_by,
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    assert len(response.results) == group_count
+    for group in response.results:
+        hits = (group.primary, *group.supporting)
+        assert len(hits) == hits_per_group
+        assert {hit.contributions[0].channel for hit in hits} == {
+            "text",
+            "transcript",
+        }
+        assert {hit.additional_binding_count for hit in hits} == {1}
+        assert group.additional_count == 0
+    if group_by != "row":
+        assert {group.primary.binding.binding_id for group in response.results} == {
+            "binding:a"
+        }
 
 
 def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(make_project):
@@ -1581,64 +1547,58 @@ def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(make_proj
     }
 
 
-def test_search_honors_cancellation_and_injected_reranker(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        request = SearchRequest(
-            scope=_included_scope(sheet, body),
-            query=TextQuery("target"),
-            mode="lexical",
-            group_by="source",
-            limit=2,
-            ranking=RankingPolicy(rerank="on"),
-        )
-        response = search(
+def test_search_honors_cancellation_and_injected_reranker(make_project):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    request = SearchRequest(
+        scope=_included_scope(sheet, body),
+        query=TextQuery("target"),
+        mode="lexical",
+        group_by="source",
+        limit=2,
+        ranking=RankingPolicy(rerank="on"),
+    )
+    response = search(
+        project,
+        request,
+        reranker=lambda _query, documents: [
+            1.0 if "distant" in document else 0.0 for document in documents
+        ],
+    )
+    assert response.results[0].primary.binding.row_id == rows[2]
+    assert response.results[0].primary.rank_score == 1.0
+
+    class Cancelled:
+        def is_set(self) -> bool:
+            return True
+
+    with pytest.raises(InterruptedError, match="stopped"):
+        search(
             project,
             request,
-            reranker=lambda _query, documents: [
-                1.0 if "distant" in document else 0.0 for document in documents
-            ],
-        )
-        assert response.results[0].primary.binding.row_id == rows[2]
-        assert response.results[0].primary.rank_score == 1.0
-
-        class Cancelled:
-            def is_set(self) -> bool:
-                return True
-
-        with pytest.raises(InterruptedError, match="stopped"):
-            search(
-                project,
-                request,
-                reranker=lambda _q, docs: [0.0] * len(docs),
-                cancel_event=Cancelled(),
-            )
-    finally:
-        project.close()
-
-
-def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
-    project, sheet, status, _body, _rows = _prepare_project(tmp_path)
-    try:
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(status,)),)),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by="source",
-                space_id="space:test",
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+            reranker=lambda _q, docs: [0.0] * len(docs),
+            cancel_event=Cancelled(),
         )
 
-        assert response.results == ()
-        assert response.coverage.state == "unavailable"
-        assert response.coverage.channels[0].state == "unavailable"
-        assert response.coverage.channels[0].prepared_count is None
-        assert response.coverage.channels[0].failed_count is None
-    finally:
-        project.close()
+
+def test_coverage_is_scoped_and_unavailable_without_eligible_records(make_project):
+    project, sheet, status, _body, _rows = _prepare_project(make_project)
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(status,)),)),
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by="source",
+            space_id="space:test",
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    assert response.results == ()
+    assert response.coverage.state == "unavailable"
+    assert response.coverage.channels[0].state == "unavailable"
+    assert response.coverage.channels[0].prepared_count is None
+    assert response.coverage.channels[0].failed_count is None
 
 
 @pytest.mark.parametrize(
@@ -1646,68 +1606,65 @@ def test_coverage_is_scoped_and_unavailable_without_eligible_records(tmp_path):
     (("file", "application/pdf"), ("audio", "audio/wav")),
 )
 def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
-    tmp_path, column_type, mime_type
+    make_project, column_type, mime_type
 ):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / f"unprepared-{column_type}.frisket")
-    try:
-        sheet = project.add_sheet("Media")
-        status = project.add_column(sheet, "status", type="category")
-        media = project.add_column(sheet, "media", type=column_type)
-        digest = project.add_blob(b"media", mime=mime_type)
-        project.add_rows(
-            sheet,
-            [
-                {
-                    "status": "included",
-                    "media": {"blob": digest, "mime": mime_type},
-                },
-                {
-                    "status": "excluded",
-                    "media": {"blob": digest, "mime": mime_type},
-                },
-            ],
-            {"status": status, "media": media},
-        )
-        drain_index(project)
+    project = make_project(f"unprepared-{column_type}")
+    sheet = project.add_sheet("Media")
+    status = project.add_column(sheet, "status", type="category")
+    media = project.add_column(sheet, "media", type=column_type)
+    digest = project.add_blob(b"media", mime=mime_type)
+    project.add_rows(
+        sheet,
+        [
+            {
+                "status": "included",
+                "media": {"blob": digest, "mime": mime_type},
+            },
+            {
+                "status": "excluded",
+                "media": {"blob": digest, "mime": mime_type},
+            },
+        ],
+        {"status": status, "media": media},
+    )
+    drain_index(project)
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(
-                    sheets=(
-                        SheetScope(
-                            sheet,
-                            column_ids=(media,),
-                            filter_json='{"status":{"eq":"included"}}',
-                        ),
-                    )
-                ),
-                query=TextQuery("needle"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(
+                sheets=(
+                    SheetScope(
+                        sheet,
+                        column_ids=(media,),
+                        filter_json='{"status":{"eq":"included"}}',
+                    ),
+                )
             ),
-        )
+            query=TextQuery("needle"),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        assert response.coverage.state == "partial"
-        assert response.coverage.searched_channels == ("lexical",)
-        gap = next(
-            item
-            for item in response.coverage.channels
-            if item.channel == "search_preparation"
-        )
-        assert gap == ChannelCoverage(
-            channel="search_preparation",
-            state="unavailable",
-            eligible_count=1,
-            prepared_count=0,
-            failed_count=0,
-            reason="media_needs_preparation",
-            gap_sheet_ids=(sheet,),
-        )
-    finally:
-        project.close()
+    assert response.coverage.state == "partial"
+    assert response.coverage.searched_channels == ("lexical",)
+    gap = next(
+        item
+        for item in response.coverage.channels
+        if item.channel == "search_preparation"
+    )
+    assert gap == ChannelCoverage(
+        channel="search_preparation",
+        state="unavailable",
+        eligible_count=1,
+        prepared_count=0,
+        failed_count=0,
+        reason="media_needs_preparation",
+        gap_sheet_ids=(sheet,),
+    )
 
 
 def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(make_project):
@@ -1801,21 +1758,22 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
             page_end=1,
             preview={"blob_hash": page_hash, "mime": "image/png"},
         )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            "kind": "source_cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": page_image,
-        },
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=page_image,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": page_image,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=page_image,
+            link_role="primary_support",
+        )
     drain_index(project)
 
     response = search(
@@ -1835,23 +1793,24 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
     )
     assert (gap.eligible_count, gap.prepared_count) == (2, 0)
 
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            "kind": "source_cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": document,
-        },
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=document,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": document,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=document,
+            link_role="primary_support",
+        )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("import.pdf", commit=False)
+    op_id = project.append_change_in_transaction("import.pdf")
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
         producing_op_id=op_id,
@@ -1914,7 +1873,7 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     # prepared text result exists.
     drain_index(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_change("media.read_pdf_text", commit=False)
+    op_id = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -1961,56 +1920,53 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     assert gap.state == "unavailable"
 
 
-def test_coverage_includes_failed_channel_without_a_top_k_hit(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
-        assert revision is not None
-        source = SourceRevision(
-            f"cell:{rows[1]}:{body}",
-            "text",
-            "retrieval_revision",
-            revision,
-            input_hash("target eligible second"),
+def test_coverage_includes_failed_channel_without_a_top_k_hit(make_project):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
+    assert revision is not None
+    source = SourceRevision(
+        f"cell:{rows[1]}:{body}",
+        "text",
+        "retrieval_revision",
+        revision,
+        input_hash("target eligible second"),
+    )
+    with RetrievalStore(project).open() as store:
+        store.begin_preparation(
+            source,
+            slice_id="transcript:v1",
+            channel="transcript",
+            space_id="space:test",
         )
-        with RetrievalStore(project).open() as store:
-            store.begin_preparation(
-                source,
-                recipe_id="transcript:v1",
-                channel="transcript",
-                space_id="space:test",
-            )
-            assert store.fail_preparation(
-                source,
-                recipe_id="transcript:v1",
-                channel="transcript",
-                space_id="space:test",
-                error_code="encoder_failed",
-                error_message="transcript preparation failed",
-            )
-
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by="source",
-                space_id="space:test",
-                limit=1,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        assert store.fail_preparation(
+            source,
+            slice_id="transcript:v1",
+            channel="transcript",
+            space_id="space:test",
+            error_code="encoder_failed",
+            error_message="transcript preparation failed",
         )
 
-        assert len(response.results) == 1
-        assert response.coverage.state == "partial"
-        assert response.coverage.searched_channels == ("text",)
-        assert {item.channel: item.state for item in response.coverage.channels} == {
-            "text": "ready",
-            "transcript": "failed",
-        }
-    finally:
-        project.close()
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by="source",
+            space_id="space:test",
+            limit=1,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    assert len(response.results) == 1
+    assert response.coverage.state == "partial"
+    assert response.coverage.searched_channels == ("text",)
+    assert {item.channel: item.state for item in response.coverage.channels} == {
+        "text": "ready",
+        "transcript": "failed",
+    }
 
 
 @pytest.mark.parametrize(
@@ -2021,98 +1977,89 @@ def test_coverage_includes_failed_channel_without_a_top_k_hit(tmp_path):
     ],
 )
 def test_coverage_respects_preparation_channel_and_space(
-    tmp_path, channel, space_id, expected
+    make_project, channel, space_id, expected
 ):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
-        source = SourceRevision(
-            f"cell:{rows[1]}:{body}",
-            "text",
-            "retrieval_revision",
-            revision,
-            input_hash("target eligible second"),
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
+    source = SourceRevision(
+        f"cell:{rows[1]}:{body}",
+        "text",
+        "retrieval_revision",
+        revision,
+        input_hash("target eligible second"),
+    )
+    with RetrievalStore(project) as store:
+        store.begin_preparation(
+            source, slice_id="pending:v1", channel=channel, space_id=space_id
         )
-        with RetrievalStore(project) as store:
-            store.begin_preparation(
-                source, recipe_id="pending:v1", channel=channel, space_id=space_id
-            )
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="lexical" if channel == "lexical" else "semantic",
-                space_id="space:test",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-        assert response.coverage.state == expected
-        assert "transcript" not in {item.channel for item in response.coverage.channels}
-    finally:
-        project.close()
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target"),
+            mode="lexical" if channel == "lexical" else "semantic",
+            space_id="space:test",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    assert response.coverage.state == expected
+    assert "transcript" not in {item.channel for item in response.coverage.channels}
 
 
-def test_unavailable_work_in_ready_channel_is_partial(tmp_path):
-    project, sheet, _status, body, rows = _prepare_project(tmp_path)
-    try:
-        revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
-        source = SourceRevision(
-            f"cell:{rows[1]}:{body}",
-            "text",
-            "retrieval_revision",
-            revision,
-            input_hash("target eligible second"),
+def test_unavailable_work_in_ready_channel_is_partial(make_project):
+    project, sheet, _status, body, rows = _prepare_project(make_project)
+    revision = read_binding_revision(project.db, row_id=rows[1], column_id=body)
+    source = SourceRevision(
+        f"cell:{rows[1]}:{body}",
+        "text",
+        "retrieval_revision",
+        revision,
+        input_hash("target eligible second"),
+    )
+    with RetrievalStore(project) as store:
+        store.begin_preparation(
+            source, slice_id="optional:v1", channel="text", space_id="space:test"
         )
-        with RetrievalStore(project) as store:
-            store.begin_preparation(
-                source, recipe_id="optional:v1", channel="text", space_id="space:test"
-            )
-            store.mark_preparation_unavailable(
-                source,
-                recipe_id="optional:v1",
-                channel="text",
-                space_id="space:test",
-                reason="missing_runtime",
-            )
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="semantic",
-                space_id="space:test",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        store.mark_preparation_unavailable(
+            source,
+            slice_id="optional:v1",
+            channel="text",
+            space_id="space:test",
+            reason="missing_runtime",
         )
-        assert response.results
-        assert response.coverage.state == "partial"
-    finally:
-        project.close()
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target"),
+            mode="semantic",
+            space_id="space:test",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    assert response.results
+    assert response.coverage.state == "partial"
 
 
-def test_named_scope_does_not_claim_readiness_from_other_membership(tmp_path):
-    project, sheet, _status, body, _rows = _prepare_project(tmp_path)
-    try:
-        response = search(
-            project,
-            SearchRequest(
-                scope=_included_scope(sheet, body),
-                query=TextQuery("target"),
-                mode="semantic",
-                space_id="space:test",
-                named_index_id="nonexistent",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-        assert not response.results
-        assert response.coverage.state == "unavailable"
-        assert not response.coverage.searched_channels
-    finally:
-        project.close()
+def test_named_scope_does_not_claim_readiness_from_other_membership(make_project):
+    project, sheet, _status, body, _rows = _prepare_project(make_project)
+    response = search(
+        project,
+        SearchRequest(
+            scope=_included_scope(sheet, body),
+            query=TextQuery("target"),
+            mode="semantic",
+            space_id="space:test",
+            named_index_id="nonexistent",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    assert not response.results
+    assert response.coverage.state == "unavailable"
+    assert not response.coverage.searched_channels
 
 
 def test_hybrid_reranks_context_before_limiting_results(make_project):
@@ -2162,26 +2109,23 @@ def test_hybrid_reranks_context_before_limiting_results(make_project):
     assert "&amp;" not in result.results[0].primary.snippet
 
 
-def test_recreated_sidecar_reports_preparing_before_worker_binds_it(tmp_path):
-    project, sheet, _status, body, _rows = _prepare_project(tmp_path)
-    try:
-        for suffix in ("", "-wal", "-shm"):
-            (project.path / ("project.retrieval.db" + suffix)).unlink(missing_ok=True)
-        # An analytical writer may recreate the cache before the lexical worker.
-        with RetrievalStore(project).open():
-            pass
-        request = SearchRequest(
-            scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(body,)),)),
-            query=TextQuery("target"),
-            mode="lexical",
-        )
-        assert search(project, request).coverage.state == "preparing"
-        # A recreated cache must not imply pending work outside visible scope.
-        project.db.execute("UPDATE rows SET hidden=1 WHERE sheet_id=?", (sheet,))
-        project.db.commit()
-        assert search(project, request).coverage.state == "complete"
-    finally:
-        project.close()
+def test_recreated_sidecar_reports_preparing_before_worker_binds_it(make_project):
+    project, sheet, _status, body, _rows = _prepare_project(make_project)
+    for suffix in ("", "-wal", "-shm"):
+        (project.path / ("project.retrieval.db" + suffix)).unlink(missing_ok=True)
+    # An analytical writer may recreate the cache before the lexical worker.
+    with RetrievalStore(project).open():
+        pass
+    request = SearchRequest(
+        scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(body,)),)),
+        query=TextQuery("target"),
+        mode="lexical",
+    )
+    assert search(project, request).coverage.state == "preparing"
+    # A recreated cache must not imply pending work outside visible scope.
+    project.db.execute("UPDATE rows SET hidden=1 WHERE sheet_id=?", (sheet,))
+    project.db.commit()
+    assert search(project, request).coverage.state == "complete"
 
 
 def test_semantic_snippet_bounds_display_without_moving_the_source_range(make_project):

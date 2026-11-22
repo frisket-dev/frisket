@@ -304,7 +304,7 @@ def test_index_cluster_replay_rejects_materialized_lineage_drift(
         )
         rows_ref = next(
             item["ref"]
-            for section in ("inputs", "outputs", "evidence")
+            for section in ("inputs", "outputs", "records")
             for item in body.get(section) or []
             if isinstance(item.get("ref"), dict)
             and item["ref"].get("kind") == "materialized_rows"

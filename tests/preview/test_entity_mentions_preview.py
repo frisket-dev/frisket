@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client as _client, write_claimed_test_results
 from frisket.ops.entities import canonicalize_entities
+from frisket.engine.store.transactions import write_transaction
 
 PREVIEW = "/api/projects/{pid}/entity-mentions/v1/preview"
 
@@ -343,7 +344,9 @@ def test_type_only_selector_has_the_same_parity(tmp_path):
     pid, sheet_id, column_id, _rows = _seed(client)
     body = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
 
-    for entity_type in {item["type"] for item in body["items"]}:
+    entity_types = {item["type"] for item in body["items"]}
+    assert entity_types
+    for entity_type in entity_types:
         section = _preview(
             client,
             pid,
@@ -369,6 +372,7 @@ def test_every_selector_round_trips_as_an_entity_eq_filter(tmp_path):
     client = _client(tmp_path)
     pid, sheet_id, column_id, _rows = _seed(client)
     body = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
+    assert body["items"]
     for item in body["items"]:
         for payload in (
             _payload(item),
@@ -771,7 +775,7 @@ def test_coverage_reports_the_columns_current_run_honestly(tmp_path):
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     rows = project.add_rows(
@@ -809,7 +813,8 @@ def test_coverage_reports_the_columns_current_run_honestly(tmp_path):
         ],
     )
     store.finish_run(run)
-    store.point_column_at_run(op, column_id, run)
+    with write_transaction(store.db):
+        store.point_column_at_run(op, column_id, run)
 
     body = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
     # verbatim run counters, exactly as run/provenance payloads report them:
@@ -887,7 +892,7 @@ def test_coverage_discloses_rows_added_after_the_extraction(tmp_path):
         sheet_id,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     rows = project.add_rows(
@@ -909,7 +914,8 @@ def test_coverage_discloses_rows_added_after_the_extraction(tmp_path):
         ],
     )
     store.finish_run(run)
-    store.point_column_at_run(op, column_id, run)
+    with write_transaction(store.db):
+        store.point_column_at_run(op, column_id, run)
 
     covered = _preview(client, pid, sheet_id=sheet_id, column_id=column_id)
     assert covered["coverage"] == {

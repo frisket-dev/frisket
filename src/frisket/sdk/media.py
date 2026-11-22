@@ -1,7 +1,7 @@
 """Receipt and replay helpers shared by the media actions.
 
-`media_output_column_value_hash` is deliberately NOT `sdk.replay.
-output_column_value_hash`: media receipts at rest carry this hash shape, so
+`media_generated_column_value_hash` is deliberately NOT `sdk.replay.
+generated_column_value_hash`: media receipts at rest carry this hash shape, so
 replaying them must keep computing it byte-identically.
 """
 
@@ -73,7 +73,7 @@ def media_successful_result_row_ids(
     return [row_id for row_id in row_ids if row_id in successful]
 
 
-def media_output_column_value_hash(
+def media_generated_column_value_hash(
     project: Project,
     *,
     sheet_id: int,

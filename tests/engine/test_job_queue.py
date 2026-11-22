@@ -129,7 +129,7 @@ class TestBackgroundIndexPriority:
         queue = request.getfixturevalue(queue_fixture)
         first_index = queue.enqueue(SEARCH_INDEX_KIND, {})
         action = queue.enqueue(ACTION_RUN_KIND, {})
-        alert = queue.enqueue("watch.evaluate", {})
+        alert = queue.enqueue("alert.evaluate", {})
         second_index = queue.enqueue(SEARCH_INDEX_KIND, {})
         project_run = queue.enqueue(PROJECT_RUN_KIND, {})
         other = queue.enqueue("echo", {})
@@ -459,7 +459,7 @@ class TestClaimedProjectLocation:
         from frisket.engine.jobs.queue import claimed_project_location
         from frisket.project_identity import ProjectStorageKey
 
-        key = ProjectStorageKey(storage_org_id=7, project_slug="proj")
+        key = ProjectStorageKey(storage_organization_id=7, project_slug="proj")
         slug, root, path = claimed_project_location(
             self._payload(key),
             workspace_root=tmp_path,
@@ -475,7 +475,7 @@ class TestClaimedProjectLocation:
         from frisket.engine.jobs.queue import claimed_project_location
         from frisket.project_identity import ProjectStorageKey
 
-        key = ProjectStorageKey(storage_org_id=7, project_slug="proj")
+        key = ProjectStorageKey(storage_organization_id=7, project_slug="proj")
         organization_root = tmp_path / "7"
         slug, root, path = claimed_project_location(
             self._payload(key),
@@ -493,7 +493,7 @@ class TestClaimedProjectLocation:
         from frisket.engine.jobs.queue import claimed_project_location
         from frisket.project_identity import ProjectStorageKey
 
-        key = ProjectStorageKey(storage_org_id=8, project_slug="proj")
+        key = ProjectStorageKey(storage_organization_id=8, project_slug="proj")
         with pytest.raises(ValueError, match="(?i)storage"):
             claimed_project_location(
                 self._payload(key),

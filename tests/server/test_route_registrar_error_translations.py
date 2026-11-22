@@ -65,7 +65,7 @@ class _RaisingService:
         (
             register_alert_routes,
             "POST",
-            "/api/projects/p/watches/9/run",
+            "/api/projects/p/alerts/9/check",
             AlertNotFound("service text is intentionally hidden"),
             404,
             b'{"detail":"alert not found"}',
@@ -114,7 +114,7 @@ def test_registrar_translates_its_typed_service_errors_standalone(
         (register_project_lifecycle_routes, "GET", "/api/projects/p"),
         (register_notification_routes, "GET", "/api/projects/p/notifications"),
         (register_view_routes, "GET", "/api/projects/p/views/9"),
-        (register_alert_routes, "POST", "/api/projects/p/watches/9/run"),
+        (register_alert_routes, "POST", "/api/projects/p/alerts/9/check"),
         (
             register_workbench_routes,
             "GET",

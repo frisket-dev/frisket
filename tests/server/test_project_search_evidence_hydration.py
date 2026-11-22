@@ -10,7 +10,7 @@ from PIL import Image
 from starlette.testclient import TestClient
 
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -47,7 +47,7 @@ def _client(project: Project) -> TestClient:
 def _seed_ocr(project: Project) -> None:
     sheet_id = project.add_sheet("Scans")
     file_column_id = project.add_column(sheet_id, "scan", "file")
-    text_column_id = project.add_column(sheet_id, "ocr_text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "ocr_text", "text", generated=True)
     output = io.BytesIO()
     Image.new("RGB", (100, 60), color="white").save(output, format="PNG")
     blob_hash = project.add_blob(
@@ -102,17 +102,21 @@ def _seed_ocr(project: Project) -> None:
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": int(region["id"])}, {"span_id": int(trade_region["id"])}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=text_column_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[
+                {"span_id": int(region["id"])},
+                {"span_id": int(trade_region["id"])},
+            ],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=text_column_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr"},
+        )
 
 
 def _search(

@@ -3,7 +3,6 @@ from __future__ import annotations
 from model_doubles import canned_reply_router
 
 import asyncio
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -44,8 +43,7 @@ def multi_output_request(sheet_id: int) -> dict:
     ).model_dump(mode="json", exclude_none=True)
 
 
-def build_project(tmp_path: Path) -> tuple[Project, int]:
-    project = Project.create(tmp_path / "review.frisket", name="review")
+def build_project(project: Project) -> int:
     sheet_id = project.add_sheet("stories")
     columns = {"story": project.add_column(sheet_id, "story")}
     project.add_rows(
@@ -56,7 +54,7 @@ def build_project(tmp_path: Path) -> tuple[Project, int]:
         ],
         columns,
     )
-    return project, sheet_id
+    return sheet_id
 
 
 def run_multi_output(project: Project, sheet_id: int) -> None:
@@ -73,8 +71,8 @@ def run_multi_output(project: Project, sheet_id: int) -> None:
     asyncio.run(run_with_exact_confirmation(runner, multi_output_spec(sheet_id)))
 
 
-def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
-    project, sheet_id = build_project(tmp_path)
+def test_multi_output_review_groups_sibling_fields_and_evidence(project: Project):
+    sheet_id = build_project(project)
     run_multi_output(project, sheet_id)
 
     queue = review_queue(project, sheet_id=sheet_id)
@@ -86,13 +84,13 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
     assert len(bundles) == 2
     first = bundles[0]
     assert {field["column_name"] for field in first["fields"]} == {"beat", "tone"}
-    assert {item["column_name"] for item in first["evidence"]} == {
+    assert {item["column_name"] for item in first["supporting_columns"]} == {
         "beat_justification",
         "tone_justification",
         "beat_confidence",
     }
     assert all(field["chore"] for field in first["fields"])
-    assert not any(item["chore"] for item in first["evidence"])
+    assert not any(item["chore"] for item in first["supporting_columns"])
     assert first["source"]["story"]
     assert first["sources"] == [
         {
@@ -113,7 +111,7 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
     # Declared provenance remains the source even when an upstream generated
     # column feeds this run; source selection is not an imported-column filter.
     project.db.execute(
-        "UPDATE columns SET ai_generated=1 WHERE id=?",
+        "UPDATE columns SET generated=1 WHERE id=?",
         (first["sources"][0]["column_id"],),
     )
     project.db.commit()
@@ -172,7 +170,6 @@ def test_multi_output_review_groups_sibling_fields_and_evidence(tmp_path):
     }
     assert first["row_id"] not in remaining_row_ids
     assert queue_count(project) == 2
-    project.close()
 
 
 def test_review_bundles_endpoint_returns_row_run_bundles(tmp_path):
@@ -220,4 +217,4 @@ def test_review_bundles_endpoint_returns_row_run_bundles(tmp_path):
         "beat",
         "tone",
     }
-    assert not any(item["chore"] for item in bundles[0]["evidence"])
+    assert not any(item["chore"] for item in bundles[0]["supporting_columns"])

@@ -1,6 +1,6 @@
 """Alert fixtures with an explicit initial successful observation."""
 
-from frisket.features.alerts.service import resolve_alert_check
+from frisket.alerts.service import resolve_alert_check
 
 
 def seed_empty_alert_baseline(project, alert_id):

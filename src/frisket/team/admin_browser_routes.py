@@ -25,7 +25,7 @@ from frisket.contracts.http.admin_browser import (
     AdminBrowserJobsV1,
     AdminBrowserRemoveUserResult,
     AdminBrowserRevokeInviteResult,
-    AdminBrowserTargetOrgQuery,
+    AdminBrowserTargetOrganizationQuery,
     AdminBrowserUpdateRoleRequest,
     AdminBrowserUpdateRoleResult,
     AdminBrowserUsersV1,
@@ -52,7 +52,7 @@ from frisket.team.observability_routes import _blob_probe
 from frisket.team.schema import (
     audit_log,
     client_errors,
-    orgs,
+    organizations,
     pending_invites,
     projects,
     record_audit,
@@ -102,10 +102,10 @@ def _audit_category(action: str) -> str:
     if action in {
         "login",
         "login_google",
-        "org_key_set",
-        "org_key_deleted",
-        "org_env_set",
-        "org_env_deleted",
+        "organization_key_set",
+        "organization_key_deleted",
+        "organization_env_set",
+        "organization_env_deleted",
         "pat_created",
         "pat_revoked",
     }:
@@ -134,17 +134,17 @@ def _audit_target(action: str, detail: str | None) -> dict[str, Any]:
             "object_id": object_id,
             "context": {"project_id": project_id},
         }
-    if action.startswith("org_key_"):
+    if action.startswith("organization_key_"):
         return {
             "project_id": None,
-            "object_type": "org_key",
+            "object_type": "organization_key",
             "object_id": text or None,
             "context": {"provider": text} if text else {},
         }
-    if action.startswith("org_env_"):
+    if action.startswith("organization_env_"):
         return {
             "project_id": None,
-            "object_type": "org_env",
+            "object_type": "organization_env",
             "object_id": text or None,
             "context": {"name": text} if text else {},
         }
@@ -155,14 +155,14 @@ def _audit_target(action: str, detail: str | None) -> dict[str, Any]:
             "object_id": text or None,
             "context": {"prefix": text} if text else {},
         }
-    if action.startswith("org_member_"):
+    if action.startswith("organization_member_"):
         return {
             "project_id": None,
-            "object_type": "org_member",
+            "object_type": "organization_member",
             "object_id": parts[0] or None,
             "context": {"user_id": parts[0]} if parts[0] else {},
         }
-    if action.startswith("org_invite_"):
+    if action.startswith("organization_invite_"):
         return {
             "project_id": None,
             "object_type": "invite",
@@ -191,7 +191,7 @@ def register_admin_browser_routes(
     app: FastAPI,
     *,
     engine: sa.Engine,
-    org_id: int,
+    organization_id: int,
     invites: InviteService,
     auth: IdentityAuthService,
     membership: AdminMembershipService,
@@ -278,7 +278,7 @@ def register_admin_browser_routes(
     ) -> dict[str, Any]:
         actor = require_admin(request)
         try:
-            membership.require_organization(body.org_id)
+            membership.require_organization(body.organization_id)
             invited = invites.create_organization_invite(
                 email=body.email,
                 actor_user_id=int(actor["id"]),
@@ -295,14 +295,14 @@ def register_admin_browser_routes(
         with engine.connect() as cx:
             expires_at = cx.execute(
                 sa.select(pending_invites.c.expires_at).where(
-                    pending_invites.c.org_id == org_id,
+                    pending_invites.c.organization_id == organization_id,
                     pending_invites.c.email == invited["email"],
                 )
             ).scalar_one()
         return {
             "ok": True,
             "sent": sent,
-            "org_id": org_id,
+            "organization_id": organization_id,
             "email": invited["email"],
             "role": invited["role"],
             "expires_at": iso_z(expires_at),
@@ -324,11 +324,11 @@ def register_admin_browser_routes(
                 actor=actor,
                 user_id=user_id,
                 role=body.role,
-                requested_organization_id=body.org_id,
+                requested_organization_id=body.organization_id,
             )
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
-        return {"ok": True, "org_id": org_id, **result}
+        return {"ok": True, "organization_id": organization_id, **result}
 
     @app.delete(
         "/api/admin/browser/users/invites/{email}",
@@ -338,12 +338,14 @@ def register_admin_browser_routes(
     def admin_browser_revoke_invite(
         email: str,
         request: Request,
-        target_org_id: int = Query(alias="org_id", gt=0),
+        target_organization_id: int = Query(alias="organization_id", gt=0),
     ) -> dict[str, Any]:
         actor = require_admin(request)
-        query = AdminBrowserTargetOrgQuery.model_validate({"org_id": target_org_id})
+        query = AdminBrowserTargetOrganizationQuery.model_validate(
+            {"organization_id": target_organization_id}
+        )
         try:
-            membership.require_organization(query.org_id)
+            membership.require_organization(query.organization_id)
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
         clean_email = email.lower().strip()
@@ -359,7 +361,7 @@ def register_admin_browser_routes(
             raise HTTPException(404, "pending invite not found")
         return {
             "ok": True,
-            "org_id": org_id,
+            "organization_id": organization_id,
             "email": clean_email,
             "revoked": True,
         }
@@ -372,19 +374,21 @@ def register_admin_browser_routes(
     def admin_browser_remove_user(
         user_ref: str,
         request: Request,
-        target_org_id: int = Query(alias="org_id", gt=0),
+        target_organization_id: int = Query(alias="organization_id", gt=0),
     ) -> dict[str, Any]:
         actor = require_admin(request)
-        query = AdminBrowserTargetOrgQuery.model_validate({"org_id": target_org_id})
+        query = AdminBrowserTargetOrganizationQuery.model_validate(
+            {"organization_id": target_organization_id}
+        )
         try:
             result = membership.remove_user(
                 actor=actor,
                 user_ref=user_ref,
-                requested_organization_id=query.org_id,
+                requested_organization_id=query.organization_id,
             )
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
-        return {"ok": True, "org_id": org_id, **result}
+        return {"ok": True, "organization_id": organization_id, **result}
 
     @app.get(
         "/api/admin/browser/jobs",
@@ -453,7 +457,7 @@ def register_admin_browser_routes(
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="admin_job_cancel_requested",
                     detail=str(job_id),
                 )
@@ -487,7 +491,9 @@ def register_admin_browser_routes(
     )
     def admin_browser_audit(
         request: Request,
-        target_org_id: int | None = Query(default=None, alias="org_id", gt=0),
+        target_organization_id: int | None = Query(
+            default=None, alias="organization_id", gt=0
+        ),
         project_id: str | None = None,
         user: str | None = None,
         action: str | None = None,
@@ -496,7 +502,7 @@ def register_admin_browser_routes(
         require_admin(request)
         query = AdminBrowserAuditQuery.model_validate(
             {
-                "org_id": target_org_id,
+                "organization_id": target_organization_id,
                 "project_id": project_id,
                 "user": user,
                 "action": action,
@@ -506,9 +512,11 @@ def register_admin_browser_routes(
         user_filter = (query.user or "").strip().lower()
         action_filter = (query.action or "").strip().lower()
         project_filter = (query.project_id or "").strip()
-        audit_predicates = [audit_log.c.org_id == org_id]
-        if query.org_id is not None:
-            audit_predicates.append(audit_log.c.org_id == query.org_id)
+        audit_predicates = [audit_log.c.organization_id == organization_id]
+        if query.organization_id is not None:
+            audit_predicates.append(
+                audit_log.c.organization_id == query.organization_id
+            )
         if action_filter:
             audit_predicates.append(sa.func.lower(audit_log.c.action) == action_filter)
         if user_filter:
@@ -532,20 +540,20 @@ def register_admin_browser_routes(
             )
         with engine.connect() as cx:
             organization_rows = cx.execute(
-                sa.select(orgs.c.id, orgs.c.name)
-                .where(orgs.c.id == org_id)
-                .order_by(orgs.c.id)
+                sa.select(organizations.c.id, organizations.c.name)
+                .where(organizations.c.id == organization_id)
+                .order_by(organizations.c.id)
             ).all()
             project_rows = cx.execute(
-                sa.select(projects.c.org_id, projects.c.slug, projects.c.name)
-                .where(projects.c.org_id == org_id)
+                sa.select(projects.c.organization_id, projects.c.slug, projects.c.name)
+                .where(projects.c.organization_id == organization_id)
                 .order_by(projects.c.slug)
             ).all()
             audit_rows = cx.execute(
                 sa.select(
                     audit_log.c.id,
                     audit_log.c.user_id,
-                    audit_log.c.org_id,
+                    audit_log.c.organization_id,
                     audit_log.c.action,
                     audit_log.c.detail,
                     audit_log.c.created_at,
@@ -561,7 +569,7 @@ def register_admin_browser_routes(
             action_rows = (
                 cx.execute(
                     sa.select(audit_log.c.action)
-                    .where(audit_log.c.org_id == org_id)
+                    .where(audit_log.c.organization_id == organization_id)
                     .distinct()
                     .order_by(audit_log.c.action)
                 )
@@ -570,7 +578,8 @@ def register_admin_browser_routes(
             )
         organization_names = {int(row.id): str(row.name) for row in organization_rows}
         project_names = {
-            (int(row.org_id), str(row.slug)): str(row.name) for row in project_rows
+            (int(row.organization_id), str(row.slug)): str(row.name)
+            for row in project_rows
         }
         events: list[dict[str, Any]] = []
         for row in audit_rows:
@@ -586,14 +595,18 @@ def register_admin_browser_routes(
                     if row.user_id is not None
                     else None,
                     "actor_email": str(row.actor_email) if row.actor_email else None,
-                    "org_id": int(row.org_id) if row.org_id is not None else None,
-                    "org_name": organization_names.get(int(row.org_id))
-                    if row.org_id
+                    "organization_id": int(row.organization_id)
+                    if row.organization_id is not None
+                    else None,
+                    "organization_name": organization_names.get(
+                        int(row.organization_id)
+                    )
+                    if row.organization_id
                     else None,
                     "project_id": project_id,
                     "project_name": (
-                        project_names.get((int(row.org_id), str(project_id)))
-                        if row.org_id is not None and project_id is not None
+                        project_names.get((int(row.organization_id), str(project_id)))
+                        if row.organization_id is not None and project_id is not None
                         else None
                     ),
                     "action": str(row.action),
@@ -611,13 +624,13 @@ def register_admin_browser_routes(
             "schema_version": "frisket.admin_audit.v1",
             "events": events,
             "filters": {
-                "orgs": [
+                "organizations": [
                     {"id": int(row.id), "name": str(row.name)}
                     for row in organization_rows
                 ],
                 "projects": [
                     {
-                        "org_id": int(row.org_id),
+                        "organization_id": int(row.organization_id),
                         "project_id": str(row.slug),
                         "name": str(row.name),
                     }
@@ -642,7 +655,7 @@ def register_admin_browser_routes(
         with engine.connect() as cx:
             rows = cx.execute(
                 sa.select(client_errors)
-                .where(client_errors.c.org_id == org_id)
+                .where(client_errors.c.organization_id == organization_id)
                 .order_by(client_errors.c.id.desc())
                 .limit(query.limit)
             ).all()
@@ -659,7 +672,9 @@ def register_admin_browser_routes(
                     "message": str(row.message),
                     "stack": str(row.stack) if row.stack is not None else None,
                     "route": str(row.route) if row.route is not None else None,
-                    "org_id": int(row.org_id) if row.org_id is not None else None,
+                    "organization_id": int(row.organization_id)
+                    if row.organization_id is not None
+                    else None,
                     "user_id": int(row.user_id) if row.user_id is not None else None,
                     "project_id": (
                         str(row.project_id) if row.project_id is not None else None

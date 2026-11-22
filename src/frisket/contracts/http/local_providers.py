@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from frisket.contracts.http.models import NamedCoerciveRequest, WireModel
 from frisket.contracts.actions.schemas._validators import nonblank
@@ -118,7 +118,7 @@ class LocalHttpEndpointProvider(WireModel):
     authority: Literal["instance", "organization"]
     source: Literal["stored", "environment"]
     detail: str | None
-    installed_models: list[str] = None
+    installed_models: list[str] = Field(default_factory=list)
     protocol: Literal["ollama_native", "openai_compatible", "unknown"]
     auth_status: Literal["ok", "unauthorized", "unenforced", "unknown"]
     token_configured: bool
@@ -131,7 +131,7 @@ class LocalProviderCatalog(WireModel):
     schemaVersion: Literal["frisket.providers.v1"]
     tier: Literal["local"]
     providers: list[PlatformProvider | LocalHttpEndpointProvider]
-    network: Literal["off"] = None
+    network: Literal["off"] = "off"
 
 
 class LocalEndpointCatalog(WireModel):
@@ -203,7 +203,7 @@ class ProviderValidationResponse(WireModel):
     reachable: bool
     status: int | None
     detail: str | None
-    validation_token: str = None
+    validation_token: str = ""
 
 
 __all__ = [

@@ -16,8 +16,8 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
-from frisket.server.app import create_app
 from frisket.server.services.action_previews import ActionPreviewService
+from helpers import make_client
 
 
 def _client(tmp_path) -> TestClient:
@@ -27,7 +27,7 @@ def _client(tmp_path) -> TestClient:
         cache=None,
         cache_mode="off",
     )
-    return TestClient(create_app(tmp_path / "workspace", router=router))
+    return make_client(tmp_path, router=router)
 
 
 def _seed(client: TestClient) -> tuple[str, int]:

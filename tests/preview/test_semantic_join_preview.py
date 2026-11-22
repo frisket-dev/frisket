@@ -67,7 +67,7 @@ def test_public_semantic_preview_samples_source_but_searches_whole_target(
                 "results",
                 "cell_result_heads",
                 "model_calls",
-                "output_column_claims",
+                "generated_column_claims",
                 "effect_checkpoints",
             )
         }

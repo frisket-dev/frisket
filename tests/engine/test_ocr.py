@@ -25,7 +25,6 @@ from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from frisket.ops import ocr_engines as ocr_module
 from frisket.ops.ocr_engines import (
     RAPIDOCR_MODELS_NOT_PROVISIONED,
@@ -42,8 +41,7 @@ def _render_png(path, text):
     return path
 
 
-def _project(tmp_path, rows, coltype="image"):
-    p = Project.create(tmp_path / "t.frisket", name="t")
+def _project(p, rows, coltype="image"):
     sheet = p.add_sheet("data")
     cols = {k: p.add_column(sheet, k, type=coltype) for k in rows[0]}
     for row in rows:
@@ -99,14 +97,14 @@ def _execute(project, spec, router=None, *, confirm=True):
     return result
 
 
-def test_ocr_image_light_engine_with_blocks(tmp_path):
+def test_ocr_image_light_engine_with_blocks(tmp_path, project):
     """The default light engine reads a synthetic PNG offline and emits
     per-page blocks with bbox geometry (feeds the bbox renderer)."""
     if not rapidocr_models_present()[0]:
         pytest.skip(RAPIDOCR_MODELS_NOT_PROVISIONED)
     _require_nested_macos_sandbox()
     path = _render_png(tmp_path / "scan.png", "FRISKET OCR 4271")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     prog = _execute(
         p,
         _spec(sheet),
@@ -121,10 +119,9 @@ def test_ocr_image_light_engine_with_blocks(tmp_path):
     assert pages[0]["page"] == 1 and pages[0]["engine"] == "rapidocr"
     block = pages[0]["blocks"][0]
     assert block["text"] and len(block["bbox"]) == 4 and block["score"] > 0
-    p.close()
 
 
-def test_ocr_light_language_rides_worker_payload(tmp_path, monkeypatch):
+def test_ocr_light_language_rides_worker_payload(tmp_path, project, monkeypatch):
     """spec language reaches the run-scoped pool's fixed worker config, where
     it becomes RapidOCR's Rec.lang_type."""
     from frisket.ops import ocr_engines_local as ocr_local
@@ -158,7 +155,7 @@ def test_ocr_light_language_rides_worker_payload(tmp_path, monkeypatch):
         ocr_local, "acquire_local_engine_lease", lambda engine: FakeLease()
     )
     path = _render_png(tmp_path / "scan.png", "BONJOUR")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     prog = _execute(
         p,
         _spec(sheet, language="latin"),
@@ -169,17 +166,16 @@ def test_ocr_light_language_rides_worker_payload(tmp_path, monkeypatch):
     assert prog.status == "completed", prog.errors
     assert captured["language"] == "latin"
     assert _col_value(p, sheet, "ocr_text") == "BONJOUR"
-    p.close()
 
 
-def test_ocr_light_language_constructs_real_engine(tmp_path):
+def test_ocr_light_language_constructs_real_engine(tmp_path, project):
     """language='ch' exercises the real RapidOCR(params={'Rec.lang_type': …})
     construction offline (the ch model ships in the wheel — no download)."""
     if not rapidocr_models_present()[0]:
         pytest.skip(RAPIDOCR_MODELS_NOT_PROVISIONED)
     _require_nested_macos_sandbox()
     path = _render_png(tmp_path / "scan.png", "FRISKET 4271")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     prog = _execute(
         p,
         _spec(sheet, language="ch"),
@@ -190,11 +186,10 @@ def test_ocr_light_language_constructs_real_engine(tmp_path):
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
     assert "FRISKET" in text and "4271" in text
-    p.close()
 
 
 @requires_ocr_runtime
-def test_ocr_light_unknown_language_fails_per_row(tmp_path):
+def test_ocr_light_unknown_language_fails_per_row(tmp_path, project):
     """A bad language code is no silent no-op: the worker validates against
     rapidocr's lang enum and fails the row listing the valid codes.
 
@@ -207,7 +202,7 @@ def test_ocr_light_unknown_language_fails_per_row(tmp_path):
     """
     _require_nested_macos_sandbox()
     path = _render_png(tmp_path / "scan.png", "HELLO")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     prog = _execute(
         p,
         _spec(sheet, language="klingon"),
@@ -220,10 +215,9 @@ def test_ocr_light_unknown_language_fails_per_row(tmp_path):
         "SELECT error FROM results WHERE run_id=? AND error IS NOT NULL", (prog.run_id,)
     ).fetchone()["error"]
     assert "klingon" in err and "japan" in err  # lists the valid codes
-    p.close()
 
 
-def test_ocr_pdf_rasterize_then_ocr(tmp_path):
+def test_ocr_pdf_rasterize_then_ocr(tmp_path, project):
     """A two-page PDF rasterizes via PDFium and OCRs every page; the text
     column joins pages, the blocks column stays per-page."""
     if not rapidocr_models_present()[0]:
@@ -239,7 +233,7 @@ def test_ocr_pdf_rasterize_then_ocr(tmp_path):
         pdf, save_all=True, append_images=[Image.open(p2).convert("1")], resolution=72
     )
 
-    p, sheet = _project(tmp_path, [{"page": str(pdf)}], coltype="file")
+    p, sheet = _project(project, [{"page": str(pdf)}], coltype="file")
     prog = _execute(
         p,
         _spec(sheet),
@@ -255,22 +249,20 @@ def test_ocr_pdf_rasterize_then_ocr(tmp_path):
     assert [pg["page"] for pg in pages] == [1, 2]
     assert any("ALPHA" in b["text"] for b in pages[0]["blocks"])
     assert any("BRAVO" in b["text"] for b in pages[1]["blocks"])
-    p.close()
 
 
-def test_ocr_unknown_engine_refuses_the_run(tmp_path):
+def test_ocr_unknown_engine_refuses_the_run(tmp_path, project):
     """An unknown OCR engine is a RESOLUTION refusal naming the symbol,
     not one identical per-row error per selected row — the OCR roster is what
     canonicalizes the authored symbol now, and it answers before dispatch."""
     path = _render_png(tmp_path / "scan.png", "HELLO")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     result = _execute(p, _spec(sheet, engine="nonsense"), confirm=False)
     assert result.status == "failed", result.errors
     assert "nonsense" in str(result.errors)
-    p.close()
 
 
-def test_ocr_dots_mocr_needs_sidecar_url(tmp_path, monkeypatch):
+def test_ocr_dots_mocr_needs_sidecar_url(tmp_path, project, monkeypatch):
     """The quality engine lives in the frisket-models sidecar; without
     FRISKET_MODELS_URL the run is refused with a pointer, not a crash.
 
@@ -280,14 +272,13 @@ def test_ocr_dots_mocr_needs_sidecar_url(tmp_path, monkeypatch):
     """
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     path = _render_png(tmp_path / "scan.png", "HELLO")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     result = _execute(p, _spec(sheet, engine="dots.mocr"), confirm=False)
     assert result.status == "failed", result.errors
     assert "FRISKET_MODELS_URL" in str(result.errors)
-    p.close()
 
 
-def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, monkeypatch):
+def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, project, monkeypatch):
     """engine='dots.mocr' speaks the settled sidecar contract: POST /ocr with
     multipart page bytes + bearer token; per-page text/blocks come back."""
     http = RecordingSidecarHttp(
@@ -312,7 +303,7 @@ def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
 
     path = _render_png(tmp_path / "scan.png", "HELLO")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     prog = _execute(p, _spec(sheet, engine="dots.mocr"), router)
     assert prog.status == "completed", prog.errors
     assert captured["url"] == "http://models:9000/ocr"
@@ -327,10 +318,9 @@ def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, monkeypatch):
     assert _col_value(p, sheet, "ocr_text") == "FROM SIDECAR"
     pages = _col_value(p, sheet, "ocr_text_blocks")
     assert pages[0]["engine"] == "dots.mocr" and pages[0]["blocks"]
-    p.close()
 
 
-def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
+def test_ocr_remote_vlm_engine_rides_router(tmp_path, project, monkeypatch):
     """A provider/model engine id routes per-page image parts through the
     model router with the default positioned-line schema."""
     seen = {}
@@ -400,7 +390,7 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             )
 
     path = _render_png(tmp_path / "scan.png", "HELLO")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     # remote/VLM engines estimate unknown cost (None), so the cost gate asks
     # unless confirmed (tests/test_remote_engine_estimate_honesty.py pins
     # the estimate itself; this test is about the VLM call shape).
@@ -428,7 +418,6 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
     model_calls = RunResultStore(p).model_calls(run_id)
     assert len(model_calls) == 1
     assert model_calls[0]["duration_ms"] == 321
-    p.close()
 
 
 def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
@@ -529,7 +518,7 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
     ]
 
 
-def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
+def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, project, monkeypatch):
     """spec language rides the VLM user turn as a hint (free-text — any
     phrasing the user gives goes straight into the prompt)."""
     seen = {}
@@ -588,7 +577,7 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             )
 
     path = _render_png(tmp_path / "scan.png", "OLA")
-    p, sheet = _project(tmp_path, [{"page": str(path)}])
+    p, sheet = _project(project, [{"page": str(path)}])
     # remote/VLM engines estimate unknown cost (None) — confirm the gate.
     monkeypatch.setenv("GEMINI_API_KEY", "key")  # the venue must be live
     prog = _execute(
@@ -599,4 +588,3 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
     assert prog.status == "completed", prog.errors
     assert "The text is in Brazilian Portuguese." in seen["ask"]
     assert _col_value(p, sheet, "ocr_text") == "OLA"
-    p.close()

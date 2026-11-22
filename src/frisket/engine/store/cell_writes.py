@@ -13,7 +13,7 @@ import sqlite3
 from uuid import uuid4
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, overload
 
 from .current_cells import (
     initialize_current_cell_pairs,
@@ -50,6 +50,18 @@ def _require_applied_op(db: sqlite3.Connection, op_id: int) -> None:
         raise ValueError(f"unknown producing operation {int(op_id)}")
     if str(row[0]) != "applied":
         raise ValueError(f"producing operation {int(op_id)} is not applied")
+
+
+@overload
+def _require_base_producer(
+    db: sqlite3.Connection, producer_id: int, *, allow_pending: Literal[False] = False
+) -> int: ...
+
+
+@overload
+def _require_base_producer(
+    db: sqlite3.Connection, producer_id: int, *, allow_pending: Literal[True]
+) -> int | None: ...
 
 
 def _require_base_producer(

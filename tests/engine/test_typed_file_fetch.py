@@ -93,8 +93,8 @@ def test_fetch_publishes_file_and_actual_durable_occurrence(
             p.get("external_api") and p.get("operation_call_count") == 1
             for p in receipt.provider_use
         )
-        assert any(e.ref.get("kind") == "row_file_call" for e in receipt.evidence)
-        assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.evidence)
+        assert any(e.ref.get("kind") == "row_file_call" for e in receipt.records)
+        assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.records)
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
         assert (
             project.db.execute("SELECT state FROM effect_checkpoints").fetchone()[0]
@@ -105,7 +105,7 @@ def test_fetch_publishes_file_and_actual_durable_occurrence(
     assert calls == ["https://example.test/file"]
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     occurrences = [
-        e.ref for e in receipt.evidence if e.ref.get("kind") == "row_file_output"
+        e.ref for e in receipt.records if e.ref.get("kind") == "row_file_output"
     ]
     assert len(occurrences) == 1
     assert occurrences[0]["output_key"] == "media"
@@ -118,7 +118,7 @@ def test_fetch_publishes_file_and_actual_durable_occurrence(
             p.get("service") == "frisket.sandbox" and p.get("cost_actual") == 0
             for p in receipt.provider_use
         )
-        assert any(e.ref.get("kind") == "map_python_code" for e in receipt.evidence)
+        assert any(e.ref.get("kind") == "map_python_code" for e in receipt.records)
     replay = run_action_spec(project, body, project_id="fetch", router=router)
     assert replay.status == "completed"
     assert len(calls) == 1

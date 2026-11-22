@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable, Iterator, Mapping, Sequence
 
 from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import ATTEMPT_EXTRA, AttemptCommitment
 from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
 from frisket.execution.resolver import ResolvedExecution
@@ -29,17 +30,14 @@ def scratch_estimate(
     """Project the shared cost basis once, adding only its display quantity."""
 
     presentation = resolved.presentation
-    estimate = estimate_from_cost_basis(
-        resolved,
-        **(
-            {
-                "billing_label": presentation.billing_label,
-                "venue_label": presentation.venue_label,
-            }
-            if presentation is not None
-            else {}
-        ),
-    )
+    if presentation is not None:
+        estimate = estimate_from_cost_basis(
+            resolved,
+            billing_label=presentation.billing_label,
+            venue_label=presentation.venue_label,
+        )
+    else:
+        estimate = estimate_from_cost_basis(resolved)
     estimate["rows"] = 1
     if quantity_name is not None:
         estimate[quantity_name] = quantity
@@ -123,9 +121,9 @@ class ScratchActionPreviewRunContext:
             request_id=f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}",
             group_key=f"preview:{self.attempt.receipt_id}:row:{SCRATCH_PREVIEW_UNIT_ID}",
             action_kind=self.action_kind,
-            run_id=None,
-            claim_token=None,
-            claimless_direct_effect=True,
+            fence=WriterFence.claimless(
+                run_id=None, attempt_id=self.attempt.attempt_id
+            ),
         )
 
     @contextmanager
@@ -183,7 +181,8 @@ class ScratchActionPreviewRunContext:
         return RunResultStore(self.project).write_returned_call_accounting(
             None,
             batch,
-            writer_attempt_id=self.attempt.attempt_id,
-            authorized_attempt_id=self.attempt.attempt_id,
+            fence=WriterFence.claimless(
+                run_id=None, attempt_id=self.attempt.attempt_id
+            ),
             receipt_id=self.receipt_id,
         )

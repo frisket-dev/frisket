@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 
 from frisket.actions.types import ActionRequest
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from tests.engine.test_map_find_runtime import (
     _FindAdapter,
     _queued_find,
@@ -40,7 +40,7 @@ def test_find_publication_error_keeps_known_purchase(make_project, monkeypatch):
     def blocked(*args, **kwargs):
         raise sqlite3.OperationalError("database is locked")
 
-    monkeypatch.setattr(OutputColumnClaimStore, "acquire", blocked)
+    monkeypatch.setattr(GeneratedColumnClaimStore, "acquire", blocked)
     result = _run_queued_find(project, envelope, adapter)
     assert result.status == "failed"
     assert len(adapter.requests) == 1

@@ -1,7 +1,7 @@
 """Canonical params error codes (C5 D2) at the real validation boundary.
 
 Params refusals use one code per rule: ONE
-code for output-name-non-blank (`invalid_params`), `duplicate_output_column`
+code for output-name-non-blank (`invalid_params`), `duplicate_generated_column`
 for duplicate EMITTED generated columns, and `invalid_model` for the
 `provider/model` id shape including ner's llm engine. These tests drive the
 owning public boundary: canonical `validate_root_action` for migrated actions,
@@ -194,7 +194,7 @@ def test_duplicate_emitted_generated_columns_refuse_at_typed_binder() -> None:
     # This pins only ActionRequest._valid_output_names (actions/types.py): a
     # generic values-distinct check on the output_names mapping that fires for
     # ANY action_id. It is NOT the reduce-specific emitted-column collision the
-    # legacy `duplicate_output_column` code proved -- that check lives at
+    # legacy `duplicate_generated_column` code proved -- that check lives at
     # prepare time now and is pinned end to end by
     # test_reduce_group_summary_emitted_output_collisions_refuse_at_prepare.
     request = {
@@ -261,7 +261,7 @@ def test_reduce_group_summary_emitted_output_collisions_refuse_at_prepare(
     make_project, output_names, root_message, prepare_message
 ) -> None:
     """The reduce-specific emitted-column fact the legacy
-    `duplicate_output_column` code carried is refused twice: at ROOT binding
+    `duplicate_generated_column` code carried is refused twice: at ROOT binding
     (unknown names and default-column collisions, `invalid_action_request`)
     and again at prepare time (src/frisket/engine/executor/
     group_summary_action.py, the `fields` roster check). Drive the root

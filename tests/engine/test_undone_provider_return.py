@@ -20,6 +20,7 @@ from tests.engine.test_map_row_effect_checkpoint import (
     _spec,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 work = lifecycle_recovery.work
@@ -62,9 +63,11 @@ def test_undo_during_provider_call_retains_usage_and_response_without_publicatio
             with pytest.raises(StaleAttemptWriter):
                 require_terminal_writer(
                     project,
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claim_token=claim,
+                    fence=WriterFence(
+                        run_id=run_id,
+                        writer_attempt_id=attempt_id,
+                        claim_token=claim,
+                    ),
                     terminal_status=status,
                 )
         return response
@@ -95,7 +98,10 @@ def test_undo_during_provider_call_retains_usage_and_response_without_publicatio
         assert checkpoint["state"] == "returned"
         assert checkpoint["accounting_persisted"] is True
         assert checkpoint["response"]
-        from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+        from frisket.engine.store.effect_checkpoints import (
+            EffectCheckpointStore,
+            row_effect_ref,
+        )
 
         # Re-observing known accounting after finalization is free and does
         # not require reopening its released output claim.
@@ -105,17 +111,20 @@ def test_undo_during_provider_call_retains_usage_and_response_without_publicatio
         with write_transaction(project.db):
             assert (
                 EffectCheckpointStore(project.db).account_returned(
-                    checkpoint["id"],
-                    family="row_effect",
-                    group_key=str(run_id),
-                    unit_key=str(rows[0]),
-                    action_kind=spec["action_kind"],
-                    identity=checkpoint["identity"],
+                    row_effect_ref(
+                        checkpoint["id"],
+                        run_id=run_id,
+                        row_id=rows[0],
+                        action_kind=spec["action_kind"],
+                        identity=checkpoint["identity"],
+                    ),
                     payload=checkpoint["response"],
                     accrue=unexpected_charge,
-                    run_id=run_id,
-                    writer_attempt_id=checkpoint["authorized_attempt_id"],
-                    claim_token=token,
+                    fence=WriterFence.claimed(
+                        run_id=run_id,
+                        writer_attempt_id=checkpoint["authorized_attempt_id"],
+                        claim_token=token,
+                    ),
                 )
                 == 0.0
             )
@@ -171,9 +180,7 @@ def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_pa
             estimate_authority=CloudEstimateAuthority(100),
             group_key="map:cloud-purchase",
             action_kind="map.extract",
-            run_id=run.run_id,
-            writer_attempt_id=run.authority.writer_attempt_id,
-            claim_token=run.authority.claim_token,
+            fence=run.authority.fence(),
         )
         _, response = asyncio.run(coordinator.execute(_request()))
         assert response.execution_id == "cloud-purchase"
@@ -188,8 +195,7 @@ def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_pa
                 {"row_id": rows[0], "column_id": column, **entry}
                 for entry in coordinator.returned_accounting
             ],
-            writer_attempt_id=run.authority.writer_attempt_id,
-            claim_token=run.authority.claim_token,
+            fence=run.authority.fence(),
         )
         coordinator.retire_returned()
         assert EffectCheckpointStore(project.db).get(checkpoint.checkpoint_id) is None

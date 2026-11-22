@@ -47,7 +47,7 @@ test('history detail panel exposes the full run record: params, id, deep link, w
       run: {
         run_id: number;
         params: Record<string, unknown>;
-        output_columns: Array<{ id: number; name: string }>;
+        generated_columns: Array<{ id: number; name: string }>;
         failed_rows: number;
         total_rows: number;
         completed_rows: number;
@@ -57,7 +57,7 @@ test('history detail panel exposes the full run record: params, id, deep link, w
   const templateOp = history.ops.at(-1);
   expect(templateOp?.run).not.toBeNull();
   const run = templateOp!.run!;
-  expect(run.output_columns.map((c) => c.name)).toContain('note');
+  expect(run.generated_columns.map((c) => c.name)).toContain('note');
   expect(run.failed_rows).toBe(0);
   expect(run.total_rows).toBeGreaterThan(0);
 

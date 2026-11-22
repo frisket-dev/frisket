@@ -52,8 +52,6 @@ export function normalizeV1ActionResult(wire: ActionLaunchWire): V1ActionResult 
   };
 }
 
-const V1_ACTION_SCHEMA_VERSION = 'frisket.action.v2';
-
 export interface ResolvedRunActionInvocation {
   readonly projectId: string;
   readonly signal?: AbortSignal;
@@ -90,30 +88,6 @@ function canonicalSheetRowScope(rowScope: SheetRowScope): SheetRowScope {
           .sort((left, right) => left - right),
       },
     },
-  };
-}
-
-function v1ActionSpecEnvelope({
-  kind,
-  capabilities,
-  params,
-  idempotencyKey,
-  rowScope,
-}: {
-  kind: string;
-  capabilities: string[];
-  params: Record<string, unknown>;
-  idempotencyKey: string;
-  rowScope?: SheetRowScope;
-}): Record<string, unknown> {
-  const canonicalRowScope = rowScope && canonicalSheetRowScope(rowScope);
-  return {
-    schema_version: V1_ACTION_SCHEMA_VERSION,
-    kind,
-    capabilities,
-    params,
-    ...(canonicalRowScope ? { row_scope: canonicalRowScope } : {}),
-    idempotency_key: idempotencyKey,
   };
 }
 
@@ -261,14 +235,6 @@ export const v1ActionIdempotencySignature = (
 };
 
 export interface V1ActionSession {
-  v1ActionSpec(
-    kind: string,
-    capabilities: string[],
-    params: Record<string, unknown>,
-    projectId?: string,
-    signal?: AbortSignal,
-    rowScope?: SheetRowScope,
-  ): Record<string, unknown>;
   registeredProjectActionSpec(
     actionId: string,
     params: Record<string, JsonValue>,
@@ -314,32 +280,6 @@ class V1ActionSessionImpl implements V1ActionSession {
   constructor(projectId: string) {
     this.projectId = projectId;
     this.actionLaunchApi = createActionLaunchApi(projectId);
-  }
-
-  v1ActionSpec(
-    kind: string,
-    capabilities: string[],
-    params: Record<string, unknown>,
-    projectId = this.projectId,
-    signal?: AbortSignal,
-    rowScope?: SheetRowScope,
-  ): Record<string, unknown> {
-    throwIfActionAborted(signal);
-    const spec = v1ActionSpecEnvelope({
-      kind,
-      capabilities,
-      params,
-      idempotencyKey: this.pendingV1ActionKeys.keyFor(
-        kind,
-        params,
-        projectId,
-        rowScope,
-      ),
-      rowScope,
-    });
-    throwIfActionAborted(signal);
-    this.v1ActionSpecProjects.set(spec, projectId);
-    return spec;
   }
 
   registeredProjectActionSpec(

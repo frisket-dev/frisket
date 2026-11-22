@@ -242,12 +242,12 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.outputs[0].ref["kind"] == "export_artifact"
     assert receipt.outputs[0].ref["sheet_id"] == seeded["sheet_id"]
     assert receipt.exports[0]["path"] == str(output_path)
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "exported_sheet",
         "exported_columns",
         "exported_rows",
     }
-    assert receipt.evidence[0].retention == "pinned"
+    assert receipt.records[0].retention == "pinned"
 
 
 CASES = [

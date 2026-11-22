@@ -23,7 +23,7 @@ from frisket.contracts.http.instance_runtime import (
     InstanceInfoResponse,
     RuntimeConfigResponse,
 )
-from frisket.server.app import create_app
+from helpers import make_client as _local_client
 from tests.team_setup_helpers import claim_server
 
 
@@ -31,8 +31,8 @@ CONFIG_KEYS = [
     "cache_mode",
     "live_calls_possible",
     "cache_mode_editable",
-    "cost_preapproval_usd",
-    "cost_preapproval_editable",
+    "allowance_usd",
+    "allowance_editable",
     "in_container",
     "recipe_fence_posture",
     "email_from_address",
@@ -88,10 +88,6 @@ def _serialized(model: Any) -> bytes:
     return _wire_bytes(model.model_dump(exclude_unset=True))
 
 
-def _local_client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspace"))
-
-
 def _team_app(tmp_path: Path) -> Any:
     from frisket.team.app import TeamConfig, create_team_app
 
@@ -116,8 +112,8 @@ def test_local_runtime_config_preserves_transport_shape(tmp_path) -> None:
     assert list(body.keys()) == CONFIG_KEYS
     assert isinstance(body["cache_mode"], str)
     assert isinstance(body["live_calls_possible"], bool)
-    assert isinstance(body["cost_preapproval_usd"], str)
-    assert body["cost_preapproval_editable"] is True
+    assert isinstance(body["allowance_usd"], str)
+    assert body["allowance_editable"] is True
     assert isinstance(body["in_container"], bool)
     assert body["recipe_fence_posture"] in {"enforced", "partial", "none", "unknown"}
     assert body["email_from_address"] is None

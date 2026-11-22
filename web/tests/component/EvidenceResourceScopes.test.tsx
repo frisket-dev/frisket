@@ -21,15 +21,15 @@ function deferred<T>() {
 function columnPayload(label: string): ColumnCitationsBatchPayload {
   const link: CellCitationSummary = {
     id: 1, stable_id: label, export_ref: label, status: 'active', role: 'support',
-    evidence_kind: 'source', span_count: 1, artifact_count: 1, snippet: label, viewer_href: '/viewer',
+    citation_kind: 'source', span_count: 1, artifact_count: 1, snippet: label, viewer_href: '/viewer',
   };
-  return { schema_version: 'frisket.column_evidence_batch.v1', sheet_id: 1, column_id: 2,
+  return { schema_version: 'frisket.column_citations_batch.v1', sheet_id: 1, column_id: 2,
     rows: [{ row_id: 3, links: [link] }] };
 }
 
 function viewerPayload(label: string): CitationViewerPayload {
   return {
-    schema_version: 'frisket.evidence_viewer.v1', artifacts: [], warnings: [],
+    schema_version: 'frisket.citation_viewer.v1', artifacts: [], warnings: [],
     link: {
       id: 1, stable_id: label, export_ref: label, subject_kind: 'cell', subject_ref: {},
       sheet_id: 1, row_id: 3, column_id: 2, run_id: null, op_id: null, receipt_id: null,
@@ -41,8 +41,8 @@ function viewerPayload(label: string): CitationViewerPayload {
 
 function scopedApi(label: string) {
   return {
-    getColumnEvidence: vi.fn<EvidenceApi['getColumnEvidence']>().mockResolvedValue(columnPayload(label)),
-    getEvidenceViewer: vi.fn<EvidenceApi['getEvidenceViewer']>().mockResolvedValue(viewerPayload(label)),
+    getColumnCitations: vi.fn<EvidenceApi['getColumnCitations']>().mockResolvedValue(columnPayload(label)),
+    getCitationViewer: vi.fn<EvidenceApi['getCitationViewer']>().mockResolvedValue(viewerPayload(label)),
   };
 }
 
@@ -68,10 +68,10 @@ describe('project-scoped evidence resources', () => {
       expect(first.result.current.viewer.payload?.link.stable_id).toBe('first-project');
       expect(second.result.current.viewer.payload?.link.stable_id).toBe('second-project');
     });
-    expect(firstApi.getColumnEvidence).toHaveBeenCalledTimes(1);
-    expect(secondApi.getColumnEvidence).toHaveBeenCalledTimes(1);
-    expect(firstApi.getEvidenceViewer).toHaveBeenCalledTimes(1);
-    expect(secondApi.getEvidenceViewer).toHaveBeenCalledTimes(1);
+    expect(firstApi.getColumnCitations).toHaveBeenCalledTimes(1);
+    expect(secondApi.getColumnCitations).toHaveBeenCalledTimes(1);
+    expect(firstApi.getCitationViewer).toHaveBeenCalledTimes(1);
+    expect(secondApi.getCitationViewer).toHaveBeenCalledTimes(1);
   });
 
   it('shares one request and stable snapshots within a scope, including remounts', async () => {
@@ -88,16 +88,16 @@ describe('project-scoped evidence resources', () => {
     const remounted = renderHook(() => useResources(api, key));
     expect(remounted.result.current.column).toBe(settled.column);
     expect(remounted.result.current.viewer).toBe(settled.viewer);
-    expect(api.getColumnEvidence).toHaveBeenCalledTimes(1);
-    expect(api.getEvidenceViewer).toHaveBeenCalledTimes(1);
+    expect(api.getColumnCitations).toHaveBeenCalledTimes(1);
+    expect(api.getCitationViewer).toHaveBeenCalledTimes(1);
   });
 
   it('ignores the old project completion after switching APIs without changing numeric IDs', async () => {
     const oldColumn = deferred<ColumnCitationsBatchPayload>();
     const oldViewer = deferred<CitationViewerPayload>();
     const oldApi = scopedApi('old');
-    oldApi.getColumnEvidence.mockReturnValue(oldColumn.promise);
-    oldApi.getEvidenceViewer.mockReturnValue(oldViewer.promise);
+    oldApi.getColumnCitations.mockReturnValue(oldColumn.promise);
+    oldApi.getCitationViewer.mockReturnValue(oldViewer.promise);
     const nextApi = scopedApi('next');
     const key = ids();
     const reader = renderHook(({ api }) => useResources(api, key), { initialProps: { api: oldApi } });
@@ -123,8 +123,8 @@ describe('project-scoped evidence resources', () => {
     const key = ids();
     const repeatedColumn = vi.fn().mockReturnValueOnce(oldColumn.promise).mockReturnValueOnce(nextColumn.promise);
     const repeatedViewer = vi.fn().mockReturnValueOnce(oldViewer.promise).mockReturnValueOnce(nextViewer.promise);
-    api.getColumnEvidence.mockImplementation(sheet => sheet === key.sheet ? repeatedColumn() : Promise.resolve(columnPayload('other')));
-    api.getEvidenceViewer.mockImplementation(link => link === key.link ? repeatedViewer() : Promise.resolve(viewerPayload('other')));
+    api.getColumnCitations.mockImplementation(sheet => sheet === key.sheet ? repeatedColumn() : Promise.resolve(columnPayload('other')));
+    api.getCitationViewer.mockImplementation(link => link === key.link ? repeatedViewer() : Promise.resolve(viewerPayload('other')));
     const reader = renderHook(({ key: current }) => useResources(api, current), { initialProps: { key } });
     // Both resources retain only a bounded number of inactive entries.
     for (let index = 0; index < 70; index++) reader.rerender({ key: ids() });
@@ -154,8 +154,8 @@ describe('project-scoped evidence resources', () => {
     expect(reader.result.current.viewer).toBe(empty.viewer);
     expect(empty.column).toEqual({ status: 'ready', byRow: {} });
     expect(empty.viewer).toEqual({ status: 'ready', payload: null });
-    expect(api.getColumnEvidence).not.toHaveBeenCalled();
-    expect(api.getEvidenceViewer).not.toHaveBeenCalled();
+    expect(api.getColumnCitations).not.toHaveBeenCalled();
+    expect(api.getCitationViewer).not.toHaveBeenCalled();
   });
 
   it('retains every subscribed request when active readers exceed the inactive retention caps', async () => {
@@ -170,15 +170,15 @@ describe('project-scoped evidence resources', () => {
         expect(reader.result.current.viewer.status).toBe('ready');
       }
     });
-    expect(api.getColumnEvidence).toHaveBeenCalledTimes(readers.length);
-    expect(api.getEvidenceViewer).toHaveBeenCalledTimes(readers.length);
+    expect(api.getColumnCitations).toHaveBeenCalledTimes(readers.length);
+    expect(api.getCitationViewer).toHaveBeenCalledTimes(readers.length);
   });
 
   it('does not share a failed project read with another scoped API', async () => {
     const key = ids();
     const failedApi = scopedApi('failed');
-    failedApi.getColumnEvidence.mockRejectedValue(new Error('denied'));
-    failedApi.getEvidenceViewer.mockRejectedValue(new Error('denied'));
+    failedApi.getColumnCitations.mockRejectedValue(new Error('denied'));
+    failedApi.getCitationViewer.mockRejectedValue(new Error('denied'));
     const failed = renderHook(() => useResources(failedApi, key));
     await waitFor(() => expect(failed.result.current.viewer.status).toBe('error'));
     const successfulApi = scopedApi('successful');

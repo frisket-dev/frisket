@@ -139,7 +139,7 @@ test('Run auto-closes the drawer once the run starts; the job appears in the Mon
   await expect
     .poll(async () => {
       const cols = await sheetColumns(page.request, pid, sheetId);
-      return cols.find((c) => c.name === 'rendered')?.ai_generated ?? false;
+      return cols.find((c) => c.name === 'rendered')?.generated ?? false;
     }, { timeout: 15_000 })
     .toBeTruthy();
   await openAction(page, 'map.summarize');

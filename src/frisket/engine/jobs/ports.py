@@ -26,7 +26,7 @@ class CredentialPort(Protocol):
     """Resolves the provider keys a run may use on behalf of an organization."""
 
     def provider_keys(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> Mapping[str, str]:
         """Provider name -> plaintext key. Empty when the organization has none."""
         ...
@@ -37,7 +37,7 @@ class SearchCredentialPort(Protocol):
     """Resolves only web-search keys for one trusted organization."""
 
     def search_provider_keys(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> Mapping[str, str]: ...
 
 
@@ -46,7 +46,7 @@ class ActionCredentialPort(Protocol):
     """Resolve non-LLM action credentials for a trusted queued organization."""
 
     def action_credential_resolver(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> ActionCredentialResolver: ...
 
 
@@ -55,7 +55,7 @@ class ModelsGatewayPort(Protocol):
     """Resolves an organization gateway through row-backed trusted worker context."""
 
     def models_gateway_connection(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> ModelsGatewayConnection | None: ...
 
 
@@ -84,7 +84,7 @@ class TrustedJobOrganizationUnavailable(enum.Enum):
     """
 
     NO_JOB_ROW = "no_job_row"
-    JOB_ROW_HAS_NO_ORGANIZATION = "job_row_has_no_org"
+    JOB_ROW_HAS_NO_ORGANIZATION = "job_row_has_no_organization"
 
 
 type TrustedJobOrganization = (
@@ -140,9 +140,9 @@ class EnvironmentModelsGatewayPort:
     """Open default preserving operator environment configuration for Team."""
 
     def models_gateway_connection(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> ModelsGatewayConnection | None:
-        del org_id, control_database_url
+        del organization_id, control_database_url
         return resolve_models_gateway_env()
 
 

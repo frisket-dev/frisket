@@ -55,10 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     admin_email = sorted(config.admin_emails)[0]
 
     engine = sa.create_engine(config.database_url, future=True)
-    if owner_count(engine, org_id=1) == 0:
+    if owner_count(engine, organization_id=1) == 0:
         claim_first_owner(
             engine,
-            org_id=1,
+            organization_id=1,
             claim_token="playwright-team-owner",
             expected_claim_token="playwright-team-owner",
             workspace_name=config.organization_name,

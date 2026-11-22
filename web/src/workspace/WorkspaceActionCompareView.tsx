@@ -185,7 +185,7 @@ function ActionCompareContents() {
       rowScope={model.rowScope} rowScopeTotal={model.rowScopeTotal} onChangeRowScope={model.changeActionCompareRowScope} rowScopePending={model.rowScopePending}
       modelField={selectorField}
       onJoinExpected={() => {
-        const run = model.expectedAnswers.runs.find(item => item.context.draft.action_id === state.context.draft.action_id && item.context.output_columns.some(output => state.context.output_columns.some(current => current.column_id === output.column_id)));
+        const run = model.expectedAnswers.runs.find(item => item.context.draft.action_id === state.context.draft.action_id && item.context.generated_columns.some(output => state.context.generated_columns.some(current => current.column_id === output.column_id)));
         model.expectedAnswers.openJoin(run ? `${run.anchor.runId}:${run.anchor.columnId}` : undefined);
       }}
       onExpectedAnswersChanged={() => { model.expectedAnswers.refresh(); model.invalidateProjectData(); void model.refreshSheets(); }}

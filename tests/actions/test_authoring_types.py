@@ -74,6 +74,7 @@ def test_generated_action_params_cover_the_registry() -> None:
     from scripts.ci.gen_http_contracts import render_action_types
 
     rendered = render_action_types()
+    assert ACTION_REGISTRY.actions
     for registered in ACTION_REGISTRY.actions:
         assert f"{registered.action_id!r}:" in rendered
         assert registered.definition.run.params_model.__name__ in rendered

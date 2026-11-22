@@ -276,7 +276,27 @@ jobs:
           node --test $(ls tests/*.test.mjs | grep -vxF "$sizing")
           node --test "$sizing" || node --test "$sizing"
       - name: Package DMG
-        run: npm --prefix desktop run package:mac
+        # electron-builder downloads Electron release artifacts from external
+        # CDNs, which occasionally return transient 403/5xx errors on hosted
+        # runners. Retry only this packaging step with bounded short backoff.
+        shell: bash
+        run: |
+          set -euo pipefail
+          delays=(5 15)
+          for attempt in 1 2 3; do
+            rm -rf desktop/dist
+            status=0
+            npm --prefix desktop run package:mac || status=$?
+            if (( status == 0 )); then
+              exit 0
+            fi
+            if (( attempt == 3 )); then
+              exit "$status"
+            fi
+            delay="${delays[attempt - 1]}"
+            echo "package:mac failed on attempt ${attempt}/3 (exit ${status}); retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
       - name: Install from the DMG
         shell: bash
         run: |

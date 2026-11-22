@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
-from frisket.features.followthemoney import entities_available
+from frisket.followthemoney import entities_available
 from frisket.engine.store import Project
 
 GRAPH_NEIGHBORHOOD_SCHEMA_VERSION = "frisket.graph_neighborhood.v1"
@@ -136,7 +136,11 @@ def build_graph_neighborhood(
 
     ok, err = entities_available()
     if not ok:
-        raise GraphNeighborhoodError("entities_extra_missing", err, status_code=503)
+        raise GraphNeighborhoodError(
+            "entities_extra_missing",
+            err or "entities extra unavailable",
+            status_code=503,
+        )
 
     clean_anchor_id = str(anchor_id or "").strip()
     if not clean_anchor_id:
@@ -256,7 +260,7 @@ def _schema_metadata(schema_name: str) -> dict[str, Any] | None:
     """Lazy accessor: only touches the ``entities`` extra's real submodule
     once the caller has already confirmed ``entities_available()`` (the
     module-top import stays a cheap probe, never a hard dependency)."""
-    from frisket.features.followthemoney.schema_catalog import get_schema_metadata
+    from frisket.followthemoney.schema_catalog import get_schema_metadata
 
     return get_schema_metadata(schema_name)
 

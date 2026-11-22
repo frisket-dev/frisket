@@ -10,7 +10,7 @@ from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.prepared_content import (
@@ -19,6 +19,7 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
 
 @pytest.fixture
@@ -66,7 +67,7 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     column = project.add_column(sheet, "text", type="text")
 
     with write_transaction(project.db):
-        producing_op_id = project.append_change("prepare.test", commit=False)
+        producing_op_id = project.append_change_in_transaction("prepare.test")
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact_id,
             producing_op_id=producing_op_id,
@@ -146,34 +147,29 @@ def test_receipt_owns_exports_but_model_response_is_not_a_file_publication(proje
     receipt, effect, orphan = [
         project.add_blob(value.encode()) for value in ("receipt", "effect", "orphan")
     ]
-    ReceiptStore(project).insert_failed(
-        Receipt(
-            receipt_id="receipt",
-            project_id="roots",
-            action_id="test",
-            action_kind="test",
-            status="failed",
-            exports=[{"kind": "export_project_file", "blob_hash": receipt}],
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_failed(
+            Receipt(
+                receipt_id="receipt",
+                project_id="roots",
+                action_id="test",
+                action_kind="test",
+                status="failed",
+                exports=[{"kind": "export_project_file", "blob_hash": receipt}],
+            )
         )
-    )
+
     checkpoints = EffectCheckpointStore(project.db)
-    checkpoints.reserve(
-        "paid",
+    ref = EffectCheckpointRef(
+        checkpoint_id="paid",
         family="model",
         group_key="g",
         unit_key="u",
         action_kind="test",
         identity="identity",
     )
-    checkpoints.complete(
-        "paid",
-        family="model",
-        group_key="g",
-        unit_key="u",
-        action_kind="test",
-        identity="identity",
-        payload={"response": {"blob_hash": effect}},
-    )
+    checkpoints.reserve(ref)
+    checkpoints.complete(ref, payload={"response": {"blob_hash": effect}})
     assert set(project.gc_blobs()["hashes"]) == {effect, orphan}
 
 
@@ -192,7 +188,7 @@ def test_malformed_published_receipt_digest_retains_all_blob_metadata(
     else:
         good = {"blob_hash": retained}
         payload = {
-            "evidence": [
+            "records": [
                 {
                     "ref": {
                         "kind": "row_file_output",
@@ -215,7 +211,7 @@ def test_malformed_published_receipt_digest_retains_all_blob_metadata(
     }
 
 
-@pytest.mark.parametrize("owner", ["exports", "evidence", "supplemental"])
+@pytest.mark.parametrize("owner", ["exports", "records", "supplemental"])
 @pytest.mark.parametrize("invalid", [{}, "", "bad", None, 12, [None], ["bad"]])
 def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, invalid):
     retained = project.add_blob(b"uncertain ownership")
@@ -223,7 +219,7 @@ def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, i
     payload = {owner: invalid}
     if owner == "supplemental":
         payload = {
-            "evidence": [
+            "records": [
                 {
                     "ref": {
                         "kind": "row_file_output",
@@ -249,11 +245,11 @@ def test_malformed_receipt_container_retains_all_blob_metadata(project, owner, i
 @pytest.mark.parametrize("ref", [None, "", [], 12])
 def test_malformed_receipt_evidence_reference_retains_blobs(project, ref):
     project.add_blob(b"unknown ownership")
-    # Deliberately damaged evidence reference shape that Receipt validation rejects.
+    # Deliberately damaged record reference shape that Receipt validation rejects.
     with write_transaction(project.db):
         project.db.execute(
             "INSERT INTO receipts(id,action_kind,status,body) VALUES ('damaged','test','error',?)",
-            (json.dumps({"evidence": [{"ref": ref}]}),),
+            (json.dumps({"records": [{"ref": ref}]}),),
         )
     assert project.gc_blobs()["hashes"] == []
 
@@ -281,14 +277,14 @@ def test_malformed_returned_file_ownership_retains_blobs(project, owner, invalid
     "payload",
     [
         {},
-        {"evidence": [], "exports": []},
-        {"evidence": [{}]},
-        {"evidence": [{"ref": {"kind": "other"}}], "exports": [{"kind": "other"}]},
+        {"records": [], "exports": []},
+        {"records": [{}]},
+        {"records": [{"ref": {"kind": "other"}}], "exports": [{"kind": "other"}]},
     ],
 )
 def test_optional_or_nonpublication_receipt_fields_do_not_disable_gc(project, payload):
     orphan = project.add_blob(b"unowned")
-    if payload == {} or payload == {"evidence": [{}]}:
+    if payload == {} or payload == {"records": [{}]}:
         # Legacy/minimal receipt JSON missing required Receipt fields cannot pass Receipt validation.
         with write_transaction(project.db):
             project.db.execute(
@@ -296,38 +292,40 @@ def test_optional_or_nonpublication_receipt_fields_do_not_disable_gc(project, pa
                 (json.dumps(payload),),
             )
     else:
-        ReceiptStore(project).insert_failed(
-            Receipt(
-                receipt_id="valid",
-                project_id="roots",
-                action_id="test",
-                action_kind="test",
-                status="failed",
-                **payload,
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_failed(
+                Receipt(
+                    receipt_id="valid",
+                    project_id="roots",
+                    action_id="test",
+                    action_kind="test",
+                    status="failed",
+                    **payload,
+                )
             )
-        )
     assert project.gc_blobs()["hashes"] == [orphan]
 
 
 def test_receipt_export_metadata_mentions_do_not_own_blobs(project):
     published = project.add_blob(b"published export")
     mentioned = project.add_blob(b"only mentioned in metadata")
-    ReceiptStore(project).insert_failed(
-        Receipt(
-            receipt_id="receipt",
-            project_id="roots",
-            action_id="test",
-            action_kind="test",
-            status="failed",
-            exports=[
-                {
-                    "kind": "export_project_file",
-                    "blob_hash": published,
-                    "description": mentioned,
-                }
-            ],
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_failed(
+            Receipt(
+                receipt_id="receipt",
+                project_id="roots",
+                action_id="test",
+                action_kind="test",
+                status="failed",
+                exports=[
+                    {
+                        "kind": "export_project_file",
+                        "blob_hash": published,
+                        "description": mentioned,
+                    }
+                ],
+            )
         )
-    )
     assert project.gc_blobs()["hashes"] == [mentioned]
 
 

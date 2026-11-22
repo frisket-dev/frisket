@@ -65,7 +65,7 @@ def request(sheet, *, key="python", target="named_result"):
                             "may_feed": ["derive.table_from_list"],
                         }
                         if target == "named_result"
-                        else {"kind": "receipt_evidence", "retention": "pinned"}
+                        else {"kind": "receipt_record", "retention": "pinned"}
                     ),
                 }
             ],
@@ -122,7 +122,7 @@ def test_unsuccessful_replay_still_checks_published_hidden_outputs(source, statu
     assert error is not None and error.code == "stale_replay"
 
 
-@pytest.mark.parametrize("target", ["named_result", "receipt_evidence"])
+@pytest.mark.parametrize("target", ["named_result", "receipt_record"])
 def test_hidden_only_routes_replay_with_generation_and_value_checks(
     source, monkeypatch, target
 ):
@@ -214,7 +214,7 @@ def test_custom_evaluator_uses_actual_derived_args_and_frozen_routes(source):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     hashes = [
         item.ref["code_hash"]
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "map_python_code"
     ]
     assert hashes == [
@@ -280,7 +280,7 @@ def test_raw_return_schema_and_explicit_null_stay_distinct(
     source, code, schema, expected
 ):
     project, sheet, _, _ = source
-    body = request(sheet, target="receipt_evidence")
+    body = request(sheet, target="receipt_record")
     body["params"].update(code=code, return_schema=schema)
     result = run_action_spec(project, body, project_id="python")
     assert result.status == expected, result.errors
@@ -302,7 +302,7 @@ def test_repeated_backfill_keeps_rich_output_bindings(source):
             {
                 "name": "debug",
                 "path": "$",
-                "target": {"kind": "receipt_evidence", "retention": "pinned"},
+                "target": {"kind": "receipt_record", "retention": "pinned"},
             },
         ]
     )
@@ -332,7 +332,7 @@ def test_repeated_backfill_keeps_rich_output_bindings(source):
             item["name"]: item["id"]
             for item in project.columns(sheet, include_hidden=True)
         } == original
-        for name in ("visible", "__result_items", "__evidence_debug"):
+        for name in ("visible", "__result_items", "__record_debug"):
             assert project.get_values(sheet, original[name], row_ids=added)[
                 added[0]
             ] == [{"n": 3}]
@@ -342,12 +342,12 @@ def test_repeated_backfill_keeps_rich_output_bindings(source):
         assert named.ref["row_ids"] == added
         receipt = ReceiptStore(project).parsed_by_id(backfill.receipt_id)
         assert any(
-            item.ref.get("kind") == "map_python_code" for item in receipt.evidence
+            item.ref.get("kind") == "map_python_code" for item in receipt.records
         )
         assert any(
-            item.ref.get("kind") == "map_python_receipt_evidence"
+            item.ref.get("kind") == "map_python_receipt_record"
             and item.retention == "pinned"
-            for item in receipt.evidence
+            for item in receipt.records
         )
         derived_result = run_action_spec(
             project,
@@ -414,7 +414,7 @@ def test_rich_routes_survive_canonical_queue_and_replay(tmp_path, monkeypatch):
             {
                 "name": "debug",
                 "path": "$",
-                "target": {"kind": "receipt_evidence", "retention": "pinned"},
+                "target": {"kind": "receipt_record", "retention": "pinned"},
             },
         ]
     )
@@ -429,7 +429,7 @@ def test_rich_routes_survive_canonical_queue_and_replay(tmp_path, monkeypatch):
         output for output in receipt.outputs if output.ref.get("kind") == "named_result"
     )
     assert named.ref["row_ids"] == rows
-    assert any(item.ref.get("kind") == "map_python_code" for item in receipt.evidence)
+    assert any(item.ref.get("kind") == "map_python_code" for item in receipt.records)
     from frisket.engine.executor import python_transform
 
     def forbidden():

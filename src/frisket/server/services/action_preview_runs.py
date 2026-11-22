@@ -55,7 +55,8 @@ from frisket.engine.store.transactions import (
     roll_back_failed_work,
     write_transaction,
 )
-from frisket.execution.attempt import claim, set_attempt_state
+from frisket.engine.store.writer_fence import WriterFence
+from frisket.execution.attempt import claim, set_attempt_state_in_transaction
 from frisket.execution.attempt_authority import AttemptAuthority, attempt_identity
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.execution.resolve_for_action import (
@@ -65,7 +66,10 @@ from frisket.execution.resolve_for_action import (
     project_uncovered_user_claims,
     record_resolved_execution,
 )
-from frisket.engine.store.execution_routes import CONSENT_BASIS_EXACT_MATCH
+from frisket.engine.store.execution_routes import (
+    CONSENT_BASIS_ALLOWANCE,
+    CONSENT_BASIS_EXACT_MATCH,
+)
 from frisket.engine.executor.table_preview import (
     PreviewFile,
     TablePreviewResult,
@@ -344,8 +348,6 @@ class ActionPreviewRunService:
             p.audience == "user_claim" for p in resolved.promise_set.promises
         )
         consent_required = has_user_claims
-        from frisket.engine.store.execution_routes import CONSENT_BASIS_PREAPPROVED
-
         consent_basis = (
             trusted_decision.grant_basis
             if trusted_decision is not None
@@ -358,7 +360,7 @@ class ActionPreviewRunService:
                 resolved.promise_set,
                 consent_coverage=plan.consent_coverage,
             )
-            else CONSENT_BASIS_PREAPPROVED
+            else CONSENT_BASIS_ALLOWANCE
         )
         receipt = None
         if has_user_claims or require_receipt or receipt_id is not None:
@@ -402,7 +404,13 @@ class ActionPreviewRunService:
                         scope=(SCRATCH_PREVIEW_UNIT_ID,),
                         prepared_work_scope=plan.work_scope,
                     )
-                    claim(project, attempt, claimless_direct_effect=True)
+                    claim(
+                        project,
+                        attempt,
+                        fence=WriterFence.claimless(
+                            run_id=None, attempt_id=attempt.attempt_id
+                        ),
+                    )
 
                 async def _run_plan() -> TablePreviewResult:
                     return await plan.run(
@@ -531,14 +539,13 @@ class ActionPreviewRunService:
                         (terminal_outcome, attempt.attempt_id, SCRATCH_PREVIEW_UNIT_ID),
                     )
             if attempt is not None:
-                set_attempt_state(
+                set_attempt_state_in_transaction(
                     project,
                     attempt.attempt_id,
                     "effected" if status == "completed" else "halted",
-                    commit=False,
                 )
-            if not ReceiptStore(project).update_body_status(
-                finished, require_status="running", commit=False
+            if not ReceiptStore(project).update_body_status_in_transaction(
+                finished, require_status="running"
             ):
                 raise RuntimeError("preview lost its running receipt")
         receipt.status = finished.status
@@ -757,8 +764,8 @@ class ActionPreviewRunService:
                     return _error_response(
                         409,
                         _preview_error(
-                            "preview_quote_unavailable",
-                            "The preview did not provide a complete confirmation quote.",
+                            "preview_estimate_unavailable",
+                            "The preview did not provide a complete confirmation estimate.",
                             plan.action_kind,
                         ),
                     )
@@ -843,12 +850,12 @@ class ActionPreviewRunService:
             comparison_context = {
                 "sheet_id": facts["sheet"]["id"],
                 "action_id": body["action_id"],
-                "output_columns": [
+                "generated_columns": [
                     {
                         key: item[key]
                         for key in ("logical_key", "column_id", "current_name")
                     }
-                    for item in facts["output_columns"]
+                    for item in facts["generated_columns"]
                 ],
                 "row_ids": list(prepared.row_ids),
                 "source_column_ids": source_ids,
@@ -914,7 +921,13 @@ class ActionPreviewRunService:
                         spec=runner_spec,
                         scope=tuple(prepared.row_ids),
                     )
-                    claim(project, attempt, claimless_direct_effect=True)
+                    claim(
+                        project,
+                        attempt,
+                        fence=WriterFence.claimless(
+                            run_id=None, attempt_id=attempt.attempt_id
+                        ),
+                    )
                     preview_kwargs["attempt"] = attempt
                 result = asyncio.run(
                     runner.preview(runner_spec, **program_kwargs, **preview_kwargs)
@@ -1040,11 +1053,11 @@ class ActionPreviewRunService:
                 400,
                 _preview_error(
                     "invalid_comparison_request",
-                    "Compare quote requires action and comparison objects.",
+                    "Compare estimate requires action and comparison objects.",
                     None,
                 ),
             )
-        # A quote must not be suppressed by a caller-supplied echo.
+        # An estimate must not be suppressed by a caller-supplied echo.
         action = {key: value for key, value in action.items() if key != "confirmation"}
         return self.start_preview(
             project_id,
@@ -1072,7 +1085,7 @@ class ActionPreviewRunService:
         for row_id in context["row_ids"]:
             cells = result.values.get(row_id, {}) if result else {}
             row = {}
-            for output in context["output_columns"]:
+            for output in context["generated_columns"]:
                 raw = cells.get(output["current_name"])
                 if raw is None:
                     if job.status == "error":
@@ -1120,7 +1133,7 @@ class ActionPreviewRunService:
         return {
             "sheet_id": context["sheet_id"],
             "action_id": context["action_id"],
-            "output_columns": copy.deepcopy(context["output_columns"]),
+            "generated_columns": copy.deepcopy(context["generated_columns"]),
             "rows": rows,
             "source_fingerprints": dict(context["source_fingerprints"]),
             "settings": copy.deepcopy(context["settings"]),
@@ -1209,7 +1222,7 @@ def _comparison_estimate_response(estimate: dict[str, Any]) -> ActionPreviewRunR
     return ActionPreviewRunResponse(
         status_code=200,
         payload={
-            "schema_version": "frisket.action_compare_quote.v1",
+            "schema_version": "frisket.action_compare_estimate.v1",
             "estimate": closed_estimate,
         },
     )

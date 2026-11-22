@@ -425,13 +425,15 @@ class PluginRegistry:
                     if spec.plugin != plugin_id
                 }
             column_types.unregister_plugin_column_types(plugin_id)
-            from frisket.features.url_classification.plugin_matchers import (
+            from frisket.url_classification.plugin_matchers import (
                 unregister_plugin_matchers,
             )
 
             unregister_plugin_matchers(plugin_id)
 
-    def unload_plugin_entries(self, plugin_id: str) -> dict[str, list[str]]:
+    def unload_plugin_entries(
+        self, plugin_id: str
+    ) -> dict[str, list[str] | dict[str, list[str]]]:
         """Remove process-local entries owned by one plugin id."""
         removed_manifests: list[str] = []
         removed_importers: list[str] = []
@@ -475,7 +477,7 @@ class PluginRegistry:
             removed_column_types = column_types.unregister_plugin_column_types(
                 plugin_id
             )
-            from frisket.features.url_classification.plugin_matchers import (
+            from frisket.url_classification.plugin_matchers import (
                 unregister_plugin_matchers,
             )
 

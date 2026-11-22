@@ -14,7 +14,6 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.media_download import AdmittedMediaDownloader
 from frisket.engine.executor.row_file_stage import RowFileStager
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.ops.ytdlp import DownloadedMedia, SidecarFile
 
@@ -108,8 +107,8 @@ def test_unaccepted_download_never_backfills_channels(
     assert list(project.get_values(sheet, columns["channel_id"]).values()) == [None]
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 0
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.evidence)
-    assert any(e.ref.get("kind") == "row_file_call" for e in receipt.evidence)
+    assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.records)
+    assert any(e.ref.get("kind") == "row_file_call" for e in receipt.records)
 
 
 @pytest.mark.parametrize(
@@ -202,7 +201,7 @@ def test_typed_download_publication_and_replay(
     assert result.status == expected_status, result.model_dump(mode="json")
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     occurrences = [
-        e.ref for e in receipt.evidence if e.ref.get("kind") == "row_file_output"
+        e.ref for e in receipt.records if e.ref.get("kind") == "row_file_output"
     ]
     main = next(e for e in occurrences if e["output_key"] == media_type)
     assert main["facts"]["url"] == calls[0][0]
@@ -404,10 +403,9 @@ def test_cancelled_worker_settles_before_scope_closes(make_project, monkeypatch)
         asyncio.run(run())
     finally:
         stager.close()
-        project.close()
 
 
-def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
+def test_download_batch_uses_two_row_slots(make_project, monkeypatch):
     from frisket.engine.executor.action_inventory import ExecutorDeps
     from frisket.engine.executor.actions import _default_map_runner_factory
 
@@ -438,27 +436,24 @@ def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
 
     monkeypatch.setattr("frisket.ops.ytdlp.download_media", download)
     monkeypatch.setattr("frisket.ops.media_proxy.resolve_media_proxy", lambda: None)
-    project = Project.create(tmp_path / "bounded-downloads")
-    try:
-        sheet = project.add_sheet("Videos")
-        col = project.add_column(sheet, "url", type="text")
-        project.add_rows(
-            sheet,
-            [{"url": f"https://example.test/video/{i}"} for i in range(8)],
-            {"url": col},
-        )
-        body = {
-            "action_id": "media.ytdlp_download",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "url", "media_type": "video"},
-            "idempotency_key": "bounded-downloads",
-        }
-        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        result = run_action_spec(
-            project, body, project_id="bounded", router=router, deps=deps
-        )
-        assert result.status == "completed", result.errors
-        assert calls == 8
-        assert peak == 2
-    finally:
-        project.close()
+    project = make_project("bounded-downloads")
+    sheet = project.add_sheet("Videos")
+    col = project.add_column(sheet, "url", type="text")
+    project.add_rows(
+        sheet,
+        [{"url": f"https://example.test/video/{i}"} for i in range(8)],
+        {"url": col},
+    )
+    body = {
+        "action_id": "media.ytdlp_download",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "url", "media_type": "video"},
+        "idempotency_key": "bounded-downloads",
+    }
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    result = run_action_spec(
+        project, body, project_id="bounded", router=router, deps=deps
+    )
+    assert result.status == "completed", result.errors
+    assert calls == 8
+    assert peak == 2

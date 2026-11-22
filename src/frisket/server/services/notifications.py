@@ -7,6 +7,8 @@ import json
 from typing import Any
 
 from frisket.contracts.http.notifications import (
+    NOTIFICATION_PAGE_SCHEMA_VERSION,
+    NOTIFICATION_SUMMARY_SCHEMA_VERSION,
     AckResult,
     NotificationActorState,
     NotificationChannel,
@@ -27,10 +29,8 @@ from frisket.notifications.emit import LOCAL_ACTOR_ID, emit_notification_candida
 from frisket.server.notifications.service import (
     NOTIFICATION_CHANNELS_SCHEMA_VERSION,
     NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION,
-    NOTIFICATION_PAGE_SCHEMA_VERSION,
     NOTIFICATION_ROUTES_SCHEMA_VERSION,
     NOTIFICATION_STATES,
-    NOTIFICATION_SUMMARY_SCHEMA_VERSION,
     DELIVERY_STATUSES,
     create_notification_test_request,
     normalize_channel_input,
@@ -175,11 +175,11 @@ class NotificationService:
                 self._workspace.queue,
                 workspace_root=self._workspace.root,
                 project_id=project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 result=result,
                 project_opener=self._workspace.project_opener,
             )
-            return result
+            return dict(result)
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
 
@@ -440,7 +440,7 @@ class NotificationService:
                 self._workspace.queue,
                 workspace_root=self._workspace.root,
                 project_id=project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 request_id=int(created["id"]),
                 project_opener=self._workspace.project_opener,
             )

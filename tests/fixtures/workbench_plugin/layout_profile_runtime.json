@@ -51,7 +51,7 @@
       "descriptors": [
         {
           "schemaVersion": "frisket.workbench.panel.v1",
-          "id": "frisket.core.panel.watches",
+          "id": "frisket.core.panel.alerts",
           "kind": "panel",
           "ownerPluginId": "frisket.media",
           "title": "OCR compare preview",
@@ -69,7 +69,7 @@
         "profileId": "frisket.workspace.profile.import_cleanup",
         "title": "Import cleanup",
         "scope": "projectDefault",
-        "hiddenContributions": ["frisket.geo.view.map", "frisket.core.panel.watches"],
+        "hiddenContributions": ["frisket.geo.view.map", "frisket.core.panel.alerts"],
         "pinnedContributions": {"leftSidebar": ["frisket.core.panel.feeds"]},
         "defaults": {
           "schemaVersion": "frisket.workbench_layout.v1",
@@ -80,7 +80,7 @@
       },
       "expectedResolved": [
         {"id": "frisket.geo.view.map", "status": "hidden", "reason": "hidden_by_profile", "discoverableIn": ["activityRail", "commandPalette"]},
-        {"id": "frisket.core.panel.watches", "status": "hidden", "reason": "hidden_by_profile", "discoverableIn": ["activityRail", "commandPalette"]}
+        {"id": "frisket.core.panel.alerts", "status": "hidden", "reason": "hidden_by_profile", "discoverableIn": ["activityRail", "commandPalette"]}
       ]
     },
     {

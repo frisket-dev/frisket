@@ -63,26 +63,29 @@ def test_ndjson_uses_physical_lines_and_declared_encoding(
     ],
 )
 def test_ndjson_refusal_keeps_physical_line_and_column_without_partial_writes(
-    tmp_path: Path, line: str, type_name: str, code: str, column: str | None
+    tmp_path: Path,
+    make_project,
+    line: str,
+    type_name: str,
+    code: str,
+    column: str | None,
 ) -> None:
     path = tmp_path / "invalid.ndjson"
     path.write_text('\n{"value": null}\n  \n' + line + "\n")
-    with closing(
-        Project.create(tmp_path / "invalid.frisket", name="Invalid")
-    ) as project:
-        before = _counts(project)
-        result = run_action_spec(
-            project, _action(path, type_name=type_name), project_id="p"
-        )
-        assert result.status == "failed"
-        error = result.errors[0]
-        assert error.code == code
-        assert error.details["line"] == 4
-        if column is not None:
-            assert error.details["column"] == column
-        if code == "row_shape_mismatch":
-            assert error.details["extra"] == ["extra"]
-        assert _counts(project) == before
+    project = make_project("Invalid")
+    before = _counts(project)
+    result = run_action_spec(
+        project, _action(path, type_name=type_name), project_id="p"
+    )
+    assert result.status == "failed"
+    error = result.errors[0]
+    assert error.code == code
+    assert error.details["line"] == 4
+    if column is not None:
+        assert error.details["column"] == column
+    if code == "row_shape_mismatch":
+        assert error.details["extra"] == ["extra"]
+    assert _counts(project) == before
 
 
 def test_ndjson_empty_file_publishes_declared_empty_schema(
@@ -162,22 +165,21 @@ def test_ndjson_row_budget_is_host_policy_and_never_partially_publishes(
 
 def test_ndjson_receipt_failure_rolls_back_sheet_rows_and_operation(
     tmp_path: Path,
+    make_project,
 ) -> None:
     path = tmp_path / "rollback.ndjson"
     path.write_text('{"value": "one"}\n{"value": "two"}\n')
-    with closing(
-        Project.create(tmp_path / "rollback.frisket", name="Rollback")
-    ) as project:
-        project.db.execute(
-            "CREATE TEMP TRIGGER reject_receipt BEFORE INSERT ON receipts "
-            "BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END"
-        )
-        project.db.commit()
-        before = _counts(project)
-        result = run_action_spec(project, _action(path), project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert _counts(project) == before
+    project = make_project("Rollback")
+    project.db.execute(
+        "CREATE TEMP TRIGGER reject_receipt BEFORE INSERT ON receipts "
+        "BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END"
+    )
+    project.db.commit()
+    before = _counts(project)
+    result = run_action_spec(project, _action(path), project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert _counts(project) == before
 
 
 @pytest.mark.parametrize("missing_anchor", [False, True])
@@ -186,7 +188,7 @@ def test_ndjson_temporal_values_require_project_context(
 ) -> None:
     seeded = _seed_project(tmp_path, "ndjson-temporal")
     project = seeded["project"]
-    try:
+    with closing(project):
         anchor = seeded["lease"].anchor.wire_value()
         if missing_anchor:
             anchor["artifact_stable_id"] = (
@@ -214,5 +216,3 @@ def test_ndjson_temporal_values_require_project_context(
                     "item": {**value["item"], "label": None, "metadata": {}},
                 }
             ]
-    finally:
-        project.close()

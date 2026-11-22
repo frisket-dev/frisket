@@ -60,7 +60,7 @@ def remote_translate_response_accounting(
         if billed_characters is not None
         else None
     )
-    units = {"requests": 1}
+    units: dict[str, float | int | str | bool | None] = {"requests": 1}
     if billed_characters is not None:
         units["characters"] = billed_characters
     cost_source = "estimated" if cost is not None else "unknown"

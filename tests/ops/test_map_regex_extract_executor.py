@@ -152,7 +152,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         ).fetchall()
     }
     assert columns["phone"]["type"] == "text"
-    assert columns["phone"]["ai_generated"] == 1
+    assert columns["phone"]["generated"] == 1
     assert columns["phone"]["current_run_id"] == result.run_id
     assert list(project.get_values(sheet_id, int(columns["phone"]["id"])).values()) == [
         "212-555-0123",
@@ -182,7 +182,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     output_refs = {item.name: item.ref for item in receipt.outputs}
     assert output_refs["phone"]["kind"] == "map_result_column"
     assert output_refs["phone"]["type"] == "text"
-    evidence_refs = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence_refs = {item.ref["kind"]: item.ref for item in receipt.records}
     assert set(evidence_refs) == {"typed_action_request", "map_rows_run_counts"}
     assert evidence_refs["typed_action_request"]["params"] == {
         "input_columns": ["note"],
@@ -214,8 +214,8 @@ CASES = [
                     "invalid_action_request",
                     "invalid_params",
                     "invalid_input_ref",
-                    "output_column_exists",
-                    "output_column_busy",
+                    "generated_column_exists",
+                    "generated_column_busy",
                     "map_rows_failed",
                     "project_write_failed",
                     "idempotency_conflict",
@@ -235,9 +235,9 @@ CASES = [
                 "invalid_input_ref",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _colliding_output_action,
-                "output_column_exists",
+                "generated_column_exists",
                 after_primary_run=True,
             ),
             Gate(
@@ -374,7 +374,7 @@ def test_hidden_column_without_generation_history_is_not_adopted(
             )
         )
         assert result.status == "failed"
-        assert [error.code for error in result.errors] == ["output_column_exists"]
+        assert [error.code for error in result.errors] == ["generated_column_exists"]
         restored = env.project.db.execute(
             "SELECT * FROM columns WHERE id=?", (hidden_column_id,)
         ).fetchone()

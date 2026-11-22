@@ -186,7 +186,7 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
         query={"kind": "fts", "q": "budget", "limit": 20},
     )
     # The initial observation is silent; later source changes produce alerts.
-    from frisket.features.alerts.service import check_alert
+    from frisket.alerts.service import check_alert
 
     drain_index(p)
     check_alert(p, p.get_alert(alert_id))
@@ -199,8 +199,8 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
     p.create_notification_route(
         name="Budget route",
         channel_id=int(channel["id"]),
-        source_kind="watch",
-        source_ref_match={"watch_id": alert_id},
+        source_kind="alert",
+        source_ref_match={"alert_id": alert_id},
     )
     p.close()
 
@@ -296,7 +296,7 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
     assert len(receipts) == 1
     assert receipts[0]["id"] == job.result["receipt_id"]
     receipt = json.loads(receipts[0]["body"])
-    refs = [item["ref"] for item in [*receipt["outputs"], *receipt["evidence"]]]
+    refs = [item["ref"] for item in [*receipt["outputs"], *receipt["records"]]]
     source_run_ref = next(ref for ref in refs if ref["kind"] == "feed_poll_check")
     enclosure_ref = next(
         ref for ref in refs if ref["kind"] == "feed_poll_enclosure_pointers"
@@ -757,7 +757,7 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
     p.close()
 
     q = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
-    key = ProjectStorageKey(storage_org_id=23, project_slug="news")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="news")
     opened: list[tuple[ProjectStorageKey, Path]] = []
 
     def opener(storage_key, path):
@@ -793,7 +793,7 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
         {
             CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
             "project_id": "payload-attacker",
-            "storage_org_id": 23,
+            "storage_organization_id": 23,
             "workspace_root": str(tmp_path / "payload-root"),
             "feed_id": sid,
         },

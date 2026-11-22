@@ -382,8 +382,8 @@ _MAP_ROWS_ERRORS = (
     _error("invalid_action_request"),
     ("invalid_params", "The action parameters are invalid."),
     ("invalid_input_ref", "A source sheet, row, or column reference is invalid."),
-    ("output_column_exists", "A requested column already exists."),
-    ("output_column_busy", "A requested column is claimed by another run."),
+    ("generated_column_exists", "A requested column already exists."),
+    ("generated_column_busy", "A requested column is claimed by another run."),
     ("network_disabled", "The action attempted an unadmitted network request."),
     ("map_rows_failed", "The row program failed to produce usable output."),
     ("project_write_failed", "The project write or receipt update failed."),
@@ -395,7 +395,7 @@ _MODEL_ROWS_ERRORS = (
     *(item for item in _MAP_ROWS_ERRORS if item[0] != "map_rows_failed"),
     ("empty_input_column", "Every selected source cell is empty."),
     (
-        "column_not_ai_generated",
+        "column_not_generated",
         "The answer to grade must be an AI-generated column.",
     ),
     ("missing_provider_key", "The selected model provider is not configured."),
@@ -421,8 +421,8 @@ _COLUMN_TRANSFORM_ERRORS = (
     _error("invalid_action_request"),
     ("invalid_params", "The transform parameters or result are invalid."),
     ("invalid_input_ref", "The source sheet or column is invalid."),
-    ("output_column_exists", "The requested output column already exists."),
-    ("output_column_busy", "The requested output column is claimed by another run."),
+    ("generated_column_exists", "The requested output column already exists."),
+    ("generated_column_busy", "The requested output column is claimed by another run."),
     (
         "project_write_failed",
         "The atomic transform failed without changing the project.",
@@ -634,7 +634,11 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                     "embedding_cost_requires_confirmation",
                     "Automatic refresh needs an allowance that covers its estimate.",
                 ),
-                *extra_errors,
+                ("model_cost_requires_confirmation", "Confirm the embedding cost."),
+                (
+                    "unpriceable_model",
+                    "Remote embedding with an unknown price is not allowed on Cloud.",
+                ),
                 (
                     "external_effect_reconciliation_required",
                     "A prior provider call requires reconciliation.",
@@ -645,28 +649,18 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             effects,
             required_capabilities=("project:write", "model:embed"),
             cost_kind="model_metered",
-            requires_confirmation=requires_confirmation,
+            requires_confirmation=True,
         )
-        for capability, output, effects, requires_confirmation, extra_errors in (
+        for capability, output, effects in (
             (
                 IndexCreator,
                 CreatedEmbeddingIndex,
                 ("probe_embedding_dimension", "create_embedding_index"),
-                False,
-                (),
             ),
             (
                 IndexRefresher,
                 RefreshedEmbeddingIndex,
                 ("embed_index_sources", "write_sidecar_vectors"),
-                True,
-                (
-                    ("model_cost_requires_confirmation", "Confirm the embedding cost."),
-                    (
-                        "unpriceable_model",
-                        "Remote embedding refresh with an unknown price is not allowed on Cloud.",
-                    ),
-                ),
             ),
         )
     ),
@@ -862,7 +856,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("invalid_input_ref", "The target column is invalid."),
             ("invalid_row_ref", "Selected rows must be visible target-sheet rows."),
             ("column_not_found", "The requested column does not exist."),
-            ("column_not_ai_generated", "The requested column is not AI-generated."),
+            ("column_not_generated", "The requested column is not AI-generated."),
             ("run_not_found", "The source generation run is missing."),
             ("run_required", "The column has no published source generation."),
             ("invalid_run_params", "The stored source action is invalid."),
@@ -883,7 +877,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                 "The external source requires fresh consent.",
             ),
             ("code_action_disabled", "The source action is disabled on this server."),
-            ("output_column_busy", "A source output is claimed by another run."),
+            ("generated_column_busy", "A source output is claimed by another run."),
             ("local_engine_busy", "Another local transcription is still finishing."),
             _error("local_artifact_unavailable"),
             _error("local_session_failed"),
@@ -955,7 +949,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("invalid_params", "The column patch is invalid."),
             ("invalid_column_ref", "The target must identify a visible column."),
             ("invalid_column_format", "The display format is not supported."),
-            ("output_column_busy", "The target column is claimed by a running action."),
+            (
+                "generated_column_busy",
+                "The target column is claimed by a running action.",
+            ),
             write_failure="The column patch and receipt could not be written.",
         ),
         (
@@ -1084,7 +1081,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("invalid_column_ref", "The target must identify a visible column."),
             ("invalid_column_type", "The destination type must be registered."),
             *_TEMPORAL_PROJECT_ERRORS,
-            ("output_column_busy", "The target column is claimed by a running action."),
+            (
+                "generated_column_busy",
+                "The target column is claimed by a running action.",
+            ),
             write_failure="The column type and receipt could not be written.",
         ),
         (
@@ -1101,7 +1101,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("cell_target_not_found", "A target cell is not visible."),
             ("column_value_validation_failed", "An edit value is incompatible."),
             *_TEMPORAL_PROJECT_ERRORS,
-            ("output_column_busy", "A target column is claimed by a running action."),
+            (
+                "generated_column_busy",
+                "A target column is claimed by a running action.",
+            ),
             write_failure="The edits and receipt could not be written.",
         ),
         ("read_source_cell", "write_edit_overlay", "write_edit_op"),
@@ -1122,7 +1125,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ),
             ("column_value_validation_failed", "The edit value is incompatible."),
             *_TEMPORAL_PROJECT_ERRORS,
-            ("output_column_busy", "The target column is claimed by a running action."),
+            (
+                "generated_column_busy",
+                "The target column is claimed by a running action.",
+            ),
             write_failure="The edits and receipt could not be written.",
         ),
         (
@@ -1139,7 +1145,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("review_target_not_found", "The current result cell was not found."),
             ("review_complete", "Reopen this review to make more decisions."),
-            ("output_column_busy", "The result column is claimed by a running action."),
+            (
+                "generated_column_busy",
+                "The result column is claimed by a running action.",
+            ),
             write_failure="The review decision and receipt could not be written.",
         ),
         (
@@ -1156,7 +1165,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("review_target_not_found", "The current review row was not found."),
             ("review_complete", "Reopen this review to change its note."),
-            ("output_column_busy", "A result column is claimed by a running action."),
+            (
+                "generated_column_busy",
+                "A result column is claimed by a running action.",
+            ),
             write_failure="The review note and receipt could not be written.",
         ),
         (
@@ -1174,7 +1186,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("mixed_origin_column_unsupported", "Replay requires one current origin."),
             ("stale_replay", "The newer run or value identity changed."),
             (
-                "output_column_busy",
+                "generated_column_busy",
                 "The generated column is claimed by a running action.",
             ),
             write_failure="The replay acceptance and receipt could not be written.",
@@ -1189,7 +1201,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("invalid_replay_target", "The replay column does not exist."),
             ("mixed_origin_column_unsupported", "Replay requires one current origin."),
             (
-                "output_column_busy",
+                "generated_column_busy",
                 "The generated column is claimed by a running action.",
             ),
             write_failure="The column replay acceptance and receipt could not be written.",
@@ -1216,7 +1228,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("operation_unavailable", "No operation is available to undo."),
             _error("operation_mismatch"),
             ("irreversible_barrier", "The target operation cannot be undone."),
-            ("output_column_busy", "The target operation touches a claimed column."),
+            ("generated_column_busy", "The target operation touches a claimed column."),
             _error("project_state_corrupt"),
             write_failure="The undo and receipt could not be written.",
         ),
@@ -1235,7 +1247,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("operation_unavailable", "No operation is available to redo."),
             _error("operation_mismatch"),
             ("irreversible_barrier", "The target operation cannot be redone."),
-            ("output_column_busy", "The target operation touches a claimed column."),
+            ("generated_column_busy", "The target operation touches a claimed column."),
             _error("project_state_corrupt"),
             write_failure="The redo and receipt could not be written.",
         ),
@@ -4036,7 +4048,7 @@ class RegisteredAction:
                     item
                     for item in _MODEL_ROWS_ERRORS
                     if getattr(terminal, "evaluation", None) is not None
-                    or item[0] != "column_not_ai_generated"
+                    or item[0] != "column_not_generated"
                 )
                 if family == "model"
                 else _EXTERNAL_ROWS_ERRORS
@@ -4149,7 +4161,7 @@ class RegisteredAction:
         controls, source_requirements = _semantic_metadata(terminal.params_model)
         local_topic_hints = {}
         if TopicSectionsReader in getattr(terminal, "capabilities", ()):
-            from frisket.features.topic_segmentation.engines import (
+            from frisket.topic_segmentation.engines import (
                 static_engine_catalog,
             )
 
@@ -4337,7 +4349,7 @@ def _semantic_metadata(
                 else {}
             )
             if _is_subclass(annotation, GeneratedColumnRef):
-                details["ai_generated_only"] = True
+                details["generated_only"] = True
         elif control == "columns":
             while typing.get_origin(annotation) is typing.Annotated:
                 annotation = typing.get_args(annotation)[0]
@@ -4400,7 +4412,7 @@ def _semantic_metadata(
                     ),
                     "template",
                 ],
-                "unset_fallback_includes_ai_generated": True,
+                "unset_fallback_includes_generated": True,
             }
             if (
                 template_types is not None

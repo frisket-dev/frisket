@@ -37,7 +37,7 @@ def enqueue_source_verification(
         SOURCE_VERIFY_KIND,
         statuses=("done", "failed", "cancelled"),
         project_id=payload["project_id"],
-        storage_org_id=payload.get("storage_org_id"),
+        storage_organization_id=payload.get("storage_organization_id"),
         workspace_root=payload.get("workspace_root"),
         dedupe_key=dedupe_key,
     )

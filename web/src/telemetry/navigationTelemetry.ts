@@ -10,7 +10,7 @@ const PANEL_KINDS: Readonly<Record<string, WorkspaceTelemetryPanel>> = {
   'frisket.investigative.panel.mentions': 'mentions',
   'frisket.core.panel.feeds': 'sources',
   'frisket.core.panel.views': 'views',
-  'frisket.core.panel.watches': 'watches',
+  'frisket.core.panel.alerts': 'alerts',
   'frisket.core.panel.notifications': 'notifications',
   'frisket.embeddings.panel.indexes': 'embeddings',
   'frisket.core.panel.jobs': 'jobs',

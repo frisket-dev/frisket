@@ -23,7 +23,7 @@ type AdminBrowserErrorsWire =
 
 export type AdminHealth = AdminBrowserHealthWire;
 export type AdminUsers = AdminBrowserUsersWire;
-export type AdminUsersOrganization = AdminUsers['orgs'][number];
+export type AdminUsersOrganization = AdminUsers['organizations'][number];
 export type AdminOrganizationRole = AdminUsers['capabilities']['assignable_roles'][number];
 export type AdminJob = AdminBrowserJobsWire['jobs'][number];
 export type AdminJobs = AdminBrowserJobsWire;
@@ -52,7 +52,7 @@ function auditQuery(filters: AdminAuditFilters) {
   const organizationId = Number(filters.organizationId?.trim());
   return {
     limit: filters.limit ?? 100,
-    org_id: Number.isFinite(organizationId) && organizationId > 0 ? organizationId : undefined,
+    organization_id: Number.isFinite(organizationId) && organizationId > 0 ? organizationId : undefined,
     project_id: filters.projectId?.trim() || undefined,
     user: filters.user?.trim() || undefined,
     action: filters.action?.trim() || undefined,
@@ -81,7 +81,7 @@ export function createAdminBrowserApi() {
       return httpContract(
         'outer.admin_browser_invite_user.post',
         {
-          body: { org_id: organizationId, email },
+          body: { organization_id: organizationId, email },
           ...optionsFor(options),
         },
       );
@@ -95,7 +95,7 @@ export function createAdminBrowserApi() {
       return httpContract(
         'outer.admin_browser_update_user_role.patch',
         {
-          pathParams: { user_id: userId }, body: { org_id: organizationId, role },
+          pathParams: { user_id: userId }, body: { organization_id: organizationId, role },
           ...optionsFor(options),
         },
       );
@@ -108,7 +108,7 @@ export function createAdminBrowserApi() {
       return httpContract(
         'outer.admin_browser_remove_user.delete',
         {
-          pathParams: { user_ref: String(userId) }, query: { org_id: organizationId },
+          pathParams: { user_ref: String(userId) }, query: { organization_id: organizationId },
           ...optionsFor(options),
         },
       );
@@ -121,7 +121,7 @@ export function createAdminBrowserApi() {
       return httpContract(
         'outer.admin_browser_revoke_invite.delete',
         {
-          pathParams: { email }, query: { org_id: organizationId },
+          pathParams: { email }, query: { organization_id: organizationId },
           ...optionsFor(options),
         },
       );

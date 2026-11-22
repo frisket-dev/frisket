@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from frisket.engine.store import Project
 from frisket.server.services import sheet_grid
 from frisket.server.services.sheet_grid import SheetGridService
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_grid_read_keeps_membership_and_values_in_one_snapshot(
@@ -28,8 +29,8 @@ def test_grid_read_keeps_membership_and_values_in_one_snapshot(
             changed = True
             writer.db.execute("BEGIN IMMEDIATE")
             writer.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (old,))
-            [new] = writer.add_rows(
-                sheet, [{"body": "new"}], {"body": column}, commit=False
+            [new] = writer.add_rows_in_transaction(
+                sheet, [{"body": "new"}], {"body": column}
             )
             writer.db.commit()
         return result
@@ -53,7 +54,7 @@ def test_grid_read_preserves_caller_transaction_and_filtered_scope(make_project)
     service = SheetGridService(SimpleNamespace(get=lambda _: project))
     project.db.execute("BEGIN")
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (old,))
-    [new] = project.add_rows(sheet, [{"body": "new"}], {"body": column}, commit=False)
+    [new] = project.add_rows_in_transaction(sheet, [{"body": "new"}], {"body": column})
     result = service.sheet_data(
         "p",
         sheet,
@@ -77,7 +78,7 @@ def test_grid_metadata_excludes_unpublished_paired_output(make_project):
     project = make_project("paired")
     sheet = project.add_sheet("Rows")
     columns = [
-        project.add_column(sheet, name, ai_generated=True)
+        project.add_column(sheet, name, generated=True)
         for name in ("answer", "explanation")
     ]
     [row] = project.add_rows(sheet, [{}], {})
@@ -89,14 +90,15 @@ def test_grid_metadata_excludes_unpublished_paired_output(make_project):
     )
     generations = ResultGenerationStore(project)
     for column, role in zip(columns, ("answer", "explanation"), strict=True):
-        generations.declare(
-            run,
-            column,
-            output_role=role,
-            compatibility_key="text-v1",
-            write_mode="replace_scope",
-            claim_token=authority.claim_token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run,
+                column,
+                output_role=role,
+                compatibility_key="text-v1",
+                write_mode="replace_scope",
+                claim_token=authority.claim_token,
+            )
     runs.write_results(
         run,
         [
@@ -111,12 +113,13 @@ def test_grid_metadata_excludes_unpublished_paired_output(make_project):
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run,
-        columns,
-        claim_token=authority.claim_token,
-        terminal_disposition="cancelled",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run,
+            columns,
+            claim_token=authority.claim_token,
+            terminal_disposition="cancelled",
+        )
     runs.finish_run(run, "cancelled", **authority.terminal_kwargs())
     assert (
         project.db.execute(

@@ -30,13 +30,13 @@ describe('map-points Arrow raw transport', () => {
     await expect(api.getMapPointsArrowBuffer('sheet/1', 'geo id', {
       bbox: [1, 2, 3, 4],
       attrs: ['score', 'label name'],
-      filter: { op: 'and', children: [] },
-      sort: [{ columnId: 'name', direction: 'asc' }],
+      filter: { name: { contains: 'Ada' } },
+      sort: [{ column: 'name', dir: 'asc' }],
     })).resolves.toHaveProperty('byteLength', 3);
 
     await api.getMapPointsArrowBuffer('sheet/1', 'geo id');
     expect(fetch.mock.calls.map(([input]) => String(input))).toEqual([
-      '/api/projects/team%20project/sheets/sheet/1/map/points?column_id=geo+id&format=arrow&bbox=1%2C2%2C3%2C4&attrs=score%2Clabel+name&filter=%7B%22op%22%3A%22and%22%2C%22children%22%3A%5B%5D%7D&sort=%5B%7B%22columnId%22%3A%22name%22%2C%22direction%22%3A%22asc%22%7D%5D',
+      '/api/projects/team%20project/sheets/sheet/1/map/points?column_id=geo+id&format=arrow&bbox=1%2C2%2C3%2C4&attrs=score%2Clabel+name&filter=%7B%22name%22%3A%7B%22contains%22%3A%22Ada%22%7D%7D&sort=%5B%7B%22column%22%3A%22name%22%2C%22dir%22%3A%22asc%22%7D%5D',
       '/api/projects/team%20project/sheets/sheet/1/map/points?column_id=geo+id&format=arrow',
     ]);
     expect(metadata).toHaveBeenCalledWith({

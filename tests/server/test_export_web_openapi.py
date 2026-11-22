@@ -210,25 +210,25 @@ def test_http_completion_batch_one_projects_five_typed_browser_operations(
     real_openapi_document,
 ) -> None:
     expected = {
-        "outer.list_org_env_vars.get": (
+        "outer.list_organization_env_vars.get": (
             ["team"],
             "OrganizationEnvList",
             None,
             {"200", "401", "403", "500"},
         ),
-        "outer.set_org_env_var.post": (
+        "outer.set_organization_env_var.post": (
             ["team"],
             "OrganizationEnvSave",
             "OrganizationEnvSaveRequest",
             {"200", "400", "401", "403", "422", "500"},
         ),
-        "outer.delete_org_env_var.delete": (
+        "outer.delete_organization_env_var.delete": (
             ["team"],
             "OrganizationEnvDelete",
             None,
             {"200", "400", "401", "403", "500"},
         ),
-        "outer.org_media_proxy_status.get": (
+        "outer.organization_media_proxy_status.get": (
             ["team"],
             "OrganizationMediaProxyStatus",
             None,
@@ -365,13 +365,13 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.replace_view_definition.put",
         "tenant.delete_view_ep.delete",
         "tenant.resolve_view.get",
-        "tenant.list_watches.get",
-        "tenant.create_watch.post",
-        "tenant.patch_watch.patch",
-        "tenant.delete_watch.delete",
-        "tenant.run_watch.post",
-        "tenant.list_watch_runs.get",
-        "tenant.list_watch_run_events.get",
+        "tenant.list_alerts.get",
+        "tenant.create_alert.post",
+        "tenant.patch_alert.patch",
+        "tenant.delete_alert.delete",
+        "tenant.check_alert.post",
+        "tenant.list_alert_checks.get",
+        "tenant.list_alert_check_events.get",
         "tenant.list_notifications.get",
         "tenant.notifications_summary.get",
         "tenant.mark_notifications_seen.post",
@@ -470,16 +470,16 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.list_oauth_connections.get",
         "outer.me.get",
         "outer.update_profile.patch",
-        "outer.list_org_keys.get",
-        "outer.list_org_env_vars.get",
+        "outer.list_organization_keys.get",
+        "outer.list_organization_env_vars.get",
         "outer.list_tokens.get",
         "outer.revoke_token.delete",
-        "outer.set_org_key.post",
-        "outer.set_org_env_var.post",
-        "outer.validate_org_key.post",
-        "outer.delete_org_key.delete",
-        "outer.delete_org_env_var.delete",
-        "outer.org_media_proxy_status.get",
+        "outer.set_organization_key.post",
+        "outer.set_organization_env_var.post",
+        "outer.validate_organization_key.post",
+        "outer.delete_organization_key.delete",
+        "outer.delete_organization_env_var.delete",
+        "outer.organization_media_proxy_status.get",
         "outer.list_members.get",
         "outer.set_member.post",
         "outer.remove_member.delete",
@@ -503,7 +503,7 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         for operation_id in _operation_ids(document)
         if _operation(document, operation_id)["x-frisket-editions"] == ["team"]
     } == team_only
-    assert "outer.post_org_models_pull.post" in _operation_ids(document)
+    assert "outer.post_organization_models_pull.post" in _operation_ids(document)
 
     # Browser administration is a shared catalog member but only the team
     # composition registers these routes. Pin the public wire subset without
@@ -606,10 +606,10 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "outer.list_projects.get" not in _operation_ids(document)
     assert {
         "tenant.provider_catalog.get",
-        "outer.list_org_keys.get",
-        "outer.set_org_key.post",
-        "outer.validate_org_key.post",
-        "outer.delete_org_key.delete",
+        "outer.list_organization_keys.get",
+        "outer.set_organization_key.post",
+        "outer.validate_organization_key.post",
+        "outer.delete_organization_key.delete",
     } <= _operation_ids(document)
     assert (
         "422"

@@ -233,7 +233,7 @@ test('derived People values render decoded text and stay AI-marked through searc
   const childData = await sheetData(page.request, pid, childSheetId);
   const valueColumn = childData.columns.find((c) => c.name === 'value');
   expect(valueColumn).toBeTruthy();
-  expect(valueColumn?.ai_generated).toBe(true);
+  expect(valueColumn?.generated).toBe(true);
   expect(childData.rows[0].cells[String(valueColumn?.id)]).toBe(ESCAPED_PERSON);
 
   await openProject(page, pid, childSheetId);

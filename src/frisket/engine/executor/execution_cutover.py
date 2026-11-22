@@ -13,14 +13,14 @@ from frisket.contracts.action import ActionError
 from frisket.engine.executor.project_run_terminalization import (
     AbandonedRunRecoveryAuthority,
     UnclaimedRunTerminalAuthority,
-    terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.execution.attempt import set_attempt_state
+from frisket.execution.attempt import set_attempt_state_in_transaction
 
 
 class ProjectCutoverRefused(RuntimeError):
@@ -39,7 +39,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
         raise ProjectCutoverRefused("project cutover requires its own transaction")
     counts = dict(runs=0, receipts=0, attempts=0, claims=0, checkpoints=0, turns=0)
     receipts = ReceiptStore(project)
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     runs = RunResultStore(project)
     db.execute("BEGIN IMMEDIATE")
     try:
@@ -61,7 +61,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                 raise ProjectCutoverRefused(f"receipt {stored.id} identity mismatch")
 
         active_claims = db.execute(
-            "SELECT * FROM output_column_claims WHERE status='active'"
+            "SELECT * FROM generated_column_claims WHERE status='active'"
         ).fetchall()
         run_ids = {
             int(row[0])
@@ -83,14 +83,14 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
             "DELETE FROM effect_checkpoints WHERE state='reserved'"
         ).rowcount
         for attempt in attempts:
-            set_attempt_state(project, attempt["id"], "abandoned", commit=False)
+            set_attempt_state_in_transaction(project, attempt["id"], "abandoned")
         counts["attempts"] = len(attempts)
-        # Repair stale writer pointers too. set_attempt_state leaves already
+        # Repair stale writer pointers too. set_attempt_state_in_transaction leaves already
         # terminal attempt history unchanged while clearing its run pointer.
         for row in db.execute(
             "SELECT current_attempt_id FROM runs WHERE current_attempt_id IS NOT NULL"
         ).fetchall():
-            set_attempt_state(project, row[0], "abandoned", commit=False)
+            set_attempt_state_in_transaction(project, row[0], "abandoned")
 
         for run_id in sorted(run_ids):
             run = runs.get_run(run_id)
@@ -137,7 +137,6 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                     terminal_disposition=target,
                     allow_stale_output_name=True,
                     publish=False,
-                    commit=False,
                 )
                 # A wholly staged family never became the visible replacement.
                 # Retire its Change through the ordinary reversible history
@@ -159,8 +158,8 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                         f"run {run_id} has outputs without a receipt"
                     )
                 if run["status"] == "running":
-                    runs.finish_run(
-                        run_id, "cancelled", commit=False, rebuild_review_stats=False
+                    runs.finish_run_in_transaction(
+                        run_id, "cancelled", rebuild_review_stats=False
                     )
             else:
                 abandoned = db.execute(
@@ -172,7 +171,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                     if abandoned
                     else UnclaimedRunTerminalAuthority
                 )
-                outcome = terminalize_project_run(
+                outcome = terminalize_project_run_in_transaction(
                     project,
                     run_id=run_id,
                     receipt_id=stored.id,
@@ -185,7 +184,6 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                         require_cancel_intent=False,
                     ),
                     errors=[_cutover_error(stored.action_kind)],
-                    commit=False,
                 )
                 if outcome.disposition not in {"terminalized", "already_terminal"}:
                     raise ProjectCutoverRefused(
@@ -210,12 +208,14 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                 claims.release_for_receipt(receipt_id=stored.id, status="cancelled")
         counts["receipts"] = len(open_receipts)
         if db.execute(
-            "SELECT 1 FROM output_column_claims WHERE status='active'"
+            "SELECT 1 FROM generated_column_claims WHERE status='active'"
         ).fetchone():
             raise ProjectCutoverRefused("unowned active output claims remain")
         counts["claims"] = len(active_claims)
         counts["turns"] = len(
-            ProjectQAStore(project).reconcile_abandoned_turns(live_turn_ids=())
+            ProjectQAStore(project).reconcile_abandoned_turns_in_transaction(
+                live_turn_ids=()
+            )
         )
         db.commit()
         return counts

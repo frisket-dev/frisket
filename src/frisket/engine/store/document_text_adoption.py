@@ -78,7 +78,7 @@ def adopt_document_text_role(
           JOIN prepared_content_sets content ON content.id=ref.set_id
           JOIN ops producer_op ON producer_op.id=content.producing_op_id
           WHERE legacy.sheet_id=? AND legacy.id<>?
-            AND legacy.type='text' AND legacy.ai_generated=1
+            AND legacy.type='text' AND legacy.generated=1
             AND legacy.active=1 AND legacy.hidden=0
             AND source_row.sheet_id=? AND source_row.hidden=0
             AND head.origin_kind='run_result' AND head.validity='valid'
@@ -117,11 +117,10 @@ def adopt_document_text_role(
     if writes:
         from .changes import close_change
 
-        adoption_op = project.append_change(
+        adoption_op = project.append_change_in_transaction(
             "document_text.adopt",
             {"source_column_id": source_column_id, "text_column_id": text_column_id},
             label="Adopt document text",
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             db, stage_id=f"op:{adoption_op}", op_id=adoption_op

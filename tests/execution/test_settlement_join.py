@@ -30,9 +30,10 @@ from frisket.engine.executor.project_run_terminalization import (
     terminalize_project_run,
 )
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter, attempt_receipt, claim
 from frisket.execution.attempt_authority import AttemptAuthority
@@ -99,13 +100,13 @@ PROMISES = [
             "meter_key": "audio_seconds",
             "meter_units_per_quantity_unit": "60",
             "ceiling_mode": "consented_quantity",
-            "row_settlement_mode": "quoted_successful_rows",
+            "row_settlement_mode": "estimated_successful_rows",
             "charge_authority": "test.synthetic.authority",
             "hardware_class": None,
             "throughput_ref": None,
             # The fixture's first row carries the ten-minute quote; row two is
             # explicit zero so the allocation still covers its exact scope.
-            "row_quote_quantities": [
+            "row_estimate_quantities": [
                 {"row_id": 1, "quantity": "10"},
                 {"row_id": 2, "quantity": "0"},
             ],
@@ -134,7 +135,7 @@ def _test_offering(*, unit_rate: str = "0.02") -> CommercialOffering:
             meter_key="audio_seconds",
             meter_units_per_quantity_unit="60",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            row_settlement_mode="estimated_successful_rows",
         ),
         charge_authority="test.synthetic.authority",
         presentation=CommercialPresentation(
@@ -212,7 +213,7 @@ def project(make_project):
 @pytest.fixture()
 def consented_run(project):
     sheet_id = project.add_sheet("S")
-    project.add_column(sheet_id, "transcript", ai_generated=True)
+    project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(sheet_id, [{}, {}], {})
     op_id = project.db.execute(
         "INSERT INTO ops (kind, spec) VALUES (?,?)", ("transcribe", "{}")
@@ -227,7 +228,7 @@ def consented_run(project):
     )
     claim_token = f"output-claim:settlement:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["transcript"],
             action_kind="media.transcribe",
@@ -238,7 +239,7 @@ def consented_run(project):
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
             expected_output_names=["transcript"],
@@ -279,7 +280,7 @@ def _mint(project, run_id, *, scope=(1, 2)):
 
 def _claim_output_attempt(project, commitment) -> None:
     claims = project.db.execute(
-        "SELECT claim_token, column_id FROM output_column_claims "
+        "SELECT claim_token, column_id FROM generated_column_claims "
         "WHERE run_id=? AND status='active' ORDER BY id",
         (commitment.run_id,),
     ).fetchall()
@@ -288,8 +289,10 @@ def _claim_output_attempt(project, commitment) -> None:
     claim(
         project,
         commitment,
-        claimless_direct_effect=False,
-        claim_token=str(claims[0]["claim_token"]),
+        fence=WriterFence(
+            run_id=commitment.run_id,
+            claim_token=str(claims[0]["claim_token"]),
+        ),
         output_column_ids={
             int(row["column_id"]) for row in claims if row["column_id"] is not None
         },
@@ -301,19 +304,23 @@ def _writer_authority(
     run_id: int,
     *,
     attempt_id: str | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, WriterFence]:
     row = project.db.execute(
         "SELECT r.current_attempt_id, c.claim_token "
-        "FROM runs r JOIN output_column_claims c ON c.run_id=r.id "
+        "FROM runs r JOIN generated_column_claims c ON c.run_id=r.id "
         "WHERE r.id=? AND c.status='active' LIMIT 1",
         (run_id,),
     ).fetchone()
     assert row is not None
     writer = attempt_id or row["current_attempt_id"]
+    writer_id = str(writer) if writer is not None else None
     return {
-        "writer_attempt_id": str(writer) if writer is not None else None,
-        "authorized_attempt_id": str(writer) if writer is not None else None,
-        "claim_token": str(row["claim_token"]),
+        "fence": WriterFence(
+            run_id=run_id,
+            writer_attempt_id=writer_id,
+            authorized_attempt_id=writer_id,
+            claim_token=str(row["claim_token"]),
+        )
     }
 
 
@@ -725,12 +732,7 @@ def test_rejected_cross_attempt_call_id_cannot_leak_result_through_outer_commit(
     # Exercise the real leak window: a later owner commits ordinary run
     # finalization without knowing the rejected sink left mutations pending.
     terminal = _writer_authority(project, run_id, attempt_id=attempt_b.attempt_id)
-    store.finish_run(
-        run_id,
-        "completed",
-        writer_attempt_id=terminal["writer_attempt_id"],
-        claim_token=terminal["claim_token"],
-    )
+    store.finish_run(run_id, "completed", **terminal)
 
     result = project.db.execute(
         "SELECT value_kind, value FROM results "
@@ -800,7 +802,7 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
     assert project.db.in_transaction
 
     with pytest.raises(RuntimeError, match="attempt_id changed"):
-        store.write_results(
+        store.write_results_in_transaction(
             run_id,
             [
                 {
@@ -816,20 +818,17 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
                 run_id,
                 attempt_id=attempt_b.attempt_id,
             ),
-            commit=False,
         )
 
     # The caller still owns a live transaction and can finish its unrelated
     # work.  Committing it must not resurrect the rejected sibling result.
     assert project.db.in_transaction
     terminal = _writer_authority(project, run_id, attempt_id=attempt_b.attempt_id)
-    store.finish_run(
+    store.finish_run_in_transaction(
         run_id,
         "completed",
-        commit=False,
         rebuild_review_stats=False,
-        writer_attempt_id=terminal["writer_attempt_id"],
-        claim_token=terminal["claim_token"],
+        **terminal,
     )
     project.db.commit()
 
@@ -1189,13 +1188,13 @@ def _terminalize_cancelled_attempt(project, run_id: int, attempt_id: str) -> Non
             )
         )
     claim = project.db.execute(
-        "SELECT claim_token FROM output_column_claims "
+        "SELECT claim_token FROM generated_column_claims "
         "WHERE run_id=? AND status='active' LIMIT 1",
         (run_id,),
     ).fetchone()
     assert claim is not None
     project.db.execute(
-        "UPDATE output_column_claims SET receipt_id=? "
+        "UPDATE generated_column_claims SET receipt_id=? "
         "WHERE run_id=? AND status='active'",
         (receipt_id, run_id),
     )
@@ -1496,7 +1495,7 @@ def test_row_settlement_invariants_follow_the_pinned_generic_mode(
     project.db.commit()
     settlement = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert settlement["charge_usd"] is None
-    assert settlement["unsettleable"] == "row_quote_allocation_mismatch"
+    assert settlement["unsettleable"] == "row_estimate_allocation_mismatch"
 
 
 def test_a_replayed_batch_cannot_flip_a_failed_estimated_row_to_succeeded(
@@ -1722,7 +1721,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     """
     sheet_id = project.add_sheet("Forty files")
     source_column_id = project.add_column(sheet_id, "audio", type="audio")
-    output_column_id = project.add_column(sheet_id, "transcript", ai_generated=True)
+    output_column_id = project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"audio": {"duration_seconds": 60}} for _ in range(40)],
@@ -1741,7 +1740,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     )
     claim_token = f"output-claim:settlement-offering:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["transcript"],
             action_kind="media.transcribe",
@@ -1752,7 +1751,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
             expected_output_names=["transcript"],
@@ -1762,7 +1761,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     cost_promise = next(promise for promise in promises if promise["field"] == "cost")
     cost_basis = cost_promise["basis"]
     cost_basis["estimated_quantity"] = "40"
-    cost_basis["row_quote_quantities"] = [
+    cost_basis["row_estimate_quantities"] = [
         {"row_id": row_id, "quantity": "1"} for row_id in row_ids
     ]
     cost_promise["value"] = "0.8"
@@ -1879,7 +1878,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     contradictory = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert contradictory["rated_charge_usd"] == "1.52"
     assert contradictory["charge_usd"] is None
-    assert contradictory["unsettleable"] == "row_quote_allocation_mismatch"
+    assert contradictory["unsettleable"] == "row_estimate_allocation_mismatch"
 
     legacy_basis = json.loads(
         project.db.execute(
@@ -1887,7 +1886,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
             (attempt.attempt_id,),
         ).fetchone()["cost_basis_json"]
     )
-    legacy_basis.pop("row_quote_quantities")
+    legacy_basis.pop("row_estimate_quantities")
     project.db.execute(
         "UPDATE execution_attempts SET cost_basis_json=? WHERE id=?",
         (json.dumps(legacy_basis, sort_keys=True), attempt.attempt_id),
@@ -1896,4 +1895,4 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     missing = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert missing["rated_charge_usd"] == "1.52"
     assert missing["charge_usd"] is None
-    assert missing["unsettleable"] == "row_quote_allocation_missing"
+    assert missing["unsettleable"] == "row_estimate_allocation_missing"

@@ -80,7 +80,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
     created = Project.create(bundle, name="Trusted")
     created.close()
     key = ProjectStorageKey(
-        storage_org_id=_STORAGE_ORGANIZATION_ID, project_slug="trusted"
+        storage_organization_id=_STORAGE_ORGANIZATION_ID, project_slug="trusted"
     )
 
     calls: list[tuple[ProjectStorageKey, Path]] = []
@@ -96,8 +96,8 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         root,
         queue=queue,
         queue_payload_extra={
-            "org_id": _STORAGE_ORGANIZATION_ID,
-            "storage_org_id": _STORAGE_ORGANIZATION_ID,
+            "organization_id": _STORAGE_ORGANIZATION_ID,
+            "storage_organization_id": _STORAGE_ORGANIZATION_ID,
         },
         project_opener=counting_opener,
         enable_provider_config=False,
@@ -126,7 +126,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
                 {
                     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
                     "project_id": "payload-attacker",
-                    "storage_org_id": 999,
+                    "storage_organization_id": 999,
                     "workspace_root": str(tmp_path / "payload-root"),
                     "feed_id": -1,
                 },
@@ -147,7 +147,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         enqueue_due_feed_polls(
             workspace_root=root,
             queue=queue,
-            storage_org_id=_STORAGE_ORGANIZATION_ID,
+            storage_organization_id=_STORAGE_ORGANIZATION_ID,
             project_opener=counting_opener,
         )
         assert calls, "scheduler scan did not go through the opener"

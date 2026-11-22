@@ -17,7 +17,7 @@ from frisket.actions.entity_package_types import (
     ImportedEntitySheet,
 )
 from frisket.actions.types import TableError
-from frisket.contracts.action import ActionError, ReceiptEvidence, ReceiptIO
+from frisket.contracts.action import ActionError, ReceiptRecord, ReceiptIO
 from frisket.engine.executor.import_sources import open_local_file_reader
 from frisket.engine.executor.plugin_write_apply import (
     apply_additive_tables,
@@ -25,8 +25,8 @@ from frisket.engine.executor.plugin_write_apply import (
 )
 from frisket.engine.store.blob_backend import BlobIntegrityError, BlobNotFoundError
 from frisket.engine.store.project_blobs import publish_prepared_blob
-from frisket.features.followthemoney import entities_available
-from frisket.features.investigations.rowsets import (
+from frisket.followthemoney import entities_available
+from frisket.exports.investigative_rowsets import (
     resolve_investigative_rowset,
     InvestigativeRowsetError,
 )
@@ -68,11 +68,11 @@ class FollowTheMoneyImportCapability:
             _refuse(
                 "invalid_ftm_import", "dataset_name must be non-empty text or null."
             )
-        from frisket.features.followthemoney.import_planner import (
+        from frisket.followthemoney.import_planner import (
             FollowTheMoneyImportLimitError,
             plan_followthemoney_import,
         )
-        from frisket.features.followthemoney.write_plan import (
+        from frisket.followthemoney.write_plan import (
             import_plan_to_write_plan,
         )
 
@@ -209,20 +209,21 @@ class FollowTheMoneyImportCapability:
                 diagnostics=tuple(plan["diagnostics"]),
             )
             invocation.context.check_cancelled()
-            observed = invocation.record(
-                inputs=inputs,
-                outputs=outputs,
-                op_ids=(applied.op_id,),
-                evidence=(
-                    ReceiptEvidence(
-                        ref={
-                            "kind": "entity_dataset_import",
-                            "dataset": result.model_dump(mode="json"),
-                        },
-                        retention="materialized",
+            observed = invocation.record_in_transaction(
+                invocation.RecordUpdate(
+                    inputs=tuple(inputs),
+                    outputs=tuple(outputs),
+                    action_ids=(applied.op_id,),
+                    records=(
+                        ReceiptRecord(
+                            ref={
+                                "kind": "entity_dataset_import",
+                                "dataset": result.model_dump(mode="json"),
+                            },
+                            retention="materialized",
+                        ),
                     ),
-                ),
-                commit=False,
+                )
             )
             project.db.commit()
         except BaseException as error:
@@ -268,7 +269,7 @@ class FollowTheMoneyExportCapability:
                 raise ValueError("invalid package filename or validate flag")
         except (ValueError, ValidationError) as error:
             _refuse("invalid_ftm_export", str(error))
-        from frisket.features.followthemoney.exporters import (
+        from frisket.followthemoney.exporters import (
             build_followthemoney_export_package,
         )
 
@@ -342,8 +343,8 @@ class FollowTheMoneyExportCapability:
             ),
             outputs=(ReceiptIO(name=filename, ref=ref),),
             exports=(ref,),
-            evidence=(
-                ReceiptEvidence(
+            records=(
+                ReceiptRecord(
                     ref={
                         "kind": "entity_package_export",
                         "blob_hash": digest,
@@ -392,7 +393,7 @@ def entity_effect_replay_error(project, receipt):
                 message="Exported package bytes changed.",
                 action_kind=receipt.action_kind,
             )
-    for supporting_record in receipt.evidence:
+    for supporting_record in receipt.records:
         if supporting_record.ref.get("kind") != "entity_dataset_import":
             continue
         dataset = supporting_record.ref["dataset"]

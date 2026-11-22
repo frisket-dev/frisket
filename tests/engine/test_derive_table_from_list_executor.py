@@ -254,8 +254,8 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     assert list(columns) == ["name", "title"]
     assert columns["name"]["type"] == "text"
-    assert columns["name"]["ai_generated"] == 1
-    assert columns["title"]["ai_generated"] == 1
+    assert columns["name"]["generated"] == 1
+    assert columns["title"]["generated"] == 1
     rows = project.db.execute(
         "SELECT * FROM rows WHERE sheet_id=? ORDER BY position", (child_sheet_id,)
     ).fetchall()
@@ -311,7 +311,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert {"materialized_sheet", "materialized_rows"} <= {
         item.ref["kind"] for item in receipt.outputs
     }
-    assert {"lineage_parent_rows"} <= {item.ref["kind"] for item in receipt.evidence}
+    assert {"lineage_parent_rows"} <= {item.ref["kind"] for item in receipt.records}
 
 
 CASES = [
@@ -392,7 +392,7 @@ def test_live_list_copies_selected_parent_context_with_exact_metadata_and_nulls(
     sheet_id = project.add_sheet("Cases")
     case_id = project.add_column(sheet_id, "case", type="text")
     score_id = project.add_column(
-        sheet_id, "score", type="number", ai_generated=True, format="0.0"
+        sheet_id, "score", type="number", generated=True, format="0.0"
     )
     notes_id = project.add_column(sheet_id, "large_notes", type="text")
     items_id = project.add_column(sheet_id, "items", type="json")
@@ -459,9 +459,9 @@ def test_live_list_copies_selected_parent_context_with_exact_metadata_and_nulls(
     assert list(columns) == ["name", "source_case", "source_score"]
     assert "large_notes" not in columns
     assert "items" not in columns
-    assert columns["name"]["ai_generated"] == 0
-    assert columns["source_case"]["ai_generated"] == 0
-    assert columns["source_score"]["ai_generated"] == 1
+    assert columns["name"]["generated"] == 0
+    assert columns["source_case"]["generated"] == 0
+    assert columns["source_score"]["generated"] == 1
     assert columns["source_score"]["format"] == "0.0"
     assert list(
         project.get_values(child_id, columns["source_case"]["id"]).values()
@@ -709,7 +709,7 @@ def test_empty_named_result_retains_parent_schema_and_replays_without_source_cel
         columns = [
             tuple(column)
             for column in env.project.db.execute(
-                "SELECT name, type, ai_generated FROM columns "
+                "SELECT name, type, generated FROM columns "
                 "WHERE sheet_id=? ORDER BY position",
                 (child_sheet_id,),
             )

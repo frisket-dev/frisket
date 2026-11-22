@@ -4,13 +4,13 @@ import { createActionComparisonApi } from '../../src/api/actionComparison';
 
 const link = { id: 1, action_id: 'map.ask', expected_sheet_id: 2, target_sheet_id: 3,
   expected_sheet_name: 'Expected', target_sheet_name: 'Source', keys: [],
-  fields: [{ expected_column_id: 4, output_column_id: 5, logical_key: 'answer' }] };
+  fields: [{ expected_column_id: 4, generated_column_id: 5, logical_key: 'answer' }] };
 const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => vi.unstubAllGlobals());
 it('normalizes generated link and bounded result defaults, preserving source identities', async () => {
   const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
     if (!init?.body) return json({ links: [link] });
-    return json({ sheet_id: 3, action_id: 'map.ask', output_columns: [], row_ids: [7], link,
+    return json({ sheet_id: 3, action_id: 'map.ask', generated_columns: [], row_ids: [7], link,
       expected: {}, expected_bounded: { 7: { answer: { preview: 'large', total_characters: 100, total_bytes: 100 } } },
       variants: [], best: {}, rule_previews: {} });
   });
@@ -32,7 +32,7 @@ it('rejects project scopes before making an evaluation request', async () => {
   expect(fetch).not.toHaveBeenCalled();
 });
 it('normalizes quote null optionals while retaining billed price and confirmation', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => json({ schema_version: 'frisket.action_compare_quote.v1',
+  vi.stubGlobal('fetch', vi.fn(async () => json({ schema_version: 'frisket.action_compare_estimate.v1',
     estimate: { rows: 1, cost: .01, cost_source: 'pricing_data', billed_cost: 10000, policy_id: 'p', pricing_key: null,
       requires_confirmation: true, promise_set_hash: 'exact' } })));
   const api = createActionComparisonApi('project');

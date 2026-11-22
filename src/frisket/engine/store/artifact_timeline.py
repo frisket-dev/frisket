@@ -16,7 +16,11 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
-from frisket.engine.store.transactions import inserted_rowid, write_transaction
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance for annotations
     from frisket.engine.store.project import Project
@@ -379,6 +383,80 @@ def _select_media_timeline(
     )
 
 
+@dataclass(frozen=True)
+class MediaTimelineSpec:
+    """Inputs for resolving or creating one media timeline anchor."""
+
+    blob_hash: str
+    duration_ms: int
+    media_type: str | None = None
+    filename: str | None = None
+    stable_id: str | None = None
+    source_sheet_id: int | None = None
+    source_row_id: int | None = None
+    source_column_id: int | None = None
+    metadata: Mapping[str, Any] | None = None
+
+
+def ensure_media_timeline_in_transaction(
+    project: Project,
+    spec: MediaTimelineSpec,
+) -> TimelineAnchor:
+    """Resolve or create the media artifact inside the caller's open transaction."""
+    duration = _positive_int(spec.duration_ms, "duration_ms")
+    if spec.stable_id is not None:
+        _validate_artifact_stable_id(spec.stable_id)
+    if spec.metadata is not None and "timeline" in spec.metadata:
+        raise TimelineError(
+            "invalid_temporal_value",
+            "metadata.timeline is reserved for host-owned timeline identity",
+        )
+    source_scope = _source_scope(
+        source_sheet_id=spec.source_sheet_id,
+        source_row_id=spec.source_row_id,
+        source_column_id=spec.source_column_id,
+    )
+    require_transaction(project.db, "media timeline")
+    blob = project.db.execute(
+        "SELECT hash, filename, mime FROM blobs WHERE hash=?", (spec.blob_hash,)
+    ).fetchone()
+    if blob is None:
+        raise TimelineError(
+            "timeline_not_found", f"blob {spec.blob_hash!r} is not stored"
+        )
+    resolved_media_type = str(
+        spec.media_type or blob["mime"] or "application/octet-stream"
+    )
+    resolved_filename = spec.filename or blob["filename"]
+    anchor = _select_media_timeline(
+        project,
+        blob_hash=spec.blob_hash,
+        duration_ms=duration,
+        source_scope=source_scope,
+        stable_id=spec.stable_id,
+    )
+
+    if anchor is None:
+        from frisket.engine.store.citations import record_source_artifact
+
+        created = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type=resolved_media_type,
+            stable_id=spec.stable_id,
+            blob_hash=spec.blob_hash,
+            filename=resolved_filename,
+            duration_ms=duration,
+            source_sheet_id=source_scope["source_sheet_id"],
+            source_row_id=source_scope["source_row_id"],
+            source_column_id=source_scope["source_column_id"],
+            metadata=dict(spec.metadata or {}),
+        )
+        anchor = resolve_artifact_timeline(project, int(created["id"]))
+
+    return anchor
+
+
 def ensure_media_timeline(
     project: Project,
     *,
@@ -393,64 +471,23 @@ def ensure_media_timeline(
     metadata: Mapping[str, Any] | None = None,
 ) -> TimelineAnchor:
     """Resolve or create the media artifact for exact bytes, duration and cell."""
-
-    duration = _positive_int(duration_ms, "duration_ms")
-    if stable_id is not None:
-        _validate_artifact_stable_id(stable_id)
-    if metadata is not None and "timeline" in metadata:
-        raise TimelineError(
-            "invalid_temporal_value",
-            "metadata.timeline is reserved for host-owned timeline identity",
-        )
-    source_scope = _source_scope(
+    spec = MediaTimelineSpec(
+        blob_hash=blob_hash,
+        duration_ms=duration_ms,
+        media_type=media_type,
+        filename=filename,
+        stable_id=stable_id,
         source_sheet_id=source_sheet_id,
         source_row_id=source_row_id,
         source_column_id=source_column_id,
+        metadata=metadata,
     )
     # The absence check and insert are one write transaction.  Without the
     # up-front write lock, two first callers can both observe no candidate and
     # then serialize two valid INSERTs because timeline equivalence is broader
-    # than any existing SQL uniqueness constraint.  Callers that already own a
-    # transaction retain ownership: this helper never commits or rolls it back.
-    with write_transaction(project.db, commit=not project.db.in_transaction):
-        blob = project.db.execute(
-            "SELECT hash, filename, mime FROM blobs WHERE hash=?", (blob_hash,)
-        ).fetchone()
-        if blob is None:
-            raise TimelineError(
-                "timeline_not_found", f"blob {blob_hash!r} is not stored"
-            )
-        resolved_media_type = str(
-            media_type or blob["mime"] or "application/octet-stream"
-        )
-        resolved_filename = filename or blob["filename"]
-        anchor = _select_media_timeline(
-            project,
-            blob_hash=blob_hash,
-            duration_ms=duration,
-            source_scope=source_scope,
-            stable_id=stable_id,
-        )
-
-        if anchor is None:
-            from frisket.engine.store.evidence import record_source_artifact
-
-            created = record_source_artifact(
-                project,
-                artifact_kind="av",
-                media_type=resolved_media_type,
-                stable_id=stable_id,
-                blob_hash=blob_hash,
-                filename=resolved_filename,
-                duration_ms=duration,
-                source_sheet_id=source_scope["source_sheet_id"],
-                source_row_id=source_scope["source_row_id"],
-                source_column_id=source_scope["source_column_id"],
-                metadata=dict(metadata or {}),
-            )
-            anchor = resolve_artifact_timeline(project, int(created["id"]))
-
-        return anchor
+    # than any existing SQL uniqueness constraint.
+    with write_transaction(project.db, what="media timeline"):
+        return ensure_media_timeline_in_transaction(project, spec)
 
 
 def ensure_transcript_timeline(
@@ -475,49 +512,82 @@ def ensure_transcript_timeline(
         if segments is not None
         else _fingerprint(ordered_segments_hash_value, "ordered_segments_hash")
     )
-    artifact = _artifact(project, ref)
-    if _mapping_rows(project, ref):
-        raise TimelineError(
-            "timeline_stale",
-            "a derived artifact cannot be finalized as a transcript timeline",
-        )
-    if artifact["blob_hash"] is not None:
-        raise TimelineError(
-            "timeline_mismatch",
-            "a synchronized media transcript must use its media timeline",
-        )
-    if artifact["duration_ms"] is not None and artifact["duration_ms"] != duration:
-        raise TimelineError(
-            "timeline_stale", "transcript artifact duration is already different"
-        )
-    metadata = _metadata(artifact)
-    stored = _transcript_timeline_metadata(metadata)
-    if stored is not None:
-        if stored["ordered_segments_hash"] != segments_hash:
+    with write_transaction(project.db, what="transcript timeline"):
+        artifact = _artifact(project, ref)
+        if _mapping_rows(project, ref):
             raise TimelineError(
                 "timeline_stale",
-                "transcript timestamped segments differ from its finalized clock",
+                "a derived artifact cannot be finalized as a transcript timeline",
             )
-        return resolve_artifact_timeline(project, ref)
+        if artifact["blob_hash"] is not None:
+            raise TimelineError(
+                "timeline_mismatch",
+                "a synchronized media transcript must use its media timeline",
+            )
+        if artifact["duration_ms"] is not None and artifact["duration_ms"] != duration:
+            raise TimelineError(
+                "timeline_stale", "transcript artifact duration is already different"
+            )
+        metadata = _metadata(artifact)
+        stored = _transcript_timeline_metadata(metadata)
+        if stored is not None:
+            if stored["ordered_segments_hash"] != segments_hash:
+                raise TimelineError(
+                    "timeline_stale",
+                    "transcript timestamped segments differ from its finalized clock",
+                )
+            return resolve_artifact_timeline(project, ref)
 
-    metadata["timeline"] = {
-        "schema_version": TRANSCRIPT_TIMELINE_SCHEMA_VERSION,
-        "kind": "transcript",
-        "ordered_segments_hash": segments_hash,
-    }
-    owns_transaction = not project.db.in_transaction
-    try:
+        metadata["timeline"] = {
+            "schema_version": TRANSCRIPT_TIMELINE_SCHEMA_VERSION,
+            "kind": "transcript",
+            "ordered_segments_hash": segments_hash,
+        }
         project.db.execute(
             "UPDATE source_artifacts SET duration_ms=?, metadata=? WHERE id=?",
             (duration, _canonical_json(metadata), ref),
         )
-        if owns_transaction:
-            project.db.commit()
-    except BaseException:
-        if owns_transaction:
-            project.db.rollback()
-        raise
-    return resolve_artifact_timeline(project, ref)
+        return resolve_artifact_timeline(project, ref)
+
+
+def _load_timeline_source(
+    project: Project,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    duration_ms: int | None,
+) -> tuple[int, int, int, TimelineSource]:
+    sheet_ref = _positive_int(sheet_id, "sheet_id")
+    row_ref = _positive_int(row_id, "row_id")
+    column_ref = _positive_int(column_id, "column_id")
+    values, refs = project.get_values_with_refs(
+        sheet_ref, column_ref, row_ids=[row_ref]
+    )
+    source = read_timeline_source(
+        project,
+        sheet_id=sheet_ref,
+        row_id=row_ref,
+        column_id=column_ref,
+        value=values.get(row_ref),
+        current_value_ref=refs.get(row_ref),
+        duration_ms=duration_ms,
+    )
+    return sheet_ref, row_ref, column_ref, source
+
+
+def _build_timeline_lease(
+    source: TimelineSource, anchor: TimelineAnchor
+) -> TimelineLease:
+    return TimelineLease(
+        anchor=anchor,
+        blob_hash=source.blob_hash,
+        media_type=source.media_type,
+        media_kind=source.media_kind,
+        filename=source.filename,
+        source_cell_ref=source.source_cell_ref,
+        current_value_ref=source.current_value_ref,
+        source_value_hash=source.source_value_hash,
+    )
 
 
 def resolve_timeline(
@@ -529,18 +599,8 @@ def resolve_timeline(
     duration_ms: int | None = None,
 ) -> TimelineLease:
     """Resolve a live audio/video/file cell and ensure its immutable timeline."""
-    sheet_id = _positive_int(sheet_id, "sheet_id")
-    row_id = _positive_int(row_id, "row_id")
-    column_id = _positive_int(column_id, "column_id")
-    values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
-    source = read_timeline_source(
-        project,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        value=values.get(row_id),
-        current_value_ref=refs.get(row_id),
-        duration_ms=duration_ms,
+    sheet_ref, row_ref, column_ref, source = _load_timeline_source(
+        project, sheet_id, row_id, column_id, duration_ms
     )
     anchor = ensure_media_timeline(
         project,
@@ -548,20 +608,39 @@ def resolve_timeline(
         duration_ms=source.duration_ms,
         media_type=source.media_type,
         filename=source.filename,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
+        source_sheet_id=sheet_ref,
+        source_row_id=row_ref,
+        source_column_id=column_ref,
     )
-    return TimelineLease(
-        anchor=anchor,
-        blob_hash=source.blob_hash,
-        media_type=source.media_type,
-        media_kind=source.media_kind,
-        filename=source.filename,
-        source_cell_ref=source.source_cell_ref,
-        current_value_ref=source.current_value_ref,
-        source_value_hash=source.source_value_hash,
+    return _build_timeline_lease(source, anchor)
+
+
+def resolve_timeline_in_transaction(
+    project: Project,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    duration_ms: int | None = None,
+) -> TimelineLease:
+    """Resolve a live media cell and ensure its timeline inside a caller transaction."""
+    require_transaction(project.db, what="resolve_timeline_in_transaction")
+    sheet_ref, row_ref, column_ref, source = _load_timeline_source(
+        project, sheet_id, row_id, column_id, duration_ms
     )
+    anchor = ensure_media_timeline_in_transaction(
+        project,
+        MediaTimelineSpec(
+            blob_hash=source.blob_hash,
+            duration_ms=source.duration_ms,
+            media_type=source.media_type,
+            filename=source.filename,
+            source_sheet_id=sheet_ref,
+            source_row_id=row_ref,
+            source_column_id=column_ref,
+        ),
+    )
+    return _build_timeline_lease(source, anchor)
 
 
 def read_timeline_source(
@@ -702,67 +781,67 @@ def write_rate1_timeline_segment(
     ):
         raise TimelineError("invalid_temporal_value", "receipt_id must be nonempty")
 
-    with write_transaction(project.db, commit=not project.db.in_transaction):
-        derived = _artifact(project, derived_id)
-        source = _artifact(project, source_id)
-        derived_duration = _artifact_duration(derived)
-        source_duration = _artifact_duration(source)
-        elapsed = end - start
-        if elapsed != derived_duration:
-            raise TimelineError(
-                "ambiguous_time_mapping",
-                "rate-1 mapping elapsed length must equal derived duration exactly",
-            )
-        if end > source_duration:
-            raise TimelineError(
-                "range_out_of_bounds", "source mapping exceeds source duration"
-            )
-        existing = _mapping_rows(project, derived_id)
-        if existing:
-            raise TimelineError(
-                "ambiguous_time_mapping",
-                "derived artifact already has a timeline mapping",
-            )
-        if _transcript_timeline_metadata(_metadata(derived)) is not None:
-            raise TimelineError(
-                "timeline_stale",
-                "a finalized transcript cannot become a derived timeline",
-            )
-
-        resolve_artifact_timeline(project, source_id)
-        ancestors = {source_id}
-        for segment in timeline_path_to_root(project, source_id):
-            ancestors.add(segment.source_artifact_id)
-        if derived_id in ancestors:
-            raise TimelineError("ambiguous_time_mapping", "timeline cycle detected")
-
-        cursor = project.db.execute(
-            "INSERT INTO artifact_timeline_segments ("
-            "derived_artifact_id, ordinal, derived_start_ms, derived_end_ms, "
-            "source_artifact_id, source_start_ms, source_end_ms, rate_num, "
-            "rate_den, precision, producer_run_id, receipt_id, params_json"
-            ") VALUES (?, 0, 0, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)",
-            (
-                derived_id,
-                elapsed,
-                source_id,
-                start,
-                end,
-                precision,
-                producer,
-                receipt_id,
-                params_json,
-            ),
+    require_transaction(project.db, "rate-1 timeline segment")
+    derived = _artifact(project, derived_id)
+    source = _artifact(project, source_id)
+    derived_duration = _artifact_duration(derived)
+    source_duration = _artifact_duration(source)
+    elapsed = end - start
+    if elapsed != derived_duration:
+        raise TimelineError(
+            "ambiguous_time_mapping",
+            "rate-1 mapping elapsed length must equal derived duration exactly",
         )
-        segment = _segment(
-            project.db.execute(
-                "SELECT * FROM artifact_timeline_segments WHERE id=?",
-                (inserted_rowid(cursor),),
-            ).fetchone()
+    if end > source_duration:
+        raise TimelineError(
+            "range_out_of_bounds", "source mapping exceeds source duration"
         )
-        _validate_v1_segment(project, segment)
-        resolve_artifact_timeline(project, derived_id)
-        return segment
+    existing = _mapping_rows(project, derived_id)
+    if existing:
+        raise TimelineError(
+            "ambiguous_time_mapping",
+            "derived artifact already has a timeline mapping",
+        )
+    if _transcript_timeline_metadata(_metadata(derived)) is not None:
+        raise TimelineError(
+            "timeline_stale",
+            "a finalized transcript cannot become a derived timeline",
+        )
+
+    resolve_artifact_timeline(project, source_id)
+    ancestors = {source_id}
+    for segment in timeline_path_to_root(project, source_id):
+        ancestors.add(segment.source_artifact_id)
+    if derived_id in ancestors:
+        raise TimelineError("ambiguous_time_mapping", "timeline cycle detected")
+
+    cursor = project.db.execute(
+        "INSERT INTO artifact_timeline_segments ("
+        "derived_artifact_id, ordinal, derived_start_ms, derived_end_ms, "
+        "source_artifact_id, source_start_ms, source_end_ms, rate_num, "
+        "rate_den, precision, producer_run_id, receipt_id, params_json"
+        ") VALUES (?, 0, 0, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)",
+        (
+            derived_id,
+            elapsed,
+            source_id,
+            start,
+            end,
+            precision,
+            producer,
+            receipt_id,
+            params_json,
+        ),
+    )
+    segment = _segment(
+        project.db.execute(
+            "SELECT * FROM artifact_timeline_segments WHERE id=?",
+            (inserted_rowid(cursor),),
+        ).fetchone()
+    )
+    _validate_v1_segment(project, segment)
+    resolve_artifact_timeline(project, derived_id)
+    return segment
 
 
 def timeline_path_to_root(
@@ -1294,6 +1373,7 @@ __all__ = [
     "DERIVED_CLOCK_POLICY",
     "MAX_TIMELINE_TRAVERSAL_DEPTH",
     "MEDIA_CLOCK_POLICY",
+    "MediaTimelineSpec",
     "ResolvedTimelineRange",
     "TIMELINE_FINGERPRINT_SCHEMA_VERSION",
     "TRANSCRIPT_CLOCK_POLICY",
@@ -1304,12 +1384,14 @@ __all__ = [
     "canonical_json_hash",
     "ensure_artifact_timeline",
     "ensure_media_timeline",
+    "ensure_media_timeline_in_transaction",
     "ensure_transcript_timeline",
     "map_range_to_root",
     "media_timeline_fingerprint",
     "ordered_segments_hash",
     "resolve_artifact_timeline",
     "resolve_timeline",
+    "resolve_timeline_in_transaction",
     "timeline_path_to_root",
     "transcript_timeline_fingerprint",
     "validate_timeline_anchor",

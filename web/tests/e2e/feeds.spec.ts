@@ -29,6 +29,7 @@ interface WireSource {
   name: string;
   url: string | null;
   schedule: string | null;
+  enabled: boolean;
 }
 
 async function sources(request: import('@playwright/test').APIRequestContext, pid: string): Promise<WireSource[]> {

@@ -24,14 +24,14 @@ ValueSanitizer = Callable[[Any], Any]
 MessageSanitizer = Callable[[str | None], str | None]
 
 ADMIN_JOB_REF_KEYS = (
-    "org_id",
+    "organization_id",
     "project_id",
     "run_id",
     "feed_id",
     "sheet_id",
     "trace_id",
 )
-INTEGER_JOB_REF_KEYS = frozenset({"org_id", "run_id", "feed_id", "sheet_id"})
+INTEGER_JOB_REF_KEYS = frozenset({"organization_id", "run_id", "feed_id", "sheet_id"})
 ADMIN_JOB_DIAGNOSTIC_KEYS = (
     "total_rows",
     "completed_rows",
@@ -622,7 +622,7 @@ def diagnostic_job_event(
         "message": sanitize_message(message),
         "stack": None,
         "route": None,
-        "org_id": refs.get("org_id"),
+        "organization_id": refs.get("organization_id"),
         "user_id": None,
         "project_id": refs.get("project_id"),
         "sheet_id": refs.get("sheet_id"),

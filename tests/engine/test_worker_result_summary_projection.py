@@ -28,7 +28,7 @@ def _job(kind: str, result: dict[str, Any]) -> Job:
         id=77,
         kind=kind,
         payload={
-            "org_id": 8,
+            "organization_id": 8,
             "project_id": "proj_worker_summary",
             "run_id": 99,
             "feed_id": 4,

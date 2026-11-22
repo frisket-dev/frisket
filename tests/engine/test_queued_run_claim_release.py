@@ -13,7 +13,7 @@ from frisket.engine.executor.queued_actions import (
 )
 from frisket.engine.jobs.queue import QUEUE_DB_NAME, SqliteJobQueue
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
@@ -91,7 +91,7 @@ def _undo_action(*, expected_op_id: int, key: str) -> dict[str, Any]:
 
 def _claim_status(project: Project, claim_token: str) -> tuple[str, str]:
     row = project.db.execute(
-        "SELECT status, details FROM output_column_claims WHERE claim_token=?",
+        "SELECT status, details FROM generated_column_claims WHERE claim_token=?",
         (claim_token,),
     ).fetchone()
     assert row is not None
@@ -122,7 +122,7 @@ def _prepare_with_synthetic_claim(
 
     claim_token = "claim:stale-recovery-test"
     with write_transaction(project.db):
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
+        _claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["rendered_note"],
             action_kind="map.extract",
@@ -141,7 +141,7 @@ def test_stale_active_claim_with_terminal_job_is_recovered(tmp_path: Path) -> No
     project, map_op_id, claim_token, queue = _prepare_with_synthetic_claim(tmp_path)
     try:
         job_id_row = project.db.execute(
-            "SELECT job_id FROM output_column_claims WHERE claim_token=?",
+            "SELECT job_id FROM generated_column_claims WHERE claim_token=?",
             (claim_token,),
         ).fetchone()
         job_id = int(job_id_row["job_id"])
@@ -216,7 +216,7 @@ def test_running_job_claim_still_blocks(tmp_path: Path) -> None:
             project_id=PROJECT_ID,
         )
         assert result.status == "failed"
-        assert result.errors[0].code == "output_column_busy"
+        assert result.errors[0].code == "generated_column_busy"
         assert result.errors[0].details["requires_recovery"] is True
 
         status, _details = _claim_status(project, claim_token)
@@ -262,7 +262,7 @@ def _seed_terminal_fallback_tuple(
     claim_token = f"claim:fallback-{suffix}"
     _seed_queued_receipt(project, receipt_id=receipt_id, run_id=run_id)
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=[f"fallback_output_{suffix}"],
             action_kind="map.extract",
@@ -355,7 +355,7 @@ def test_finalize_fallback_is_a_noop_while_run_is_still_running(
         claim_token = "claim:fallback-running-test"
         _seed_queued_receipt(project, receipt_id="receipt_fallback_running_0001")
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).acquire(
+            GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["fallback_output_running"],
                 action_kind="map.extract",

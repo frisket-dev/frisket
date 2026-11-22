@@ -38,12 +38,12 @@ function hit(start = tail): ProjectSearchHitWire {
   const text = { text_surface_id: 'cell:20:7', content_hash: 'hash', start, end: start + 6 };
   return {
     source: { source_id: 'cell:20:7', source_kind: 'text', version_kind: 'retrieval_revision', version_value: 9, content_hash: 'hash' },
-    part: { part_id: 'tail', part_kind: 'text_chunk', producer_recipe_id: 'text-v1' },
+    part: { part_id: 'tail', part_kind: 'text_chunk', producer_slice_id: 'text-v1' },
     binding: { binding_id: 'binding:20:7', sheet_id: 2, row_id: 20, column_id: 7,
       dependencies: [{ row_id: 20, column_id: 7, retrieval_revision: 9 }] },
     location: { kind: 'text', precision: 'exact', text, pages: null, time: null, source_span_ids: [] },
     column_name: 'body', score: 1, rerank_score: null, contributions: [], snippet: 'needle',
-    ai_generated: false, additional_binding_count: 0,
+    generated: false, additional_binding_count: 0,
     navigation: { kind: 'cell', sheet_id: 2, row_id: 20, column_id: 7, text_range: text },
   };
 }
@@ -57,7 +57,7 @@ beforeEach(() => {
   windowRequests.length = 0;
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
-    const column = { id: 7, name: 'body', type: columnType, ai_generated: false, format: null,
+    const column = { id: 7, name: 'body', type: columnType, generated: false, format: null,
       current_run_id: null, transcript_status: null, media_download_candidate: null };
     if (url.pathname.endsWith('/sheets')) return json([1, 2].map((id) => ({ id, name: `Sheet ${id}`, rows: 1,
       parent_sheet_id: null, parent_op_id: null, title_column_id: null, cited_column_ids: [],

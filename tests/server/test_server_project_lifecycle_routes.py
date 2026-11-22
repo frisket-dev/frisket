@@ -123,7 +123,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
                     "id": column_id,
                     "name": "Title",
                     "type": "text",
-                    "ai_generated": False,
+                    "generated": False,
                     "format": None,
                     "semantic_type": None,
                     "current_run_id": None,

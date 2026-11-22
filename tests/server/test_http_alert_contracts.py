@@ -20,7 +20,7 @@ from pydantic import BaseModel, JsonValue, RootModel, ValidationError
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
-from frisket.features.alerts.events import ALERT_CHECK_EVENT_SCHEMA_VERSION
+from frisket.alerts.events import ALERT_CHECK_EVENT_SCHEMA_VERSION
 from frisket.server.app import create_app
 from frisket.search_index import drain_index
 from tests.alert_helpers import post_alert
@@ -55,11 +55,11 @@ _ALERT_NULLABLE_FIELDS = frozenset(
         "latest_run",
     }
 )
-# SELECT * over `watch_runs` with resolved_query decoded.
+# SELECT * over `alert_checks` with resolved_query decoded.
 _RUN_FIELDS = frozenset(
     {
         "id",
-        "watch_id",
+        "alert_id",
         "status",
         "op_cursor_before",
         "op_cursor_after",
@@ -81,13 +81,13 @@ _RUN_NULLABLE_FIELDS = frozenset(
         "finished_at",
     }
 )
-# SELECT * over `watch_run_hits` with is_new coerced to bool.
+# SELECT * over `alert_check_hits` with is_new coerced to bool.
 _HIT_FIELDS = frozenset(
     {"run_id", "sheet_id", "row_id", "column_id", "rank", "snippet", "is_new"}
 )
 _HIT_NULLABLE_FIELDS = frozenset({"column_id", "snippet"})
 _RUN_WITH_HITS_EXTRA_FIELDS = frozenset({"hits", "hits_limit", "hits_truncated"})
-_RUN_RESULT_FIELDS = frozenset({"schema_version", "watch", "run", "hits"})
+_RUN_RESULT_FIELDS = frozenset({"schema_version", "alert", "run", "hits"})
 _RUNS_PAGE_FIELDS = frozenset(
     {
         "schema_version",
@@ -106,7 +106,7 @@ _EVENT_FIELDS = frozenset(
     {
         "id",
         "run_id",
-        "watch_id",
+        "alert_id",
         "event_kind",
         "subject_kind",
         "subject_ref",
@@ -169,56 +169,56 @@ class RouteTruth:
 
 
 ROUTES: dict[str, RouteTruth] = {
-    "list_watches": RouteTruth(
-        path="/api/projects/{pid}/watches",
+    "list_alerts": RouteTruth(
+        path="/api/projects/{pid}/alerts",
         method="GET",
         errors=_GET_NO_QUERY_ERRORS,
-        response="WatchList",
+        response="AlertList",
     ),
-    "create_watch": RouteTruth(
-        path="/api/projects/{pid}/watches",
+    "create_alert": RouteTruth(
+        path="/api/projects/{pid}/alerts",
         method="POST",
         errors=_POST_ERRORS,
-        response="Watch",
-        request="WatchCreateRequest",
+        response="Alert",
+        request="AlertCreateRequest",
     ),
-    "patch_watch": RouteTruth(
-        path="/api/projects/{pid}/watches/{watch_id}",
+    "patch_alert": RouteTruth(
+        path="/api/projects/{pid}/alerts/{alert_id}",
         method="PATCH",
         errors=_POST_ERRORS,
-        response="Watch",
-        request="WatchPatchRequest",
+        response="Alert",
+        request="AlertPatchRequest",
     ),
-    "delete_watch": RouteTruth(
-        path="/api/projects/{pid}/watches/{watch_id}",
+    "delete_alert": RouteTruth(
+        path="/api/projects/{pid}/alerts/{alert_id}",
         method="DELETE",
         errors=_DELETE_ERRORS,
-        response="WatchDelete",
+        response="AlertDelete",
     ),
-    # run_watch remains BODYLESS: an event-triggered evaluation with no
-    # request payload today and none after the migration.
-    "run_watch": RouteTruth(
-        path="/api/projects/{pid}/watches/{watch_id}/run",
+    # check_alert remains BODYLESS: an event-triggered evaluation with no
+    # request payload.
+    "check_alert": RouteTruth(
+        path="/api/projects/{pid}/alerts/{alert_id}/check",
         method="POST",
         errors=_POST_ERRORS,
-        response="WatchRunResult",
+        response="AlertCheckResult",
     ),
-    "list_watch_runs": RouteTruth(
-        path="/api/projects/{pid}/watches/{watch_id}/runs",
+    "list_alert_checks": RouteTruth(
+        path="/api/projects/{pid}/alerts/{alert_id}/checks",
         method="GET",
         errors=_GET_PAGED_ERRORS,
-        response="WatchRunsPage",
+        response="AlertChecksPage",
         query={
             "offset": QueryTruth(0, {"ge": 0}),
             "limit": QueryTruth(20, {"ge": 1, "le": 100}),
             "hits_limit": QueryTruth(20, {"ge": 1, "le": 500}),
         },
     ),
-    "list_watch_run_events": RouteTruth(
-        path="/api/projects/{pid}/watches/{watch_id}/runs/{run_id}/events",
+    "list_alert_check_events": RouteTruth(
+        path="/api/projects/{pid}/alerts/{alert_id}/checks/{check_id}/events",
         method="GET",
         errors=_EVENTS_ERRORS,
-        response="WatchRunEventsPage",
+        response="AlertCheckEventsPage",
         query={
             "offset": QueryTruth(0, {"ge": 0}),
             "limit": QueryTruth(50, {"ge": 1, "le": 100}),
@@ -229,13 +229,13 @@ ROUTES: dict[str, RouteTruth] = {
 
 OPERATION_IDS = frozenset(
     {
-        "tenant.list_watches.get",
-        "tenant.create_watch.post",
-        "tenant.patch_watch.patch",
-        "tenant.delete_watch.delete",
-        "tenant.run_watch.post",
-        "tenant.list_watch_runs.get",
-        "tenant.list_watch_run_events.get",
+        "tenant.list_alerts.get",
+        "tenant.create_alert.post",
+        "tenant.patch_alert.patch",
+        "tenant.delete_alert.delete",
+        "tenant.check_alert.post",
+        "tenant.list_alert_checks.get",
+        "tenant.list_alert_check_events.get",
     }
 )
 
@@ -348,7 +348,7 @@ def _query_bounds(query_field: Any) -> dict[str, int]:
 def _run_payload(run_id: int, *, alert_id: int = 1) -> dict[str, Any]:
     return {
         "id": run_id,
-        "watch_id": alert_id,
+        "alert_id": alert_id,
         "status": "ok",
         "op_cursor_before": 0,
         "op_cursor_after": 3,
@@ -399,7 +399,7 @@ def _event_payload(event_id: int) -> dict[str, Any]:
     return {
         "id": event_id,
         "run_id": 4,
-        "watch_id": 1,
+        "alert_id": 1,
         "event_kind": "row_entered",
         "subject_kind": "row",
         "subject_ref": {"sheet_id": 3, "row_id": 7},
@@ -500,7 +500,7 @@ def test_alert_routes_declare_exact_typed_route_shapes(
 
 def test_alert_create_request_is_closed_strict_and_query_authoritative() -> None:
     contracts = _contracts()
-    request = _model(contracts, "WatchCreateRequest")
+    request = _model(contracts, "AlertCreateRequest")
     assert request.model_config.get("strict") is True
     assert request.model_config.get("extra") == "forbid"
     assert set(request.model_fields) == _CREATE_REQUEST_FIELDS
@@ -539,7 +539,7 @@ def test_alert_create_request_is_closed_strict_and_query_authoritative() -> None
 
 def test_alert_patch_request_is_closed_nonempty_and_validated() -> None:
     contracts = _contracts()
-    request = _model(contracts, "WatchPatchRequest")
+    request = _model(contracts, "AlertPatchRequest")
     assert request.model_config.get("strict") is True
     assert request.model_config.get("extra") == "forbid"
     assert set(request.model_fields) == _PATCH_REQUEST_FIELDS
@@ -567,11 +567,11 @@ def test_alert_patch_request_is_closed_nonempty_and_validated() -> None:
 
 def test_alert_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
     contracts = _contracts()
-    alert = _model(contracts, "Watch")
-    alert_list = _model(contracts, "WatchList")
-    run = _model(contracts, "WatchRun")
-    run_with_hits = _model(contracts, "WatchRunWithHits")
-    hit = _model(contracts, "WatchHit")
+    alert = _model(contracts, "Alert")
+    alert_list = _model(contracts, "AlertList")
+    run = _model(contracts, "AlertCheck")
+    run_with_hits = _model(contracts, "AlertCheckWithHits")
+    hit = _model(contracts, "AlertCheckHit")
 
     for model in (alert, run, run_with_hits, hit):
         assert issubclass(model, WireModel)
@@ -580,7 +580,7 @@ def test_alert_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
 
     run_annotations = {
         "id": int,
-        "watch_id": int,
+        "alert_id": int,
         "status": str,
         "op_cursor_before": int,
         "op_cursor_after": int,
@@ -714,14 +714,14 @@ def test_alert_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
 
 def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
     contracts = _contracts()
-    alert = _model(contracts, "Watch")
-    run = _model(contracts, "WatchRun")
-    run_with_hits = _model(contracts, "WatchRunWithHits")
-    hit = _model(contracts, "WatchHit")
-    result = _model(contracts, "WatchRunResult")
-    runs_page = _model(contracts, "WatchRunsPage")
-    event = _model(contracts, "WatchRunEvent")
-    events_page = _model(contracts, "WatchRunEventsPage")
+    alert = _model(contracts, "Alert")
+    run = _model(contracts, "AlertCheck")
+    run_with_hits = _model(contracts, "AlertCheckWithHits")
+    hit = _model(contracts, "AlertCheckHit")
+    result = _model(contracts, "AlertCheckResult")
+    runs_page = _model(contracts, "AlertChecksPage")
+    event = _model(contracts, "AlertCheckEvent")
+    events_page = _model(contracts, "AlertCheckEventsPage")
 
     for model in (result, runs_page, event, events_page):
         assert issubclass(model, WireModel)
@@ -736,8 +736,8 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
         name: model_field.annotation
         for name, model_field in result.model_fields.items()
     } == {
-        "schema_version": Literal["frisket.watch_run.v1"],
-        "watch": alert,
+        "schema_version": Literal["frisket.alert_check.v1"],
+        "alert": alert,
         "run": run,
         "hits": list[hit],
     }
@@ -745,7 +745,7 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
         name: model_field.annotation
         for name, model_field in runs_page.model_fields.items()
     } == {
-        "schema_version": Literal["frisket.watch_runs_page.v1"],
+        "schema_version": Literal["frisket.alert_checks_page.v1"],
         "order": Literal["desc"],
         "offset": int,
         "limit": int,
@@ -760,7 +760,7 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
     } == {
         "id": int,
         "run_id": int,
-        "watch_id": int,
+        "alert_id": int,
         "event_kind": str,
         "subject_kind": str,
         "subject_ref": dict[str, JsonValue],
@@ -776,7 +776,7 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
         name: model_field.annotation
         for name, model_field in events_page.model_fields.items()
     } == {
-        "schema_version": Literal["frisket.watch_run_events_page.v1"],
+        "schema_version": Literal["frisket.alert_check_events_page.v1"],
         "order": Literal["asc"],
         "offset": int,
         "limit": int,
@@ -789,23 +789,23 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
     _assert_required_nullable(events_page, frozenset({"next_offset"}))
     _assert_required_nullable(event, _EVENT_NULLABLE_FIELDS)
     # The events-page literal is the producer's own constant.
-    assert ALERT_CHECK_EVENT_SCHEMA_VERSION == "frisket.watch_run_events_page.v1"
+    assert ALERT_CHECK_EVENT_SCHEMA_VERSION == "frisket.alert_check_events_page.v1"
 
     run_payload = _run_payload(4)
     result_payload = {
-        "schema_version": "frisket.watch_run.v1",
-        "watch": _alert_payload(1, latest_run=run_payload),
+        "schema_version": "frisket.alert_check.v1",
+        "alert": _alert_payload(1, latest_run=run_payload),
         "run": run_payload,
         "hits": [_hit_payload(1)],
     }
     result_wire = result.model_validate(result_payload)
     assert result_wire.model_dump() == result_payload
-    assert isinstance(result_wire.watch, alert)
+    assert isinstance(result_wire.alert, alert)
     assert isinstance(result_wire.run, run)
     assert isinstance(result_wire.hits[0], hit)
 
     runs_page_payload = {
-        "schema_version": "frisket.watch_runs_page.v1",
+        "schema_version": "frisket.alert_checks_page.v1",
         "order": "desc",
         "offset": 0,
         "limit": 20,
@@ -828,7 +828,7 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
 
     event_payload = _event_payload(1)
     events_page_payload = {
-        "schema_version": "frisket.watch_run_events_page.v1",
+        "schema_version": "frisket.alert_check_events_page.v1",
         "order": "asc",
         "offset": 0,
         "limit": 50,
@@ -850,7 +850,7 @@ def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
         events_page.model_validate({**events_page_payload, "order": "desc"})
     with pytest.raises(ValidationError):
         events_page.model_validate(
-            {**events_page_payload, "schema_version": "frisket.watch_runs_page.v1"}
+            {**events_page_payload, "schema_version": "frisket.alert_checks_page.v1"}
         )
     with pytest.raises(ValidationError):
         event.model_validate({**event_payload, "created_at": None})
@@ -880,11 +880,11 @@ def test_live_alert_routes_preserve_their_current_payloads(tmp_path: Path) -> No
     project_id = str(workspace.create("live watches")["id"])
 
     with TestClient(app) as client:
-        assert client.get(f"/api/projects/{project_id}/watches").json() == []
+        assert client.get(f"/api/projects/{project_id}/alerts").json() == []
 
         created = post_alert(
             client,
-            f"/api/projects/{project_id}/watches",
+            f"/api/projects/{project_id}/alerts",
             json={
                 "name": "Budget",
                 "query": {"kind": "fts", "q": "budget"},
@@ -907,7 +907,7 @@ def test_live_alert_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         alert_id = alert["id"]
 
         renamed = client.patch(
-            f"/api/projects/{project_id}/watches/{alert_id}",
+            f"/api/projects/{project_id}/alerts/{alert_id}",
             json={"name": "  Renamed budget  "},
         )
         assert renamed.status_code == 200, renamed.text
@@ -916,34 +916,34 @@ def test_live_alert_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         assert renamed.json()["enabled"] is True
 
         paused = client.patch(
-            f"/api/projects/{project_id}/watches/{alert_id}", json={"enabled": False}
+            f"/api/projects/{project_id}/alerts/{alert_id}", json={"enabled": False}
         )
         assert paused.status_code == 200, paused.text
         assert paused.json()["enabled"] is False
         assert paused.json()["name"] == "Renamed budget"
 
         drain_index(workspace.get(project_id))
-        run_result = client.post(f"/api/projects/{project_id}/watches/{alert_id}/run")
+        run_result = client.post(f"/api/projects/{project_id}/alerts/{alert_id}/check")
         assert run_result.status_code == 200, run_result.text
         body = run_result.json()
         assert set(body) == _RUN_RESULT_FIELDS
-        assert body["schema_version"] == "frisket.watch_run.v1"
-        assert set(body["watch"]) == _ALERT_FIELDS
+        assert body["schema_version"] == "frisket.alert_check.v1"
+        assert set(body["alert"]) == _ALERT_FIELDS
         assert set(body["run"]) == _RUN_FIELDS
         assert body["run"]["status"] == "ok"
         assert body["hits"] == []
-        assert set(body["watch"]["latest_run"]) == _RUN_FIELDS
+        assert set(body["alert"]["latest_run"]) == _RUN_FIELDS
 
-        listed = client.get(f"/api/projects/{project_id}/watches")
+        listed = client.get(f"/api/projects/{project_id}/alerts")
         assert listed.status_code == 200
         assert [set(row) for row in listed.json()] == [_ALERT_FIELDS]
         assert set(listed.json()[0]["latest_run"]) == _RUN_FIELDS
 
-        runs = client.get(f"/api/projects/{project_id}/watches/{alert_id}/runs")
+        runs = client.get(f"/api/projects/{project_id}/alerts/{alert_id}/checks")
         assert runs.status_code == 200
         runs_body = runs.json()
         assert set(runs_body) == _RUNS_PAGE_FIELDS
-        assert runs_body["schema_version"] == "frisket.watch_runs_page.v1"
+        assert runs_body["schema_version"] == "frisket.alert_checks_page.v1"
         assert runs_body["order"] == "desc"
         assert runs_body["offset"] == 0
         assert runs_body["limit"] == 20
@@ -959,12 +959,12 @@ def test_live_alert_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         run_id = runs_body["runs"][0]["id"]
 
         events = client.get(
-            f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
+            f"/api/projects/{project_id}/alerts/{alert_id}/checks/{run_id}/events"
         )
         assert events.status_code == 200
         events_body = events.json()
         assert set(events_body) == _EVENTS_PAGE_FIELDS
-        assert events_body["schema_version"] == "frisket.watch_run_events_page.v1"
+        assert events_body["schema_version"] == "frisket.alert_check_events_page.v1"
         assert events_body["order"] == "asc"
         assert events_body["offset"] == 0
         assert events_body["limit"] == 50
@@ -972,9 +972,9 @@ def test_live_alert_routes_preserve_their_current_payloads(tmp_path: Path) -> No
 
         # Unknown query keys stay ignored, never rejected.
         for path in (
-            f"/api/projects/{project_id}/watches?unrecognized=1",
-            f"/api/projects/{project_id}/watches/{alert_id}/runs?unrecognized=1",
-            f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
+            f"/api/projects/{project_id}/alerts?unrecognized=1",
+            f"/api/projects/{project_id}/alerts/{alert_id}/checks?unrecognized=1",
+            f"/api/projects/{project_id}/alerts/{alert_id}/checks/{run_id}/events"
             "?unrecognized=1",
         ):
             assert client.get(path).status_code == 200, path
@@ -988,7 +988,7 @@ def test_alert_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
     with TestClient(app) as client:
         alert_id = post_alert(
             client,
-            f"/api/projects/{project_id}/watches",
+            f"/api/projects/{project_id}/alerts",
             json={
                 "name": "W",
                 "query": {"kind": "fts", "q": "x"},
@@ -996,11 +996,11 @@ def test_alert_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         ).json()["id"]
         drain_index(workspace.get(project_id))
         run_id = client.post(
-            f"/api/projects/{project_id}/watches/{alert_id}/run"
+            f"/api/projects/{project_id}/alerts/{alert_id}/check"
         ).json()["run"]["id"]
 
         bad_kind = client.post(
-            f"/api/projects/{project_id}/watches",
+            f"/api/projects/{project_id}/alerts",
             json={
                 "name": "W2",
                 "query": {"kind": "unsupported"},
@@ -1009,7 +1009,7 @@ def test_alert_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         assert bad_kind.status_code == 422
 
         retired_source = client.post(
-            f"/api/projects/{project_id}/watches",
+            f"/api/projects/{project_id}/alerts",
             json={
                 "name": "W3",
                 "query": {"kind": "fts", "q": "x"},
@@ -1018,35 +1018,35 @@ def test_alert_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         )
         assert retired_source.status_code == 422
 
-        missing_alert = client.post(f"/api/projects/{project_id}/watches/9999/run")
+        missing_alert = client.post(f"/api/projects/{project_id}/alerts/9999/check")
         assert missing_alert.status_code == 404
         assert missing_alert.json() == {"detail": "alert not found"}
 
         for body in ({}, {"name": "   "}, {"name": None}, {"enabled": None}):
             invalid_patch = client.patch(
-                f"/api/projects/{project_id}/watches/{alert_id}", json=body
+                f"/api/projects/{project_id}/alerts/{alert_id}", json=body
             )
             assert invalid_patch.status_code in {400, 422}, invalid_patch.text
 
         assert (
             client.patch(
-                f"/api/projects/{project_id}/watches/9999", json={"enabled": True}
+                f"/api/projects/{project_id}/alerts/9999", json={"enabled": True}
             ).status_code
             == 404
         )
-        assert client.delete(f"/api/projects/{project_id}/watches/9999").json() == {
+        assert client.delete(f"/api/projects/{project_id}/alerts/9999").json() == {
             "detail": "alert not found"
         }
         assert (
-            client.get(f"/api/projects/{project_id}/watches/9999/runs").status_code
+            client.get(f"/api/projects/{project_id}/alerts/9999/checks").status_code
             == 404
         )
         assert client.get(
-            f"/api/projects/{project_id}/watches/{alert_id}/runs/9999/events"
+            f"/api/projects/{project_id}/alerts/{alert_id}/checks/9999/events"
         ).json() == {"detail": "alert check not found"}
 
         bad_event_kind = client.get(
-            f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
+            f"/api/projects/{project_id}/alerts/{alert_id}/checks/{run_id}/events"
             "?event_kind=bad"
         )
         assert bad_event_kind.status_code == 400
@@ -1055,32 +1055,32 @@ def test_alert_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         # Existing paging bounds stay route-level 422s.
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{alert_id}/runs?limit=101"
+                f"/api/projects/{project_id}/alerts/{alert_id}/checks?limit=101"
             ).status_code
             == 422
         )
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{alert_id}/runs?offset=-1"
+                f"/api/projects/{project_id}/alerts/{alert_id}/checks?offset=-1"
             ).status_code
             == 422
         )
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{alert_id}/runs?hits_limit=501"
+                f"/api/projects/{project_id}/alerts/{alert_id}/checks?hits_limit=501"
             ).status_code
             == 422
         )
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
+                f"/api/projects/{project_id}/alerts/{alert_id}/checks/{run_id}/events"
                 "?limit=101"
             ).status_code
             == 422
         )
 
-        for suffix in ("", f"/{alert_id}/runs"):
-            missing = client.get(f"/api/projects/missing/watches{suffix}")
+        for suffix in ("", f"/{alert_id}/checks"):
+            missing = client.get(f"/api/projects/missing/alerts{suffix}")
             assert missing.status_code == 404
             assert missing.json() == {"detail": "no project 'missing'"}
 
@@ -1090,7 +1090,7 @@ def test_alert_schedule_default_manual_patch_and_invalid_schedule(tmp_path):
     workspace = app.state.workspace
     project_id = str(workspace.create("schedule")["id"])
     with TestClient(app) as client:
-        path = f"/api/projects/{project_id}/watches"
+        path = f"/api/projects/{project_id}/alerts"
         created = post_alert(
             client, path, json={"name": "W", "query": {"kind": "fts", "q": "x"}}
         )

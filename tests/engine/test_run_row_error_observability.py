@@ -207,8 +207,8 @@ class TestRowErrorSummaryShape:
                 "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
             ).fetchone()[0]
         )
-        first = project.add_column(sheet, "first", type="text", ai_generated=True)
-        second = project.add_column(sheet, "second", type="text", ai_generated=True)
+        first = project.add_column(sheet, "first", type="text", generated=True)
+        second = project.add_column(sheet, "second", type="text", generated=True)
         op = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(op, sheet, "map.classify", total_rows=1)
@@ -286,7 +286,7 @@ class TestRowErrorSummaryShape:
                 "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet,)
             )
         ]
-        ai_col = project.add_column(sheet, "result", type="text", ai_generated=True)
+        ai_col = project.add_column(sheet, "result", type="text", generated=True)
         op = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(op, sheet, "map.classify", total_rows=2)

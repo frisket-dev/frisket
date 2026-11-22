@@ -1642,6 +1642,7 @@ def test_ops_engine_roster_equals_the_contract_symbolic_set():
 def test_every_symbolic_engine_validates_through_the_params_model():
     from frisket.contracts.action import TRANSCRIBE_SYMBOLIC_ENGINES
 
+    assert TRANSCRIBE_SYMBOLIC_ENGINES
     for engine in sorted(TRANSCRIBE_SYMBOLIC_ENGINES):
         params = TranscribeParams.model_validate({"source": "audio", "engine": engine})
         assert params.engine.root == engine
@@ -1657,9 +1658,9 @@ def test_catalog_roster_carries_every_listed_table_engine_with_its_label():
         {"configured": False, "available": False, "engines": [], "error": None}
     )
     by_id = {e["id"]: e for e in hints["media.transcribe"]["engines"]}
-    for decl in TRANSCRIBE_ENGINE_TABLE:
-        if not decl.listed:
-            continue
+    listed = [decl for decl in TRANSCRIBE_ENGINE_TABLE if decl.listed]
+    assert listed
+    for decl in listed:
         assert decl.id in by_id, f"table engine {decl.id!r} missing from catalog"
         assert by_id[decl.id]["label"] == decl.label
 

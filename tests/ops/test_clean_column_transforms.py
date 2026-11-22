@@ -326,10 +326,18 @@ def test_transform_bools_apply_directly():
     assert _clean("$50", case="smart_title", make_numeric=True) == 50
 
 
-@pytest.mark.parametrize("case", ["keep", "title", "upper", "lower", "smart_title"])
-def test_new_style_case_values_accepted(case):
-    # Smoke: every rendered case value runs without error.
-    assert _clean("acme corp", **_with(case=case)) is not None
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("keep", "acme corp"),
+        ("title", "Acme Corp"),
+        ("upper", "ACME CORP"),
+        ("lower", "acme corp"),
+        ("smart_title", "Acme Corp"),
+    ],
+)
+def test_new_style_case_values_accepted(case, expected):
+    assert _clean("acme corp", **_with(case=case)) == expected
 
 
 def test_params_reject_deleted_profile_and_unknown_case():

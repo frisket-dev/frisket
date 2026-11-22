@@ -19,6 +19,7 @@ from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_blobs import MediaBlobStore, update_blob_metadata
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.provider import ExecutionLimitExceeded, enforce_pdf_page_limit
 from frisket.ops.integrations import natural_pdf
 from frisket.ops.pdf_tables import _pdf_table_extract_options, _pdf_table_records
@@ -124,10 +125,12 @@ class _BoundPdfTablesReader:
         ):
             raise RowError("stale_input", "PDF source differs from its admitted cell.")
         try:
-            options = PdfTableOptions(
-                mode=mode,
-                table_mode=table_mode,
-                extract_table={} if extract_table is None else extract_table,
+            options = PdfTableOptions.model_validate(
+                {
+                    "mode": mode,
+                    "table_mode": table_mode,
+                    "extract_table": {} if extract_table is None else extract_table,
+                }
             )
         except ValueError:
             raise RowError(
@@ -333,9 +336,11 @@ class PdfResultEvidence:
                     continue
                 ReceiptStore(project).record_pdf_table_read(
                     fact,
-                    run_id=run_id,
-                    writer_attempt_id=writer,
-                    claim_token=claim_token,
+                    fence=WriterFence.claimed(
+                        run_id=run_id,
+                        writer_attempt_id=writer,
+                        claim_token=claim_token,
+                    ),
                 )
         for row_id in rows:
             self._pending.pop(row_id, None)

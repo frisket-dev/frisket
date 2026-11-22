@@ -53,7 +53,7 @@ def test_mint_stores_only_the_hash_and_authenticate_round_trips(
     tmp_path: Path,
 ) -> None:
     engine = _engine(tmp_path)
-    raw, token_id = mint_operator_token(engine, org_id=1, label="laptop")
+    raw, token_id = mint_operator_token(engine, organization_id=1, label="laptop")
     assert raw.startswith(OPERATOR_TOKEN_PREFIX)
     with engine.connect() as cx:
         row = cx.execute(
@@ -64,7 +64,7 @@ def test_mint_stores_only_the_hash_and_authenticate_round_trips(
     assert row.label == "laptop"
     assert row.revoked_at is None
 
-    service = OperatorTokenService(engine, org_id=1)
+    service = OperatorTokenService(engine, organization_id=1)
     actor = service.authenticate(f"Bearer {raw}")
     assert actor is not None
     assert actor["auth"] == "operator"
@@ -85,8 +85,8 @@ def test_mint_stores_only_the_hash_and_authenticate_round_trips(
 
 def test_operator_actor_never_gains_a_membership(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    raw, _ = mint_operator_token(engine, org_id=1)
-    service = OperatorTokenService(engine, org_id=1)
+    raw, _ = mint_operator_token(engine, organization_id=1)
+    service = OperatorTokenService(engine, organization_id=1)
     actor = service.authenticate(f"Bearer {raw}")
     assert actor is not None
     with engine.connect() as cx:
@@ -106,8 +106,8 @@ def test_rotate_invalidates_the_old_token_and_carries_the_label(
     tmp_path: Path,
 ) -> None:
     engine = _engine(tmp_path)
-    raw, token_id = mint_operator_token(engine, org_id=1, label="laptop")
-    service = OperatorTokenService(engine, org_id=1)
+    raw, token_id = mint_operator_token(engine, organization_id=1, label="laptop")
+    service = OperatorTokenService(engine, organization_id=1)
     new_raw, label = service.rotate(token_id=token_id)
     assert label == "laptop"
     assert new_raw != raw
@@ -135,7 +135,9 @@ def test_control_cli_mints_a_usable_token_via_env_resolution(
     assert control_main(["token", "mint", "--label", "initial"]) == 0
     raw = capsys.readouterr().out.strip()
     assert raw.startswith(OPERATOR_TOKEN_PREFIX)
-    actor = OperatorTokenService(engine, org_id=1).authenticate(f"Bearer {raw}")
+    actor = OperatorTokenService(engine, organization_id=1).authenticate(
+        f"Bearer {raw}"
+    )
     assert actor is not None and actor["operator_label"] == "initial"
 
 
@@ -151,7 +153,7 @@ def test_control_cli_standalone_data_dir_fallback(
     assert resolve_control_database_url() == f"sqlite:///{data_dir / 'server.sqlite3'}"
     assert control_main(["token", "mint"]) == 0
     raw = capsys.readouterr().out.strip()
-    assert OperatorTokenService(engine, org_id=1).authenticate(f"Bearer {raw}")
+    assert OperatorTokenService(engine, organization_id=1).authenticate(f"Bearer {raw}")
 
 
 def test_control_cli_refuses_without_a_database(
@@ -168,13 +170,15 @@ def test_unclaimed_server_admits_only_the_operator_admin_api(
     tmp_path: Path,
 ) -> None:
     app = _app(tmp_path)
-    raw, _ = mint_operator_token(app.state.control_engine, org_id=1, label="install")
+    raw, _ = mint_operator_token(
+        app.state.control_engine, organization_id=1, label="install"
+    )
     client = TestClient(app)
     bearer = {"Authorization": f"Bearer {raw}"}
     assert client.get("/api/admin/ping").status_code == 503
     ping = client.get("/api/admin/ping", headers=bearer)
     assert ping.status_code == 200, ping.text
-    assert ping.json()["org"] == "Ops Desk"
+    assert ping.json()["organization"] == "Ops Desk"
     assert ping.json()["token_label"] == "install"
     # Only /api/admin/* passes pre-claim; organization-owner power does not open the
     # rest of the unclaimed server.

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import sqlite3
 
@@ -16,470 +17,448 @@ from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
-def _store(tmp_path) -> tuple[Project, ProjectQAStore]:
-    project = Project.create(tmp_path / "ask.frisket", name="Ask")
+def _store(make_project) -> tuple[Project, ProjectQAStore]:
+    project = make_project("Ask")
     return project, ProjectQAStore(project)
 
 
-def test_turn_usage_keeps_unknown_counts_in_mixed_calls(tmp_path):
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(title="Ask")
-        turn = store.submit_turn(
-            thread["id"], request_id="unknown-usage", question="One"
-        )
-        for known in (True, False):
-            accounting = wire_accounting_meta(
-                "anthropic/test",
-                [
-                    LLMResponse(
-                        content="ok",
-                        data=None,
-                        tokens_in=7 if known else 0,
-                        tokens_out=4 if known else 0,
-                        cost=None,
-                        model="anthropic/test",
-                        provider="anthropic",
-                        usage_available=known,
-                    )
-                ],
-            )
-            [call] = accounting["model_calls"]
-            store.record_usage(
-                turn["id"],
-                call_id=call["id"],
-                calls=[call],
-                payload={
-                    "call_id": call["id"],
-                    "tokens_in": accounting["tokens_in"],
-                    "tokens_out": accounting["tokens_out"],
-                    "cost": None,
-                },
-            )
-            if known:
-                store.append_event(
-                    turn["id"], kind="usage", payload={"operation": "search", "cost": 0}
-                )
-                summary, _ = store._usage_summary(project.db, turn["id"])
-                assert summary["tokens_in"] == 7 and summary["tokens_out"] == 4
-        finished = store.finish_turn(turn["id"], status="completed")
-        assert finished["usage"] == {"calls": 3, "tokens_in": None, "tokens_out": None}
-        assert finished["cost_actual"] is None
-    finally:
-        project.close()
-
-
-def test_threads_keep_project_scope_preferences_creator_and_revision(tmp_path) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(
-            title="Investigate",
-            scope={"kind": "project"},
-            model=None,
-            created_by="reporter",
-        )
-        assert thread == {
-            "id": thread["id"],
-            "title": "Investigate",
-            "scope": {"kind": "project"},
-            "model": None,
-            "web": False,
-            "suggest_actions": True,
-            "research": None,
-            "revision": 1,
-            "created_by": "reporter",
-            "created_at": thread["created_at"],
-            "updated_at": thread["updated_at"],
-        }
-
-        changed = store.update_thread(
-            thread["id"],
-            expected_revision=1,
-            scope={
-                "kind": "sources",
-                "sources": [{"kind": "rows", "sheet_id": 4, "row_ids": [8, 9]}],
-            },
-            model="openrouter/test",
-            web=True,
-            suggest_actions=False,
-        )
-        assert changed["revision"] == 2
-        assert changed["scope"]["sources"][0]["row_ids"] == [8, 9]
-        unchanged_scope = store.update_thread(
-            thread["id"], expected_revision=2, scope=None, model=None
-        )
-        assert unchanged_scope["scope"]["sources"][0]["row_ids"] == [8, 9]
-        assert unchanged_scope["model"] is None
-        with pytest.raises(ProjectQAConflictError, match="revision"):
-            store.update_thread(thread["id"], expected_revision=1, title="stale")
-    finally:
-        project.close()
-
-
-def test_scope_normalizes_overlaps_and_bounds_unique_selected_rows(tmp_path) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(
-            title="Scoped",
-            scope={
-                "kind": "sources",
-                "sources": [
-                    {"kind": "rows", "sheet_id": 2, "row_ids": [3, 3, 4]},
-                    {"kind": "rows", "sheet_id": 2, "row_ids": [4, 5]},
-                    {"kind": "file", "sheet_id": 2, "row_id": 3, "column_id": 7},
-                    {"kind": "sheet", "sheet_id": 2},
-                    {"kind": "file", "sheet_id": 2, "row_id": 3, "column_id": 7},
-                ],
-            },
-        )
-        assert thread["scope"] == {
-            "kind": "sources",
-            "sources": [
-                {"kind": "file", "sheet_id": 2, "row_id": 3, "column_id": 7},
-                {"kind": "sheet", "sheet_id": 2},
-            ],
-        }
-    finally:
-        project.close()
-
-
-def test_submit_is_idempotent_freezes_turn_and_enforces_single_active_turn(
-    tmp_path,
-) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(title="Ask")
-        params = {
-            "request_id": "request-1",
-            "question": "What changed?",
-            "scope": {"kind": "sources", "sources": [{"kind": "sheet", "sheet_id": 3}]},
-            "model": "openrouter/test",
-            "web": True,
-            "suggest_actions": False,
-            "submitted_by": "reporter",
-        }
-        turn = store.submit_turn(thread["id"], **params)
-        assert turn["status"] == "running"
-        assert turn["scope"] == params["scope"]
-        assert turn["web"] is True
-        assert store.submit_turn(thread["id"], **params) == turn
-        assert store.get_thread(thread["id"])["revision"] == 2
-        assert store.get_thread(thread["id"])["scope"] == params["scope"]
-        assert store.get_active_turn(thread["id"])["id"] == turn["id"]
-        with pytest.raises(ProjectQAConflictError, match="different content"):
-            store.submit_turn(thread["id"], **{**params, "question": "Other"})
-        with pytest.raises(ProjectQAActiveTurnError):
-            store.submit_turn(thread["id"], **{**params, "request_id": "request-2"})
-
-        store.update_thread(thread["id"], expected_revision=2, web=False)
-        assert store.get_turn(turn["id"])["web"] is True
-        assert store.events(thread["id"])["events"] == [
-            {
-                "thread_id": thread["id"],
-                "turn_id": turn["id"],
-                "seq": 1,
-                "kind": "question",
-                "payload": {"question": "What changed?"},
-                "created_at": store.events(thread["id"])["events"][0]["created_at"],
-            }
-        ]
-    finally:
-        project.close()
-
-
-def test_omitted_model_default_is_persisted_without_changing_replay_identity(
-    tmp_path,
-) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(title="Ask")
-        params = {"request_id": "defaulted", "question": "What changed?"}
-        turn = store.submit_turn(
-            thread["id"],
-            **params,
-            default_model="gemini/gemini-3.5-flash-lite",
-        )
-        replay = store.submit_turn(
-            thread["id"],
-            **params,
-            default_model="anthropic/claude-sonnet-5",
-        )
-
-        assert turn["model"] == "gemini/gemini-3.5-flash-lite"
-        assert replay == turn
-        with pytest.raises(ProjectQAConflictError, match="different content"):
-            store.submit_turn(
-                thread["id"],
-                **params,
-                model="anthropic/claude-sonnet-5",
-            )
-
-        legacy_thread = store.create_thread(title="Legacy Ask")
-        legacy = store.submit_turn(legacy_thread["id"], **params)
-        assert legacy["model"] is None
-        assert (
-            store.submit_turn(
-                legacy_thread["id"],
-                **params,
-                default_model="gemini/gemini-3.5-flash-lite",
-            )
-            == legacy
-        )
-    finally:
-        project.close()
-
-
-def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
-    tmp_path,
-) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(title="Ask")
-        first = store.submit_turn(thread["id"], request_id="one", question="One")
-        progress = store.append_event(
-            first["id"], kind="assistant", payload={"text": "Looking"}
-        )
-        citation = store.add_citation(
-            first["id"],
-            label="Sheet / row 7",
-            source_kind="row",
-            locator={"sheet_id": 1, "row_id": 7},
-            excerpt="Observed value",
-            metadata={"truncated": False},
-        )
-        assert progress["seq"] == 2
-        assert store.get_citation(citation["id"])["locator"] == {
-            "sheet_id": 1,
-            "row_id": 7,
-        }
-        assert store.request_stop(first["id"])["status"] == "stopping"
-        assert store.request_stop(first["id"])["status"] == "stopping"
-        with pytest.raises(ProjectQAConflictError, match="stopping"):
-            store.append_event(first["id"], kind="assistant", payload={"text": "late"})
-        assert (
-            store.append_event(first["id"], kind="usage", payload={"calls": 1})["kind"]
-            == "usage"
-        )
-        with pytest.raises(ProjectQAConflictError, match="terminal"):
-            store.add_citation(
-                first["id"],
-                label="late",
-                source_kind="row",
-                locator={"sheet_id": 1, "row_id": 7},
-            )
-        terminal = store.finish_turn(first["id"], status="stopped")
-        assert terminal["status"] == "stopped"
-        assert store.get_active_turn(thread["id"]) is None
-        events = store.events(thread["id"], after=1, limit=1)
-        assert [event["seq"] for event in events["events"]] == [2]
-        assert events["cursor"] == 2
-        assert events["has_more"] is True
-        older = store.events(thread["id"], before=4, limit=2)
-        assert [event["seq"] for event in older["events"]] == [2, 3]
-        assert older["cursor"] == 2
-        assert older["has_more"] is True
-        recent = store.recent_events(thread["id"], limit=2)
-        assert [event["seq"] for event in recent["events"]] == [4, 5]
-        assert recent["has_more"] is True
-        assert store.request_stop(first["id"])["status"] == "stopped"
-        with pytest.raises(ProjectQAConflictError, match="terminal"):
-            store.append_event(first["id"], kind="answer", payload={"text": "late"})
-
-        second = store.submit_turn(thread["id"], request_id="two", question="Two")
-        other = store.create_thread(title="Other")
-        third = store.submit_turn(other["id"], request_id="three", question="Three")
-        reconciled = store.reconcile_abandoned_turns(live_turn_ids={second["id"]})
-        assert reconciled == [third["id"]]
-        assert store.get_turn(second["id"])["status"] == "running"
-        assert store.get_turn(third["id"])["status"] == "interrupted"
-        snapshot = store.events_with_active(thread["id"], recent=True, limit=2)
-        assert snapshot["active_turn"]["id"] == second["id"]
-        assert [event["seq"] for event in snapshot["events"]] == [5, 6]
-    finally:
-        project.close()
-
-
-def test_skill_save_events_accept_full_content_after_terminal_turn_and_bind_retry(
-    tmp_path,
-) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(title="Ask")
-        turn = store.submit_turn(thread["id"], request_id="draft", question="Draft it")
-        content = "---\nname: source-check\ndescription: Check sources.\n---\n\n" + (
-            'Quoted \\"café\\" 🗒️\n' * 4_500
-        )
-        assert 65_536 < len(content.encode("utf-8")) <= 128 * 1024
-
-        proposal = store.append_skill_proposal(
-            turn["id"],
-            payload={
-                "proposal_id": "proposal-1",
-                "target_skill_id": None,
-                "base_revision": None,
-                "name": "source-check",
-                "description": "Check sources.",
-                "content": content,
-                "enabled": True,
-                "scope": "workspace",
-            },
-        )
-        assert proposal["kind"] == "skill_proposal"
-        assert proposal["payload"]["content"] == content
-
-        store.finish_turn(turn["id"], status="completed")
-        recorded = store.record_skill_save_attempt(
-            turn["id"],
-            proposal_id="proposal-1",
-            request_id="save-1",
-            payload={
-                "target_skill_id": None,
-                "expected_revision": None,
-                "content": content,
-                "name": "source-check",
-                "description": "Check sources.",
-                "enabled": True,
-            },
-        )
-        assert recorded["created"] is True
-        assert recorded["saved"] is None
-        attempt = recorded["attempt"]
-        assert attempt["kind"] == "skill_save_attempt"
-        assert attempt["payload"]["content"] == content
-
-        replay = store.record_skill_save_attempt(
-            turn["id"],
-            proposal_id="proposal-1",
-            request_id="save-1",
-            payload={
-                "target_skill_id": None,
-                "expected_revision": None,
-                "content": content,
-                "name": "source-check",
-                "description": "Check sources.",
-                "enabled": True,
-            },
-        )
-        assert replay == {"attempt": attempt, "saved": None, "created": False}
-        with pytest.raises(ProjectQAConflictError, match="different content"):
-            store.record_skill_save_attempt(
-                turn["id"],
-                proposal_id="proposal-1",
-                request_id="save-1",
-                payload={
-                    "target_skill_id": None,
-                    "expected_revision": None,
-                    "content": content + "changed",
-                    "name": "source-check",
-                    "description": "Check sources.",
-                    "enabled": True,
-                },
-            )
-
-        saved = store.record_skill_saved(
-            turn["id"],
-            proposal_id="proposal-1",
-            attempt_id=attempt["payload"]["attempt_id"],
-            payload={
-                "skill_id": "skill-1",
-                "name": "source-check",
-                "description": "Check sources.",
-                "revision": 1,
-                "enabled": True,
-                "status": "saved",
-            },
-        )
-        retried = store.record_skill_save_attempt(
-            turn["id"],
-            proposal_id="proposal-1",
-            request_id="save-1",
-            payload={
-                "target_skill_id": None,
-                "expected_revision": None,
-                "content": content,
-                "name": "source-check",
-                "description": "Check sources.",
-                "enabled": True,
-            },
-        )
-        assert retried == {"attempt": attempt, "saved": saved, "created": False}
-    finally:
-        project.close()
-
-
-def test_usage_is_deduped_and_terminalization_derives_it_with_failure_context(
-    tmp_path,
-) -> None:
-    project, store = _store(tmp_path)
-    try:
-        thread = store.create_thread(title="Ask")
-        turn = store.submit_turn(thread["id"], request_id="usage", question="One")
+def test_turn_usage_keeps_unknown_counts_in_mixed_calls(make_project):
+    project, store = _store(make_project)
+    thread = store.create_thread(title="Ask")
+    turn = store.submit_turn(thread["id"], request_id="unknown-usage", question="One")
+    for known in (True, False):
         accounting = wire_accounting_meta(
             "anthropic/test",
             [
                 LLMResponse(
                     content="ok",
                     data=None,
-                    tokens_in=7,
-                    tokens_out=4,
+                    tokens_in=7 if known else 0,
+                    tokens_out=4 if known else 0,
                     cost=None,
                     model="anthropic/test",
                     provider="anthropic",
+                    usage_available=known,
                 )
             ],
         )
         [call] = accounting["model_calls"]
-        payload = {
-            "call_id": call["id"],
-            "tokens_in": accounting["tokens_in"],
-            "tokens_out": accounting["tokens_out"],
-            "cost": accounting["cost"],
-        }
-        assert (
-            store.record_usage(
-                turn["id"], call_id=call["id"], payload=payload, calls=[call]
-            )["kind"]
-            == "usage"
+        store.record_usage(
+            turn["id"],
+            call_id=call["id"],
+            calls=[call],
+            payload={
+                "call_id": call["id"],
+                "tokens_in": accounting["tokens_in"],
+                "tokens_out": accounting["tokens_out"],
+                "cost": None,
+            },
         )
-        assert (
-            store.record_usage(
-                turn["id"], call_id=call["id"], payload=payload, calls=[call]
+        if known:
+            store.append_event(
+                turn["id"], kind="usage", payload={"operation": "search", "cost": 0}
             )
-            is None
-        )
-        store.request_stop(turn["id"])
-        stopped = store.finish_turn(turn["id"], status="stopped")
-        assert stopped["usage"] == {"calls": 1, "tokens_in": 7, "tokens_out": 4}
-        assert stopped["cost_actual"] is None
-        late_call = {**call, "id": "late-provider-call"}
-        late_payload = {**payload, "call_id": late_call["id"]}
-        assert (
-            store.record_usage(
-                turn["id"],
-                call_id=late_call["id"],
-                payload=late_payload,
-                calls=[late_call],
-            )
-            is not None
-        )
-        assert store.get_turn(turn["id"])["usage"]["calls"] == 2
+            summary, _ = store._usage_summary(project.db, turn["id"])
+            assert summary["tokens_in"] == 7 and summary["tokens_out"] == 4
+    finished = store.finish_turn(turn["id"], status="completed")
+    assert finished["usage"] == {"calls": 3, "tokens_in": None, "tokens_out": None}
+    assert finished["cost_actual"] is None
 
-        failed = store.submit_turn(thread["id"], request_id="failed", question="Two")
-        store.finish_turn(
-            failed["id"], status="failed", error_summary="provider unavailable"
-        )
-        assert store.events(thread["id"])["events"][-1]["payload"] == {
-            "status": "failed",
-            "error_summary": "provider unavailable",
+
+def test_threads_keep_project_scope_preferences_creator_and_revision(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(
+        title="Investigate",
+        scope={"kind": "project"},
+        model=None,
+        created_by="reporter",
+    )
+    assert thread == {
+        "id": thread["id"],
+        "title": "Investigate",
+        "scope": {"kind": "project"},
+        "model": None,
+        "web": False,
+        "suggest_actions": True,
+        "research": None,
+        "revision": 1,
+        "created_by": "reporter",
+        "created_at": thread["created_at"],
+        "updated_at": thread["updated_at"],
+    }
+
+    changed = store.update_thread(
+        thread["id"],
+        expected_revision=1,
+        scope={
+            "kind": "sources",
+            "sources": [{"kind": "rows", "sheet_id": 4, "row_ids": [8, 9]}],
+        },
+        model="openrouter/test",
+        web=True,
+        suggest_actions=False,
+    )
+    assert changed["revision"] == 2
+    assert changed["scope"]["sources"][0]["row_ids"] == [8, 9]
+    unchanged_scope = store.update_thread(
+        thread["id"], expected_revision=2, scope=None, model=None
+    )
+    assert unchanged_scope["scope"]["sources"][0]["row_ids"] == [8, 9]
+    assert unchanged_scope["model"] is None
+    with pytest.raises(ProjectQAConflictError, match="revision"):
+        store.update_thread(thread["id"], expected_revision=1, title="stale")
+
+
+def test_scope_normalizes_overlaps_and_bounds_unique_selected_rows(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(
+        title="Scoped",
+        scope={
+            "kind": "sources",
+            "sources": [
+                {"kind": "rows", "sheet_id": 2, "row_ids": [3, 3, 4]},
+                {"kind": "rows", "sheet_id": 2, "row_ids": [4, 5]},
+                {"kind": "file", "sheet_id": 2, "row_id": 3, "column_id": 7},
+                {"kind": "sheet", "sheet_id": 2},
+                {"kind": "file", "sheet_id": 2, "row_id": 3, "column_id": 7},
+            ],
+        },
+    )
+    assert thread["scope"] == {
+        "kind": "sources",
+        "sources": [
+            {"kind": "file", "sheet_id": 2, "row_id": 3, "column_id": 7},
+            {"kind": "sheet", "sheet_id": 2},
+        ],
+    }
+
+
+def test_submit_is_idempotent_freezes_turn_and_enforces_single_active_turn(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(title="Ask")
+    params = {
+        "request_id": "request-1",
+        "question": "What changed?",
+        "scope": {"kind": "sources", "sources": [{"kind": "sheet", "sheet_id": 3}]},
+        "model": "openrouter/test",
+        "web": True,
+        "suggest_actions": False,
+        "submitted_by": "reporter",
+    }
+    turn = store.submit_turn(thread["id"], **params)
+    assert turn["status"] == "running"
+    assert turn["scope"] == params["scope"]
+    assert turn["web"] is True
+    assert store.submit_turn(thread["id"], **params) == turn
+    assert store.get_thread(thread["id"])["revision"] == 2
+    assert store.get_thread(thread["id"])["scope"] == params["scope"]
+    assert store.get_active_turn(thread["id"])["id"] == turn["id"]
+    with pytest.raises(ProjectQAConflictError, match="different content"):
+        store.submit_turn(thread["id"], **{**params, "question": "Other"})
+    with pytest.raises(ProjectQAActiveTurnError):
+        store.submit_turn(thread["id"], **{**params, "request_id": "request-2"})
+
+    store.update_thread(thread["id"], expected_revision=2, web=False)
+    assert store.get_turn(turn["id"])["web"] is True
+    assert store.events(thread["id"])["events"] == [
+        {
+            "thread_id": thread["id"],
+            "turn_id": turn["id"],
+            "seq": 1,
+            "kind": "question",
+            "payload": {"question": "What changed?"},
+            "created_at": store.events(thread["id"])["events"][0]["created_at"],
         }
-    finally:
-        project.close()
+    ]
+
+
+def test_omitted_model_default_is_persisted_without_changing_replay_identity(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(title="Ask")
+    params = {"request_id": "defaulted", "question": "What changed?"}
+    turn = store.submit_turn(
+        thread["id"],
+        **params,
+        default_model="gemini/gemini-3.5-flash-lite",
+    )
+    replay = store.submit_turn(
+        thread["id"],
+        **params,
+        default_model="anthropic/claude-sonnet-5",
+    )
+
+    assert turn["model"] == "gemini/gemini-3.5-flash-lite"
+    assert replay == turn
+    with pytest.raises(ProjectQAConflictError, match="different content"):
+        store.submit_turn(
+            thread["id"],
+            **params,
+            model="anthropic/claude-sonnet-5",
+        )
+
+    legacy_thread = store.create_thread(title="Legacy Ask")
+    legacy = store.submit_turn(legacy_thread["id"], **params)
+    assert legacy["model"] is None
+    assert (
+        store.submit_turn(
+            legacy_thread["id"],
+            **params,
+            default_model="gemini/gemini-3.5-flash-lite",
+        )
+        == legacy
+    )
+
+
+def test_events_citations_stop_terminalize_and_reconcile_only_unowned_turns(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(title="Ask")
+    first = store.submit_turn(thread["id"], request_id="one", question="One")
+    progress = store.append_event(
+        first["id"], kind="assistant", payload={"text": "Looking"}
+    )
+    citation = store.add_citation(
+        first["id"],
+        label="Sheet / row 7",
+        source_kind="row",
+        locator={"sheet_id": 1, "row_id": 7},
+        excerpt="Observed value",
+        metadata={"truncated": False},
+    )
+    assert progress["seq"] == 2
+    assert store.get_citation(citation["id"])["locator"] == {
+        "sheet_id": 1,
+        "row_id": 7,
+    }
+    assert store.request_stop(first["id"])["status"] == "stopping"
+    assert store.request_stop(first["id"])["status"] == "stopping"
+    with pytest.raises(ProjectQAConflictError, match="stopping"):
+        store.append_event(first["id"], kind="assistant", payload={"text": "late"})
+    assert (
+        store.append_event(first["id"], kind="usage", payload={"calls": 1})["kind"]
+        == "usage"
+    )
+    with pytest.raises(ProjectQAConflictError, match="terminal"):
+        store.add_citation(
+            first["id"],
+            label="late",
+            source_kind="row",
+            locator={"sheet_id": 1, "row_id": 7},
+        )
+    terminal = store.finish_turn(first["id"], status="stopped")
+    assert terminal["status"] == "stopped"
+    assert store.get_active_turn(thread["id"]) is None
+    events = store.events(thread["id"], after=1, limit=1)
+    assert [event["seq"] for event in events["events"]] == [2]
+    assert events["cursor"] == 2
+    assert events["has_more"] is True
+    older = store.events(thread["id"], before=4, limit=2)
+    assert [event["seq"] for event in older["events"]] == [2, 3]
+    assert older["cursor"] == 2
+    assert older["has_more"] is True
+    recent = store.recent_events(thread["id"], limit=2)
+    assert [event["seq"] for event in recent["events"]] == [4, 5]
+    assert recent["has_more"] is True
+    assert store.request_stop(first["id"])["status"] == "stopped"
+    with pytest.raises(ProjectQAConflictError, match="terminal"):
+        store.append_event(first["id"], kind="answer", payload={"text": "late"})
+
+    second = store.submit_turn(thread["id"], request_id="two", question="Two")
+    other = store.create_thread(title="Other")
+    third = store.submit_turn(other["id"], request_id="three", question="Three")
+    reconciled = store.reconcile_abandoned_turns(live_turn_ids={second["id"]})
+    assert reconciled == [third["id"]]
+    assert store.get_turn(second["id"])["status"] == "running"
+    assert store.get_turn(third["id"])["status"] == "interrupted"
+    snapshot = store.events_with_active(thread["id"], recent=True, limit=2)
+    assert snapshot["active_turn"]["id"] == second["id"]
+    assert [event["seq"] for event in snapshot["events"]] == [5, 6]
+
+
+def test_skill_save_events_accept_full_content_after_terminal_turn_and_bind_retry(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(title="Ask")
+    turn = store.submit_turn(thread["id"], request_id="draft", question="Draft it")
+    content = "---\nname: source-check\ndescription: Check sources.\n---\n\n" + (
+        'Quoted \\"café\\" 🗒️\n' * 4_500
+    )
+    assert 65_536 < len(content.encode("utf-8")) <= 128 * 1024
+
+    proposal = store.append_skill_proposal(
+        turn["id"],
+        payload={
+            "proposal_id": "proposal-1",
+            "target_skill_id": None,
+            "base_revision": None,
+            "name": "source-check",
+            "description": "Check sources.",
+            "content": content,
+            "enabled": True,
+            "scope": "workspace",
+        },
+    )
+    assert proposal["kind"] == "skill_proposal"
+    assert proposal["payload"]["content"] == content
+
+    store.finish_turn(turn["id"], status="completed")
+    recorded = store.record_skill_save_attempt(
+        turn["id"],
+        proposal_id="proposal-1",
+        request_id="save-1",
+        payload={
+            "target_skill_id": None,
+            "expected_revision": None,
+            "content": content,
+            "name": "source-check",
+            "description": "Check sources.",
+            "enabled": True,
+        },
+    )
+    assert recorded["created"] is True
+    assert recorded["saved"] is None
+    attempt = recorded["attempt"]
+    assert attempt["kind"] == "skill_save_attempt"
+    assert attempt["payload"]["content"] == content
+
+    replay = store.record_skill_save_attempt(
+        turn["id"],
+        proposal_id="proposal-1",
+        request_id="save-1",
+        payload={
+            "target_skill_id": None,
+            "expected_revision": None,
+            "content": content,
+            "name": "source-check",
+            "description": "Check sources.",
+            "enabled": True,
+        },
+    )
+    assert replay == {"attempt": attempt, "saved": None, "created": False}
+    with pytest.raises(ProjectQAConflictError, match="different content"):
+        store.record_skill_save_attempt(
+            turn["id"],
+            proposal_id="proposal-1",
+            request_id="save-1",
+            payload={
+                "target_skill_id": None,
+                "expected_revision": None,
+                "content": content + "changed",
+                "name": "source-check",
+                "description": "Check sources.",
+                "enabled": True,
+            },
+        )
+
+    saved = store.record_skill_saved(
+        turn["id"],
+        proposal_id="proposal-1",
+        attempt_id=attempt["payload"]["attempt_id"],
+        payload={
+            "skill_id": "skill-1",
+            "name": "source-check",
+            "description": "Check sources.",
+            "revision": 1,
+            "enabled": True,
+            "status": "saved",
+        },
+    )
+    retried = store.record_skill_save_attempt(
+        turn["id"],
+        proposal_id="proposal-1",
+        request_id="save-1",
+        payload={
+            "target_skill_id": None,
+            "expected_revision": None,
+            "content": content,
+            "name": "source-check",
+            "description": "Check sources.",
+            "enabled": True,
+        },
+    )
+    assert retried == {"attempt": attempt, "saved": saved, "created": False}
+
+
+def test_usage_is_deduped_and_terminalization_derives_it_with_failure_context(
+    make_project,
+) -> None:
+    project, store = _store(make_project)
+    thread = store.create_thread(title="Ask")
+    turn = store.submit_turn(thread["id"], request_id="usage", question="One")
+    accounting = wire_accounting_meta(
+        "anthropic/test",
+        [
+            LLMResponse(
+                content="ok",
+                data=None,
+                tokens_in=7,
+                tokens_out=4,
+                cost=None,
+                model="anthropic/test",
+                provider="anthropic",
+            )
+        ],
+    )
+    [call] = accounting["model_calls"]
+    payload = {
+        "call_id": call["id"],
+        "tokens_in": accounting["tokens_in"],
+        "tokens_out": accounting["tokens_out"],
+        "cost": accounting["cost"],
+    }
+    assert (
+        store.record_usage(
+            turn["id"], call_id=call["id"], payload=payload, calls=[call]
+        )["kind"]
+        == "usage"
+    )
+    assert (
+        store.record_usage(
+            turn["id"], call_id=call["id"], payload=payload, calls=[call]
+        )
+        is None
+    )
+    store.request_stop(turn["id"])
+    stopped = store.finish_turn(turn["id"], status="stopped")
+    assert stopped["usage"] == {"calls": 1, "tokens_in": 7, "tokens_out": 4}
+    assert stopped["cost_actual"] is None
+    late_call = {**call, "id": "late-provider-call"}
+    late_payload = {**payload, "call_id": late_call["id"]}
+    assert (
+        store.record_usage(
+            turn["id"],
+            call_id=late_call["id"],
+            payload=late_payload,
+            calls=[late_call],
+        )
+        is not None
+    )
+    assert store.get_turn(turn["id"])["usage"]["calls"] == 2
+
+    failed = store.submit_turn(thread["id"], request_id="failed", question="Two")
+    store.finish_turn(
+        failed["id"], status="failed", error_summary="provider unavailable"
+    )
+    assert store.events(thread["id"])["events"][-1]["payload"] == {
+        "status": "failed",
+        "error_summary": "provider unavailable",
+    }
 
 
 def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
-    tmp_path,
+    make_project,
 ) -> None:
-    project, _store_instance = _store(tmp_path)
+    project, _store_instance = _store(make_project)
     path = project.path
     project.db.execute("INSERT INTO sheets (name) VALUES ('Existing')")
     project.db.commit()
@@ -503,12 +482,9 @@ def test_schema_migration_preserves_existing_bundle_and_stamps_new_digest(
             ),
         )
 
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert (
             reopened.db.execute("SELECT name FROM sheets").fetchone()[0] == "Existing"
         )
         assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
-    finally:
-        reopened.close()

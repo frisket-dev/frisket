@@ -288,7 +288,7 @@ export const VIEWS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
 );
 
 export const ALERTS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
-  'frisket.core.panel.watches',
+  'frisket.core.panel.alerts',
 );
 
 export const EMBEDDINGS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
@@ -437,7 +437,7 @@ export const COST_GATE_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDesc
   'frisket.core.view.cost_gate',
 );
 
-// The server-side output_column_exists confirm modal — same modalOrPeek
+// The server-side generated_column_exists confirm modal — same modalOrPeek
 // host as cost_gate/row_delete_confirm above.
 export const GENERATED_COLUMN_COLLISION_VIEW_DESCRIPTOR: WorkbenchViewDescriptor =
   firstPartyDescriptor('frisket.core.view.output_column_collision');

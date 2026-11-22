@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import json
 import time
@@ -156,19 +157,19 @@ def test_source_failure_rolls_back_all_children_and_original(make_project, monke
     project = make_project("rollback")
     sheet, column, rows, values = _seed(project)
     writer = _start(project, sheet, column, rows, values)
-    original = project.add_rows
+    original = project.add_rows_in_transaction
 
     def fail(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(project, "add_rows", fail)
+    monkeypatch.setattr(project, "add_rows_in_transaction", fail)
     with pytest.raises(RuntimeError, match="disk full"):
         writer.publish_source(_children(2), expected_cursor=0)
     assert project.visible_row_ids(sheet) == rows
     assert writer.session.cursor == 0
     assert writer.session.committed_rows == 0
-    monkeypatch.setattr(project, "add_rows", original)
+    monkeypatch.setattr(project, "add_rows_in_transaction", original)
     writer.publish_source(_children(2), expected_cursor=0)
     with pytest.raises(ImportSessionConflict):
         writer.publish_source(_children(2), expected_cursor=0)
@@ -250,8 +251,7 @@ def test_reservation_preserves_ties_hidden_rows_and_nested_undo(make_project):
 
 def test_split_membership_survives_bundle_export_and_schema_upgrade(tmp_path: Path):
     path = tmp_path / "durable.frisket"
-    project = Project.create(path, name="durable")
-    try:
+    with closing(Project.create(path, name="durable")) as project:
         sheet, column, rows, values = _seed(project)
         # The exact preceding release had all the current data and no split
         # ledger; reopening must add it without replacing any authority.
@@ -264,26 +264,20 @@ def test_split_membership_survives_bundle_export_and_schema_upgrade(tmp_path: Pa
             ("frisket.schema.v1:887874773c58ac58982913e6604d9ec9",),
         )
         project.db.commit()
-    finally:
-        project.close()
-    project = Project(path)
-    try:
+    with closing(Project(path)) as project:
         assert project.get_values(sheet, column) == dict(zip(rows, values))
         writer = _start(project, sheet, column, rows, values)
         children = writer.publish_source(_children(2), expected_cursor=0)
         writer.finalize(expected_cursor=1, stopped=True)
         archive = project.export(tmp_path / "partial.tar.gz", include_media=False)
-    finally:
-        project.close()
-    restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(archive, tmp_path / "restored.frisket")
+    ) as restored:
         assert restored.visible_row_ids(sheet) == [*children, *rows[1:]]
         restored.undo()
         assert restored.visible_row_ids(sheet) == rows
         restored.redo()
         assert restored.visible_row_ids(sheet) == [*children, *rows[1:]]
-    finally:
-        restored.close()
 
 
 @pytest.mark.parametrize("stopped,status", [(True, "cancelled"), (False, "failed")])

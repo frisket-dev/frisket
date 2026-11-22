@@ -127,7 +127,7 @@ def test_report_uses_shared_dispatch_declared_value_and_actual_observations(
     assert result.outputs[0].row_ids == rows
     assert "query" not in result.outputs[0].ref
     assert len(receipt.exports) == 1
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "query_preview_rowset",
         "export_artifact",
     }
@@ -243,7 +243,7 @@ def test_repeated_destination_keeps_latest_output_and_historical_facts(source):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert len(receipt.exports) == len(result.outputs) == 1
     artifacts = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "export_artifact"
+        item.ref for item in receipt.records if item.ref["kind"] == "export_artifact"
     ]
     assert len(artifacts) == 2 and artifacts[0]["sha256"] != artifacts[1]["sha256"]
     assert receipt.exports[0]["sha256"] == artifacts[-1]["sha256"]
@@ -307,7 +307,7 @@ def test_repeated_jsonl_replaces_current_artifact_but_keeps_history(source):
         len(
             [
                 item
-                for item in receipt.evidence
+                for item in receipt.records
                 if item.ref.get("kind") == "export_artifact"
             ]
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tests.alert_helpers import post_alert
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +93,7 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     drain_index(client.app.state.workspace.get(pid))
     alert_response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget watch",
             "scope": {"kind": "project"},
@@ -104,11 +105,11 @@ def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     from alert_helpers import seed_empty_alert_baseline
 
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
+    run_response = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/alerts/{alert['id']}/checks/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
@@ -145,8 +146,8 @@ def _create_route(
         json={
             "name": "Budget email",
             "channel_id": channel_id,
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert_id},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
@@ -164,9 +165,9 @@ def _emit_alert(
     response = client.post(
         f"/api/projects/{pid}/notifications/emit",
         json={
-            "source_kind": "watch",
+            "source_kind": "alert",
             "source_ref": {
-                "watch_id": refs["watch"]["id"],
+                "alert_id": refs["watch"]["id"],
                 "run_id": refs["run"]["id"],
             },
             "source_event_ids": event_ids,
@@ -174,7 +175,7 @@ def _emit_alert(
             "title": "Budget watch found rows",
             "summary": "Budget rows matched.",
             "severity": "warning",
-            "deep_link": {"kind": "watch_run", "watch_id": refs["watch"]["id"]},
+            "deep_link": {"kind": "alert_check", "alert_id": refs["watch"]["id"]},
             "payload": {},
         },
     )
@@ -349,9 +350,9 @@ def test_retry_exhaustion_marks_one_terminal_failed_request(tmp_path: Path) -> N
     result = emit_notification_candidate(
         project,
         {
-            "source_kind": "watch",
+            "source_kind": "alert",
             "source_ref": {
-                "watch_id": refs["watch"]["id"],
+                "alert_id": refs["watch"]["id"],
                 "run_id": refs["run"]["id"],
             },
             "source_event_ids": event_ids,
@@ -359,7 +360,7 @@ def test_retry_exhaustion_marks_one_terminal_failed_request(tmp_path: Path) -> N
             "title": "Budget watch found rows",
             "summary": "Budget rows matched.",
             "severity": "warning",
-            "deep_link": {"kind": "watch_run", "watch_id": refs["watch"]["id"]},
+            "deep_link": {"kind": "alert_check", "alert_id": refs["watch"]["id"]},
             "payload": {},
         },
     )
@@ -398,10 +399,9 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     organization_root = registered_root / "1"
     organization_root.mkdir(parents=True)
     project_id = "hosted-delivery-root"
-    project = Project.create(
-        organization_root / f"{project_id}.frisket", name=project_id
-    )
-    try:
+    with closing(
+        Project.create(organization_root / f"{project_id}.frisket", name=project_id)
+    ) as project:
         channel = project.create_notification_channel(
             kind="email",
             name="Hosted email",
@@ -429,8 +429,6 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
             },
         )
         request_id = int(emitted["planned_delivery_requests"][0]["id"])
-    finally:
-        project.close()
 
     queue = open_queue(workspace=tmp_path / "queue")
     registry = default_registry()
@@ -458,14 +456,11 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     worker = Worker(queue, registry, worker_id="hosted-root", retry_base_seconds=0)
     assert worker.run_once() is True
 
-    project = Project(organization_root / f"{project_id}.frisket")
-    try:
+    with closing(Project(organization_root / f"{project_id}.frisket")) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "sent"
         assert request["provider_ref"] == "fake-hosted:1"
         assert provider.messages[0].title == "Hosted delivery"
-    finally:
-        project.close()
 
 
 def test_recovery_enqueues_delivery_planned_before_process_stopped(tmp_path):

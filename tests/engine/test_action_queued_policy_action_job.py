@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from contextlib import closing
 
 import pytest
 from action_test_helpers import legacy_params_hash
@@ -88,24 +89,6 @@ def test_action_job_envelope_roundtrips_from_payload() -> None:
     assert restored == env
 
 
-# --- worker terminalization for generic action jobs ------------------------
-
-
-def test_action_job_worker_terminalizes_on_all_outcomes() -> None:
-    # The generic action.run worker must turn every terminal outcome into a
-    # terminal receipt, never leaving a reserved receipt 'running' forever.
-    from frisket.engine.executor import action_jobs
-
-    for fn_name in (
-        "action_job_success_result",
-        "action_job_failure_result",
-        "action_job_missing_handler_result",
-        "action_job_cancelled_result",
-        "action_job_exhausted_lease_result",
-    ):
-        assert hasattr(action_jobs, fn_name), fn_name
-
-
 # --- behavioral: launch -> worker -> terminalize ---------------------------
 
 
@@ -114,8 +97,7 @@ def _reserve_action_job_receipt(project_path, project_id, *, kind, receipt_id):
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(project_path, name="ActionJob")
-    try:
+    with closing(Project.create(project_path, name="ActionJob")) as project:
         ReceiptStore(project).insert_running(
             Receipt(
                 receipt_id=receipt_id,
@@ -127,8 +109,6 @@ def _reserve_action_job_receipt(project_path, project_id, *, kind, receipt_id):
                 status="running",
             )
         )
-    finally:
-        project.close()
 
 
 def _envelope(project_id, *, kind, receipt_id):
@@ -501,12 +481,9 @@ def _receipt_status(project_path, receipt_id):
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         stored = ReceiptStore(project).find_by_id(receipt_id)
         return stored.parsed() if stored is not None else None
-    finally:
-        project.close()
 
 
 def test_exhausted_lease_reconciliation_matches_only_the_canonical_error(
@@ -582,8 +559,7 @@ def _insert_action_job_receipt(project_path, project_id, *, kind, receipt_id, st
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(project_path, name="ActionJob")
-    try:
+    with closing(Project.create(project_path, name="ActionJob")) as project:
         ReceiptStore(project).insert(
             Receipt(
                 receipt_id=receipt_id,
@@ -595,8 +571,6 @@ def _insert_action_job_receipt(project_path, project_id, *, kind, receipt_id, st
                 status=status,
             )
         )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("executor_status", ["completed", "running"])
@@ -678,8 +652,7 @@ def test_action_run_stale_writer_refusal_leaves_shared_receipt_untouched(
     def raise_stale_writer(_project, _envelope, *, execution):
         raise StaleAttemptWriter("attempt A lost its effect-site fence")
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_run_job(
             project,
             {
@@ -699,8 +672,6 @@ def test_action_run_stale_writer_refusal_leaves_shared_receipt_untouched(
         assert receipt.status == "running"
         assert receipt.run_id is None
         assert receipt.errors == []
-    finally:
-        project.close()
 
 
 def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
@@ -708,7 +679,7 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
 ) -> None:
     from frisket.engine.executor.action_jobs import run_action_run_job
     from frisket.engine.store import Project
-    from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
+    from frisket.engine.store.generated_column_claims import ClaimLeaseRenewalFailed
     from frisket.engine.store.receipts import ReceiptStore
 
     project_id = "proj-actionjob-renewal"
@@ -726,8 +697,7 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
     def raise_renewal_failure(_project, _envelope, *, execution):
         raise ClaimLeaseRenewalFailed("injected claim renewal outage")
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         with pytest.raises(
             ClaimLeaseRenewalFailed,
             match="claim renewal outage",
@@ -749,8 +719,6 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
         assert receipt.status == "running"
         assert receipt.run_id is None
         assert receipt.errors == []
-    finally:
-        project.close()
 
 
 def test_action_run_job_missing_executor_terminalizes_failed(tmp_path) -> None:
@@ -988,8 +956,7 @@ def test_action_job_cancelled_receipt_is_finished_insert_compatible(tmp_path) ->
         project_path, project_id, kind=kind, receipt_id=receipt_id
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = action_job_cancelled_result(
             project,
             project_id=project_id,
@@ -1008,8 +975,6 @@ def test_action_job_cancelled_receipt_is_finished_insert_compatible(tmp_path) ->
         )
         ReceiptStore(project).insert_finished(replay)
         assert ReceiptStore(project).status_by_id(replay.receipt_id) == "cancelled"
-    finally:
-        project.close()
 
 
 def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
@@ -1030,8 +995,7 @@ def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
         status="cancelled",
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = action_job_success_result(
             project,
             project_id=project_id,
@@ -1039,8 +1003,6 @@ def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
             action_kind=kind,
             job_id=99,
         )
-    finally:
-        project.close()
 
     assert result.status == "cancelled"
     stored = _receipt_status(project_path, receipt_id)
@@ -1073,7 +1035,7 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
         action_job_failure_result,
     )
     from frisket.engine.store import Project
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
 
     project_id = "project-action-job-cas-loss"
@@ -1087,11 +1049,10 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
         receipt_id=receipt_id,
         status="running",
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = project.add_sheet("Claims")
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["result"],
                 action_kind=action_kind,
@@ -1122,13 +1083,11 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
 
         stored = ReceiptStore(project).parsed_by_id(receipt_id)
         claim = project.db.execute(
-            "SELECT status FROM output_column_claims WHERE receipt_id=?",
+            "SELECT status FROM generated_column_claims WHERE receipt_id=?",
             (receipt_id,),
         ).fetchone()
         assert stored is not None and stored.status == "running"
         assert claim is not None and claim["status"] == "active"
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("terminal_status", ["completed", "partial"])
@@ -1138,7 +1097,7 @@ def test_action_job_success_releases_claim_for_every_success_status(
 ) -> None:
     from frisket.engine.executor.action_jobs import action_job_success_result
     from frisket.engine.store import Project
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     project_id = f"project-action-job-claim-{terminal_status}"
     receipt_id = f"receipt_action_job_claim_{terminal_status}"
@@ -1151,11 +1110,10 @@ def test_action_job_success_releases_claim_for_every_success_status(
         receipt_id=receipt_id,
         status="running",
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = project.add_sheet("Claims")
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["result"],
                 action_kind=action_kind,
@@ -1173,13 +1131,11 @@ def test_action_job_success_releases_claim_for_every_success_status(
         )
 
         claim = project.db.execute(
-            "SELECT status FROM output_column_claims WHERE receipt_id=?",
+            "SELECT status FROM generated_column_claims WHERE receipt_id=?",
             (receipt_id,),
         ).fetchone()
         assert result.status == terminal_status
         assert claim is not None and claim["status"] == "released"
-    finally:
-        project.close()
 
 
 def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
@@ -1205,8 +1161,7 @@ def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
         action_kind=action_kind,
         details={"invoice_id": "inv_fixture", "cost_actual": 4.75},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = action_job_failure_result(
             project,
             project_id=project_id,
@@ -1219,12 +1174,10 @@ def test_action_job_failure_preserves_error_facts_by_value(tmp_path) -> None:
         assert result.errors == [error]
         assert stored is not None
         assert stored.errors == [error]
-    finally:
-        project.close()
 
 
 def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
-    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.contracts.action import Receipt, ReceiptRecord
     from frisket.engine.executor import action_jobs
 
     receipt = Receipt(
@@ -1234,8 +1187,8 @@ def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
         action_kind="test.action_job_projection",
         op_ids=[17],
         status="queued",
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": action_jobs.ACTION_JOB_ENQUEUED_RECORD_KIND,
                     "queue_kind": "action.run",

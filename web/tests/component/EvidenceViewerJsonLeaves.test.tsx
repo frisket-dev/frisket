@@ -19,7 +19,7 @@ import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const projectApi = createProjectApi('evidence-viewer-json-leaves');
-vi.spyOn(projectApi, 'getEvidenceViewer').mockImplementation(getEvidenceViewer);
+vi.spyOn(projectApi, 'getCitationViewer').mockImplementation(getEvidenceViewer);
 const { render } = createWorkspaceTestHarness({
   projectId: 'evidence-viewer-json-leaves',
   api: { projectApi: projectApi },
@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 const jsonLeafPayload: CitationViewerPayload = {
-  schema_version: 'frisket.evidence_viewer.v1',
+  schema_version: 'frisket.citation_viewer.v1',
   link: {
     id: 1,
     stable_id: 'evidence-link:1',

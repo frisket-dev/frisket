@@ -93,9 +93,9 @@ test('refresh after a projection rename retains its stable id and posts the curr
   request,
 }) => {
   const { pid, leftId, cityId } = await seedAndOpen(page, request, 'derive-join-projection-rename');
-  let posted: Record<string, unknown> | null = null;
+  const posted: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
-    posted = route.request().postDataJSON() as Record<string, unknown>;
+    posted.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.continue();
   });
 
@@ -110,7 +110,8 @@ test('refresh after a projection rename retains its stable id and posts the curr
   );
   await clickRunButton(page);
   expect((await response).ok()).toBeTruthy();
-  const params = posted?.params as Record<string, unknown>;
+  expect(posted).toHaveLength(1);
+  const params = posted[0].params as Record<string, unknown>;
   expect(params.columns).toEqual([{ side: 'left', column: 'municipality' }]);
   expect(JSON.stringify(params.columns)).not.toContain('city');
 });

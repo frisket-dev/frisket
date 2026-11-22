@@ -51,22 +51,18 @@ def _router() -> ModelRouter:
     return router
 
 
-def _seed(project_path: Path) -> int:
-    project = Project.create(project_path, name="NER lifecycle")
-    try:
-        sheet_id = project.add_sheet("Transcripts")
-        body = project.add_column(sheet_id, "body", type="text")
-        project.add_rows(
-            sheet_id,
-            [
-                {"body": "Ada Lovelace wrote notes."},
-                {"body": "Ada Lovelace met Babbage."},
-            ],
-            {"body": body},
-        )
-        return sheet_id
-    finally:
-        project.close()
+def _seed(project: Project) -> int:
+    sheet_id = project.add_sheet("Transcripts")
+    body = project.add_column(sheet_id, "body", type="text")
+    project.add_rows(
+        sheet_id,
+        [
+            {"body": "Ada Lovelace wrote notes."},
+            {"body": "Ada Lovelace met Babbage."},
+        ],
+        {"body": body},
+    )
+    return sheet_id
 
 
 def _ner_action(sheet_id: int, **param_overrides: Any) -> dict[str, Any]:
@@ -114,42 +110,37 @@ def test_map_ner_resolver_keeps_canonical_runner_scope_authoritative(make_projec
 
 
 def test_map_ner_exact_scope_runs_only_selected_rows_into_a_fresh_column(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
 
-    project_path = tmp_path / "ner-row-ids.frisket"
-    sheet_id = _seed(project_path)
-    project = Project(project_path)
-    try:
-        row_ids = project.visible_row_ids(sheet_id)
-        result = executor_actions.run_action_spec(
-            project,
-            _ner_action(sheet_id, row_ids=[row_ids[0]]),
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert result.status == "completed", result.errors
-        entities = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
-        values = project.get_values(sheet_id, int(entities["id"]), row_ids=row_ids)
-        assert values[row_ids[0]]
-        assert values[row_ids[1]] is None
-        run = project.db.execute(
-            "SELECT params FROM runs WHERE id=?", (entities["current_run_id"],)
-        ).fetchone()
-        assert run is not None and f'"row_ids": [{row_ids[0]}]' in run["params"]
-    finally:
-        project.close()
+    sheet_id = _seed(project)
+    row_ids = project.visible_row_ids(sheet_id)
+    result = executor_actions.run_action_spec(
+        project,
+        _ner_action(sheet_id, row_ids=[row_ids[0]]),
+        project_id=PROJECT_ID,
+        router=_router(),
+    )
+    assert result.status == "completed", result.errors
+    entities = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    values = project.get_values(sheet_id, int(entities["id"]), row_ids=row_ids)
+    assert values[row_ids[0]]
+    assert values[row_ids[1]] is None
+    run = project.db.execute(
+        "SELECT params FROM runs WHERE id=?", (entities["current_run_id"],)
+    ).fetchone()
+    assert run is not None and f'"row_ids": [{row_ids[0]}]' in run["params"]
 
 
 # ---------- door 2: run.backfill creates a fresh entity generation ----------
 
 
 def test_run_backfill_creates_a_fresh_map_ner_generation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Entity output families use the same explicitly scoped recovery path."""
     from frisket.engine.executor import actions as executor_actions
@@ -157,52 +148,45 @@ def test_run_backfill_creates_a_fresh_map_ner_generation(
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
 
-    project_path = tmp_path / "ner-backfill.frisket"
-    sheet_id = _seed(project_path)
-    project = Project(project_path)
-    try:
-        ner = executor_actions.run_action_spec(
-            project,
-            _ner_action(sheet_id),
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert ner.status == "completed", ner.errors
+    sheet_id = _seed(project)
+    ner = executor_actions.run_action_spec(
+        project,
+        _ner_action(sheet_id),
+        project_id=PROJECT_ID,
+        router=_router(),
+    )
+    assert ner.status == "completed", ner.errors
 
-        # A new row arrives; backfill creates a successor generation for it.
-        entities_col = next(
-            c for c in project.columns(sheet_id) if c["name"] == "entities"
-        )
-        assert entities_col["ai_generated"] == 1
-        body_col = next(c for c in project.columns(sheet_id) if c["name"] == "body")
-        project.add_rows(
-            sheet_id,
-            [{"body": "Babbage wrote back."}],
-            {"body": int(body_col["id"])},
-        )
+    # A new row arrives; backfill creates a successor generation for it.
+    entities_col = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    assert entities_col["generated"] == 1
+    body_col = next(c for c in project.columns(sheet_id) if c["name"] == "body")
+    project.add_rows(
+        sheet_id,
+        [{"body": "Babbage wrote back."}],
+        {"body": int(body_col["id"])},
+    )
 
-        result = executor_actions.run_action_spec(
-            project,
-            _backfill_action(sheet_id, "entities"),
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert result.status == "completed", result.errors
-        assert result.run_id != ner.run_id
+    result = executor_actions.run_action_spec(
+        project,
+        _backfill_action(sheet_id, "entities"),
+        project_id=PROJECT_ID,
+        router=_router(),
+    )
+    assert result.status == "completed", result.errors
+    assert result.run_id != ner.run_id
 
-        # An explicit retry is another fresh generation over exactly that row.
-        retry_action = _backfill_action(sheet_id, "entities", row_ids=[1])
-        retry_action["idempotency_key"] = "run_backfill_ner_retry@sha256:stable"
-        retry = executor_actions.run_action_spec(
-            project,
-            retry_action,
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert retry.status == "completed", retry.errors
-        assert retry.run_id not in {ner.run_id, result.run_id}
-    finally:
-        project.close()
+    # An explicit retry is another fresh generation over exactly that row.
+    retry_action = _backfill_action(sheet_id, "entities", row_ids=[1])
+    retry_action["idempotency_key"] = "run_backfill_ner_retry@sha256:stable"
+    retry = executor_actions.run_action_spec(
+        project,
+        retry_action,
+        project_id=PROJECT_ID,
+        router=_router(),
+    )
+    assert retry.status == "completed", retry.errors
+    assert retry.run_id not in {ner.run_id, result.run_id}
 
 
 def test_backfill_guard_allows_canonical_map_ner(

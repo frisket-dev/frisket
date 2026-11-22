@@ -7,10 +7,13 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.column_descriptors import set_descriptor
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.effect_checkpoints import (
+    EffectCheckpointRef,
+    EffectCheckpointStore,
+)
 from frisket.engine.store.leases import acquire_lease
 from frisket.engine.store.media_blobs import MediaBlobStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
 
@@ -103,11 +106,11 @@ def test_commit_flag_transaction_rolls_back_interrupted_claim(
     before = _snapshot(project.db)
     error = failure("interrupted after the claim INSERT")
     db = _interrupt_project_db(
-        project, monkeypatch, "INSERT INTO output_column_claims", error
+        project, monkeypatch, "INSERT INTO generated_column_claims", error
     )
 
     with pytest.raises(failure) as caught, write_transaction(project.db):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id, output_names=["value"], action_kind="derive.test"
         )
 
@@ -125,11 +128,11 @@ def test_commit_false_leaves_interrupted_caller_transaction_to_its_owner(
     project.db.execute("UPDATE sheets SET name='Caller edit'")
     error = failure("interrupted after the claim INSERT")
     db = _interrupt_project_db(
-        project, monkeypatch, "INSERT INTO output_column_claims", error
+        project, monkeypatch, "INSERT INTO generated_column_claims", error
     )
 
     with pytest.raises(failure):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="derive.test",
@@ -151,7 +154,8 @@ def test_joined_transaction_rolls_back_interrupted_owned_row(
     db = _interrupt_project_db(project, monkeypatch, "INSERT INTO rows", error)
 
     with pytest.raises(failure) as caught:
-        project.add_row_with_undo(sheet_id, {"value": "new"}, {"value": column_id})
+        with write_transaction(project.db):
+            project.add_row_with_undo(sheet_id, {"value": "new"}, {"value": column_id})
 
     assert caught.value is error
     assert not db.in_transaction
@@ -285,16 +289,17 @@ def test_begin_run_resume_rolls_back_interrupted_reopen(project, monkeypatch, fa
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_consume_group_retained_rolls_back_interrupted_consumption(project, failure):
-    unit = {
-        "family": "test_family",
-        "group_key": "group-1",
-        "unit_key": "unit-1",
-        "action_kind": "classify",
-        "identity": "identity-digest-1",
-    }
+    ref = EffectCheckpointRef(
+        checkpoint_id="cp-1",
+        family="test_family",
+        group_key="group-1",
+        unit_key="unit-1",
+        action_kind="classify",
+        identity="identity-digest-1",
+    )
     store = EffectCheckpointStore(project.db)
-    assert store.reserve("cp-1", **unit) is True
-    store.complete("cp-1", **unit, payload={"envelope": "raw"})
+    assert store.reserve(ref) is True
+    store.complete(ref, payload={"envelope": "raw"})
     before = _snapshot(project.db)
     error = failure("interrupted after the consume UPDATE")
     db = project.db
@@ -303,9 +308,9 @@ def test_consume_group_retained_rolls_back_interrupted_consumption(project, fail
         EffectCheckpointStore(
             _InterruptAfter(db, "UPDATE effect_checkpoints SET state='consumed'", error)
         ).consume_group_retained(
-            family=unit["family"],
-            group_key=unit["group_key"],
-            action_kind=unit["action_kind"],
+            family=ref.family,
+            group_key=ref.group_key,
+            action_kind=ref.action_kind,
             audit=lambda raw: {"sha_of": raw},
         )
 
@@ -340,7 +345,7 @@ def test_set_descriptor_rolls_back_interrupted_descriptor_change(
     error = failure("interrupted after the descriptor UPDATE")
     db = _interrupt_project_db(project, monkeypatch, "UPDATE columns SET type", error)
 
-    with pytest.raises(failure) as caught:
+    with pytest.raises(failure) as caught, write_transaction(project.db):
         set_descriptor(project, column_id, "type", "number")
 
     assert caught.value is error

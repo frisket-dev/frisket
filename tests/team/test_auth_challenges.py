@@ -15,19 +15,24 @@ from frisket.team.auth_challenges import (
     AuthChallengeStore,
     TooManyActiveOidcSignIns,
 )
-from frisket.team.schema import auth_challenges, metadata, orgs, users
+from frisket.team.schema import auth_challenges, metadata, organizations, users
 
 
 def _engine(tmp_path: Path) -> tuple[sa.Engine, int]:
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'control.db'}", future=True)
     metadata.create_all(engine)
     with engine.begin() as cx:
-        org_id = int(
-            cx.execute(orgs.insert().values(name="Desk")).inserted_primary_key[0]
+        organization_id = int(
+            cx.execute(organizations.insert().values(name="Desk")).inserted_primary_key[
+                0
+            ]
         )
         user_id = int(
             cx.execute(
-                users.insert().values(email="owner@example.test", default_org_id=org_id)
+                users.insert().values(
+                    email="owner@example.test",
+                    default_organization_id=organization_id,
+                )
             ).inserted_primary_key[0]
         )
     return engine, user_id

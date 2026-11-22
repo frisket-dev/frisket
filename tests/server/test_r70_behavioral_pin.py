@@ -10,8 +10,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -30,7 +28,7 @@ from frisket.execution.pricing_policy import (
     install_pricing_policy,
 )
 from frisket.ops.base import persisted_action_program_invocation_halt
-from frisket.server.app import create_app
+from helpers import make_client as _client
 from http_test_helpers import drain_queue
 
 
@@ -86,10 +84,6 @@ def run_engine_stub(monkeypatch):
 # ---------------------------------------------------------------------------
 # Harness for durable transcription behavior
 # ---------------------------------------------------------------------------
-
-
-def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspace"))
 
 
 def _seed_audio_project(

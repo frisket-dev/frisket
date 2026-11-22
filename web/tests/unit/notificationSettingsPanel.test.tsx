@@ -51,8 +51,8 @@ const emailRoute = {
   enabled: true,
   ownerKind: 'project',
   channelId: emailChannel.id,
-  sourceKind: 'watch',
-  sourceRefMatch: { watch_id: 7 },
+  sourceKind: 'alert',
+  sourceRefMatch: { alert_id: 7 },
   deliveryMode: 'immediate',
 };
 const slackRoute = {
@@ -61,8 +61,8 @@ const slackRoute = {
   enabled: true,
   ownerKind: 'project',
   channelId: slackChannel.id,
-  sourceKind: 'watch',
-  sourceRefMatch: { watch_id: 7 },
+  sourceKind: 'alert',
+  sourceRefMatch: { alert_id: 7 },
   deliveryMode: 'immediate',
 };
 const emailRequest = {
@@ -192,7 +192,7 @@ describe('NotificationSettingsPanel configurable email', () => {
     fireEvent.change(screen.getByTestId('notification-route-digest-anchor'), { target: { value: '14:30' } });
     fireEvent.click(screen.getByTestId('notification-create-route'));
     await waitFor(() => expect(projectApi.createNotificationRoute).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Council digest', deliveryMode: 'digest', sourceRefMatch: { watch_id: 7 },
+      name: 'Council digest', deliveryMode: 'digest', sourceRefMatch: { alert_id: 7 },
       digestCadence: 'daily', digestTimezone: 'UTC', digestAnchorTime: '14:30',
     })));
   });

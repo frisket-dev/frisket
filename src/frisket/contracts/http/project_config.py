@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic.config import JsonDict
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from frisket.contracts.http.models import WireModel
 
@@ -153,7 +153,7 @@ class ProjectNetworkResponse(WireModel):
     mode: Literal["inherit", "on", "off"]
     # Materialized in every project bundle; None means the built-in organization
     # default of "on" remains in effect.
-    org_default: Literal["on", "off"] | None
+    organization_default: Literal["on", "off"] | None
     effective: Literal["on", "off"]
 
 
@@ -228,9 +228,16 @@ class ProjectProviderKeyValidationResponse(WireModel):
     reachable: bool
     status: int | None
     detail: str | None
-    # Omitted unless this request's candidate key validates.  ``str`` (rather
-    # than ``str | None``) rejects an explicit null at the model boundary.
-    validation_token: str = Field(default=None)
+    # Omitted unless this request's candidate key validates.  An explicit null
+    # is rejected by the validator below so the boundary contract stays strict.
+    validation_token: str | None = Field(default=None)
+
+    @field_validator("validation_token", mode="before")
+    @classmethod
+    def _reject_null_validation_token(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("Input should be a valid string")
+        return value
 
     @model_validator(mode="after")
     def validation_token_requires_success(self) -> ProjectProviderKeyValidationResponse:

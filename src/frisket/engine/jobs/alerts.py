@@ -1,11 +1,11 @@
-"""Queued ``watch.evaluate`` jobs — dependency-aware alert evaluation.
+"""Queued ``alert.evaluate`` jobs — dependency-aware alert evaluation.
 
 The source-append pipeline must sequence: source poll -> embedding refresh -> alert
 evaluation. The source poll evaluates non-embedding alerts inline, but an
 ``embedding_similarity`` alert must wait until its index's refresh job COMPLETES (or
 it blocks on ``embedding_index_incomplete`` because the appended rows aren't
 embedded yet, and never re-fires). So the embedding-refresh worker enqueues one
-``watch.evaluate`` job per dependent alert on completion, and this handler runs it.
+``alert.evaluate`` job per dependent alert on completion, and this handler runs it.
 
 Reuses the generic SqliteJobQueue — no new automation framework. The alert
 evaluator itself never calls a provider (row anchors only).
@@ -21,7 +21,7 @@ from frisket.engine.store import Project
 from frisket.engine.jobs.notifications_delivery import (
     enqueue_notification_emit_result,
 )
-from frisket.features.alerts.service import AlertBindingError, check_alert
+from frisket.alerts.service import AlertBindingError, check_alert
 
 from .queue import JobQueue, TERMINAL, claimed_project_location
 from .project_opener import (
@@ -38,11 +38,11 @@ if TYPE_CHECKING:
     from frisket.retrieval.preparation import PreparationEncoder
 
 
-ALERT_EVALUATE_KIND = "watch.evaluate"
+ALERT_EVALUATE_KIND = "alert.evaluate"
 
 
 def _alert_query(row: Any) -> dict[str, Any]:
-    from frisket.features.alerts.service import alert_query
+    from frisket.alerts.service import alert_query
 
     try:
         return alert_query(row)
@@ -76,14 +76,14 @@ def _alert_eval_dedupe_key(alert_id: int, trigger_ref: dict[str, Any] | None) ->
         tag = f"dk-{trigger_ref['dedupe_key']}"
     else:
         tag = "manual"
-    return f"watch:{alert_id}:eval:{tag}"
+    return f"alert:{alert_id}:eval:{tag}"
 
 
 def enqueue_due_alert_evaluations(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     now: datetime | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> list[dict[str, int | str]]:
@@ -105,12 +105,12 @@ def enqueue_due_alert_evaluations(
             if interval is None:
                 continue
             alert_id = int(alert["id"])
-            prefix = f"watch:{alert_id}:eval:"
+            prefix = f"alert:{alert_id}:eval:"
             if (
                 queue.find_job_by_refs(
                     ALERT_EVALUATE_KIND,
                     project_id=project_id,
-                    storage_org_id=storage_org_id,
+                    storage_organization_id=storage_organization_id,
                     dedupe_key_prefix=prefix,
                 )
                 is not None
@@ -120,7 +120,7 @@ def enqueue_due_alert_evaluations(
                 ALERT_EVALUATE_KIND,
                 statuses=TERMINAL,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key_prefix=prefix,
             )
             prior_run = project.alert_latest_run(alert_id)
@@ -152,25 +152,25 @@ def enqueue_due_alert_evaluations(
                 ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "workspace_root": str(root),
                     "trigger_ref": trigger,
                     "dedupe_key": key,
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                 },
                 max_attempts=3,
             )
             enqueued.append(
-                {"project_id": project_id, "watch_id": alert_id, "job_id": job_id}
+                {"project_id": project_id, "alert_id": alert_id, "job_id": job_id}
             )
 
     scan_projects(
         project_bundle_paths(root, require_slug=project_opener is not None),
-        bundle_opener(Project, project_opener, storage_org_id),
+        bundle_opener(Project, project_opener, storage_organization_id),
         visit,
         failure_event="alert_project_schedule_failed",
     )
@@ -183,11 +183,11 @@ def enqueue_index_alert_evaluations(
     project: Project,
     project_id: str,
     workspace_root: str | Path,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     index_id: str,
     trigger_ref: dict[str, Any] | None = None,
 ) -> list[int]:
-    """Enqueue one ``watch.evaluate`` job per dependent embedding_similarity alert,
+    """Enqueue one ``alert.evaluate`` job per dependent embedding_similarity alert,
     deduped per (alert, trigger). Enqueue-only — never evaluates inline."""
     if queue is None:
         return []
@@ -199,7 +199,7 @@ def enqueue_index_alert_evaluations(
             queue.find_job_by_refs(
                 ALERT_EVALUATE_KIND,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key=dedupe_key,
             )
             is not None
@@ -211,11 +211,11 @@ def enqueue_index_alert_evaluations(
                 {
                     "project_id": project_id,
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "index_id": index_id,
                     "trigger_ref": trigger_ref or {},
                     "dedupe_key": dedupe_key,
@@ -233,7 +233,7 @@ def enqueue_keyword_alert_evaluations(
     alerts: list[Any],
     project_id: str,
     workspace_root: str | Path,
-    storage_org_id: int | None,
+    storage_organization_id: int | None,
     trigger_ref: dict[str, Any],
 ) -> list[int]:
     """Enqueue affected FTS alerts without evaluating on the caller thread."""
@@ -245,7 +245,7 @@ def enqueue_keyword_alert_evaluations(
             queue.find_job_by_refs(
                 ALERT_EVALUATE_KIND,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key=dedupe_key,
             )
             is not None
@@ -256,13 +256,13 @@ def enqueue_keyword_alert_evaluations(
                 ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "trigger_ref": trigger_ref,
                     "dedupe_key": dedupe_key,
                     "workspace_root": str(workspace_root),
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                 },
@@ -286,12 +286,12 @@ def register_alert_evaluate_handler(
 
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         project_id = str(payload["project_id"])
-        alert_id = int(payload["watch_id"])
+        alert_id = int(payload["alert_id"])
         if project_opener is None:
             project_root = Path(payload.get("workspace_root") or root)
             project = Project(project_root / f"{project_id}.frisket")
             delivery_storage_organization_id = payload.get(
-                "storage_org_id", workspace_root_storage_organization_id
+                "storage_organization_id", workspace_root_storage_organization_id
             )
         else:
             project_id, project_root, project_path = claimed_project_location(
@@ -302,21 +302,23 @@ def register_alert_evaluate_handler(
             )
             claimed = claimed_opener_key(payload)
             project = project_opener(claimed, project_path)
-            delivery_storage_organization_id = claimed.storage_org_id
+            delivery_storage_organization_id = claimed.storage_organization_id
 
         def continue_after_indexing(processed: int) -> dict:
             from .search_index import index_work_marker
 
             continuation = {
                 "project_id": project_id,
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "trigger_ref": payload.get("trigger_ref") or {},
                 "workspace_root": str(project_root),
             }
             if delivery_storage_organization_id is not None:
-                continuation["storage_org_id"] = delivery_storage_organization_id
+                continuation["storage_organization_id"] = (
+                    delivery_storage_organization_id
+                )
             if isinstance(context.trusted_job_organization_id, int):
-                continuation["org_id"] = context.trusted_job_organization_id
+                continuation["organization_id"] = context.trusted_job_organization_id
             marker = index_work_marker(project, include_preparation=False) or "repair"
             trigger_key = _alert_eval_dedupe_key(alert_id, continuation["trigger_ref"])
             queue.enqueue(
@@ -326,7 +328,7 @@ def register_alert_evaluate_handler(
             )
             return {
                 "project_id": project_id,
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "status": "indexing",
                 "indexed": processed,
             }
@@ -336,14 +338,14 @@ def register_alert_evaluate_handler(
             if row is None:
                 return {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "skipped": True,
                     "reason": "not_found",
                 }
             if not bool(row["enabled"]):
                 return {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "skipped": True,
                     "reason": "disabled",
                 }
@@ -352,7 +354,7 @@ def register_alert_evaluate_handler(
             ):
                 return {
                     "project_id": project_id,
-                    "watch_id": alert_id,
+                    "alert_id": alert_id,
                     "skipped": True,
                     "reason": "manual_only",
                 }
@@ -382,14 +384,14 @@ def register_alert_evaluate_handler(
                 queue,
                 workspace_root=project_root,
                 project_id=project_id,
-                storage_org_id=delivery_storage_organization_id,
+                storage_organization_id=delivery_storage_organization_id,
                 result=evaluation["notification"],
                 project_opener=project_opener,
             )
             run = evaluation["run"]
             return {
                 "project_id": project_id,
-                "watch_id": alert_id,
+                "alert_id": alert_id,
                 "run_id": evaluation["run_id"],
                 "status": run.get("status"),
                 "error_code": run.get("error_code"),
@@ -400,5 +402,5 @@ def register_alert_evaluate_handler(
     return registry.add(
         ALERT_EVALUATE_KIND,
         handle,
-        origin="frisket.production.watch_evaluate",
+        origin="frisket.production.alert_evaluate",
     )

@@ -12,8 +12,8 @@ afterEach(cleanup);
 
 function summary(unseen: number): NotificationSummary {
   return { schemaVersion: 'frisket.notifications_summary.v1', total: unseen, unseen,
-    seen: 0, read: 0, acknowledged: 0, bySeverity: {}, bySourceKind: { watch: unseen },
-    bySourceRef: [{ sourceKind: 'watch', sourceRef: { watch_id: 3 }, unseen }] };
+    seen: 0, read: 0, acknowledged: 0, bySeverity: {}, bySourceKind: { alert: unseen },
+    bySourceRef: [{ sourceKind: 'alert', sourceRef: { alert_id: 3 }, unseen }] };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;

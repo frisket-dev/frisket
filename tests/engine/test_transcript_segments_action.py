@@ -20,13 +20,13 @@ from frisket.engine.store.artifact_timeline import (
     resolve_artifact_timeline,
     resolve_timeline,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
@@ -75,7 +75,7 @@ def _seed_timestamped_transcript(
         sheet_id,
         "transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     op_id = project.append_change(
         "media.transcribe",
@@ -103,7 +103,8 @@ def _seed_timestamped_transcript(
         ],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(span_values):
         with write_transaction(project.db):
@@ -122,24 +123,25 @@ def _seed_timestamped_transcript(
         transcript_column_id,
         row_ids=[row_id],
     )
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=spans,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-            "language": "en",
-        },
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=spans,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+                "language": "en",
+            },
+        )
     return {
         "sheet_id": sheet_id,
         "row_id": row_id,
@@ -379,7 +381,7 @@ def test_transcript_split_projects_typed_annotations_on_the_locked_chunk(
     )
     assert any(
         item.ref.get("kind") == "temporal_annotation_projection"
-        for item in receipt.evidence
+        for item in receipt.records
     )
 
     replay = _run(
@@ -410,13 +412,13 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
         int(seeded["sheet_id"]),
         "Topic sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     sidecar_column_id = project.add_column(
         int(seeded["sheet_id"]),
         TOPIC_ANALYSIS_SIDECAR_COLUMN,
         "json",
-        ai_generated=True,
+        generated=True,
         hidden=True,
     )
     topic_value = {
@@ -480,8 +482,10 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
         ],
     )
     runs.finish_run(topic_run_id)
-    runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
-    runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
     result = _run(
         project,
         seeded,
@@ -896,7 +900,7 @@ def test_transcript_failure_cas_loss_never_fabricates_terminal_result(
     _insert_transcript_failure_receipt(project, receipt_id=receipt_id)
     monkeypatch.setattr(
         ReceiptStore,
-        "update_body_status",
+        "update_body_status_in_transaction",
         lambda *_args, **_kwargs: False,
     )
 
@@ -947,7 +951,7 @@ def test_transcript_failure_preserves_error_facts_by_value(make_project) -> None
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])
 def test_transcript_failure_preserves_prior_terminal_receipt(
-    tmp_path: Path,
+    make_project,
     prior_status: str,
 ) -> None:
     from frisket.engine.executor.action_reservations import (
@@ -955,7 +959,7 @@ def test_transcript_failure_preserves_prior_terminal_receipt(
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / f"transcript-prior-{prior_status}.frisket")
+    project = make_project(f"transcript-prior-{prior_status}")
     receipt_id = f"receipt_transcript_prior_{prior_status}"
     prior_error = ActionError(
         code="prior_failure",
@@ -963,33 +967,30 @@ def test_transcript_failure_preserves_prior_terminal_receipt(
         action_kind=ACTION_KIND,
         details={"attempt": 1},
     )
-    try:
-        prior = _insert_transcript_failure_receipt(
-            project,
-            receipt_id=receipt_id,
-            status=prior_status,
-            errors=[prior_error] if prior_status == "failed" else None,
-        )
-        result = _terminalize_claimless_direct_failure(
-            project,
-            project_id="project-transcript-terminalization",
+    prior = _insert_transcript_failure_receipt(
+        project,
+        receipt_id=receipt_id,
+        status=prior_status,
+        errors=[prior_error] if prior_status == "failed" else None,
+    )
+    result = _terminalize_claimless_direct_failure(
+        project,
+        project_id="project-transcript-terminalization",
+        action_kind=ACTION_KIND,
+        stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
+        error=ActionError(
+            code="late_failure",
+            message="late failure must not rewrite the receipt",
             action_kind=ACTION_KIND,
-            stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
-            error=ActionError(
-                code="late_failure",
-                message="late failure must not rewrite the receipt",
-                action_kind=ACTION_KIND,
-            ),
-            project_write_failed_message="Transcript segments receipt could not be finalized.",
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+        ),
+        project_write_failed_message="Transcript segments receipt could not be finalized.",
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.status == prior_status
-        assert result.receipt_id == prior.receipt_id
-        assert result.errors == prior.errors
-        assert stored == prior
-    finally:
-        project.close()
+    assert result.status == prior_status
+    assert result.receipt_id == prior.receipt_id
+    assert result.errors == prior.errors
+    assert stored == prior
 
 
 def test_queued_transcript_failure_leaves_worker_owned_receipt_untouched(

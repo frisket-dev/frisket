@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 
-from frisket.engine.store.evidence import (
-    EVIDENCE_VIEWER_SCHEMA_VERSION,
+from frisket.engine.store.citations import (
+    CITATION_VIEWER_SCHEMA_VERSION,
     list_cell_citations,
     mark_citations_stale_for_cell_refs,
     record_citation,
@@ -21,7 +21,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     project = make_project("Evidence")
     sheet_id = project.add_sheet("Docs")
     source_col = project.add_column(sheet_id, "source", type="file")
-    output_col = project.add_column(sheet_id, "answer", type="text", ai_generated=True)
+    output_col = project.add_column(sheet_id, "answer", type="text", generated=True)
     row_id = project.add_rows(
         sheet_id, [{"source": "contract.pdf"}], {"source": source_col}
     )[0]
@@ -40,7 +40,8 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         [{"row_id": row_id, "column_id": output_col, "value": "$1,250,000"}],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(run_store.db):
+        run_store.point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
     current_ref = refs[row_id]
 
@@ -66,18 +67,19 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
             page_start=2,
             quote="$1,250,000",
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=current_ref,
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=output_col,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-1",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=current_ref,
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_col,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-1",
+        )
 
     listed = list_cell_citations(
         project,
@@ -86,12 +88,11 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         column_id=output_col,
         project_id="project-evidence",
     )
-    assert listed["schema_version"] == "frisket.cell_evidence.v1"
+    assert listed["schema_version"] == "frisket.cell_citations.v1"
     assert listed["stale_count"] == 0
     assert listed["links"][0]["stable_id"] == link["stable_id"]
     assert (
-        "/api/projects/project-evidence/evidence/links/"
-        in listed["links"][0]["viewer_href"]
+        "/api/projects/project-evidence/citations/" in listed["links"][0]["viewer_href"]
     )
 
     viewer = resolve_citation_viewer(
@@ -99,14 +100,21 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         link["stable_id"],
         project_id="project-evidence",
     )
-    assert viewer["schema_version"] == EVIDENCE_VIEWER_SCHEMA_VERSION
+    assert viewer["schema_version"] == CITATION_VIEWER_SCHEMA_VERSION
     assert viewer["artifacts"][0]["filename"] == "contract.pdf"
     assert viewer["artifacts"][0]["spans"][0]["quote"] == "$1,250,000"
 
-    stale = mark_citations_stale_for_cell_refs(
-        project,
-        [{"row_id": row_id, "column_id": output_col, "current_value_ref": current_ref}],
-    )
+    with write_transaction(project.db):
+        stale = mark_citations_stale_for_cell_refs(
+            project,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": output_col,
+                    "current_value_ref": current_ref,
+                }
+            ],
+        )
     assert stale == [link["stable_id"]]
     listed_stale = list_cell_citations(
         project,

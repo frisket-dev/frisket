@@ -22,7 +22,7 @@ export interface ActionComparisonContextRequest {
 // and preview presentation states are browser-owned projections.
 export type ActionComparisonReason = NonNullable<HttpActionCompareContextResponse['reason']>;
 export type ActionComparisonSourceColumn = HttpActionCompareContextResponse['source_columns'][number];
-export type ActionComparisonGeneratedColumn = HttpActionCompareContextResponse['output_columns'][number];
+export type ActionComparisonGeneratedColumn = HttpActionCompareContextResponse['generated_columns'][number];
 export type ActionComparisonTargetColumn = HttpActionCompareContextResponse['replacement_targets'][number];
 export type ActionComparisonCell = HttpActionCompareContextResponse['source_rows'][string][string];
 export type ActionComparisonCellOrigin = ActionComparisonCell['origin'];
@@ -177,8 +177,8 @@ export function createActionComparisonApi(
     estimatePreview(
       request: ActionComparisonPreviewRequest,
       options: RequestOptions = {},
-    ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }> {
-      return httpContract('tenant.v1_action_compare_preview_quote.post', {
+    ): Promise<{ schema_version: 'frisket.action_compare_estimate.v1'; estimate: RunEstimate }> {
+      return httpContract('tenant.v1_action_compare_preview_estimate.post', {
         pathParams: { pid: projectId },
         body: {
           action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key },

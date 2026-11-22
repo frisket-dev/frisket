@@ -96,7 +96,7 @@ def installed(tmp_path, monkeypatch):
         project = app.state.workspace.get(project_id)
         sheet_id = project.add_sheet("Media")
         transcript_id = project.add_column(
-            sheet_id, "Transcript", "timestamped_transcript", ai_generated=True
+            sheet_id, "Transcript", "timestamped_transcript", generated=True
         )
         row_id = project.add_rows(
             sheet_id,

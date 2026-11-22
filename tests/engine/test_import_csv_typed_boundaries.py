@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -48,31 +47,29 @@ def test_csv_completed_replay_does_not_reopen_deleted_source(
 
 @pytest.mark.parametrize("changed", ["sheet_name", "source", "encoding", "output_name"])
 def test_csv_same_key_rejects_changed_request_without_source_access(
-    tmp_path: Path, changed: str
+    tmp_path: Path, make_project, changed: str
 ) -> None:
     path = tmp_path / "source.csv"
     path.write_text("value\n1\n")
-    with closing(
-        Project.create(tmp_path / "conflict.frisket", name="Conflict")
-    ) as project:
-        action = _action(path)
-        first = run_action_spec(project, action, project_id="p")
-        assert first.status == "completed", first.errors
-        before = _counts(project)
-        path.unlink()
-        changed_action = copy.deepcopy(action)
-        if changed == "sheet_name":
-            changed_action["sheet_name"] = "Other sheet"
-        elif changed == "source":
-            changed_action["params"]["sources"][0]["path"] = str(tmp_path / "other.csv")
-        elif changed == "encoding":
-            changed_action["params"]["sources"][0]["encoding"] = "cp1252"
-        else:
-            changed_action["output_names"] = {"value": "Other column"}
-        result = run_action_spec(project, changed_action, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "idempotency_conflict"
-        assert _counts(project) == before
+    project = make_project("Conflict")
+    action = _action(path)
+    first = run_action_spec(project, action, project_id="p")
+    assert first.status == "completed", first.errors
+    before = _counts(project)
+    path.unlink()
+    changed_action = copy.deepcopy(action)
+    if changed == "sheet_name":
+        changed_action["sheet_name"] = "Other sheet"
+    elif changed == "source":
+        changed_action["params"]["sources"][0]["path"] = str(tmp_path / "other.csv")
+    elif changed == "encoding":
+        changed_action["params"]["sources"][0]["encoding"] = "cp1252"
+    else:
+        changed_action["output_names"] = {"value": "Other column"}
+    result = run_action_spec(project, changed_action, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "idempotency_conflict"
+    assert _counts(project) == before
 
 
 @pytest.mark.parametrize("max_rows", [1, 2])

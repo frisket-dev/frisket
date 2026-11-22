@@ -5,7 +5,7 @@ from __future__ import annotations
 from frisket.actions.core import _value_annotation
 from frisket.actions.pdf_table_types import PdfTableRows
 from frisket.actions.types import _without_none
-from frisket.contracts.action import ActionError, ReceiptEvidence
+from frisket.contracts.action import ActionError, ReceiptRecord
 from frisket.engine.executor.recordsets import (
     DERIVE_TABLE_FROM_LIST,
     feedable_named_result_ref,
@@ -25,7 +25,7 @@ def pdf_table_receipt_projection(project, plan, facts, refs, receipt_id):
     observed = (
         [
             item.ref
-            for item in stored.evidence
+            for item in stored.records
             if item.ref.get("kind") == "pdf_table_read"
             and item.ref.get("run_id") == facts.run_id
         ]
@@ -69,7 +69,7 @@ def pdf_table_receipt_projection(project, plan, facts, refs, receipt_id):
                     )
                 )
                 break
-            evidence.append(ReceiptEvidence(ref=read, retention="pinned"))
+            evidence.append(ReceiptRecord(ref=read, retention="pinned"))
             if not value:
                 successful.append(row["row_id"])
                 continue

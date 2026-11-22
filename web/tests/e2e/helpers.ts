@@ -107,7 +107,7 @@ export interface WireColumn {
   id: number;
   name: string;
   type: string;
-  ai_generated: boolean;
+  generated: boolean;
   /** Display hint ('markdown', 'filesize', …) or null. */
   format?: string | null;
 }
@@ -473,7 +473,7 @@ if not worker.run_once():
         while time.time() < deadline:
             row = project.db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
             active_claims = project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+                "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
             if row is not None and row["status"] == "completed" and active_claims == 0:
@@ -583,12 +583,36 @@ export async function clickRunButton(
   const runButton = page.locator(
     '[data-testid="run-button"], [data-testid="generated-action-run"]',
   );
-  await runButton.click();
-  if (!requireCostConfirmation) return;
+  if (!requireCostConfirmation) {
+    await runButton.click();
+    return;
+  }
   const modal = page.getByTestId('cost-gate-modal');
-  const modalVisible = await modal.isVisible({ timeout: 500 }).catch(() => false);
-  if (!modalVisible) return;
-  await page.getByTestId('cost-gate-confirm').click();
+  // The cost gate can open synchronously or after the server's 402 round trip.
+  // Race its appearance against a non-402 /actions/v1/run response so normal
+  // runs return immediately without waiting out the modal timeout.
+  const settledRunResponse = page
+    .waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        /\/actions\/v1\/run(?:$|\?)/.test(response.url()) &&
+        response.status() !== 402,
+      { timeout: 8_000 },
+    )
+    .then(() => 'settled' as const)
+    .catch(() => 'timeout' as const);
+  await runButton.click();
+  const outcome = await Promise.race([
+    modal
+      .waitFor({ state: 'visible', timeout: 8_000 })
+      .then(() => 'modal' as const)
+      .catch(() => 'timeout' as const),
+    settledRunResponse,
+  ]);
+  if (outcome !== 'modal') return;
+  const confirm = page.getByTestId('cost-gate-confirm');
+  await expect(confirm).toBeEnabled({ timeout: 10_000 });
+  await confirm.click();
 }
 
 // ---------------------------------------------------------------------------
@@ -936,7 +960,7 @@ export async function openHistory(page: Page): Promise<void> {
  */
 export async function openDiscoverTab(
   page: Page,
-  tab: 'Facets' | 'Mentions' | 'Sources' | 'Watches' | 'Embeddings' | 'Notifications',
+  tab: 'Facets' | 'Mentions' | 'Sources' | 'Alerts' | 'Embeddings' | 'Notifications',
 ): Promise<void> {
   const panel = page.getByTestId('discover-panel');
   const rail = page.getByTestId('discover-rail');

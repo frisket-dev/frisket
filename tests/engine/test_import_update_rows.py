@@ -140,13 +140,13 @@ def test_keep_existing_blank_preserves_current_values(make_project) -> None:
     ],
 )
 def test_whitespace_only_imports_are_blank_without_trimming_nonblank_text(
-    tmp_path: Path,
+    make_project,
     keep: bool,
     changed: int,
     cleared: int,
     after: dict[str, object],
 ) -> None:
-    project = Project.create(tmp_path / f"whitespace-{keep}.frisket", name="Whitespace")
+    project = make_project(f"whitespace-{keep}")
     sheet_id, columns, row_ids = _seed(project)
     params = _params(
         [

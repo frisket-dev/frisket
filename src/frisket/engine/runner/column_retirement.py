@@ -143,7 +143,7 @@ def retire_dropped_generated_columns(
     (``program.retired_output_names(spec)`` — transcribe's detected_language
     when the engine can't detect; clean_column's _confidence/_justification
     after the mechanical cutover). This hook is fully generic: for each
-    declared name that still exists as an ai_generated column outside the
+    declared name that still exists as an generated column outside the
     current output set, mark it hide-by-default (values preserved, just out
     of the way; ``set_column_default_hidden`` — the same API the retirement path
     used) and record the retirement on the op's undo_info as the durable
@@ -165,7 +165,7 @@ def retire_dropped_generated_columns(
     for column in columns:
         if (
             column["name"] in candidates
-            and column["ai_generated"]
+            and column["generated"]
             and not column["default_hidden"]
             # OWNERSHIP: retire a declared name ONLY when the column is
             # this OUTPUT's to retire — an unattributed (NULL run) legacy
@@ -184,7 +184,7 @@ def retire_dropped_generated_columns(
                 current_output_names,
             )
         ):
-            project.set_column_default_hidden(int(column["id"]), True, commit=False)
+            project.set_column_default_hidden(int(column["id"]), True)
             retired.append(
                 {
                     "column_id": int(column["id"]),
@@ -252,7 +252,7 @@ def is_empty_failed_output(project: Project, column_id: int) -> bool:
         "JOIN runs ON runs.id=columns.current_run_id "
         "JOIN ops ON ops.id=runs.op_id "
         "WHERE columns.id=? AND columns.active=1 AND columns.hidden=1 "
-        "AND columns.ai_generated=1 "
+        "AND columns.generated=1 "
         "AND runs.status IN ('completed','partial','failed') AND ops.status='applied'",
         (column_id,),
     ).fetchone()
@@ -286,7 +286,7 @@ def retire_empty_failed_output(project: Project, column_id: int) -> bool:
     # The name claim was acquired before preparation found this empty draft.
     # Its replacement will be a fresh identity with no publication base.
     project.db.execute(
-        "UPDATE output_column_claims SET column_id=NULL,expected_current_run_id=NULL "
+        "UPDATE generated_column_claims SET column_id=NULL,expected_current_run_id=NULL "
         "WHERE column_id=? AND status='active'",
         (column_id,),
     )

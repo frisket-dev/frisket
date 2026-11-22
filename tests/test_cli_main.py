@@ -44,7 +44,9 @@ def test_help_lists_every_registered_subcommand():
     import frisket.cli as cli
 
     usage = cli._usage()
-    for name in cli._subcommands():
+    subcommands = list(cli._subcommands())
+    assert subcommands
+    for name in subcommands:
         assert f"frisket {name}" in usage, name
 
 
@@ -236,14 +238,20 @@ def test_existing_workspace_path_reaches_serve_not_unknown_command(
     monkeypatch.setattr(standalone, "StandaloneLifetimeLock", FakeLock)
     monkeypatch.setattr(cli, "_stop_worker", lambda _worker: events.append("stop"))
 
-    def fake_run(*_args, **_kwargs):
+    run_kwargs: list[dict[str, object]] = []
+
+    def fake_run(*_args, **kwargs):
         assert events == ["lock"]
+        run_kwargs.append(kwargs)
         raise RuntimeError("reached uvicorn.run")
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="reached uvicorn.run"):
         cli.main()
+    assert len(run_kwargs) == 1
+    assert run_kwargs[0]["loop"] == "asyncio"
+    assert run_kwargs[0]["log_config"] is None
     assert events == ["lock", "stop", "unlock"]
     assert not any(
         thread.name == "frisket-pricing-refresh" for thread in threading.enumerate()

@@ -38,7 +38,7 @@ function openSourceLabel(item: NotificationItem): string {
 }
 
 function itemSourceLabel(item: NotificationItem): string {
-  if (item.sourceKind === 'watch') return 'Alert';
+  if (item.sourceKind === 'alert') return 'Alert';
   if (item.sourceKind === 'run') return 'Run';
   if (item.sourceKind === 'import') return 'Import';
   if (item.sourceKind === 'feed') return 'Feed';
@@ -46,8 +46,8 @@ function itemSourceLabel(item: NotificationItem): string {
 }
 
 function alertCheckLink(item: NotificationItem): AlertCheckLink | null {
-  if (item.deepLink.kind !== 'watch_run') return null;
-  const alertId = Number(item.deepLink.watch_id ?? item.sourceRef.watch_id);
+  if (item.deepLink.kind !== 'alert_check') return null;
+  const alertId = Number(item.deepLink.alert_id ?? item.sourceRef.alert_id);
   const runId = Number(item.deepLink.run_id ?? item.sourceRef.run_id);
   if (!Number.isInteger(alertId) || !Number.isInteger(runId)) return null;
   const rawEventIds = Array.isArray(item.deepLink.event_ids)
@@ -171,7 +171,7 @@ export function NotificationsPanel() {
           // event. AlertsPanel (Discover tab OR the bottom-dock co-mount)
           // picks the link up by subscription, applies it, and acks.
           alertCheckLinkHandle.setPendingAlertCheckLink(link, 'alerts');
-          openDiscover('Watches');
+          openDiscover('Alerts');
           return;
         }
         const sheet = sheetLink(item);

@@ -32,7 +32,6 @@ from frisket.engine.jobs import (
     find_scheduled_indexes,
     register_embedding_refresh_handler,
 )
-from frisket.engine.store import Project
 
 NOW = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
 
@@ -55,24 +54,21 @@ class FakeGateway:
 
 
 @pytest.fixture
-def env(tmp_path):
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
+def env(tmp_path, make_project):
     project_id = "proj"
-    project = Project.create(workspace / f"{project_id}.frisket", name="proj")
+    project = make_project(project_id)
     sheet = project.add_sheet("feed")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], cols)
-    queue = SqliteJobQueue(workspace / ".queue.db")
+    queue = SqliteJobQueue(tmp_path / ".queue.db")
     yield SimpleNamespace(
-        workspace=workspace,
+        workspace=tmp_path,
         project_id=project_id,
         project=project,
         sheet=sheet,
         cols=cols,
         queue=queue,
     )
-    project.close()
     queue.close()
 
 
@@ -331,8 +327,9 @@ def test_automatic_remote_with_unknown_price_refuses_before_gateway(env):
 
 
 def test_manual_remote_refresh_ignores_automatic_gates(env):
-    # a human-initiated refresh (no automatic trigger) is NOT subject to the
-    # automatic-refresh / cost gates — allow_remote alone is enough.
+    # A human-initiated refresh (no automatic trigger) skips the automatic
+    # opt-in and per-refresh allowance gates; this small 3-row estimate runs
+    # without interactive confirmation under the default local standing allowance.
     index_id = _create_index(env, provider="openai", policy={"allow_remote": True})
     gw = FakeGateway(dim=1536)
     result = run_action_spec(

@@ -110,7 +110,7 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
             )
 
         for column in project.columns(sheet_id, include_hidden=True):
-            if not column["ai_generated"]:
+            if not column["generated"]:
                 continue
             run_id = generations.latest_applied_run_id(int(column["id"]))
             if run_id is None:
@@ -120,7 +120,7 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
             nodes.append(
                 {
                     "id": col_node,
-                    "kind": "ai_column",
+                    "kind": "generated_column",
                     "name": column["name"],
                     "sheet_id": sheet_id,
                     "column_id": int(column["id"]),
@@ -135,7 +135,7 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
                 {
                     "from": f"sheet:{sheet_id}",
                     "to": col_node,
-                    "kind": "ai_column",
+                    "kind": "generated_column",
                     "stale": _stale(sheet_id),
                 }
             )

@@ -200,7 +200,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     from frisket.engine.executor.temporal_transcripts import (
         resolve_timestamped_transcript,
     )
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     )
 
@@ -238,7 +238,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         assert resolved.language == "en"
         link_metadata = json.loads(
             project.db.execute(
-                "SELECT metadata FROM evidence_links WHERE id=?",
+                "SELECT metadata FROM citations WHERE id=?",
                 (resolved.evidence_link_id,),
             ).fetchone()["metadata"]
         )
@@ -280,7 +280,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.provider_use[0]["engine"] == "faster_whisper"
     assert receipt.provider_use[0]["external_api"] is False
 
-    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence]
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
     ref_kinds = {ref["kind"] for ref in refs}
     assert {
         "source_column",
@@ -416,7 +416,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "external_rows_failed",
                     "stale_replay",
                     "idempotency_conflict",
@@ -443,9 +443,9 @@ CASES = [
                 expected_status="needs_confirmation",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _source_collision_action,
-                "output_column_exists",
+                "generated_column_exists",
             ),
         ),
         expect_counts={

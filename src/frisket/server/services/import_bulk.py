@@ -83,19 +83,21 @@ class ImportBulkService:
                 for item in staging.staged
             )
             if pdf_count >= 1:
-                if self.pdf_import_service is None:
+                pdf_service = self.pdf_import_service
+                if pdf_service is None:
                     raise RuntimeError("PDF import service is unavailable")
                 adopted: PdfImportStatus | None = None
 
                 def adopt() -> PdfImportStatus:
                     nonlocal adopted
-                    adopted = self.pdf_import_service.adopt_staged(
+                    result = pdf_service.adopt_staged(
                         project_id,
                         staging.draft,
                         staging.staged,
                         source_label=_source_label(uploads),
                     )
-                    return adopted
+                    adopted = result
+                    return result
 
                 try:
                     draft = await await_thread_worker(adopt)

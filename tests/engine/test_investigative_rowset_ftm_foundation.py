@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
 )
-from frisket.features.investigations.rowsets import (
+from frisket.exports.investigative_rowsets import (
     INVESTIGATIVE_ROWSET_SCHEMA_VERSION,
     InvestigativeRowsetError,
     resolve_investigative_rowset,
@@ -35,7 +34,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         "name": project.add_column(sheet_id, "name", "text"),
         "age": project.add_column(sheet_id, "age", "integer"),
         "profile": project.add_column(sheet_id, "profile", "json"),
-        "risk": project.add_column(sheet_id, "risk", "number", ai_generated=True),
+        "risk": project.add_column(sheet_id, "risk", "number", generated=True),
         "internal": project.add_column(sheet_id, "internal", "text"),
     }
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (columns["internal"],))
@@ -76,7 +75,8 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
     edit_op_id = project.apply_edits(
         [{"row_id": row_ids[0], "column_id": columns["age"], "value": 41}],
         label="correct age",
@@ -104,18 +104,19 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
             span_kind="text",
             quote="risk score 0.82",
         )
-    evidence = record_citation(
-        project,
-        stable_id="evidence_link:fixture-risk",
-        subject_kind="cell_value",
-        subject_ref=refs[row_ids[0]],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_ids[0],
-        column_id=columns["risk"],
-        run_id=run_id,
-        op_id=op_id,
-    )
+    with write_transaction(project.db):
+        evidence = record_citation(
+            project,
+            stable_id="evidence_link:fixture-risk",
+            subject_kind="cell_value",
+            subject_ref=refs[row_ids[0]],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_ids[0],
+            column_id=columns["risk"],
+            run_id=run_id,
+            op_id=op_id,
+        )
 
     resolved = resolve_investigative_rowset(
         project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"
@@ -187,12 +188,12 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
             "export_ref": "evidence_link:fixture-risk",
             "status": "active",
             "role": "support",
-            "evidence_kind": "text",
+            "citation_kind": "text",
             "span_count": 1,
             "artifact_count": 1,
             "snippet": "risk score 0.82",
             "viewer_href": (
-                "/api/projects/case-1/evidence/links/evidence_link:fixture-risk/viewer"
+                "/api/projects/case-1/citations/evidence_link:fixture-risk/viewer"
             ),
         }
     ]
@@ -279,14 +280,10 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
 
 @pytest.mark.parametrize("kind", ["union", "virtual", "graph"])
 def test_unsupported_rowset_kinds_fail_with_typed_errors(
-    tmp_path: Path, kind: str
+    project: Project, kind: str
 ) -> None:
-    project = Project.create(tmp_path / f"{kind}.frisket", name="Unsupported")
-    try:
-        with pytest.raises(InvestigativeRowsetError) as excinfo:
-            resolve_investigative_rowset(project, {"kind": kind, "sheet_id": 1})
-    finally:
-        project.close()
+    with pytest.raises(InvestigativeRowsetError) as excinfo:
+        resolve_investigative_rowset(project, {"kind": kind, "sheet_id": 1})
 
     assert excinfo.value.code == "unsupported_rowset_kind"
     assert excinfo.value.field == "rowset.kind"
@@ -296,7 +293,7 @@ def test_unsupported_rowset_kinds_fail_with_typed_errors(
 def test_rowset_metadata_drift_fails_with_typed_error(
     make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from frisket.features.investigations import rowsets
+    from frisket.exports import investigative_rowsets as rowsets
 
     project = make_project("Drift")
     sheet_id = project.add_sheet("Rows")

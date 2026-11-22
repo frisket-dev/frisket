@@ -9,6 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { createColumnTypesApi } from '../../src/api/columnTypes';
 import { ApiError } from '../../src/api/contractErrors';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const columnTypes = [{
   name: 'plugin_stars',
@@ -29,13 +30,6 @@ const expectedColumnTypes = [{
   hasParser: false,
   description: 'A plugin-provided rating.',
 }];
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();

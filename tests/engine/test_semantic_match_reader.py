@@ -362,7 +362,7 @@ def test_custom_author_values_never_own_lineage_or_receipt_source(
     assert "forged-authority" not in json.dumps(receipt.model_dump(mode="json"))
     edges = next(
         e.ref["edges"]
-        for e in receipt.evidence
+        for e in receipt.records
         if e.ref.get("kind") == "semantic_link_table_edges"
     )
     assert edges[0]["target_row_id"] == seed["target_row_ids"][0]
@@ -379,7 +379,7 @@ def test_late_receipt_failure_rolls_back_table_and_both_memberships(
     def fail(*args, **kwargs):
         raise RuntimeError("injected receipt write failure")
 
-    monkeypatch.setattr(ReceiptStore, "insert", fail)
+    monkeypatch.setattr(ReceiptStore, "insert_in_transaction", fail)
     result = _run(project, _derive_link_action(seed["join_receipt_id"]))
     assert result.status == "failed"
     assert _counts(project) == before

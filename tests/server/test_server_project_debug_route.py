@@ -1,20 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
 
 
-def test_project_debug_does_not_create_response_cache_sidecar(tmp_path: Path) -> None:
-    app = create_app(tmp_path / "ws")
-    client = TestClient(app)
+def test_project_debug_does_not_create_response_cache_sidecar(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Debug sidecar"}).json()[
         "id"
     ]
-    project = app.state.workspace.get(project_id)
+    project = client.app.state.workspace.get(project_id)
     cache_file = project.path / "project.cache.db"
     assert not cache_file.exists()
 
@@ -34,14 +27,14 @@ def test_project_debug_does_not_create_response_cache_sidecar(tmp_path: Path) ->
     [([10, None], 10, None), ([0], 0, 0), (None, 10, 10), (None, None, None)],
 )
 def test_debug_and_row_totals_use_call_facts_without_poisoning_secondary_cells(
-    tmp_path, observed_counts, cell_count, expected
+    client, observed_counts, cell_count, expected
 ):
     from frisket.ai.models.metadata import ModelCallMeta
     from frisket.engine.store.runs import RunResultStore
     from frisket.server.run_payloads import action_run_rows_payload
     from helpers import write_claimed_test_results
 
-    with TestClient(create_app(tmp_path / "ws")) as client:
+    with client:
         project_id = client.post("/api/projects", json={"name": "Usage"}).json()["id"]
         project = client.app.state.workspace.get(project_id)
         sheet = project.add_sheet("data")
@@ -50,8 +43,8 @@ def test_debug_and_row_totals_use_call_facts_without_poisoning_secondary_cells(
         row_id = project.db.execute(
             "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
         ).fetchone()[0]
-        answer = project.add_column(sheet, "answer", ai_generated=True)
-        detail = project.add_column(sheet, "detail", ai_generated=True)
+        answer = project.add_column(sheet, "answer", generated=True)
+        detail = project.add_column(sheet, "detail", generated=True)
         run_id = RunResultStore(project).start_run(
             project.append_change("map"), sheet, "map.ask", total_rows=1
         )

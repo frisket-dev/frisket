@@ -21,7 +21,7 @@ from frisket.actions.opencorporates_types import OpenCorporates
 from frisket.actions.temporal_types import TopicSectionsReader
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ColumnRef, PreparedBackfill, RunBackfiller, SheetRows
-from frisket.contracts.action import ActionError, ActionResult, Receipt, ReceiptEvidence
+from frisket.contracts.action import ActionError, ActionResult, Receipt, ReceiptRecord
 from frisket.engine.executor.action_families.runs import (
     _guard_backfill_run_spec,
     _resolve_backfill_target,
@@ -396,15 +396,15 @@ def run_typed_backfill_action(
             status=status,
             errors=errors,
         )
-        result.evidence.extend(
+        result.records.extend(
             [
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "typed_action_request",
                         "request": normalized_typed_request_identity(bound),
                     }
                 ),
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "backfill_source_generation",
                         "run_id": plan.source_run_id,
@@ -441,13 +441,13 @@ def run_typed_backfill_action(
                 for output in producer.outputs
                 if output.ref.get("kind") == "named_result"
             )
-            result.evidence.extend(
+            result.records.extend(
                 item
-                for item in producer.evidence
+                for item in producer.records
                 if item.ref.get("kind")
                 in {
                     "typed_hidden_output",
-                    "map_python_receipt_evidence",
+                    "map_python_receipt_record",
                     "map_python_code",
                     "topic_segmentation_analysis",
                     "pdf_table_read",

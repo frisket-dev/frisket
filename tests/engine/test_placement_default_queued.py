@@ -205,7 +205,7 @@ def test_enrich_geocode_cost_confirmation_gate_fires_before_any_run_is_created(
     assert run_count == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
     assert (
-        project.db.execute("SELECT COUNT(*) FROM output_column_claims").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM generated_column_claims").fetchone()[0]
         == 0
     )
     assert (
@@ -269,7 +269,7 @@ def test_census_demographics_credential_gate_fires_before_any_run_is_created(
     assert run_count == 0
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
     assert (
-        project.db.execute("SELECT COUNT(*) FROM output_column_claims").fetchone()[0]
+        project.db.execute("SELECT COUNT(*) FROM generated_column_claims").fetchone()[0]
         == 0
     )
     assert (

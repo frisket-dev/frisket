@@ -46,11 +46,10 @@ def add_view(
         raise ValueError("view sheet_id does not match selection scope")
     sheet_id = derived_sheet
     with write_transaction(project.db, what="view add"):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "view",
             {"name": name, "sheet_id": sheet_id, "spec": spec},
             label=f"view {name}",
-            commit=False,
         )
         cur = project.db.execute(
             "INSERT INTO views (sheet_id, name, spec, op_id) VALUES (?,?,?,?)",
@@ -81,11 +80,10 @@ def update_view(
     if not sets:
         return
     with write_transaction(project.db, what="view update"):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "view",
             {"view_id": view_id, "name": name, "spec": spec},
             label=f"update view {name or view_id}",
-            commit=False,
         )
         sets.append("op_id=?")
         vals.append(op_id)
@@ -101,7 +99,7 @@ def delete_view(project: Any, view_id: int) -> None:
 
     with write_transaction(project.db, what="view delete"):
         for row in project.db.execute(
-            "SELECT id FROM watches WHERE view_id=?", (view_id,)
+            "SELECT id FROM alerts WHERE view_id=?", (view_id,)
         ).fetchall():
             delete_alert_rows(project, int(row["id"]))
         project.db.execute("DELETE FROM views WHERE id=?", (view_id,))

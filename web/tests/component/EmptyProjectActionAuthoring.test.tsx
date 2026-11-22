@@ -39,12 +39,14 @@ function launch(actionKind: string, previews: unknown[]) {
       }], rows: [{ Name: { value: 'Ada' } }], sampled: 1, total: null },
     });
     if (url.endsWith('/search-preparation')) return json({ batches: [] });
-    if (url.endsWith('/sheets') || url.endsWith('/watches') || url.endsWith('/saved-actions')) return json([]);
+    if (url.endsWith('/sheets') || url.endsWith('/alerts') || url.endsWith('/saved-actions')) return json([]);
     return json({});
   }));
   return render(<EditionModuleProvider edition={LOCAL_EDITION_MODULE}>
     <WalkthroughContext.Provider value={{ active: false, canResume: false, guideSeen: true,
-      openWalkthroughChooser: vi.fn(), resumeWalkthrough: vi.fn(), startWalkthrough: vi.fn(), stopWalkthrough: vi.fn() }}>
+      introOpen: false, guideHintVisible: false, guideEmphasized: false,
+      openWalkthroughChooser: vi.fn(), enterSampleProject: vi.fn(), dismissGuideHint: vi.fn(),
+      resumeWalkthrough: vi.fn(), startWalkthrough: vi.fn(), stopWalkthrough: vi.fn() }}>
       <ProjectRoute projectId={project.id} actionKind={actionKind} />
     </WalkthroughContext.Provider>
   </EditionModuleProvider>);

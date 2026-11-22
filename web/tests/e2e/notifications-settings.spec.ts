@@ -8,7 +8,7 @@ async function createBudgetAlert(request: APIRequestContext, pid: string, sheetI
     presentation: { columns: null, column_groups: null },
   } });
   expect(view.ok()).toBeTruthy();
-  return request.post(`/api/projects/${pid}/watches`, { data: {
+  return request.post(`/api/projects/${pid}/alerts`, { data: {
     name: 'Budget watch',
     view_id: (await view.json()).id,
     detection_policy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
@@ -47,7 +47,7 @@ test('notification settings manages channels routes digests and delivery health'
   await page.getByTestId('notification-route-mode').selectOption('immediate');
   await page.getByTestId('notification-create-route').click();
   const slackRoute = page.getByTestId('notification-route-item').filter({ hasText: 'Budget Slack immediate' });
-  await expect(slackRoute).toContainText(`watch_id: ${alert.id}`);
+  await expect(slackRoute).toContainText(`alert_id: ${alert.id}`);
   await expect(slackRoute).toContainText('immediate');
 
   await page.getByTestId('notification-channel-kind').selectOption('email');

@@ -528,6 +528,7 @@ def test_capability_entries_have_full_shape():
         "pricing",
         "privacy",
     }
+    assert caps
     for c in caps:
         assert required <= set(c), f"missing keys in {c.get('model_id')}"
 

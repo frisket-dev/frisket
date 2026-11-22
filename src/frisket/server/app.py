@@ -125,7 +125,7 @@ from frisket.server.routes.project_inspection import (
     register_project_timing_routes,
     register_sample_project_routes,
 )
-from frisket.server.routes.project_evidence import register_project_citation_routes
+from frisket.server.routes.project_citations import register_project_citation_routes
 from frisket.server.routes.document_extraction import (
     register_document_extraction_routes,
 )
@@ -223,7 +223,7 @@ from frisket.server.services.project_backfill_activity import (
     ProjectBackfillActivityService,
 )
 from frisket.server.services.project_debug import ProjectDebugService
-from frisket.server.services.project_evidence import ProjectCitationsService
+from frisket.server.services.project_citations import ProjectCitationsService
 from frisket.server.services.project_exports import ProjectExportService
 from frisket.server.services.projects import ProjectLifecycleService
 from frisket.server.services.project_mcp import ProjectMcpService
@@ -746,7 +746,7 @@ def create_app(
     # `providers` path segment, so an exposed route is reachable by any
     # signed-in user of any organization (env-key hint leak, non-owner key writes,
     # unmetered validate oracle). Hosted key management is the owner-gated
-    # /api/org/keys instead.
+    # /api/organization/keys instead.
     if enable_provider_config:
         register_provider_config_routes(app, workspace=ws)
     project_action_utility_service = ProjectActionUtilityService(ws)

@@ -51,34 +51,29 @@ def _plugin_load_action(manifest_path: Path, *, idempotency_key: str) -> dict[st
     }
 
 
-def _run_plugin_load(tmp_path: Path, package_dir: Path, *, key: str):
+def _run_plugin_load(project: Project, package_dir: Path, *, key: str):
     from frisket.engine.executor import actions as executor_actions
 
-    project_path = tmp_path / f"{key}.frisket"
-    project = Project.create(project_path, name=f"Author checks {key}")
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _plugin_load_action(
-                package_dir / "plugin.json",
-                idempotency_key=f"plugin_load@sha256:{key}",
-            ),
-            project_id=f"author-checks-{key}",
-        )
-        receipt_body: dict[str, Any] | None = None
-        if result.receipt_id is not None:
-            row = project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()
-            if row is not None:
-                receipt_body = json.loads(row["body"])
-        completed_receipts = int(
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE json_extract(body, '$.status') = 'completed'"
-            ).fetchone()[0]
-        )
-    finally:
-        project.close()
+    result = executor_actions.run_action_spec(
+        project,
+        _plugin_load_action(
+            package_dir / "plugin.json",
+            idempotency_key=f"plugin_load@sha256:{key}",
+        ),
+        project_id=f"author-checks-{key}",
+    )
+    receipt_body: dict[str, Any] | None = None
+    if result.receipt_id is not None:
+        row = project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()
+        if row is not None:
+            receipt_body = json.loads(row["body"])
+    completed_receipts = int(
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE json_extract(body, '$.status') = 'completed'"
+        ).fetchone()[0]
+    )
     return result, receipt_body, completed_receipts
 
 
@@ -179,7 +174,9 @@ def test_validate_extension_check_shares_serve_vocabulary(tmp_path: Path) -> Non
         raise AssertionError("expected plugin_frontend_module_type_invalid")
 
 
-def test_plugin_load_fails_closed_on_broken_module(tmp_path: Path) -> None:
+def test_plugin_load_fails_closed_on_broken_module(
+    tmp_path: Path, project: Project
+) -> None:
     from frisket.plugins.frontend_modules import (
         MAX_TRUSTED_LOCAL_FRONTEND_MODULE_BYTES,
     )
@@ -189,52 +186,54 @@ def test_plugin_load_fails_closed_on_broken_module(tmp_path: Path) -> None:
         "/*" + "a" * MAX_TRUSTED_LOCAL_FRONTEND_MODULE_BYTES + "*/",
         encoding="utf-8",
     )
-    result, _receipt, completed = _run_plugin_load(
-        tmp_path, package_dir, key="oversize"
-    )
+    result, _receipt, completed = _run_plugin_load(project, package_dir, key="oversize")
     assert result.status == "failed"
     assert result.errors
     assert result.errors[0].code == "plugin_frontend_module_too_large"
     assert completed == 0
 
 
-def test_plugin_load_fails_closed_on_symlink_escape(tmp_path: Path) -> None:
+def test_plugin_load_fails_closed_on_symlink_escape(
+    tmp_path: Path, project: Project
+) -> None:
     package_dir = _init_view_package(tmp_path)
     outside = tmp_path / "outside.js"
     outside.write_text("export const MainView = () => null;\n", encoding="utf-8")
     module = package_dir / "frontend" / "plugin.js"
     module.unlink()
     module.symlink_to(outside)
-    result, _receipt, completed = _run_plugin_load(tmp_path, package_dir, key="escape")
+    result, _receipt, completed = _run_plugin_load(project, package_dir, key="escape")
     assert result.status == "failed"
     assert result.errors
     assert result.errors[0].code == "plugin_frontend_module_path_escape"
     assert completed == 0
 
 
-def test_plugin_load_fails_closed_on_non_utf8_module(tmp_path: Path) -> None:
+def test_plugin_load_fails_closed_on_non_utf8_module(
+    tmp_path: Path, project: Project
+) -> None:
     package_dir = _init_view_package(tmp_path)
     (package_dir / "frontend" / "plugin.js").write_bytes(b"\xff\xfe\x00broken")
-    result, _receipt, completed = _run_plugin_load(
-        tmp_path, package_dir, key="encoding"
-    )
+    result, _receipt, completed = _run_plugin_load(project, package_dir, key="encoding")
     assert result.status == "failed"
     assert result.errors
     assert result.errors[0].code == "plugin_frontend_module_encoding_invalid"
     assert completed == 0
 
 
-def test_plugin_load_records_binding_classification(tmp_path: Path) -> None:
+def test_plugin_load_records_binding_classification(
+    tmp_path: Path, project: Project
+) -> None:
     package_dir = _init_view_package(tmp_path)
     result, receipt_body, completed = _run_plugin_load(
-        tmp_path, package_dir, key="classify"
+        project, package_dir, key="classify"
     )
     assert result.status == "completed"
     assert completed == 1
     assert receipt_body is not None
     manifest_ref = next(
         item["ref"]
-        for item in receipt_body["evidence"]
+        for item in receipt_body["records"]
         if item["ref"]["kind"] == "plugin_manifest"
     )
     assert manifest_ref["frontend_component_bindings"] == [

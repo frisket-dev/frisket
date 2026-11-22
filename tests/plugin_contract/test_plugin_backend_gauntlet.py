@@ -527,7 +527,7 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     tmp_path: Path,
 ) -> None:
     """An installed Action whose output names an existing SOURCE column
-    (``ai_generated=False``) is refused by the shared typed map-rows output
+    (``generated=False``) is refused by the shared typed map-rows output
     plan before the handler is invoked, rather than silently overwriting human
     data. Running in process on the native host does not soften that: the
     plugin gets exactly the builtin refusal. Post-cutover there is no plugin
@@ -562,7 +562,7 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     )
     before = _sheet_data(client, project_id, sheet_id)
     before_column = _columns_by_name(before)[output_key]
-    assert before_column["ai_generated"] is False
+    assert before_column["generated"] is False
     preserved = {row_ids[0]: "keep-me-one", row_ids[1]: "keep-me-two"}
     assert _cell_values(before, column_name=output_key) == preserved
 
@@ -575,13 +575,13 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     )
     assert not marker_path.exists()
     assert refused["status"] == "failed"
-    assert refused["errors"][0]["code"] == "output_column_exists"
+    assert refused["errors"][0]["code"] == "generated_column_exists"
     assert refused["errors"][0]["details"]["columns"] == [output_key]
     assert token not in refused["_response_text"]
     after_refusal = _sheet_data(client, project_id, sheet_id)
     after_refusal_column = _columns_by_name(after_refusal)[output_key]
     assert after_refusal_column["id"] == before_column["id"]
-    assert after_refusal_column["ai_generated"] is False
+    assert after_refusal_column["generated"] is False
     assert _cell_values(after_refusal, column_name=output_key) == preserved
 
     # replace_existing is not an override for human data: replacement is
@@ -596,13 +596,13 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     )
     assert not marker_path.exists()
     assert replaced["status"] == "failed"
-    assert replaced["errors"][0]["code"] == "output_column_exists"
+    assert replaced["errors"][0]["code"] == "generated_column_exists"
     assert "only generated columns can be replaced" in replaced["errors"][0]["message"]
     assert replaced["errors"][0]["details"]["columns"] == [output_key]
     after_replace = _sheet_data(client, project_id, sheet_id)
     after_replace_column = _columns_by_name(after_replace)[output_key]
     assert after_replace_column["id"] == before_column["id"]
-    assert after_replace_column["ai_generated"] is False
+    assert after_replace_column["generated"] is False
     assert _cell_values(after_replace, column_name=output_key) == preserved
 
     # The refusal is about the COLLISION, not the Action: renaming the output
@@ -620,12 +620,12 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     assert published["status"] == "completed", published["_response_text"]
     assert marker_path.exists()
     after_publish = _sheet_data(client, project_id, sheet_id)
-    assert _columns_by_name(after_publish)[fresh_name]["ai_generated"] is True
+    assert _columns_by_name(after_publish)[fresh_name]["generated"] is True
     assert _cell_values(after_publish, column_name=fresh_name) == {
         row_ids[0]: f"{token}|Ada",
         row_ids[1]: f"{token}|Grace",
     }
-    assert _columns_by_name(after_publish)[output_key]["ai_generated"] is False
+    assert _columns_by_name(after_publish)[output_key]["generated"] is False
     assert _cell_values(after_publish, column_name=output_key) == preserved
 
 
@@ -762,14 +762,29 @@ def test_plugin_author_cli_init_validate_creates_runnable_package(
     ]
 
 
-def test_bottom_dock_tab_placement_validates() -> None:
-    """Cohort 1 (plugin-bottomdock-tab-parity-v1): a plugin panel placed in
-    bottomDock:tab passes author-time validation."""
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_plugin_id"),
+    [
+        pytest.param("demo_dock_tab", "demo.dock_tab", id="bottom_dock_tab"),
+        pytest.param(
+            "demo_sidebar_panel", "demo.sidebar_panel", id="left_sidebar_panel"
+        ),
+        pytest.param("demo_detail_panels", "demo.detail_panels", id="detail_hosts"),
+        pytest.param("demo_peek_panel", "demo.peek_panel", id="modal_or_peek"),
+        pytest.param(
+            "demo_rail_launcher", "demo.rail_launcher", id="activity_rail_launcher"
+        ),
+    ],
+)
+def test_workbench_placement_fixtures_validate(
+    fixture_name: str, expected_plugin_id: str
+) -> None:
+    """Workbench placement fixtures across host cohorts pass author-time validation."""
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
         / "local_plugins"
-        / "demo_dock_tab"
+        / fixture_name
     )
     validate = subprocess.run(
         [FRISKET_CLI, "plugin", "validate", str(fixture_root)],
@@ -782,7 +797,7 @@ def test_bottom_dock_tab_placement_validates() -> None:
     assert validate.returncode == 0, validate.stderr
     validation = json.loads(validate.stdout)
     assert validation["valid"] is True
-    assert validation["plugin_id"] == "demo.dock_tab"
+    assert validation["plugin_id"] == expected_plugin_id
 
 
 def test_plugin_command_contribution_validates_and_undeclared_fails_closed() -> None:
@@ -839,98 +854,6 @@ def test_plugin_command_contribution_validates_and_undeclared_fails_closed() -> 
     )
     with pytest.raises(WorkbenchDescriptorPackageLoadError):
         _validate_workbench_descriptor_package_for_manifest(loaded, package)
-
-
-def test_left_sidebar_panel_placement_validates() -> None:
-    """Cohort 3 (plugin-leftsidebar-panel-parity-v1): a plugin panel placed in
-    leftSidebar:panel passes author-time validation ."""
-    fixture_root = (
-        Path(__file__).resolve().parents[1]
-        / "fixtures"
-        / "local_plugins"
-        / "demo_sidebar_panel"
-    )
-    validate = subprocess.run(
-        [FRISKET_CLI, "plugin", "validate", str(fixture_root)],
-        cwd=Path(__file__).resolve().parents[2],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    assert validate.returncode == 0, validate.stderr
-    validation = json.loads(validate.stdout)
-    assert validation["valid"] is True
-    assert validation["plugin_id"] == "demo.sidebar_panel"
-
-
-def test_detail_host_placements_validate() -> None:
-    """Cohort 4 (plugin-rowdetail/columndetail/entitysource-detail-parity-v1):
-    plugin panels placed in the detail hosts pass author-time validation."""
-    fixture_root = (
-        Path(__file__).resolve().parents[1]
-        / "fixtures"
-        / "local_plugins"
-        / "demo_detail_panels"
-    )
-    validate = subprocess.run(
-        [FRISKET_CLI, "plugin", "validate", str(fixture_root)],
-        cwd=Path(__file__).resolve().parents[2],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    assert validate.returncode == 0, validate.stderr
-    validation = json.loads(validate.stdout)
-    assert validation["valid"] is True
-    assert validation["plugin_id"] == "demo.detail_panels"
-
-
-def test_modal_or_peek_placement_validates() -> None:
-    """Cohort 5 (plugin-modalorpeek-peek-parity-v1): a plugin peek panel and its
-    opener command pass author-time validation."""
-    fixture_root = (
-        Path(__file__).resolve().parents[1]
-        / "fixtures"
-        / "local_plugins"
-        / "demo_peek_panel"
-    )
-    validate = subprocess.run(
-        [FRISKET_CLI, "plugin", "validate", str(fixture_root)],
-        cwd=Path(__file__).resolve().parents[2],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    assert validate.returncode == 0, validate.stderr
-    validation = json.loads(validate.stdout)
-    assert validation["valid"] is True
-    assert validation["plugin_id"] == "demo.peek_panel"
-
-
-def test_activity_rail_launcher_placement_validates() -> None:
-    """Cohort 6 (plugin-activityrail-launcher-parity-v1): a plugin panel with a
-    bottomDock primary and an activityRail launcher secondary validates."""
-    fixture_root = (
-        Path(__file__).resolve().parents[1]
-        / "fixtures"
-        / "local_plugins"
-        / "demo_rail_launcher"
-    )
-    validate = subprocess.run(
-        [FRISKET_CLI, "plugin", "validate", str(fixture_root)],
-        cwd=Path(__file__).resolve().parents[2],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    assert validate.returncode == 0, validate.stderr
-    validation = json.loads(validate.stdout)
-    assert validation["valid"] is True
-    assert validation["plugin_id"] == "demo.rail_launcher"
 
 
 def test_plugin_sdk_init_build_validate_roundtrip(tmp_path: Path) -> None:

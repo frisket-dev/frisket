@@ -16,8 +16,8 @@ from frisket.ai.embeddings.capabilities import build_batch_result
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.features.temporal.transcript_boundaries import lock_transcript_boundaries
-from frisket.features.topic_segmentation import (
+from frisket.temporal.transcript_boundaries import lock_transcript_boundaries
+from frisket.topic_segmentation import (
     BetweenUnits,
     BoundaryCandidate,
     EngineDefinition,

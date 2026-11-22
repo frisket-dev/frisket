@@ -80,7 +80,7 @@ def combined_execution_outcomes(
     ).fetchone():
         raise ValueError("Stop the execution before reapplying its results")
     if db.execute(
-        "SELECT 1 FROM output_column_claims claim JOIN receipts receipt ON receipt.id=claim.receipt_id "
+        "SELECT 1 FROM generated_column_claims claim JOIN receipts receipt ON receipt.id=claim.receipt_id "
         "WHERE claim.status='active' AND receipt.status IN ('queued','running') "
         "AND json_extract(claim.details,'$.execution_root_run_id')=? LIMIT 1",
         (root,),

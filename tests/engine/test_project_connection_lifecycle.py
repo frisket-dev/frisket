@@ -78,7 +78,6 @@ def test_live_threads_keep_distinct_project_connections(make_project) -> None:
         release.set()
         for thread in threads:
             thread.join(timeout=5)
-        project.close()
 
 
 def test_project_close_closes_live_connections_and_allows_reopen(

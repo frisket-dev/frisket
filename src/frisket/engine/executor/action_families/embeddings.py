@@ -57,15 +57,17 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.ai.embeddings import (
     REMOTE_PROVIDER_KINDS,
     EmbeddingBackendUnavailable,
     EmbeddingGateway,
     EmbeddingProviderError,
     EmbeddingStore,
+    IndexCountUpdate,
     make_space_descriptor,
     resolve_embedding_capability,
 )
@@ -134,23 +136,27 @@ from frisket.execution.consent_coverage import (
 from frisket.execution.pricing_policy import default_pricing_policy
 from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
-    terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
 from frisket.execution.attempt import (
     AttemptClaimRefused,
     StaleAttemptWriter,
     set_attempt_state,
+    set_attempt_state_in_transaction,
 )
 from frisket.execution.attempt_authority import mint_direct_effect_attempt
 from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import BlobNotFoundError
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import (
+    require_transaction,
     roll_back_failed_work,
     write_transaction,
 )
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.ai.models.metadata import ModelCallMeta
 
 from frisket.engine.executor.embedding_read import (
@@ -335,9 +341,9 @@ def _embedding_update_policy_replay_error(
         != {"kind": "embedding_index_ref", "index_id": index_id, "space_id": space_id}
         or len(receipt.outputs) != 1
         or receipt.outputs[0].name != index_id
-        or len(receipt.evidence) != 1
-        or receipt.evidence[0].retention != "pinned"
-        or receipt.evidence[0].ref != {"kind": "embedding_index_policy", **policy}
+        or len(receipt.records) != 1
+        or receipt.records[0].retention != "pinned"
+        or receipt.records[0].ref != {"kind": "embedding_index_policy", **policy}
     ):
         return _embedding_stale_replay_error(
             receipt, "embedding policy replay receipt has inconsistent policy evidence"
@@ -533,7 +539,7 @@ def _sidecar_has_index_rows(project: Project, index_id: str) -> bool:
 
 
 def _insert_receipt(project: Project, receipt: Receipt) -> None:
-    ReceiptStore(project).insert_finished(receipt, commit=False)
+    ReceiptStore(project).insert_finished_in_transaction(receipt)
 
 
 def _resolve_modality(modality: str) -> str:
@@ -662,7 +668,7 @@ def _is_positive_finite_number(value: object) -> TypeGuard[int | float]:
 
 
 def _automatic_cost_gate(
-    action, params, index, space, project_id, *, to_embed: list[dict[str, Any]]
+    req: _RefreshRequest, index: Any, space: Any, *, to_embed: list[dict[str, Any]]
 ):
     """Allowance gate for automatic remote refresh, BEFORE any provider call.
 
@@ -670,7 +676,7 @@ def _automatic_cost_gate(
     unattended remote refresh starts only when its estimate is at or under it;
     no allowance, an estimate over it, or no known unit price refuses with
     embedding_cost_requires_confirmation, so the refresh is asked for instead."""
-    if not to_embed or not _is_automatic_refresh(params):
+    if not to_embed or not _is_automatic_refresh(req.params):
         return None
     if space["provider_kind"] not in REMOTE_PROVIDER_KINDS:
         return None
@@ -678,8 +684,8 @@ def _automatic_cost_gate(
     allowance = provider_policy.get("max_cost_usd_per_refresh")
     if not _is_positive_finite_number(allowance):
         return _error(
-            action,
-            project_id,
+            req.action,
+            req.project_id,
             "embedding_cost_requires_confirmation",
             (
                 "automatic remote refresh requires provider policy "
@@ -709,8 +715,8 @@ def _automatic_cost_gate(
         )
     )
     return _error(
-        action,
-        project_id,
+        req.action,
+        req.project_id,
         "embedding_cost_requires_confirmation",
         message,
         field="params.index_id",
@@ -725,11 +731,12 @@ def _automatic_cost_gate(
 
 
 _EMBEDDING_REFRESH_ADMISSION_SCHEMA = "frisket.embedding_refresh_admission.v1"
+_DIMENSION_PROBE_TEXT = "dimension probe"
 
 
 @dataclass(frozen=True)
-class _RefreshConsent:
-    """Explicit consent facts carried by value into embedding refresh."""
+class _EmbeddingConsent:
+    """Explicit consent facts carried by value into embedding create/refresh."""
 
     confirmation: str | None = None
     consent_coverage: ConsentCoverage | None = None
@@ -737,35 +744,17 @@ class _RefreshConsent:
 
 
 @dataclass(frozen=True)
-class _RefreshRequest:
-    """Bound request facts needed to plan and gate one embedding refresh."""
+class _EmbeddingCostAssessment:
+    """Rated estimate, confirmation token, and allowance decision."""
 
-    action: _TypedProjectEnvelope
-    params: IndexRefreshParams
-    project_id: str
-    params_hash: str
-    consent: _RefreshConsent
-
-
-@dataclass(frozen=True)
-class _PreparedRefresh:
-    """Read-only plan and rated estimate for one embedding.index_refresh."""
-
-    index: Any
-    space: Any
-    modality: str
-    remote: bool
-    automatic: bool
-    candidate_row_ids: list[int]
-    to_embed: list[dict[str, Any]]
     estimate: dict[str, Any]
     confirmation_hash: str
-    requires_confirmation: bool
+    price_usd: float | None
+    exceeds_allowance: bool
     cloud_unpriceable: bool
+    requires_confirmation: bool
 
     def wire_estimate(self) -> dict[str, Any]:
-        from frisket.contracts.http.action_estimate_validation import ActionEstimate
-
         payload: dict[str, Any] = {
             key: value
             for key, value in self.estimate.items()
@@ -786,50 +775,168 @@ class _PreparedRefresh:
         return payload
 
 
-def _plan_refresh_to_embed(
+@dataclass(frozen=True)
+class _RefreshRequest:
+    """Bound request facts needed to plan and gate one embedding refresh."""
+
+    action: _TypedProjectEnvelope
+    params: IndexRefreshParams
+    project_id: str
+    params_hash: str
+    consent: _EmbeddingConsent
+
+
+@dataclass(frozen=True)
+class _CreateRequest:
+    """Bound request facts needed to plan and gate one embedding index create."""
+
+    action: _TypedProjectEnvelope
+    params: IndexCreateParams
+    project_id: str
+    params_hash: str
+    consent: _EmbeddingConsent
+
+
+@dataclass(frozen=True)
+class _CostGateCopy:
+    """Action-specific wording and error field for one embedding cost gate."""
+
+    provider_id: str
+    model_id: str
+    field: str
+    operation_label: str
+    confirm_unknown_message: str
+    confirm_known_message: str
+
+
+@dataclass(frozen=True)
+class _RefreshTarget:
+    """Resolved embedding index, space, and modality for a refresh."""
+
+    index: Any
+    space: Any
+    modality: str
+
+
+@dataclass(frozen=True)
+class _RefreshItemPlan:
+    """Planned named-index items, publication set, and uncached embed batch."""
+
+    index_spec: Any
+    planned_items: tuple[Any, ...]
+    planned_by_key: dict[str, Any]
+    existing_rows: dict[int, tuple[str, str]]
+    to_publish: list[Any]
+    to_embed: list[dict[str, Any]]
+    skipped: int
+
+
+@dataclass(frozen=True)
+class _PreparedRefresh:
+    """Read-only plan and rated estimate for one embedding.index_refresh."""
+
+    index: Any
+    space: Any
+    modality: str
+    remote: bool
+    automatic: bool
+    candidate_row_ids: list[int]
+    to_embed: list[dict[str, Any]]
+    cost: _EmbeddingCostAssessment
+
+    def wire_estimate(self) -> dict[str, Any]:
+        return self.cost.wire_estimate()
+
+
+@dataclass(frozen=True)
+class _PreparedCreate:
+    """Read-only plan and rated estimate for one embedding.index_create."""
+
+    modality: str
+    cap: dict[str, Any]
+    discovery_required: bool
+    probe_sheet_id: int | None
+    cost: _EmbeddingCostAssessment
+
+    def wire_estimate(self) -> dict[str, Any]:
+        return self.cost.wire_estimate()
+
+
+def _plan_refresh_items(
     project: Project,
-    index: Any,
-    space: Any,
+    target: _RefreshTarget,
     params: IndexRefreshParams,
     row_ids: list[int],
-) -> list[dict[str, Any]]:
-    """Compute which items require provider embedding without creating sidecar state."""
+    *,
+    retrieval: RetrievalStore | None = None,
+) -> _RefreshItemPlan:
+    """Compute refresh publication and provider-embed batches.
+
+    When ``retrieval`` is None, avoids creating a missing sidecar database on disk.
+    """
+    index = target.index
+    space = target.space
     source_columns = json.loads(index["source_columns_json"])
     payloads = build_source_payloads(project, index, source_columns, row_ids)
-    _, planned_items = plan_named_index_items(
+    index_spec, planned_items = plan_named_index_items(
         project, index=index, space=space, payloads=payloads
     )
-    payload_by_key = {str(item["source_key"]): item for item in payloads}
-    if params.mode == "full" or not RetrievalStore(project).path.exists():
-        return [payload_by_key[planned.source_key] for planned in planned_items]
     planned_by_key = {item.source_key: item for item in planned_items}
-    retrieval = RetrievalStore(project).open()
+    payload_by_key = {str(item["source_key"]): item for item in payloads}
+    full = params.mode == "full"
+    if retrieval is None and (full or not RetrievalStore(project).path.exists()):
+        to_publish = [planned_by_key[str(item["source_key"])] for item in payloads]
+        to_embed = [payload_by_key[planned.source_key] for planned in to_publish]
+        return _RefreshItemPlan(
+            index_spec=index_spec,
+            planned_items=planned_items,
+            planned_by_key=planned_by_key,
+            existing_rows={},
+            to_publish=to_publish,
+            to_embed=to_embed,
+            skipped=0,
+        )
+    owned_store = retrieval is None
+    active_retrieval = RetrievalStore(project).open() if owned_store else retrieval
+    assert active_retrieval is not None
     try:
-        existing_pairs = set(dataset_rows(retrieval, str(index["id"])).values())
-        to_publish = [
-            planned_by_key[str(item["source_key"])]
-            for item in payloads
-            if (
-                planned_by_key[str(item["source_key"])].part_id,
-                planned_by_key[str(item["source_key"])].representation_id,
-            )
-            not in existing_pairs
-        ]
+        existing_rows = dataset_rows(active_retrieval, str(index["id"]))
+        existing_pairs = set(existing_rows.values())
+        to_publish = []
+        skipped = 0
+        for item in payloads:
+            planned = planned_by_key[str(item["source_key"])]
+            current = (planned.part_id, planned.representation_id) in existing_pairs
+            if current and not full:
+                skipped += 1
+                continue
+            to_publish.append(planned)
         cached: dict[str, Any] = {}
-        hashes = [item.input_hash for item in to_publish]
-        for offset in range(0, len(hashes), 1000):
-            cached.update(
-                retrieval.get_representations(
-                    str(space["id"]), hashes[offset : offset + 1000]
+        if not full:
+            hashes = [item.input_hash for item in to_publish]
+            for offset in range(0, len(hashes), 1000):
+                cached.update(
+                    active_retrieval.get_representations(
+                        str(space["id"]), hashes[offset : offset + 1000]
+                    )
                 )
-            )
-        return [
+        to_embed = [
             payload_by_key[planned.source_key]
             for planned in to_publish
-            if planned.input_hash not in cached
+            if full or planned.input_hash not in cached
         ]
+        return _RefreshItemPlan(
+            index_spec=index_spec,
+            planned_items=planned_items,
+            planned_by_key=planned_by_key,
+            existing_rows=existing_rows,
+            to_publish=to_publish,
+            to_embed=to_embed,
+            skipped=skipped,
+        )
     finally:
-        retrieval.close()
+        if owned_store:
+            active_retrieval.close()
 
 
 def _build_refresh_estimate(
@@ -871,10 +978,49 @@ def _build_refresh_estimate(
     return rate_estimate(raw, policy=default_pricing_policy())
 
 
-def _manual_refresh_exceeds_allowance(
+def _build_create_estimate(
+    cap: Mapping[str, Any],
+    params: IndexCreateParams,
+    modality: str,
+    *,
+    probe_required: bool,
+    router: Any | None,
+) -> dict[str, Any]:
+    """Rate one embedding.index_create operation (free metadata or 1-input probe)."""
+    requested_model = str(params.model or cap["model_id"])
+    engine = f"{cap['provider_id']}/{requested_model}"
+    if not probe_required:
+        raw: dict[str, Any] = {
+            "rows": 0,
+            "cost": 0.0,
+            "cost_source": "free_local",
+            "engine": engine,
+            "input_tokens": 0,
+        }
+        return rate_estimate(raw, policy=default_pricing_policy())
+    cost_est = estimate_embedding_cost(
+        [_DIMENSION_PROBE_TEXT],
+        modality=modality,
+        provider=str(cap["provider_id"]),
+        model=requested_model,
+        router=router,
+    )
+    raw = {
+        "rows": 1,
+        "cost": cost_est.cost_usd,
+        "cost_source": "pricing_data" if cost_est.cost_usd is not None else "unknown",
+        "engine": engine,
+        "remote_capability": f"provider:{cap['provider_kind']}",
+        "input_tokens": cost_est.input_tokens,
+        "avg_input_tokens": cost_est.input_tokens,
+    }
+    return rate_estimate(raw, policy=default_pricing_policy())
+
+
+def _embedding_cost_exceeds_allowance(
     estimate: Mapping[str, Any], *, threshold_usd: Decimal
 ) -> tuple[float | None, bool]:
-    """Compare a rated remote refresh estimate against the standing allowance."""
+    """Compare a rated remote embedding estimate against the standing allowance."""
     price = estimated_usd(estimate)
     if price is None:
         return None, True
@@ -889,7 +1035,7 @@ def _manual_refresh_exceeds_allowance(
     return price, exceeds
 
 
-def _refresh_confirmation_token(
+def _embedding_confirmation_token(
     action_kind: str, params_hash: str, estimate: Mapping[str, Any]
 ) -> str:
     return mint_confirmation_hash(
@@ -901,9 +1047,96 @@ def _refresh_confirmation_token(
     )
 
 
+def _assess_embedding_cost(
+    project: Project,
+    req: _CreateRequest | _RefreshRequest,
+    estimate: dict[str, Any],
+    *,
+    gate_active: bool,
+) -> _EmbeddingCostAssessment:
+    """Evaluate standing allowance and explicit confirmation for one rated estimate."""
+    token = _embedding_confirmation_token(req.action.kind, req.params_hash, estimate)
+    if not gate_active:
+        return _EmbeddingCostAssessment(
+            estimate=estimate,
+            confirmation_hash=token,
+            price_usd=estimated_usd(estimate),
+            exceeds_allowance=False,
+            cloud_unpriceable=False,
+            requires_confirmation=False,
+        )
+    coverage = effective_consent_coverage(project, req.consent.consent_coverage)
+    price, exceeds = _embedding_cost_exceeds_allowance(
+        estimate, threshold_usd=coverage.threshold_usd
+    )
+    cloud_unpriceable = price is None and req.consent.edition == "cloud"
+    requires_confirmation = cloud_unpriceable or (
+        exceeds and req.consent.confirmation != token
+    )
+    return _EmbeddingCostAssessment(
+        estimate=estimate,
+        confirmation_hash=token,
+        price_usd=price,
+        exceeds_allowance=exceeds,
+        cloud_unpriceable=cloud_unpriceable,
+        requires_confirmation=requires_confirmation,
+    )
+
+
+def _embedding_cost_gate_result(
+    req: _CreateRequest | _RefreshRequest,
+    assessment: _EmbeddingCostAssessment,
+    copy: _CostGateCopy,
+) -> ActionResult | None:
+    """Translate one cost assessment into a Cloud refusal or 402 confirmation gate."""
+    if assessment.cloud_unpriceable:
+        return _error(
+            req.action,
+            req.project_id,
+            "unpriceable_model",
+            (
+                f"Remote {copy.operation_label} with an unknown price for "
+                f"{copy.provider_id}/{copy.model_id} is not allowed on Cloud; "
+                "choose a model with a published price."
+            ),
+            field=copy.field,
+            details={
+                "estimate": assessment.estimate,
+                "provider": copy.provider_id,
+                "model": copy.model_id,
+            },
+        )
+    if not assessment.requires_confirmation:
+        return None
+    message = (
+        copy.confirm_unknown_message
+        if assessment.price_usd is None
+        else copy.confirm_known_message
+    )
+    return ActionResult(
+        action=ActionIdentity(kind=req.action.kind, action_id=_new_id("act")),
+        project_id=req.project_id,
+        status="needs_confirmation",
+        errors=[
+            ActionError(
+                code="model_cost_requires_confirmation",
+                message=message,
+                action_kind=req.action.kind,
+                field="confirmation",
+                needs_confirmation=True,
+                details={
+                    "reason": _estimate_confirmation_reason(assessment.price_usd),
+                    "estimate": assessment.estimate,
+                    "promise_set_hash": assessment.confirmation_hash,
+                },
+            )
+        ],
+    )
+
+
 def _load_refresh_target(
     project: Project, req: _RefreshRequest
-) -> tuple[Any, Any, str] | ActionResult:
+) -> _RefreshTarget | ActionResult:
     store = EmbeddingStore(project)
     index = store.get_index(req.params.index_id)
     if index is None:
@@ -932,7 +1165,7 @@ def _load_refresh_target(
             f"modality {modality!r} cannot be embedded in this build",
             field="params.index_id",
         )
-    return index, space, modality
+    return _RefreshTarget(index=index, space=space, modality=modality)
 
 
 def _validate_refresh_remote_policy(
@@ -997,26 +1230,45 @@ def _validate_refresh_remote_policy(
     return None
 
 
+def _assess_manual_refresh_cost(
+    project: Project,
+    req: _RefreshRequest,
+    *,
+    space: Any,
+    modality: str,
+    to_embed: list[dict[str, Any]],
+) -> _EmbeddingCostAssessment:
+    """Rate and evaluate one manual refresh batch through the shared consent gate."""
+    remote = space["provider_kind"] in REMOTE_PROVIDER_KINDS
+    automatic = _is_automatic_refresh(req.params)
+    estimate = _build_refresh_estimate(space, modality, to_embed, remote=remote)
+    return _assess_embedding_cost(
+        project,
+        req,
+        estimate,
+        gate_active=bool(remote and to_embed and not automatic),
+    )
+
+
 def _prepare_refresh_plan(
     project: Project, req: _RefreshRequest
 ) -> _PreparedRefresh | ActionResult:
-    loaded = _load_refresh_target(project, req)
-    if isinstance(loaded, ActionResult):
-        return loaded
-    index, space, modality = loaded
-    policy_error = _validate_refresh_remote_policy(project, req, index, space)
+    target = _load_refresh_target(project, req)
+    if isinstance(target, ActionResult):
+        return target
+    policy_error = _validate_refresh_remote_policy(
+        project, req, target.index, target.space
+    )
     if policy_error is not None:
         return policy_error
     try:
-        candidate_row_ids = _resolve_refresh_rows(project, index, req.params)
+        candidate_row_ids = _resolve_refresh_rows(project, target.index, req.params)
     except _RefreshScopeError as exc:
         return _error(
             req.action, req.project_id, exc.code, exc.message, field="params.index_id"
         )
     try:
-        to_embed = _plan_refresh_to_embed(
-            project, index, space, req.params, candidate_row_ids
-        )
+        item_plan = _plan_refresh_items(project, target, req.params, candidate_row_ids)
     except (TypeError, ValueError) as exc:
         return _error(
             req.action,
@@ -1025,113 +1277,262 @@ def _prepare_refresh_plan(
             str(exc),
             field="params.index_id",
         )
-    remote = space["provider_kind"] in REMOTE_PROVIDER_KINDS
+    remote = target.space["provider_kind"] in REMOTE_PROVIDER_KINDS
     automatic = _is_automatic_refresh(req.params)
-    estimate = _build_refresh_estimate(space, modality, to_embed, remote=remote)
-    token = _refresh_confirmation_token(req.action.kind, req.params_hash, estimate)
-    coverage = effective_consent_coverage(project, req.consent.consent_coverage)
-    if remote and to_embed and not automatic:
-        price, exceeds = _manual_refresh_exceeds_allowance(
-            estimate, threshold_usd=coverage.threshold_usd
-        )
-        cloud_unpriceable = price is None and req.consent.edition == "cloud"
-        requires_confirmation = cloud_unpriceable or (
-            exceeds and req.consent.confirmation != token
-        )
-    else:
-        cloud_unpriceable = False
-        requires_confirmation = False
+    cost = _assess_manual_refresh_cost(
+        project,
+        req,
+        space=target.space,
+        modality=target.modality,
+        to_embed=item_plan.to_embed,
+    )
     return _PreparedRefresh(
-        index=index,
-        space=space,
-        modality=modality,
+        index=target.index,
+        space=target.space,
+        modality=target.modality,
         remote=remote,
         automatic=automatic,
         candidate_row_ids=candidate_row_ids,
-        to_embed=to_embed,
-        estimate=estimate,
-        confirmation_hash=token,
-        requires_confirmation=requires_confirmation,
-        cloud_unpriceable=cloud_unpriceable,
+        to_embed=item_plan.to_embed,
+        cost=cost,
     )
 
 
 def _manual_cost_gate(
-    project: Project,
     req: _RefreshRequest,
     *,
     space: Any,
-    to_embed: list[dict[str, Any]],
+    assessment: _EmbeddingCostAssessment,
 ) -> ActionResult | None:
-    """Standing allowance and explicit consent gate for manual remote refresh."""
-    remote = space["provider_kind"] in REMOTE_PROVIDER_KINDS
-    if not remote or not to_embed or _is_automatic_refresh(req.params):
-        return None
-    estimate = _build_refresh_estimate(
-        space, str(space["modality"]), to_embed, remote=True
+    """Turn a pre-computed manual refresh cost assessment into a gate result."""
+    provider_id = str(space["provider_id"])
+    model_id = str(space["actual_model_id"])
+    return _embedding_cost_gate_result(
+        req,
+        assessment,
+        _CostGateCopy(
+            provider_id=provider_id,
+            model_id=model_id,
+            field="params.index_id",
+            operation_label="embedding refresh",
+            confirm_unknown_message=(
+                f"Estimated cost is unknown for {provider_id}/{model_id} — confirm to "
+                "refresh this remote embedding index."
+            ),
+            confirm_known_message=(
+                f"Confirm remote embedding refresh for {provider_id}/{model_id} "
+                "before running."
+            ),
+        ),
     )
-    token = _refresh_confirmation_token(req.action.kind, req.params_hash, estimate)
-    coverage = effective_consent_coverage(project, req.consent.consent_coverage)
-    price, exceeds = _manual_refresh_exceeds_allowance(
-        estimate, threshold_usd=coverage.threshold_usd
-    )
-    if price is None and req.consent.edition == "cloud":
+
+
+def _validate_create_probe_policy(
+    project: Project,
+    req: _CreateRequest,
+    cap: Mapping[str, Any],
+    *,
+    probe_needed: bool,
+) -> int | None | ActionResult:
+    """Validate remote policy, sheet_id, network, and spend cap before probing."""
+    provider_policy = req.params.provider_policy or {"allow_remote": False}
+    if provider_policy.get("allow_remote") is not True:
         return _error(
             req.action,
             req.project_id,
-            "unpriceable_model",
+            "embedding_remote_confirmation_required",
             (
-                "Remote embedding refresh with an unknown price for "
-                f"{space['provider_id']}/{space['actual_model_id']} is not "
-                "allowed on Cloud; choose a model with a published price."
+                f"provider {cap['provider_id']!r} is remote and the dimension must "
+                "be discovered with a probe embed; its provider policy must set "
+                "allow_remote=true before any data can egress"
             ),
-            field="params.index_id",
+            field="params.provider_policy",
             details={
-                "estimate": estimate,
-                "provider": str(space["provider_id"]),
-                "model": str(space["actual_model_id"]),
+                "provider_kind": cap["provider_kind"],
+                "provider_id": cap["provider_id"],
             },
         )
-    if not exceeds or req.consent.confirmation == token:
+    if not probe_needed:
         return None
-    message = (
-        (
-            f"Estimated cost is unknown for "
-            f"{space['provider_id']}/{space['actual_model_id']} — confirm to "
-            "refresh this remote embedding index."
+    probe_sheet_id = req.params.sheet_id
+    if probe_sheet_id is None:
+        return _error(
+            req.action,
+            req.project_id,
+            "invalid_params",
+            "a dimension-discovery probe embeds a row, so it requires a sheet_id",
+            field="params.sheet_id",
         )
-        if price is None
-        else (
-            f"Confirm remote embedding refresh for "
-            f"{space['provider_id']}/{space['actual_model_id']} before running."
+    if provider_network_blocked(
+        cap["provider_kind"],
+        network_off=project.effective_network_policy() == "off",
+    ):
+        return _error(
+            req.action,
+            req.project_id,
+            "network_disabled",
+            "Project network policy blocks the remote embedding dimension probe.",
+            field="params.provider",
+            details={"capability": f"provider:{cap['provider_kind']}"},
         )
+    try:
+        assert_provider_spend_cap(project, str(cap["provider_id"]))
+    except ProviderKeyRefusal as exc:
+        return _error(
+            req.action,
+            req.project_id,
+            exc.error_code,
+            exc.action_message(),
+            field="params.provider",
+            details=exc.details,
+        )
+    return probe_sheet_id
+
+
+def _prepare_create_plan(
+    project: Project,
+    req: _CreateRequest,
+    *,
+    router: Any | None = None,
+    has_checkpoint: bool = False,
+) -> _PreparedCreate | ActionResult:
+    """Validate create scope/policy and compute rated probe estimate + consent."""
+    modality = _resolve_modality(req.params.modality)
+    # Capability facts are declared (model id, dimension) regardless of runtime
+    # availability — an index may be created now and refreshed once keys exist.
+    cap = resolve_embedding_capability(
+        modality=modality,
+        provider=req.params.provider,
+        model=req.params.model,
+        router=router,
     )
-    return ActionResult(
-        action=ActionIdentity(kind=req.action.kind, action_id=_new_id("act")),
-        project_id=req.project_id,
-        status="needs_confirmation",
-        errors=[
-            ActionError(
-                code="model_cost_requires_confirmation",
-                message=message,
-                action_kind=req.action.kind,
-                field="confirmation",
-                needs_confirmation=True,
-                details={
-                    "reason": _estimate_confirmation_reason(price),
-                    "estimate": estimate,
-                    "promise_set_hash": token,
-                },
+    if cap is None:
+        if req.params.model:
+            return _error(
+                req.action,
+                req.project_id,
+                "embedding_model_unsupported",
+                (
+                    f"model {req.params.model!r} is not a built-in or fastembed-supported "
+                    "model; choose a listed model or a remote provider/model"
+                ),
+                field="params.model",
+                details={"provider": req.params.provider, "model": req.params.model},
             )
-        ],
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_backend_unavailable",
+            f"no embedding provider/model matches modality={modality!r} "
+            f"provider={req.params.provider!r} model={req.params.model!r}",
+            field="params.provider",
+        )
+    # Media modalities have no local fallback, so an unavailable engine blocks at create.
+    if modality in _MEDIA_MODALITIES and not cap.get("available"):
+        return _error(
+            req.action,
+            req.project_id,
+            "embedding_backend_unavailable",
+            (
+                f"{modality} embedding engine {cap['model_id']!r} is not available: "
+                f"{cap.get('error')}"
+            ),
+            field="params.modality",
+            details={"disabled_reason": cap.get("error"), "modality": modality},
+        )
+    # Validate the visible sheet + source columns BEFORE any write or discovery probe.
+    scope_error = _validate_create_scope(
+        project, req.action, req.params, req.project_id
     )
+    if scope_error is not None:
+        return scope_error
+    discovery_required = bool(cap.get("dimension_discovery_required")) or has_checkpoint
+    probe_needed = discovery_required and not has_checkpoint
+    probe_sheet_id: int | None = None
+    if discovery_required:
+        validated = _validate_create_probe_policy(
+            project, req, cap, probe_needed=probe_needed
+        )
+        if isinstance(validated, ActionResult):
+            return validated
+        probe_sheet_id = validated
+    estimate = _build_create_estimate(
+        cap,
+        req.params,
+        modality,
+        probe_required=probe_needed,
+        router=router,
+    )
+    cost = _assess_embedding_cost(project, req, estimate, gate_active=probe_needed)
+    return _PreparedCreate(
+        modality=modality,
+        cap=dict(cap),
+        discovery_required=discovery_required,
+        probe_sheet_id=probe_sheet_id,
+        cost=cost,
+    )
+
+
+def _create_probe_cost_gate(
+    req: _CreateRequest,
+    prepared: _PreparedCreate,
+) -> ActionResult | None:
+    """Turn a create dimension-probe cost assessment into a Cloud refusal or 402 gate."""
+    provider_id = str(prepared.cap["provider_id"])
+    model_id = str(req.params.model or prepared.cap["model_id"])
+    return _embedding_cost_gate_result(
+        req,
+        prepared.cost,
+        _CostGateCopy(
+            provider_id=provider_id,
+            model_id=model_id,
+            field="params.model",
+            operation_label="embedding dimension probe",
+            confirm_unknown_message=(
+                f"Estimated cost is unknown for {provider_id}/{model_id} — confirm to "
+                "run the remote embedding dimension probe."
+            ),
+            confirm_known_message=(
+                f"Confirm remote embedding dimension probe for {provider_id}/{model_id} "
+                "before running."
+            ),
+        ),
+    )
+
+
+def prepare_embedding_create(
+    project: Project,
+    bound: BoundTypedActionRequest,
+    *,
+    project_id: str,
+    router: Any | None = None,
+    consent_coverage: ConsentCoverage | None = None,
+    edition: str | None = None,
+) -> _PreparedCreate | ActionError:
+    """Compute a read-only rated estimate and consent state for embedding.index_create."""
+    params = IndexCreateParams.model_validate(bound.params.model_dump(mode="json"))
+    req = _CreateRequest(
+        action=_typed_params_envelope(bound),
+        params=params,
+        project_id=project_id,
+        params_hash=typed_request_hash(bound),
+        consent=_EmbeddingConsent(
+            confirmation=bound.request.confirmation,
+            consent_coverage=consent_coverage,
+            edition=edition,
+        ),
+    )
+    prepared = _prepare_create_plan(project, req, router=router, has_checkpoint=False)
+    if isinstance(prepared, ActionResult):
+        return prepared.errors[0]
+    return prepared
 
 
 def _refresh_request_from_bound(
     bound: BoundTypedActionRequest,
     *,
     project_id: str,
-    consent: _RefreshConsent,
+    consent: _EmbeddingConsent,
 ) -> _RefreshRequest:
     params = IndexRefreshParams.model_validate(bound.params.model_dump(mode="json"))
     envelope = _typed_params_envelope(bound)
@@ -1153,7 +1554,7 @@ def prepare_embedding_refresh(
     edition: str | None = None,
 ) -> _PreparedRefresh | ActionError:
     """Compute a read-only rated estimate and consent state for embedding.index_refresh."""
-    consent = _RefreshConsent(
+    consent = _EmbeddingConsent(
         confirmation=bound.request.confirmation,
         consent_coverage=consent_coverage,
         edition=edition,
@@ -1184,7 +1585,7 @@ def reserve_typed_embedding_refresh_action_job(
         return replay
     edition = product_edition_from_snapshot(edition_run_context)
     effective = effective_consent_coverage(project, consent_coverage)
-    consent = _RefreshConsent(
+    consent = _EmbeddingConsent(
         confirmation=bound.request.confirmation,
         consent_coverage=effective,
         edition=edition,
@@ -1195,17 +1596,13 @@ def reserve_typed_embedding_refresh_action_job(
         return prepared
     if prepared.automatic:
         gate = _automatic_cost_gate(
-            req.action,
-            req.params,
+            req,
             prepared.index,
             prepared.space,
-            project_id,
             to_embed=prepared.to_embed,
         )
     else:
-        gate = _manual_cost_gate(
-            project, req, space=prepared.space, to_embed=prepared.to_embed
-        )
+        gate = _manual_cost_gate(req, space=prepared.space, assessment=prepared.cost)
     if gate is not None:
         return gate
     envelope = reserve_typed_action_job(
@@ -1224,7 +1621,7 @@ def reserve_typed_embedding_refresh_action_job(
 
 def _consent_from_job_envelope(
     project: Project, envelope: Any, confirmation: str | None
-) -> _RefreshConsent:
+) -> _EmbeddingConsent:
     """Reconstruct carried consent facts by value inside the refresh worker."""
     snapshot = (
         envelope.resolved_snapshot
@@ -1251,7 +1648,7 @@ def _consent_from_job_envelope(
         ).fetchone()
         raw = None if row is None else row["edition_run_context"]
         edition = product_edition_from_snapshot(json.loads(raw) if raw else None)
-    return _RefreshConsent(
+    return _EmbeddingConsent(
         confirmation=confirmation,
         consent_coverage=coverage,
         edition=edition,
@@ -1396,7 +1793,7 @@ def _embedding_create_existing_state(
     egress_reservation = next(
         (
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "embedding_dimension_probe_egress_reservation"
         ),
         None,
@@ -1404,7 +1801,7 @@ def _embedding_create_existing_state(
     checkpoint = next(
         (
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "embedding_dimension_probe_checkpoint"
         ),
         None,
@@ -1454,7 +1851,7 @@ def _embedding_create_existing_state(
     fact = next(
         (
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("fact_version") == "frisket.model-call-fact.v1"
         ),
         None,
@@ -1525,11 +1922,11 @@ def _mark_embedding_probe_egress_reserved(
     receipt = stored.parsed()
     supporting_records = [
         item
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") != "embedding_dimension_probe_egress_reservation"
     ]
     supporting_records.append(
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "embedding_dimension_probe_egress_reservation",
                 "run_id": run_id,
@@ -1542,21 +1939,15 @@ def _mark_embedding_probe_egress_reserved(
         )
     )
     receipt = receipt.model_copy(
-        update={"run_id": run_id, "op_ids": [op_id], "evidence": supporting_records}
+        update={"run_id": run_id, "op_ids": [op_id], "records": supporting_records}
     )
-    try:
-        project.db.execute("BEGIN IMMEDIATE")
-        landed = ReceiptStore(project).update_body_status(
+    with write_transaction(project.db, what="embedding probe egress reservation"):
+        landed = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not landed:
             raise RuntimeError("embedding probe reservation was lost before egress")
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
 
 
 def _run_paid_embedding_dimension_probe(
@@ -1574,24 +1965,6 @@ def _run_paid_embedding_dimension_probe(
     router: Any | None,
     embedding_gateway: Any | None,
 ) -> ActionResult | dict[str, Any]:
-    from frisket.engine.runner.validation import (
-        ProviderKeyRefusal,
-        assert_provider_spend_cap,
-    )
-
-    try:
-        assert_provider_spend_cap(project, str(cap["provider_id"]))
-    except ProviderKeyRefusal as exc:
-        _delete_embedding_probe_reservation(project, receipt_id)
-        return _error(
-            action,
-            project_id,
-            exc.error_code,
-            exc.action_message(),
-            field="params.provider",
-            details=exc.details,
-        )
-
     try:
         op_id = project.append_change(
             "embedding.index_create",
@@ -1641,6 +2014,7 @@ def _run_paid_embedding_dimension_probe(
         )
     attempt_id = commitment.attempt_id
 
+    probe_fence = WriterFence.claimless(run_id=run_id, attempt_id=attempt_id)
     try:
         _mark_embedding_probe_egress_reserved(
             project,
@@ -1653,16 +2027,14 @@ def _run_paid_embedding_dimension_probe(
         )
     except Exception:
         with write_transaction(project.db):
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
-            set_attempt_state(project, attempt_id, "halted", commit=False)
-            ReceiptStore(project).delete_running(receipt_id, commit=False)
+            set_attempt_state_in_transaction(project, attempt_id, "halted")
+            ReceiptStore(project).delete_running_in_transaction(receipt_id)
         return _error(
             action,
             project_id,
@@ -1678,42 +2050,33 @@ def _run_paid_embedding_dimension_probe(
     )
     try:
         probe = gateway.embed(
-            ["dimension probe"],
+            [_DIMENSION_PROBE_TEXT],
             provider=cap["provider_id"],
             model=params.model,
             modality=modality,
         )
     except asyncio.CancelledError:
         project.db.rollback()
-        project.db.execute("BEGIN IMMEDIATE")
-        try:
-            run_store.request_cancel(run_id, commit=False)
-            run_store.finish_run(
+        with write_transaction(project.db, what="cancel embedding probe"):
+            run_store.request_cancel_in_transaction(run_id)
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled",
-                commit=False,
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
-            set_attempt_state(project, attempt_id, "halted", commit=False)
-            project.db.commit()
-        except BaseException:
-            project.db.rollback()
-            raise
+            set_attempt_state_in_transaction(project, attempt_id, "halted")
         raise
     except EmbeddingBackendUnavailable as exc:
         with write_transaction(project.db):
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
-            set_attempt_state(project, attempt_id, "halted", commit=False)
-            ReceiptStore(project).delete_running(receipt_id, commit=False)
+            set_attempt_state_in_transaction(project, attempt_id, "halted")
+            ReceiptStore(project).delete_running_in_transaction(receipt_id)
         return _error(
             action,
             project_id,
@@ -1762,8 +2125,7 @@ def _run_paid_embedding_dimension_probe(
         run_store.finish_run(
             run_id,
             "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
+            fence=probe_fence,
         )
         return _error(
             action,
@@ -1788,20 +2150,15 @@ def _run_paid_embedding_dimension_probe(
                 fact=provider_fact,
                 sheet_id=sheet_id,
                 row_ids=probe_row_ids,
-                commit=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
-                authorized_attempt_id=attempt_id,
+                fence=probe_fence,
             )
-            run_store.finish_run(
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
-            set_attempt_state(project, attempt_id, "effected", commit=False)
+            set_attempt_state_in_transaction(project, attempt_id, "effected")
         return _error(
             action,
             project_id,
@@ -1855,67 +2212,13 @@ def _run_paid_embedding_dimension_probe(
                 "cost_actual": _provider_fact_cost_actual(provider_fact),
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=checkpoint_ref, retention="pinned"),
-            ReceiptEvidence(ref=provider_fact, retention="pinned"),
+        records=[
+            ReceiptRecord(ref=checkpoint_ref, retention="pinned"),
+            ReceiptRecord(ref=provider_fact, retention="pinned"),
         ],
     )
     try:
-        project.db.execute("BEGIN IMMEDIATE")
-        _persist_embedding_provider_fact(
-            project,
-            run_store=run_store,
-            run_id=run_id,
-            fact=provider_fact,
-            sheet_id=sheet_id,
-            row_ids=probe_row_ids,
-            commit=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-            authorized_attempt_id=attempt_id,
-        )
-        landed = ReceiptStore(project).update_body_status(
-            checkpoint_receipt, require_status="running", commit=False
-        )
-        if not landed:
-            raise RuntimeError("embedding probe reservation was lost")
-        # This run records the provider effect, not the later index metadata
-        # write. Settle the returned probe with its paid fact so a metadata
-        # retry never needs to rewrite a terminal run.
-        cancelled_after_return = run_store.cancellation_requested(run_id)
-        if not cancelled_after_return:
-            settled = project.db.execute(
-                "UPDATE runs SET completed_rows=1, failed_rows=0 "
-                "WHERE id=? AND total_rows=1 AND status='running'",
-                (run_id,),
-            )
-            if settled.rowcount != 1:
-                raise RuntimeError(
-                    "embedding probe run changed before returned-effect settlement"
-                )
-        run_store.finish_run(
-            run_id,
-            "cancelled" if cancelled_after_return else "completed",
-            commit=False,
-            rebuild_review_stats=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-        )
-        set_attempt_state(
-            project,
-            attempt_id,
-            "halted" if cancelled_after_return else "effected",
-            commit=False,
-        )
-        project.db.commit()
-    except BaseException as exc:
-        project.db.rollback()
-        if isinstance(exc, StaleAttemptWriter):
-            raise
-        # The provider has returned. Even if the checkpoint write itself breaks,
-        # preserve its call fact and cost; the bare reservation then refuses a
-        # second egress rather than guessing that the first call was free.
-        try:
+        with write_transaction(project.db, what="embedding probe checkpoint"):
             _persist_embedding_provider_fact(
                 project,
                 run_store=run_store,
@@ -1923,26 +2226,62 @@ def _run_paid_embedding_dimension_probe(
                 fact=provider_fact,
                 sheet_id=sheet_id,
                 row_ids=probe_row_ids,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
-                authorized_attempt_id=attempt_id,
+                fence=probe_fence,
             )
-            project.db.execute("BEGIN IMMEDIATE")
-            run_store.finish_run(
+            landed = ReceiptStore(project).update_body_status_in_transaction(
+                checkpoint_receipt, require_status="running"
+            )
+            if not landed:
+                raise RuntimeError("embedding probe reservation was lost")
+            # This run records the provider effect, not the later index metadata
+            # write. Settle the returned probe with its paid fact so a metadata
+            # retry never needs to rewrite a terminal run.
+            cancelled_after_return = run_store.cancellation_requested(run_id)
+            if not cancelled_after_return:
+                settled = project.db.execute(
+                    "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                    "WHERE id=? AND total_rows=1 AND status='running'",
+                    (run_id,),
+                )
+                if settled.rowcount != 1:
+                    raise RuntimeError(
+                        "embedding probe run changed before returned-effect settlement"
+                    )
+            run_store.finish_run_in_transaction(
+                run_id,
+                "cancelled" if cancelled_after_return else "completed",
+                rebuild_review_stats=False,
+                fence=probe_fence,
+            )
+            set_attempt_state_in_transaction(
+                project,
+                attempt_id,
+                "halted" if cancelled_after_return else "effected",
+            )
+    except BaseException as exc:
+        if isinstance(exc, StaleAttemptWriter):
+            raise
+        # The provider has returned. Even if the checkpoint write itself breaks,
+        # preserve its call fact and cost; the bare reservation then refuses a
+        # second egress rather than guessing that the first call was free.
+        with write_transaction(project.db, what="embedding probe returned fact"):
+            _persist_embedding_provider_fact(
+                project,
+                run_store=run_store,
+                run_id=run_id,
+                fact=provider_fact,
+                sheet_id=sheet_id,
+                row_ids=probe_row_ids,
+                fence=probe_fence,
+            )
+        with write_transaction(project.db, what="embedding probe failure close"):
+            run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-                commit=False,
                 rebuild_review_stats=False,
-                writer_attempt_id=attempt_id,
-                claimless_direct_effect=True,
+                fence=probe_fence,
             )
-            set_attempt_state(project, attempt_id, "effected", commit=False)
-            project.db.commit()
-        except BaseException:
-            # The durable egress reservation still fences retries if accounting
-            # itself fails. Never leave its partial transaction for a later commit.
-            project.db.rollback()
-            raise
+            set_attempt_state_in_transaction(project, attempt_id, "effected")
         if not isinstance(exc, Exception):
             raise
         return _error(
@@ -1972,6 +2311,7 @@ def _create_index(
     params_hash: str,
     router: Any | None = None,
     embedding_gateway: Any | None = None,
+    consent: _EmbeddingConsent | None = None,
 ) -> ActionResult:
     checkpoint_state: dict[str, Any] | None = None
     existing = _receipt_for_idempotency(project, action.idempotency_key)
@@ -1998,72 +2338,25 @@ def _create_index(
             field="idempotency_key",
         )
 
-    modality = _resolve_modality(params.modality)
-    # Capability facts are declared (model id, dimension) regardless of runtime
-    # availability — an index may be created now and refreshed once keys exist.
-    cap = resolve_embedding_capability(
-        modality=modality,
-        provider=params.provider,
-        model=params.model,
+    create_req = _CreateRequest(
+        action=action,
+        params=params,
+        project_id=project_id,
+        params_hash=params_hash,
+        consent=consent or _EmbeddingConsent(),
+    )
+    prepared = _prepare_create_plan(
+        project,
+        create_req,
         router=router,
+        has_checkpoint=checkpoint_state is not None,
     )
-    if cap is None:
-        # An explicitly-requested model that resolves to NOTHING is an unsupported
-        # model id (not a built-in, not fastembed-supported, and — for remote
-        # providers — not an OpenRouter/custom-remote id), distinct from "no
-        # provider/backend matches the modality at all".
-        if params.model:
-            return _error(
-                action,
-                project_id,
-                "embedding_model_unsupported",
-                (
-                    f"model {params.model!r} is not a built-in or fastembed-supported "
-                    "model; choose a listed model or a remote provider/model"
-                ),
-                field="params.model",
-                details={"provider": params.provider, "model": params.model},
-            )
-        return _error(
-            action,
-            project_id,
-            "embedding_backend_unavailable",
-            f"no embedding provider/model matches modality={modality!r} "
-            f"provider={params.provider!r} model={params.model!r}",
-            field="params.provider",
-        )
-    # Media modalities have NO local fallback (a remote text key can fill a text
-    # index later, but an image/audio/video/file engine that isn't built can never
-    # refresh). So a media index whose engine is unavailable is blocked AT CREATE
-    # with the disabled reason, rather than minting an un-refreshable index. Text/row
-    # keep the lenient "create now, refresh once installed/keyed" behavior.
-    if modality in _MEDIA_MODALITIES and not cap.get("available"):
-        return _error(
-            action,
-            project_id,
-            "embedding_backend_unavailable",
-            (
-                f"{modality} embedding engine {cap['model_id']!r} is not available: "
-                f"{cap.get('error')}"
-            ),
-            field="params.modality",
-            details={"disabled_reason": cap.get("error"), "modality": modality},
-        )
+    if isinstance(prepared, ActionResult):
+        return prepared
 
-    # Validate the visible sheet + source columns BEFORE any write AND before any
-    # discovery probe: an unknown sheet / missing column must leave 0 spaces and must
-    # NOT egress a probe embed for a request that was always invalid.
-    scope_error = _validate_create_scope(project, action, params, project_id)
-    if scope_error is not None:
-        return scope_error
-
-    # Dimension-discovery (custom remote / OpenRouter): the engine has no fixed
-    # dimension in the registry, so it is discovered with ONE short probe embed
-    # whose width the adapter reports. Defaults below are overwritten by the probe;
-    # curated engines keep their registry dimension + requested model id.
-    discovery_required = bool(cap.get("dimension_discovery_required")) or (
-        checkpoint_state is not None
-    )
+    modality = prepared.modality
+    cap = prepared.cap
+    discovery_required = prepared.discovery_required
     actual_model_id = cap["model_id"]
     # The model id recorded on the SPACE (refresh re-sends it verbatim). For curated
     # engines this is the registry id; the discovery branch overrides it with the
@@ -2079,50 +2372,12 @@ def _create_index(
     reserved_action_id: str | None = None
     reserved_receipt_id: str | None = None
     if discovery_required:
-        provider_policy = params.provider_policy or {"allow_remote": False}
-        # CREATE-TIME egress gate, BEFORE any probe call: a discovery probe egresses
-        # one short text to a remote provider, so it must be confirmed first. Cost is
-        # negligible (one short text) and embedding unit pricing is not modeled for
-        # arbitrary remote ids, so the gate is on EGRESS, not cost. No probe call and
-        # no space are made when this blocks. (Refresh has its own allow_remote gate.)
-        if provider_policy.get("allow_remote") is not True:
-            return _error(
-                action,
-                project_id,
-                "embedding_remote_confirmation_required",
-                (
-                    f"provider {cap['provider_id']!r} is remote and the dimension must "
-                    "be discovered with a probe embed; its provider policy must set "
-                    "allow_remote=true before any data can egress"
-                ),
-                field="params.provider_policy",
-                details={
-                    "provider_kind": cap["provider_kind"],
-                    "provider_id": cap["provider_id"],
-                },
-            )
         if checkpoint_state is None:
-            probe_sheet_id = params.sheet_id
-            if probe_sheet_id is None:
-                return _error(
-                    action,
-                    project_id,
-                    "invalid_params",
-                    "a dimension-discovery probe embeds a row, so it requires a sheet_id",
-                    field="params.sheet_id",
-                )
-            if provider_network_blocked(
-                cap["provider_kind"],
-                network_off=project.effective_network_policy() == "off",
-            ):
-                return _error(
-                    action,
-                    project_id,
-                    "network_disabled",
-                    "Project network policy blocks the remote embedding dimension probe.",
-                    field="params.provider",
-                    details={"capability": f"provider:{cap['provider_kind']}"},
-                )
+            probe_gate = _create_probe_cost_gate(create_req, prepared)
+            if probe_gate is not None:
+                return probe_gate
+            assert prepared.probe_sheet_id is not None
+            probe_sheet_id = prepared.probe_sheet_id
             reservation = _reserve_embedding_create_probe(
                 project,
                 action,
@@ -2243,159 +2498,159 @@ def _create_index(
     receipt_id = reserved_receipt_id or _new_id("receipt")
     store = EmbeddingStore(project)
     try:
-        project.db.execute("BEGIN IMMEDIATE")
-        existing = (
-            ReceiptStore(project).find_by_id(reserved_receipt_id)
-            if reserved_receipt_id is not None
-            else _receipt_for_idempotency(project, action.idempotency_key)
-        )
-        if reserved_receipt_id is not None:
-            if existing is None or existing["id"] != reserved_receipt_id:
+        with write_transaction(project.db, what="embedding index create"):
+            existing = (
+                ReceiptStore(project).find_by_id(reserved_receipt_id)
+                if reserved_receipt_id is not None
+                else _receipt_for_idempotency(project, action.idempotency_key)
+            )
+            if reserved_receipt_id is not None:
+                if existing is None or existing["id"] != reserved_receipt_id:
+                    project.db.rollback()
+                    return _error(
+                        action,
+                        project_id,
+                        "idempotency_checkpoint_invalid",
+                        "paid embedding probe reservation was lost",
+                        field="idempotency_key",
+                        details={"receipt_id": reserved_receipt_id},
+                    )
+                if existing["status"] != "running":
+                    project.db.rollback()
+                    existing_state = _embedding_create_existing_state(
+                        project,
+                        action,
+                        existing,
+                        params_hash=params_hash,
+                        project_id=project_id,
+                    )
+                    if isinstance(existing_state, ActionResult):
+                        return existing_state
+                    return _error(
+                        action,
+                        project_id,
+                        "idempotency_in_progress",
+                        "embedding index creation is already being reconciled",
+                        field="idempotency_key",
+                    )
+            elif existing is not None:
                 project.db.rollback()
-                return _error(
-                    action,
-                    project_id,
-                    "idempotency_checkpoint_invalid",
-                    "paid embedding probe reservation was lost",
-                    field="idempotency_key",
-                    details={"receipt_id": reserved_receipt_id},
-                )
-            if existing["status"] != "running":
-                project.db.rollback()
-                existing_state = _embedding_create_existing_state(
+                replay = _replay(
                     project,
                     action,
-                    existing,
                     params_hash=params_hash,
                     project_id=project_id,
                 )
-                if isinstance(existing_state, ActionResult):
-                    return existing_state
-                return _error(
-                    action,
-                    project_id,
-                    "idempotency_in_progress",
-                    "embedding index creation is already being reconciled",
-                    field="idempotency_key",
-                )
-        elif existing is not None:
-            project.db.rollback()
-            replay = _replay(
-                project,
-                action,
-                params_hash=params_hash,
-                project_id=project_id,
+                if replay is not None:
+                    return replay
+                raise RuntimeError("embedding create receipt disappeared during replay")
+            # space + index + receipt commit (or roll back) together.
+            space_id = store.create_space_in_transaction(descriptor)
+            index_id = store.create_index(
+                name=params.name or f"{modality}:{','.join(params.source_columns)}",
+                space_id=space_id,
+                sheet_id=params.sheet_id,
+                source_query=params.source_query,
+                source_columns=params.source_columns,
+                source_policy=params.source_policy or {"kind": "text_cell"},
+                maintenance_policy=params.maintenance_policy or {"mode": "manual"},
+                provider_policy=params.provider_policy or {"allow_remote": False},
             )
-            if replay is not None:
-                return replay
-            raise RuntimeError("embedding create receipt disappeared during replay")
-        # commit=False: space + index + receipt commit (or roll back) together.
-        space_id = store.create_space(descriptor, commit=False)
-        index_id = store.create_index(
-            name=params.name or f"{modality}:{','.join(params.source_columns)}",
-            space_id=space_id,
-            sheet_id=params.sheet_id,
-            source_query=params.source_query,
-            source_columns=params.source_columns,
-            source_policy=params.source_policy or {"kind": "text_cell"},
-            maintenance_policy=params.maintenance_policy or {"mode": "manual"},
-            provider_policy=params.provider_policy or {"allow_remote": False},
-        )
-        output_ref = {
-            "kind": "embedding_index",
-            "operation_args_sha256": _source_policy_hash(dict(action.params)),
-            "index_id": index_id,
-            "space_id": space_id,
-            "modality": modality,
-            "provider_id": cap["provider_id"],
-            "provider_kind": cap["provider_kind"],
-            "space_model_id": space_model_id,
-            # the user's requested id + the actual id the provider used (the probe
-            # echo for discovery, else the registry id) + the (discovered) dimension.
-            "requested_model": params.model,
-            "actual_model_id": actual_model_id,
-            "dimension": int(dimensions[0]),
-            "sheet_id": params.sheet_id,
-            "source_query": params.source_query,
-            "source_policy_hash": _source_policy_hash(
-                params.source_policy or {"kind": "text_cell"}
-            ),
-            # probe facts: was a dimension-discovery probe run, and how many inputs.
-            "probe_used": probe_used,
-            "probe_input_count": probe_input_count,
-        }
-        receipt = Receipt(
-            receipt_id=receipt_id,
-            project_id=project_id,
-            action_id=action_id,
-            action_kind=action.kind,
-            idempotency_key=action.idempotency_key,
-            params_hash=params_hash,
-            status="completed",
-            run_id=probe_run_id,
-            op_ids=[probe_op_id] if probe_op_id is not None else [],
-            inputs=[
-                ReceiptIO(
-                    name="source",
-                    ref={
-                        "kind": "embedding_source",
-                        "sheet_id": params.sheet_id,
-                        "source_columns": params.source_columns,
-                        "modality": modality,
-                    },
-                )
-            ],
-            outputs=[ReceiptIO(name="embedding_index", ref=output_ref)],
-            provider_use=[
-                {
-                    "provider": cap["provider_id"],
-                    "service": "embedding.index_create",
-                    "external_api": bool(
-                        probe_used and cap["provider_kind"] in REMOTE_PROVIDER_KINDS
-                    ),
-                    "cost_actual": _provider_fact_cost_actual(probe_fact),
-                }
-            ],
-            evidence=[
-                ReceiptEvidence(ref=output_ref, retention="pinned"),
-                *(
-                    [ReceiptEvidence(ref=probe_fact, retention="pinned")]
-                    if probe_fact is not None
-                    else []
+            output_ref = {
+                "kind": "embedding_index",
+                "operation_args_sha256": _source_policy_hash(dict(action.params)),
+                "index_id": index_id,
+                "space_id": space_id,
+                "modality": modality,
+                "provider_id": cap["provider_id"],
+                "provider_kind": cap["provider_kind"],
+                "space_model_id": space_model_id,
+                # the user's requested id + the actual id the provider used (the probe
+                # echo for discovery, else the registry id) + the (discovered) dimension.
+                "requested_model": params.model,
+                "actual_model_id": actual_model_id,
+                "dimension": int(dimensions[0]),
+                "sheet_id": params.sheet_id,
+                "source_query": params.source_query,
+                "source_policy_hash": _source_policy_hash(
+                    params.source_policy or {"kind": "text_cell"}
                 ),
-            ],
-        )
-        if reserved_receipt_id is not None:
-            landed = ReceiptStore(project).update_body_status(
-                receipt, require_status="running", commit=False
-            )
-            if not landed:
-                raise RuntimeError("embedding probe reservation was lost")
-        else:
-            _insert_receipt(project, receipt)
-        if probe_run_id is not None and probe_run_store is not None:
-            # An exact metadata retry may reference the already terminal probe
-            # run that recorded the paid provider fact. Its run history is
-            # immutable; only a still-running probe is completed here.
-            probe = probe_run_store.get_run(probe_run_id)
-            if probe is None:
-                raise RuntimeError("embedding probe run disappeared before completion")
-            if probe["status"] == "running":
-                settled = project.db.execute(
-                    "UPDATE runs SET completed_rows=1, failed_rows=0 "
-                    "WHERE id=? AND total_rows=1",
-                    (probe_run_id,),
-                )
-                if settled.rowcount != 1:
-                    raise RuntimeError(
-                        "embedding probe run disappeared or changed scope before completion"
+                # probe facts: was a dimension-discovery probe run, and how many inputs.
+                "probe_used": probe_used,
+                "probe_input_count": probe_input_count,
+            }
+            receipt = Receipt(
+                receipt_id=receipt_id,
+                project_id=project_id,
+                action_id=action_id,
+                action_kind=action.kind,
+                idempotency_key=action.idempotency_key,
+                params_hash=params_hash,
+                status="completed",
+                run_id=probe_run_id,
+                op_ids=[probe_op_id] if probe_op_id is not None else [],
+                inputs=[
+                    ReceiptIO(
+                        name="source",
+                        ref={
+                            "kind": "embedding_source",
+                            "sheet_id": params.sheet_id,
+                            "source_columns": params.source_columns,
+                            "modality": modality,
+                        },
                     )
-                probe_run_store.finish_run(
-                    probe_run_id, "completed", commit=False, rebuild_review_stats=False
+                ],
+                outputs=[ReceiptIO(name="embedding_index", ref=output_ref)],
+                provider_use=[
+                    {
+                        "provider": cap["provider_id"],
+                        "service": "embedding.index_create",
+                        "external_api": bool(
+                            probe_used and cap["provider_kind"] in REMOTE_PROVIDER_KINDS
+                        ),
+                        "cost_actual": _provider_fact_cost_actual(probe_fact),
+                    }
+                ],
+                records=[
+                    ReceiptRecord(ref=output_ref, retention="pinned"),
+                    *(
+                        [ReceiptRecord(ref=probe_fact, retention="pinned")]
+                        if probe_fact is not None
+                        else []
+                    ),
+                ],
+            )
+            if reserved_receipt_id is not None:
+                landed = ReceiptStore(project).update_body_status_in_transaction(
+                    receipt, require_status="running"
                 )
-        project.db.commit()
+                if not landed:
+                    raise RuntimeError("embedding probe reservation was lost")
+            else:
+                _insert_receipt(project, receipt)
+            if probe_run_id is not None and probe_run_store is not None:
+                # An exact metadata retry may reference the already terminal probe
+                # run that recorded the paid provider fact. Its run history is
+                # immutable; only a still-running probe is completed here.
+                probe = probe_run_store.get_run(probe_run_id)
+                if probe is None:
+                    raise RuntimeError(
+                        "embedding probe run disappeared before completion"
+                    )
+                if probe["status"] == "running":
+                    settled = project.db.execute(
+                        "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                        "WHERE id=? AND total_rows=1",
+                        (probe_run_id,),
+                    )
+                    if settled.rowcount != 1:
+                        raise RuntimeError(
+                            "embedding probe run disappeared or changed scope before completion"
+                        )
+                    probe_run_store.finish_run_in_transaction(
+                        probe_run_id, "completed", rebuild_review_stats=False
+                    )
     except BaseException as exc:
-        project.db.rollback()
         if probe_run_id is not None and probe_run_store is not None:
             if probe_run_store.cancellation_requested(probe_run_id):
                 probe = probe_run_store.get_run(probe_run_id)
@@ -2458,7 +2713,7 @@ def _refresh_index(
     reserved_receipt_id: str | None = None,
     skip_replay: bool = False,
     parent_execution=None,
-    consent: _RefreshConsent | None = None,
+    consent: _EmbeddingConsent | None = None,
 ) -> ActionResult:
     if parent_execution is not None:
         parent_execution.check()
@@ -2472,7 +2727,7 @@ def _refresh_index(
         if replay is not None:
             return replay
 
-    effective_consent = consent or _RefreshConsent()
+    effective_consent = consent or _EmbeddingConsent()
     req = _RefreshRequest(
         action=action,
         params=params,
@@ -2485,7 +2740,7 @@ def _refresh_index(
         return prepared
     if not prepared.automatic:
         manual_block = _manual_cost_gate(
-            project, req, space=prepared.space, to_embed=prepared.to_embed
+            req, space=prepared.space, assessment=prepared.cost
         )
         if manual_block is not None:
             return manual_block
@@ -2578,19 +2833,21 @@ def _do_refresh(
     reserved_action_id=None,
     reserved_receipt_id=None,
     parent_execution=None,
-    consent: _RefreshConsent | None = None,
+    consent: _EmbeddingConsent | None = None,
 ) -> ActionResult:
     from frisket.engine.store.effect_checkpoints import (
         EffectCheckpointRefused,
         EffectCheckpointStore,
     )
 
-    source_columns = json.loads(index["source_columns_json"])
-    payloads = build_source_payloads(project, index, source_columns, row_ids)
     retrieval = RetrievalStore(project).open()
     try:
-        recipe, planned_items = plan_named_index_items(
-            project, index=index, space=space, payloads=payloads
+        item_plan = _plan_refresh_items(
+            project,
+            _RefreshTarget(index=index, space=space, modality=modality),
+            params,
+            row_ids,
+            retrieval=retrieval,
         )
     except (TypeError, ValueError) as exc:
         retrieval.close()
@@ -2601,10 +2858,13 @@ def _do_refresh(
             str(exc),
             field="params.index_id",
         )
-    planned_by_key = {item.source_key: item for item in planned_items}
-    payload_by_key = {str(item["source_key"]): item for item in payloads}
-    existing_rows = dataset_rows(retrieval, str(index["id"]))
-    existing_pairs = set(existing_rows.values())
+    index_spec = item_plan.index_spec
+    planned_items = item_plan.planned_items
+    planned_by_key = item_plan.planned_by_key
+    existing_rows = item_plan.existing_rows
+    to_publish = item_plan.to_publish
+    to_embed = item_plan.to_embed
+    skipped = item_plan.skipped
     run_store = RunResultStore(project)
     run_id: int | None = None
     run_finalized = False
@@ -2613,50 +2873,33 @@ def _do_refresh(
     attempt_closed = False
     stale_writer = False
     effect_unit: dict[str, str] | None = None
+    effect_ref: EffectCheckpointRef | None = None
     checkpoint_store: EffectCheckpointStore | None = None
     try:
-        full = params.mode == "full"
-        to_embed: list[dict[str, Any]] = []
-        to_publish: list[Any] = []
-        skipped = 0
-        for item in payloads:
-            planned = planned_by_key[str(item["source_key"])]
-            current = (planned.part_id, planned.representation_id) in existing_pairs
-            if current and not full:
-                skipped += 1
-                continue
-            to_publish.append(planned)
-        cached: dict[str, Any] = {}
-        hashes = [item.input_hash for item in to_publish]
-        for offset in range(0, len(hashes), 1000):
-            cached.update(
-                retrieval.get_representations(
-                    str(space["id"]), hashes[offset : offset + 1000]
-                )
-            )
-        for planned in to_publish:
-            if full or planned.input_hash not in cached:
-                to_embed.append(payload_by_key[planned.source_key])
-
         refreshed = 0
         batch_result: dict[str, Any] | None = None
         if to_embed:
-            cost_block = _automatic_cost_gate(
-                action, params, index, space, project_id, to_embed=to_embed
+            live_req = _RefreshRequest(
+                action=action,
+                params=params,
+                project_id=project_id,
+                params_hash=params_hash,
+                consent=consent or _EmbeddingConsent(),
             )
+            cost_block = _automatic_cost_gate(live_req, index, space, to_embed=to_embed)
             if cost_block is not None:
                 return cost_block
-            manual_block = _manual_cost_gate(
+            live_cost = _assess_manual_refresh_cost(
                 project,
-                _RefreshRequest(
-                    action=action,
-                    params=params,
-                    project_id=project_id,
-                    params_hash=params_hash,
-                    consent=consent or _RefreshConsent(),
-                ),
+                live_req,
                 space=space,
+                modality=modality,
                 to_embed=to_embed,
+            )
+            manual_block = _manual_cost_gate(
+                live_req,
+                space=space,
+                assessment=live_cost,
             )
             if manual_block is not None:
                 return manual_block
@@ -2668,6 +2911,14 @@ def _do_refresh(
             if effect_checkpointed:
                 checkpoint_store = EffectCheckpointStore(project.db)
                 effect_unit = _embedding_refresh_effect_unit(space, modality, to_embed)
+                effect_ref = EffectCheckpointRef(
+                    checkpoint_id=effect_unit["checkpoint_id"],
+                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
+                    group_key=str(params.index_id),
+                    unit_key=effect_unit["unit_key"],
+                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
+                    identity=effect_unit["identity"],
+                )
                 prior = checkpoint_store.find_unit(
                     family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
                     group_key=str(params.index_id),
@@ -2678,13 +2929,7 @@ def _do_refresh(
                     # another egress; reserved is ambiguous and refuses;
                     # identity drift refuses by name.
                     try:
-                        returned = checkpoint_store.returned_for_replay(
-                            family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                            group_key=str(params.index_id),
-                            unit_key=effect_unit["unit_key"],
-                            action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                            identity=effect_unit["identity"],
-                        )
+                        returned = checkpoint_store.returned_for_replay(effect_ref.unit)
                     except EffectCheckpointRefused as exc:
                         return _error(
                             action,
@@ -2848,20 +3093,15 @@ def _do_refresh(
                             project=project,
                             leases=leases,
                         )
+                        refresh_fence = WriterFence.claimless(
+                            run_id=run_id, attempt_id=attempt_id
+                        )
                         if effect_checkpointed:
                             assert checkpoint_store is not None
                             assert effect_unit is not None
+                            assert effect_ref is not None
                             reserved = checkpoint_store.reserve(
-                                effect_unit["checkpoint_id"],
-                                family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                group_key=str(params.index_id),
-                                unit_key=effect_unit["unit_key"],
-                                action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                identity=effect_unit["identity"],
-                                authorized_attempt_id=attempt_id,
-                                run_id=run_id,
-                                writer_attempt_id=attempt_id,
-                                claimless_direct_effect=True,
+                                effect_ref,
                                 payload={
                                     "effect": {
                                         "op_id": op_id,
@@ -2869,6 +3109,7 @@ def _do_refresh(
                                         "attempt_id": attempt_id,
                                     }
                                 },
+                                fence=refresh_fence,
                             )
                             if not reserved:
                                 return _error(
@@ -2914,16 +3155,10 @@ def _do_refresh(
                             if effect_checkpointed:
                                 assert checkpoint_store is not None
                                 assert effect_unit is not None
+                                assert effect_ref is not None
                                 checkpoint_store.discard_reserved(
-                                    effect_unit["checkpoint_id"],
-                                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                    group_key=str(params.index_id),
-                                    unit_key=effect_unit["unit_key"],
-                                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                    identity=effect_unit["identity"],
-                                    run_id=run_id,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
+                                    effect_ref,
+                                    fence=refresh_fence,
                                 )
                             raise
                         except EmbeddingProviderError as exc:
@@ -2942,13 +3177,9 @@ def _do_refresh(
                             if effect_checkpointed:
                                 assert checkpoint_store is not None
                                 assert effect_unit is not None
+                                assert effect_ref is not None
                                 checkpoint_store.complete(
-                                    effect_unit["checkpoint_id"],
-                                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                    group_key=str(params.index_id),
-                                    unit_key=effect_unit["unit_key"],
-                                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                    identity=effect_unit["identity"],
+                                    effect_ref,
                                     payload={
                                         "effect": {
                                             "op_id": op_id,
@@ -2960,9 +3191,7 @@ def _do_refresh(
                                             "message": str(exc)[:500],
                                         },
                                     },
-                                    run_id=run_id,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
+                                    fence=refresh_fence,
                                 )
                             raise
                         batch_result = result
@@ -2970,6 +3199,7 @@ def _do_refresh(
                         if effect_checkpointed:
                             assert checkpoint_store is not None
                             assert effect_unit is not None
+                            assert effect_ref is not None
                             assert provider_fact is not None
                             # The durable call id, minted at call time: replay
                             # dedup requires it, and the run id keeps it
@@ -2995,6 +3225,7 @@ def _do_refresh(
                                 *,
                                 _run_id: int = run_id,
                                 _fact: dict[str, Any] = provider_fact,
+                                _fence: WriterFence = refresh_fence,
                             ) -> float:
                                 _persist_embedding_provider_fact(
                                     project,
@@ -3003,12 +3234,9 @@ def _do_refresh(
                                     fact=_fact,
                                     index=index,
                                     row_ids=row_ids,
-                                    commit=False,
-                                    writer_attempt_id=attempt_id,
-                                    claimless_direct_effect=True,
-                                    authorized_attempt_id=checkpoint[
-                                        "authorized_attempt_id"
-                                    ],
+                                    fence=_fence.for_fact_owner(
+                                        checkpoint["authorized_attempt_id"]
+                                    ),
                                 )
                                 return float(_fact.get("provider_cost_usd") or 0.0)
 
@@ -3018,29 +3246,24 @@ def _do_refresh(
                             # between "provider charged" and "anything
                             # recorded" is the reservation alone.
                             checkpoint_store.complete(
-                                effect_unit["checkpoint_id"],
-                                family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                                group_key=str(params.index_id),
-                                unit_key=effect_unit["unit_key"],
-                                action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                                identity=effect_unit["identity"],
+                                effect_ref,
                                 payload=completion_payload,
                                 accrue=accrue,
-                                run_id=run_id,
-                                writer_attempt_id=attempt_id,
-                                claimless_direct_effect=True,
+                                fence=refresh_fence,
                             )
                         else:
-                            _persist_embedding_provider_fact(
-                                project,
-                                run_store=run_store,
-                                run_id=run_id,
-                                fact=provider_fact,
-                                index=index,
-                                row_ids=row_ids,
-                                writer_attempt_id=attempt_id,
-                                claimless_direct_effect=True,
-                            )
+                            with write_transaction(
+                                project.db, what="embedding refresh provider fact"
+                            ):
+                                _persist_embedding_provider_fact(
+                                    project,
+                                    run_store=run_store,
+                                    run_id=run_id,
+                                    fact=provider_fact,
+                                    index=index,
+                                    row_ids=row_ids,
+                                    fence=refresh_fence,
+                                )
                 except _ImageSourceError as exc:
                     return _error(
                         action,
@@ -3119,22 +3342,14 @@ def _do_refresh(
             ]
             # Hold the authoritative project writer fence while publishing the
             # returned cache rows. A stale action cannot win after a successor.
-            project.db.execute("BEGIN IMMEDIATE")
-            try:
+            with write_transaction(project.db, what="embedding representation publish"):
                 assert run_id is not None
                 assert attempt_id is not None
-                OutputColumnClaimStore.require_current_writer(
+                GeneratedColumnClaimStore.require_current_writer(
                     project.db,
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claim_token=None,
-                    claimless_direct_effect=True,
+                    fence=WriterFence.claimless(run_id=run_id, attempt_id=attempt_id),
                 )
                 retrieval.put_representations(encoded_items)
-                project.db.commit()
-            except BaseException:
-                project.db.rollback()
-                raise
 
         # Publish every changed/currently missing row only after all vectors are
         # present, then swap the complete named membership atomically. Failed
@@ -3151,7 +3366,7 @@ def _do_refresh(
             retrieval,
             index_id=str(params.index_id),
             space_id=str(space["id"]),
-            recipe=recipe,
+            recipe=index_spec,
             items=planned_items,
             preserve_members=preserved_members,
         )
@@ -3216,121 +3431,114 @@ def _do_refresh(
         # receipt insert, so last_refresh_receipt_id never points at a receipt
         # that failed to land. Status is left to the claim release (still held).
         try:
-            project.db.execute("BEGIN IMMEDIATE")
-            if run_id is not None:
-                if attempt_id is None:
-                    raise StaleAttemptWriter(
-                        "embedding refresh terminal write supplied no writer attempt"
+            with write_transaction(project.db, what="embedding refresh finalize"):
+                if run_id is not None:
+                    if attempt_id is None:
+                        raise StaleAttemptWriter(
+                            "embedding refresh terminal write supplied no writer attempt"
+                        )
+                    GeneratedColumnClaimStore.require_current_writer(
+                        project.db,
+                        fence=WriterFence.claimless(
+                            run_id=run_id, attempt_id=attempt_id
+                        ),
+                        output_column_ids=frozenset(),
                     )
-                OutputColumnClaimStore.require_current_writer(
-                    project.db,
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claim_token=None,
-                    output_column_ids=frozenset(),
-                    claimless_direct_effect=True,
-                )
-                # Run units are provider inputs. ``refreshed`` also includes
-                # cached representations that needed publishing, so it may be
-                # larger than this run's admitted scope.
-                settled = project.db.execute(
-                    "UPDATE runs SET completed_rows=?, failed_rows=0 "
-                    "WHERE id=? AND total_rows=?",
-                    (len(to_embed), run_id, len(to_embed)),
-                )
-                if settled.rowcount != 1:
-                    raise RuntimeError(
-                        "embedding refresh run disappeared or changed scope "
-                        "before completion"
+                    # Run units are provider inputs. ``refreshed`` also includes
+                    # cached representations that needed publishing, so it may be
+                    # larger than this run's admitted scope.
+                    settled = project.db.execute(
+                        "UPDATE runs SET completed_rows=?, failed_rows=0 "
+                        "WHERE id=? AND total_rows=?",
+                        (len(to_embed), run_id, len(to_embed)),
                     )
-            else:
-                # A no-op refresh has no accounting run or attempt. Preserve
-                # its receipt-only transaction: there is no project-run tuple
-                # for the shared terminal kernel to fence or close.
-                if reserved_receipt_id is not None:
-                    landed = ReceiptStore(project).update_if_status_in(
-                        receipt,
-                        {"queued", "running"},
-                    )
-                    if not landed:
+                    if settled.rowcount != 1:
                         raise RuntimeError(
-                            f"reserved refresh receipt {reserved_receipt_id!r} "
-                            "not writable"
+                            "embedding refresh run disappeared or changed scope "
+                            "before completion"
                         )
                 else:
-                    _insert_receipt(project, receipt)
-            store.update_index_counts(
-                params.index_id,
-                total=total_items,
-                ready=ready_items,
-                stale=0,
-                error=0,
-                last_refresh_receipt_id=receipt_id,
-                commit=False,
-            )
-            if checkpoint_store is not None and effect_unit is not None:
-                # Retire the batch checkpoint in the SAME transaction as the
-                # terminal receipt: the refresh can never finalize while
-                # replay authority survives, and a rollback keeps both.
-                checkpoint_store.consume_and_retire(
-                    effect_unit["checkpoint_id"],
-                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                    group_key=str(params.index_id),
-                    unit_key=effect_unit["unit_key"],
-                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                    identity=effect_unit["identity"],
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claimless_direct_effect=True,
-                    commit=False,
-                )
-            if run_id is not None:
-                assert attempt_id is not None
-                terminalization = terminalize_project_run(
-                    project,
-                    run_id=run_id,
-                    receipt_id=receipt_id,
-                    status="completed",
-                    authority=CurrentWriterTerminalAuthority(
-                        writer_attempt_id=attempt_id,
-                        claim_token=None,
-                        claimless_direct_effect=True,
-                    ),
-                    terminal_receipt=receipt,
-                    receipt_source_statuses=(
-                        {"queued", "running"}
-                        if reserved_receipt_id is not None
-                        else None
-                    ),
-                    commit=False,
-                )
-                expected_receipt_disposition = (
-                    "updated" if reserved_receipt_id is not None else "inserted"
-                )
-                if (
-                    terminalization.disposition != "terminalized"
-                    or terminalization.receipt_disposition
-                    != expected_receipt_disposition
-                    or terminalization.run_status != "completed"
-                    or terminalization.receipt_status != "completed"
-                ):
-                    raise StaleAttemptWriter(
-                        terminalization.reason
-                        or (
-                            "embedding refresh terminal tuple refused: "
-                            f"{terminalization.disposition}/"
-                            f"{terminalization.receipt_disposition}"
+                    # A no-op refresh has no accounting run or attempt. Preserve
+                    # its receipt-only transaction: there is no project-run tuple
+                    # for the shared terminal kernel to fence or close.
+                    if reserved_receipt_id is not None:
+                        landed = ReceiptStore(project).update_if_status_in(
+                            receipt,
+                            {"queued", "running"},
                         )
+                        if not landed:
+                            raise RuntimeError(
+                                f"reserved refresh receipt {reserved_receipt_id!r} "
+                                "not writable"
+                            )
+                    else:
+                        _insert_receipt(project, receipt)
+                store.update_index_counts_in_transaction(
+                    params.index_id,
+                    IndexCountUpdate(
+                        total=total_items,
+                        ready=ready_items,
+                        stale=0,
+                        error=0,
+                        last_refresh_receipt_id=receipt_id,
+                    ),
+                )
+                if checkpoint_store is not None and effect_ref is not None:
+                    # Retire the batch checkpoint in the SAME transaction as the
+                    # terminal receipt: the refresh can never finalize while
+                    # replay authority survives, and a rollback keeps both.
+                    retire_fence = (
+                        WriterFence.claimless(run_id=run_id, attempt_id=attempt_id)
+                        if attempt_id is not None
+                        else WriterFence(run_id=run_id, claimless_direct_effect=True)
                     )
-            project.db.commit()
+                    checkpoint_store.consume_and_retire_in_transaction(
+                        effect_ref,
+                        fence=retire_fence,
+                    )
+                if run_id is not None:
+                    assert attempt_id is not None
+                    terminalization = terminalize_project_run_in_transaction(
+                        project,
+                        run_id=run_id,
+                        receipt_id=receipt_id,
+                        status="completed",
+                        authority=CurrentWriterTerminalAuthority(
+                            writer_attempt_id=attempt_id,
+                            claim_token=None,
+                            claimless_direct_effect=True,
+                        ),
+                        terminal_receipt=receipt,
+                        receipt_source_statuses=(
+                            {"queued", "running"}
+                            if reserved_receipt_id is not None
+                            else None
+                        ),
+                    )
+                    expected_receipt_disposition = (
+                        "updated" if reserved_receipt_id is not None else "inserted"
+                    )
+                    if (
+                        terminalization.disposition != "terminalized"
+                        or terminalization.receipt_disposition
+                        != expected_receipt_disposition
+                        or terminalization.run_status != "completed"
+                        or terminalization.receipt_status != "completed"
+                    ):
+                        raise StaleAttemptWriter(
+                            terminalization.reason
+                            or (
+                                "embedding refresh terminal tuple refused: "
+                                f"{terminalization.disposition}/"
+                                f"{terminalization.receipt_disposition}"
+                            )
+                        )
             run_finalized = True
             if attempt_id is not None:
                 attempt_closed = True
         except StaleAttemptWriter:
-            project.db.rollback()
             raise
         except BaseException as exc:
-            project.db.rollback()
             if not isinstance(exc, Exception):
                 raise
             return _error(
@@ -3370,31 +3578,25 @@ def _do_refresh(
                 if run is not None and run["status"] == "running":
                     # Close the run and its current attempt atomically. Cancellation
                     # must not be relabeled failure or leave an open transaction.
-                    project.db.execute("BEGIN IMMEDIATE")
-                    try:
-                        run_store.finish_run(
+                    with write_transaction(project.db, what="embedding refresh close"):
+                        close_fence = (
+                            WriterFence.claimless(run_id=run_id, attempt_id=attempt_id)
+                            if attempt_id is not None and not attempt_closed
+                            else WriterFence(run_id=run_id)
+                        )
+                        run_store.finish_run_in_transaction(
                             run_id,
                             "cancelled"
                             if run_store.cancellation_requested(run_id)
                             else "failed",
-                            writer_attempt_id=(
-                                attempt_id if not attempt_closed else None
-                            ),
-                            claimless_direct_effect=bool(
-                                attempt_id and not attempt_closed
-                            ),
-                            commit=False,
+                            fence=close_fence,
                             rebuild_review_stats=False,
                         )
                         if attempt_id is not None and not attempt_closed:
-                            set_attempt_state(
-                                project, attempt_id, "halted", commit=False
+                            set_attempt_state_in_transaction(
+                                project, attempt_id, "halted"
                             )
                             attempt_closed = True
-                        project.db.commit()
-                    except BaseException:
-                        project.db.rollback()
-                        raise
             if not stale_writer and attempt_id is not None and not attempt_closed:
                 set_attempt_state(project, attempt_id, "halted")
         finally:
@@ -3436,7 +3638,6 @@ def repair_unfinalized_refresh(project: Any, index_id: str) -> dict[str, int] | 
         stale=stale,
         error=error,
         touch_refreshed_at=False,
-        commit=True,
     )
     return {"total": total, "ready": ready, "stale": stale, "error": error}
 
@@ -3526,11 +3727,11 @@ def _refresh_receipt(
                 "cost_actual": _provider_fact_cost_actual(provider_fact),
             }
         ],
-        evidence=[
-            ReceiptEvidence(ref=output_ref, retention="pinned"),
-            ReceiptEvidence(ref=item_evidence, retention="pinned"),
+        records=[
+            ReceiptRecord(ref=output_ref, retention="pinned"),
+            ReceiptRecord(ref=item_evidence, retention="pinned"),
             *(
-                [ReceiptEvidence(ref=provider_fact, retention="pinned")]
+                [ReceiptRecord(ref=provider_fact, retention="pinned")]
                 if provider_fact is not None
                 else []
             ),
@@ -3619,16 +3820,13 @@ def _persist_embedding_provider_fact(
     row_ids: list[int],
     index: Any | None = None,
     sheet_id: int | None = None,
-    commit: bool = True,
-    writer_attempt_id: str | None = None,
-    claimless_direct_effect: bool = False,
-    authorized_attempt_id: str | None = None,
+    fence: WriterFence = WriterFence(),
 ) -> None:
-    """Persist the returned provider fact before vector/receipt finalization.
+    """Persist the returned provider fact inside the caller's open transaction.
 
-    ``authorized_attempt_id`` is the immutable owner of the fact (the attempt
-    that authorized egress, pinned at execution start); ``None``
-    keeps the legacy single-attempt fallback for the probe paths."""
+    ``fence.authorized_attempt_id`` is the immutable owner of the fact (the
+    attempt that authorized egress, pinned at execution start)."""
+    require_transaction(project.db, "embedding provider fact")
     if sheet_id is None:
         if index is None:
             raise TypeError("index or sheet_id is required for embedding accounting")
@@ -3661,12 +3859,8 @@ def _persist_embedding_provider_fact(
                 "model_calls": [stored],
             }
         ],
-        writer_attempt_id=writer_attempt_id,
-        claimless_direct_effect=claimless_direct_effect,
-        authorized_attempt_id=authorized_attempt_id,
+        fence=fence,
     )
-    if commit:
-        project.db.commit()
 
 
 def _refresh_items_evidence(
@@ -3874,8 +4068,8 @@ def _perform_index_update_policy_in_txn(
             )
         ],
         outputs=[ReceiptIO(name=result.index_id, ref=output_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "embedding_index_policy",
                     "maintenance_policy": result.maintenance_policy,
@@ -3907,7 +4101,7 @@ class _EmbeddingLifecycleCapability:
         reserved_receipt_id,
         skip_replay,
         parent_execution,
-        consent: _RefreshConsent | None = None,
+        consent: _EmbeddingConsent | None = None,
     ):
         self.project = project
         self.bound = bound
@@ -3957,6 +4151,7 @@ class _EmbeddingLifecycleCapability:
                 params_hash=self.params_hash,
                 router=self.router,
                 embedding_gateway=self.embedding_gateway,
+                consent=self.consent,
             )
         else:
             result = _refresh_index(
@@ -4083,7 +4278,7 @@ def run_typed_embedding_action(
             if terminal.capabilities == (IndexCreator,)
             else _IndexRefresher
         )
-        consent = _RefreshConsent(
+        consent = _EmbeddingConsent(
             confirmation=bound.request.confirmation,
             consent_coverage=consent_coverage,
             edition=edition,

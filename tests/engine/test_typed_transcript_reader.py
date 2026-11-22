@@ -210,13 +210,13 @@ def test_reordered_repeated_occurrences_and_renames_keep_distinct_clocks(source)
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     refs = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "derived_transcript_timeline"
     ]
     assert [ref["output"]["row_id"] for ref in refs] == rows
     assert all(ref["output"]["column_id"] == column.column_id for ref in refs)
     flags = {
-        item["name"]: bool(item["ai_generated"])
+        item["name"]: bool(item["generated"])
         for item in project.columns(column.sheet_id)
     }
     assert flags == {"Excerpt": True, "Requested source": False}
@@ -267,7 +267,7 @@ def _counts(project):
             "ops",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
             "artifact_timeline_segments",
         )
     }
@@ -330,7 +330,7 @@ def test_reserved_worker_keeps_identity_job_evidence_and_no_read_redelivery(
         and result.action.action_id == envelope.action_id
     )
     completed = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-    assert all(item in completed.evidence for item in prior.evidence)
+    assert all(item in completed.records for item in prior.records)
 
     def no_read(*_args, **_kwargs):
         pytest.fail("terminal redelivery must not prepare transcripts")
@@ -481,7 +481,7 @@ def test_reused_annotation_handle_publishes_every_renamed_target(source):
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     refs = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "temporal_annotation_projection"
     ]
     assert len(refs) == 4
@@ -490,7 +490,7 @@ def test_reused_annotation_handle_publishes_every_renamed_target(source):
         second.column_id,
     }
     assert {
-        item["name"] for item in project.columns(first.sheet_id) if item["ai_generated"]
+        item["name"] for item in project.columns(first.sheet_id) if item["generated"]
     } == {"Excerpt"}
     replay = run_typed_create_sheet_action(project, "project-test", bound)
     assert replay.status == "completed" and replay.receipt_id == result.receipt_id
@@ -645,7 +645,9 @@ def test_completion_cas_loss_rolls_back_projection_and_keeps_reservation(
     before = _counts(project)
     prior = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
     monkeypatch.setattr(
-        ReceiptStore, "update_body_status", lambda *_args, **_kwargs: False
+        ReceiptStore,
+        "update_body_status_in_transaction",
+        lambda *_args, **_kwargs: False,
     )
     with pytest.raises(ActionJobTerminalizationError, match="completion did not land"):
         run_typed_table_action_job(project, envelope, execution=STANDALONE)

@@ -9,10 +9,12 @@ from pathlib import Path
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
 from frisket.engine.store.schema import SCHEMA_DIGEST
-from frisket.features.alerts.triggers import feed_poll_materialization_from_receipt
+from frisket.alerts.triggers import feed_poll_materialization_from_receipt
 from frisket.feeds.health import build_feed_health
-from frisket.upgrades.project.edit_precedence_migration import COPY_PRECEDENCE_TO_DIGEST
-from frisket.upgrades.project.feeds_migration import FEEDS_TO_DIGEST
+from frisket.upgrades.project.feeds_migration import (
+    FEEDS_FROM_DIGEST,
+    FEEDS_TO_DIGEST,
+)
 from historical_schema import restore_pre_feeds_tables
 
 
@@ -118,7 +120,7 @@ def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
                     },
                 },
             ],
-            "evidence": [
+            "records": [
                 {
                     "name": "cursor",
                     "ref": {"kind": "source_poll_cursor", "source_id": 7},
@@ -157,7 +159,12 @@ def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
                 }
             ],
             "outputs": [],
-            "evidence": [],
+            "evidence": [
+                {
+                    "name": "cursor",
+                    "ref": {"kind": "source_check_cursor", "source_id": 7},
+                }
+            ],
             "errors": [
                 {
                     "code": "unsupported_source_kind",
@@ -244,13 +251,13 @@ def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 2,
-                "watch:9:run:1",
+                "alert:9:run:1",
                 "info",
-                "Watch matched",
+                "Alert matched",
                 "New row",
-                "watch",
-                json.dumps({"watch_id": 9}),
-                json.dumps({"kind": "watch", "watch_id": 9}),
+                "alert",
+                json.dumps({"alert_id": 9}),
+                json.dumps({"kind": "alert", "alert_id": 9}),
                 json.dumps({}),
             ),
         )
@@ -273,16 +280,16 @@ def _build_pre_feeds_bundle(bundle_path: Path) -> dict[str, int | str]:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 2,
-                "Watch route",
+                "Alert route",
                 channel_id,
                 "local",
-                "watch",
-                json.dumps({"watch_id": 9}),
+                "alert",
+                json.dumps({"alert_id": 9}),
             ),
         )
         db.execute(
             "UPDATE meta SET value=? WHERE key='schema_digest'",
-            (COPY_PRECEDENCE_TO_DIGEST,),
+            (FEEDS_FROM_DIGEST,),
         )
         db.commit()
     finally:
@@ -372,6 +379,12 @@ def test_feeds_migration_preserves_data_and_rewrites_receipts_and_notifications(
         assert (
             poll_body["outputs"][1]["ref"]["feed_check_id"] == seeded["feed_check_id"]
         )
+        assert poll_body["records"] == [
+            {
+                "name": "cursor",
+                "ref": {"kind": "feed_poll_cursor", "feed_id": seeded["feed_id"]},
+            }
+        ]
         materialized = feed_poll_materialization_from_receipt(
             project,
             project_id="legacy-proj",
@@ -393,13 +406,19 @@ def test_feeds_migration_preserves_data_and_rewrites_receipts_and_notifications(
         assert failed_body["errors"][0]["code"] == "unsupported_feed_kind"
         assert failed_body["errors"][0]["action_kind"] == "feed.check"
         assert failed_body["errors"][0]["details"] == {"feed_id": seeded["feed_id"]}
+        assert failed_body["evidence"] == [
+            {
+                "name": "cursor",
+                "ref": {"kind": "feed_check_cursor", "feed_id": seeded["feed_id"]},
+            }
+        ]
 
         unrelated = project.db.execute(
             "SELECT action_kind FROM receipts WHERE id='rcpt_unrelated'"
         ).fetchone()
         assert unrelated["action_kind"] == "map.template"
 
-        # Notifications + routes rewritten for feed, untouched for watch
+        # Notifications + routes rewritten for feed, untouched for alert
         feed_notif = project.db.execute(
             "SELECT source_kind, dedupe_key, source_ref, deep_link "
             "FROM notification_items WHERE id=1"
@@ -416,22 +435,22 @@ def test_feeds_migration_preserves_data_and_rewrites_receipts_and_notifications(
             "feed_id": 7,
             "sheet_id": seeded["sheet_id"],
         }
-        watch_notif = project.db.execute(
+        alert_notif = project.db.execute(
             "SELECT source_kind, dedupe_key FROM notification_items WHERE id=2"
         ).fetchone()
-        assert watch_notif["source_kind"] == "watch"
-        assert watch_notif["dedupe_key"] == "watch:9:run:1"
+        assert alert_notif["source_kind"] == "alert"
+        assert alert_notif["dedupe_key"] == "alert:9:run:1"
 
         feed_route = project.db.execute(
             "SELECT source_kind, source_ref_match_json FROM notification_routes WHERE id=1"
         ).fetchone()
         assert feed_route["source_kind"] == "feed"
         assert json.loads(feed_route["source_ref_match_json"]) == {"feed_id": 7}
-        watch_route = project.db.execute(
+        alert_route = project.db.execute(
             "SELECT source_kind, source_ref_match_json FROM notification_routes WHERE id=2"
         ).fetchone()
-        assert watch_route["source_kind"] == "watch"
-        assert json.loads(watch_route["source_ref_match_json"]) == {"watch_id": 9}
+        assert alert_route["source_kind"] == "alert"
+        assert json.loads(alert_route["source_ref_match_json"]) == {"alert_id": 9}
 
         # Feed health reads cleanly from the migrated bundle
         health = build_feed_health(project, int(seeded["feed_id"]))

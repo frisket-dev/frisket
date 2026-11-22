@@ -158,7 +158,7 @@ def test_append_op_failure_rolls_back_new_generated_column(
     def fail_before_append(*_args: Any, **_kwargs: Any) -> int:
         raise RuntimeError("injected append_change failure")
 
-    monkeypatch.setattr(Project, "append_change", fail_before_append)
+    monkeypatch.setattr(Project, "append_change_in_transaction", fail_before_append)
 
     with pytest.raises(RuntimeError, match="injected append_change failure"):
         _runner(project)._prepare(
@@ -212,7 +212,7 @@ def test_reused_generated_column_converges_inside_mode_b_transaction(project: Pr
         sheet_id,
         "result",
         type="number",
-        ai_generated=True,
+        generated=True,
         format="json",
         semantic_type="entity_mentions",
     )

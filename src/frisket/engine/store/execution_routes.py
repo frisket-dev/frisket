@@ -140,7 +140,7 @@ _ROUTE_FACT_FIELDS = (
 # able to say which grants a human answered and which the gate derived.
 CONSENT_BASIS_CONFIRMED = "user_confirmation"
 CONSENT_BASIS_EXACT_MATCH = "exact_match_derived"
-CONSENT_BASIS_PREAPPROVED = "cost_preapproved"
+CONSENT_BASIS_ALLOWANCE = "allowance"
 
 
 class RouteStoreError(RuntimeError):
@@ -217,7 +217,7 @@ class ConsentRow:
     # per-candidate guard, where "this row proves nothing" is a decided
     # outcome rather than a crash — and where one corrupt row cannot stop a
     # sibling consent from proving the dispatch.
-    quote_json: str | None = None
+    estimate_json: str | None = None
 
 
 @dataclass(frozen=True)
@@ -284,7 +284,7 @@ def _consent_row(row: sqlite3.Row) -> ConsentRow:
         granted_at=row["granted_at"],
         policy_params=_json_or_none(row["policy_params_json"]),
         grant_basis=row["grant_basis"],
-        quote_json=row["quote_json"],
+        estimate_json=row["estimate_json"],
     )
 
 
@@ -614,12 +614,12 @@ class RouteStore:
                 actor=actor,
                 granted_at=granted_at or _now(),
                 grant_basis=grant_basis,
-                quote_json=None if estimate is None else _estimate_json(estimate),
+                estimate_json=None if estimate is None else _estimate_json(estimate),
             )
             db.execute(
                 "INSERT INTO consents (id, subject_kind, subject_id, "
                 "action_identity_hash, promise_set_hash, standing_policy, "
-                "actor, granted_at, grant_basis, quote_json) "
+                "actor, granted_at, grant_basis, estimate_json) "
                 "VALUES (?,?,?,?,?,NULL,?,?,?,?)",
                 (
                     consent.id,
@@ -630,7 +630,7 @@ class RouteStore:
                     consent.actor,
                     consent.granted_at,
                     consent.grant_basis,
-                    consent.quote_json,
+                    consent.estimate_json,
                 ),
             )
             return consent
@@ -891,6 +891,15 @@ def route_row_by_id(db: sqlite3.Connection, route_id: str) -> RouteRow | None:
 # ---------- shared low-level writers (usable under any transaction) ----------
 
 
+def _target_cloud_payer(
+    target_snapshot: Mapping[str, object],
+) -> Mapping[str, Any] | None:
+    cloud_payer = target_snapshot.get("cloud_payer")
+    if cloud_payer is not None and not isinstance(cloud_payer, Mapping):
+        raise RouteStoreError("target_snapshot cloud_payer must be a mapping")
+    return cloud_payer
+
+
 def _append_route_cas(
     db: sqlite3.Connection,
     *,
@@ -964,7 +973,7 @@ def _append_route_cas(
         region=region,
         credential_source=credential_source,
         cost_posture=cost_posture,
-        cloud_payer=target_snapshot.get("cloud_payer"),
+        cloud_payer=_target_cloud_payer(target_snapshot),
     )
 
     def _reusable_successor() -> RouteRow | None:
@@ -1347,11 +1356,10 @@ def instance_principal(project: Any) -> str:
     )
     cached = project.get_meta(INSTANCE_PRINCIPAL_META_KEY)
     if cached != principal:
-        project.set_meta(
-            INSTANCE_PRINCIPAL_META_KEY,
-            principal,
-            commit=not project.db.in_transaction,
-        )
+        if project.db.in_transaction:
+            project.set_meta_in_transaction(INSTANCE_PRINCIPAL_META_KEY, principal)
+        else:
+            project.set_meta(INSTANCE_PRINCIPAL_META_KEY, principal)
     return principal
 
 

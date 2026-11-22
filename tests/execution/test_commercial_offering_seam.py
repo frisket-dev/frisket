@@ -69,7 +69,7 @@ def _offer(
             meter_key=meter_key,
             meter_units_per_quantity_unit="60",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            row_settlement_mode="estimated_successful_rows",
         ),
         charge_authority=authority,
         presentation=CommercialPresentation(
@@ -83,7 +83,7 @@ def _platform_composition(*offers: CommercialOffering) -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(
             edition="cloud",
-            org_id="org-test",
+            organization_id="org-test",
             funding=PlatformMetered(),
         ),
         provider=_Provider(),
@@ -187,7 +187,7 @@ def test_included_execution_match_must_be_exact() -> None:
 
 
 def test_unknown_rounding_mode_is_rejected_at_the_carrier_boundary() -> None:
-    with pytest.raises(ValueError, match="unknown quote rounding mode"):
+    with pytest.raises(ValueError, match="unknown estimate rounding mode"):
         CommercialEstimateRounding("invented", 2)  # type: ignore[arg-type]
 
 
@@ -235,14 +235,14 @@ def test_free_public_api_roster_entries_are_not_billable() -> None:
 
 
 def test_offering_meter_must_match_the_capability_measurement() -> None:
-    with pytest.raises(ValueError, match="quoted measurement"):
+    with pytest.raises(ValueError, match="estimated measurement"):
         replace(
             _offer(),
             settlement=CommercialSettlementTerms(
                 meter_key="gpu_seconds",
                 meter_units_per_quantity_unit="60",
                 ceiling_mode="consented_quantity",
-                row_settlement_mode="quoted_successful_rows",
+                row_settlement_mode="estimated_successful_rows",
             ),
         )
 
@@ -268,7 +268,7 @@ def test_quoted_successful_rows_is_rejected_when_quote_has_no_row_allocation(
                 meter_key=meter_key,
                 meter_units_per_quantity_unit="1",
                 ceiling_mode="consented_quantity",
-                row_settlement_mode="quoted_successful_rows",
+                row_settlement_mode="estimated_successful_rows",
             ),
         )
 
@@ -289,7 +289,7 @@ def test_quoted_successful_rows_accepts_row_measured_media_capabilities(
             meter_key=meter_key,
             meter_units_per_quantity_unit="1",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            row_settlement_mode="estimated_successful_rows",
         ),
     )
     assert offering.match.capability == capability
@@ -329,7 +329,7 @@ def test_funding_and_credential_posture_cannot_disagree() -> None:
         ExecutionComposition(
             facts=CompositionFacts(
                 edition="cloud",
-                org_id="org-test",
+                organization_id="org-test",
                 funding=PlatformMetered(),
             ),
             provider=_Provider(),

@@ -41,17 +41,36 @@ def state(project):
     }
 
 
+def _confirm_probe_request(project, request, *, gateway):
+    challenge = run_action_spec(
+        project,
+        request,
+        project_id="p",
+        deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
+    )
+    assert challenge.status == "needs_confirmation", challenge.errors
+    assert gateway.calls == []
+    return {
+        **request,
+        "confirmation": challenge.errors[0].details["promise_set_hash"],
+    }
+
+
 @pytest.mark.parametrize("interruption", INTERRUPTIONS)
 def test_create_cancel_after_paid_probe_before_receipt(
     project, monkeypatch, interruption
 ):
     gateway = FakeProbeGateway(dim=1024)
-    request = _create_action(
-        project._sheet_id,
-        key="cancel-create",
-        provider="openrouter",
-        model="openai/text-embedding-3-large",
-        provider_policy={"allow_remote": True},
+    request = _confirm_probe_request(
+        project,
+        _create_action(
+            project._sheet_id,
+            key="cancel-create",
+            provider="openrouter",
+            model="openai/text-embedding-3-large",
+            provider_policy={"allow_remote": True},
+        ),
+        gateway=gateway,
     )
     real_create = EmbeddingStore.create_index
 
@@ -83,15 +102,17 @@ def test_refresh_cancel_after_counts_before_terminal_receipt(
 ):
     gateway = PaidRemoteGateway()
     index_id = _create_remote_index(project, gateway=gateway)
-    real_update = EmbeddingStore.update_index_counts
+    real_update = EmbeddingStore.update_index_counts_in_transaction
 
-    def interrupt_after_counts(self, *args, **kwargs):
-        result = real_update(self, *args, **kwargs)
-        if kwargs.get("commit") is False:
+    def interrupt_after_counts(self, index_id_arg, counts):
+        result = real_update(self, index_id_arg, counts)
+        if counts.last_refresh_receipt_id is not None:
             raise interruption("cancelled terminal publication")
         return result
 
-    monkeypatch.setattr(EmbeddingStore, "update_index_counts", interrupt_after_counts)
+    monkeypatch.setattr(
+        EmbeddingStore, "update_index_counts_in_transaction", interrupt_after_counts
+    )
     with pytest.raises(interruption):
         _run(project, _refresh_action(index_id, key="cancel-refresh"), gateway=gateway)
     observed = state(project)
@@ -213,12 +234,16 @@ def test_probe_cancel_after_return_keeps_fact_and_closes_without_index(project):
             return result
 
     gateway = CancelAfterProbe(dim=1024)
-    request = _create_action(
-        project._sheet_id,
-        key="cancel-probe-return",
-        provider="openrouter",
-        model="openai/text-embedding-3-large",
-        provider_policy={"allow_remote": True},
+    request = _confirm_probe_request(
+        project,
+        _create_action(
+            project._sheet_id,
+            key="cancel-probe-return",
+            provider="openrouter",
+            model="openai/text-embedding-3-large",
+            provider_policy={"allow_remote": True},
+        ),
+        gateway=gateway,
     )
     with pytest.raises(asyncio.CancelledError):
         run_action_spec(
@@ -248,12 +273,16 @@ def test_probe_cancel_before_dispatch_closes_current_attempt(project, monkeypatc
 
     monkeypatch.setattr(embeddings, "mint_direct_effect_attempt", cancel_after_mint)
     gateway = FakeProbeGateway(dim=1024)
-    request = _create_action(
-        project._sheet_id,
-        key="cancel-probe-dispatch",
-        provider="openrouter",
-        model="openai/text-embedding-3-large",
-        provider_policy={"allow_remote": True},
+    request = _confirm_probe_request(
+        project,
+        _create_action(
+            project._sheet_id,
+            key="cancel-probe-dispatch",
+            provider="openrouter",
+            model="openai/text-embedding-3-large",
+            provider_policy={"allow_remote": True},
+        ),
+        gateway=gateway,
     )
     with pytest.raises(asyncio.CancelledError):
         run_action_spec(

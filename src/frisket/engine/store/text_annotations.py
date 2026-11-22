@@ -6,8 +6,8 @@ cell"). The annotation reader needs the inverse — "what annotation layers poin
 
     text_surfaces(cell locator)
       -> source_spans(text_surface_id, span_kind='text')
-      -> evidence_link_spans(span_id, span_role='annotation')
-      -> evidence_links(status='active', layer_family NOT NULL)
+      -> citation_spans(span_id, span_role='annotation')
+      -> citations(status='active', layer_family NOT NULL)
 
 This is a plain store function (no HTTP): guard triple (hidden sheet/row/column),
 current-value-ref intersection on the link's OUTPUT cell (excludes a prior run's
@@ -23,7 +23,7 @@ from frisket.engine.store.cell_reference import citation_subject_ref_json
 
 from typing import Any
 
-from frisket.engine.store.evidence import _json_dumps, _json_loads
+from frisket.engine.store.citations import _json_dumps, _json_loads
 from frisket.engine.store.transactions import read_transaction
 from frisket.engine.store.current_value_windows import (
     CurrentValueChanged,
@@ -217,8 +217,8 @@ def _resolve_text_annotations(
             raise ValueError("invalid annotation occurrence_id")
         span_id, link_id = map(int, occurrence_id.split(":"))
         anchor = project.db.execute(
-            "SELECT sp.char_start FROM source_spans sp JOIN evidence_link_spans ls ON ls.span_id=sp.id "
-            "JOIN evidence_links el ON el.id=ls.link_id JOIN text_surfaces ts ON ts.id=sp.text_surface_id "
+            "SELECT sp.char_start FROM source_spans sp JOIN citation_spans ls ON ls.span_id=sp.id "
+            "JOIN citations el ON el.id=ls.citation_id JOIN text_surfaces ts ON ts.id=sp.text_surface_id "
             "WHERE sp.id=? AND el.id=? AND el.status='active' AND ls.span_role='annotation' "
             "AND ts.text_sheet_id=? AND ts.text_row_id=? AND ts.text_column_id=?",
             (span_id, link_id, sheet_id, row_id, column_id),
@@ -271,10 +271,10 @@ def _resolve_text_annotations(
         FROM text_surfaces ts
         JOIN source_spans sp
           ON sp.text_surface_id = ts.id AND sp.span_kind = 'text'
-        JOIN evidence_link_spans els
+        JOIN citation_spans els
           ON els.span_id = sp.id AND els.span_role = 'annotation'
-        JOIN evidence_links el
-          ON el.id = els.link_id
+        JOIN citations el
+          ON el.id = els.citation_id
         WHERE ts.surface_kind = 'cell'
           AND ts.text_sheet_id = :sheet_id AND ts.text_row_id = :row_id AND ts.text_column_id = :column_id
           AND el.status = 'active'
@@ -333,7 +333,7 @@ def _resolve_text_annotations(
         out_col_row = project.db.execute(
             "SELECT id, name FROM columns WHERE id=?", (head["out_column_id"],)
         ).fetchone()
-        output_column = (
+        generated_column = (
             {"id": int(out_col_row["id"]), "name": out_col_row["name"]}
             if out_col_row is not None
             else {"id": head["out_column_id"], "name": None}
@@ -345,7 +345,7 @@ def _resolve_text_annotations(
             "toggle_key": toggle_key,
             "layer_family": family,
             "producer": producer,
-            "output_column": output_column,
+            "generated_column": generated_column,
         }
 
         total = int(head["span_total"])
@@ -558,10 +558,10 @@ def _annotated_text_column_ids(project: Any, sheet_id: int) -> list[int]:
         FROM text_surfaces ts
         JOIN source_spans sp
           ON sp.text_surface_id = ts.id AND sp.span_kind = 'text'
-        JOIN evidence_link_spans els
+        JOIN citation_spans els
           ON els.span_id = sp.id AND els.span_role = 'annotation'
-        JOIN evidence_links el
-          ON el.id = els.link_id
+        JOIN citations el
+          ON el.id = els.citation_id
         JOIN columns c
           ON c.id = ts.text_column_id
          AND c.sheet_id = ts.text_sheet_id AND c.hidden = 0

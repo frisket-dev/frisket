@@ -382,7 +382,7 @@ def test_an_injected_offer_prices_the_exact_selected_target(audio_project, monke
             meter_key="audio_seconds",
             meter_units_per_quantity_unit="60",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            row_settlement_mode="estimated_successful_rows",
         ),
         charge_authority="test.synthetic.authority",
         presentation=CommercialPresentation(
@@ -409,7 +409,7 @@ def test_an_injected_offer_prices_the_exact_selected_target(audio_project, monke
     assert basis.unit_rate == "0.017"
     assert basis.terms_version == "test.synthetic.terms.v1"
     assert basis.meter_key == "audio_seconds"
-    assert basis.row_settlement_mode == "quoted_successful_rows"
+    assert basis.row_settlement_mode == "estimated_successful_rows"
     assert basis.charge_authority == "test.synthetic.authority"
     assert basis.hardware_class is None and basis.throughput_ref is None
     assert basis.estimated_quantity == "0.033333"
@@ -455,7 +455,7 @@ def test_bounded_scratch_offer_estimates_its_single_ephemeral_unit(
             meter_key="audio_seconds",
             meter_units_per_quantity_unit="60",
             ceiling_mode="consented_quantity",
-            row_settlement_mode="quoted_successful_rows",
+            row_settlement_mode="estimated_successful_rows",
         ),
         charge_authority="test.synthetic.authority",
         presentation=CommercialPresentation(
@@ -480,7 +480,7 @@ def test_bounded_scratch_offer_estimates_its_single_ephemeral_unit(
     assert isinstance(resolved, ResolvedExecution)
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.estimated_quantity == "0.25"
-    assert resolved.cost_basis.row_quote_quantities == ((1, "0.25"),)
+    assert resolved.cost_basis.row_estimate_quantities == ((1, "0.25"),)
 
 
 # ---------------------------------------------------------------------------

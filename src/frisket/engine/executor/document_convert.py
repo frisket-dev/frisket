@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.engine.store.writer_fence import WriterFence
 
 from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
@@ -777,8 +778,8 @@ class _BoundDocumentConverter:
                 )
             except BaseException as error:
                 if accepted_accounting is not None:
-                    error.accounting = accepted_accounting
-                    error.provider_job_accepted = True
+                    setattr(error, "accounting", accepted_accounting)
+                    setattr(error, "provider_job_accepted", True)
                 raise
 
         def observe(result):
@@ -916,20 +917,23 @@ def write_document_convert_evidence(
 ):
     """Retain actual reads and quote-free dependencies at the result savepoint."""
     from frisket.engine.store.receipts import ReceiptStore
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
     )
 
     store = ReceiptStore(project)
+    fence = WriterFence(
+        run_id=run_id,
+        writer_attempt_id=writer_attempt_id,
+        claim_token=claim_token,
+    )
     reads = document_convert_reads(batch)
     for row_id, read in reads.items():
         store._record_writer_supporting_record(
             {**read, "row_id": row_id},
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )
     for item in batch:
         value = item.get("value")
@@ -948,7 +952,7 @@ def write_document_convert_evidence(
         engine = read["engine"]
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='source_provenance' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()
@@ -983,7 +987,7 @@ def write_document_convert_evidence(
             },
         )
         receipt_id = project.db.execute(
-            "SELECT DISTINCT receipt_id FROM output_column_claims "
+            "SELECT DISTINCT receipt_id FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()[0]
@@ -1021,7 +1025,5 @@ def write_document_convert_evidence(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

@@ -108,31 +108,28 @@ async def test_async_paid_order_is_admission_provider_receipt_then_cache_hit():
 async def test_project_encoder_persists_same_space_used_by_shared_cache(make_project):
     project = make_project("analytics")
     model = "custom/model"
-    try:
-        vectors = await encode_project_legacy_texts_async(
-            project,
-            ["one"],
-            embed=lambda _texts: [[0.25, 0.5]],
-            model_id=model,
-            dimension=2,
-        )
-        space = ensure_legacy_analytical_space(project, model, dimension=2)
-        row = project.db.execute(
-            "SELECT actual_model_id,dimension,normalization FROM embedding_spaces "
-            "WHERE id=?",
+    vectors = await encode_project_legacy_texts_async(
+        project,
+        ["one"],
+        embed=lambda _texts: [[0.25, 0.5]],
+        model_id=model,
+        dimension=2,
+    )
+    space = ensure_legacy_analytical_space(project, model, dimension=2)
+    row = project.db.execute(
+        "SELECT actual_model_id,dimension,normalization FROM embedding_spaces "
+        "WHERE id=?",
+        (space.identity,),
+    ).fetchone()
+    with RetrievalStore(project) as cache:
+        count = cache.db.execute(
+            "SELECT count(*) FROM representations WHERE space_id=?",
             (space.identity,),
-        ).fetchone()
-        with RetrievalStore(project) as cache:
-            count = cache.db.execute(
-                "SELECT count(*) FROM representations WHERE space_id=?",
-                (space.identity,),
-            ).fetchone()[0]
+        ).fetchone()[0]
 
-        assert vectors == [[0.25, 0.5]]
-        assert tuple(row) == (model, 2, "none")
-        assert count == 1
-    finally:
-        project.close()
+    assert vectors == [[0.25, 0.5]]
+    assert tuple(row) == (model, 2, "none")
+    assert count == 1
 
 
 def test_custom_project_model_discovers_dimension_from_first_admitted_batch(
@@ -149,33 +146,30 @@ def test_custom_project_model_discovers_dimension_from_first_admitted_batch(
         "before_fresh_batch": lambda texts: events.append(("admission", texts)),
         "on_fresh_batch": lambda _result, texts: events.append(("receipt", texts)),
     }
-    try:
-        first = encode_project_legacy_texts(
-            project,
-            ["alpha", "beta", "alpha"],
-            embed=embed,
-            model_id="custom/unregistered",
-            **callbacks,
-        )
-        second = encode_project_legacy_texts(
-            project,
-            ["beta", "alpha"],
-            embed=embed,
-            model_id="custom/unregistered",
-            **callbacks,
-        )
-        row = project.db.execute(
-            "SELECT dimension FROM embedding_spaces "
-            "WHERE actual_model_id='custom/unregistered'"
-        ).fetchone()
+    first = encode_project_legacy_texts(
+        project,
+        ["alpha", "beta", "alpha"],
+        embed=embed,
+        model_id="custom/unregistered",
+        **callbacks,
+    )
+    second = encode_project_legacy_texts(
+        project,
+        ["beta", "alpha"],
+        embed=embed,
+        model_id="custom/unregistered",
+        **callbacks,
+    )
+    row = project.db.execute(
+        "SELECT dimension FROM embedding_spaces "
+        "WHERE actual_model_id='custom/unregistered'"
+    ).fetchone()
 
-        assert first == [[2.0, 0.0, 0.5], [2.0, 1.0, 0.5], [2.0, 0.0, 0.5]]
-        assert second == [[2.0, 1.0, 0.5], [2.0, 0.0, 0.5]]
-        assert row["dimension"] == 3
-        assert [event[0] for event in events] == [
-            "admission",
-            "provider",
-            "receipt",
-        ]
-    finally:
-        project.close()
+    assert first == [[2.0, 0.0, 0.5], [2.0, 1.0, 0.5], [2.0, 0.0, 0.5]]
+    assert second == [[2.0, 1.0, 0.5], [2.0, 0.0, 0.5]]
+    assert row["dimension"] == 3
+    assert [event[0] for event in events] == [
+        "admission",
+        "provider",
+        "receipt",
+    ]

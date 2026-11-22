@@ -163,7 +163,7 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('views-panel')).toHaveAttribute('aria-busy', 'false');
   await shot(page, 'Side panels', 'views-populated', 'src/workspace/ViewsPanel.tsx');
 
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   await expect(page.getByTestId('alerts-empty')).toBeVisible();
   await expect(page.getByTestId('alerts-panel')).toHaveAttribute('aria-busy', 'false');
   await shot(page, 'Side panels', 'alerts-empty', 'src/components/AlertsPanel.tsx');
@@ -233,16 +233,16 @@ export async function capturePopulatedPanelScenes(page: Page, shot: Shot) {
 
   // Wire shape reused from panel-reveal-over-drawer.spec.ts.
   const notification = {
-    id: 501, source_kind: 'watch', source_ref: { watch_id: 7 }, source_event_ids: [901],
-    event_count: 1, event_kinds: ['watch_run_completed'], title: 'Planning records watch',
-    summary: '2 new planning records match this watch.', severity: 'info',
-    deep_link: { kind: 'watch_run', watch_id: 7, run_id: 55, event_ids: [901] },
+    id: 501, source_kind: 'alert', source_ref: { alert_id: 7 }, source_event_ids: [901],
+    event_count: 1, event_kinds: ['row_entered'], title: 'Planning records alert',
+    summary: '2 new planning records match this alert.', severity: 'info',
+    deep_link: { kind: 'alert_check', alert_id: 7, run_id: 55, event_ids: [901] },
     created_at: timestamp, updated_at: timestamp, state: 'unseen',
     seen_at: null, read_at: null, acknowledged_at: null, acknowledged_by: null,
   };
   await page.route(`**/api/projects/${projectId}/notifications/summary`, route => route.fulfill({ json: {
     schema_version: 'frisket.notifications_summary.v1', total: 1, unseen: 1, seen: 0,
-    read: 0, acknowledged: 0, by_severity: { info: 1 }, by_source_kind: { watch: 1 }, by_source_ref: [],
+    read: 0, acknowledged: 0, by_severity: { info: 1 }, by_source_kind: { alert: 1 }, by_source_ref: [],
   } }));
   await page.route(new RegExp(`/api/projects/${projectId}/notifications(\\?[^/]*)?$`), route => route.fulfill({ json: {
     schema_version: 'frisket.notifications_page.v1', order: 'desc', offset: 0, limit: 20,
@@ -323,7 +323,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   // Wire shapes: alertsHttpContracts.test.ts. Both history outcomes are
   // presentation fixtures; the real Run control is never clicked.
   const alertCheck = {
-    id: 721, watch_id: alertId, status: 'ok', op_cursor_before: 0, op_cursor_after: 3,
+    id: 721, alert_id: alertId, status: 'ok', op_cursor_before: 0, op_cursor_after: 3,
     matched_rows: 12, new_rows: 2, error: null, error_code: null,
     resolved_query_hash: 'synthetic-planning-query', resolved_query: { kind: 'fts', q: 'planning budget' },
     started_at: timestamp, finished_at: timestamp,
@@ -352,7 +352,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   const notificationRoute = {
     id: 732, name: 'Synthetic fixture: daily digest for planning and housing committee record changes',
     enabled: false, owner_kind: 'project', owner_ref: projectId, recipient_actor_id: null,
-    channel_id: channel.id, source_kind: 'watch', source_ref_match: { watch_id: alertId }, event_kinds: [],
+    channel_id: channel.id, source_kind: 'alert', source_ref_match: { alert_id: alertId }, event_kinds: [],
     severity_min: 'info', delivery_mode: 'digest', digest_cadence: 'daily', digest_timezone: 'UTC',
     digest_anchor_time: '09:00', template_key: null, created_at: timestamp, updated_at: timestamp,
   };
@@ -367,12 +367,12 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     ['sources', [source]],
     [`sources/${sourceId}`, { ...source, runs: [sourceRun], runs_page: { ...sourcePage, latest_run: sourceRun, latest_run_loaded: true } }],
     [`sources/${sourceId}/health`, health],
-    ['watches', [alert]],
-    [`watches/${alertId}/runs`, { schema_version: 'frisket.watch_runs_page.v1', ...pageInfo, total: 2, hits_limit: 20, runs: alertChecks }],
+    ['alerts', [alert]],
+    [`alerts/${alertId}/checks`, { schema_version: 'frisket.alert_checks_page.v1', ...pageInfo, total: 2, hits_limit: 20, runs: alertChecks }],
     ['notifications/summary', {
       schema_version: 'frisket.notifications_summary.v1', total: 2, unseen: 2, seen: 0, read: 0, acknowledged: 0,
-      by_severity: { info: 2 }, by_source_kind: { watch: 2 },
-      by_source_ref: [{ source_kind: 'watch', source_ref: { watch_id: alertId }, unseen: 2 }],
+      by_severity: { info: 2 }, by_source_kind: { alert: 2 },
+      by_source_ref: [{ source_kind: 'alert', source_ref: { alert_id: alertId }, unseen: 2 }],
     }],
     ['notification-channels', { schema_version: 'frisket.notification_channels.v1', channels: [
       { ...channel, id: 730, kind: 'in_app', name: 'In-app', config: {}, has_secret: false }, channel,
@@ -418,7 +418,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId(`feed-health-checks-${sourceId}`)).toContainText(sourceRun.error);
   await shot(page, 'Panel cards', 'feed-health-run-details', 'synthetic read-only API fixture; src/components/feeds/FeedHealthDrawer.tsx; src/components/feeds/FeedHealthContent.tsx', '[data-testid="feed-health-drawer"]');
 
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   await expect(page.getByTestId('alert-item')).toHaveCount(1);
   await page.getByTestId('toggle-alert-checks').click();
   await expect(page.getByTestId('alert-check-history')).toContainText('evaluation interrupted');

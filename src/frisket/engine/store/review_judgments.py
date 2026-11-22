@@ -37,7 +37,7 @@ def parse_result_key(key: str) -> tuple[str, int, int, int]:
         parts = parts[1:]
     if len(parts) != 3 or not all(p.isdecimal() and int(p) > 0 for p in parts):
         raise ValueError(f"invalid review target: {key!r}")
-    return kind, *(int(p) for p in parts)
+    return kind, int(parts[0]), int(parts[1]), int(parts[2])
 
 
 def _value(info, target, field, after):

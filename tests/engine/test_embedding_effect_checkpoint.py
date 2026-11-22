@@ -536,12 +536,11 @@ def test_embedding_terminalizer_joins_caller_transaction(
             "last_refresh_receipt_id",
         )
     }
-    real_terminalize = embeddings.terminalize_project_run
+    real_terminalize = embeddings.terminalize_project_run_in_transaction
     terminalizations: list[Any] = []
 
     def cut_after_join(*args, **kwargs):
         assert project.db.in_transaction
-        assert kwargs["commit"] is False
         result = real_terminalize(*args, **kwargs)
         terminalizations.append(result)
         assert project.db.in_transaction
@@ -576,7 +575,9 @@ def test_embedding_terminalizer_joins_caller_transaction(
         )
         raise StaleAttemptWriter("injected after joined terminalization")
 
-    monkeypatch.setattr(embeddings, "terminalize_project_run", cut_after_join)
+    monkeypatch.setattr(
+        embeddings, "terminalize_project_run_in_transaction", cut_after_join
+    )
 
     with pytest.raises(StaleAttemptWriter, match="after joined terminalization"):
         _run(
@@ -636,7 +637,7 @@ def test_embedding_terminalizer_joins_caller_transaction(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE run_id=?",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=?",
             (run_id,),
         ).fetchone()[0]
         == 0

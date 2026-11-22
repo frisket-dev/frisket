@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
-import type { ActionCatalogEntry, ActionCatalogPayload } from '../../src/api/types';
+import {
+  isGeneratedActionCatalogEntry,
+  type ActionCatalogEntry,
+  type ActionCatalogPayload,
+} from '../../src/api/types';
 import * as presentationOwner from '../../src/components/action-panel/actionPresentation';
 import { completeMappedActionCatalog } from '../support/actionCatalogFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
@@ -78,6 +82,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function logicalOutputKeys(entry: ActionCatalogEntry): string[] {
+  if (!isGeneratedActionCatalogEntry(entry)) return [];
+  return entry.ui_hints.logical_outputs.map(({ key }) => key);
+}
+
+function fieldOutputKeys(params: Record<string, unknown>): string[] {
+  if (!Array.isArray(params.fields)) return [];
+  return params.fields.map((field) => String(isRecord(field) ? field.name : ''));
+}
+
 function canonicalParams(entry: ActionCatalogEntry): Record<string, unknown> {
   const example = entry.examples[0];
   const params = isRecord(example) && isRecord(example.params)
@@ -92,9 +106,8 @@ function canonicalParams(entry: ActionCatalogEntry): Record<string, unknown> {
 function envelopeFor(entry: ActionCatalogEntry) {
   const createsSheet = entry.ui_hints.typed_action?.creates_sheet === true;
   const params = canonicalParams(entry);
-  const fields = Array.isArray(params.fields) ? params.fields : [];
-  const outputs = fields.length > 0 ? fields.map((field) => String(field.name))
-    : (entry.ui_hints.logical_outputs ?? []).map(({ key }) => key);
+  const fields = fieldOutputKeys(params);
+  const outputs = fields.length > 0 ? fields : logicalOutputKeys(entry);
   return {
     action_id: entry.kind,
     scope: createsSheet ? { kind: 'project' } : { kind: 'sheet_rows', sheet_id: 7 },
@@ -131,7 +144,7 @@ describeServedCatalog('saved ActionSpec v1 reset', () => {
         scope: projectScoped ? { kind: 'project' } : { kind: 'sheet_rows', sheet_id: 7, row_ids: [3, 8] },
         params: canonicalParams(entry),
         output_names: kind === 'import.urls' ? { media: 'Downloaded files' }
-          : Object.fromEntries((entry.ui_hints.logical_outputs ?? []).map(({ key }) => [key, `Saved ${key}`])),
+          : Object.fromEntries(logicalOutputKeys(entry).map((key) => [key, `Saved ${key}`])),
         ...(createsSheet ? { sheet_name: 'Saved destination' } : {}),
       };
       expect(owner().encodeSavedActionSpec(owner().decodeSavedActionSpec(catalog, draft))).toEqual(draft);
@@ -188,10 +201,6 @@ describeServedCatalog('saved ActionSpec v1 reset', () => {
       catalog,
       templates,
     );
-    let drawerAddressable = 0;
-    let hydrated = 0;
-    let generic = 0;
-    let dedicated = 0;
     let hidden = 0;
     let generated = 0;
     const generatedKinds = new Set<string>();
@@ -203,38 +212,13 @@ describeServedCatalog('saved ActionSpec v1 reset', () => {
         hidden += 1;
         continue;
       }
-      if (entry.ui_hints.form === 'generated') {
-        expect(disposition?.kind, entry.kind).toBe('generated');
-        generated += 1;
-        generatedKinds.add(entry.kind);
-        continue;
-      }
-      drawerAddressable += 1;
-      if (disposition?.kind === 'dedicated') {
-        dedicated += 1;
-        continue;
-      }
-      expect(disposition?.kind, entry.kind).toBe('generic');
-      generic += 1;
-      const template = templates.find((candidate) => candidate.actionKind === entry.kind);
-      expect(template, entry.kind).toBeDefined();
-      if (!template) continue;
-      const params = canonicalParams(entry);
-      const declaredNames = new Set((template.params ?? []).map((param) => param.name));
-      const scalarEdits = Object.fromEntries(Object.entries(params).filter(([name, value]) => (
-        declaredNames.has(name)
-        && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
-      )));
-      const hydratedDraft = presentationOwner.buildCanonicalDraft(template, scalarEdits);
-
-      expect(presentationOwner.serializeCanonicalDraft(hydratedDraft), entry.kind)
-        .toEqual(scalarEdits);
-      hydrated += 1;
+      expect(entry.ui_hints.form, entry.kind).toBe('generated');
+      expect(disposition?.kind, entry.kind).toBe('generated');
+      generated += 1;
+      generatedKinds.add(entry.kind);
     }
 
-    expect(drawerAddressable + hidden + generated).toBe(catalog.actions.length);
-    expect(hydrated).toBe(generic);
-    expect(drawerAddressable).toBe(hydrated + dedicated);
+    expect(hidden + generated).toBe(catalog.actions.length);
     // Retired legacy fields are not a coverage floor: these callers now use
     // the generated host and the exact saved-request roundtrips above.
     for (const kind of ['media.fetch_url', 'web.capture_screenshot', 'media.video_frames', 'media.extract_faces']) {
@@ -336,7 +320,7 @@ describeServedCatalog('saved ActionSpec v1 reset', () => {
       scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: canonicalParams(entry),
       output_names: Object.fromEntries(
-        (entry.ui_hints.logical_outputs ?? []).map(({ key }) => [key, key]),
+        logicalOutputKeys(entry).map((key) => [key, key]),
       ),
     };
 

@@ -47,7 +47,7 @@ export function createInstanceRuntimeApi() {
         {
           body: {
             cache_mode: cacheMode,
-            cost_preapproval_usd: allowanceUsd,
+            allowance_usd: allowanceUsd,
             confirmed,
           },
           signal: options.signal,

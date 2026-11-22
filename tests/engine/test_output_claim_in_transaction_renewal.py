@@ -4,10 +4,11 @@ from pathlib import Path
 
 from frisket.contracts.action import Receipt
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
@@ -17,7 +18,7 @@ def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
     output_column_id = project.add_column(
         sheet_id,
         "result",
-        ai_generated=True,
+        generated=True,
     )
     row_id = project.add_rows(
         sheet_id,
@@ -44,7 +45,7 @@ def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
         )
     )
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["result"],
             action_kind="map.python",
@@ -81,23 +82,25 @@ def test_result_write_renews_claim_inside_callers_transaction(
     old_time = "2000-01-01T00:00:00+00:00"
     try:
         project.db.execute(
-            "UPDATE output_column_claims SET renewed_at=?, lease_expires_at=? "
+            "UPDATE generated_column_claims SET renewed_at=?, lease_expires_at=? "
             "WHERE claim_token=?",
             (old_time, old_time, claim_token),
         )
         project.db.commit()
 
         project.db.execute("BEGIN IMMEDIATE")
-        RunResultStore(project).write_results(
+        RunResultStore(project).write_results_in_transaction(
             run_id,
             [{"row_id": row_id, "column_id": output_column_id, "value": "one"}],
-            writer_attempt_id="attempt_in_transaction_renewal",
-            claim_token=claim_token,
-            commit=False,
+            fence=WriterFence.claimed(
+                run_id=run_id,
+                writer_attempt_id="attempt_in_transaction_renewal",
+                claim_token=claim_token,
+            ),
         )
 
         lease = project.db.execute(
-            "SELECT renewed_at, lease_expires_at FROM output_column_claims "
+            "SELECT renewed_at, lease_expires_at FROM generated_column_claims "
             "WHERE claim_token=?",
             (claim_token,),
         ).fetchone()
@@ -108,7 +111,7 @@ def test_result_write_renews_claim_inside_callers_transaction(
 
         project.db.rollback()
         rolled_back = project.db.execute(
-            "SELECT renewed_at, lease_expires_at FROM output_column_claims "
+            "SELECT renewed_at, lease_expires_at FROM generated_column_claims "
             "WHERE claim_token=?",
             (claim_token,),
         ).fetchone()

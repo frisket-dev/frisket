@@ -181,7 +181,7 @@ test('Document view keeps the source PDF beside a selected derived markdown valu
   const filingText = (await sheetColumns(page.request, pid, sheetId)).find(
     (column) => column.name === 'filing_text',
   );
-  expect(filingText?.ai_generated).toBe(true);
+  expect(filingText?.generated).toBe(true);
   expect(filingText).toBeTruthy();
   await patchColumn(page.request, pid, filingText!.id, { format: 'markdown' });
 

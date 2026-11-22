@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from frisket.actions.system import root_action_catalog
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import (
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
@@ -20,7 +18,7 @@ def _catalog_title(kind: str) -> str:
 
 
 def test_job_backed_run_status_and_timing_expose_action_metadata(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
+    client = make_client(tmp_path, run_status_grace_seconds=3600.0)
     pid = client.post("/api/projects", json={"name": "Job Actions"}).json()["id"]
     imported = client.post(
         f"/api/projects/{pid}/import/csv",
@@ -53,7 +51,7 @@ def test_job_backed_run_status_and_timing_expose_action_metadata(tmp_path) -> No
     context = job["context"]
     assert context["sheet_id"] == sheet_id
     assert context["sheet_name"] == "calls"
-    assert [column["name"] for column in context["output_columns"]] == ["phone"]
+    assert [column["name"] for column in context["generated_columns"]] == ["phone"]
     detail = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")
     assert detail.status_code == 200, detail.text
     assert detail.json()["context"] == context
@@ -74,7 +72,7 @@ def test_job_backed_run_status_and_timing_expose_action_metadata(tmp_path) -> No
 
 
 def test_search_preparation_jobs_have_a_cosmetic_origin_label(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
+    client = make_client(tmp_path, run_status_grace_seconds=3600.0)
     pid = client.post("/api/projects", json={"name": "Prepared jobs"}).json()["id"]
     imported = client.post(
         f"/api/projects/{pid}/import/csv",
@@ -131,7 +129,7 @@ def test_runless_job_retains_explicit_sheet_context_through_failure(client) -> N
             },
         },
     )
-    expected = {"sheet_id": sheet_id, "sheet_name": "Original", "output_columns": []}
+    expected = {"sheet_id": sheet_id, "sheet_name": "Original", "generated_columns": []}
 
     for phase in ("queued", "running", "failed"):
         response = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")

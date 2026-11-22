@@ -142,8 +142,8 @@ def resolve_current_ocr_citation(
         "SELECT DISTINCT el.id, el.stable_id AS evidence_link_stable_id, "
         "el.column_id, el.subject_ref_json, sp.artifact_id, "
         "sa.stable_id AS artifact_stable_id, sa.blob_hash, c.name, c.position "
-        "FROM evidence_links el "
-        "JOIN evidence_link_spans els ON els.link_id=el.id "
+        "FROM citations el "
+        "JOIN citation_spans els ON els.citation_id=el.id "
         "JOIN source_spans sp ON sp.id=els.span_id "
         "JOIN source_artifacts sa ON sa.id=sp.artifact_id "
         "JOIN columns c ON c.id=el.column_id "
@@ -171,9 +171,9 @@ def resolve_current_ocr_citation(
         ):
             continue
         span_rows = project.db.execute(
-            "SELECT sp.*, els.rank FROM evidence_link_spans els "
+            "SELECT sp.*, els.rank FROM citation_spans els "
             "JOIN source_spans sp ON sp.id=els.span_id "
-            "WHERE els.link_id=? ORDER BY els.rank, sp.id",
+            "WHERE els.citation_id=? ORDER BY els.rank, sp.id",
             (int(row["id"]),),
         ).fetchall()
         if not span_rows or any(

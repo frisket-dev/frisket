@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Collection
+from typing import Protocol
 from frisket.engine.store.transactions import write_transaction
+
+
+class _HasDb(Protocol):
+    @property
+    def db(self) -> sqlite3.Connection: ...
+
 
 SMALL_WRITE_LIMIT = 512
 HEAD_COLUMNS = (
@@ -135,7 +142,7 @@ def invalidate_run_scope(db: sqlite3.Connection, run_id: int, column_id: int) ->
     invalidate_run_scopes(db, run_id, [column_id])
 
 
-def repair_current_cells(project: object, *, limit: int = SMALL_WRITE_LIMIT) -> int:
+def repair_current_cells(project: _HasDb, *, limit: int = SMALL_WRITE_LIMIT) -> int:
     """Repair at most one bounded row window in one short write transaction."""
     db = project.db
     if db.in_transaction:

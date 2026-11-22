@@ -12,7 +12,8 @@ from frisket.notifications.emit import (
     alert_events_dedupe_key,
 )
 from frisket.engine.store import Project
-from frisket.features.alerts.events import decode_alert_check_event
+from frisket.alerts.events import decode_alert_check_event
+from frisket.engine.store.transactions import write_transaction
 
 
 def alert_check_notification_candidate(
@@ -24,7 +25,7 @@ def alert_check_notification_candidate(
 ) -> NotificationCandidate | None:
     alert = project.get_alert(alert_id)
     run = project.get_alert_check(run_id)
-    if alert is None or run is None or int(run["watch_id"]) != int(alert_id):
+    if alert is None or run is None or int(run["alert_id"]) != int(alert_id):
         return None
     events = [
         decode_alert_check_event(row)
@@ -35,7 +36,7 @@ def alert_check_notification_candidate(
     event_ids = sorted(int(event["id"]) for event in events)
     event_groups = list(
         project.db.execute(
-            "SELECT event_kind,severity,COUNT(*) total FROM watch_run_events WHERE run_id=? GROUP BY event_kind,severity",
+            "SELECT event_kind,severity,COUNT(*) total FROM alert_check_events WHERE run_id=? GROUP BY event_kind,severity",
             (run_id,),
         )
     )
@@ -57,8 +58,8 @@ def alert_check_notification_candidate(
     if event_kinds:
         summary = f"{summary} Events: {', '.join(event_kinds)}."
     return {
-        "source_kind": "watch",
-        "source_ref": {"watch_id": int(alert_id), "run_id": int(run_id)},
+        "source_kind": "alert",
+        "source_ref": {"alert_id": int(alert_id), "run_id": int(run_id)},
         "source_event_ids": event_ids,
         "event_count": event_count,
         "dedupe_key": alert_events_dedupe_key(
@@ -70,13 +71,13 @@ def alert_check_notification_candidate(
         "summary": summary,
         "severity": severity,  # type: ignore[typeddict-item]
         "deep_link": {
-            "kind": "watch_run",
-            "watch_id": int(alert_id),
+            "kind": "alert_check",
+            "alert_id": int(alert_id),
             "run_id": int(run_id),
             "event_ids": event_ids,
         },
         "payload": {
-            "watch_name": alert_name,
+            "alert_name": alert_name,
             "run_status": str(run["status"]),
             "matched_rows": matched_rows,
             "new_rows": new_rows,
@@ -105,11 +106,11 @@ def emit_alert_check_notification(
     )
     # The observation transaction creates this obligation. Only clear it after
     # durable notification and delivery planning; recovery safely repeats either.
-    project.db.execute(
-        "UPDATE watch_runs SET notification_pending=0 WHERE id=? AND watch_id=?",
-        (run_id, alert_id),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="clear alert notification pending"):
+        project.db.execute(
+            "UPDATE alert_checks SET notification_pending=0 WHERE id=? AND alert_id=?",
+            (run_id, alert_id),
+        )
     return result
 
 

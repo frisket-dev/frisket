@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
-from frisket.engine.store.evidence import citation_temporal_runs
+from frisket.engine.store.citations import citation_temporal_runs
 from frisket.engine.store.project import Project
 from frisket.engine.store.transactions import write_transaction
 
@@ -103,13 +103,11 @@ def resolve_link_run_clip_source(
     try:
         runs = citation_temporal_runs(project, citation_ref)
     except KeyError as exc:
-        raise ClipError(
-            "evidence_link_not_found", f"no evidence link {citation_ref!r}"
-        ) from exc
+        raise ClipError("citation_not_found", f"no citation {citation_ref!r}") from exc
     if run_index < 0 or run_index >= len(runs):
         raise ClipError(
             "run_not_found",
-            f"evidence link {citation_ref!r} has no run at index {run_index}",
+            f"citation {citation_ref!r} has no run at index {run_index}",
         )
     run = runs[run_index]
     blob_hash = run["blob_hash"]
@@ -284,7 +282,7 @@ def clip_error_status(error: ClipError) -> int:
     if error.code in {
         "span_not_found",
         "blob_missing",
-        "evidence_link_not_found",
+        "citation_not_found",
         "run_not_found",
     }:
         return 404

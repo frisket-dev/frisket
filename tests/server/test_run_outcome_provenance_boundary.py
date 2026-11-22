@@ -25,7 +25,7 @@ def test_run_outcomes_agree_across_status_trace_and_provenance(
     project = client.app.state.workspace.get(project_id)
     sheet = project.add_sheet("stories")
     source = project.add_column(sheet, "story")
-    output = project.add_column(sheet, "topic", ai_generated=True)
+    output = project.add_column(sheet, "topic", generated=True)
     rows = project.add_rows(
         sheet, [{"story": "one"}, {"story": "two"}], {"story": source}
     )

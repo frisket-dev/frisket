@@ -14,7 +14,6 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import Project
 
 _HASH = "sha256:" + "a" * 64
 
@@ -49,11 +48,11 @@ class TestFreshBundle:
         p = make_project("t")
         assert "text_surfaces" in _tables(p.db)
         assert "text_surface_id" in _cols(p.db, "source_spans")
-        assert "layer_family" in _cols(p.db, "evidence_links")
+        assert "layer_family" in _cols(p.db, "citations")
         idx = _indexes(p.db)
         assert "idx_text_surfaces_cell" in idx
         assert "idx_source_spans_text_surface" in idx
-        assert "idx_evidence_link_spans_annotation" in idx
+        assert "idx_citation_spans_annotation" in idx
         triggers = _triggers(p.db)
         assert "trg_source_spans_char_integrity_insert" in triggers
         assert "trg_source_spans_char_integrity_update" in triggers
@@ -87,8 +86,8 @@ def _rebuild_without(db, table: str, drop_cols: set[str]) -> None:
 
 
 class TestSurfaceInvariants:
-    def _p(self, tmp_path):
-        return Project.create(tmp_path / "inv.frisket", name="inv")
+    def _p(self, make_project):
+        return make_project("inv")
 
     def _insert(self, db, **over):
         cols = dict(
@@ -109,68 +108,50 @@ class TestSurfaceInvariants:
         )
         db.commit()
 
-    def test_cell_surface_requires_full_locator(self, tmp_path):
-        p = self._p(tmp_path)
-        try:
-            with pytest.raises(sqlite3.IntegrityError):
-                self._insert(p.db, text_column_id=None)
-        finally:
-            p.close()
+    def test_cell_surface_requires_full_locator(self, make_project):
+        p = self._p(make_project)
+        with pytest.raises(sqlite3.IntegrityError):
+            self._insert(p.db, text_column_id=None)
 
-    def test_composite_surface_forbids_locator(self, tmp_path):
-        p = self._p(tmp_path)
-        try:
-            with pytest.raises(sqlite3.IntegrityError):
-                self._insert(p.db, surface_kind="composite")  # locator still set
-        finally:
-            p.close()
+    def test_composite_surface_forbids_locator(self, make_project):
+        p = self._p(make_project)
+        with pytest.raises(sqlite3.IntegrityError):
+            self._insert(p.db, surface_kind="composite")  # locator still set
 
-    def test_composite_surface_with_null_locator_ok(self, tmp_path):
-        p = self._p(tmp_path)
-        try:
-            self._insert(
-                p.db,
-                stable_id="c1",
-                surface_kind="composite",
-                text_sheet_id=None,
-                text_row_id=None,
-                text_column_id=None,
+    def test_composite_surface_with_null_locator_ok(self, make_project):
+        p = self._p(make_project)
+        self._insert(
+            p.db,
+            stable_id="c1",
+            surface_kind="composite",
+            text_sheet_id=None,
+            text_row_id=None,
+            text_column_id=None,
+        )
+
+    def test_content_hash_shape_enforced(self, make_project):
+        p = self._p(make_project)
+        with pytest.raises(sqlite3.IntegrityError):
+            self._insert(p.db, content_hash="sha256:NOTHEX")
+        with pytest.raises(sqlite3.IntegrityError):
+            self._insert(p.db, content_hash="deadbeef")  # no prefix / wrong length
+
+    def test_offset_unit_enum_enforced(self, make_project):
+        p = self._p(make_project)
+        with pytest.raises(sqlite3.IntegrityError):
+            self._insert(p.db, offset_unit="bytes")
+
+    def test_surface_is_append_only(self, make_project):
+        p = self._p(make_project)
+        self._insert(p.db)
+        with pytest.raises(sqlite3.IntegrityError):
+            p.db.execute(
+                "UPDATE text_surfaces SET content_hash=? WHERE stable_id='s1'",
+                (_HASH,),
             )
-        finally:
-            p.close()
-
-    def test_content_hash_shape_enforced(self, tmp_path):
-        p = self._p(tmp_path)
-        try:
-            with pytest.raises(sqlite3.IntegrityError):
-                self._insert(p.db, content_hash="sha256:NOTHEX")
-            with pytest.raises(sqlite3.IntegrityError):
-                self._insert(p.db, content_hash="deadbeef")  # no prefix / wrong length
-        finally:
-            p.close()
-
-    def test_offset_unit_enum_enforced(self, tmp_path):
-        p = self._p(tmp_path)
-        try:
-            with pytest.raises(sqlite3.IntegrityError):
-                self._insert(p.db, offset_unit="bytes")
-        finally:
-            p.close()
-
-    def test_surface_is_append_only(self, tmp_path):
-        p = self._p(tmp_path)
-        try:
-            self._insert(p.db)
-            with pytest.raises(sqlite3.IntegrityError):
-                p.db.execute(
-                    "UPDATE text_surfaces SET content_hash=? WHERE stable_id='s1'",
-                    (_HASH,),
-                )
-            p.db.rollback()
-            with pytest.raises(sqlite3.IntegrityError):
-                p.db.execute("DELETE FROM text_surfaces WHERE stable_id='s1'")
-        finally:
-            p.close()
+        p.db.rollback()
+        with pytest.raises(sqlite3.IntegrityError):
+            p.db.execute("DELETE FROM text_surfaces WHERE stable_id='s1'")
 
 
 class TestSpanSurfaceFK:

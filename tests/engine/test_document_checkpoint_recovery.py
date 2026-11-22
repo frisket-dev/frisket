@@ -112,7 +112,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
         )
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM evidence_links WHERE run_id=?", (run_id,)
+                "SELECT COUNT(*) FROM citations WHERE run_id=?", (run_id,)
             ).fetchone()[0]
             == 0
         )
@@ -136,7 +136,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
             project, typed_action_for_request(body), _allow_existing_outputs=True
         )
         claim = project.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
+            "SELECT claim_token FROM generated_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
         runner = _default_map_runner_factory(
             project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
@@ -159,7 +159,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
         assert receipt.status == "completed", receipt.errors
         reads = [
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "document_convert_read"
         ]
         assert len(reads) == 1
@@ -169,7 +169,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
         )
         assert project.get_values(sheet, output)[row] == "# Recovered document"
         links = project.db.execute(
-            "SELECT column_id, receipt_id FROM evidence_links WHERE run_id=? AND link_role='source_provenance'",
+            "SELECT column_id, receipt_id FROM citations WHERE run_id=? AND link_role='source_provenance'",
             (run_id,),
         ).fetchall()
         assert [(link["column_id"], link["receipt_id"]) for link in links] == [

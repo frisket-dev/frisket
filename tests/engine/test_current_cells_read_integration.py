@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -24,64 +23,57 @@ from test_result_generation_store import (
 
 
 def test_current_reads_and_querysets_follow_candidate_beneath_edit_undo_redo(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, column_id, row_ids = _seed_project(make_project)
     _generations, run = _publish_initial_generation(
         project, sheet_id, column_id, row_ids
     )
-    try:
-        values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids)
-        assert values == {
-            row_id: f"first:{index}" for index, row_id in enumerate(row_ids)
-        }
-        assert {ref["kind"] for ref in refs.values()} == {"run_result"}
-        assert {ref["run_id"] for ref in refs.values()} == {run.run_id}
+    values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids)
+    assert values == {row_id: f"first:{index}" for index, row_id in enumerate(row_ids)}
+    assert {ref["kind"] for ref in refs.values()} == {"run_result"}
+    assert {ref["run_id"] for ref in refs.values()} == {run.run_id}
 
-        edit_op_id = project.apply_edits(
-            [{"row_id": row_ids[0], "column_id": column_id, "value": "manual"}]
-        )
-        live, live_refs = project.get_values_with_refs(
-            sheet_id, column_id, [row_ids[0]]
-        )
-        from frisket.engine.store.runs import RunResultStore
+    edit_op_id = project.apply_edits(
+        [{"row_id": row_ids[0], "column_id": column_id, "value": "manual"}]
+    )
+    live, live_refs = project.get_values_with_refs(sheet_id, column_id, [row_ids[0]])
+    from frisket.engine.store.runs import RunResultStore
 
-        saved = RunResultStore(project).decoded_result_rows(
-            [(run.run_id, row_ids[0], column_id)]
-        )
-        assert live[row_ids[0]] == "manual"
-        assert live_refs[row_ids[0]]["kind"] == "manual_edit"
-        assert saved[(run.run_id, row_ids[0], column_id)]["value"] == "first:0"
+    saved = RunResultStore(project).decoded_result_rows(
+        [(run.run_id, row_ids[0], column_id)]
+    )
+    assert live[row_ids[0]] == "manual"
+    assert live_refs[row_ids[0]]["kind"] == "manual_edit"
+    assert saved[(run.run_id, row_ids[0], column_id)]["value"] == "first:0"
 
-        manual = resolve_sheet_filter_rows(
-            project,
-            sheet_id,
-            filter_=json.dumps({"generated": {"eq": "manual"}}),
-        )
-        sorted_rows = resolve_sheet_filter_rows(
-            project,
-            sheet_id,
-            sort=json.dumps([{"column": "generated", "dir": "asc"}]),
-        )
-        assert manual.row_ids == [row_ids[0]]
-        assert sorted_rows.row_ids == [*row_ids[1:], row_ids[0]]
+    manual = resolve_sheet_filter_rows(
+        project,
+        sheet_id,
+        filter_=json.dumps({"generated": {"eq": "manual"}}),
+    )
+    sorted_rows = resolve_sheet_filter_rows(
+        project,
+        sheet_id,
+        sort=json.dumps([{"column": "generated", "dir": "asc"}]),
+    )
+    assert manual.row_ids == [row_ids[0]]
+    assert sorted_rows.row_ids == [*row_ids[1:], row_ids[0]]
 
-        assert project.undo() == edit_op_id
-        assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
-            row_ids[0]: "first:0"
-        }
-        assert project.redo() == edit_op_id
-        assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
-            row_ids[0]: "manual"
-        }
-    finally:
-        project.close()
+    assert project.undo() == edit_op_id
+    assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
+        row_ids[0]: "first:0"
+    }
+    assert project.redo() == edit_op_id
+    assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {
+        row_ids[0]: "manual"
+    }
 
 
 def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
+    project, sheet_id, column_id, row_ids = _seed_project(make_project)
     generations = ResultGenerationStore(project)
     run = _start_claimed_run(
         project,
@@ -132,7 +124,8 @@ def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
             "run_result",
             "run_result",
         ]
-        results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
+        with write_transaction(results.db):
+            results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
         with write_transaction(project.db):
             results.withhold_result_value(
                 run.run_id, row_ids[1], column_id, "no citation"
@@ -158,7 +151,6 @@ def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
         assert failed.row_ids == [row_ids[0]]
     finally:
         _release(project, run)
-        project.close()
 
 
 def test_current_cell_grid_payload_handles_a_page_larger_than_sqlite_bind_chunk(
@@ -276,14 +268,16 @@ def test_retyping_reclassifies_without_rewriting_source_values(make_project) -> 
     column_id = project.add_column(sheet_id, "value", type="json")
     project.add_rows(sheet_id, [{"value": 3}, {"value": "three"}], {"value": column_id})
 
-    project.set_column_type(column_id, "text")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "text")
     assert project.get_values(sheet_id, column_id) == {1: None, 2: "three"}
     assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
         1: 3,
         2: "three",
     }
 
-    project.set_column_type(column_id, "number")
+    with write_transaction(project.db):
+        project.set_column_type(column_id, "number")
     assert project.get_values(sheet_id, column_id) == {1: 3, 2: None}
     assert project.get_values(sheet_id, column_id, preserve_invalid=True) == {
         1: 3,

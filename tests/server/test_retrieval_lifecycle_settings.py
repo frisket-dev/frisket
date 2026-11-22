@@ -58,13 +58,13 @@ def test_open_and_model_setup_retry_only_exact_encoder_unavailability(tmp_path) 
             for source in (encoder_source, disabled_source):
                 store.begin_preparation(
                     source,
-                    recipe_id="text-v1",
+                    slice_id="text-v1",
                     channel="text",
                     space_id=DEFAULT_TEXT_SPACE.identity,
                 )
             assert store.mark_preparation_unavailable(
                 encoder_source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 error_code="encoder_unavailable",
@@ -72,7 +72,7 @@ def test_open_and_model_setup_retry_only_exact_encoder_unavailability(tmp_path) 
             )
             assert store.mark_preparation_unavailable(
                 disabled_source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 error_code="policy_disabled",
@@ -84,10 +84,10 @@ def test_open_and_model_setup_retry_only_exact_encoder_unavailability(tmp_path) 
         project = workspace.get("docs")
         with RetrievalStore(project) as store:
             encoder_state = store.preparation_state(
-                encoder_source.source_id, recipe_id="text-v1", channel="text"
+                encoder_source.source_id, slice_id="text-v1", channel="text"
             )
             disabled_state = store.preparation_state(
-                disabled_source.source_id, recipe_id="text-v1", channel="text"
+                disabled_source.source_id, slice_id="text-v1", channel="text"
             )
             assert encoder_state is not None and encoder_state.status == "pending"
             assert disabled_state is not None
@@ -97,7 +97,7 @@ def test_open_and_model_setup_retry_only_exact_encoder_unavailability(tmp_path) 
             )
             assert store.mark_preparation_unavailable(
                 encoder_source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 error_code="encoder_unavailable",
@@ -107,7 +107,7 @@ def test_open_and_model_setup_retry_only_exact_encoder_unavailability(tmp_path) 
         workspace._embedding_setup_completed()
         with RetrievalStore(project) as store:
             state = store.preparation_state(
-                encoder_source.source_id, recipe_id="text-v1", channel="text"
+                encoder_source.source_id, slice_id="text-v1", channel="text"
             )
             assert state is not None and state.status == "pending"
     finally:
@@ -128,13 +128,13 @@ def test_preparation_status_poll_observes_external_encoder_setup(
         with RetrievalStore(project) as store:
             store.begin_preparation(
                 source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
             )
             assert store.mark_preparation_unavailable(
                 source,
-                recipe_id="text-v1",
+                slice_id="text-v1",
                 channel="text",
                 space_id=DEFAULT_TEXT_SPACE.identity,
                 error_code="encoder_unavailable",
@@ -146,7 +146,7 @@ def test_preparation_status_poll_observes_external_encoder_setup(
 
         with RetrievalStore(project) as store:
             resumed = store.preparation_state(
-                source.source_id, recipe_id="text-v1", channel="text"
+                source.source_id, slice_id="text-v1", channel="text"
             )
         assert resumed is not None and resumed.status == "pending"
         assert status.indexing.status == "queued"

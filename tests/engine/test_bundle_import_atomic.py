@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import os
 import sqlite3
 import subprocess
@@ -21,26 +22,24 @@ pytestmark = pytest.mark.realtime
 
 
 def _export_bundle(
-    tmp_path: Path, *, with_blob: bool = False
+    tmp_path: Path, project: Project, *, with_blob: bool = False
 ) -> tuple[Path, str | None]:
-    project = Project.create(tmp_path / "source.frisket", name="Source")
-    try:
-        digest = project.add_blob(b"original blob") if with_blob else None
-        # Keep legacy ZIP fixtures independent of the current export format.
-        archive = tmp_path / "source.frisket.zip"
-        snapshot = project.export_database(tmp_path / "source.db")
-        with zipfile.ZipFile(archive, "w") as output:
-            output.write(project.path / "manifest.json", "manifest.json")
-            output.write(snapshot, "project.db")
-            if digest:
-                output.writestr(f"blobs/{digest[:2]}/{digest}", b"original blob")
-    finally:
-        project.close()
+    digest = project.add_blob(b"original blob") if with_blob else None
+    # Keep legacy ZIP fixtures independent of the current export format.
+    archive = tmp_path / "source.frisket.zip"
+    snapshot = project.export_database(tmp_path / "source.db")
+    with zipfile.ZipFile(archive, "w") as output:
+        output.write(project.path / "manifest.json", "manifest.json")
+        output.write(snapshot, "project.db")
+        if digest:
+            output.writestr(f"blobs/{digest[:2]}/{digest}", b"original blob")
     return archive, digest
 
 
-def test_legacy_zip_missing_required_blob_never_publishes(tmp_path: Path) -> None:
-    archive, digest = _export_bundle(tmp_path, with_blob=True)
+def test_legacy_zip_missing_required_blob_never_publishes(
+    tmp_path: Path, project: Project
+) -> None:
+    archive, digest = _export_bundle(tmp_path, project, with_blob=True)
     damaged = tmp_path / "missing.zip"
     with zipfile.ZipFile(archive) as source, zipfile.ZipFile(damaged, "w") as output:
         for info in source.infolist():
@@ -52,8 +51,10 @@ def test_legacy_zip_missing_required_blob_never_publishes(tmp_path: Path) -> Non
     assert not target.exists()
 
 
-def test_import_verifies_before_publishing_target(tmp_path: Path) -> None:
-    archive, _ = _export_bundle(tmp_path)
+def test_import_verifies_before_publishing_target(
+    tmp_path: Path, project: Project
+) -> None:
+    archive, _ = _export_bundle(tmp_path, project)
     malformed = tmp_path / "malformed.frisket.zip"
     with zipfile.ZipFile(archive) as source, zipfile.ZipFile(malformed, "w") as dest:
         for member in source.infolist():
@@ -72,8 +73,10 @@ def test_import_verifies_before_publishing_target(tmp_path: Path) -> None:
     assert list(target.parent.glob("*.frisket")) == []
 
 
-def test_import_hash_failure_never_publishes_target(tmp_path: Path) -> None:
-    archive, digest = _export_bundle(tmp_path, with_blob=True)
+def test_import_hash_failure_never_publishes_target(
+    tmp_path: Path, project: Project
+) -> None:
+    archive, digest = _export_bundle(tmp_path, project, with_blob=True)
     assert digest is not None
     tampered = tmp_path / "tampered.frisket.zip"
     with zipfile.ZipFile(archive) as source, zipfile.ZipFile(tampered, "w") as dest:
@@ -92,9 +95,9 @@ def test_import_hash_failure_never_publishes_target(tmp_path: Path) -> None:
 
 
 def test_sigkill_mid_import_leaves_target_absent_from_workspace_listing(
-    tmp_path: Path,
+    tmp_path: Path, project: Project
 ) -> None:
-    archive, _ = _export_bundle(tmp_path)
+    archive, _ = _export_bundle(tmp_path, project)
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     target = workspace_root / "restored.frisket"
@@ -168,8 +171,10 @@ Project.import_bundle(sys.argv[1], sys.argv[2])
 
 
 @pytest.mark.skipif(os.name != "posix", reason="SIGKILL recovery is POSIX-specific")
-def test_sigkill_after_publication_leaves_a_fully_valid_bundle(tmp_path: Path) -> None:
-    archive, _ = _export_bundle(tmp_path)
+def test_sigkill_after_publication_leaves_a_fully_valid_bundle(
+    tmp_path: Path, project: Project
+) -> None:
+    archive, _ = _export_bundle(tmp_path, project)
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     target = workspace_root / "restored.frisket"
@@ -261,19 +266,18 @@ Project.import_bundle(sys.argv[1], target)
         workspace.queue.close()
 
 
-def test_successful_import_atomically_publishes_final_path(tmp_path: Path) -> None:
-    archive, _ = _export_bundle(tmp_path)
+def test_successful_import_atomically_publishes_final_path(
+    tmp_path: Path, project: Project
+) -> None:
+    archive, _ = _export_bundle(tmp_path, project)
     workspace_root = tmp_path / "workspace"
     target = workspace_root / "restored.frisket"
 
-    restored = Project.import_bundle(archive, target)
-    try:
+    with closing(Project.import_bundle(archive, target)) as restored:
         assert restored.path == target
         assert target.is_dir()
         assert (target / "manifest.json").is_file()
         manifest = json.loads((target / "manifest.json").read_text())
         assert manifest["project_id"] == target.stem
-    finally:
-        restored.close()
 
     assert list(workspace_root.glob(".restored.frisket.import-*.tmp")) == []

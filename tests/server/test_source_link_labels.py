@@ -1,4 +1,4 @@
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -38,17 +38,18 @@ def test_grid_source_labels_use_retained_metadata_for_loaded_cells(make_project)
             page_start=3,
             page_end=5,
         )
-    record_citation(
-        project,
-        stable_id="split:one",
-        subject_kind="cell_value",
-        subject_ref={"kind": "source_cell", "row_id": rows[0], "column_id": source},
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet,
-        row_id=rows[0],
-        column_id=source,
-        link_role="source_provenance",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            stable_id="split:one",
+            subject_kind="cell_value",
+            subject_ref={"kind": "source_cell", "row_id": rows[0], "column_id": source},
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=rows[0],
+            column_id=source,
+            link_role="source_provenance",
+        )
     payload = _sheet_data_payload(project, sheet, project.columns(sheet), rows, total=1)
     assert payload["rows"][0]["meta"][str(source)]["source_link"] == {
         "label": "Original.pdf · pp 3–5"

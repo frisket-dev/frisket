@@ -23,6 +23,7 @@ from frisket.engine.store.document_text import (
     require_document_text_publication_key_table,
     require_document_text_publication_sources,
 )
+from frisket.engine.store.transactions import require_transaction
 
 PUBLICATION_EFFECTS = frozenset(
     {"publish_value", "publish_null", "publish_error", "retain"}
@@ -156,10 +157,8 @@ class ResultGenerationStore:
         return self.project.db
 
     @contextmanager
-    def _write_scope(self, *, commit: bool) -> Iterator[None]:
-        started_transaction = not self.db.in_transaction
-        if started_transaction:
-            self.db.execute("BEGIN IMMEDIATE")
+    def _write_scope(self, what: str) -> Iterator[None]:
+        require_transaction(self.db, what)
         savepoint = f"result_generation_{uuid.uuid4().hex}"
         self.db.execute(f"SAVEPOINT {savepoint}")
         try:
@@ -167,12 +166,8 @@ class ResultGenerationStore:
         except BaseException:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-            if started_transaction:
-                self.db.rollback()
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        if commit:
-            self.db.commit()
 
     @staticmethod
     def _generation_from_row(row: sqlite3.Row) -> RunOutputGeneration:
@@ -424,7 +419,7 @@ class ResultGenerationStore:
             "(SELECT MAX(head.run_id) FROM published_result_bases head "
             " WHERE head.column_id=column.id) AS current_head_run_id, "
             "run.status AS run_status, op.status AS op_status "
-            "FROM output_column_claims claim "
+            "FROM generated_column_claims claim "
             "JOIN columns column ON column.id=claim.column_id "
             "JOIN runs run ON run.id=claim.run_id "
             "JOIN ops op ON op.id=run.op_id "
@@ -478,9 +473,8 @@ class ResultGenerationStore:
         claim_token: str,
         target_descriptor: dict[str, Any] | None = None,
         defer_publication: bool = False,
-        commit: bool = True,
     ) -> RunOutputGeneration:
-        """Freeze one run/output declaration before its first result write.
+        """Freeze one run/output declaration in the caller's transaction.
 
         Exact recovery declarations are idempotent while open. A successor
         output claim may recover the same declaration, but descriptors, mode,
@@ -499,7 +493,7 @@ class ResultGenerationStore:
         if write_mode not in WRITE_MODES:
             raise ValueError(f"unsupported generation write_mode {write_mode!r}")
 
-        with self._write_scope(commit=commit):
+        with self._write_scope("result generation declare"):
             if (
                 self.db.execute(
                     "SELECT 1 FROM run_scopes WHERE run_id=?", (run_id,)
@@ -1031,7 +1025,7 @@ class ResultGenerationStore:
             created = {int(column_id) for column_id in info.get("created_columns", ())}
             if created:
                 claims = self.db.execute(
-                    "SELECT column_id,details FROM output_column_claims "
+                    "SELECT column_id,details FROM generated_column_claims "
                     "WHERE run_id=? AND status='active'",
                     (int(run_id),),
                 ).fetchall()
@@ -1158,9 +1152,8 @@ class ResultGenerationStore:
         terminal_disposition: str,
         allow_stale_output_name: bool = False,
         publish: bool = True,
-        commit: bool = True,
     ) -> int:
-        """Terminalize outputs, optionally aborting a coupled publication.
+        """Terminalize outputs in the caller's transaction, optionally aborting a coupled publication.
 
         Aborted generations retain their checkpoints but never become heads.
         Already sealed members cannot be published by a later retry.
@@ -1171,7 +1164,7 @@ class ResultGenerationStore:
                 f"unsupported terminal disposition {terminal_disposition!r}"
             )
         ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
-        with self._write_scope(commit=commit):
+        with self._write_scope("result generation seal"):
             declared_bindings = self.bindings_for_run(int(run_id))
             declared_column_ids = sorted(
                 binding.column_id for binding in declared_bindings
@@ -1580,12 +1573,10 @@ class ResultGenerationStore:
                 return False
         return True
 
-    def rebuild_heads_from_key_table(
-        self, key_table: str, *, commit: bool = True
-    ) -> int:
-        """Rebuild exact result coordinates from applied immutable history."""
+    def rebuild_heads_from_key_table(self, key_table: str) -> int:
+        """Rebuild exact result coordinates in the caller's transaction."""
 
-        with self._write_scope(commit=commit):
+        with self._write_scope("result head rebuild"):
             self.db.execute(
                 f"CREATE INDEX IF NOT EXISTS {key_table}_by_column "
                 f"ON {key_table}(column_id,row_id)"
@@ -1647,19 +1638,18 @@ class ResultGenerationStore:
     def rebuild_heads(
         self,
         column_ids: Collection[int] | None = None,
-        *,
-        commit: bool = True,
     ) -> int:
-        """Rebuild heads from applied journal state and immutable effects."""
+        """Rebuild heads in the caller's transaction from applied journal state."""
 
         ordered_column_ids = (
             None
             if column_ids is None
             else sorted({int(column_id) for column_id in column_ids})
         )
+        require_transaction(self.db, "result head rebuild")
         if ordered_column_ids == []:
             return 0
-        with self._write_scope(commit=commit):
+        with self._write_scope("result head rebuild"):
             affected_column_ids = (
                 [
                     int(row["column_id"])

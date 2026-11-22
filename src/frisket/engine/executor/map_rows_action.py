@@ -43,6 +43,7 @@ from frisket.actions.translate_types import Translator
 from frisket.actions.research_types import Researcher, SearchAnswerer, WebSearcher
 from frisket.actions.mcp_types import McpExtractor
 from frisket.actions.opencorporates_types import OpenCorporates
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.actions.core import (
     resolved_engine_options,
     CreateSheet,
@@ -86,7 +87,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.ops.base import ActionContext, ActionProgram, CostClass, RenderedCall
@@ -124,7 +125,7 @@ from frisket.sdk.capture import (
 )
 from frisket.sdk.provenance import Provenance, build_receipt_from_provenance
 from frisket.sdk.replay import (
-    output_columns_replay_error,
+    generated_columns_replay_error,
     replay_expected_row_ids,
 )
 
@@ -725,9 +726,11 @@ class _TypedMapRowsProgram(ActionProgram):
                             )
                         record = partial(
                             ReceiptStore(ctx.project).record_python_code_hash,
-                            run_id=ctx.extras["run_id"],
-                            writer_attempt_id=attempt.attempt_id,
-                            claim_token=ctx.extras["claim_token"],
+                            fence=WriterFence.claimed(
+                                run_id=ctx.extras["run_id"],
+                                writer_attempt_id=attempt.attempt_id,
+                                claim_token=ctx.extras["claim_token"],
+                            ),
                         )
                     reader = AdmittedPythonEvaluator(
                         cancelled=ctx.extras.get("cancelled"), record_code_hash=record
@@ -999,9 +1002,12 @@ class _TypedMapRowsProgram(ActionProgram):
         RunResultStore(ctx.project).write_returned_call_accounting(
             attempt.run_id,
             batch,
-            writer_attempt_id=attempt.attempt_id,
-            authorized_attempt_id=attempt.attempt_id,
-            claim_token=ctx.extras.get("claim_token"),
+            fence=WriterFence(
+                run_id=attempt.run_id,
+                writer_attempt_id=attempt.attempt_id,
+                claim_token=ctx.extras.get("claim_token"),
+                authorized_attempt_id=attempt.attempt_id,
+            ),
             receipt_id=attempt.receipt_id,
         )
 
@@ -1386,9 +1392,11 @@ class _TypedMapRowsProgram(ActionProgram):
                     for artifact in call.get("artifacts", ()):
                         ReceiptStore(project)._record_writer_supporting_record(
                             {**artifact, "kind": "map_translate_artifact"},
-                            run_id=run_id,
-                            writer_attempt_id=self._admitted_translation_writer(),
-                            claim_token=claim_token,
+                            fence=WriterFence.claimed(
+                                run_id=run_id,
+                                writer_attempt_id=self._admitted_translation_writer(),
+                                claim_token=claim_token,
+                            ),
                         )
 
         if self._uses_extract:
@@ -1863,12 +1871,12 @@ def _require_expected_generated_columns(
 ) -> None:
     """Refuse a named output target that changed after its caller prepared it."""
 
-    expected = request.expected_output_columns
+    expected = request.expected_generated_columns
     if expected is not None and dict(expected) != dict(actual):
         raise TypedMapRowsPlanError(
             "output_target_changed",
             "output targets changed after this action was prepared",
-            field="expected_output_columns",
+            field="expected_generated_columns",
             details={"expected": dict(expected), "actual": dict(actual)},
         )
 
@@ -1908,7 +1916,7 @@ def resolve_row_output_targets(
             ).fetchone()
             is not None
         )
-        if bool(column["ai_generated"]) and not generation_managed:
+        if bool(column["generated"]) and not generation_managed:
             from frisket.engine.runner.preparation import (
                 is_generation_free_document_text_output,
             )
@@ -1923,7 +1931,7 @@ def resolve_row_output_targets(
                     action_kind=request.action_id,
                     params=request.params,
                     output_names=request.output_names,
-                    expected_output_columns=request.expected_output_columns,
+                    expected_generated_columns=request.expected_generated_columns,
                     output_name=name,
                     column_id=column_id,
                 )
@@ -1931,12 +1939,12 @@ def resolve_row_output_targets(
         else:
             first_document_text = False
         if (
-            bool(column["ai_generated"])
+            bool(column["generated"])
             and not generation_managed
             and not first_document_text
         ):
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "only generation-managed output columns can be replaced",
                 details={"columns": [name]},
             )
@@ -1945,7 +1953,7 @@ def resolve_row_output_targets(
 
             if allow_idempotent_outputs or (
                 bool(column["hidden"])
-                and bool(column["ai_generated"])
+                and bool(column["generated"])
                 and (
                     str(column["type"]) == field.column_type
                     or (
@@ -1957,13 +1965,13 @@ def resolve_row_output_targets(
                 preconditions[name] = None
                 continue
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "output columns already exist",
                 details={"columns": [name]},
             )
-        if not bool(column["ai_generated"]):
+        if not bool(column["generated"]):
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "only generated columns can be replaced",
                 details={"columns": [name]},
             )
@@ -1984,13 +1992,21 @@ def resolve_row_output_targets(
             )
         ):
             raise TypedMapRowsPlanError(
-                "output_column_exists",
+                "generated_column_exists",
                 "replacement output has an incompatible descriptor for this scope; "
                 "create a new column or replace the whole generated column",
                 details={"columns": [name]},
             )
         preconditions[name] = column_id
     return names, preconditions
+
+
+def _runner_spec_expected_generated_columns(
+    runner_spec: Mapping[str, Any],
+) -> Any:
+    if "expected_generated_columns" in runner_spec:
+        return runner_spec.get("expected_generated_columns")
+    return runner_spec.get("expected_output_columns")
 
 
 def bound_typed_program_request_from_runner_spec(
@@ -2043,7 +2059,9 @@ def bound_typed_program_request_from_runner_spec(
                 if not field.hidden
             },
             "replace_existing": runner_spec.get("replace_existing", False),
-            "expected_output_columns": runner_spec.get("expected_output_columns"),
+            "expected_generated_columns": _runner_spec_expected_generated_columns(
+                runner_spec
+            ),
             "idempotency_key": "internal-run-backfill-program",
             **(
                 {
@@ -2117,7 +2135,7 @@ def typed_program_from_runner_spec(
         "input_columns",
         "params",
         "output_names",
-        "expected_output_columns",
+        "expected_generated_columns",
         "replace_existing",
         "model",
         "engine",
@@ -2127,7 +2145,12 @@ def typed_program_from_runner_spec(
         "evaluation_context",
         "implementation_identity",
     ):
-        if runner_spec.get(key) != expected.get(key):
+        actual = (
+            _runner_spec_expected_generated_columns(runner_spec)
+            if key == "expected_generated_columns"
+            else runner_spec.get(key)
+        )
+        if actual != expected.get(key):
             raise ValueError(f"stored typed runner spec has inconsistent {key}")
     return plan.program
 
@@ -2405,7 +2428,7 @@ def validate_model_rows_project_inputs(
     try:
         references = validate_typed_project_references(project, sheet_id, params)
     except TypedMapRowsPlanError as exc:
-        if exc.code != "column_not_ai_generated" or terminal.evaluation is None:
+        if exc.code != "column_not_generated" or terminal.evaluation is None:
             raise
         columns = exc.details.get("columns")
         subject = (
@@ -2414,7 +2437,7 @@ def validate_model_rows_project_inputs(
             else getattr(params, terminal.evaluation.subject_param).name
         )
         raise TypedMapRowsPlanError(
-            "column_not_ai_generated",
+            "column_not_generated",
             f"{action_id} answer to grade must be an AI-generated column",
             field="params.judged_column",
             details={"column": subject},
@@ -2523,13 +2546,13 @@ def validate_row_project_references(
     not_generated = [
         reference.column
         for reference in declared_references
-        if reference.ai_generated_only
+        if reference.generated_only
         and reference.column in columns_by_name
-        and not bool(columns_by_name[reference.column]["ai_generated"])
+        and not bool(columns_by_name[reference.column]["generated"])
     ]
     if not_generated:
         raise TypedMapRowsPlanError(
-            "column_not_ai_generated",
+            "column_not_generated",
             "the selected column must be AI-generated",
             field="params.judged_column",
             details={"columns": not_generated},
@@ -2626,8 +2649,8 @@ def _typed_map_rows_plan(
         ]
     if target_preconditions:
         spec["output_target_preconditions"] = target_preconditions
-    if request.expected_output_columns is not None:
-        spec["expected_output_columns"] = dict(request.expected_output_columns)
+    if request.expected_generated_columns is not None:
+        spec["expected_generated_columns"] = dict(request.expected_generated_columns)
     spec["replace_existing"] = request.replace_existing
     if request.replace_existing:
         spec["overwrite"] = True
@@ -2750,8 +2773,8 @@ def normalized_typed_request_identity(
         "output_names": output_names,
         "replace_existing": request.replace_existing,
     }
-    if request.expected_output_columns is not None:
-        payload["expected_output_columns"] = dict(request.expected_output_columns)
+    if request.expected_generated_columns is not None:
+        payload["expected_generated_columns"] = dict(request.expected_generated_columns)
     if bound.implementation_identity is not None:
         payload["implementation_identity"] = bound.implementation_identity
     if request.sheet_name is not None:
@@ -2806,6 +2829,10 @@ def typed_request_hash(bound: BoundTypedActionRequest) -> str:
     options = resolved_engine_options(bound.action.definition.run, bound.params)
     if options is not None:
         identity["engine_options"] = options
+    if "expected_generated_columns" in identity:
+        # Receipts at rest hash the persisted precondition key; preserving it
+        # keeps producer-receipt verification and replay intact.
+        identity["expected_output_columns"] = identity.pop("expected_generated_columns")
     encoded = json.dumps(
         identity,
         sort_keys=True,
@@ -2869,7 +2896,7 @@ def _typed_replay_error(
             any(item.ref.get("kind") == "map_result_column" for item in receipt.outputs)
             or any(
                 item.ref.get("kind") == "typed_hidden_output"
-                for item in receipt.evidence
+                for item in receipt.records
             )
         ):
             # Queue termination can precede all publication. There is no published
@@ -2890,7 +2917,7 @@ def _typed_replay_error(
                     message="The recorded selection cohort is unavailable.",
                     action_kind=action.action_id,
                 )
-        return output_columns_replay_error(
+        return generated_columns_replay_error(
             project,
             receipt,
             output_kind="map_result_column",
@@ -2943,7 +2970,7 @@ def typed_map_rows_replay_result(
                     "SELECT 1 FROM execution_attempts a WHERE a.run_id=r.id "
                     "AND a.state='halted' AND a.seq=(SELECT MAX(last.seq) "
                     "FROM execution_attempts last WHERE last.run_id=r.id)) "
-                    "AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+                    "AND NOT EXISTS (SELECT 1 FROM generated_column_claims c "
                     "WHERE c.run_id=r.id AND c.status='active'))) LIMIT 1",
                     (run_id,),
                 ).fetchone()
@@ -3110,7 +3137,7 @@ def _typed_receipt(
             is_subject = subject_context is not None
             if subject_context is not None:
                 rich = {
-                    "ai_generated": True,
+                    "generated": True,
                     "source_run_id": subject_context.source_run_id,
                     "source_receipt_id": subject_context.source_receipt_id,
                 }
@@ -3125,7 +3152,7 @@ def _typed_receipt(
                 "column_id": input_ids[name],
                 "type": plan.source_column_types[name],
                 "row_ids": row_ids,
-                "ai_generated": rich["ai_generated"],
+                "generated": rich["generated"],
                 "source_run_id": rich["source_run_id"],
                 "source_receipt_id": rich["source_receipt_id"],
                 **(
@@ -3219,7 +3246,7 @@ def _typed_receipt(
         hidden_refs = [ref for ref in output_refs if ref["name"] in hidden_names]
         output_refs = [ref for ref in output_refs if ref["name"] not in hidden_names]
         route_evidence.extend(
-            ReceiptEvidence(ref={**ref, "kind": "typed_hidden_output"})
+            ReceiptRecord(ref={**ref, "kind": "typed_hidden_output"})
             for ref in hidden_refs
         )
         route_evidence.extend(
@@ -3260,7 +3287,7 @@ def _typed_receipt(
         else dict(plan.request_identity)
     )
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "typed_action_request",
                 **request_evidence,
@@ -3269,7 +3296,7 @@ def _typed_receipt(
                 "run_id": facts.run_id,
             }
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "map_rows_run_counts",
                 "total_rows": facts.total_rows,
@@ -3297,7 +3324,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "map_translate_artifact"
                 and item.ref.get("run_id") == run_id
             )
@@ -3308,7 +3335,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "map_extract_grounding_links"
                 and item.ref.get("run_id") == run_id
             )
@@ -3322,7 +3349,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind")
                 in {
                     "media_transcribe_temporal_evidence_link",
@@ -3342,7 +3369,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind")
                 in {"document_convert_read", "document_source_provenance"}
                 and item.ref.get("run_id") == run_id
@@ -3424,7 +3451,7 @@ def _typed_receipt(
         if observed is not None:
             supporting_records.extend(
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "map_python_code"
                 and item.ref.get("run_id") == run_id
             )
@@ -3438,7 +3465,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") in {"row_file_output", "row_file_call"}
                 and item.ref.get("run_id") == run_id
             ]
@@ -3486,7 +3513,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "web_search_call"
                 and item.ref.get("run_id") == run_id
             ]
@@ -3510,7 +3537,7 @@ def _typed_receipt(
         recorded = (
             [
                 item
-                for item in observed.evidence
+                for item in observed.records
                 if item.ref.get("kind") == "opencorporates_request"
                 and item.ref.get("run_id") == run_id
             ]
@@ -3543,7 +3570,7 @@ def _typed_receipt(
     if model_backed:
         supporting_records.insert(
             1,
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "model_rows_model_calls",
                     "model": facts.model,
@@ -3569,7 +3596,7 @@ def _typed_receipt(
             plan.request_identity.get("params", {}).get(evaluation.guidelines_param, "")
         )
         supporting_records.append(
-            ReceiptEvidence(
+            ReceiptRecord(
                 ref={
                     "kind": "map_judge_guidelines",
                     "guidelines": guidelines,
@@ -3590,7 +3617,7 @@ def _typed_receipt(
         inputs=inputs,
         output_refs=output_refs,
         provider_use=provider_use,
-        evidence=supporting_records,
+        records=supporting_records,
         errors=errors,
         named_result_refs=named_result_refs,
     )
@@ -3631,7 +3658,7 @@ def typed_queued_map_spec(
     this function again in the worker process to reconstruct the program.
     """
 
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     unresolved = initial_plan or _typed_map_rows_plan(bound)
     scope = require_sheet_rows(bound.request.scope)
@@ -3797,7 +3824,7 @@ def typed_queued_map_spec(
                 _enforce_expected_generated_columns=False,
             )
         except TypedMapRowsPlanError as exc:
-            input_error = exc.code in {"invalid_input_ref", "column_not_ai_generated"}
+            input_error = exc.code in {"invalid_input_ref", "column_not_generated"}
             return ActionError(
                 code="stale_input",
                 message=(
@@ -3943,7 +3970,7 @@ def typed_queued_map_spec(
         def release_output_claim():
             from frisket.execution.attempt import StaleAttemptWriter
 
-            if not OutputColumnClaimStore(project).release(
+            if not GeneratedColumnClaimStore(project).release(
                 claim_token=_output_claim_token(str(kwargs["receipt_id"])),
                 status="failed" if receipt.status == "failed" else "released",
             ):

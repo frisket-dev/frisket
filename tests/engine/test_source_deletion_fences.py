@@ -23,6 +23,7 @@ from tests.engine.test_result_generation_store import (
     _write,
 )
 from tests.engine.test_change_history_navigation import _step
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _consumer(project, sheet, output, rows, source_sheet, source_column):
@@ -52,7 +53,7 @@ def test_source_sheet_deletion_keeps_independent_results_and_fences_late_output(
     source_sheet = project.add_sheet("source")
     source = project.add_column(source_sheet, "text")
     output_sheet = project.add_sheet("derived")
-    output = project.add_column(output_sheet, "answer", ai_generated=True)
+    output = project.add_column(output_sheet, "answer", generated=True)
     rows = project.add_rows(output_sheet, [{}, {}], {})
     run = _consumer(project, output_sheet, output, rows, source_sheet, source)
     _write(
@@ -67,7 +68,7 @@ def test_source_sheet_deletion_keeps_independent_results_and_fences_late_output(
             }
         ],
     )
-    independent = project.add_column(output_sheet, "independent", ai_generated=True)
+    independent = project.add_column(output_sheet, "independent", generated=True)
     other = _consumer(project, output_sheet, independent, rows, output_sheet, output)
     delete_sheet(project, source_sheet)
     assert project.get_values(output_sheet, output) == {
@@ -115,7 +116,7 @@ def test_source_stop_rolls_back_with_deletion_and_does_not_stop_for_hidden_prese
     project = make_project("rollback")
     sheet = project.add_sheet("data")
     source = project.add_column(sheet, "source")
-    output = project.add_column(sheet, "answer", ai_generated=True)
+    output = project.add_column(sheet, "answer", generated=True)
     rows = project.add_rows(sheet, [{}], {})
     run = _consumer(project, sheet, output, rows, sheet, source)
     project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (source,))
@@ -209,8 +210,9 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
         sheet_ids=[sheet], column_ids=[source, note]
     )
     delete_sheet(project, sheet)
+
     with pytest.raises(AttemptClaimRefused, match="cancelled") as exc:
-        claim(project, attempt, claimless_direct_effect=True)
+        claim(project, attempt, fence=WriterFence(claimless_direct_effect=True))
     assert exc.value.code == "input_source_unavailable"
     assert (
         project.db.execute(
@@ -222,17 +224,17 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
 
 def test_revert_source_column_creation_cancels_direct_consumer_only(make_project):
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_change
+    from frisket.engine.store.op_log import append_change_in_transaction
 
     project = make_project("column")
     sheet = project.add_sheet("data")
     source = project.add_column(sheet, "source")
     with write_transaction(project.db):
-        creator = append_change(
-            project, "create", undo_info={"created_columns": [source]}, commit=False
+        creator = append_change_in_transaction(
+            project, "create", undo_info={"created_columns": [source]}
         )
         start_change(project.db, creator)
-    output = project.add_column(sheet, "answer", ai_generated=True)
+    output = project.add_column(sheet, "answer", generated=True)
     rows = project.add_rows(sheet, [{}], {})
     run = _consumer(project, sheet, output, rows, sheet, source)
     _step(project, "revert", creator)
@@ -349,9 +351,9 @@ def test_direct_map_runner_stops_on_persisted_cancel_without_server_callback(
     prepared = runner._prepare(
         plan.spec_dict(), program=plan.program, confirmed=True, resume_run_id=None
     )
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with write_transaction(claims.db):
         _, conflict = claims.acquire(
             sheet_id=sheet,

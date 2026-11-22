@@ -144,7 +144,7 @@ TRANSLITERATE = action(
     description="Convert text from other writing systems to Latin script.",
     category=ActionCategory.TEXT,
     row_scope=RowScope.ALL_ROWS,
-    examples=(TransliterateParams(text="text"),),
+    examples=(TransliterateParams(text=ColumnRef[str]("text")),),
     run=column_transform(transliterate_column),
 )
 

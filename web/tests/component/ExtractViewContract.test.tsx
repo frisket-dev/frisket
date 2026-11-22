@@ -48,13 +48,13 @@ beforeEach(() => {
   projectId = `extraction-test-${++projectSequence}`; saved = [newLayout(1)]; selectedId = 1;
   workspace.extractionLayouts = createExtractionLayoutStore(projectId);
   mocks.templates.mockImplementation(async () => ({ templates: structuredClone(saved), selected_layout_id: selectedId }));
-  mocks.save.mockImplementation(async (pid: string, value: HttpExtractionTemplateSave) => {
+  mocks.save.mockImplementation(async (_pid: string, value: HttpExtractionTemplateSave) => {
     const existing = saved.find((item) => item.id === value.id);
     const result = { ...(existing ?? newLayout(saved.length + 1)), ...value, id: existing?.id ?? saved.length + 1 };
     saved = existing ? saved.map((item) => item.id === result.id ? result : item) : [...saved, result];
     return structuredClone(result);
   });
-  mocks.select.mockImplementation(async (pid: string, value: { layout_id: number }) => { selectedId = value.layout_id; return saved.find((item) => item.id === selectedId); });
+  mocks.select.mockImplementation(async (_pid: string, value: { layout_id: number }) => { selectedId = value.layout_id; return saved.find((item) => item.id === selectedId); });
   mocks.counts.mockResolvedValue({ all: 3, filter: 2, layout: 0, this: 1 });
   mocks.preview.mockResolvedValue({ documents: [], truncated: false });
   mocks.document.mockResolvedValue({ row_id: 1, blob_id: 'example', filename: 'cropped.pdf', mime: 'application/octet-stream',

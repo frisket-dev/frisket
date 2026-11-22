@@ -13,7 +13,7 @@ export type FailureCategory = 'none' | 'invalid_input' | 'unsupported_format' | 
   | 'internal' | 'unknown';
 export type WorkspaceTelemetryView = 'grid' | 'document' | 'extract' | 'answers' | 'map'
   | 'gallery' | 'graph' | 'source_health' | 'evidence' | 'preview' | 'compare' | 'plugin' | 'import';
-export type WorkspaceTelemetryPanel = 'filter' | 'mentions' | 'sources' | 'views' | 'watches'
+export type WorkspaceTelemetryPanel = 'filter' | 'mentions' | 'sources' | 'views' | 'alerts'
   | 'embeddings' | 'notifications' | 'action' | 'row' | 'column' | 'ask' | 'evidence'
   | 'jobs' | 'errors' | 'history' | 'lineage' | 'plugin';
 export type SettingsTelemetrySection = 'profile' | 'preferences' | 'privacy' | 'ai_providers'

@@ -227,13 +227,13 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         file_read["sha256"]
         == "sha256:" + hashlib.sha256(seeded["path"].read_bytes()).hexdigest()
     )
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "import_source",
         "source_rows",
         "source_cell",
     }
     source_refs = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "import_source"
+        item.ref for item in receipt.records if item.ref["kind"] == "import_source"
     ]
     assert source_refs[0]["source_kind"] == "file"
     assert source_refs[0]["importer"] == "geojson-featurecollection"

@@ -1,5 +1,7 @@
 """Streaming bundles retain atomic publication without corpus-sized buffers."""
 
+from contextlib import closing
+
 import io
 import json
 import tarfile
@@ -33,13 +35,12 @@ def test_legacy_inventory_does_not_poison_new_backup(
     try:
         before = (project.path / "manifest.json").read_text()
         backup = project.export(tmp_path / "new.tar.gz")
-        restored = Project.import_bundle(backup, tmp_path / "restored.frisket")
-        try:
+        with closing(
+            Project.import_bundle(backup, tmp_path / "restored.frisket")
+        ) as restored:
             clean = json.loads((restored.path / "manifest.json").read_text())
             assert not {"blobs", "include_media", "include_traces"} & clean.keys()
             assert clean["name"] == "Source"
-        finally:
-            restored.close()
         assert (project.path / "manifest.json").read_text() == before
         if legacy_zip_restore:
             assert (
@@ -88,10 +89,8 @@ def test_many_objects_roundtrip_without_member_cache_or_whole_blob_reads(
 
         context.setattr(Path, "read_bytes", no_read_bytes)
         restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-    try:
+    with closing(restored):
         assert restored.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 300
-    finally:
-        restored.close()
     # Inspect sequentially too: getmembers would violate the bounded cache assertion.
     with tarfile.open(archive, "r|gz") as stream:
         assert stream.next().name == "bundle.json"
@@ -118,6 +117,7 @@ def test_required_media_missing_is_rejected_unless_omitted(
         assert not list(tmp_path.glob(".restored.frisket.import-*"))
     else:
         Project.import_bundle(missing, target).close()
+        assert target.exists()
 
 
 @pytest.mark.parametrize(

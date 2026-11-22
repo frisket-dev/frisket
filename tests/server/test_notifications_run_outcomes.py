@@ -18,7 +18,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.notifications.run_outcomes import emit_run_outcome_notification
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.search_index import drain_index
-from frisket.server.app import create_app
+from helpers import make_client as _client
 from http_test_helpers import (
     drain_queue,
     post_canonical_run_spec_as_v1_action,
@@ -32,10 +32,6 @@ CSV = (
     "Budget hearing,The council discussed budget oversight.\n"
     "Bridge repair,The bridge repair vote was tabled.\n"
 )
-
-
-def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "ws"))
 
 
 def _project(client: TestClient) -> tuple[str, int]:
@@ -341,7 +337,7 @@ def test_alert_check_notifies_as_an_alert_not_a_run(tmp_path: Path) -> None:
     drain_index(client.app.state.workspace.get(pid))
     alert = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget alert",
             "scope": {"kind": "project"},
@@ -351,14 +347,14 @@ def test_alert_check_notifies_as_an_alert_not_a_run(tmp_path: Path) -> None:
     assert alert.status_code == 200, alert.text
     alert_id = alert.json()["id"]
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert_id)
-    evaluated = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
+    evaluated = client.post(f"/api/projects/{pid}/alerts/{alert_id}/check")
     assert evaluated.status_code == 200, evaluated.text
     drain_queue(client)
 
     page = client.get(f"/api/projects/{pid}/notifications", params={"state": "all"})
     assert page.status_code == 200, page.text
     kinds = [item["source_kind"] for item in page.json()["notifications"]]
-    assert kinds == ["watch"]
+    assert kinds == ["alert"]
 
 
 def _media_project(client: TestClient) -> tuple[str, int, list[int]]:

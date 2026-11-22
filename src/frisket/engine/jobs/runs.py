@@ -60,8 +60,9 @@ from frisket.engine.runner import MapRunner, RunProgress
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
-from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
+from frisket.engine.store.generated_column_claims import ClaimLeaseRenewalFailed
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.worker_version import code_version
 from frisket.execution.credential_use import ActionCredentialResolver
 from frisket.execution.attempt_authority import AttemptAuthority
@@ -128,9 +129,9 @@ def _enqueue_search_index_after_completion(
         }
         claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
         if isinstance(claimed, ProjectStorageKey):
-            continuation["storage_org_id"] = claimed.storage_org_id
+            continuation["storage_organization_id"] = claimed.storage_organization_id
         if isinstance(context.trusted_job_organization_id, int):
-            continuation["org_id"] = context.trusted_job_organization_id
+            continuation["organization_id"] = context.trusted_job_organization_id
 
         from .search_index import enqueue_search_index
 
@@ -316,12 +317,12 @@ def _organization_local_server_env_bundle(
 def resolve_run_local_endpoints(
     root: str | Path,
     *,
-    org_id: int | str | None,
+    organization_id: int | str | None,
     env: dict[str, str] | None = None,
 ) -> tuple[LocalModelEndpointConfig, ...]:
     """Plural execution authority; organization runs receive only operator endpoints."""
 
-    if org_id is not None:
+    if organization_id is not None:
         config = _organization_local_server_env_bundle(env)
         return (config,) if config is not None else ()
     configs, _notes = resolve_local_endpoints(root, env)
@@ -337,11 +338,11 @@ def resolve_run_action_credentials(
     port = ports.action_credential_port
     if port is None:
         return None
-    org_id = handler_context.trusted_job_organization_id
-    if not isinstance(org_id, int):
+    organization_id = handler_context.trusted_job_organization_id
+    if not isinstance(organization_id, int):
         raise ValueError("Organization action credentials require trusted job identity")
     return port.action_credential_resolver(
-        org_id=org_id, control_database_url=control_database_url
+        organization_id=organization_id, control_database_url=control_database_url
     )
 
 
@@ -363,7 +364,7 @@ def resolve_run_models_gateway(
     trusted_organization_id = handler_context.trusted_job_organization_id
     if isinstance(trusted_organization_id, int):
         return ports.models_gateway().models_gateway_connection(
-            org_id=int(trusted_organization_id),
+            organization_id=int(trusted_organization_id),
             control_database_url=control_database_url,
         )
     return resolve_models_gateway(root, env)
@@ -372,29 +373,29 @@ def resolve_run_models_gateway(
 def resolve_run_keys(
     workspace_root: str | Path,
     *,
-    org_id: int | str | None,
+    organization_id: int | str | None,
     credentials: Any,
     control_database_url: str | None,
 ) -> tuple[dict[str, str] | None, str]:
     """The provider keys a queued run's router starts from, plus their
     non-secret provenance label (worker-local-provider-keys-v1).
 
-    Hosted (org_id + control DB): organization BYOK rows through the credentials port,
+    Hosted (organization_id + control DB): organization BYOK rows through the credentials port,
     resolved at claim time — plaintext never rides the queue payload.
     Local tier: the UI-entered workspace provider-key file, with env still
     winning per ``resolve_effective_keys`` — the same layer the
     server process already gives the copilot/previews, without which a run
     fails per-row with the missing-key remediation while the copilot works.
     """
-    if org_id is not None and control_database_url and credentials is not None:
+    if organization_id is not None and control_database_url and credentials is not None:
         keys = dict(
             credentials.provider_keys(
-                org_id=int(org_id),
+                organization_id=int(organization_id),
                 control_database_url=control_database_url,
             )
         )
         return keys, "org_byok"
-    if org_id is not None:
+    if organization_id is not None:
         # No control-plane read happened, so no returned key can honestly be
         # labeled organization BYOK. The only possible value is operator deployment
         # infrastructure from the environment. Calling it ``org_byok`` made a
@@ -422,7 +423,7 @@ def resolve_run_search_credentials(
             return {}
         return dict(
             port.search_provider_keys(
-                org_id=trusted_organization_id,
+                organization_id=trusted_organization_id,
                 control_database_url=control_database_url,
             )
         )
@@ -785,7 +786,7 @@ def register_project_run_handler(
             if project_opener is None
             else open_claimed_project(payload, project_path, project_opener)
         )
-        org_id = payload.get("org_id")
+        organization_id = payload.get("organization_id")
         raw_cache_mode = payload["v1_cache_mode"]
         if raw_cache_mode not in CACHE_MODES:
             raise ValueError(f"queued run has invalid cache mode {raw_cache_mode!r}")
@@ -793,7 +794,7 @@ def register_project_run_handler(
         db_url = control_database_url or os.environ.get("FRISKET_DATABASE_URL")
         keys, keys_source = resolve_run_keys(
             root,
-            org_id=org_id,
+            organization_id=organization_id,
             credentials=credentials,
             control_database_url=db_url,
         )
@@ -842,7 +843,9 @@ def register_project_run_handler(
                     project_root=project_root,
                 )
                 return result
-            run_local_endpoints = resolve_run_local_endpoints(root, org_id=org_id)
+            run_local_endpoints = resolve_run_local_endpoints(
+                root, organization_id=organization_id
+            )
             raw_edition_snapshot = None if row is None else row["edition_run_context"]
             pre_run_error = _queued_pre_run_error(
                 project,
@@ -910,9 +913,11 @@ def register_project_run_handler(
             )
             durable_output_fields = None
             if claim_token is not None:
-                from frisket.engine.store.output_claims import OutputColumnClaimStore
+                from frisket.engine.store.generated_column_claims import (
+                    GeneratedColumnClaimStore,
+                )
 
-                durable_output_fields = OutputColumnClaimStore(
+                durable_output_fields = GeneratedColumnClaimStore(
                     project
                 ).active_output_fields(
                     claim_token=claim_token,
@@ -950,7 +955,7 @@ def register_project_run_handler(
                 base_router,
                 keys=keys,
                 keys_source=keys_source,
-                use_env_keys=org_id is None,
+                use_env_keys=organization_id is None,
                 local_endpoints=run_local_endpoints,
                 cache_mode=queued_cache_mode,
                 response_cache=cache_override,
@@ -1123,10 +1128,15 @@ def register_project_run_handler(
                         terminal_run_status=(
                             terminal_run_status if not defer_attempt_close else None
                         ),
-                        writer_attempt_id=(
-                            completed.writer_attempt_id if defer_attempt_close else None
+                        fence=(
+                            WriterFence(
+                                run_id=completed.run_id,
+                                writer_attempt_id=completed.writer_attempt_id,
+                                claim_token=claim_token,
+                            )
+                            if defer_attempt_close
+                            else None
                         ),
-                        claim_token=(claim_token if defer_attempt_close else None),
                     )
                     _enqueue_search_index_after_completion(
                         project,
@@ -1156,13 +1166,14 @@ def register_project_run_handler(
                         project_id=project_id,
                         run_id=completed.run_id,
                         status="cancelled",
-                        writer_attempt_id=(
-                            completed.writer_attempt_id
+                        fence=(
+                            WriterFence(
+                                run_id=completed.run_id,
+                                writer_attempt_id=completed.writer_attempt_id,
+                                claim_token=claim_token,
+                            )
                             if completed.writer_attempt_claimed
                             else None
-                        ),
-                        claim_token=(
-                            claim_token if completed.writer_attempt_claimed else None
                         ),
                     )
                 else:
@@ -1269,8 +1280,11 @@ def register_project_run_handler(
                     message=str(exc),
                     action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 ),
-                writer_attempt_id=progress.writer_attempt_id,
-                claim_token=claim_token,
+                fence=WriterFence(
+                    run_id=run_id,
+                    writer_attempt_id=progress.writer_attempt_id,
+                    claim_token=claim_token,
+                ),
                 publication_refusal=exc,
             )
             row = run_store.get_run(run_id)

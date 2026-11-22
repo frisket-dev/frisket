@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
-
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,7 +11,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.executor.extract_citations import _source_spans
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 
 from helpers import stub_rapidocr_run_scope
 from frisket.engine.store.transactions import write_transaction
@@ -30,8 +28,7 @@ PNG_1X1 = (
 FAKE_PDF = b"%PDF-1.4\n% model bbox verification fixture\n"
 
 
-def _seed(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(tmp_path / "model-bbox.frisket", name="ModelBbox")
+def _seed(project: Project) -> dict[str, Any]:
     sheet_id = project.add_sheet("Docs")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -125,122 +122,104 @@ def _extract_artifact(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_non_overlapping_model_bbox_downgrades_to_page_range_with_warning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_ocr(seeded, monkeypatch)
-        with write_transaction(project.db):
-            artifact = _extract_artifact(seeded)
-        # The model guessed a box at the BOTTOM of the page — no OCR block there.
-        with write_transaction(project.db):
-            spans = _source_spans(
-                project,
-                artifact=artifact,
-                item={
-                    "grounding_method": "model_bbox",
-                    "page": 1,
-                    "quote": "the quick brown fox",
-                    "bbox": {"x0": 0.1, "y0": 0.8, "x1": 0.9, "y1": 0.9},
-                },
-                rank=0,
-            )
-        assert len(spans) == 1
-        span = spans[0]
-        assert span["span_kind"] == "page_range"
-        assert "model_bbox_unverified" in span["metadata"]["warnings"]
-        assert not span["bbox"]
-    finally:
-        project.close()
+    seeded = _seed(project)
+    _run_ocr(seeded, monkeypatch)
+    with write_transaction(project.db):
+        artifact = _extract_artifact(seeded)
+    # The model guessed a box at the BOTTOM of the page — no OCR block there.
+    with write_transaction(project.db):
+        spans = _source_spans(
+            project,
+            artifact=artifact,
+            item={
+                "grounding_method": "model_bbox",
+                "page": 1,
+                "quote": "the quick brown fox",
+                "bbox": {"x0": 0.1, "y0": 0.8, "x1": 0.9, "y1": 0.9},
+            },
+            rank=0,
+        )
+    assert len(spans) == 1
+    span = spans[0]
+    assert span["span_kind"] == "page_range"
+    assert "model_bbox_unverified" in span["metadata"]["warnings"]
+    assert not span["bbox"]
 
 
-def test_no_word_stream_fails_closed_to_page_range(tmp_path: Path) -> None:
-    seeded = _seed(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        with write_transaction(project.db):
-            artifact = _extract_artifact(
-                seeded
-            )  # no OCR run -> nothing to verify against
-        with write_transaction(project.db):
-            spans = _source_spans(
-                project,
-                artifact=artifact,
-                item={
-                    "grounding_method": "model_bbox",
-                    "page": 1,
-                    "quote": "the quick brown fox",
-                    "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
-                },
-                rank=0,
-            )
-        assert len(spans) == 1
-        assert spans[0]["span_kind"] == "page_range"
-        assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
-    finally:
-        project.close()
+def test_no_word_stream_fails_closed_to_page_range(project: Project) -> None:
+    seeded = _seed(project)
+    with write_transaction(project.db):
+        artifact = _extract_artifact(seeded)  # no OCR run -> nothing to verify against
+    with write_transaction(project.db):
+        spans = _source_spans(
+            project,
+            artifact=artifact,
+            item={
+                "grounding_method": "model_bbox",
+                "page": 1,
+                "quote": "the quick brown fox",
+                "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
+            },
+            rank=0,
+        )
+    assert len(spans) == 1
+    assert spans[0]["span_kind"] == "page_range"
+    assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
 
 
 def test_corroborated_model_bbox_renders_region(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_ocr(seeded, monkeypatch)
-        with write_transaction(project.db):
-            artifact = _extract_artifact(seeded)
-        # A model box overlapping the real OCR block, with a quote that aligns.
-        with write_transaction(project.db):
-            spans = _source_spans(
-                project,
-                artifact=artifact,
-                item={
-                    "grounding_method": "model_bbox",
-                    "page": 1,
-                    "quote": "the quick brown",
-                    "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
-                },
-                rank=0,
-            )
-        assert spans
-        assert all(s["span_kind"] == "region" for s in spans)
-        assert spans[0]["metadata"]["alignment"] == "model_bbox_verified"
-        assert spans[0]["bbox"]
-    finally:
-        project.close()
+    seeded = _seed(project)
+    _run_ocr(seeded, monkeypatch)
+    with write_transaction(project.db):
+        artifact = _extract_artifact(seeded)
+    # A model box overlapping the real OCR block, with a quote that aligns.
+    with write_transaction(project.db):
+        spans = _source_spans(
+            project,
+            artifact=artifact,
+            item={
+                "grounding_method": "model_bbox",
+                "page": 1,
+                "quote": "the quick brown",
+                "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
+            },
+            rank=0,
+        )
+    assert spans
+    assert all(s["span_kind"] == "region" for s in spans)
+    assert spans[0]["metadata"]["alignment"] == "model_bbox_verified"
+    assert spans[0]["bbox"]
 
 
 def test_model_returned_ocr_boxes_do_not_verify_another_model_box(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_ocr(seeded, monkeypatch)
-        project.db.execute(
-            "UPDATE source_artifacts SET metadata=json_set(metadata, '$.engine', ?)",
-            ("openai/gpt-6.1-sol",),
+    seeded = _seed(project)
+    _run_ocr(seeded, monkeypatch)
+    project.db.execute(
+        "UPDATE source_artifacts SET metadata=json_set(metadata, '$.engine', ?)",
+        ("openai/gpt-6.1-sol",),
+    )
+    project.db.commit()
+    with write_transaction(project.db):
+        artifact = _extract_artifact(seeded)
+    with write_transaction(project.db):
+        spans = _source_spans(
+            project,
+            artifact=artifact,
+            item={
+                "grounding_method": "model_bbox",
+                "page": 1,
+                "quote": "the quick brown fox",
+                "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
+            },
+            rank=0,
         )
-        project.db.commit()
-        with write_transaction(project.db):
-            artifact = _extract_artifact(seeded)
-        with write_transaction(project.db):
-            spans = _source_spans(
-                project,
-                artifact=artifact,
-                item={
-                    "grounding_method": "model_bbox",
-                    "page": 1,
-                    "quote": "the quick brown fox",
-                    "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.15},
-                },
-                rank=0,
-            )
 
-        assert len(spans) == 1
-        assert spans[0]["span_kind"] == "page_range"
-        assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
-    finally:
-        project.close()
+    assert len(spans) == 1
+    assert spans[0]["span_kind"] == "page_range"
+    assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]

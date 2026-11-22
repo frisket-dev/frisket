@@ -14,7 +14,7 @@ export function ComparisonSources({ state, rowId, field }: { state: ActionCompar
   const { context } = state;
   const bundle = useMemo(() => {
     const basis = context.comparison_basis;
-    const fields: ReviewBundleField[] = basis.kind === 'run' ? context.output_columns.flatMap((column) => {
+    const fields: ReviewBundleField[] = basis.kind === 'run' ? context.generated_columns.flatMap((column) => {
       if (column.column_id == null) return [];
       const cell = context.baseline_rows?.[String(rowId)]?.[column.logical_key];
       return [{ id: `${column.column_id}:${rowId}`, runId: String(cell?.origin.run_id ?? basis.run_id),
@@ -42,7 +42,7 @@ export function ComparisonSources({ state, rowId, field }: { state: ActionCompar
       sheetName: context.sheet.name, rowId: String(rowId), rowIndex: context.sample_row_ids.indexOf(rowId),
       actionKind: context.draft.action_id, actionName: context.draft.action_id, model: '', confidence: null,
       source: Object.fromEntries(sources.map((source) => [source.columnName, source.value])), sources,
-      context: '', fields, evidence: [],
+      context: '', fields, supportingColumns: [],
     } satisfies ReviewBundle;
   }, [context, rowId]);
   if (!('fields' in bundle)) return <ReviewInputSources bundle={bundle} />;

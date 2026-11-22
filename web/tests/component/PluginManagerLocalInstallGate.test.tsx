@@ -7,9 +7,9 @@
 // ProjectPluginsSettings passes allowLocalInstall={!identityMode}, and
 // identityMode comes from the immutable module passed by the edition entry,
 // which the local e2e stack mounts as 'local'.
-// settings-project-secrets-plugins.spec.ts pins the local
-// branch (install form present); this component test pins the hosted branch
-// and the status-mode case where neither surface renders.
+// This component test pins the local branch (install form present), the hosted
+// branch (disabled notice, no install form), and the status-mode case where
+// neither surface renders.
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, screen, render } from '@testing-library/react';

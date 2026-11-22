@@ -9,9 +9,10 @@ vi.mock('pluralize', () => ({
 
 import { createAdminOverviewApi } from '../../src/api/adminOverview';
 import { ApiError, getAdminOverview } from '../../src/api/real';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const overview = {
-  orgs: [{
+  organizations: [{
     id: 17,
     name: 'Cloud',
     suspended: false,
@@ -22,20 +23,13 @@ const overview = {
     spend_30d: 4.2,
   }],
   totals: {
-    orgs: 1,
+    organizations: 1,
     pending_invites: 2,
     credits_usd: 12.5,
     spend_30d: 4.2,
   },
   next_invite_expires_at: '2026-08-13T00:00:00Z',
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => vi.unstubAllGlobals());
 

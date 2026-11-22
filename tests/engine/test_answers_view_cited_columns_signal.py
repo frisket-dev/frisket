@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -9,24 +10,24 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_citation, sheet_cited_column_ids
+from frisket.engine.store.citations import record_citation, sheet_cited_column_ids
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "citedcols"
 
 
 def _seed(ws: Path) -> dict[str, Any]:
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Cited Columns")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Cited Columns")
+    ) as project:
         sheet_id = project.add_sheet("Filings")
         cols = {
             "name": project.add_column(sheet_id, "Name", type="text"),
             "amount": project.add_column(
-                sheet_id, "Amount", type="text", ai_generated=True
+                sheet_id, "Amount", type="text", generated=True
             ),
-            "notes": project.add_column(
-                sheet_id, "Notes", type="text", ai_generated=True
-            ),
+            "notes": project.add_column(sheet_id, "Notes", type="text", generated=True),
         }
         row_ids = project.add_rows(
             sheet_id,
@@ -40,62 +41,63 @@ def _seed(ws: Path) -> dict[str, Any]:
 
         # ACTIVE evidence on 'amount' for both rows.
         for row_id in row_ids:
+            with write_transaction(project.db):
+                record_citation(
+                    project,
+                    subject_kind="cell_value",
+                    subject_ref={
+                        "kind": "run_result",
+                        "row_id": row_id,
+                        "column_id": cols["amount"],
+                        "op_id": None,
+                        "run_id": None,
+                    },
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=cols["amount"],
+                    status="active",
+                    spans=[],
+                )
+        # A STALE link on 'notes' — must NOT count toward the signal.
+        with write_transaction(project.db):
             record_citation(
                 project,
                 subject_kind="cell_value",
                 subject_ref={
                     "kind": "run_result",
-                    "row_id": row_id,
-                    "column_id": cols["amount"],
+                    "row_id": row_ids[0],
+                    "column_id": cols["notes"],
                     "op_id": None,
                     "run_id": None,
                 },
                 sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=cols["amount"],
-                status="active",
+                row_id=row_ids[0],
+                column_id=cols["notes"],
+                status="stale",
                 spans=[],
             )
-        # A STALE link on 'notes' — must NOT count toward the signal.
-        record_citation(
-            project,
-            subject_kind="cell_value",
-            subject_ref={
-                "kind": "run_result",
-                "row_id": row_ids[0],
-                "column_id": cols["notes"],
-                "op_id": None,
-                "run_id": None,
-            },
-            sheet_id=sheet_id,
-            row_id=row_ids[0],
-            column_id=cols["notes"],
-            status="stale",
-            spans=[],
-        )
         # An evidence link on ANOTHER sheet's row/column — must not leak into
         # this sheet's signal even though it shares no FK constraint.
         other_sheet_id = project.add_sheet("Other")
-        other_col = project.add_column(
-            other_sheet_id, "y", type="text", ai_generated=True
-        )
+        other_col = project.add_column(other_sheet_id, "y", type="text", generated=True)
         other_row = project.add_rows(other_sheet_id, [{"y": "z"}], {"y": other_col})[0]
-        record_citation(
-            project,
-            subject_kind="cell_value",
-            subject_ref={
-                "kind": "run_result",
-                "row_id": other_row,
-                "column_id": other_col,
-                "op_id": None,
-                "run_id": None,
-            },
-            sheet_id=other_sheet_id,
-            row_id=other_row,
-            column_id=other_col,
-            status="active",
-            spans=[],
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell_value",
+                subject_ref={
+                    "kind": "run_result",
+                    "row_id": other_row,
+                    "column_id": other_col,
+                    "op_id": None,
+                    "run_id": None,
+                },
+                sheet_id=other_sheet_id,
+                row_id=other_row,
+                column_id=other_col,
+                status="active",
+                spans=[],
+            )
         project.db.commit()
         return {
             "sheet_id": sheet_id,
@@ -104,8 +106,6 @@ def _seed(ws: Path) -> dict[str, Any]:
             "cols": cols,
             "row_ids": row_ids,
         }
-    finally:
-        project.close()
 
 
 def _list_sheets(client: TestClient) -> dict[int, dict[str, Any]]:
@@ -159,8 +159,7 @@ def test_helper_is_distinct_ascending_and_sheet_scoped(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     ws.mkdir()
     ids = _seed(ws)
-    project = Project(ws / f"{PROJECT_ID}.frisket")
-    try:
+    with closing(Project(ws / f"{PROJECT_ID}.frisket")) as project:
         assert sheet_cited_column_ids(project, ids["sheet_id"]) == [
             ids["cols"]["amount"]
         ]
@@ -168,9 +167,7 @@ def test_helper_is_distinct_ascending_and_sheet_scoped(tmp_path: Path) -> None:
         # A different sheet's active link must not leak across sheet_id.
         assert sheet_cited_column_ids(project, ids["other_sheet_id"]) == [
             project.db.execute(
-                "SELECT column_id FROM evidence_links WHERE sheet_id=?",
+                "SELECT column_id FROM citations WHERE sheet_id=?",
                 (ids["other_sheet_id"],),
             ).fetchone()["column_id"]
         ]
-    finally:
-        project.close()

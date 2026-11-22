@@ -27,7 +27,7 @@ function Harness({ initial, onChange, errors = {} }: {
   const [params, setParams] = useState(initial);
   const update = (next: Params) => { setParams(next); onChange(next); };
   return <TranslateParamsBody sheet={sheetMeta([])} request={{
-    scope: { kind: 'sheet_rows', sheet_id: 1 },
+    scope: { kind: 'sheet_rows', sheet_id: 1 }, output_names: {},
   }} params={params} setParams={update} engine={engine} errors={errors}
   Field={({ name }) => name === 'engine'
     ? <button type="button" data-testid="field-engine" onClick={() => update({ ...params, engine: 'hy_mt2' })}>Choose Hy-MT2</button>

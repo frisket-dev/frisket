@@ -126,4 +126,3 @@ def test_api_pipeline_completed_replays_keep_outputs_without_reexecution(
     finally:
         if client is not None:
             asyncio.run(client.aclose())
-        project.close()

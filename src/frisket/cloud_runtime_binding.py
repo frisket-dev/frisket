@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from frisket.cloud_execution import (
@@ -15,6 +15,7 @@ from frisket.cloud_execution import (
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.engine.store import Project
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import AttemptCommitment
 from frisket.execution.provider import ExecutionComposition
 from frisket.ops.base import ActionProgramInvocationHalt
@@ -53,9 +54,7 @@ def cloud_runtime_binding(
     request_id: str,
     group_key: str,
     action_kind: str,
-    run_id: int | None,
-    claim_token: str | None,
-    claimless_direct_effect: bool,
+    fence: WriterFence,
 ) -> CloudRuntimeBinding | None:
     """Build the runtime binding for the Cloud route admitted on ``attempt``.
 
@@ -145,10 +144,7 @@ def cloud_runtime_binding(
                 estimate_authority=estimate,
                 group_key=group_key,
                 action_kind=action_kind,
-                run_id=run_id,
-                writer_attempt_id=attempt.attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
+                fence=replace(fence, writer_attempt_id=attempt.attempt_id),
                 capability=capability,
             ),
             route=routed.route,

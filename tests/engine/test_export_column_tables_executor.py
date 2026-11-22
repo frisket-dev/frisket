@@ -411,11 +411,11 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
     assert receipt.action_kind == "export.column_tables"
     assert receipt.exports[0]["sha256"] == ref["sha256"]
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "column_tables_export_manifest",
         "column_tables_export_summary",
     }
-    assert receipt.evidence[0].retention == "pinned"
+    assert receipt.records[0].retention == "pinned"
 
 
 CASES = [

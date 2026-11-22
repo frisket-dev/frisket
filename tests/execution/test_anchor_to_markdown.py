@@ -44,8 +44,7 @@ from runner_test_helpers import run_with_output_claim
 DATALAB_FIXTURES = Path(__file__).parent.parent / "fixtures" / "datalab"
 
 
-def _to_markdown_project(tmp_path: Path) -> tuple[Project, int, int]:
-    project = Project.create(tmp_path / "to-markdown-anchor.frisket", name="convert")
+def _to_markdown_project(project: Project) -> tuple[Project, int, int]:
     sheet_id = project.add_sheet("Docs")
     col = project.add_column(sheet_id, "doc", type="file")
     blob = project.add_blob(
@@ -98,12 +97,12 @@ def _route_rows(project, run_id: int):
 
 
 def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_env_key(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """The BYOK consent, made checkable — for a second Datalab-backed
     capability (document.convert), same shape as O2-ocr's the credential-use fence critical 3."""
     monkeypatch.setenv("DATALAB_API_KEY", "operator-shared-env-key")
-    project, sheet_id, _row_id = _to_markdown_project(tmp_path)
+    project, sheet_id, _row_id = _to_markdown_project(make_project("convert"))
     requests: list[str] = []
     submit = json.loads((DATALAB_FIXTURES / "convert_submit.json").read_text())
     complete = json.loads((DATALAB_FIXTURES / "convert_complete.json").read_text())
@@ -126,61 +125,58 @@ def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_en
     from frisket.execution.price_book import ByokZero
     from frisket.execution.provider import CompositionFacts, ExecutionComposition
 
-    try:
-        plan = build_typed_map_rows_plan(
-            project, typed_action_for_request(_request(sheet_id))
+    plan = build_typed_map_rows_plan(
+        project, typed_action_for_request(_request(sheet_id))
+    )
+    spec = plan.spec_dict()
+    router = stub_router
+    deployment = CredentialOwner.deployment("hosted-deployment")
+    organization = CredentialOwner.organization("org-a")
+    composition = ExecutionComposition(
+        facts=CompositionFacts(
+            edition="cloud",
+            organization_id="org-a",
+            funding=ByokZero(),
+        ),
+        provider=StaticExecutionTargetProvider(secrets=project, router=router),
+        credential_use_context=CredentialUseContext(
+            cost_posture="org_key",
+            consented_owner=organization,
+            selected_owner=organization,
+            deployment_owner=deployment,
+        ),
+    )
+    runner = MapRunner(
+        project,
+        router,
+        authority=AttemptAuthority(project, composition=composition),
+        consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
+        execution_composition=composition,
+        allow_action_lifecycle_only_programs=True,
+    )
+    confirmed_spec = _exactly_confirmed_spec(runner, spec, program=plan.program)
+    progress = asyncio.run(
+        run_with_output_claim(
+            runner,
+            confirmed_spec,
+            program=plan.program,
+            confirmed=True,
         )
-        spec = plan.spec_dict()
-        router = stub_router
-        deployment = CredentialOwner.deployment("hosted-deployment")
-        organization = CredentialOwner.organization("org-a")
-        composition = ExecutionComposition(
-            facts=CompositionFacts(
-                edition="cloud",
-                org_id="org-a",
-                funding=ByokZero(),
-            ),
-            provider=StaticExecutionTargetProvider(secrets=project, router=router),
-            credential_use_context=CredentialUseContext(
-                cost_posture="org_key",
-                consented_owner=organization,
-                selected_owner=organization,
-                deployment_owner=deployment,
-            ),
-        )
-        runner = MapRunner(
-            project,
-            router,
-            authority=AttemptAuthority(project, composition=composition),
-            consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
-            execution_composition=composition,
-            allow_action_lifecycle_only_programs=True,
-        )
-        confirmed_spec = _exactly_confirmed_spec(runner, spec, program=plan.program)
-        progress = asyncio.run(
-            run_with_output_claim(
-                runner,
-                confirmed_spec,
-                program=plan.program,
-                confirmed=True,
-            )
-        )
-        # The CONSENTED head (seq 1). A dispatch that got past the fence
-        # would append a successor recording the credential it observed
-        # instead.
-        routes = _route_rows(project, progress.run_id)
-        assert len(routes) == 1, [dict(row) for row in routes]
-        assert routes[0]["cost_posture"] == "org_key"
-        assert routes[0]["credential_source"] == "org_byok"
-        run = project.db.execute(
-            "SELECT status, params FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        assert run["status"] == "cancelled"
-        assert "promise_violation" in run["params"]
-        # The refusal names what was selected and what was consented.
-        assert "'platform_key'" in run["params"]
-        assert "org_key" in run["params"]
-        # PRE-EFFECT: not one request left the machine, so nothing was billed.
-        assert requests == []
-    finally:
-        project.close()
+    )
+    # The CONSENTED head (seq 1). A dispatch that got past the fence
+    # would append a successor recording the credential it observed
+    # instead.
+    routes = _route_rows(project, progress.run_id)
+    assert len(routes) == 1, [dict(row) for row in routes]
+    assert routes[0]["cost_posture"] == "org_key"
+    assert routes[0]["credential_source"] == "org_byok"
+    run = project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (progress.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert "promise_violation" in run["params"]
+    # The refusal names what was selected and what was consented.
+    assert "'platform_key'" in run["params"]
+    assert "org_key" in run["params"]
+    # PRE-EFFECT: not one request left the machine, so nothing was billed.
+    assert requests == []

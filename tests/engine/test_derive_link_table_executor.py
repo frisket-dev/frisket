@@ -370,7 +370,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert input_ref["may_feed"] == ["export.work_log"]
     refs = [
         item.ref
-        for section in (receipt.inputs, receipt.outputs, receipt.evidence)
+        for section in (receipt.inputs, receipt.outputs, receipt.records)
         for item in section
     ]
     assert {

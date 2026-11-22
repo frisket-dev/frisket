@@ -7,7 +7,7 @@ boundary and pass admitted query vectors to ``RetrievalQueryService``.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import partial
 from threading import Event
@@ -66,7 +66,13 @@ def search_with_encoding(
     if reranker is None and request.ranking.rerank != "off":
         from frisket.ai.embeddings.backends import local_reranker
 
-        reranker = local_reranker()
+        default_reranker = local_reranker()
+        if default_reranker is not None:
+
+            def _rerank(query_text: str, documents: Sequence[str]) -> Sequence[float]:
+                return default_reranker(query_text, list(documents))
+
+            reranker = _rerank
     query = RetrievalQueryService(project, reranker=reranker)
     if not (project.path / RETRIEVAL_DB_NAME).is_file():
         channels = (

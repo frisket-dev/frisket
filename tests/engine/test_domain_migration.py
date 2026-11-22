@@ -7,20 +7,12 @@ import sqlite3
 
 import pytest
 
-from frisket.upgrades.project._step import run_rebuild_step, run_step
 from frisket.upgrades.project.domain_migration import (
-    DOMAIN_TO_DIGEST,
     archive_history,
     capture_current_baseline,
     install_current_baseline,
     retire_unfinished_work,
 )
-from frisket.upgrades.project.edit_precedence_migration import (
-    COPY_PRECEDENCE_TO_DIGEST,
-    EDIT_PRECEDENCE_TO_DIGEST,
-    apply_edit_precedence,
-)
-from frisket.upgrades.project.feeds_migration import FEEDS_TO_DIGEST, migrate_feeds
 from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.engine.store.transactions import write_transaction
 
@@ -359,12 +351,14 @@ def test_full_cutover_preserves_values_and_starts_new_history(old_db):
     migrate_domain(db)
     assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
-    # The cutover must install the same authority relation as a fresh project,
-    # including presentation visibility facts rather than hiding source columns.
-    from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
+    # The cutover must install the ordered authority relation with presentation
+    # visibility facts while still joining the pre-citations tables.
+    from frisket.engine.store.document_text import (
+        PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
+    )
 
     with sqlite3.connect(":memory:") as fresh:
-        fresh.execute(DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+        fresh.execute(PRE_CITATIONS_DOCUMENT_TEXT_SELECTION_VIEW_SQL)
         expected = fresh.execute(
             "SELECT sql FROM sqlite_schema WHERE name='current_document_text_selections'"
         ).fetchone()[0]
@@ -656,20 +650,12 @@ def _check_constraints(sql):
     return sorted(checks)
 
 
-def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+def test_migrated_schema_matches_fresh_columns_and_constraints(old_db, tmp_path):
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
-    run_step(old_db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
-    run_step(
-        old_db,
-        EDIT_PRECEDENCE_TO_DIGEST,
-        COPY_PRECEDENCE_TO_DIGEST,
-        apply_edit_precedence,
-    )
-    run_rebuild_step(old_db, COPY_PRECEDENCE_TO_DIGEST, FEEDS_TO_DIGEST, migrate_feeds)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "migrated.frisket")
     fresh = sqlite3.connect(":memory:")
     try:
         fresh.executescript(SCHEMA)
@@ -694,12 +680,6 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
                 row[1]: tuple(row[2:])
                 for row in fresh.execute(f'PRAGMA table_info("{table}")')
             }
-            # ADD COLUMN retains these historical representation differences.
-            # Neither changes existing rows or the typed writer's required data.
-            if table == "watches":
-                name = "view_id"
-                assert before[name][1] == 0 and after[name][1] == 1
-                before[name] = (before[name][0], 1, *before[name][2:])
             assert before == after, table
             assert sorted(
                 tuple(row[2:])
@@ -780,8 +760,8 @@ def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outc
         )
 
 
-def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
+def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db, tmp_path):
+    from frisket.upgrades.project.chain import upgrade_project_schema
     from frisket.engine.store.schema import SCHEMA
 
     def objects(db):
@@ -796,15 +776,7 @@ def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
         }
 
     _stamp_old(old_db)
-    migrate_domain(old_db)
-    run_step(old_db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
-    run_step(
-        old_db,
-        EDIT_PRECEDENCE_TO_DIGEST,
-        COPY_PRECEDENCE_TO_DIGEST,
-        apply_edit_precedence,
-    )
-    run_rebuild_step(old_db, COPY_PRECEDENCE_TO_DIGEST, FEEDS_TO_DIGEST, migrate_feeds)
+    upgrade_project_schema(old_db, bundle_path=tmp_path / "project.db")
     with sqlite3.connect(":memory:") as fresh:
         fresh.executescript(SCHEMA)
         expected = objects(fresh)
@@ -839,7 +811,8 @@ def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_p
         project.apply_edits(
             [{"row_id": row, "column_id": title_column, "value": "Corrected"}]
         )
-        project.set_column_default_hidden(file_column, True)
+        with write_transaction(project.db):
+            project.set_column_default_hidden(file_column, True)
         restore_pre_domain_schema(project.db)
         floor = project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0]
 

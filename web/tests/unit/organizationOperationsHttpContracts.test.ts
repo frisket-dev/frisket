@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 vi.mock('pluralize', () => ({
   default: Object.assign((word: string) => word, {
@@ -6,13 +7,6 @@ vi.mock('pluralize', () => ({
     addUncountableRule: vi.fn(),
   }),
 }));
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -52,10 +46,10 @@ describe('organization operations generated HTTP port', () => {
     });
 
     expect(requests.map(({ input, init }) => [String(input), init?.method])).toEqual([
-      ['/api/org/env', 'GET'],
-      ['/api/org/env', 'POST'],
-      ['/api/org/env/CLIENT%2FSECRET', 'DELETE'],
-      ['/api/org/media-proxy/status', 'GET'],
+      ['/api/organization/env', 'GET'],
+      ['/api/organization/env', 'POST'],
+      ['/api/organization/env/CLIENT%2FSECRET', 'DELETE'],
+      ['/api/organization/media-proxy/status', 'GET'],
     ]);
     expect(requests.map(({ init }) => init?.body ?? null)).toEqual([
       null,

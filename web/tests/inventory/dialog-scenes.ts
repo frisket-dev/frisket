@@ -87,7 +87,7 @@ export async function captureDialogScenes(page: Page, shot: Shot) {
     }
     await route.fulfill({ response, json: catalog });
   });
-  await page.route('**/api/org/oauth/connections*', route => route.fulfill({ json: {
+  await page.route('**/api/organization/oauth/connections*', route => route.fulfill({ json: {
     connections: [{ id: 'inventory-google', provider: 'google', external_email: 'reporter@example.test' }],
   } }));
   let exportRequests = 0;

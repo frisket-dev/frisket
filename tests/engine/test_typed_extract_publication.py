@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
@@ -14,7 +15,7 @@ from frisket.engine.executor.extract_result_citations import (
     ExtractResultCitations,
     _grounding_artifact_source,
 )
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from frisket.engine.store.receipts import ReceiptStore
 from test_model_rows_actions import _DataAdapter, _run_third_party
 from frisket.ai.llm import ModelRouter
@@ -158,7 +159,7 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
     if members:
         fact = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref.get("kind") == "map_extract_grounding_links"
         )
         assert fact["link_refs"][0]["item_index"] == 0
@@ -437,7 +438,7 @@ def test_ambiguous_or_missing_text_quote_does_not_satisfy_require(source):
     )
     assert result.status == "completed", result.errors
     assert values(source)["published_person"] is None
-    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 0
 
 
 def test_optional_unmatched_text_quote_keeps_value_without_located_link(source):
@@ -454,9 +455,7 @@ def test_optional_unmatched_text_quote_keeps_value_without_located_link(source):
     )
     assert result.status == "completed", result.errors
     assert values(source)["published_person"] == "Grace"
-    assert (
-        source[0].db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
-    )
+    assert source[0].db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 0
 
 
 def test_template_input_is_captured_as_one_citable_composite(source):
@@ -606,8 +605,8 @@ def test_grounded_fields_share_one_captured_source_artifact_per_write(source):
         project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 1
     )
     spans = project.db.execute(
-        "SELECT s.artifact_id,s.quote FROM evidence_links l "
-        "JOIN evidence_link_spans ls ON ls.link_id=l.id JOIN source_spans s ON s.id=ls.span_id "
+        "SELECT s.artifact_id,s.quote FROM citations l "
+        "JOIN citation_spans ls ON ls.citation_id=l.id JOIN source_spans s ON s.id=ls.span_id "
         "WHERE l.run_id=?",
         (result.run_id,),
     ).fetchall()
@@ -655,10 +654,7 @@ def test_grounding_publication_rolls_back_links_with_failed_receipt_write(
 
     def fail_after_link(self, ref, **kwargs):
         if ref.get("kind") == "map_extract_grounding_links":
-            assert (
-                self.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
-                == 1
-            )
+            assert self.db.execute("SELECT COUNT(*) FROM citations").fetchone()[0] == 1
             raise RuntimeError("receipt evidence failed")
         return original(self, ref, **kwargs)
 
@@ -677,26 +673,28 @@ def test_grounding_publication_rolls_back_links_with_failed_receipt_write(
     assert len(requests) == 1
     assert source[0].db.execute("SELECT status FROM receipts").fetchone()[0] == "failed"
     assert values(source)["published_person"] is None
-    for table in ("source_artifacts", "source_spans", "evidence_links"):
+    for table in ("source_artifacts", "source_spans", "citations"):
         assert source[0].db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("source_name", ["transcript", "transcript_segments"])
 def test_transcript_prompt_and_evidence_use_captured_version(
-    tmp_path, monkeypatch, source_name
+    make_project, monkeypatch, source_name
 ):
     import json
 
-    from frisket.engine.store.evidence import record_source_artifact, record_source_span
+    from frisket.engine.store.citations import (
+        record_source_artifact,
+        record_source_span,
+    )
     from frisket.engine.executor.extract_result_citations import _captured_transcript
     from test_extract_scalar_temporal_anchors import (
         _seed_transcript_project,
         _run_transcribe,
     )
 
-    seeded = _seed_transcript_project(tmp_path)
-    project = seeded["project"]
-    try:
+    seeded = _seed_transcript_project(make_project("p"))
+    with closing(seeded["project"]) as project:
         _run_transcribe(seeded, monkeypatch)
         sheet, row = seeded["sheet_id"], seeded["row_ids"][0]
         column = next(c for c in project.columns(sheet) if c["name"] == source_name)
@@ -762,8 +760,8 @@ def test_transcript_prompt_and_evidence_use_captured_version(
             c for c in project.columns(sheet) if c["name"] == "published_claim"
         )
         spans = project.db.execute(
-            "SELECT s.artifact_id,s.start_ms,s.end_ms FROM evidence_links l "
-            "JOIN evidence_link_spans ls ON ls.link_id=l.id JOIN source_spans s ON s.id=ls.span_id "
+            "SELECT s.artifact_id,s.start_ms,s.end_ms FROM citations l "
+            "JOIN citation_spans ls ON ls.citation_id=l.id JOIN source_spans s ON s.id=ls.span_id "
             "WHERE l.column_id=? ORDER BY ls.rank",
             (target["id"],),
         ).fetchall()
@@ -782,5 +780,3 @@ def test_transcript_prompt_and_evidence_use_captured_version(
         assert (
             _captured_transcript(project, captured, sheet_id=sheet, row_id=row) is None
         )
-    finally:
-        project.close()

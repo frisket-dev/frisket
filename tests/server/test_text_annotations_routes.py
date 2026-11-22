@@ -12,6 +12,7 @@ is the WIRING: the field is always present, it is the narrow signal rather than
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     _text_hash,
     record_citation,
     record_source_artifact,
@@ -37,8 +38,9 @@ BODY_TEXT = "Ada Lovelace met Charles Babbage."
 def _seed(ws: Path) -> dict[str, Any]:
     """One annotated text sheet + one plain sheet, with NO media column
     anywhere: the Paste-import shape the reader has to be reachable from."""
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Annotations")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Annotations")
+    ) as project:
         sheet_id = project.add_sheet("Pasted rows")
         body = project.add_column(sheet_id, "body", type="text")
         ents = project.add_column(sheet_id, "entities", type="json")
@@ -80,20 +82,21 @@ def _seed(ws: Path) -> dict[str, Any]:
                 for start, end, entity_type in [(0, 12, "person"), (17, 32, "person")]
             ]
         _values, refs = project.get_values_with_refs(sheet_id, ents, row_ids=[row_id])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[row_id],
-            spans=[
-                {"span_id": span["id"], "rank": i, "span_role": "annotation"}
-                for i, span in enumerate(spans)
-            ],
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=ents,
-            layer_family="entities",
-            producer={"kind": "map.ner", "engine": "gliner"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[row_id],
+                spans=[
+                    {"span_id": span["id"], "rank": i, "span_role": "annotation"}
+                    for i, span in enumerate(spans)
+                ],
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=ents,
+                layer_family="entities",
+                producer={"kind": "map.ner", "engine": "gliner"},
+            )
 
         plain_sheet_id = project.add_sheet("Plain")
         plain_col = project.add_column(plain_sheet_id, "x", type="text")
@@ -111,8 +114,6 @@ def _seed(ws: Path) -> dict[str, Any]:
             "plain_col": plain_col,
             "plain_row": plain_row,
         }
-    finally:
-        project.close()
 
 
 def _client(ws: Path) -> TestClient:

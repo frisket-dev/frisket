@@ -35,6 +35,6 @@ export function startEngineSetup(
 ): Promise<ModelPullStartResult> {
   const options = { body: { setup_ref: setupRef }, signal, errorFactory: modelSetupErrorFactory };
   return trackSetupSubmission(scope, 'engine', scope === 'organization'
-    ? httpContract('outer.setup_org_model_engine.post', options)
+    ? httpContract('outer.setup_organization_model_engine.post', options)
     : httpContract('tenant.setup_model_engine.post', options));
 }

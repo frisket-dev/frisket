@@ -196,11 +196,10 @@ def test_team_endpoint_policy_classifies_each_skill_management_route() -> None:
     } <= ids
 
 
-def test_solo_app_registers_the_workspace_skill_library(tmp_path) -> None:
+def test_solo_app_registers_the_workspace_skill_library(client) -> None:
     pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
-    from frisket.server.app import create_app
 
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+    with client:
         response = client.get("/api/skills")
     assert response.status_code == 200
     assert response.json() == {"schemaVersion": "frisket.skills.v1", "skills": []}

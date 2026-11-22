@@ -123,7 +123,7 @@ def test_admission_lookup_finds_existing_scoped_job_without_recovering(
     workspace = Workspace(
         tmp_path / "workspace",
         enable_local_model_pull=False,
-        queue_payload_extra={"storage_org_id": 17},
+        queue_payload_extra={"storage_organization_id": 17},
     )
     project_id = workspace.create("Prepared action")["id"]
     project = workspace.get(project_id)
@@ -156,8 +156,8 @@ def test_admission_lookup_finds_existing_scoped_job_without_recovering(
     run_id = missing_job.receipt.run_id
     # A job for another organization or project must not supply this admission.
     for foreign in (
-        {"project_id": project_id, "storage_org_id": 18},
-        {"project_id": "different-project", "storage_org_id": 17},
+        {"project_id": project_id, "storage_organization_id": 18},
+        {"project_id": "different-project", "storage_organization_id": 17},
     ):
         workspace.queue.enqueue("project.run", {**foreign, "run_id": run_id})
     assert service.lookup_admission(project_id, **identity).job is None
@@ -170,11 +170,13 @@ def test_admission_lookup_finds_existing_scoped_job_without_recovering(
     expected_job_id = recovered.payload["job_id"]
     workspace.queue.enqueue(
         "project.run",
-        {"project_id": project_id, "run_id": run_id, "storage_org_id": 18},
+        {"project_id": project_id, "run_id": run_id, "storage_organization_id": 18},
     )
     found = service.lookup_admission(project_id, **identity)
     assert found is not None and found.job is not None
     assert found.receipt.id == missing_job.receipt.id and found.receipt.run_id == run_id
     assert found.job.id == expected_job_id
-    assert found.job.project_id == project_id and found.job.storage_org_id == 17
+    assert (
+        found.job.project_id == project_id and found.job.storage_organization_id == 17
+    )
     assert found.job.run_id == run_id and found.job.status == "queued"

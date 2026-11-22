@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -170,28 +169,25 @@ def test_import_append_rows_enforces_per_request_limit_atomically(
     assert project.row_count(sheet_id) == 3  # Not a per-sheet storage quota.
 
 
-def test_import_append_rows_refuses_derived_destination_before_writing(tmp_path):
+def test_import_append_rows_refuses_derived_destination_before_writing(project):
     from frisket.engine.executor.actions import run_action_spec
 
-    with closing(
-        Project.create(tmp_path / "derived.frisket", name="Derived")
-    ) as project:
-        created = run_action_spec(project, _import_rows_action(), project_id="project")
-        sheet_id = created.outputs[0].sheet_id
-        parent_id = project.add_sheet("Parent")
-        project.db.execute(
-            "UPDATE sheets SET parent_sheet_id=?,parent_op_id=? WHERE id=?",
-            (parent_id, created.op_ids[0], sheet_id),
-        )
-        project.db.commit()
-        before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-        refused = run_action_spec(
-            project, _append_rows_action(sheet_id), project_id="project"
-        )
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "derived_append_unsupported"
-        assert project.row_count(sheet_id) == 2
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
+    created = run_action_spec(project, _import_rows_action(), project_id="project")
+    sheet_id = created.outputs[0].sheet_id
+    parent_id = project.add_sheet("Parent")
+    project.db.execute(
+        "UPDATE sheets SET parent_sheet_id=?,parent_op_id=? WHERE id=?",
+        (parent_id, created.op_ids[0], sheet_id),
+    )
+    project.db.commit()
+    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    refused = run_action_spec(
+        project, _append_rows_action(sheet_id), project_id="project"
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "derived_append_unsupported"
+    assert project.row_count(sheet_id) == 2
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
 
 
 def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
@@ -325,7 +321,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert receipt.idempotency_key == "import_rows@sha256:stable"
     assert receipt.outputs[0].ref["kind"] == "materialized_sheet"
     assert receipt.outputs[0].ref["sheet_id"] == sheet["id"]
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "source_rows",
         "source_cell",
     }

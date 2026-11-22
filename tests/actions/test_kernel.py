@@ -231,7 +231,7 @@ def test_registry_binds_canonical_ids_and_projects_existing_catalog_shape() -> N
     assert {error["code"] for error in entries["map.template"]["errors"]} >= {
         "invalid_params",
         "invalid_input_ref",
-        "output_column_exists",
+        "generated_column_exists",
         "map_rows_failed",
         "idempotency_conflict",
     }

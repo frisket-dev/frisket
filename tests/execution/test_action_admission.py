@@ -2,15 +2,12 @@
 
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from contextlib import closing
-
 import pytest
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.actions import resolve_map_preview
 from frisket.engine.executor.action_families.runs import _guard_backfill_run_spec
-from frisket.engine.store import Project
 from frisket.execution.action_admission import action_admission_error
 from frisket.feeds.runtime import (
     get_feed_checker,
@@ -21,7 +18,7 @@ from frisket.feeds.tiktok import TikTokProfileFeedChecker
 
 
 def test_direct_source_poll_checks_network_before_creating_source_or_dispatching(
-    tmp_path,
+    make_project,
 ):
     calls = []
     previous = get_feed_checker("tiktok_profile")
@@ -30,29 +27,29 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
         replace=True,
     )
     try:
-        with closing(Project.create(tmp_path / "source.frisket")) as project:
-            project.set_network_policy(mode="off")
-            result = run_action_spec(
-                project,
-                {
-                    "action_id": "feed.poll",
-                    "scope": {"kind": "project"},
-                    "params": {
-                        "feed": {
-                            "kind": "tiktok_profile",
-                            "name": "test",
-                            "url": "https://www.tiktok.com/@example",
-                            "config": {},
-                        }
-                    },
-                    "idempotency_key": "source-off",
+        project = make_project("source")
+        project.set_network_policy(mode="off")
+        result = run_action_spec(
+            project,
+            {
+                "action_id": "feed.poll",
+                "scope": {"kind": "project"},
+                "params": {
+                    "feed": {
+                        "kind": "tiktok_profile",
+                        "name": "test",
+                        "url": "https://www.tiktok.com/@example",
+                        "config": {},
+                    }
                 },
-                project_id="test",
-            )
-            assert result.status == "failed"
-            assert result.errors[0].code == "network_disabled"
-            assert not calls
-            assert project.db.execute("SELECT COUNT(*) FROM feeds").fetchone()[0] == 0
+                "idempotency_key": "source-off",
+            },
+            project_id="test",
+        )
+        assert result.status == "failed"
+        assert result.errors[0].code == "network_disabled"
+        assert not calls
+        assert project.db.execute("SELECT COUNT(*) FROM feeds").fetchone()[0] == 0
     finally:
         if previous is not None:
             register_feed_checker(previous, replace=True)
@@ -170,25 +167,22 @@ def test_scratch_preview_declared_gate_precedes_media_probe(
 
 
 def test_refresh_checks_resolved_derive_action_before_read_or_publish(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     from tests.engine.test_sheet_refresh import _build, _refresh
 
-    project, _, _, child_id, _ = _build(tmp_path)
-    try:
-        _declare_external(monkeypatch, "derive.table_from_list")
-        project.set_network_policy(mode="off")
-        before = tuple(project.db.iterdump())
-        result = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="blocked-refresh"),
-            project_id="p-ref",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "network_disabled"
-        assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
+    project, _, _, child_id, _ = _build(make_project)
+    _declare_external(monkeypatch, "derive.table_from_list")
+    project.set_network_policy(mode="off")
+    before = tuple(project.db.iterdump())
+    result = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="blocked-refresh"),
+        project_id="p-ref",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "network_disabled"
+    assert tuple(project.db.iterdump()) == before
 
 
 def test_queued_cluster_rechecks_declared_requirements_after_admission(

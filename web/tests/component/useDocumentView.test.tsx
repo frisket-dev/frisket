@@ -17,7 +17,7 @@ afterEach(cleanup);
 const sheet: SheetMeta = {
   id: '9', name: 'Documents', rowCount: 500,
   columns: [{ id: '10', name: 'file', type: 'file' }],
-  citedColumnIds: [], annotatedTextColumnIds: [],
+  citedColumnIds: [], annotatedTextColumnIds: [], documentTextColumnIds: [],
 };
 
 const state: DocumentViewState = {

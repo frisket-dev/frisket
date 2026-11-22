@@ -17,7 +17,7 @@ reserved-MapRunner shape, not a weakening):
     of those columns.
   - Generated column type is statically "file" (the media cell still carries its
     mime); the old post-download type inference is gone.
-  - An existing generated column name is now an `output_column_exists` precheck
+  - An existing generated column name is now an `generated_column_exists` precheck
     error (like youtube_download), replacing the old
     `output_column_type_mismatch` / existing-column reuse path.
   - Per-row download attempts run as a concurrent MapRunner map, so we assert the
@@ -27,7 +27,6 @@ reserved-MapRunner shape, not a weakening):
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from blob_store_helpers import local_blob_path
@@ -81,8 +80,8 @@ def _fetch_url_action(
     }
 
 
-def _seed_url_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "media-fetch-url.frisket", name="Fetch URLs")
+def _seed_url_project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("media-fetch-url")
     sheet_id = project.add_sheet("Feed")
     columns = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -168,7 +167,7 @@ def _patch_downloaders(monkeypatch) -> tuple[list[str], list[str]]:
 
 
 def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     catalog = ActionCatalog.model_validate(
@@ -184,18 +183,18 @@ def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
         "text",
     ]
     # Reserved-MapRunner error surface: an existing generated column is now an
-    # output_column_exists precheck (replacing output_column_type_mismatch), and
+    # generated_column_exists precheck (replacing output_column_type_mismatch), and
     # reservation idempotency adds idempotency_in_progress.
     assert {error.code for error in entry.errors} >= {
         "invalid_input_ref",
         "invalid_params",
-        "output_column_exists",
+        "generated_column_exists",
         "stale_replay",
         "idempotency_conflict",
         "idempotency_in_progress",
     }
 
-    project, sheet_id, row_ids = _seed_url_project(tmp_path)
+    project, sheet_id, row_ids = _seed_url_project(make_project)
     action = _fetch_url_action(sheet_id=sheet_id)
     assert FetchParams.model_validate(action["params"]).source.root == "url"
     ActionRequest.model_validate(action)
@@ -208,205 +207,192 @@ def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
 
     direct_seen, youtube_seen = _patch_downloaders(monkeypatch)
 
-    try:
-        before = _counts(project, _COUNT_TABLES)
-        result = _run_with_exact_confirmation(
-            project,
-            action,
-        )
-        assert result.status == "partial", result.errors
-        assert result.action.kind == "media.fetch_url"
-        assert result.receipt_id is not None
-        assert result.run_id is not None
-        assert [output.name for output in result.outputs] == ["media"]
-        # Concurrent MapRunner map: assert each URL was fetched exactly once
-        # (set/count), not call order.
-        assert sorted(direct_seen) == sorted([DIRECT_MP3, HTML_PAGE])
-        assert youtube_seen == [YOUTUBE_WATCH]
+    before = _counts(project, _COUNT_TABLES)
+    result = _run_with_exact_confirmation(
+        project,
+        action,
+    )
+    assert result.status == "partial", result.errors
+    assert result.action.kind == "media.fetch_url"
+    assert result.receipt_id is not None
+    assert result.run_id is not None
+    assert [output.name for output in result.outputs] == ["media"]
+    # Concurrent MapRunner map: assert each URL was fetched exactly once
+    # (set/count), not call order.
+    assert sorted(direct_seen) == sorted([DIRECT_MP3, HTML_PAGE])
+    assert youtube_seen == [YOUTUBE_WATCH]
 
-        columns = _columns(project, sheet_id)
-        assert columns["media"]["type"] == "file"
-        # The hand-rolled status/error companion columns are gone; per-row
-        # outcomes live in the run results table.
-        assert "media_status" not in columns
-        assert "media_error" not in columns
+    columns = _columns(project, sheet_id)
+    assert columns["media"]["type"] == "file"
+    # The hand-rolled status/error companion columns are gone; per-row
+    # outcomes live in the run results table.
+    assert "media_status" not in columns
+    assert "media_error" not in columns
 
-        media_values = project.get_values(sheet_id, int(columns["media"]["id"]))
-        assert media_values[row_ids[0]]["mime"] == "audio/mpeg"
-        assert media_values[row_ids[1]]["mime"] == "audio/wav"
-        assert set(media_values[row_ids[1]]) == {"blob", "mime", "filename"}
-        assert (
-            MediaBlobStore(project)
-            .display_metadata(media_values[row_ids[1]]["blob"])
-            .get("duration_seconds")
-            == 4.5
-        )
-        assert media_values[row_ids[2]]["mime"] == "text/html"
-        # The ftp:// row failed: no media cell written.
-        assert media_values.get(row_ids[3]) is None
+    media_values = project.get_values(sheet_id, int(columns["media"]["id"]))
+    assert media_values[row_ids[0]]["mime"] == "audio/mpeg"
+    assert media_values[row_ids[1]]["mime"] == "audio/wav"
+    assert set(media_values[row_ids[1]]) == {"blob", "mime", "filename"}
+    assert (
+        MediaBlobStore(project)
+        .display_metadata(media_values[row_ids[1]]["blob"])
+        .get("duration_seconds")
+        == 4.5
+    )
+    assert media_values[row_ids[2]]["mime"] == "text/html"
+    # The ftp:// row failed: no media cell written.
+    assert media_values.get(row_ids[3]) is None
 
-        # The run recorded a per-row error for the failed row instead of a
-        # status/error column.
-        run_id = int(result.run_id)
-        failed_rows = {
-            int(row["row_id"])
-            for row in project.db.execute(
-                "SELECT row_id FROM results "
-                "WHERE run_id=? AND outcome IN ('model_error', 'invalid_output', 'row_error')",
-                (run_id,),
-            ).fetchall()
-        }
-        assert failed_rows == {row_ids[3]}
+    # The run recorded a per-row error for the failed row instead of a
+    # status/error column.
+    run_id = int(result.run_id)
+    failed_rows = {
+        int(row["row_id"])
+        for row in project.db.execute(
+            "SELECT row_id FROM results "
+            "WHERE run_id=? AND outcome IN ('model_error', 'invalid_output', 'row_error')",
+            (run_id,),
+        ).fetchall()
+    }
+    assert failed_rows == {row_ids[3]}
 
-        html_blob = project.db.execute(
-            "SELECT source_url, filename, mime FROM blobs WHERE hash=?",
-            (media_values[row_ids[2]]["blob"],),
-        ).fetchone()
-        assert html_blob is not None
-        assert html_blob["source_url"] == HTML_PAGE
-        assert html_blob["filename"] == "story.html"
-        assert html_blob["mime"] == "text/html"
+    html_blob = project.db.execute(
+        "SELECT source_url, filename, mime FROM blobs WHERE hash=?",
+        (media_values[row_ids[2]]["blob"],),
+    ).fetchone()
+    assert html_blob is not None
+    assert html_blob["source_url"] == HTML_PAGE
+    assert html_blob["filename"] == "story.html"
+    assert html_blob["mime"] == "text/html"
 
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.status == "partial"
-        assert receipt.run_id == run_id
-        # provider_use semantics preserved: 2 direct httpx requests + 1 yt-dlp
-        # request (the invalid ftp row attempts no network).
-        assert sorted(
-            (item["provider"], item["service"], item["operation_call_count"])
-            for item in receipt.provider_use
-        ) == [("direct_url", "httpx", 2), ("youtube", "yt-dlp", 1)]
-        assert all(
-            item["external_api"] and item["cost_actual"] == 0
-            for item in receipt.provider_use
-        )
-        refs = [
-            item.ref for item in receipt.inputs + receipt.outputs + receipt.evidence
-        ]
-        occurrences = [ref for ref in refs if ref["kind"] == "row_file_output"]
-        assert len(occurrences) == 3
-        assert {ref["facts"]["url"] for ref in occurrences} == {
-            DIRECT_MP3,
-            HTML_PAGE,
-            YOUTUBE_WATCH,
-        }
-        html_ref = next(ref for ref in occurrences if ref["facts"]["url"] == HTML_PAGE)
-        assert html_ref["media_kind"] == "file"
-        assert html_ref["may_feed"] == ["media.to_markdown"]
-        output_ref = next(ref for ref in refs if ref["kind"] == "map_result_column")
-        assert output_ref["type"] == "file"
-        assert output_ref["run_id"] == run_id
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.status == "partial"
+    assert receipt.run_id == run_id
+    # provider_use semantics preserved: 2 direct httpx requests + 1 yt-dlp
+    # request (the invalid ftp row attempts no network).
+    assert sorted(
+        (item["provider"], item["service"], item["operation_call_count"])
+        for item in receipt.provider_use
+    ) == [("direct_url", "httpx", 2), ("youtube", "yt-dlp", 1)]
+    assert all(
+        item["external_api"] and item["cost_actual"] == 0
+        for item in receipt.provider_use
+    )
+    refs = [item.ref for item in receipt.inputs + receipt.outputs + receipt.records]
+    occurrences = [ref for ref in refs if ref["kind"] == "row_file_output"]
+    assert len(occurrences) == 3
+    assert {ref["facts"]["url"] for ref in occurrences} == {
+        DIRECT_MP3,
+        HTML_PAGE,
+        YOUTUBE_WATCH,
+    }
+    html_ref = next(ref for ref in occurrences if ref["facts"]["url"] == HTML_PAGE)
+    assert html_ref["media_kind"] == "file"
+    assert html_ref["may_feed"] == ["media.to_markdown"]
+    output_ref = next(ref for ref in refs if ref["kind"] == "map_result_column")
+    assert output_ref["type"] == "file"
+    assert output_ref["run_id"] == run_id
 
-        before_replay = _counts(project, _COUNT_TABLES)
-        direct_seen.clear()
-        youtube_seen.clear()
-        replay = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert replay.status == "partial"
-        assert replay.receipt_id == result.receipt_id
-        assert [output.name for output in replay.outputs] == ["media"]
-        assert replay.outputs[0].column_id == int(columns["media"]["id"])
-        # Replay is a pure receipt replay: no new columns/ops/blobs/runs/results
-        # and no re-download.
-        assert _counts(project, _COUNT_TABLES) == before_replay
-        assert before_replay["receipts"] == before["receipts"] + 1
-        assert direct_seen == []
-        assert youtube_seen == []
+    before_replay = _counts(project, _COUNT_TABLES)
+    direct_seen.clear()
+    youtube_seen.clear()
+    replay = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert replay.status == "partial"
+    assert replay.receipt_id == result.receipt_id
+    assert [output.name for output in replay.outputs] == ["media"]
+    assert replay.outputs[0].column_id == int(columns["media"]["id"])
+    # Replay is a pure receipt replay: no new columns/ops/blobs/runs/results
+    # and no re-download.
+    assert _counts(project, _COUNT_TABLES) == before_replay
+    assert before_replay["receipts"] == before["receipts"] + 1
+    assert direct_seen == []
+    assert youtube_seen == []
 
-        conflict = run_action_spec(
-            project,
-            _fetch_url_action(
-                sheet_id=sheet_id,
-                output_name="other_media",
-                idempotency_key="media_fetch_url@sha256:first",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
+    conflict = run_action_spec(
+        project,
+        _fetch_url_action(
+            sheet_id=sheet_id,
+            output_name="other_media",
+            idempotency_key="media_fetch_url@sha256:first",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
 
-        local_blob_path(project, media_values[row_ids[0]]["blob"]).unlink()
-        stale = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
+    local_blob_path(project, media_values[row_ids[0]]["blob"]).unlink()
+    stale = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert stale.status == "failed"
+    assert stale.errors[0].code == "stale_replay"
 
 
 def test_media_fetch_url_rejects_existing_generated_column_before_network(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     # Reserved-MapRunner shape: an existing generated column name is refused by the
-    # precheck (output_column_exists) before any network call — replacing the old
+    # precheck (generated_column_exists) before any network call — replacing the old
     # output_column_type_mismatch / existing-column reuse path.
-    project, sheet_id, _row_ids = _seed_url_project(tmp_path)
+    project, sheet_id, _row_ids = _seed_url_project(make_project)
     project.add_column(sheet_id, "media", type="audio")
     direct_seen, youtube_seen = _patch_downloaders(monkeypatch)
 
-    try:
-        result = _run_with_exact_confirmation(
-            project,
-            _fetch_url_action(
-                sheet_id=sheet_id,
-                output_name="media",
-                idempotency_key="media_fetch_url@sha256:exists",
-            ),
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "output_column_exists"
-        assert direct_seen == []
-        assert youtube_seen == []
-    finally:
-        project.close()
+    result = _run_with_exact_confirmation(
+        project,
+        _fetch_url_action(
+            sheet_id=sheet_id,
+            output_name="media",
+            idempotency_key="media_fetch_url@sha256:exists",
+        ),
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "generated_column_exists"
+    assert direct_seen == []
+    assert youtube_seen == []
 
 
 def test_media_fetch_url_all_failures_mark_action_failed(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     # All rows fail -> the run is failed and the action surfaces url_fetch_failed,
     # with no provider_use claimed for attempts that never happened. The semantic
     # invariant (every-row failure => failed, not partial) is preserved in the
     # run-based shape.
-    project, sheet_id, row_ids = _seed_url_project(tmp_path)
+    project, sheet_id, row_ids = _seed_url_project(make_project)
     direct_seen, youtube_seen = _patch_downloaders(monkeypatch)
 
-    try:
-        result = _run_with_exact_confirmation(
-            project,
-            _fetch_url_action(
-                sheet_id=sheet_id,
-                row_ids=[row_ids[3]],
-                output_name="media",
-                idempotency_key="media_fetch_url@sha256:all-failed",
-            ),
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "external_rows_failed"
-        # The ftp:// row never reaches a downloader.
-        assert direct_seen == []
-        assert youtube_seen == []
+    result = _run_with_exact_confirmation(
+        project,
+        _fetch_url_action(
+            sheet_id=sheet_id,
+            row_ids=[row_ids[3]],
+            output_name="media",
+            idempotency_key="media_fetch_url@sha256:all-failed",
+        ),
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "external_rows_failed"
+    # The ftp:// row never reaches a downloader.
+    assert direct_seen == []
+    assert youtube_seen == []
 
-        columns = _columns(project, sheet_id)
-        assert columns["media"]["type"] == "file"
-        assert "media_status" not in columns
-        assert "media_error" not in columns
-        # The single targeted row failed, so it carries no media cell.
-        media_values = project.get_values(sheet_id, int(columns["media"]["id"]))
-        assert media_values.get(row_ids[3]) is None
-        assert all(value is None for value in media_values.values())
+    columns = _columns(project, sheet_id)
+    assert columns["media"]["type"] == "file"
+    assert "media_status" not in columns
+    assert "media_error" not in columns
+    # The single targeted row failed, so it carries no media cell.
+    media_values = project.get_values(sheet_id, int(columns["media"]["id"]))
+    assert media_values.get(row_ids[3]) is None
+    assert all(value is None for value in media_values.values())
 
-        assert result.receipt_id is not None
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.status == "failed"
-        assert receipt.run_id is not None
-        # No network was attempted, so no provider use is reported.
-        assert receipt.provider_use == []
-        output_ref = next(
-            item.ref
-            for item in receipt.outputs
-            if item.ref["kind"] == "map_result_column"
-        )
-        assert output_ref["type"] == "file"
-    finally:
-        project.close()
+    assert result.receipt_id is not None
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.status == "failed"
+    assert receipt.run_id is not None
+    # No network was attempted, so no provider use is reported.
+    assert receipt.provider_use == []
+    output_ref = next(
+        item.ref for item in receipt.outputs if item.ref["kind"] == "map_result_column"
+    )
+    assert output_ref["type"] == "file"

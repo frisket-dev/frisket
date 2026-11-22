@@ -194,11 +194,11 @@ function citationKey(bundle: ReviewBundle): string {
 
 async function loadCitationPayloads(targets: readonly CitationTarget[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {
   const perField = await Promise.all(targets.map(async (target) => {
-    const cell = await api.getCellEvidence(target.rowId, target.columnId);
+    const cell = await api.getCellCitations(target.rowId, target.columnId);
     if (!currentCitationMatchesField(cell, target)) return [];
     const links = cell.links.filter((link) => link.status === 'active');
     const viewers = await Promise.all(links.map(async (link) => {
-      try { return await api.getEvidenceViewer(link.stable_id); } catch { return null; }
+      try { return await api.getCitationViewer(link.stable_id); } catch { return null; }
     }));
     return viewers.flatMap((payload) => payload === null ? [] : [{ fieldId: target.fieldId, payload }]);
   }));

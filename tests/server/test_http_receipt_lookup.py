@@ -8,17 +8,15 @@ from fastapi.testclient import TestClient
 from frisket.contracts.action import ActionError, ActionResult, Receipt
 from frisket.contracts.http.models import HttpError
 from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
+from helpers import make_client
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
 
@@ -80,7 +78,7 @@ def test_http_v1_receipt_lookup_uses_canonical_receipt_contract(tmp_path) -> Non
         "materialized_sheet",
         "source_rows",
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "source_rows",
         "source_cell",
     }

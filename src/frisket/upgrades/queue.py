@@ -54,6 +54,7 @@ REDERIVABLE_JOB_KINDS = frozenset(
         "search.index",
         "blob.metadata.backfill",
         "source.verify",
+        "alert.evaluate",
         "watch.evaluate",
         "notification.digest",
     }

@@ -230,7 +230,9 @@ def test_workspace_and_worker_resolve_the_same_endpoint_list(
     )
     project = make_project("project")
     live = Workspace(tmp_path).router_for(project).local_endpoints
-    queued = run_jobs.resolve_run_local_endpoints(tmp_path, org_id=None, env={})
+    queued = run_jobs.resolve_run_local_endpoints(
+        tmp_path, organization_id=None, env={}
+    )
     assert [endpoint.endpoint_id for endpoint in live] == [
         first.endpoint_id,
         second.endpoint_id,

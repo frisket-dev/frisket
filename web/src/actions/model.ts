@@ -176,7 +176,7 @@ export function compatibleSourceColumns(
   columns: ColumnDef[],
   requirement: ActionSourceRequirement | null,
 ): ColumnDef[] {
-  const eligible = requirement?.ai_generated_only
+  const eligible = requirement?.generated_only
     ? columns.filter((column) => Boolean(column.ai))
     : columns;
   if (!requirement?.accepted_column_types?.length) return eligible;
@@ -259,7 +259,7 @@ function catalogFormParamToActionParam(
       required: paramRequired(param),
       hint: param.description,
       columnTypes: param.column_types,
-      aiGeneratedOnly: param.ai_generated_only,
+      aiGeneratedOnly: param.generated_only,
       ...denseMeta,
     };
   }
@@ -513,7 +513,7 @@ function generatedCatalogParams(entry: ActionCatalogEntry): ActionParam[] | unde
       default: schema.default as ActionCatalogFormParam['default'],
       description: presentation?.description ?? schema.description,
       column_types: requirement?.accepted_column_types,
-      ai_generated_only: requirement?.ai_generated_only,
+      generated_only: requirement?.generated_only,
       visible_when: presentation?.visible_when,
       ...(choices.length ? { choices,
         choice_labels: cleanColumn && name === 'case' ? CLEAN_COLUMN_CASE_LABELS

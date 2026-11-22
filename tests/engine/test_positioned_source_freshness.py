@@ -7,7 +7,7 @@ import pytest
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.document_extraction_read import load_positioned_document
 from frisket.engine.store.consumed_sources import positioned_source_revision
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_source_artifact,
     record_source_span,
     merge_artifact_metadata,
@@ -193,46 +193,12 @@ def test_costly_positioned_check_uses_existing_queue_and_new_asset_revision_key(
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     project_id = workspace.create("Positioned")["id"]
     project = workspace.get(project_id)
-    try:
-        source, column, rows, template = seed(project, count=1)
-        blob = project.get_values(source, column)[rows[0]]["blob"]
-        artifact = load_positioned_document(project, blob).artifact_id
-        with project.transaction_scope():
-            for i in range(1001):
-                record_source_span(
-                    project,
-                    artifact_id=artifact,
-                    span_kind="region",
-                    page_start=1,
-                    page_end=1,
-                    bbox=[
-                        {
-                            "x0": 0.8,
-                            "y0": 0.8,
-                            "x1": 0.9,
-                            "y1": 0.83,
-                            "space": "page_normalized",
-                        }
-                    ],
-                    quote=f"padding {i}",
-                )
-        template = template.model_copy(
-            update={
-                "reference_fingerprint": load_positioned_document(
-                    project, blob
-                ).document.source_fingerprint
-            }
-        )
-        result = run_action_spec(
-            project, request(source, template), project_id=project_id
-        )
-        assert result.status == "completed", result.errors
-        sheet = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        assert sheet_freshness(project, sheet) == "synced"
-        with write_transaction(project.db):
-            word = record_source_span(
+    source, column, rows, template = seed(project, count=1)
+    blob = project.get_values(source, column)[rows[0]]["blob"]
+    artifact = load_positioned_document(project, blob).artifact_id
+    with project.transaction_scope():
+        for i in range(1001):
+            record_source_span(
                 project,
                 artifact_id=artifact,
                 span_kind="region",
@@ -241,61 +207,86 @@ def test_costly_positioned_check_uses_existing_queue_and_new_asset_revision_key(
                 bbox=[
                     {
                         "x0": 0.8,
-                        "y0": 0.85,
+                        "y0": 0.8,
                         "x1": 0.9,
-                        "y1": 0.88,
+                        "y1": 0.83,
                         "space": "page_normalized",
                     }
                 ],
-                quote="new source word",
+                quote=f"padding {i}",
             )
-        assert not [
-            job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
-        ]
-        compare = document_extraction_read.positioned_scope_fingerprint
-        in_grid = True
-        calls = []
-
-        def observe(*args, **kwargs):
-            assert not in_grid, (
-                "costly source verification must not run in the grid read"
-            )
-            calls.append(True)
-            return compare(*args, **kwargs)
-
-        monkeypatch.setattr(
-            document_extraction_read, "positioned_scope_fingerprint", observe
+    template = template.model_copy(
+        update={
+            "reference_fingerprint": load_positioned_document(
+                project, blob
+            ).document.source_fingerprint
+        }
+    )
+    result = run_action_spec(project, request(source, template), project_id=project_id)
+    assert result.status == "completed", result.errors
+    sheet = next(output.sheet_id for output in result.outputs if output.kind == "sheet")
+    assert sheet_freshness(project, sheet) == "synced"
+    with write_transaction(project.db):
+        word = record_source_span(
+            project,
+            artifact_id=artifact,
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            bbox=[
+                {
+                    "x0": 0.8,
+                    "y0": 0.85,
+                    "x1": 0.9,
+                    "y1": 0.88,
+                    "space": "page_normalized",
+                }
+            ],
+            quote="new source word",
         )
-        assert sheet_freshness(project, sheet) == "checking"
-        assert sheet_freshness(project, sheet) == "checking"
-        assert calls == []
-        checks = [
-            job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
-        ]
-        assert len(checks) == 1
-        in_grid = False
-        worker = Worker(workspace.queue, workspace.registry)
-        for _ in range(20):
-            if workspace.queue.get(checks[0].id).status == "done":
-                break
-            assert worker.run_once()
-        assert workspace.queue.get(checks[0].id).status == "done"
-        assert sheet_freshness(project, sheet) == "stale"
-        with project.transaction_scope():
-            project.db.execute("DELETE FROM source_spans WHERE id=?", (word["id"],))
-        in_grid = True
-        assert sheet_freshness(project, sheet) == "checking"
-        checks = [
-            job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
-        ]
-        assert len(checks) == 2
-        in_grid = False
-        newest = max(checks, key=lambda job: job.id)
-        for _ in range(20):
-            if workspace.queue.get(newest.id).status == "done":
-                break
-            assert worker.run_once()
-        assert workspace.queue.get(newest.id).status == "done"
-        assert sheet_freshness(project, sheet) == "synced"
-    finally:
-        project.close()
+    assert not [
+        job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
+    ]
+    compare = document_extraction_read.positioned_scope_fingerprint
+    in_grid = True
+    calls = []
+
+    def observe(*args, **kwargs):
+        assert not in_grid, "costly source verification must not run in the grid read"
+        calls.append(True)
+        return compare(*args, **kwargs)
+
+    monkeypatch.setattr(
+        document_extraction_read, "positioned_scope_fingerprint", observe
+    )
+    assert sheet_freshness(project, sheet) == "checking"
+    assert sheet_freshness(project, sheet) == "checking"
+    assert calls == []
+    checks = [
+        job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
+    ]
+    assert len(checks) == 1
+    in_grid = False
+    worker = Worker(workspace.queue, workspace.registry)
+    for _ in range(20):
+        if workspace.queue.get(checks[0].id).status == "done":
+            break
+        assert worker.run_once()
+    assert workspace.queue.get(checks[0].id).status == "done"
+    assert sheet_freshness(project, sheet) == "stale"
+    with project.transaction_scope():
+        project.db.execute("DELETE FROM source_spans WHERE id=?", (word["id"],))
+    in_grid = True
+    assert sheet_freshness(project, sheet) == "checking"
+    checks = [
+        job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
+    ]
+    assert len(checks) == 2
+    in_grid = False
+    newest = max(checks, key=lambda job: job.id)
+    for _ in range(20):
+        if workspace.queue.get(newest.id).status == "done":
+            break
+        assert worker.run_once()
+    assert workspace.queue.get(newest.id).status == "done"
+    assert sheet_freshness(project, sheet) == "synced"

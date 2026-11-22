@@ -49,7 +49,7 @@ function mockApi(initial = draft()) {
     updateSettings: vi.fn(async () => initial),
     updateColumns: vi.fn(async () => initial),
     updateDestination,
-    commit: vi.fn(async () => ({ schema_version: 'frisket.table_import.v1', draft_id: initial.draft_id, status: 'accepted', import_ref: 'table-import-1', sheet_id: 41, sheet_name: 'contributions', selected_total: 2 })),
+    commit: vi.fn<TableImportsApi['commit']>(async () => ({ schema_version: 'frisket.table_import.v1', draft_id: initial.draft_id, status: 'accepted', import_ref: 'table-import-1', sheet_id: 41, sheet_name: 'contributions', selected_total: 2 })),
     discard: vi.fn(async () => undefined),
   };
   return api;
@@ -593,9 +593,9 @@ describe('TableImportFlow', () => {
     expect(screen.getByText('00104 → 104')).toHaveAttribute('data-outcome', 'changed');
     expect(screen.getByText('N/A → blank')).toHaveAttribute('data-outcome', 'invalid');
     expect(screen.getByText('1 value loses leading zeros')).toBeVisible();
-    const codeRow = screen.getByText('code').closest('[role="row"]')!;
+    const codeRow = screen.getByText('code').closest<HTMLElement>('[role="row"]')!;
     expect(within(codeRow).getByText('All fit')).toHaveAttribute('data-tone', 'success');
-    const dateRow = screen.getByText('date').closest('[role="row"]')!;
+    const dateRow = screen.getByText('date').closest<HTMLElement>('[role="row"]')!;
     expect(within(dateRow).getByText('Mar 4, 2024')).toBeVisible();
     expect(within(dateRow).getByRole('combobox', { name: 'Date order for date' }).closest('[role="cell"]')).toHaveClass('table-import-column-note');
   });

@@ -2,8 +2,9 @@
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
+import type { ActionLaunchPrefill } from '../../src/actions/actionFormInitial';
 import * as actionComparisonApi from '../../src/api/actionComparison';
 import * as evaluationApi from '../../src/api/evaluation';
 import type {
@@ -11,7 +12,7 @@ import type {
   ActionComparisonContext,
 } from '../../src/api/actionComparison';
 import { createProjectApi } from '../../src/api/real';
-import type { ActionCatalogEntry, ColumnRun, GeneratedActionDraft } from '../../src/api/types';
+import type { ColumnRun, GeneratedActionDraft } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import type { ActionCompareUseSettings } from '../../src/workbench/actionCompareSession';
@@ -19,6 +20,7 @@ import {
   createActionCompareCostConfirmation,
   useWorkspaceActionCompareController,
 } from '../../src/workspace/useWorkspaceActionCompareController';
+import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { catalogPayload } from '../support/actionFormFixtures';
 import { row } from '../support/domainFixtures';
 
@@ -55,7 +57,7 @@ function comparisonContext({
     schema_version: 'frisket.action_compare_context.v1',
     available: true,
     reason: null,
-    limits: { max_sample_rows: 20, max_challengers: 3 },
+    limits: { max_sample_rows: 500, max_challengers: 19 },
     baseline_mode: runBasis ? 'current_values' : 'preview',
     comparison_basis: runBasis ?? { kind: 'draft', draft },
     draft,
@@ -72,7 +74,7 @@ function comparisonContext({
         origin: { kind: 'source_cell', run_id: null, op_id: null, review_decision: null },
       },
     }])),
-    output_columns: [{
+    generated_columns: [{
       logical_key: 'party', column_id: runBasis ? 101 : null, current_name: 'pdf_party',
       column_type: 'text', format: null, hidden: false, schema: {},
     }],
@@ -130,9 +132,9 @@ function chosenSettings(context: ActionComparisonContext): ActionCompareUseSetti
 interface Harness {
   stores: WorkspaceStores;
   api: ActionComparisonApi;
-  runActionFromSurface: ReturnType<typeof vi.fn>;
-  closeActionRoute: ReturnType<typeof vi.fn>;
-  showError: ReturnType<typeof vi.fn>;
+  runActionFromSurface: Mock<(action: string, source?: string, initial?: ActionLaunchPrefill) => void>;
+  closeActionRoute: Mock<() => void>;
+  showError: Mock<(message: string) => void>;
   wrapper: (props: PropsWithChildren) => JSX.Element;
 }
 
@@ -147,6 +149,7 @@ beforeEach(() => {
   });
   const stores = createWorkspaceStores('action-compare-controller', projectApi);
   const api: ActionComparisonApi = {
+    estimatePreview: vi.fn(),
     getContext: vi.fn(),
     startPreview: vi.fn(),
     getPreview: vi.fn(),
@@ -185,7 +188,7 @@ function renderController(selectedRowIds: readonly string[] = ['11', '12', '13']
     sampleOptions,
     runActionFromSurface: current.runActionFromSurface,
     closeActionRoute: current.closeActionRoute,
-    setOpenSplit: current.stores.chrome.setOpenSplit,
+    setOpenSplit: current.stores.chromePreferences.sheet.setOpenSplit,
     showError: current.showError,
   }), { wrapper: current.wrapper });
 }
@@ -378,10 +381,9 @@ describe('useWorkspaceActionCompareController', () => {
 
 
   it('does not advertise comparison when canonical context loading refuses the run', async () => {
-    const comparisonEntry = {
-      kind: 'map.extract',
+    const comparisonEntry = syntheticActionCatalogEntry('map.extract', {
       ui_hints: { comparison: { kind: 'row_overlay' } },
-    } as ActionCatalogEntry;
+    });
     act(() => harness!.stores.actionCatalog.store.set(current => ({
       ...current,
       status: 'ready',
@@ -421,10 +423,9 @@ describe('useWorkspaceActionCompareController', () => {
   });
 
   it('surfaces a transient comparison-context failure so the grid can retry it', async () => {
-    const comparisonEntry = {
-      kind: 'map.extract',
+    const comparisonEntry = syntheticActionCatalogEntry('map.extract', {
       ui_hints: { comparison: { kind: 'row_overlay' } },
-    } as ActionCatalogEntry;
+    });
     act(() => harness!.stores.actionCatalog.store.set(current => ({
       ...current,
       status: 'ready',
@@ -549,7 +550,7 @@ it('caps all selected rows at 500 and reports the complete selected count', asyn
 });
 it('starts an expected comparison with a normal sample and allows choosing checked rows', async () => {
   const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12, 14, 16], total: 3 });
-  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ generated_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
   vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
   const view = renderController([], 0);
   act(() => view.result.current.compareActionRun({ sheetId: '7', runId: '42', columnId: '101' }, true));
@@ -586,7 +587,7 @@ it('allows switching from a sample to all selected rows', async () => {
 
 it('resolves the expected scope independently of an active grid filter', async () => {
   const getExpectedRows = vi.fn().mockResolvedValue({ row_ids: [12], total: 1 });
-  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ output_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
+  vi.spyOn(evaluationApi, 'createEvaluationApi').mockReturnValue({ getLinks: vi.fn().mockResolvedValue({ links: [{ id: 5, action_id: 'map.extract', fields: [{ generated_column_id: 101 }] }] }), getExpectedRows } as unknown as evaluationApi.EvaluationApi);
   vi.mocked(harness!.api.getContext).mockImplementation(async ({ sample_row_ids }) => comparisonContext({ runId: 42, sampleRowIds: sample_row_ids }));
   const filter = { story: { eq: 'not visible' } } as import('../../src/api/types').GridFilterSpec;
   const view = renderController([], 0, { filter });

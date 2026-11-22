@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import math
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -190,6 +191,9 @@ class _BoundTranscriber:
             enforce_media_duration_limit(limits.max_media_seconds, duration)
         owner._called_rows.add(self._row_id)
         cancelled = ctx.extras.get("cancelled")
+        should_cancel: Callable[[], bool] | None = (
+            (lambda: bool(cancelled())) if callable(cancelled) else None
+        )
         with materialize_media_path(media, ctx, action="transcribe") as path:
             owner._check_active(ctx)
             result = await transcribe_engines.run_transcription_engine(
@@ -197,7 +201,7 @@ class _BoundTranscriber:
                 str(path),
                 copy.deepcopy(owner._spec),
                 ctx,
-                should_cancel=cancelled if callable(cancelled) else None,
+                should_cancel=should_cancel,
                 transport=transport,
                 media=copy.deepcopy(media),
             )
@@ -234,10 +238,12 @@ class _BoundTranscriber:
                 }
             )
         ]
-        return TranscribedMedia(
-            text=text,
-            segments=copy.deepcopy(segments),
-            detected_language=out.get("language")
-            if transcribe_language_declaration(owner._engine).detects
-            else None,
+        return TranscribedMedia.model_validate(
+            {
+                "text": text,
+                "segments": copy.deepcopy(segments),
+                "detected_language": out.get("language")
+                if transcribe_language_declaration(owner._engine).detects
+                else None,
+            }
         )

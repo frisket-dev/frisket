@@ -5,8 +5,8 @@ import type {
   ProviderValidateResult,
 } from "./types";
 
-type OrganizationKeySaveWire = HttpContractSuccessResponse<"outer.set_org_key.post">;
-type OrganizationKeyDeleteWire = HttpContractSuccessResponse<"outer.delete_org_key.delete">;
+type OrganizationKeySaveWire = HttpContractSuccessResponse<"outer.set_organization_key.post">;
+type OrganizationKeyDeleteWire = HttpContractSuccessResponse<"outer.delete_organization_key.delete">;
 
 function discardSavedKey(wire: OrganizationKeySaveWire): void {
   void wire;
@@ -29,7 +29,7 @@ export function createOrganizationProvidersApi() {
 
     listOrganizationKeys(options: RequestOptions = {}): Promise<OrganizationKeyInfo[]> {
       return httpContract(
-        "outer.list_org_keys.get",
+        "outer.list_organization_keys.get",
         {
           signal: options.signal,
         },
@@ -43,7 +43,7 @@ export function createOrganizationProvidersApi() {
       options: RequestOptions = {},
     ): Promise<void> {
       return httpContract(
-        "outer.set_org_key.post",
+        "outer.set_organization_key.post",
         {
           body: { provider, key, validation_token: validationToken ?? null },
           signal: options.signal,
@@ -58,7 +58,7 @@ export function createOrganizationProvidersApi() {
       options: RequestOptions = {},
     ): Promise<ProviderValidateResult> {
       return httpContract(
-        "outer.validate_org_key.post",
+        "outer.validate_organization_key.post",
         {
           body: key ? { provider, key } : { provider },
           signal: options.signal,
@@ -68,7 +68,7 @@ export function createOrganizationProvidersApi() {
 
     deleteOrganizationKey(provider: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
-        "outer.delete_org_key.delete",
+        "outer.delete_organization_key.delete",
         {
           pathParams: { provider },
           signal: options.signal,

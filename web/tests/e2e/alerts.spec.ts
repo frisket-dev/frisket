@@ -7,7 +7,7 @@ async function createSearchAlert(request: APIRequestContext, pid: string, sheetI
     presentation: { columns: null, column_groups: null },
   } });
   expect(view.ok()).toBeTruthy();
-  return request.post(`/api/projects/${pid}/watches`, { data: {
+  return request.post(`/api/projects/${pid}/alerts`, { data: {
     name, view_id: (await view.json()).id,
     detection_policy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
   } });
@@ -68,10 +68,10 @@ test('alerts promote searches, then show manual run history', async ({ page }) =
   // Alerts re-homed into the Discover panel's Alerts tab
   // (workbench-ia-right-edge-v1); Notifications is a sibling tab of its own
   // (discover-notifications-tab-v1).
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
 
   const alertsContribution = page.getByTestId(
-    'workbench-contribution-frisket-core-panel-watches',
+    'workbench-contribution-frisket-core-panel-alerts',
   );
   await expect(alertsContribution).toHaveAttribute(
     'data-schema-version',
@@ -85,9 +85,9 @@ test('alerts promote searches, then show manual run history', async ({ page }) =
   );
   const alertCapabilities = await declaredCapabilities(alertsContribution);
   expect(alertCapabilities).toEqual(expect.arrayContaining([
-    'watch.list',
-    'watch.run',
-    'watch.runs.list',
+    'alert.list',
+    'alert.check',
+    'alert.checks.list',
     'notifications.summary.read',
   ]));
   expect(alertCapabilities).toContain('embedding.index.refresh');
@@ -99,7 +99,7 @@ test('alerts promote searches, then show manual run history', async ({ page }) =
 
   const searchAlertResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'POST') return false;
-    return new URL(res.url()).pathname === `/api/projects/${pid}/watches`;
+    return new URL(res.url()).pathname === `/api/projects/${pid}/alerts`;
   });
   await page.getByTestId('alert-search-button').click();
   const searchAlert = await (await searchAlertResponse).json();
@@ -114,11 +114,11 @@ test('alerts promote searches, then show manual run history', async ({ page }) =
 
   const runResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'POST') return false;
-    return new URL(res.url()).pathname === `/api/projects/${pid}/watches/${searchAlert.id}/run`;
+    return new URL(res.url()).pathname === `/api/projects/${pid}/alerts/${searchAlert.id}/check`;
   });
   await searchAlertItem.getByTestId('check-alert').click();
   const runBody = await (await runResponse).json();
-  expect(runBody.schema_version).toBe('frisket.watch_run.v1');
+  expect(runBody.schema_version).toBe('frisket.alert_check.v1');
   expect(runBody.run.matched_rows).toBe(2);
   // The first successful check establishes the View's baseline.
   expect(runBody.run.new_rows).toBe(0);
@@ -128,14 +128,14 @@ test('alerts promote searches, then show manual run history', async ({ page }) =
     if (res.request().method() !== 'GET') return false;
     const url = new URL(res.url());
     return (
-      url.pathname === `/api/projects/${pid}/watches/${searchAlert.id}/runs` &&
+      url.pathname === `/api/projects/${pid}/alerts/${searchAlert.id}/checks` &&
       url.searchParams.get('offset') === '0' &&
       url.searchParams.get('limit') === '20'
     );
   });
   await searchAlertItem.getByTestId('toggle-alert-checks').click();
   const historyBody = await (await historyResponse).json();
-  expect(historyBody.schema_version).toBe('frisket.watch_runs_page.v1');
+  expect(historyBody.schema_version).toBe('frisket.alert_checks_page.v1');
   expect(historyBody.runs[0].hits.length).toBeGreaterThan(0);
   await expect(searchAlertItem.getByTestId('alert-check-history')).toContainText('0 new');
 
@@ -151,7 +151,7 @@ test('an Alert captures the current grid in a persistent Saved View', async ({ p
   );
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const panel = page.getByTestId('alerts-panel');
   const launch = panel.getByTestId('new-alert-from-current-grid');
   await expect(launch).toHaveText('Create new alert');
@@ -172,7 +172,7 @@ test('an Alert captures the current grid in a persistent Saved View', async ({ p
   await name.fill('Daily open rows');
   const createResponse = page.waitForResponse((response) => (
     response.request().method() === 'POST'
-      && new URL(response.url()).pathname === `/api/projects/${pid}/watches`
+      && new URL(response.url()).pathname === `/api/projects/${pid}/alerts`
   ));
   await create.click();
   const request = (await createResponse).request().postDataJSON() as Record<string, unknown>;
@@ -209,7 +209,7 @@ test('editable Alert controls preserve failed state and describe delete conseque
   let releaseRejectedRename = () => {};
   const rejectedRename = new Promise<void>((resolve) => { releaseRejectedRename = resolve; });
 
-  await page.route(`**/api/projects/${pid}/watches/${alert.id}`, async (route) => {
+  await page.route(`**/api/projects/${pid}/alerts/${alert.id}`, async (route) => {
     const request = route.request();
     if (request.method() === 'PATCH') {
       const patch = request.postDataJSON() as Record<string, unknown>;
@@ -243,7 +243,7 @@ test('editable Alert controls preserve failed state and describe delete conseque
   });
 
   await openProject(page, pid, sheetId);
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const item = page.getByTestId('alert-item').filter({ hasText: 'Lifecycle watch' });
   await expect(item).toBeVisible();
   await item.getByTestId('rename-alert').click();
@@ -306,7 +306,7 @@ test('Alert lifecycle controls remain usable at Discover\'s constrained width', 
   );
 
   await openProject(page, pid, sheetId);
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const discoverBox = await page.getByTestId('discover-panel').boundingBox();
   expect(discoverBox?.width).toBeGreaterThanOrEqual(219);
   expect(discoverBox?.width).toBeLessThanOrEqual(221);
@@ -329,7 +329,7 @@ test('Alert lifecycle controls remain usable at Discover\'s constrained width', 
   await composer.getByTestId('alert-create-name').fill('Narrow current watch');
   const createResponse = page.waitForResponse((response) => (
     response.request().method() === 'POST' &&
-    new URL(response.url()).pathname === `/api/projects/${pid}/watches`
+    new URL(response.url()).pathname === `/api/projects/${pid}/alerts`
   ));
   await composer.getByTestId('create-alert-button').click();
   const createdFromGrid = await createResponse;
@@ -358,14 +358,14 @@ test('an old Watch-list response cannot restore renamed, paused, or deleted Aler
   const deletedAlert = await create('Delete me');
 
   await openProject(page, pid, sheetId);
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   await expect(page.getByTestId('alert-item').filter({ hasText: 'Rename me' })).toBeVisible();
 
   let releaseStaleList!: () => void;
   const staleListReleased = new Promise<void>((resolve) => { releaseStaleList = resolve; });
   let observeStaleList!: () => void;
   const staleListRequested = new Promise<void>((resolve) => { observeStaleList = resolve; });
-  await page.route(`**/api/projects/${pid}/watches`, async (route) => {
+  await page.route(`**/api/projects/${pid}/alerts`, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
     observeStaleList();
     await staleListReleased;
@@ -420,7 +420,7 @@ test('viewers can inspect Alerts but have no run, refresh, create, or lifecycle 
   });
 
   await openProject(page, pid, sheetId);
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const item = page.getByTestId('alert-item').filter({ hasText: 'Read-only watch' });
   await expect(item).toBeVisible();
   await expect(item.getByTestId('check-alert')).toHaveCount(0);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -945,8 +946,7 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    project = Project.create(workspace / "news.frisket", name="news")
-    try:
+    with closing(Project.create(workspace / "news.frisket", name="news")) as project:
         with write_transaction(project.db):
             courtlistener_source_id = FeedStore(project).add_feed(
                 name="CourtListener",
@@ -961,8 +961,6 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
                 url="https://example.com/api",
                 schedule="@hourly",
             )
-    finally:
-        project.close()
 
     queue = SqliteJobQueue(workspace / ".queue.db")
     try:
@@ -989,8 +987,7 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
         assert job.result["new_rows"] == 4
         assert provider.calls[0]["max_entries"] == 1
 
-        reopened = Project(workspace / "news.frisket")
-        try:
+        with closing(Project(workspace / "news.frisket")) as reopened:
             runs = [
                 dict(row)
                 for row in FeedStore(reopened).feed_checks_page(courtlistener_source_id)
@@ -1000,7 +997,5 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
             receipt = _receipt(reopened, job.result["receipt_id"])
             assert receipt["action_kind"] == "feed.poll"
             assert receipt["provider_use"][0]["provider"] == "courtlistener"
-        finally:
-            reopened.close()
     finally:
         queue.close()

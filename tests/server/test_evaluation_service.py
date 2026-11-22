@@ -45,7 +45,7 @@ def env(make_project, monkeypatch):
             "output_names": {"answer": "answer"},
         },
         "source_columns": [{"column_id": cols["source"], "name": "source"}],
-        "output_columns": [
+        "generated_columns": [
             {
                 "logical_key": "answer",
                 "column_id": cols["answer"],
@@ -62,7 +62,7 @@ def env(make_project, monkeypatch):
         "fields": [
             {
                 "expected_column_id": ec["answer"],
-                "output_column_id": cols["answer"],
+                "generated_column_id": cols["answer"],
                 "logical_key": "answer",
                 "rule": "exact",
                 "hidden": False,
@@ -156,7 +156,7 @@ def preview(e, key, rows):
     e.previews[key] = {
         "sheet_id": e.sheet,
         "action_id": "extract.llm",
-        "output_columns": e.context["output_columns"],
+        "generated_columns": e.context["generated_columns"],
         "rows": rows,
         "source_fingerprints": source_fingerprints(
             e.project, e.sheet, [e.cols["source"]], e.rows
@@ -674,7 +674,7 @@ def test_expected_row_scope_accepts_any_mapped_field_and_resolves_keys_once(
     e.body["fields"].append(
         {
             "expected_column_id": other_expected,
-            "output_column_id": other_output,
+            "generated_column_id": other_output,
             "logical_key": "other",
             "rule": "exact",
             "hidden": False,
@@ -824,7 +824,7 @@ def test_unavailable_links_remain_manageable_and_preserve_healthy_projection(
         "fields": [
             {
                 "expected_column_id": other_cols["other"],
-                "output_column_id": other_output,
+                "generated_column_id": other_output,
                 "logical_key": "other",
                 "rule": "exact",
                 "hidden": False,
@@ -983,7 +983,7 @@ def test_expected_answers_keep_same_action_output_families_separate(env):
     }
     first = e.service.expected_answer("p", answer)
     second_output = e.project.add_column(e.sheet, "second_answer")
-    e.context["output_columns"] = [
+    e.context["generated_columns"] = [
         {
             "logical_key": "answer",
             "column_id": second_output,
@@ -993,8 +993,8 @@ def test_expected_answers_keep_same_action_output_families_separate(env):
     e.context["draft"]["output_names"] = {"answer": "second_answer"}
     second = e.service.expected_answer("p", {**answer, "value": "second family"})
     assert second["id"] != first["id"]
-    assert first["fields"][0]["output_column_id"] == e.cols["answer"]
-    assert second["fields"][0]["output_column_id"] == second_output
+    assert first["fields"][0]["generated_column_id"] == e.cols["answer"]
+    assert second["fields"][0]["generated_column_id"] == second_output
     first_values = e.project.get_values(
         first["expected_sheet_id"], first["fields"][0]["expected_column_id"]
     )
@@ -1035,7 +1035,7 @@ def test_new_expected_rows_follow_column_type_validation_before_persistence(env)
             "fields": [
                 {
                     "expected_column_id": dates,
-                    "output_column_id": e.cols["answer"],
+                    "generated_column_id": e.cols["answer"],
                     "logical_key": "answer",
                     "rule": "date",
                     "hidden": False,
@@ -1105,7 +1105,7 @@ def test_new_expected_row_copies_cross_type_keys_and_round_trips(
             "fields": [
                 {
                     "expected_column_id": expected_answer,
-                    "output_column_id": e.cols["answer"],
+                    "generated_column_id": e.cols["answer"],
                     "logical_key": "answer",
                     "rule": "exact",
                     "hidden": False,
@@ -1156,7 +1156,7 @@ def test_new_expected_row_rolls_back_a_key_that_cannot_round_trip(env):
             "fields": [
                 {
                     "expected_column_id": expected_answer,
-                    "output_column_id": e.cols["answer"],
+                    "generated_column_id": e.cols["answer"],
                     "logical_key": "answer",
                     "rule": "exact",
                     "hidden": False,

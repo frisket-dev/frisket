@@ -36,6 +36,7 @@ def test_engine_defaults_to_llm_and_preserves_today_behaviour() -> None:
 
 
 def test_engine_accepts_the_full_roster() -> None:
+    assert TRANSLATE_ENGINES
     for engine in TRANSLATE_ENGINES:
         model = "anthropic/claude-haiku-4-5" if engine == "llm" else ""
         # opus_mt is no-auto (allows_auto=False): it REQUIRES an explicit source.

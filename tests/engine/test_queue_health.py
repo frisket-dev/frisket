@@ -236,12 +236,7 @@ class TestDeployReadiness:
             cx.execute(
                 jobs_table.update()
                 .where(jobs_table.c.id.in_(ids))
-                .values(status="running", claimed_code_version=target)
-            )
-            cx.execute(
-                jobs_table.update()
-                .where(jobs_table.c.id == ids[0])
-                .values(claimed_code_version="old-version")
+                .values(status="running")
             )
         queue.record_worker_heartbeat("target-worker", worker_version=target, now=now)
 

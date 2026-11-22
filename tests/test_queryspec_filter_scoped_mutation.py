@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
 from frisket.contracts.action import ActionResult, Receipt
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_project(
@@ -181,11 +182,11 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
             "cost_actual": 0.0,
         }
     ]
-    evidence_kinds = {item.ref["kind"] for item in receipt.evidence}
+    evidence_kinds = {item.ref["kind"] for item in receipt.records}
     assert {"query_cell_edit_rowset", "manual_edit_overlay"} <= evidence_kinds
     rowset_ref = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "query_cell_edit_rowset"
     )
     assert rowset_ref["row_ids"] == [rows["a"], rows["b"]]
@@ -266,7 +267,7 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
 def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
     tmp_path: Path,
 ) -> None:
-    from frisket.engine.store.evidence import record_citation
+    from frisket.engine.store.citations import record_citation
 
     client = _client(tmp_path)
     pid, sheet_id, rows, columns = _seed_project(client)
@@ -275,24 +276,26 @@ def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
         sheet_id, columns["status"], row_ids=[rows["a"]]
     )
     current_ref = refs[rows["a"]]
-    exact = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=current_ref,
-        spans=[],
-        sheet_id=sheet_id,
-        row_id=rows["a"],
-        column_id=columns["status"],
-    )
-    unrelated = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={**current_ref, "kind": "other_value"},
-        spans=[],
-        sheet_id=sheet_id,
-        row_id=rows["a"],
-        column_id=columns["status"],
-    )
+    with write_transaction(project.db):
+        exact = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=current_ref,
+            spans=[],
+            sheet_id=sheet_id,
+            row_id=rows["a"],
+            column_id=columns["status"],
+        )
+    with write_transaction(project.db):
+        unrelated = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={**current_ref, "kind": "other_value"},
+            spans=[],
+            sheet_id=sheet_id,
+            row_id=rows["a"],
+            column_id=columns["status"],
+        )
 
     response = client.post(
         f"/api/projects/{pid}/actions/v1/run",
@@ -306,7 +309,7 @@ def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
     statuses = {
         str(row["stable_id"]): (str(row["status"]), row["stale_reason"])
         for row in project.db.execute(
-            "SELECT stable_id, status, stale_reason FROM evidence_links"
+            "SELECT stable_id, status, stale_reason FROM citations"
         ).fetchall()
     }
     assert statuses[exact["stable_id"]] == ("stale", "manual_cell_edit")

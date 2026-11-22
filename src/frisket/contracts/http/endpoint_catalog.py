@@ -174,9 +174,9 @@ _OUTER_ADMIN: tuple[RouteSpec, ...] = (
     ("admin_browser_revoke_invite", "DELETE"),
     ("admin_browser_update_user_role", "PATCH"),
     ("admin_browser_users", "GET"),
-    # Organization-wide network default: owner-only, like the other org-shaping admin
+    # Organization-wide network default: owner-only, like the other organization-shaping admin
     # actions.
-    ("update_org_network", "PATCH"),
+    ("update_organization_network", "PATCH"),
 )
 
 _OUTER_OAUTH_BROWSER: tuple[RouteSpec, ...] = (
@@ -194,17 +194,17 @@ _OUTER_PROFILE_BROWSER: tuple[RouteSpec, ...] = (("update_profile", "PATCH"),)
 _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("create_project_invite", "POST"),
     ("create_token", "POST"),
-    ("delete_org_env_var", "DELETE"),
-    ("delete_org_key", "DELETE"),
+    ("delete_organization_env_var", "DELETE"),
+    ("delete_organization_key", "DELETE"),
     ("diagnostic_bundle", "POST"),
-    ("get_org_network", "GET"),
+    ("get_organization_network", "GET"),
     ("get_project_blob", "GET"),
     ("list_members", "GET"),
-    ("list_org_env_vars", "GET"),
-    ("list_org_keys", "GET"),
+    ("list_organization_env_vars", "GET"),
+    ("list_organization_keys", "GET"),
     # Boolean-only media egress proxy status for run-failure remediation UI;
     # the proxy URL itself stays on the operator admin surface.
-    ("org_media_proxy_status", "GET"),
+    ("organization_media_proxy_status", "GET"),
     ("list_project_invites", "GET"),
     ("list_tokens", "GET"),
     ("me", "GET"),
@@ -212,9 +212,9 @@ _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("revoke_project_invite", "DELETE"),
     ("revoke_token", "DELETE"),
     ("set_member", "POST"),
-    ("set_org_env_var", "POST"),
-    ("set_org_key", "POST"),
-    ("validate_org_key", "POST"),
+    ("set_organization_env_var", "POST"),
+    ("set_organization_key", "POST"),
+    ("validate_organization_key", "POST"),
 )
 
 _TENANT_PUBLIC: tuple[RouteSpec, ...] = (
@@ -369,7 +369,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
         "GET",
     ),
     ("backfill_activity", "GET"),
-    ("cell_evidence", "GET"),
+    ("cell_citations", "GET"),
     ("cell_text_window", "GET"),
     ("cell_value_download", "GET"),
     (
@@ -377,7 +377,7 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
         "GET",
     ),
     (
-        "column_evidence",
+        "column_citations",
         "GET",
     ),
     ("row_source_documents", "GET"),
@@ -395,15 +395,15 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ),
     ("entities_ep", "GET"),
     (
-        "evidence_link_run_clip",
+        "citation_run_clip",
         "GET",
     ),
     (
-        "evidence_span_clip",
+        "citation_span_clip",
         "GET",
     ),
     (
-        "evidence_viewer",
+        "citation_viewer",
         "GET",
     ),
     ("get_blob", "GET"),
@@ -433,11 +433,11 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("list_feeds", "GET"),
     ("list_views", "GET"),
     (
-        "list_watch_run_events",
+        "list_alert_check_events",
         "GET",
     ),
-    ("list_watch_runs", "GET"),
-    ("list_watches", "GET"),
+    ("list_alert_checks", "GET"),
+    ("list_alerts", "GET"),
     (
         "locate_sheet_row",
         "GET",
@@ -616,7 +616,7 @@ _TENANT_ACTION_RUN: tuple[RouteSpec, ...] = (("v1_action_run", "POST"),)
 _TENANT_ACTION_PREVIEW: tuple[RouteSpec, ...] = (
     ("v1_action_preview_start", "POST"),
     ("v1_action_compare_preview_start", "POST"),
-    ("v1_action_compare_preview_quote", "POST"),
+    ("v1_action_compare_preview_estimate", "POST"),
 )
 
 _TENANT_SKILLS: tuple[RouteSpec, ...] = (
@@ -709,9 +709,9 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ),
     ("compact_project", "POST"),
     ("create_view", "POST"),
-    ("create_watch", "POST"),
+    ("create_alert", "POST"),
     ("delete_view_ep", "DELETE"),
-    ("delete_watch", "DELETE"),
+    ("delete_alert", "DELETE"),
     (
         "embedding_hybrid_preview",
         "POST",
@@ -779,13 +779,13 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ("ocr_compare_scratch_estimate", "POST"),
     ("patch_view", "PATCH"),
     ("replace_view_definition", "PUT"),
-    ("patch_watch", "PATCH"),
+    ("patch_alert", "PATCH"),
     ("query_preview", "POST"),
     (
         "replace_rules_preview",
         "POST",
     ),
-    ("run_watch", "POST"),
+    ("check_alert", "POST"),
     (
         "runtime_projection_artifact",
         "POST",
@@ -917,7 +917,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.evaluation_shelf_rename.patch",
             "tenant.evaluation_shelf_delete.delete",
             "tenant.v1_action_compare_preview_start.post",
-            "tenant.v1_action_compare_preview_quote.post",
+            "tenant.v1_action_compare_preview_estimate.post",
             "tenant.v1_action_preview_start.post",
             "tenant.v1_action_preview_status.get",
             "tenant.action_run_status.get",
@@ -925,12 +925,12 @@ _BROWSER_CLIENT_IDS = (
             "tenant.cancel_run.post",
             "tenant.cluster_preview.post",
             "tenant.compact_project.post",
-            "tenant.cell_evidence.get",
+            "tenant.cell_citations.get",
             "tenant.cell_text_window.get",
             "tenant.cell_text_annotations.get",
             "tenant.column_runs.get",
             "tenant.reviewed_run_revision.get",
-            "tenant.column_evidence.get",
+            "tenant.column_citations.get",
             "tenant.row_source_documents.get",
             "tenant.column_values_preview.post",
             "tenant.column_stats.get",
@@ -954,8 +954,8 @@ _BROWSER_CLIENT_IDS = (
             "tenant.download_guide_sample.get",
             "tenant.prepare_guide_sample.post",
             "tenant.create_view.post",
-            "tenant.create_watch.post",
-            "tenant.delete_watch.delete",
+            "tenant.create_alert.post",
+            "tenant.delete_alert.delete",
             "tenant.delete_project.delete",
             "tenant.delete_project_provider_key.delete",
             "tenant.delete_project_secret.delete",
@@ -1005,7 +1005,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.import_xlsx.post",
             "tenant.ocr_compare_scratch.post",
             "tenant.ocr_compare_scratch_estimate.post",
-            "tenant.evidence_viewer.get",
+            "tenant.citation_viewer.get",
             "tenant.get_project.get",
             "tenant.get_project_network.get",
             "tenant.get_project_provider_keys.get",
@@ -1030,16 +1030,16 @@ _BROWSER_CLIENT_IDS = (
             "tenant.qa_save_skill_proposal.post",
             "tenant.list_feeds.get",
             "tenant.list_views.get",
-            "tenant.list_watch_run_events.get",
-            "tenant.list_watch_runs.get",
-            "tenant.list_watches.get",
+            "tenant.list_alert_check_events.get",
+            "tenant.list_alert_checks.get",
+            "tenant.list_alerts.get",
             "tenant.locate_sheet_row.get",
             "tenant.mark_notification_read.post",
             "tenant.mark_notifications_seen.post",
             "tenant.notifications_summary.get",
             "tenant.patch_view.patch",
             "tenant.replace_view_definition.put",
-            "tenant.patch_watch.patch",
+            "tenant.patch_alert.patch",
             "tenant.patch_notification_channel.patch",
             "tenant.patch_notification_route.patch",
             "tenant.project_attempts.get",
@@ -1060,7 +1060,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.topic_segmentation_compare_scratch.post",
             "tenant.transcribe_compare_scratch.post",
             "tenant.transcribe_compare_scratch_estimate.post",
-            "tenant.run_watch.post",
+            "tenant.check_alert.post",
             "tenant.test_notification_route.post",
             "tenant.translate_compare_scratch.post",
             "tenant.unack_notification.post",
@@ -1120,16 +1120,16 @@ _BROWSER_CLIENT_IDS = (
             "outer.list_oauth_connections.get",
             "outer.me.get",
             "outer.update_profile.patch",
-            "outer.list_org_keys.get",
-            "outer.list_org_env_vars.get",
+            "outer.list_organization_keys.get",
+            "outer.list_organization_env_vars.get",
             "outer.list_tokens.get",
             "outer.revoke_token.delete",
-            "outer.set_org_key.post",
-            "outer.set_org_env_var.post",
-            "outer.validate_org_key.post",
-            "outer.delete_org_key.delete",
-            "outer.delete_org_env_var.delete",
-            "outer.org_media_proxy_status.get",
+            "outer.set_organization_key.post",
+            "outer.set_organization_env_var.post",
+            "outer.validate_organization_key.post",
+            "outer.delete_organization_key.delete",
+            "outer.delete_organization_env_var.delete",
+            "outer.organization_media_proxy_status.get",
             "outer.list_members.get",
             "outer.set_member.post",
             "outer.remove_member.delete",
@@ -1179,7 +1179,7 @@ _BASE_GROUPS: dict[str, tuple[EndpointPolicy, ...]] = {
         + _TENANT_LOCAL_CLOUD_CONNECTION,
     ),
     "tenant.spend": declare_endpoints(
-        "tenant", "session_or_pat", _TENANT_SPEND, resolvers=("org.spend",)
+        "tenant", "session_or_pat", _TENANT_SPEND, resolvers=("organization.spend",)
     ),
     # Mixed-role group: viewer-tier per-cell/per-row reads plus the bulk
     # data-takeout routes one rung up, at reviewer. Kept under the SAME
@@ -1277,8 +1277,9 @@ def _plain(value: Any) -> Mapping[str, Any]:
         return asdict(value)
     if isinstance(value, Mapping):
         return value
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump(mode="python")
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(mode="python")
         if isinstance(dumped, Mapping):
             return dumped
     raise ValueError(

@@ -2,6 +2,7 @@
 
 import json
 import tarfile
+from contextlib import closing
 
 import pytest
 from hypothesis import given, settings
@@ -64,7 +65,7 @@ class TestBasics:
 class TestRunsAndPointers:
     def test_run_results_resolve(self, project):
         sheet, cols = make_sheet(project, 3)
-        out_col = project.add_column(sheet, "score", type="number", ai_generated=True)
+        out_col = project.add_column(sheet, "score", type="number", generated=True)
         op = project.append_change("map", {"action_kind": "map.classify"})
         run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=3)
         rows = [
@@ -103,7 +104,8 @@ class TestRunsAndPointers:
             ],
         )
         RunResultStore(project).finish_run(run)
-        RunResultStore(project).point_column_at_run(op, out_col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, out_col, run)
         vals = project.get_values(sheet, out_col)
         assert sorted(vals.values()) == [0, 1, 2]
         r = project.db.execute("SELECT * FROM runs WHERE id=?", (run,)).fetchone()
@@ -112,7 +114,7 @@ class TestRunsAndPointers:
 
     def test_result_writes_idempotent(self, project):
         sheet, cols = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "x", ai_generated=True)
+        out_col = project.add_column(sheet, "x", generated=True)
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.r", total_rows=1)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -125,7 +127,7 @@ class TestRunsAndPointers:
 
     def test_model_calls_written_with_results(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "transcript", ai_generated=True)
+        out_col = project.add_column(sheet, "transcript", generated=True)
         op = project.append_change("map")
         run = RunResultStore(project).start_run(
             op, sheet, "media.transcribe", total_rows=1
@@ -186,7 +188,7 @@ class TestRunsAndPointers:
         self, project
     ):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=1)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -229,7 +231,7 @@ class TestRunsAndPointers:
 
     def test_rerun_creates_new_version_old_kept(self, project):
         sheet, _ = make_sheet(project, 2)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         rows = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
 
         op1 = project.append_change("map")
@@ -239,7 +241,8 @@ class TestRunsAndPointers:
             run1,
             [{"row_id": r, "column_id": out_col, "value": "v1"} for r in rows],
         )
-        RunResultStore(project).point_column_at_run(op1, out_col, run1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op1, out_col, run1)
 
         op2 = project.append_change("map")
         run2 = RunResultStore(project).start_run(op2, sheet, "map.classify")
@@ -248,7 +251,8 @@ class TestRunsAndPointers:
             run2,
             [{"row_id": r, "column_id": out_col, "value": "v2"} for r in rows],
         )
-        RunResultStore(project).point_column_at_run(op2, out_col, run2)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op2, out_col, run2)
 
         assert set(project.get_values(sheet, out_col).values()) == {"v2"}
         # history intact: run1 values still stored
@@ -264,7 +268,7 @@ class TestRunsAndPointers:
 class TestEditsOverlay:
     def test_edit_beats_run(self, project):
         sheet, _ = make_sheet(project, 2)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         rows = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
@@ -273,7 +277,8 @@ class TestEditsOverlay:
             run,
             [{"row_id": r, "column_id": out_col, "value": "model"} for r in rows],
         )
-        RunResultStore(project).point_column_at_run(op, out_col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, out_col, run)
         project.apply_edits(
             [{"row_id": rows[0], "column_id": out_col, "value": "human"}]
         )
@@ -283,14 +288,15 @@ class TestEditsOverlay:
 
     def test_undo_edit_restores_model_value(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "label", ai_generated=True)
+        out_col = project.add_column(sheet, "label", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": out_col, "value": "model"}]
         )
-        RunResultStore(project).point_column_at_run(op, out_col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, out_col, run)
         project.apply_edits([{"row_id": rid, "column_id": out_col, "value": "human"}])
         assert project.get_values(sheet, out_col)[rid] == "human"
         project.undo()
@@ -302,20 +308,22 @@ class TestEditsOverlay:
 class TestUndoRedo:
     def test_undo_run_moves_pointer_back(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "x", ai_generated=True)
+        out_col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op1 = project.append_change("map")
         r1 = RunResultStore(project).start_run(op1, sheet, "test.c")
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": out_col, "value": "first"}]
         )
-        RunResultStore(project).point_column_at_run(op1, out_col, r1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op1, out_col, r1)
         op2 = project.append_change("map")
         r2 = RunResultStore(project).start_run(op2, sheet, "test.c")
         write_claimed_test_results(
             project, r2, [{"row_id": rid, "column_id": out_col, "value": "second"}]
         )
-        RunResultStore(project).point_column_at_run(op2, out_col, r2)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op2, out_col, r2)
 
         assert project.get_values(sheet, out_col)[rid] == "second"
         project.undo()
@@ -354,14 +362,15 @@ class TestUndoRedo:
 
     def test_new_op_truncates_redo_future(self, project):
         sheet, _ = make_sheet(project, 1)
-        out_col = project.add_column(sheet, "x", ai_generated=True)
+        out_col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op1 = project.append_change("map")
         r1 = RunResultStore(project).start_run(op1, sheet, "test.c")
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": out_col, "value": "a"}]
         )
-        RunResultStore(project).point_column_at_run(op1, out_col, r1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op1, out_col, r1)
         project.undo()
         # a new op while undone — the undone op stays undone; redo finds nothing new
         project.apply_edits([{"row_id": rid, "column_id": out_col, "value": "fresh"}])
@@ -380,10 +389,9 @@ def op_sequences(draw):
 @given(seq=op_sequences(), undos=st.integers(min_value=1, max_value=8))
 def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos):
     tmp = tmp_path_factory.mktemp("prop")
-    p = Project.create(tmp / "p.frisket")
-    try:
+    with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
-        col = p.add_column(sheet, "out", ai_generated=True)
+        col = p.add_column(sheet, "out", generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
         for i, kind in enumerate(seq):
             if kind == "run":
@@ -394,7 +402,8 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
                     run,
                     [{"row_id": r, "column_id": col, "value": f"run{i}"} for r in rows],
                 )
-                RunResultStore(p).point_column_at_run(op, col, run)
+                with write_transaction(p.db):
+                    RunResultStore(p).point_column_at_run(op, col, run)
             else:
                 p.apply_edits(
                     [{"row_id": rows[0], "column_id": col, "value": f"edit{i}"}]
@@ -408,18 +417,15 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
         for _ in range(n_undone):
             assert p.redo() is not None
         assert p.get_values(sheet, col) == snapshot
-    finally:
-        p.close()
 
 
 @settings(max_examples=25, deadline=None)
 @given(seq=op_sequences())
 def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
     tmp = tmp_path_factory.mktemp("prop2")
-    p = Project.create(tmp / "p.frisket")
-    try:
+    with closing(Project.create(tmp / "p.frisket")) as p:
         sheet, _ = make_sheet(p, 2)
-        col = p.add_column(sheet, "out", ai_generated=True)
+        col = p.add_column(sheet, "out", generated=True)
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
         baseline = p.get_values(sheet, col)
         seeded_op_cursor = p.op_cursor
@@ -432,7 +438,8 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
                     run,
                     [{"row_id": r, "column_id": col, "value": f"run{i}"} for r in rows],
                 )
-                RunResultStore(p).point_column_at_run(op, col, run)
+                with write_transaction(p.db):
+                    RunResultStore(p).point_column_at_run(op, col, run)
             else:
                 p.apply_edits(
                     [{"row_id": rows[0], "column_id": col, "value": f"edit{i}"}]
@@ -440,8 +447,6 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
         while p.op_cursor > seeded_op_cursor:
             assert p.undo() is not None
         assert p.get_values(sheet, col) == baseline
-    finally:
-        p.close()
 
 
 class TestBundle:
@@ -543,7 +548,7 @@ class TestStoreRegressions:
 
     def test_redo_cannot_resurrect_discarded_branch(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "x", ai_generated=True)
+        col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
 
         def run_with(value):
@@ -552,7 +557,8 @@ class TestStoreRegressions:
             write_claimed_test_results(
                 project, run, [{"row_id": rid, "column_id": col, "value": value}]
             )
-            RunResultStore(project).point_column_at_run(op, col, run)
+            with write_transaction(project.db):
+                RunResultStore(project).point_column_at_run(op, col, run)
 
         run_with("a")
         project.undo()  # branch A undone
@@ -565,28 +571,30 @@ class TestStoreRegressions:
 
     def test_repeat_pointing_in_one_op_undoes_to_pre_op_state(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "x", ai_generated=True)
+        col = project.add_column(sheet, "x", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         r1 = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": col, "value": "v1"}]
         )
-        RunResultStore(project).point_column_at_run(op, col, r1)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, r1)
         r2 = RunResultStore(project).start_run(
             op, sheet, "test.c"
         )  # e.g. resume repoints
         write_claimed_test_results(
             project, r2, [{"row_id": rid, "column_id": col, "value": "v2"}]
         )
-        RunResultStore(project).point_column_at_run(op, col, r2)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, r2)
         project.undo()
         # must be pre-op (None), not intermediate r1
         assert project.get_values(sheet, col)[rid] is None
 
     def test_undone_column_keeps_history_when_name_is_recreated(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "score", ai_generated=True)
+        col = project.add_column(sheet, "score", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         with write_transaction(project.db):
@@ -595,11 +603,12 @@ class TestStoreRegressions:
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": 5}]
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         project.undo()
         assert "score" not in [c["name"] for c in project.columns(sheet)]
         # Reuse the name, not the historical identity or values.
-        col2 = project.add_column(sheet, "score", ai_generated=True)
+        col2 = project.add_column(sheet, "score", generated=True)
         assert col2 != col
         assert project.get_column(col)["active"] == 0
         assert project.get_column(col2)["active"] == 1
@@ -660,7 +669,8 @@ class TestCompactionGC:
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": {"blob": blob}}]
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         # the live column points at this run → blob is reachable
         assert project.gc_blobs(dry_run=True)["blobs_removed"] == 0
 
@@ -668,14 +678,15 @@ class TestCompactionGC:
         self, project
     ):
         sheet, _ = make_sheet(project, 2)
-        col = project.add_column(sheet, "score", ai_generated=True)
+        col = project.add_column(sheet, "score", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": 5}]
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         project.undo()
         # Merely reserving work does not clear Redo. A new actual mutation
         # clears ordinary Redo while retaining selective Restore and results.
@@ -714,14 +725,18 @@ class TestCompactionGC:
     def _discarded_run_with_checkpoints(self, project):
         """A discarded run carrying one ``reserved`` and one ``returned``
         row-effect checkpoint."""
-        from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+        from frisket.engine.store.effect_checkpoints import (
+            EffectCheckpointStore,
+            row_effect_ref,
+        )
 
         sheet, _ = make_sheet(project, 2)
-        col = project.add_column(sheet, "score", ai_generated=True)
+        col = project.add_column(sheet, "score", generated=True)
         rids = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
         op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         authority = run_writer_authority_fixture(
             project,
             run,
@@ -729,26 +744,27 @@ class TestCompactionGC:
         )
         for cp_id, rid in (("cp-reserved", rids[0]), ("cp-returned", rids[1])):
             assert RunResultStore(project).reserve_row_effect_checkpoint(
-                cp_id,
-                run_id=run,
-                row_id=rid,
-                action_kind="c",
-                identity=f"identity-{rid}",
+                row_effect_ref(
+                    cp_id,
+                    run_id=run,
+                    row_id=rid,
+                    action_kind="c",
+                    identity=f"identity-{rid}",
+                ),
                 **authority.kwargs(),
             )
         # The second one's provider response came back and is durable, but no
         # result ever committed, so it was never consumed/retired.
         EffectCheckpointStore(project.db).complete(
-            "cp-returned",
-            family="row_effect",
-            group_key=str(run),
-            unit_key=str(rids[1]),
-            action_kind="c",
-            identity=f"identity-{rids[1]}",
+            row_effect_ref(
+                "cp-returned",
+                run_id=run,
+                row_id=rids[1],
+                action_kind="c",
+                identity=f"identity-{rids[1]}",
+            ),
             payload={"score": {"value": "paid answer", "error": None}},
-            run_id=run,
-            writer_attempt_id=authority.writer_attempt_id,
-            claimless_direct_effect=True,
+            fence=authority.fence(),
         )
         from frisket.execution.attempt import set_attempt_state
 
@@ -819,7 +835,7 @@ class TestCompactionRedoSafety:
 
     def test_gc_keeps_redoable_run_blobs(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "img", type="image", ai_generated=True)
+        col = project.add_column(sheet, "img", type="image", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         digest = project.add_blob(b"redoable image bytes", mime="image/png")
         op = project.append_change("map")
@@ -835,7 +851,8 @@ class TestCompactionRedoSafety:
                 }
             ],
         )
-        RunResultStore(project).point_column_at_run(op, col, run)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op, col, run)
         # undo: the run is now 'undone' (redoable), not the column's current run
         project.undo()
         if hasattr(project, "gc_blobs"):
@@ -852,7 +869,7 @@ class TestCompactionRedoSafety:
 
     def test_gc_keeps_superseded_run_blob_needed_by_undo(self, project):
         sheet, _ = make_sheet(project, 1)
-        col = project.add_column(sheet, "img", type="image", ai_generated=True)
+        col = project.add_column(sheet, "img", type="image", generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         store = RunResultStore(project)
 
@@ -877,7 +894,8 @@ class TestCompactionRedoSafety:
                 ],
             )
             store.finish_run(run)
-            store.point_column_at_run(op, col, run)
+            with write_transaction(store.db):
+                store.point_column_at_run(op, col, run)
             return blob, op, run
 
         first_bytes = b"generation A image bytes"
@@ -969,8 +987,7 @@ class TestConcurrentOpen:
                 for future in [pool.submit(open_and_close, work) for _ in range(8)]:
                     future.result()
 
-            project = Project(work)
-            try:
+            with closing(Project(work)) as project:
                 standing = project.db.execute(
                     "SELECT COUNT(*) AS n FROM consents WHERE standing_policy=?",
                     (STANDING_COST_POLICY,),
@@ -980,8 +997,6 @@ class TestConcurrentOpen:
                     "concurrent opens across one knob change; expected the "
                     "original plus exactly one successor"
                 )
-            finally:
-                project.close()
 
         assert not errors, (
             f"concurrent open raised {len(errors)} error(s); first: {errors[0]!r}"

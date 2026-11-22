@@ -46,7 +46,7 @@ def _row_and_column(p: Project) -> tuple[int, int, int]:
     sheet = p.add_sheet("data")
     col = p.add_column(sheet, "text")
     p.add_rows(sheet, [{"text": "hello"}], {"text": col})
-    out_col = p.add_column(sheet, "answer", ai_generated=True)
+    out_col = p.add_column(sheet, "answer", generated=True)
     row_id = p.db.execute("SELECT id FROM rows").fetchone()["id"]
     return sheet, row_id, out_col
 

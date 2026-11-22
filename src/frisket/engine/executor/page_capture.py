@@ -17,7 +17,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.actions.file_types import UrlColumn
@@ -31,14 +31,14 @@ from frisket.engine.executor.blob_outputs import (
 from frisket.engine.executor.action_families._errors import (
     receipt_stale_replay_error,
 )
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     citation_by_stable_id,
     record_citation,
     record_source_artifact,
     record_source_span,
 )
 from frisket.sdk.media import (
-    media_output_column_value_hash,
+    media_generated_column_value_hash,
     media_replay_row_ids,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
@@ -50,7 +50,7 @@ from frisket.engine.executor.action_reservations import (
 from frisket.engine.executor.action_support import (
     ActionCtx,
 )
-from frisket.sdk.replay import _replay_output_column_row
+from frisket.sdk.replay import _replay_generated_column_row
 from frisket.engine.store import Project
 from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.materialization import (
@@ -264,7 +264,7 @@ def _resolve_web_capture_page_inputs(
         ).fetchone()
         if output_column is not None and output_column["hidden"]:
             return ActionError(
-                code="output_column_exists",
+                code="generated_column_exists",
                 message=f"{action_kind} output name is reserved by a hidden column",
                 action_kind=action_kind,
                 field="params.output_name",
@@ -573,10 +573,9 @@ def _finalize_web_capture_page_failed_receipt(
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        updated = ReceiptStore(project).update_body_status(
+        updated = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not updated:
             raise RuntimeError(f"{action.kind} running receipt could not be finalized")
@@ -719,10 +718,9 @@ def _finalize_web_capture_page(
             status_counts=status_counts,
             errors=errors,
         )
-        updated = ReceiptStore(project).update_body_status(
+        updated = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not updated:
             raise RuntimeError(f"{action.kind} running receipt could not be finalized")
@@ -803,13 +801,13 @@ def _finalize_web_capture_page_links(
                 op_spec=op_spec,
                 columns=[
                     MaterializedColumnSpec(
-                        name=names["url"], type="link", ai_generated=True
+                        name=names["url"], type="link", generated=True
                     ),
                     MaterializedColumnSpec(
-                        name=names["anchor_text"], type="text", ai_generated=True
+                        name=names["anchor_text"], type="text", generated=True
                     ),
                     MaterializedColumnSpec(
-                        name=names["source_url"], type="link", ai_generated=True
+                        name=names["source_url"], type="link", generated=True
                     ),
                 ],
                 rows=materialized_rows,
@@ -831,10 +829,9 @@ def _finalize_web_capture_page_links(
             status_counts=status_counts,
             errors=errors,
         )
-        updated = ReceiptStore(project).update_body_status(
+        updated = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
-            commit=False,
         )
         if not updated:
             raise RuntimeError(f"{action.kind} running receipt could not be finalized")
@@ -879,7 +876,7 @@ def _web_capture_page_add_generated_column(
             )
         return int(row["id"])
     cur = project.db.execute(
-        "INSERT INTO columns (sheet_id, name, type, ai_generated, format, hidden, "
+        "INSERT INTO columns (sheet_id, name, type, generated, format, hidden, "
         "position) VALUES (?, ?, ?, 1, NULL, 0, "
         "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
         (
@@ -1000,7 +997,7 @@ def _web_capture_page_output_ref(
         "failed_rows": [
             int(row["row_id"]) for row in row_results if row.get("status") == "error"
         ],
-        "value_hash": media_output_column_value_hash(
+        "value_hash": media_generated_column_value_hash(
             project,
             sheet_id=params.sheet_id,
             column_id=output_column_id,
@@ -1148,7 +1145,7 @@ def _web_capture_page_links_receipt(
     }
     rows_ref = dict(write.materialized_rows_ref)
     rows_ref["value_hashes"] = {
-        name: media_output_column_value_hash(
+        name: media_generated_column_value_hash(
             project,
             sheet_id=write.sheet_id,
             column_id=int(write.column_ids[names[name]]),
@@ -1202,8 +1199,8 @@ def _web_capture_page_links_receipt(
         ],
         outputs=outputs,
         provider_use=_web_capture_page_provider_use(row_results),
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={
                     "kind": "web_capture_page_link_extraction",
                     "sheet_id": write.sheet_id,
@@ -1216,11 +1213,9 @@ def _web_capture_page_links_receipt(
                     "params_hash": params_hash,
                 }
             ),
-            ReceiptEvidence(
-                ref=dict(write.lineage_parent_rows_ref), retention="pinned"
-            ),
+            ReceiptRecord(ref=dict(write.lineage_parent_rows_ref), retention="pinned"),
             *[
-                ReceiptEvidence(
+                ReceiptRecord(
                     ref={
                         "kind": "web_capture_page_error",
                         "row_id": int(row["row_id"]),
@@ -1301,11 +1296,11 @@ def _web_capture_page_receipt(
         ],
         outputs=[ReceiptIO(name=output_ref["name"], ref=output_ref)],
         provider_use=_web_capture_page_provider_use(row_results),
-        evidence=[
-            ReceiptEvidence(ref=request_counts),
-            *[ReceiptEvidence(ref=ref) for ref in evidence_refs],
+        records=[
+            ReceiptRecord(ref=request_counts),
+            *[ReceiptRecord(ref=ref) for ref in evidence_refs],
             *[
-                ReceiptEvidence(ref=ref)
+                ReceiptRecord(ref=ref)
                 for ref in _web_capture_page_error_refs(row_results, output_ref)
             ],
         ],
@@ -1498,7 +1493,7 @@ def _web_capture_page_replay_error(
         row_ids = media_replay_row_ids(ref, receipt=receipt, output_name=output.name)
         if isinstance(row_ids, ActionError):
             return row_ids
-        column = _replay_output_column_row(
+        column = _replay_generated_column_row(
             project, receipt, column_id=column_id, sheet_id=sheet_id
         )
         expected_type = ref.get("column_type")
@@ -1509,14 +1504,14 @@ def _web_capture_page_replay_error(
             )
         if column is None or column["type"] != expected_type:
             return stale(replay + "generated column is missing", column_id=column_id)
-        if ref.get("value_hash") != media_output_column_value_hash(
+        if ref.get("value_hash") != media_generated_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=column_id,
             row_ids=row_ids,
         ):
             return stale(replay + "output values changed", column_id=column_id)
-    for supporting_record in receipt.evidence:
+    for supporting_record in receipt.records:
         ref = supporting_record.ref
         if ref.get("kind") in {
             "web_capture_page_artifact",
@@ -1570,7 +1565,7 @@ def _web_capture_page_links_replay_error(
     ]
     lineage_evidence = [
         supporting_record
-        for supporting_record in receipt.evidence
+        for supporting_record in receipt.records
         if supporting_record.ref.get("kind") == "lineage_parent_rows"
     ]
     if not any((sheet_outputs, column_outputs, rows_outputs, lineage_evidence)):
@@ -1673,7 +1668,7 @@ def _web_capture_page_links_replay_error(
             or column["type"] != expected_type
         ):
             return stale("links generated column is missing or changed", output=name)
-        if value_hashes[name] != media_output_column_value_hash(
+        if value_hashes[name] != media_generated_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=column_id,

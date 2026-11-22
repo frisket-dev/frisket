@@ -7,7 +7,7 @@ from helpers import stored_output_descriptor
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cell_pairs
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -28,8 +28,8 @@ def _stage_document_and_page(
     project: Project,
 ) -> tuple[object, object]:
     project.db.execute("BEGIN IMMEDIATE")
-    producing_op_id = project.append_change(
-        "prepare.test", {}, label="prepare test PDF", commit=False
+    producing_op_id = project.append_change_in_transaction(
+        "prepare.test", {}, label="prepare test PDF"
     )
     artifact = record_source_artifact(
         project,
@@ -67,14 +67,13 @@ def test_current_reads_and_sql_filter_resolve_prepared_content(
     body_id = project.add_column(sheet_id, "body", type="text")
     count_id = project.add_column(sheet_id, "count", type="integer")
     document_ref, page_ref = _stage_document_and_page(project)
-    row_ids = project.add_rows(
+    row_ids = project.add_rows_in_transaction(
         sheet_id,
         [
             {"body": document_ref, "count": 7},
             {"body": page_ref, "count": 8},
         ],
         {"body": body_id, "count": count_id},
-        commit=False,
     )
     project.db.commit()
 
@@ -108,10 +107,10 @@ def test_current_reads_and_sql_filter_resolve_prepared_content(
 def test_historical_result_readers_resolve_prepared_content(make_project) -> None:
     project = make_project("prepared-history")
     sheet_id = project.add_sheet("Documents")
-    body_id = project.add_column(sheet_id, "body", type="text", ai_generated=True)
+    body_id = project.add_column(sheet_id, "body", type="text", generated=True)
     document_ref, _page_ref = _stage_document_and_page(project)
-    row_id = project.add_rows(sheet_id, [{}], {}, commit=False)[0]
-    run_op_id = project.append_change("map.test", {}, label="map test", commit=False)
+    row_id = project.add_rows_in_transaction(sheet_id, [{}], {})[0]
+    run_op_id = project.append_change_in_transaction("map.test", {}, label="map test")
     run_id = int(
         project.db.execute(
             "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
@@ -168,11 +167,10 @@ def test_ask_source_reads_pin_exact_ref_and_reject_same_text_ref_change(
     sheet_id = project.add_sheet("Documents")
     body_id = project.add_column(sheet_id, "body", type="text")
     document_ref, _page_ref = _stage_document_and_page(project)
-    row_id = project.add_rows(
+    row_id = project.add_rows_in_transaction(
         sheet_id,
         [{"body": document_ref}],
         {"body": body_id},
-        commit=False,
     )[0]
     project.db.commit()
 
@@ -188,8 +186,8 @@ def test_ask_source_reads_pin_exact_ref_and_reject_same_text_ref_change(
     assert found["matches"][0]["start"] == len("alpha ")
 
     project.db.execute("BEGIN IMMEDIATE")
-    replacement_op_id = project.append_change(
-        "prepare.test", {}, label="replace test PDF text", commit=False
+    replacement_op_id = project.append_change_in_transaction(
+        "prepare.test", {}, label="replace test PDF text"
     )
     replacement_ref = PreparedContentStore(project).stage_replacement(
         base_ref_id=document_ref.ref_id,
@@ -222,11 +220,10 @@ def test_search_and_csv_export_use_full_prepared_document(make_project) -> None:
     sheet_id = project.add_sheet("Documents")
     body_id = project.add_column(sheet_id, "body", type="text")
     document_ref, _page_ref = _stage_document_and_page(project)
-    row_id = project.add_rows(
+    row_id = project.add_rows_in_transaction(
         sheet_id,
         [{"body": document_ref}],
         {"body": body_id},
-        commit=False,
     )[0]
     project.db.commit()
 
@@ -250,11 +247,10 @@ def test_page_edit_stages_replacement_but_document_edit_stays_flat(
     sheet_id = project.add_sheet("Documents")
     body_id = project.add_column(sheet_id, "body", type="text")
     document_ref, page_ref = _stage_document_and_page(project)
-    document_row, page_row = project.add_rows(
+    document_row, page_row = project.add_rows_in_transaction(
         sheet_id,
         [{"body": document_ref}, {"body": page_ref}],
         {"body": body_id},
-        commit=False,
     )
     project.db.commit()
     store = PreparedContentStore(project)
@@ -354,11 +350,10 @@ def test_page_edit_after_source_deletion_falls_back_to_flat_text(
     sheet_id = project.add_sheet("Documents")
     body_id = project.add_column(sheet_id, "body", type="text")
     _document_ref, page_ref = _stage_document_and_page(project)
-    page_row = project.add_rows(
+    page_row = project.add_rows_in_transaction(
         sheet_id,
         [{"body": page_ref}],
         {"body": body_id},
-        commit=False,
     )[0]
     project.db.commit()
     source_artifact_id = (

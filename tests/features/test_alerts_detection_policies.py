@@ -58,7 +58,7 @@ def _create_filter_alert(
 ) -> dict[str, Any]:
     response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": f"{policy['kind']} watch",
             "scope": {"kind": "sheet", "sheet_id": sheet_id},
@@ -80,10 +80,10 @@ def _create_filter_alert(
 
 
 def _check_alert(client: TestClient, pid: str, alert_id: int) -> dict[str, Any]:
-    response = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
+    response = client.post(f"/api/projects/{pid}/alerts/{alert_id}/check")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["schema_version"] == "frisket.watch_run.v1"
+    assert body["schema_version"] == "frisket.alert_check.v1"
     return body
 
 
@@ -99,7 +99,7 @@ def _events(
     if kind is not None:
         params["event_kind"] = kind
     response = client.get(
-        f"/api/projects/{pid}/watches/{alert_id}/runs/{run_id}/events",
+        f"/api/projects/{pid}/alerts/{alert_id}/checks/{run_id}/events",
         params=params,
     )
     assert response.status_code == 200, response.text
@@ -250,7 +250,7 @@ def test_row_changed_is_bounded_to_configured_fields_and_not_first_observation(
 
     project = client.app.state.workspace.get(pid)
     state_rows = project.db.execute(
-        "SELECT watch_id, sheet_id, row_id, column_id FROM watch_row_field_state"
+        "SELECT alert_id, sheet_id, row_id, column_id FROM alert_row_field_state"
     ).fetchall()
     assert len(state_rows) == 2
     assert {row["column_id"] for row in state_rows} == {columns["body"]}
@@ -314,7 +314,7 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
 
     empty_fields = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "bad row changed",
             "scope": {"kind": "sheet", "sheet_id": sheet_id},
@@ -331,7 +331,7 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
 
     bad_metric = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "bad threshold",
             "scope": {"kind": "sheet", "sheet_id": sheet_id},

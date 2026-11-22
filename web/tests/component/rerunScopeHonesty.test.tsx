@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CascadeConfirmDialog } from '../../src/workbench/LineagePanel';
 import { AlertsPanel } from '../../src/components/AlertsPanel';
 
-import type { SheetMeta, AlertInfo } from '../../src/api/open';
+import type { SheetMeta, AlertInfo, NotificationSummary } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import { canEditProject } from '../../src/api/projectRole';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -71,7 +71,7 @@ describe('stale-cascade confirm — scope honesty (ruling 4)', () => {
   });
 });
 
-const EMPTY_SUMMARY = {
+const EMPTY_SUMMARY: NotificationSummary = {
   schemaVersion: 'frisket.notifications_summary.v1',
   total: 0,
   unseen: 0,
@@ -158,7 +158,7 @@ describe('Alerts panel — re-run labels say what they buy (ruling 4)', () => {
           team: true,
         },
       },
-      WatchControlSlot: ({ projectId, watch: alert, refreshWatches: refreshAlerts }) => (
+      AlertControlSlot: ({ projectId, alert, refreshAlerts }) => (
         <button type="button" data-testid="edition-alert-control" onClick={refreshAlerts}>
           Destination for {alert.name} in {projectId}
         </button>

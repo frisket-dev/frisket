@@ -18,7 +18,7 @@ from frisket.contracts.action import (
     ActionError,
     ActionIdentity,
     ActionResult,
-    ReceiptEvidence,
+    ReceiptRecord,
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.action_jobs import (
@@ -96,7 +96,11 @@ class AdmittedFindScanner:
             action_kind=self.bound.action.action_id,
             request=request.model_dump(mode="json", exclude={"confirmation"}),
             sheet_id=request.scope.sheet_id,
-            row_ids=request.scope.row_ids,
+            row_ids=(
+                list(request.scope.row_ids)
+                if request.scope.row_ids is not None
+                else None
+            ),
             source_column=source.name,
             model=options.model.root,
             instruction=options.instruction,
@@ -222,13 +226,13 @@ def reserve_typed_find_action_job(
     receipt = receipts.parsed_by_id(envelope.receipt_id)
     assert receipt is not None
     supporting_records = [
-        *receipt.evidence,
-        ReceiptEvidence(
+        *receipt.records,
+        ReceiptRecord(
             ref={"kind": "find_admission", "admission": admission}, retention="pinned"
         ),
     ]
     if not receipts.update_body_status(
-        receipt.model_copy(update={"evidence": supporting_records}),
+        receipt.model_copy(update={"records": supporting_records}),
         require_status="queued",
     ):
         raise RuntimeError("Find lost its queued receipt before pinning admission")
@@ -256,7 +260,7 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
         next(
             (
                 item.ref.get("admission")
-                for item in receipt.evidence
+                for item in receipt.records
                 if item.ref.get("kind") == "find_admission"
             ),
             None,

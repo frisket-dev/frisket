@@ -9,14 +9,15 @@ import { createProjectApi } from '../../src/api/real';
 import { useWorkspaceActionController } from '../../src/workspace/useWorkspaceActionController';
 import { useWorkspaceGridController } from '../../src/workspace/useWorkspaceGridController';
 import { columnDef, row } from '../support/domainFixtures';
+import { sheetMeta } from '../support/actionFormFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const api = createProjectApi('triage-sheets');
 const { render, stores } = createWorkspaceTestHarness({ projectId: 'triage-sheets', api: { projectApi: api } });
-const sheets: SheetMeta[] = [1, 2].map((id) => ({
-  id: String(id), name: `Sheet ${id}`, rowCount: 1,
-  columns: [columnDef({ id: String(id * 11), name: 'Answer', type: 'text' })],
-}));
+const sheets: SheetMeta[] = [1, 2].map((id) => sheetMeta(
+  [columnDef({ id: String(id * 11), name: 'Answer', type: 'text' })],
+  { id: String(id), name: `Sheet ${id}`, rowCount: 1 },
+));
 let actions: ReturnType<typeof useWorkspaceActionController>;
 let grid: ReturnType<typeof useWorkspaceGridController>;
 const showError = vi.fn();

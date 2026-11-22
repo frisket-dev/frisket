@@ -218,7 +218,7 @@ def apply_additive_tables(
             elif isinstance(op, CreateColumnOp):
                 sheet_id = sheet_ids[op.sheet_ref]
                 cur.execute(
-                    "INSERT INTO columns (sheet_id, name, type, ai_generated, format, "
+                    "INSERT INTO columns (sheet_id, name, type, generated, format, "
                     "hidden, position) VALUES (?, ?, ?, 0, ?, ?, "
                     "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
                     (sheet_id, op.name, op.type, op.format, int(op.hidden), sheet_id),

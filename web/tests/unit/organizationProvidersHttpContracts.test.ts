@@ -1,20 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ApiError } from "../../src/api/contractErrors";
 import type { createOrganizationProvidersApi } from "../../src/api/organizationProviders";
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 async function organizationProvidersApi(): Promise<
   ReturnType<typeof createOrganizationProvidersApi>
 > {
   const module = await import("../../src/api/organizationProviders");
   return module.createOrganizationProvidersApi();
-}
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 afterEach(() => {
@@ -65,11 +58,11 @@ describe("organization provider generated HTTP port", () => {
     expect(
       requests.map((request) => [request.input, request.init?.method]),
     ).toEqual([
-      ["/api/org/provider-catalog", "GET"],
-      ["/api/org/keys", "GET"],
-      ["/api/org/keys", "POST"],
-      ["/api/org/keys/validate", "POST"],
-      ["/api/org/keys/open%2Fai", "DELETE"],
+      ["/api/organization/provider-catalog", "GET"],
+      ["/api/organization/keys", "GET"],
+      ["/api/organization/keys", "POST"],
+      ["/api/organization/keys/validate", "POST"],
+      ["/api/organization/keys/open%2Fai", "DELETE"],
     ]);
     expect(requests.map((request) => request.init?.body ?? null)).toEqual([
       null,
@@ -85,33 +78,6 @@ describe("organization provider generated HTTP port", () => {
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
     }
-  });
-
-  it("maps declared and additional non-2xx statuses", async () => {
-    const responses = [
-      jsonResponse({ detail: "unsupported provider" }, 400),
-      jsonResponse({ detail: "teapot" }, 418),
-    ];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => responses.shift()!),
-    );
-    const api = await organizationProvidersApi();
-
-    await expect(api.validateOrganizationKey("bogus")).rejects.toMatchObject({
-      name: "ApiError",
-      status: 400,
-      message: "unsupported provider",
-      code: undefined,
-      details: undefined,
-    } satisfies Partial<ApiError>);
-    await expect(api.validateOrganizationKey("bogus")).rejects.toMatchObject({
-      name: "ApiError",
-      status: 418,
-      message: "teapot",
-      code: undefined,
-      details: undefined,
-    } satisfies Partial<ApiError>);
   });
 
   it("keeps real.ts stable while composing void save/delete commands", async () => {

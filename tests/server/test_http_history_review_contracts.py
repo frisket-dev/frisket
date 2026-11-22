@@ -75,7 +75,7 @@ class _ColumnRunsService:
                 "id": column_id,
                 "name": "risk",
                 "type": "text",
-                "ai_generated": True,
+                "generated": True,
                 "current_run_id": 9,
                 "latest_run_id": 9,
                 "mixed_origins": False,
@@ -150,7 +150,7 @@ class _ReviewService:
             "column_id": 5,
             "column_name": "risk_evidence",
             "error": "citation unavailable",
-            "role": "evidence",
+            "role": "supporting",
             "chore": False,
         }
         return {
@@ -174,7 +174,7 @@ class _ReviewService:
                     "confidence": 0.9,
                     "source": {"story": "alpha"},
                     "fields": [item],
-                    "evidence": [evidence],
+                    "supporting_columns": [evidence],
                     "items": [item, evidence],
                 }
             ],
@@ -286,7 +286,7 @@ def test_history_review_contracts_preserve_bytes_omissions_and_open_json() -> No
     assert bundles.status_code == 200, bundles.text
     bundle = bundles.json()["bundles"][0]
     assert [item["role"] for item in bundle["fields"]] == ["field"]
-    assert bundle["evidence"][0]["error"] == "citation unavailable"
+    assert bundle["supporting_columns"][0]["error"] == "citation unavailable"
     assert [item["column_id"] for item in bundle["items"]] == [4, 5]
     assert bundle["review_note"] is None
     assert bundle["fields"][0]["review_note"] is None

@@ -19,7 +19,7 @@ def _csv(rows):
 
 
 def comparison_csv(result):
-    fields, variants = result["output_columns"], result["variants"]
+    fields, variants = result["generated_columns"], result["variants"]
     header = ["id"]
     for field in fields:
         name = field["current_name"]

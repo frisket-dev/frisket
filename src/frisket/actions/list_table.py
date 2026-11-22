@@ -254,11 +254,15 @@ def expand_list_table(
         return TableResult(
             rows=project_items(items, params.columns, require_paths=True)
         )
-    projection = (
-        tuple(params.columns)
-        if params.columns is not None
-        else infer_projection(items, params.source.include_columns)
-    )
+    if params.columns is not None:
+        projection = tuple(params.columns)
+    elif isinstance(params.source, ListColumnSource):
+        projection = infer_projection(items, params.source.include_columns)
+    else:
+        raise TableError(
+            "invalid_item_schema",
+            "Named list sources require explicit column declarations",
+        )
     item_names = {column.name for column in projection}
     copied_names = {column.name for column in copied_columns}
     if item_names & copied_names:

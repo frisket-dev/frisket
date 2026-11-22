@@ -17,6 +17,7 @@ import type {
   LocalProviderEntry,
   LocalHttpEndpointEntry,
   LocalProviderModel,
+  PlatformLocalProviderEntry,
   ProviderValidateResult,
 } from '../../src/api/types';
 
@@ -46,7 +47,7 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   };
 });
 
-import { createLocalEndpoint, discoverLocalEndpoints, listProviders, providerStatus, setProviderKey, validateProviderKey } from '../../src/api/open';
+import { createLocalEndpoint, deleteProviderKey, discoverLocalEndpoints, listProviders, providerStatus, setProviderKey, validateProviderKey } from '../../src/api/open';
 
 
 
@@ -59,7 +60,7 @@ function model(id: string, label: string): LocalProviderModel {
   return { id, label, price: null, local: true };
 }
 
-function providerEntry(overrides: Partial<LocalProviderEntry> & Pick<LocalProviderEntry, 'id' | 'label' | 'kind' | 'models'>): LocalProviderEntry {
+function providerEntry(overrides: Partial<PlatformLocalProviderEntry> & Pick<PlatformLocalProviderEntry, 'id' | 'label' | 'kind' | 'models'>): PlatformLocalProviderEntry {
   return { configured: false, source: null, hint: null, ...overrides };
 }
 
@@ -464,5 +465,54 @@ describe('WorkspaceAiProvidersSettings', () => {
     expect(screen.getByText('Environment')).toBeInTheDocument();
     expect(screen.getByTestId('provider-key-test-anthropic')).toBeEnabled();
     expect(screen.queryByTestId('provider-key-delete-anthropic')).not.toBeInTheDocument();
+  });
+
+  it('rejects invalid keys, clears validation on edit, and deletes stored keys through the provider route', async () => {
+    const stored = catalog([
+      providerEntry({
+        id: 'openai',
+        label: 'OpenAI',
+        kind: 'platform_api',
+        configured: true,
+        hint: '...alid',
+        source: 'local_file',
+        models: [],
+      }),
+    ]);
+    const cleared = catalog([
+      providerEntry({
+        id: 'openai',
+        label: 'OpenAI',
+        kind: 'platform_api',
+        configured: false,
+        source: null,
+        models: [],
+      }),
+    ]);
+    vi.mocked(listProviders).mockResolvedValue(stored);
+    vi.mocked(validateProviderKey).mockResolvedValue({
+      provider: 'openai',
+      ok: false,
+      reachable: true,
+      status: 401,
+      detail: 'HTTP 401: key rejected',
+    });
+    vi.mocked(deleteProviderKey).mockResolvedValue(cleared);
+
+    render(<WorkspaceAiProvidersSettings />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Add new key' }));
+    await userEvent.selectOptions(screen.getByLabelText('Provider'), 'openai');
+    const keyInput = screen.getByLabelText('Provider key');
+    await userEvent.type(keyInput, 'sk-local-invalid');
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
+    expect(await screen.findByTestId('provider-validation-message')).toHaveTextContent(/rejected|401/i);
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await userEvent.clear(keyInput);
+    await userEvent.type(keyInput, 'sk-local-next');
+    expect(screen.queryByTestId('provider-validation-message')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('provider-key-delete-openai'));
+    await waitFor(() => expect(deleteProviderKey).toHaveBeenCalledWith('openai'));
   });
 });

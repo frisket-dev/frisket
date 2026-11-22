@@ -72,7 +72,7 @@ ActionResultStatus = Literal[
     "failed",
     "cancelled",
 ]
-EvidenceRetention = Literal["compactable", "pinned", "materialized"]
+RecordRetention = Literal["compactable", "pinned", "materialized"]
 
 
 def _strict_authoring_contract_version(value: Any) -> Any:
@@ -282,9 +282,9 @@ class ReceiptIO(ContractModel):
         return payload
 
 
-class ReceiptEvidence(ContractModel):
+class ReceiptRecord(ContractModel):
     ref: dict[str, Any]
-    retention: EvidenceRetention = "compactable"
+    retention: RecordRetention = "compactable"
 
 
 class Receipt(ContractModel):
@@ -300,10 +300,10 @@ class Receipt(ContractModel):
     status: ActionResultStatus
     inputs: list[ReceiptIO] = Field(default_factory=list)
     outputs: list[ReceiptIO] = Field(default_factory=list)
-    # Authored domain return, distinct from host-recorded effects and evidence.
+    # Authored domain return, distinct from host-recorded effects and supporting records.
     value: JsonValue | None = None
     provider_use: list[dict[str, Any]] = Field(default_factory=list)
-    evidence: list[ReceiptEvidence] = Field(default_factory=list)
+    records: list[ReceiptRecord] = Field(default_factory=list)
     trace_ref: dict[str, Any] | None = None
     review: dict[str, Any] | None = None
     exports: list[dict[str, Any]] = Field(default_factory=list)

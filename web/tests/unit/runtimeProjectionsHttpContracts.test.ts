@@ -9,6 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { ApiError, createProjectApi } from '../../src/api/real';
 import { createRuntimeProjectionsApi } from '../../src/api/runtimeProjections';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const realApi = createProjectApi('test-project');
 
@@ -27,13 +28,6 @@ const build = {
   outputs: { artifactRefs: [], metrics: {} },
   warnings: [],
 };
-
-function jsonResponse(payload: unknown, statusCode = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status: statusCode,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();

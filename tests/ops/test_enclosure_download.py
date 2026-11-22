@@ -355,7 +355,7 @@ def test_enclosure_error_is_redacted_before_row_action_and_receipt(
     assert receipt["errors"][0]["message"] == safe_error
     failed_cell = next(
         item["ref"]
-        for item in receipt["evidence"]
+        for item in receipt["records"]
         if item["ref"].get("kind") == "media_cell"
     )
     assert failed_cell["status"] == "error"

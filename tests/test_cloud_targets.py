@@ -55,10 +55,9 @@ from frisket.execution.targets import (
     ToMarkdownOptionSupport,
     TranslateOptionSupport,
 )
-from frisket.engine.store import Project
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.validation import ClaimsGate
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.engine.store.transactions import write_transaction
@@ -624,7 +623,7 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(
     ],
 )
 def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
-    tmp_path, target_id, egress_class, blocked
+    tmp_path, make_project, target_id, egress_class, blocked
 ):
     class Provider:
         target = ExecutionTarget(
@@ -655,7 +654,7 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
             del candidate_id, capability, engine
             return 0
 
-    project = Project.create(tmp_path / f"{target_id}.frisket", name="Document")
+    project = make_project(target_id)
     with project.transaction_scope():
         write_project_settings(
             project,
@@ -670,22 +669,19 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
         provider=Provider(),
         credential_use_context=CredentialUseContext.open(),
     )
-    try:
-        composition = cloud_execution_composition(
-            base,
-            project,
-            store=CloudConnectionStore(tmp_path / "profile"),
-            client=object(),
-        )
-        outcome = resolve(
-            ResolutionRequest(
-                engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
-            ),
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        base,
+        project,
+        store=CloudConnectionStore(tmp_path / "profile"),
+        client=object(),
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine="docling", capability=CAPABILITY_TO_MARKDOWN, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     if blocked:
         assert isinstance(outcome, Refusal)
@@ -922,7 +918,7 @@ def test_cloud_vision_ocr_uses_model_transport_and_unbounded_receipt_pricing():
     assert resolved.resolution.support.transport == "frisket.cloud.llm.v1"
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.estimated_quantity is None
-    assert resolved.cost_basis.row_quote_quantities is None
+    assert resolved.cost_basis.row_estimate_quantities is None
     assert resolved.cost_basis.quantity_unit == "usd"
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
     assert resolved.cost_basis.pricing_key.endswith(":openai:ocr:openai/gpt-5-mini")
@@ -1375,7 +1371,7 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
     assert "Add credits" in blocked_cloud.remedy
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
-    assert resolved.cost_basis.row_quote_quantities is None
+    assert resolved.cost_basis.row_estimate_quantities is None
     assert resolved.cost_basis.estimated_quantity is not None
     assert resolved.cost_basis.bound is not None
     assert resolved.cost_basis.bound > 0
@@ -1497,7 +1493,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         )
     )
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="map.extract",
@@ -1508,7 +1504,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
 
     def bind_claim(progress):
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=claim_token,
                 run_id=progress.run_id,
                 expected_output_names=["value"],
@@ -1584,7 +1580,6 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         )
     finally:
         asyncio.run(runner.router.aclose())
-        project.close()
 
 
 def test_blocked_cloud_first_route_does_not_fall_back_to_local():

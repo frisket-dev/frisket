@@ -9,14 +9,14 @@ test('a current grid selection becomes a persistent View with its own alert', as
   const pid = await createProject(page.request, uniqueName('domain-view-alert'));
   const sheetId = await importCsv(page.request, pid, 'stories.csv', 'title,status\nBudget,open\nRoad,closed\n');
   await openProject(page, pid, sheetId);
-  await openDiscoverTab(page, 'Watches');
+  await openDiscoverTab(page, 'Alerts');
   const panel = page.getByTestId('alerts-panel');
   await panel.getByTestId('new-alert-from-current-grid').click();
   await page.getByTestId('alert-create-name').fill('Daily stories');
   await page.getByLabel('Check frequency', { exact: true }).selectOption('@daily');
   await page.getByLabel('Rows leaving this view', { exact: true }).check();
   const created = page.waitForResponse(response => response.request().method() === 'POST'
-    && new URL(response.url()).pathname === `/api/projects/${pid}/watches`);
+    && new URL(response.url()).pathname === `/api/projects/${pid}/alerts`);
   await page.getByTestId('create-alert-button').click();
   const response = await created;
   expect(response.ok()).toBeTruthy();
@@ -92,7 +92,7 @@ test('saved results can be reapplied from Review without another provider run', 
   const original = outputs.find(column => column.name === 'headline')!;
   const copied = outputs.find(column => column.name === 'headline_2')!;
   expect(response.request().postDataJSON()).toMatchObject({ replace_existing: false,
-    output_names: { rendered: 'headline_2' }, expected_output_columns: { headline_2: null } });
+    output_names: { rendered: 'headline_2' }, expected_generated_columns: { headline_2: null } });
   for (const output of [copied]) {
     expect(data.rows.map(row => row.cells[String(output.id)])).toEqual(['Story: Budget', 'Story: Road']);
     for (const row of data.rows) expect(row.meta?.[String(output.id)]).toMatchObject({

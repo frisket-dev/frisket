@@ -7,7 +7,11 @@ from frisket.engine.store.column_descriptors import (
     descriptor_identity,
     project_column_descriptors,
 )
-from frisket.engine.store.op_log import append_change, operation_target, step_operation
+from frisket.engine.store.op_log import (
+    append_change_in_transaction,
+    operation_target,
+    step_operation,
+)
 
 
 def _step(project, direction, op_id=None):
@@ -24,14 +28,13 @@ def _step(project, direction, op_id=None):
 def _descriptor(project, column, value):
     project.db.execute("BEGIN IMMEDIATE")
     old = project.get_column(column)["type"]
-    op = append_change(
+    op = append_change_in_transaction(
         project,
         "column.set_type",
         undo_info={
             "column_types": {str(column): old},
             "column_types_after": {str(column): value},
         },
-        commit=False,
     )
     start_change(project.db, op)
     project_column_descriptors(project.db, [column])
@@ -119,7 +122,7 @@ def test_selective_row_membership_uses_latest_active_change(make_project):
     ids = []
     for field in ("deleted_rows", "restored_rows", "deleted_rows"):
         with write_transaction(project.db):
-            op = append_change(project, field, undo_info={field: [row]}, commit=False)
+            op = append_change_in_transaction(project, field, undo_info={field: [row]})
             start_change(project.db, op)
             project_structural_changes(project.db, op)
         ids.append(op)
@@ -187,8 +190,8 @@ def test_creation_restore_conflict_does_not_partially_restore_other_columns(
     a = project.add_column(sheet, "summary")
     b = project.add_column(sheet, "citation")
     with write_transaction(project.db):
-        op = append_change(
-            project, "create", undo_info={"created_columns": [a, b]}, commit=False
+        op = append_change_in_transaction(
+            project, "create", undo_info={"created_columns": [a, b]}
         )
         start_change(project.db, op)
     _step(project, "undo")
@@ -204,7 +207,8 @@ def test_direct_descriptor_setters_share_change_identity_and_undo(make_project):
     sheet = project.add_sheet("data")
     column = project.add_column(sheet, "value")
     original = descriptor_identity(project, column)
-    project.set_column_type(column, "number")
+    with write_transaction(project.db):
+        project.set_column_type(column, "number")
     changed = descriptor_identity(project, column)
     assert changed["owners"]["type"] == project.op_cursor
     project.undo()
@@ -212,7 +216,8 @@ def test_direct_descriptor_setters_share_change_identity_and_undo(make_project):
     project.redo()
     assert descriptor_identity(project, column) == changed
     with pytest.raises(ValueError, match="requires a Change owner"):
-        project.set_column_type(column, "text", initialize=True)
+        with write_transaction(project.db):
+            project.set_column_type(column, "text", initialize=True)
 
 
 def test_nested_typed_edit_and_receipt_roll_back_with_outer_transaction(make_project):

@@ -337,7 +337,7 @@ _OUTPUT_REF_RESULT_BUILDERS: Mapping[str, _OutputRefResultBuilder] = {
 def _result_from_receipt(receipt: Receipt) -> ActionResult:
     outputs: list[ActionOutput] = []
     plugin_extension = any(
-        item.ref.get("kind") == "workbench_runtime_binding" for item in receipt.evidence
+        item.ref.get("kind") == "workbench_runtime_binding" for item in receipt.records
     )
     for output in receipt.outputs:
         ref = output.ref
@@ -375,7 +375,7 @@ def _result_from_receipt(receipt: Receipt) -> ActionResult:
 
 
 def _receipt_ref(receipt: Receipt, kind: str) -> dict[str, Any] | None:
-    for section in (receipt.inputs, receipt.outputs, receipt.evidence):
+    for section in (receipt.inputs, receipt.outputs, receipt.records):
         for item in section:
             ref = item.ref
             if ref.get("kind") == kind:

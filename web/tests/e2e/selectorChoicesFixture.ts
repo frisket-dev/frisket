@@ -48,12 +48,14 @@ export function selectorChoicesResponse({
   subject,
   groups,
   currentChoiceId,
+  defaultChoiceId = null,
   orphanedCurrent = null,
 }: {
   projectId: string;
   subject: Record<string, unknown>;
   groups: SelectorGroupFixture[];
   currentChoiceId: string | null;
+  defaultChoiceId?: string | null;
   orphanedCurrent?: SelectorChoiceFixture | null;
 }) {
   return {
@@ -62,7 +64,7 @@ export function selectorChoicesResponse({
     subject,
     depends_on: ['engine', 'model'],
     current_choice_id: currentChoiceId,
-    default_choice_id: null,
+    default_choice_id: defaultChoiceId,
     groups: groups.map((group) => ({
       group_id: group.id,
       kind: 'local',
@@ -81,6 +83,7 @@ export function actionSelectorResponse({
   field,
   groups,
   currentChoiceId,
+  defaultChoiceId = null,
   orphanedCurrent = null,
 }: {
   projectId: string;
@@ -88,6 +91,7 @@ export function actionSelectorResponse({
   field: string;
   groups: SelectorGroupFixture[];
   currentChoiceId: string | null;
+  defaultChoiceId?: string | null;
   orphanedCurrent?: SelectorChoiceFixture | null;
 }) {
   return selectorChoicesResponse({
@@ -95,6 +99,7 @@ export function actionSelectorResponse({
     subject: { kind: 'action', action_id: actionId, field },
     groups,
     currentChoiceId,
+    defaultChoiceId,
     orphanedCurrent,
   });
 }

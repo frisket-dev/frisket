@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiError } from '../../src/api/real';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 type RealModule = typeof import('../../src/api/real');
 type CatalogEventsModule = typeof import('../../src/api/catalogEvents');
@@ -52,13 +53,6 @@ const actionCatalog = {
   validation_result_schema: {},
   actions: [],
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 function requestPath(input: RequestInfo | URL): string {
   return typeof input === 'string' ? input : input.toString();

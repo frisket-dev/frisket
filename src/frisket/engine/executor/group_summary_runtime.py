@@ -16,7 +16,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families._errors import (
@@ -24,6 +24,7 @@ from frisket.engine.executor.action_families._errors import (
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.action_receipts import (
     receipt_status_from_failures,
     _positive_ref_int,
@@ -39,7 +40,7 @@ from frisket.engine.executor.action_support import (
 )
 from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
-    terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.engine.store.materialization import (
@@ -273,7 +274,7 @@ def _resolve_reduce_group_summary_inputs(
         name: {
             "column_id": int(columns[name]["id"]),
             "type": str(columns[name]["type"]),
-            "ai_generated": bool(columns[name]["ai_generated"]),
+            "generated": bool(columns[name]["generated"]),
             "current_run_id": columns[name]["current_run_id"],
         }
         for name in params.input_columns
@@ -285,7 +286,7 @@ def _resolve_reduce_group_summary_inputs(
             "name": params.group_by,
             "column_id": int(group_source["id"]),
             "type": str(group_source["type"]),
-            "ai_generated": bool(group_source["ai_generated"]),
+            "generated": bool(group_source["generated"]),
             "current_run_id": group_source["current_run_id"],
         }
     return {
@@ -435,11 +436,16 @@ async def _complete_reduce_group_summaries(
         scope=tuple(resolved["source_row_ids"]),
     )
     # The same writer owns deterministic membership and model results: one Undo.
+    recovery_claim_token = publication.recovery_claim_token()
     claim(
         project,
         commitment,
-        claim_token=publication.recovery_claim_token(),
-        claimless_direct_effect=publication.recovery_claim_token() is None,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=commitment.attempt_id,
+            claim_token=recovery_claim_token,
+            claimless_direct_effect=recovery_claim_token is None,
+        ),
     )
     publication.start(
         resolved,
@@ -608,9 +614,8 @@ def _write_reduce_group_summary_result(
             [summary_column_id],
             claim_token=claim_token,
             terminal_disposition=run_status,
-            commit=False,
         )
-        run_store.point_column_at_run(op_id, summary_column_id, run_id, commit=False)
+        run_store.point_column_at_run(op_id, summary_column_id, run_id)
         action_status = receipt_status_from_failures(failed_groups, len(computations))
         outputs = _reduce_group_summary_outputs(
             params=params,
@@ -653,7 +658,7 @@ def _write_reduce_group_summary_result(
             raise StaleAttemptWriter(
                 "reduce.group_summary terminal write supplied no writer attempt"
             )
-        terminalization = terminalize_project_run(
+        terminalization = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -666,7 +671,6 @@ def _write_reduce_group_summary_result(
             ),
             terminal_receipt=receipt,
             receipt_source_statuses={"running"},
-            commit=False,
         )
         if (
             terminalization.disposition != "terminalized"
@@ -820,7 +824,7 @@ def _reduce_group_summary_receipt(
                     "column_id": info["column_id"],
                     "name": name,
                     "type": info["type"],
-                    "ai_generated": info["ai_generated"],
+                    "generated": info["generated"],
                     "current_run_id": info["current_run_id"],
                 },
             )
@@ -845,7 +849,7 @@ def _reduce_group_summary_receipt(
     model_call_ids = [call["id"] for call in model_calls]
     receipt_cost_actual = model_calls_cost_actual(model_calls)
     supporting_records = [
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_groups",
                 "sheet_id": resolved["sheet_id"],
@@ -862,7 +866,7 @@ def _reduce_group_summary_receipt(
             },
             retention="materialized",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_output_roles",
                 "columns": {
@@ -882,7 +886,7 @@ def _reduce_group_summary_receipt(
                 },
             }
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_model_calls",
                 "model_call_ids": model_call_ids,
@@ -893,7 +897,7 @@ def _reduce_group_summary_receipt(
             },
             retention="pinned",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_prompt",
                 "instruction_hash": _text_hash(params.instruction),
@@ -905,7 +909,7 @@ def _reduce_group_summary_receipt(
             },
             retention="pinned",
         ),
-        ReceiptEvidence(
+        ReceiptRecord(
             ref={
                 "kind": "reduce_group_summary_run_counts",
                 "total_groups": len(computations),
@@ -916,7 +920,7 @@ def _reduce_group_summary_receipt(
                 "run_id": run_id,
             }
         ),
-        ReceiptEvidence(ref=membership_ref, retention="pinned"),
+        ReceiptRecord(ref=membership_ref, retention="pinned"),
     ]
     errors = []
     if status == "failed":
@@ -986,7 +990,7 @@ def _reduce_group_summary_receipt(
             model=params.model,
             run=run,
         ),
-        evidence=supporting_records,
+        records=supporting_records,
         errors=errors,
     )
 

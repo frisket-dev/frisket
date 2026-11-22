@@ -32,6 +32,7 @@ from frisket.querysets import (
     guarded_entity_array_sql,
     resolve_sheet_filter_rows,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _entities(*surfaces: tuple[str, str]) -> list[dict]:
@@ -140,7 +141,7 @@ def test_entity_eq_survives_a_run_backed_column(project):
         sheet,
         "entities",
         type="json",
-        ai_generated=True,
+        generated=True,
         semantic_type="entity_mentions",
     )
     rows = project.add_rows(
@@ -291,7 +292,8 @@ def test_entity_eq_requires_a_marked_entity_mentions_column(project):
 
 def test_entity_eq_rejects_a_cleared_semantic_marker(project):
     sheet, entities_col, _plain, _rows_ids = _seed(project)
-    project.set_column_semantic_type(entities_col, None)
+    with write_transaction(project.db):
+        project.set_column_semantic_type(entities_col, None)
     with pytest.raises(SheetRowSetError, match="entity_mentions"):
         _rows(project, sheet, {"type": "organization"})
 
@@ -475,7 +477,7 @@ def test_entity_eq_reaches_the_shared_query_and_alert_consumers(tmp_path):
     }
     alert = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Acme rows",
             "query": alert_query,

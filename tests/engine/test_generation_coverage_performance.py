@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from pathlib import Path
 
 import pytest
 
@@ -93,7 +92,7 @@ def test_generation_coverage_preserves_column_and_hidden_row_semantics(
     empty_sheet = project.add_sheet("Empty")
     column_ids = {
         "generated": project.add_column(
-            rows_sheet, "generated", type="integer", ai_generated=True
+            rows_sheet, "generated", type="integer", generated=True
         ),
         "second": project.add_column(rows_sheet, "second"),
         "other": project.add_column(other_sheet, "other"),
@@ -130,38 +129,39 @@ def test_generation_coverage_preserves_column_and_hidden_row_semantics(
         )
 
 
-def _coverage_work(root: Path, row_count: int) -> int:
-    project, sheet_id, column_id, row_ids = _seed_project(root, row_count=row_count)
-    try:
-        _publish_initial_generation(project, sheet_id, column_id, row_ids)
-        while repair_current_cells(project):
-            pass
-        project.db.execute("ANALYZE")
-        project.db.commit()
-        store = ResultGenerationStore(project)
-        with store._empty_key_table() as table:
-            project.db.execute(
-                f"INSERT INTO {table} VALUES (?,?)", (row_ids[-1], column_id)
-            )
-            with _vm_work(project.db) as work:
-                assert not store.key_table_covers_columns(table, [column_id])
-            return work[0]
-    finally:
-        project.close()
+def _coverage_work(make_project, row_count: int) -> int:
+    project, sheet_id, column_id, row_ids = _seed_project(
+        lambda _name: make_project(f"coverage-{row_count}"), row_count=row_count
+    )
+    _publish_initial_generation(project, sheet_id, column_id, row_ids)
+    while repair_current_cells(project):
+        pass
+    project.db.execute("ANALYZE")
+    project.db.commit()
+    store = ResultGenerationStore(project)
+    with store._empty_key_table() as table:
+        project.db.execute(
+            f"INSERT INTO {table} VALUES (?,?)", (row_ids[-1], column_id)
+        )
+        with _vm_work(project.db) as work:
+            assert not store.key_table_covers_columns(table, [column_id])
+        return work[0]
 
 
 def test_sparse_generation_coverage_work_is_independent_of_sheet_size(
-    tmp_path, record_property
+    make_project, record_property
 ):
-    small = _coverage_work(tmp_path / "small", 1_000)
-    large = _coverage_work(tmp_path / "large", 10_000)
+    small = _coverage_work(make_project, 1_000)
+    large = _coverage_work(make_project, 10_000)
     record_property("coverage_steps_1000", small)
     record_property("coverage_steps_10000", large)
     assert large <= small * 2 + 500, (small, large)
 
 
-def _publication_work(root: Path, row_count: int):
-    project, sheet_id, column_id, row_ids = _seed_project(root, row_count=row_count)
+def _publication_work(make_project, row_count: int):
+    project, sheet_id, column_id, row_ids = _seed_project(
+        lambda _name: make_project(f"publication-{row_count}"), row_count=row_count
+    )
     second = None
     released = False
     try:
@@ -231,14 +231,13 @@ def _publication_work(root: Path, row_count: int):
     finally:
         if second is not None and not released:
             _release(project, second)
-        project.close()
 
 
 def test_sparse_seal_undo_redo_work_does_not_scan_unrelated_sheet_rows(
-    tmp_path, record_property
+    make_project, record_property
 ):
-    small = _publication_work(tmp_path / "small", 1_000)
-    large = _publication_work(tmp_path / "large", 10_000)
+    small = _publication_work(make_project, 1_000)
+    large = _publication_work(make_project, 10_000)
     for phase in ("publish", "seal", "undo", "redo"):
         record_property(f"{phase}_steps_1000", small[phase])
         record_property(f"{phase}_steps_10000", large[phase])

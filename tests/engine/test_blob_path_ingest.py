@@ -90,7 +90,7 @@ def test_fileobj_ingest_keeps_stream_open_and_verification_detects_corruption(
             bucket="bucket",
             prefix="prefix",
             project_storage_key=ProjectStorageKey(
-                storage_org_id=4, project_slug="fileobj"
+                storage_organization_id=4, project_slug="fileobj"
             ),
         )
         if remote
@@ -133,7 +133,7 @@ def test_fileobj_rejects_digest_mismatch_before_publication(
             bucket="bucket",
             prefix="",
             project_storage_key=ProjectStorageKey(
-                storage_org_id=4, project_slug="mismatch"
+                storage_organization_id=4, project_slug="mismatch"
             ),
         )
         if remote
@@ -156,7 +156,9 @@ def test_failed_s3_path_upload_does_not_publish_blob_reference(
         client=client,
         bucket="bucket",
         prefix="",
-        project_storage_key=ProjectStorageKey(storage_org_id=4, project_slug="failure"),
+        project_storage_key=ProjectStorageKey(
+            storage_organization_id=4, project_slug="failure"
+        ),
     )
     source = tmp_path / "source.bin"
     source.write_bytes(b"unpublished bytes")
@@ -296,7 +298,7 @@ def test_s3_path_ingest_streams_verifies_and_does_not_reupload_duplicate(
         bucket="bucket",
         prefix="prefix",
         project_storage_key=ProjectStorageKey(
-            storage_org_id=4,
+            storage_organization_id=4,
             project_slug="path-ingest",
         ),
     )

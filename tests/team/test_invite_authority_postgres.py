@@ -20,11 +20,17 @@ from frisket.team.admin_browser_service import AdminMembershipService
 from frisket.team.app import TeamProjectAccess
 from frisket.team.identity_store import IdentityStore
 from frisket.team.invite_service import InviteConflict, InviteForbidden, InviteService
-from frisket.team.schema import audit_log, memberships, orgs, pending_invites, users
+from frisket.team.schema import (
+    audit_log,
+    memberships,
+    organizations,
+    pending_invites,
+    users,
+)
 
 
 PG_URL = os.environ.get("FRISKET_PG_TEST_URL")
-_TABLES = (orgs, users, memberships, pending_invites, audit_log)
+_TABLES = (organizations, users, memberships, pending_invites, audit_log)
 _OWNER = {"id": 1, "email": "owner@example.com", "auth": "session"}
 
 
@@ -50,30 +56,32 @@ def _seed_organization(
 ) -> tuple[int, int, int]:
     with engine.begin() as cx:
         org_id = cx.execute(
-            orgs.insert().values(name="Invite race").returning(orgs.c.id)
+            organizations.insert()
+            .values(name="Invite race")
+            .returning(organizations.c.id)
         ).scalar_one()
         owner_id = cx.execute(
             users.insert()
-            .values(email="owner@example.com", default_org_id=org_id)
+            .values(email="owner@example.com", default_organization_id=org_id)
             .returning(users.c.id)
         ).scalar_one()
         co_owner_id = cx.execute(
             users.insert()
-            .values(email="co-owner@example.com", default_org_id=org_id)
+            .values(email="co-owner@example.com", default_organization_id=org_id)
             .returning(users.c.id)
         ).scalar_one()
         cx.execute(
             memberships.insert(),
             [
-                {"user_id": owner_id, "org_id": org_id, "role": "owner"},
-                {"user_id": co_owner_id, "org_id": org_id, "role": "owner"},
+                {"user_id": owner_id, "organization_id": org_id, "role": "owner"},
+                {"user_id": co_owner_id, "organization_id": org_id, "role": "owner"},
             ],
         )
         if pending_email is not None:
             cx.execute(
                 pending_invites.insert().values(
                     email=pending_email,
-                    org_id=org_id,
+                    organization_id=org_id,
                     role="member",
                     expires_at=datetime.now(UTC) + timedelta(days=1),
                 )
@@ -89,10 +97,10 @@ def test_postgres_demotion_serializes_before_owner_invite_create(
     import frisket.team.invite_service as invite_module
 
     org_id, owner_id, co_owner_id = _seed_organization(pg_invite_engine)
-    membership = AdminMembershipService(pg_invite_engine, org_id=org_id)
+    membership = AdminMembershipService(pg_invite_engine, organization_id=org_id)
     invites = InviteService(
         pg_invite_engine,
-        org_id=org_id,
+        organization_id=org_id,
         access=TeamProjectAccess(pg_invite_engine, org_id),
     )
     demotion_precommit, allow_demotion_commit, create_waiting = (
@@ -111,13 +119,13 @@ def test_postgres_demotion_serializes_before_owner_invite_create(
             try:
                 yield cx
             finally:
-                if lock_scope == ("org-membership", org_id):
+                if lock_scope == ("organization-membership", org_id):
                     demotion_precommit.set()
                     assert allow_demotion_commit.wait(5)
 
     @contextmanager
     def announce_invite_lock(engine: sa.Engine, *, lock_scope: Any = None):
-        if lock_scope == ("org-membership", org_id):
+        if lock_scope == ("organization-membership", org_id):
             create_waiting.set()
         with original_invite_lock(engine, lock_scope=lock_scope) as cx:
             yield cx
@@ -183,7 +191,7 @@ def test_postgres_demotion_serializes_before_owner_invite_create(
             cx.execute(
                 sa.select(sa.func.count())
                 .select_from(audit_log)
-                .where(audit_log.c.action == "org_invite_set")
+                .where(audit_log.c.action == "organization_invite_set")
             ).scalar_one()
             == 0
         )
@@ -199,7 +207,7 @@ def test_postgres_claim_between_invite_check_and_upsert_rolls_back_shadow(
     org_id, owner_id, _ = _seed_organization(pg_invite_engine, pending_email=email)
     invites = InviteService(
         pg_invite_engine,
-        org_id=org_id,
+        organization_id=org_id,
         access=TeamProjectAccess(pg_invite_engine, org_id),
     )
     before_upsert, allow_upsert, create_done = Event(), Event(), Event()
@@ -244,7 +252,7 @@ def test_postgres_claim_between_invite_check_and_upsert_rolls_back_shadow(
                 .select_from(
                     memberships.join(users, users.c.id == memberships.c.user_id)
                 )
-                .where(users.c.email == email, memberships.c.org_id == org_id)
+                .where(users.c.email == email, memberships.c.organization_id == org_id)
             ).scalar_one()
             == 1
         )
@@ -261,7 +269,8 @@ def test_postgres_claim_between_invite_check_and_upsert_rolls_back_shadow(
                 sa.select(sa.func.count())
                 .select_from(audit_log)
                 .where(
-                    audit_log.c.action == "org_invite_set", audit_log.c.detail == email
+                    audit_log.c.action == "organization_invite_set",
+                    audit_log.c.detail == email,
                 )
             ).scalar_one()
             == 0

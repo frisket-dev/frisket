@@ -516,7 +516,7 @@ _COLUMN_TYPE_BY_VALUE[GeoPoint] = "geo_point"
 class InputReference:
     column: str
     accepted_column_types: tuple[str, ...] | None = None
-    ai_generated_only: bool = False
+    generated_only: bool = False
     preserve_invalid: bool = False
     required: bool = True
     allow_missing: bool = False
@@ -1478,7 +1478,7 @@ class GeneratedColumnRef(ColumnRef[T], Generic[T]):
             InputReference(
                 self.root,
                 column_ref_types(type(self)),
-                ai_generated_only=True,
+                generated_only=True,
                 preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
                 required=column_ref_required(type(self)),
                 allow_missing=bool(getattr(type(self), "allow_missing_input", False)),
@@ -1642,8 +1642,8 @@ def discover_references(value: Any) -> tuple[InputReference, ...]:
                     found[reference.column] = InputReference(
                         reference.column,
                         accepted,
-                        ai_generated_only=(
-                            current.ai_generated_only or reference.ai_generated_only
+                        generated_only=(
+                            current.generated_only or reference.generated_only
                         ),
                         preserve_invalid=(
                             current.preserve_invalid or reference.preserve_invalid
@@ -1821,7 +1821,7 @@ class ListCopiedColumn:
     name: str
     type: str
     format: str | None
-    ai_generated: bool
+    generated: bool
 
 
 @dataclass(frozen=True)
@@ -2235,7 +2235,7 @@ class ActionRequest(BaseModel):
     scope: ProjectScope | SheetRows = Field(discriminator="kind")
     params: dict[str, Any]
     output_names: dict[str, str] = Field(default_factory=dict)
-    expected_output_columns: dict[str, StrictInt | None] | None = None
+    expected_generated_columns: dict[str, StrictInt | None] | None = None
     replace_existing: bool = Field(default=False, strict=True)
     sheet_name: str | None = None
     idempotency_key: str = Field(min_length=1)
@@ -2253,7 +2253,7 @@ class ActionRequest(BaseModel):
             raise ValueError("final output names must be unique")
         return value
 
-    @field_validator("expected_output_columns")
+    @field_validator("expected_generated_columns")
     @classmethod
     def _valid_expected_generated_columns(
         cls, value: dict[str, int | None] | None

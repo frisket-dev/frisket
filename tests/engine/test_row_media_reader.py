@@ -409,7 +409,7 @@ def test_custom_handler_derives_actual_sampling_and_reuses_images_in_named_outpu
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     observed = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "row_file_output"
     ]
     assert len(observed) == 3

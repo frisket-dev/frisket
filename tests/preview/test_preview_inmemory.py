@@ -188,10 +188,8 @@ def _seed(project: Project, names: list[str]) -> tuple[int, list[int], int]:
     return sheet_id, project.visible_row_ids(sheet_id), title
 
 
-def _standalone(
-    tmp_path: Path, names: list[str]
-) -> tuple[Project, int, list[int], int]:
-    project = Project.create(tmp_path / "preview.frisket", name="Preview InMemory")
+def _standalone(make_project, names: list[str]) -> tuple[Project, int, list[int], int]:
+    project = make_project("Preview InMemory")
     sheet_id, row_ids, title = _seed(project, names)
     return project, sheet_id, row_ids, title
 
@@ -257,161 +255,144 @@ def _poll(client: TestClient, pid: str, preview_id: str, timeout: float = 8.0) -
 # --------------------------------------------------------------------------- #
 # MapRunner.preview — writes nothing, returns values
 # --------------------------------------------------------------------------- #
-def test_preview_computes_sample_and_writes_nothing(tmp_path: Path) -> None:
+def test_preview_computes_sample_and_writes_nothing(make_project) -> None:
     project, sheet_id, row_ids, _title = _standalone(
-        tmp_path, ["alpha", "beta", "gamma"]
+        make_project, ["alpha", "beta", "gamma"]
     )
-    try:
-        before = _counts(project)
-        plan = resolve_map_preview(
-            project,
-            _python_action(
-                sheet_id,
-                column_name="n_chars",
-                idempotency_key="preview@nowrite",
-                row_ids=row_ids,
-            ),
-        )
-        assert not isinstance(plan, ActionError), plan
-        result = asyncio.run(
-            plan.make_runner().preview(plan.runner_spec, program=plan.program)
-        )
+    before = _counts(project)
+    plan = resolve_map_preview(
+        project,
+        _python_action(
+            sheet_id,
+            column_name="n_chars",
+            idempotency_key="preview@nowrite",
+            row_ids=row_ids,
+        ),
+    )
+    assert not isinstance(plan, ActionError), plan
+    result = asyncio.run(
+        plan.make_runner().preview(plan.runner_spec, program=plan.program)
+    )
 
-        assert isinstance(result, PreviewResult)
-        assert set(result.values) == set(row_ids)
-        assert result.values[row_ids[0]]["n_chars"]["value"] == len("alpha")
-        assert result.sampled == len(row_ids)
-        assert result.total == len(row_ids)
+    assert isinstance(result, PreviewResult)
+    assert set(result.values) == set(row_ids)
+    assert result.values[row_ids[0]]["n_chars"]["value"] == len("alpha")
+    assert result.sampled == len(row_ids)
+    assert result.total == len(row_ids)
 
-        # brand-new virtual column, not an overwrite
-        assert [c.name for c in result.columns] == ["n_chars"]
-        assert result.columns[0].replaces_column_id is None
+    # brand-new virtual column, not an overwrite
+    assert [c.name for c in result.columns] == ["n_chars"]
+    assert result.columns[0].replaces_column_id is None
 
-        # NOTHING persisted, and no real column materialized
-        assert _counts(project) == before
-        assert "n_chars" not in {c["name"] for c in project.columns(sheet_id)}
-    finally:
-        project.close()
+    # NOTHING persisted, and no real column materialized
+    assert _counts(project) == before
+    assert "n_chars" not in {c["name"] for c in project.columns(sheet_id)}
 
 
-def test_preview_marks_overwrite_of_existing_column(tmp_path: Path) -> None:
-    project, sheet_id, row_ids, _title = _standalone(tmp_path, ["alpha", "beta"])
-    try:
-        plan = resolve_map_preview(
-            project,
-            _python_action(
-                sheet_id,
-                column_name="n_chars",
-                idempotency_key="preview@overwrite",
-                row_ids=row_ids,
-            ),
-        )
-        assert not isinstance(plan, ActionError), plan
-        existing = project.add_column(
-            sheet_id, "n_chars", type="integer", ai_generated=True
-        )
-        before = _counts(project)
-        # Driven at the runner level: an output name that matches an existing
-        # column is marked as an overwrite (the overlay replaces that column's
-        # sampled values) rather than a brand-new virtual column.
-        result = asyncio.run(
-            plan.make_runner().preview(plan.runner_spec, program=plan.program)
-        )
-        assert result.columns[0].replaces_column_id == existing
-        # still nothing written
-        assert _counts(project) == before
-    finally:
-        project.close()
+def test_preview_marks_overwrite_of_existing_column(make_project) -> None:
+    project, sheet_id, row_ids, _title = _standalone(make_project, ["alpha", "beta"])
+    plan = resolve_map_preview(
+        project,
+        _python_action(
+            sheet_id,
+            column_name="n_chars",
+            idempotency_key="preview@overwrite",
+            row_ids=row_ids,
+        ),
+    )
+    assert not isinstance(plan, ActionError), plan
+    existing = project.add_column(sheet_id, "n_chars", type="integer", generated=True)
+    before = _counts(project)
+    # Driven at the runner level: an output name that matches an existing
+    # column is marked as an overwrite (the overlay replaces that column's
+    # sampled values) rather than a brand-new virtual column.
+    result = asyncio.run(
+        plan.make_runner().preview(plan.runner_spec, program=plan.program)
+    )
+    assert result.columns[0].replaces_column_id == existing
+    # still nothing written
+    assert _counts(project) == before
 
 
-def test_preview_surfaces_per_cell_errors(tmp_path: Path) -> None:
+def test_preview_surfaces_per_cell_errors(make_project) -> None:
     project, sheet_id, row_ids, title = _standalone(
-        tmp_path, ["alpha", "beta", "gamma"]
+        make_project, ["alpha", "beta", "gamma"]
     )
-    try:
-        before = _counts(project)
-        by_name = _name_to_row_id(project, sheet_id, title, row_ids)
-        # 'beta' returns a non-integer -> return_schema mismatch -> per-cell error;
-        # the other rows succeed. The run continues past the failed row.
-        code = (
-            "result = {'n': ('oops' if row['title'] == 'beta' else len(row['title']))}"
-        )
-        plan = resolve_map_preview(
-            project,
-            _python_action(
-                sheet_id,
-                column_name="n_chars",
-                idempotency_key="preview@error",
-                code=code,
-                row_ids=row_ids,
-            ),
-        )
-        assert not isinstance(plan, ActionError), plan
-        result = asyncio.run(
-            plan.make_runner().preview(plan.runner_spec, program=plan.program)
-        )
+    before = _counts(project)
+    by_name = _name_to_row_id(project, sheet_id, title, row_ids)
+    # 'beta' returns a non-integer -> return_schema mismatch -> per-cell error;
+    # the other rows succeed. The run continues past the failed row.
+    code = "result = {'n': ('oops' if row['title'] == 'beta' else len(row['title']))}"
+    plan = resolve_map_preview(
+        project,
+        _python_action(
+            sheet_id,
+            column_name="n_chars",
+            idempotency_key="preview@error",
+            code=code,
+            row_ids=row_ids,
+        ),
+    )
+    assert not isinstance(plan, ActionError), plan
+    result = asyncio.run(
+        plan.make_runner().preview(plan.runner_spec, program=plan.program)
+    )
 
-        alpha = result.values[by_name["alpha"]]["n_chars"]
-        assert alpha["value"] == len("alpha")
-        assert alpha.get("error") is None
+    alpha = result.values[by_name["alpha"]]["n_chars"]
+    assert alpha["value"] == len("alpha")
+    assert alpha.get("error") is None
 
-        beta = result.values[by_name["beta"]]["n_chars"]
-        assert beta["value"] is None
-        assert beta["error"]
+    beta = result.values[by_name["beta"]]["n_chars"]
+    assert beta["value"] is None
+    assert beta["error"]
 
-        assert _counts(project) == before
-    finally:
-        project.close()
+    assert _counts(project) == before
 
 
 # --------------------------------------------------------------------------- #
 # PREVIEW_MAX_ROWS hard cap
 # --------------------------------------------------------------------------- #
-def test_preview_cap_rejects_missing_empty_and_oversized(tmp_path: Path) -> None:
+def test_preview_cap_rejects_missing_empty_and_oversized(make_project) -> None:
     # The cap fires in preview_precheck BEFORE any row scope resolves, so a
     # missing/empty/oversized sample is a hard error — it can NEVER fall back to
     # "all rows" (the shape of the shipped Run-3 whole-sheet-preview bug).
-    project, sheet_id, row_ids, _title = _standalone(tmp_path, ["alpha", "beta"])
-    try:
-        plan = resolve_map_preview(
-            project,
-            _python_action(
-                sheet_id,
-                column_name="c",
-                idempotency_key="preview@cap",
-                row_ids=row_ids,
-            ),
-        )
-        assert not isinstance(plan, ActionError), plan
-        runner = plan.make_runner()
-        for bad in (_MISSING, None, [], list(range(21))):
-            spec = deepcopy(plan.runner_spec)
-            spec.pop("row_ids", None)
-            if bad is not _MISSING:
-                spec["row_ids"] = bad
-            with pytest.raises(PreviewRowCapError):
-                runner.preview_precheck(spec, program=plan.program)
-            # the async entry point rejects the same specs identically
-            with pytest.raises(PreviewRowCapError):
-                asyncio.run(runner.preview(spec, program=plan.program))
-    finally:
-        project.close()
+    project, sheet_id, row_ids, _title = _standalone(make_project, ["alpha", "beta"])
+    plan = resolve_map_preview(
+        project,
+        _python_action(
+            sheet_id,
+            column_name="c",
+            idempotency_key="preview@cap",
+            row_ids=row_ids,
+        ),
+    )
+    assert not isinstance(plan, ActionError), plan
+    runner = plan.make_runner()
+    for bad in (_MISSING, None, [], list(range(21))):
+        spec = deepcopy(plan.runner_spec)
+        spec.pop("row_ids", None)
+        if bad is not _MISSING:
+            spec["row_ids"] = bad
+        with pytest.raises(PreviewRowCapError):
+            runner.preview_precheck(spec, program=plan.program)
+        # the async entry point rejects the same specs identically
+        with pytest.raises(PreviewRowCapError):
+            asyncio.run(runner.preview(spec, program=plan.program))
 
 
-def test_preview_empty_row_ids_rejected_via_route(tmp_path: Path) -> None:
+def test_preview_empty_row_ids_rejected_via_route(make_project) -> None:
     # Through the typed envelope, an empty row_ids is rejected by scope validation
     # (also a 4xx) — the preview is never started for the whole sheet.
-    project, sheet_id, _row_ids, _title = _standalone(tmp_path, ["alpha", "beta"])
-    try:
-        plan = resolve_map_preview(
-            project,
-            _python_action(
-                sheet_id, column_name="c", idempotency_key="preview@empty", row_ids=[]
-            ),
-        )
-        assert isinstance(plan, ActionError)
-    finally:
-        project.close()
+    project, sheet_id, _row_ids, _title = _standalone(make_project, ["alpha", "beta"])
+    plan = resolve_map_preview(
+        project,
+        _python_action(
+            sheet_id, column_name="c", idempotency_key="preview@empty", row_ids=[]
+        ),
+    )
+    assert isinstance(plan, ActionError)
+    assert plan.code == "invalid_action_request"
+    assert "row" in plan.message.lower()
 
 
 # --------------------------------------------------------------------------- #

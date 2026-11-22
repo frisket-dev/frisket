@@ -5,10 +5,11 @@ import pytest
 from frisket.engine.projections.point_backend import GeoProjectionBackend
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture, write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_source(project: Project):
@@ -75,7 +76,7 @@ def test_undo_restores_old_point_and_redo_restores_edit(project):
 def _seed_ai_run(project: Project, values_by_row):
     sheet = project.add_sheet("p")
     name_col = project.add_column(sheet, "n", type="text")
-    geo_col = project.add_column(sheet, "loc", type="geo_point", ai_generated=True)
+    geo_col = project.add_column(sheet, "loc", type="geo_point", generated=True)
     rows = project.add_rows(
         sheet,
         [{"n": "a"}, {"n": "b"}],
@@ -98,7 +99,8 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
         project, {0: {"lat": 1.0, "lon": 2.0}}
     )
     RunResultStore(project).finish_run(run1)
-    RunResultStore(project).point_column_at_run(op1, geo_col, run1)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op1, geo_col, run1)
 
     backend = GeoProjectionBackend(project)
     s1 = backend.materialize_geo_column(sheet, geo_col)
@@ -116,21 +118,22 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
     generations = ResultGenerationStore(project)
     base = generations.get_binding(run1, geo_col)
     assert base is not None
-    generations.declare(
-        run2,
-        geo_col,
-        output_role=base.output_role,
-        compatibility_key=_compatibility_key(
-            field={
-                "name": "loc",
-                "column_type": "geo_point",
-                "semantic_type": None,
-                "format": None,
-            }
-        ),
-        write_mode="replace_scope",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run2,
+            geo_col,
+            output_role=base.output_role,
+            compatibility_key=_compatibility_key(
+                field={
+                    "name": "loc",
+                    "column_type": "geo_point",
+                    "semantic_type": None,
+                    "format": None,
+                }
+            ),
+            write_mode="replace_scope",
+            claim_token=authority.claim_token,
+        )
     assert backend.query_points(sheet, geo_col)[0] == []
     RunResultStore(project).write_results(
         run2,
@@ -155,21 +158,16 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
     assert [(p.lat, p.lon) for p in staged_points] == [(5.0, 6.0), (3.0, 4.0)]
     assert generations.get_binding(run2, geo_col).state == "active"  # type: ignore[union-attr]
 
-    generations.seal(
-        run2,
-        {geo_col},
-        claim_token=authority.claim_token,
-        terminal_disposition="completed",
-    )
-    RunResultStore(project).finish_run(
-        run2,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
-    )
-    OutputColumnClaimStore(project).finish_current_writer(
-        run_id=run2,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
+    with write_transaction(generations.db):
+        generations.seal(
+            run2,
+            {geo_col},
+            claim_token=authority.claim_token,
+            terminal_disposition="completed",
+        )
+    RunResultStore(project).finish_run(run2, fence=authority.fence())
+    GeneratedColumnClaimStore(project).finish_current_writer(
+        fence=authority.fence(),
         attempt_state="effected",
     )
 
@@ -185,7 +183,8 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
 def test_running_current_run_is_marked_transient(project):
     # A run pointed at the column but NOT finished -> status 'running'.
     sheet, geo_col, rows, op, run = _seed_ai_run(project, {0: {"lat": 1.0, "lon": 2.0}})
-    RunResultStore(project).point_column_at_run(op, geo_col, run)  # no finish_run
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op, geo_col, run)  # no finish_run
 
     backend = GeoProjectionBackend(project)
     status = backend.materialize_geo_column(sheet, geo_col)

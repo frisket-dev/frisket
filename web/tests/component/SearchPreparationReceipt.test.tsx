@@ -98,13 +98,18 @@ function preparationProgress(overrides: Partial<PreparationProgress> = {}): Prep
   return {
     action_kind: 'document.ocr',
     action_name: 'Read PDF text',
+    attempted: 3,
+    cancel_requested: false,
     completed: 2,
     cost: null,
     failed: 1,
     live: true,
+    remaining: 0,
     run_id: 92,
     sheet_id: 7,
+    skipped: 0,
     status: 'running',
+    succeeded: 2,
     timing: {
       elapsed_seconds: 3,
       estimated_finish_at: null,

@@ -17,7 +17,7 @@ from frisket.server.app import create_app
 
 def test_installed_ftm_import_export_and_replay(tmp_path, monkeypatch):
     pytest.importorskip("followthemoney")
-    from frisket.features.followthemoney.import_planner import (
+    from frisket.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
     from ftm_migration_harness import (

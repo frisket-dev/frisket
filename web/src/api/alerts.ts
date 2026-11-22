@@ -21,21 +21,21 @@ type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
 >;
 
 type AlertListWire =
-  HttpContractSuccessResponse<"tenant.list_watches.get">;
+  HttpContractSuccessResponse<"tenant.list_alerts.get">;
 type AlertRowWire = AlertListWire[number];
 type AlertCheckResultWire =
-  HttpContractSuccessResponse<"tenant.run_watch.post">;
+  HttpContractSuccessResponse<"tenant.check_alert.post">;
 type AlertChecksPageWire =
-  HttpContractSuccessResponse<"tenant.list_watch_runs.get">;
+  HttpContractSuccessResponse<"tenant.list_alert_checks.get">;
 type AlertCheckEventsPageWire =
-  HttpContractSuccessResponse<"tenant.list_watch_run_events.get">;
+  HttpContractSuccessResponse<"tenant.list_alert_check_events.get">;
 
 type AlertCheckWire = AlertCheckResultWire["run"];
 type AlertMatchWire = AlertCheckResultWire["hits"][number];
 type AlertCheckEventWire = AlertCheckEventsPageWire["events"][number];
 
-type AlertCreateBody = ContractRequestBody<"tenant.create_watch.post">;
-type AlertPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
+type AlertCreateBody = ContractRequestBody<"tenant.create_alert.post">;
+type AlertPatchBody = ContractRequestBody<"tenant.patch_alert.patch">;
 
 const toAlertMatch = (wire: AlertMatchWire): AlertMatch => ({
   runId: wire.run_id,
@@ -51,7 +51,7 @@ const toAlertMatch = (wire: AlertMatchWire): AlertMatch => ({
  * whose page-only hits_limit/hits_truncated fields are intentionally dropped. */
 const toAlertCheck = (wire: AlertCheckWire & { hits?: AlertMatchWire[] }): AlertCheck => ({
   id: wire.id,
-  alertId: wire.watch_id,
+  alertId: wire.alert_id,
   status: wire.status,
   opCursorBefore: wire.op_cursor_before,
   opCursorAfter: wire.op_cursor_after,
@@ -83,7 +83,7 @@ const toAlertInfo = (wire: AlertRowWire): AlertInfo => ({
 });
 
 const toAlertChecksPage = (wire: AlertChecksPageWire): AlertChecksPage => ({
-  schemaVersion: "frisket.watch_runs_page.v1",
+  schemaVersion: "frisket.alert_checks_page.v1",
   order: "desc",
   offset: wire.offset,
   limit: wire.limit,
@@ -96,7 +96,7 @@ const toAlertChecksPage = (wire: AlertChecksPageWire): AlertChecksPage => ({
 const toAlertCheckEvent = (wire: AlertCheckEventWire): AlertCheckEvent => ({
   id: wire.id,
   runId: wire.run_id,
-  alertId: wire.watch_id,
+  alertId: wire.alert_id,
   eventKind: wire.event_kind,
   subjectKind: wire.subject_kind,
   subjectRef: wire.subject_ref ?? {},
@@ -112,7 +112,7 @@ const toAlertCheckEvent = (wire: AlertCheckEventWire): AlertCheckEvent => ({
 const toAlertCheckEventsPage = (
   wire: AlertCheckEventsPageWire,
 ): AlertCheckEventsPage => ({
-  schemaVersion: "frisket.watch_run_events_page.v1",
+  schemaVersion: "frisket.alert_check_events_page.v1",
   order: "asc",
   offset: wire.offset,
   limit: wire.limit,
@@ -123,8 +123,8 @@ const toAlertCheckEventsPage = (
 });
 
 const toAlertCheckResult = (wire: AlertCheckResultWire): AlertCheckResult => ({
-  schemaVersion: "frisket.watch_run.v1",
-  alert: toAlertInfo(wire.watch),
+  schemaVersion: "frisket.alert_check.v1",
+  alert: toAlertInfo(wire.alert),
   run: toAlertCheck(wire.run),
   hits: wire.hits.map(toAlertMatch),
 });
@@ -145,12 +145,12 @@ function toWireAlertPatch(input: AlertPatchInput): AlertPatchBody {
   return body;
 }
 
-/** Alert lifecycle and run history for one project. */
+/** Alert lifecycle and check history for one project. */
 export function createAlertsApi(projectId: string) {
   return {
     async listAlerts() {
       return httpContract(
-        "tenant.list_watches.get",
+        "tenant.list_alerts.get",
         { pathParams: { pid: projectId } },
         (wire) => wire.map(toAlertInfo),
       );
@@ -158,7 +158,7 @@ export function createAlertsApi(projectId: string) {
 
     async createAlert(input: AlertInput) {
       return httpContract(
-        "tenant.create_watch.post",
+        "tenant.create_alert.post",
         { pathParams: { pid: projectId }, body: toWireAlertBody(input) },
         toAlertInfo,
       );
@@ -166,32 +166,32 @@ export function createAlertsApi(projectId: string) {
 
     async updateAlert(alertId: number, input: AlertPatchInput) {
       return httpContract(
-        "tenant.patch_watch.patch",
-        { pathParams: { pid: projectId, watch_id: alertId }, body: toWireAlertPatch(input) },
+        "tenant.patch_alert.patch",
+        { pathParams: { pid: projectId, alert_id: alertId }, body: toWireAlertPatch(input) },
         toAlertInfo,
       );
     },
 
     async deleteAlert(alertId: number): Promise<void> {
       await httpContract(
-        "tenant.delete_watch.delete",
-        { pathParams: { pid: projectId, watch_id: alertId } },
+        "tenant.delete_alert.delete",
+        { pathParams: { pid: projectId, alert_id: alertId } },
       );
     },
 
     /** A bodyless POST: the route declares no request body. */
     async checkAlert(alertId: number) {
       return httpContract(
-        "tenant.run_watch.post",
-        { pathParams: { pid: projectId, watch_id: alertId } },
+        "tenant.check_alert.post",
+        { pathParams: { pid: projectId, alert_id: alertId } },
         toAlertCheckResult,
       );
     },
 
     async getAlertChecks(alertId: number, offset = 0, limit = 20) {
       return httpContract(
-        "tenant.list_watch_runs.get",
-        { pathParams: { pid: projectId, watch_id: alertId }, query: { offset, limit } },
+        "tenant.list_alert_checks.get",
+        { pathParams: { pid: projectId, alert_id: alertId }, query: { offset, limit } },
         toAlertChecksPage,
       );
     },
@@ -204,9 +204,9 @@ export function createAlertsApi(projectId: string) {
       eventKind?: string,
     ) {
       return httpContract(
-        "tenant.list_watch_run_events.get",
+        "tenant.list_alert_check_events.get",
         {
-          pathParams: { pid: projectId, watch_id: alertId, run_id: runId },
+          pathParams: { pid: projectId, alert_id: alertId, check_id: runId },
           query: { offset, limit, event_kind: eventKind || undefined },
         },
         toAlertCheckEventsPage,

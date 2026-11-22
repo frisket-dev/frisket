@@ -33,7 +33,7 @@ export type DiscoverTab =
   | 'Mentions'
   | 'Sources'
   | 'Views'
-  | 'Watches'
+  | 'Alerts'
   | 'Embeddings'
   | 'Notifications';
 
@@ -42,7 +42,7 @@ export const DISCOVER_TABS: readonly DiscoverTab[] = [
   'Mentions',
   'Sources',
   'Views',
-  'Watches',
+  'Alerts',
   'Embeddings',
   'Notifications',
 ];
@@ -155,7 +155,7 @@ export function createChromeState(
     ribbonMode: preferences.ribbonMode,
     activeRibbonTab: preferences.activeRibbonTab,
     discoverOpen: preferences.discoverOpen,
-    discoverTab: preferences.discoverTab,
+    discoverTab: preferences.discoverTab === 'Watches' ? 'Alerts' : preferences.discoverTab,
     promotedViews: preferences.promotedViews,
     openSplit: preferences.openSplit,
     documentView: preferences.documentView,

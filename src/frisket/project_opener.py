@@ -97,7 +97,7 @@ def open_claimed_project(
     return project_opener(claimed_opener_key(payload), Path(project_path))
 
 
-def require_opener_storage_organization_id(storage_org_id: object) -> int:
+def require_opener_storage_organization_id(storage_organization_id: object) -> int:
     """Fail-closed organization identity for scheduler scans that inject an opener.
 
     A scheduler root travels with its DECLARED storage-organization identity (``cli``'s
@@ -106,15 +106,15 @@ def require_opener_storage_organization_id(storage_org_id: object) -> int:
     some tenant's bundles under a bogus key.
     """
     if (
-        isinstance(storage_org_id, bool)
-        or not isinstance(storage_org_id, int)
-        or storage_org_id < 1
+        isinstance(storage_organization_id, bool)
+        or not isinstance(storage_organization_id, int)
+        or storage_organization_id < 1
     ):
         raise ValueError(
             "a project opener requires this scheduler root's declared positive "
-            f"storage_org_id, got {storage_org_id!r}"
+            f"storage_organization_id, got {storage_organization_id!r}"
         )
-    return storage_org_id
+    return storage_organization_id
 
 
 def open_payload_project(

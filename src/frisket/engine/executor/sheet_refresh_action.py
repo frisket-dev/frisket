@@ -31,7 +31,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
     canonical_column_type,
 )
@@ -413,15 +413,15 @@ def run_typed_sheet_refresh_action(
             "op_id": facts.op_id,
             "refreshed_row_count": facts.row_count,
         }
-        supporting_records = [ReceiptEvidence(ref=refresh_ref)]
+        supporting_records = [ReceiptRecord(ref=refresh_ref)]
         if facts.match_stats is not None:
             refresh_ref["parent_op_kind"] = "derive.join"
             supporting_records = [
-                ReceiptEvidence(ref=refresh_ref),
-                ReceiptEvidence(ref=facts.match_stats, retention="pinned"),
+                ReceiptRecord(ref=refresh_ref),
+                ReceiptRecord(ref=facts.match_stats, retention="pinned"),
             ]
         supporting_records.extend(
-            ReceiptEvidence(ref=fact, retention="pinned") for fact in facts.reads
+            ReceiptRecord(ref=fact, retention="pinned") for fact in facts.reads
         )
         receipt = Receipt(
             receipt_id=receipt_id,
@@ -442,7 +442,7 @@ def run_typed_sheet_refresh_action(
                 )
             ],
             outputs=[ReceiptIO(name=facts.name, ref=sheet_ref)],
-            evidence=supporting_records,
+            records=supporting_records,
         )
         result = ActionResult(
             action=ActionIdentity(kind=kind, action_id=action_id),
@@ -463,8 +463,8 @@ def run_typed_sheet_refresh_action(
 
         ChangeStore(project).close(facts.op_id)
         release_refresh_claim(project, facts.sheet_id, receipt_id)
-        if not ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        if not ReceiptStore(project).update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise TableError(
                 "stale_refresh", "The refresh receipt is no longer writable"
@@ -635,7 +635,7 @@ def _refresh_sheet(
     update_policy = bound.request.params.get("update_policy", "keep_changes")
     derive_request = refresh_plan.request
     from frisket.engine.executor.table_action import (
-        _list_output_ai_generated,
+        _list_output_generated,
         prepare_table_producer,
     )
 
@@ -678,7 +678,7 @@ def _refresh_sheet(
             current = {
                 int(column["id"]): column
                 for column in cur.execute(
-                    "SELECT id, name, type, ai_generated, hidden FROM columns "
+                    "SELECT id, name, type, generated, hidden FROM columns "
                     "WHERE sheet_id=? AND active=1",
                     (sheet_id,),
                 ).fetchall()
@@ -688,7 +688,7 @@ def _refresh_sheet(
                 for name, copied in copied_by_output.items()
                 if (existing := current.get(config["columns"].get(name))) is None
                 or existing["type"] != canonical_column_type(copied.type)
-                or bool(existing["ai_generated"]) != copied.ai_generated
+                or bool(existing["generated"]) != copied.generated
                 or bool(existing["hidden"])
             ]
             if drifted:
@@ -739,7 +739,7 @@ def _refresh_sheet(
                     MaterializedColumnSpec(
                         name=column.name,
                         type=column.type,
-                        ai_generated=_list_output_ai_generated(
+                        generated=_list_output_generated(
                             reader, column.name, prepared.resolved_output_names
                         ),
                         hidden=column.hidden,
@@ -916,7 +916,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
     )
 
     receipt_id = _new_id("receipt")
-    op_id = project.append_change(
+    op_id = project.append_change_in_transaction(
         "sheet.refresh",
         {
             "sheet_id": prepared.sheet_id,
@@ -928,7 +928,6 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
             SOURCE_BINDING: prepared.source_binding,
         },
         label=f"Refresh sheet {prepared.sheet_id}",
-        commit=False,
     )
     require_execution_sources(project, op_id)
     receipt = Receipt(
@@ -947,7 +946,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
             )
         ],
     )
-    ReceiptStore(project).insert_running(receipt, commit=False)
+    ReceiptStore(project).insert_running_in_transaction(receipt)
     acquire_refresh_claim(
         project,
         sheet_id=prepared.sheet_id,
@@ -1067,8 +1066,8 @@ def _finish_refresh_failure(project, receipt, error):
                 "errors": [error],
             }
         )
-        ReceiptStore(project).update_body_status(
-            terminal, require_status="running", commit=False
+        ReceiptStore(project).update_body_status_in_transaction(
+            terminal, require_status="running"
         )
         project.db.commit()
         return _result_from_receipt(terminal)

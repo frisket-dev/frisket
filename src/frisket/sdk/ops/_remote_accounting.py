@@ -9,6 +9,7 @@ from frisket.execution.attempt import attempt_in_scope, routed_admission_in_scop
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.ops.base import ActionContext
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def persist_remote_accepted_accounting(
@@ -38,6 +39,7 @@ def persist_remote_accepted_accounting(
     ):
         calls[0] = bind_fact_to_route(admission.route, calls[0])
 
+    attempt_id = attempt.attempt_id if attempt is not None else None
     RunResultStore(ctx.project).write_returned_call_accounting(
         run_id,
         [
@@ -47,8 +49,11 @@ def persist_remote_accepted_accounting(
                 "model_calls": copy.deepcopy(calls),
             }
         ],
-        writer_attempt_id=attempt.attempt_id if attempt is not None else None,
-        claim_token=(ctx.extras or {}).get("claim_token"),
-        authorized_attempt_id=attempt.attempt_id if attempt is not None else None,
+        fence=WriterFence(
+            run_id=run_id,
+            writer_attempt_id=attempt_id,
+            claim_token=(ctx.extras or {}).get("claim_token"),
+            authorized_attempt_id=attempt_id,
+        ),
         receipt_id=receipt_id,
     )

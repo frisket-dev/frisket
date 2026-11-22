@@ -93,6 +93,7 @@ def test_every_typed_action_publishes_exact_schema_valid_examples(registered):
 
 def test_public_root_catalog_retains_all_typed_examples():
     entries = {entry.kind: entry for entry in root_action_catalog().actions}
+    assert ACTION_REGISTRY.actions
     for registered in ACTION_REGISTRY.actions:
         assert (
             entries[registered.action_id].examples

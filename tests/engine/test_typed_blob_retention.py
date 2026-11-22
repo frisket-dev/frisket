@@ -11,7 +11,7 @@ from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -118,7 +118,7 @@ def prepared(project, text):
         )
     with project.db:
         project.db.execute("BEGIN")
-        op = project.append_change("prepare.test", commit=False)
+        op = project.append_change_in_transaction("prepare.test")
         return PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact["id"],
             producing_op_id=op,

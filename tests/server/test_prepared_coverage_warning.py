@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.engine.store.project_qa import ProjectQAStore
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -20,7 +20,7 @@ def test_grid_and_ask_warn_only_for_partial_document(make_project, value_mode):
     text_col = project.add_column(sheet, "Text", type="text")
     rows = project.add_rows(sheet, [{}, {}, {}], {"Text": text_col})
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_change("media.read_pdf_text", commit=False)
+    op = project.append_change_in_transaction("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

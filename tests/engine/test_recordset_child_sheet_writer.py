@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import struct
-from pathlib import Path
 
 import pytest
 
@@ -43,8 +42,7 @@ class _MappedGateway:
         )
 
 
-def _project(tmp_path: Path) -> tuple[Project, int, int]:
-    project = Project.create(tmp_path / "project.frisket", name="p")
+def _project(project: Project) -> tuple[int, int]:
     sheet_id = project.add_sheet("s")
     column_id = project.add_column(sheet_id, "headline")
     project.add_rows(
@@ -52,7 +50,7 @@ def _project(tmp_path: Path) -> tuple[Project, int, int]:
         [{"headline": text} for text in _VECTORS],
         {"headline": column_id},
     )
-    return project, sheet_id, column_id
+    return sheet_id, column_id
 
 
 def _create_index(project: Project, sheet_id: int) -> str:
@@ -131,7 +129,7 @@ def test_single_parent_writer_records_rows_undo_and_standard_refs(make_project):
             parent_sheet_id=source_sheet_id,
             op_spec={"kind": "test"},
             columns=[
-                MaterializedColumnSpec("name", "text", ai_generated=True),
+                MaterializedColumnSpec("name", "text", generated=True),
                 MaterializedColumnSpec("score", "number"),
             ],
             rows=[
@@ -198,9 +196,9 @@ def test_single_parent_writer_rejects_parentless_rows(make_project):
 
 
 def test_embedding_project_and_cluster_publish_standard_refs_with_lineage_evidence(
-    tmp_path: Path,
+    project: Project,
 ):
-    project, sheet_id, _column_id = _project(tmp_path)
+    sheet_id, _column_id = _project(project)
     source_row_ids = [
         int(row["id"])
         for row in project.db.execute(
@@ -246,7 +244,7 @@ def test_embedding_project_and_cluster_publish_standard_refs_with_lineage_eviden
         assert any(item.ref["kind"] == "materialized_rows" for item in receipt.outputs)
         lineage = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref["kind"] == "lineage_parent_rows"
         )
         assert [pair["parent_row_id"] for pair in lineage["pairs"]] == source_row_ids

@@ -35,10 +35,14 @@ export function installPopoverPolyfill(): void {
   if (matchesProto.__popoverPatched) return;
   matchesProto.__popoverPatched = true;
   const originalMatches = Element.prototype.matches;
-  Element.prototype.matches = function (this: Element, selector: string) {
-    if (selector.trim() === ':popover-open') return openPopovers.has(this);
-    return originalMatches.call(this, selector);
-  };
+  Object.defineProperty(Element.prototype, 'matches', {
+    configurable: true,
+    writable: true,
+    value(this: Element, selector: string) {
+      if (selector.trim() === ':popover-open') return openPopovers.has(this);
+      return originalMatches.call(this, selector);
+    },
+  });
 }
 
 /** `<dialog>#showModal()`/`#close()` are unimplemented in jsdom; ConfirmDeleteRowsModal

@@ -72,7 +72,7 @@ class ActionCompareSourceColumn(WireModel):
     format: str | None
 
 
-class ActionCompareOutputColumn(WireModel):
+class ActionCompareGeneratedColumn(WireModel):
     logical_key: str
     column_id: int | None = Field(default=None, gt=0)
     current_name: str
@@ -135,7 +135,7 @@ class ActionCompareContextResponse(WireModel):
     sample_fingerprint: str
     locked_params: list[str]
     source_columns: list[ActionCompareSourceColumn]
-    output_columns: list[ActionCompareOutputColumn]
+    generated_columns: list[ActionCompareGeneratedColumn]
     expected_output_signature: str
     replacement_targets: list[ActionCompareReplacementTarget]
     source_rows: dict[str, dict[str, ActionCompareCell]]
@@ -148,8 +148,8 @@ class ActionComparePreviewAdmission(WireModel):
     expected_output_signature: str = Field(min_length=1)
 
 
-class ActionCompareQuoteResponse(WireModel):
-    schema_version: Literal["frisket.action_compare_quote.v1"]
+class ActionCompareEstimateResponse(WireModel):
+    schema_version: Literal["frisket.action_compare_estimate.v1"]
     estimate: ActionEstimate
 
 
@@ -162,8 +162,8 @@ __all__ = [
     "ActionCompareBasis",
     "ActionCompareContextRequest",
     "ActionCompareContextResponse",
+    "ActionCompareEstimateResponse",
     "ActionComparePreviewRequest",
-    "ActionCompareQuoteResponse",
     "ActionDraft",
     "ActionDraftScope",
 ]

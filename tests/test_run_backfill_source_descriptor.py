@@ -26,5 +26,5 @@ def test_backfill_semantic_column_uses_host_generated_column_policy(make_project
     )
     with pytest.raises(BackfillRefused) as caught:
         prepare_backfill_action(project, bound)
-    assert caught.value.error.code == "column_not_ai_generated"
+    assert caught.value.error.code == "column_not_generated"
     assert "requested" in caught.value.error.message

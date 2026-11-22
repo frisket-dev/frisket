@@ -78,7 +78,7 @@ def test_alert_event_routes_through_worker_to_recorded_slack_transport(
     drain_index(client.app.state.workspace.get(pid))
     alert_response = post_alert(
         client,
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/alerts",
         json={
             "name": "Budget watch",
             "scope": {"kind": "project"},
@@ -104,8 +104,8 @@ def test_alert_event_routes_through_worker_to_recorded_slack_transport(
         json={
             "name": "Immediate budget alerts",
             "channel_id": channel["id"],
-            "source_kind": "watch",
-            "source_ref_match": {"watch_id": alert["id"]},
+            "source_kind": "alert",
+            "source_ref_match": {"alert_id": alert["id"]},
             "delivery_mode": "immediate",
         },
     )
@@ -114,7 +114,7 @@ def test_alert_event_routes_through_worker_to_recorded_slack_transport(
     from alert_helpers import seed_empty_alert_baseline
 
     seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
+    run_response = client.post(f"/api/projects/{pid}/alerts/{alert['id']}/check")
     assert run_response.status_code == 200, run_response.text
     assert run_response.json()["run"]["new_rows"] == 2
 

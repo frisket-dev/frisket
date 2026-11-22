@@ -53,7 +53,7 @@ function receipt(
     inputs: [],
     outputs: [],
     provider_use: [],
-    evidence: [],
+    records: [],
     errors: [],
     ...overrides,
   };

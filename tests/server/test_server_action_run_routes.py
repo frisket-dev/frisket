@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
-
-
-def test_action_job_detail_non_integer_path_emits_422(tmp_path) -> None:
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+def test_action_job_detail_non_integer_path_emits_422(client) -> None:
+    with client:
         response = client.get("/api/projects/project-1/actions/jobs/not-an-integer")
 
     assert response.status_code == 422
@@ -20,8 +16,8 @@ def test_action_job_detail_non_integer_path_emits_422(tmp_path) -> None:
     ]
 
 
-def test_receipt_and_job_detail_ignore_unknown_query_parameters(tmp_path) -> None:
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+def test_receipt_and_job_detail_ignore_unknown_query_parameters(client) -> None:
+    with client:
         receipt = client.get(
             "/api/projects/project-missing/actions/v1/receipts/receipt-1",
             params={"unexpected": "value"},

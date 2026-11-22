@@ -44,6 +44,7 @@ def test_mcp_dependency_stays_on_the_supported_sdk_major() -> None:
     assert (1, 27) <= _major_minor(installed_version) < (2, 0)
 
 
+# invariant: pinned MCP 1.x transport entrypoints must remain importable
 def test_supported_mcp_transport_imports_remain_available() -> None:
     from mcp.server.fastmcp import FastMCP
     from mcp.shared.memory import create_connected_server_and_client_session

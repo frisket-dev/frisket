@@ -8,6 +8,7 @@ conversion for representable fixture data, not a downgrade supported by Frisket.
 from __future__ import annotations
 
 import gzip
+import json
 from pathlib import Path
 import sqlite3
 
@@ -134,41 +135,63 @@ def restore_pre_domain_schema(db: sqlite3.Connection) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         ]
-        _table_aliases = {"sources": "feeds", "source_runs": "feed_checks"}
-        _column_aliases = {"source_runs": {"source_id": "feed_id"}}
         saved = {}
+        current_table_renames = {
+            "output_column_claims": "generated_column_claims",
+            "sources": "feeds",
+            "source_runs": "feed_checks",
+        }
+        current_column_renames = {
+            "columns": {"ai_generated": "generated"},
+            "evaluation_judgments": {"output_column_id": "generated_column_id"},
+            "saved_compare_variants": {"output_columns_json": "generated_columns_json"},
+            "source_runs": {"source_id": "feed_id"},
+        }
         for table in tables:
+            source_table = current_table_renames.get(table, table)
             columns = [
                 row[1] for row in old.execute(f"PRAGMA table_info({_quoted(table)})")
             ]
-            current_table = table
             available = {
-                row[1] for row in db.execute(f"PRAGMA table_info({_quoted(table)})")
+                row[1]
+                for row in db.execute(f"PRAGMA table_info({_quoted(source_table)})")
             }
-            if not available and table in _table_aliases:
-                current_table = _table_aliases[table]
-                available = {
-                    row[1]
-                    for row in db.execute(
-                        f"PRAGMA table_info({_quoted(current_table)})"
-                    )
-                }
-            col_map = _column_aliases.get(table, {})
-            selected_pairs = [
+            col_map = current_column_renames.get(table, {})
+            pairs = [
                 (name, col_map.get(name, name))
                 for name in columns
                 if col_map.get(name, name) in available
             ]
-            if not selected_pairs:
+            if not pairs:
                 continue
-            common = [old_name for old_name, _ in selected_pairs]
-            select_names = ",".join(_quoted(cur_name) for _, cur_name in selected_pairs)
+            common = [old_name for old_name, _ in pairs]
+            select_names = ",".join(_quoted(src_name) for _, src_name in pairs)
             records = [
                 list(row)
                 for row in db.execute(
-                    f"SELECT {select_names} FROM {_quoted(current_table)}"
+                    f"SELECT {select_names} FROM {_quoted(source_table)}"
                 )
             ]
+            if table == "expected_answer_links" and "fields_json" in common:
+                fields_idx = common.index("fields_json")
+                for record in records:
+                    parsed = json.loads(record[fields_idx])
+                    if isinstance(parsed, list):
+                        record[fields_idx] = json.dumps(
+                            [
+                                {
+                                    (
+                                        "output_column_id"
+                                        if k == "generated_column_id"
+                                        else k
+                                    ): v
+                                    for k, v in item.items()
+                                }
+                                if isinstance(item, dict)
+                                else item
+                                for item in parsed
+                            ]
+                        )
             if table == "current_cells":
                 # The prior layer represented source ownership through producer_id,
                 # not origin_op_id; values and producer identities stay untouched.

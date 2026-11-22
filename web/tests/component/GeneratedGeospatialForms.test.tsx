@@ -83,6 +83,8 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
     fireEvent.change(screen.getByTestId('field-output-geo_point'), { target: { value: 'location' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('cost-estimate')).toHaveTextContent('No provider/API charge');
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent(/OpenCage|Nominatim|public API|external API|provider\/API/i);
+    expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent(/runs locally, no model call/i);
     expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent(/\$|UNKNOWN/);
     expect(screen.getByTestId('cost-estimate')).not.toHaveClass('cost-paid');
     expect(screen.getByTestId('action-output-summary')).toHaveTextContent('latitude and longitude');
@@ -118,8 +120,9 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', (
   });
 
   it('preserves Census geography, MOE, source and all saved output names', async () => {
-    const raw = catalog.actions.find((entry) => entry.kind === 'enrich.census_demographics')!;
-    const outputNames = Object.fromEntries(raw.ui_hints.logical_outputs!.map(({ key }) => [key, `saved_${key}`]));
+    const raw = catalog.actions.find((entry) => entry.kind === 'enrich.census_demographics');
+    if (!raw || !isGeneratedActionCatalogEntry(raw)) throw new Error('Missing enrich.census_demographics');
+    const outputNames = Object.fromEntries(raw.ui_hints.logical_outputs.map(({ key }) => [key, `saved_${key}`]));
     const params = { source: 'point', geography: 'block_group', include_moe: true };
     const { execute } = renderForm('enrich.census_demographics', { initialDraft: {
       action_id: 'enrich.census_demographics', scope: { kind: 'sheet_rows', sheet_id: 7 },

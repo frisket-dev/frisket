@@ -11,6 +11,7 @@ import {
   createProjectSearchApi,
   type ProjectSearchRequestWire,
 } from '../../src/api/projectSearch';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const request: ProjectSearchRequestWire = {
   scope: { kind: 'project' },
@@ -33,13 +34,6 @@ const response = {
     truncated: false,
   },
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();

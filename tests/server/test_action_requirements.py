@@ -2,17 +2,15 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
+from helpers import make_client
 
 
 def _client(tmp_path) -> TestClient:
-    return TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
 
@@ -69,10 +67,10 @@ def test_actions_advertise_typed_source_requirements(tmp_path):
     # transcript a transcription produced.
     summarize = _requirement(entries["map.summarize"]["ui_hints"], "source")
     assert "timestamped_transcript" in summarize["accepted_column_types"]
-    assert summarize["unset_fallback_includes_ai_generated"] is True
+    assert summarize["unset_fallback_includes_generated"] is True
 
     ask = _requirement(entries["map.ask"]["ui_hints"], "source")
-    assert ask["unset_fallback_includes_ai_generated"] is True
+    assert ask["unset_fallback_includes_generated"] is True
     assert "source_union_params" not in ask
 
     judge_hints = entries["map.judge"]["ui_hints"]
@@ -80,7 +78,7 @@ def test_actions_advertise_typed_source_requirements(tmp_path):
     assert judge_source["mode"] == "columns_or_template"
     judged = _requirement(judge_hints, "judged_column")
     assert judged["mode"] == "column"
-    assert judged["ai_generated_only"] is True
+    assert judged["generated_only"] is True
 
     regex_hints = entries["map.regex_extract"]["ui_hints"]
     regex = _requirement(regex_hints, "input_columns")
@@ -90,7 +88,7 @@ def test_actions_advertise_typed_source_requirements(tmp_path):
         "timestamped_transcript",
         "category",
     ]
-    assert "unset_fallback_includes_ai_generated" not in regex
+    assert "unset_fallback_includes_generated" not in regex
     assert "source_union_params" not in regex
     regex_schema = entries["map.regex_extract"]["input_schema"]
     regex_params = regex_schema["properties"]

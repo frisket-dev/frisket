@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.notifications.candidates import validate_notification_candidate
 from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     emit_notification_candidate,
 )
-from frisket.server.app import create_app
 
 
-def _project(tmp_path: Path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def _project(client):
     pid = client.post("/api/projects", json={"name": "Plugin notifications"}).json()[
         "id"
     ]
@@ -23,9 +19,9 @@ def _project(tmp_path: Path):
 
 
 def test_plugin_candidates_flow_through_core_service_not_channel_direct_send(
-    tmp_path: Path,
+    client,
 ) -> None:
-    _client, _pid, project = _project(tmp_path)
+    _client, _pid, project = _project(client)
     channel = project.create_notification_channel(
         kind="slack",
         name="Plugin alerts",
@@ -97,9 +93,9 @@ def test_plugin_candidates_flow_through_core_service_not_channel_direct_send(
 
 
 def test_candidate_validation_rejects_invalid_and_alert_source_refs_are_checked(
-    tmp_path: Path,
+    client,
 ) -> None:
-    _client, _pid, project = _project(tmp_path)
+    _client, _pid, project = _project(client)
 
     with pytest.raises(ValueError, match="source_kind"):
         validate_notification_candidate(
@@ -124,18 +120,18 @@ def test_candidate_validation_rejects_invalid_and_alert_source_refs_are_checked(
             }
         )
 
-    with pytest.raises(ValueError, match="watch notification source events"):
+    with pytest.raises(ValueError, match="alert notification source events"):
         emit_notification_candidate(
             project,
             {
-                "source_kind": "watch",
-                "source_ref": {"watch_id": 999, "run_id": 999},
+                "source_kind": "alert",
+                "source_ref": {"alert_id": 999, "run_id": 999},
                 "source_event_ids": [999],
-                "dedupe_key": "watch:999:run:999:events:999",
-                "title": "Invalid watch event",
+                "dedupe_key": "alert:999:run:999:events:999",
+                "title": "Invalid alert event",
                 "summary": "Invalid",
                 "severity": "info",
-                "deep_link": {"kind": "watch_run", "watch_id": 999, "run_id": 999},
+                "deep_link": {"kind": "alert_check", "alert_id": 999, "run_id": 999},
                 "payload": {},
             },
         )

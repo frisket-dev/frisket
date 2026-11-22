@@ -15,7 +15,14 @@ from types import MappingProxyType
 
 from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.types import Row, Rows, RowError, RowResult
-from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
+from frisket.contracts.action import (
+    ActionError,
+    ActionIdentity,
+    ActionResult,
+    ActionResultStatus,
+)
+from frisket.engine.store.receipts import ReceiptStatus
+from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
@@ -31,6 +38,12 @@ from frisket.engine.executor.map_rows_action import (
     typed_request_hash,
     typed_map_rows_replay_result,
 )
+
+
+def _terminal_receipt_status(status: ActionResultStatus) -> ReceiptStatus:
+    if status == "needs_confirmation":
+        raise RuntimeError("cannot terminalize a run with needs_confirmation status")
+    return status
 
 
 def scalar_kind(value):
@@ -219,7 +232,12 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
             terminal.handler(plan.program._params, Rows(values)) if values else {}
         )
         if inspect.isawaitable(produced):
-            produced = asyncio.run(produced)
+            awaitable = produced
+
+            async def _resolve_batch_result():
+                return await awaitable
+
+            produced = asyncio.run(_resolve_batch_result())
         if set(produced) != set(values):
             raise ValueError(
                 "inferred batch must return exactly one result for each input row"
@@ -524,9 +542,9 @@ def _publish(
 ):
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
-        terminalize_project_run,
+        terminalize_project_run_in_transaction,
     )
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.result_generations import ResultGenerationStore
     from frisket.execution.attempt import StaleAttemptWriter
@@ -537,7 +555,7 @@ def _publish(
     project.db.execute("BEGIN IMMEDIATE")
     try:
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        claims = OutputColumnClaimStore(project)
+        claims = GeneratedColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
         error = None
         cancelled = (
@@ -586,7 +604,7 @@ def _publish(
             receipt = prior.model_copy(
                 update={"status": status, "outputs": [], "errors": [error]}
             )
-            outcome = terminalize_project_run(
+            outcome = terminalize_project_run_in_transaction(
                 project,
                 run_id=run_id,
                 receipt_id=receipt_id,
@@ -595,16 +613,17 @@ def _publish(
                     writer_attempt_id=writer, claim_token=claim
                 ),
                 terminal_receipt=receipt,
-                commit=False,
             )
             if outcome.disposition not in {"terminalized", "already_terminal"}:
                 raise StaleAttemptWriter("Formula cancellation lost its current writer")
         else:
             claims.require_current_writer(
                 project.db,
-                run_id=run_id,
-                writer_attempt_id=writer,
-                claim_token=claim,
+                fence=WriterFence.claimed(
+                    run_id=run_id,
+                    writer_attempt_id=writer,
+                    claim_token=claim,
+                ),
                 output_column_ids=column_ids,
             )
             ResultGenerationStore(project).seal(
@@ -613,7 +632,6 @@ def _publish(
                 claim_token=claim,
                 terminal_disposition=terminal_status,
                 publish=True,
-                commit=False,
             )
             op = project.db.execute(
                 "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
@@ -637,17 +655,16 @@ def _publish(
             receipt_status = kwargs.get("receipt_status")
             if receipt_status is not None:
                 receipt = receipt.model_copy(update={"status": receipt_status})
-            outcome = terminalize_project_run(
+            outcome = terminalize_project_run_in_transaction(
                 project,
                 run_id=run_id,
                 receipt_id=receipt_id,
-                status=receipt.status,
+                status=_terminal_receipt_status(receipt.status),
                 run_status=terminal_status,
                 authority=CurrentWriterTerminalAuthority(
                     writer_attempt_id=writer, claim_token=claim
                 ),
                 terminal_receipt=receipt,
-                commit=False,
             )
             if outcome.disposition != "terminalized":
                 raise StaleAttemptWriter(

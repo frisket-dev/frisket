@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,8 +18,8 @@ from frisket.authoring.workbench.plugin_subprocess_importers import (
 )
 
 
-def _seed_project(tmp_path: Path) -> tuple[Project, int, int, dict[str, Any]]:
-    project = Project.create(tmp_path / "temporal-plugin-ingress.frisket")
+def _seed_project(make_project) -> tuple[Project, int, int, dict[str, Any]]:
+    project = make_project("temporal-plugin-ingress")
     sheet_id = project.add_sheet("Media")
     media_column_id = project.add_column(sheet_id, "media", "video")
     blob_hash = project.add_blob(
@@ -92,38 +91,31 @@ def _stale_anchor(anchor: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_importer_accepts_valid_anchor_and_rejects_stale_anchor_without_writes(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, _sheet_id, _row_id, anchor = _seed_project(tmp_path)
-    try:
-        valid_value = _temporal_value("timeline_ranges", anchor)
-        valid = _parse_importer_row(
-            {"selections": valid_value},
-            project=project,
-            column_types_by_name={"selections": "timeline_ranges"},
-            row_number=1,
-        )
-        assert valid["selections"]["timeline"] == anchor
-        assert valid["selections"]["items"][0]["id"] == "range-1"
+    project, _sheet_id, _row_id, anchor = _seed_project(make_project)
+    valid_value = _temporal_value("timeline_ranges", anchor)
+    valid = _parse_importer_row(
+        {"selections": valid_value},
+        project=project,
+        column_types_by_name={"selections": "timeline_ranges"},
+        row_number=1,
+    )
+    assert valid["selections"]["timeline"] == anchor
+    assert valid["selections"]["items"][0]["id"] == "range-1"
 
-        before_rows = project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0]
-        invalid = _parse_importer_row(
-            {"selections": _temporal_value("timeline_ranges", _stale_anchor(anchor))},
-            project=project,
-            column_types_by_name={"selections": "timeline_ranges"},
-            row_number=2,
-        )
-        assert invalid["_error"]["status"] == "failed"
-        error = invalid["_error"]["errors"][0]
-        assert error["code"] == "plugin_importer_row_invalid"
-        assert (
-            error["details"]["diagnostics"][0]["attach"]["reason"] == "timeline_stale"
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == before_rows
-        )
-    finally:
-        project.close()
+    before_rows = project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0]
+    invalid = _parse_importer_row(
+        {"selections": _temporal_value("timeline_ranges", _stale_anchor(anchor))},
+        project=project,
+        column_types_by_name={"selections": "timeline_ranges"},
+        row_number=2,
+    )
+    assert invalid["_error"]["status"] == "failed"
+    error = invalid["_error"]["errors"][0]
+    assert error["code"] == "plugin_importer_row_invalid"
+    assert error["details"]["diagnostics"][0]["attach"]["reason"] == "timeline_stale"
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == before_rows
 
 
 def _temporal_write_plan(value: dict[str, Any], *, sheet_name: str) -> dict[str, Any]:
@@ -148,31 +140,28 @@ def _temporal_write_plan(value: dict[str, Any], *, sheet_name: str) -> dict[str,
 
 
 def test_plugin_write_plan_accepts_project_anchored_temporal_value(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, _sheet_id, _row_id, anchor = _seed_project(tmp_path)
-    try:
-        receipt = apply_write_plan(
-            project,
-            _temporal_write_plan(
-                _temporal_value("timeline_range", anchor),
-                sheet_name="Valid temporal output",
-            ),
-            plugin_id="temporal-test",
-            manifest_sha="sha256:" + "1" * 64,
-            declared_capabilities=["plugin:project_writes"],
-        )
-        assert receipt.counts == {"sheets": 1, "columns": 1, "rows": 1}
-        stored = project.db.execute(
-            "SELECT cells.value FROM cells "
-            "JOIN columns ON columns.id=cells.column_id "
-            "JOIN sheets ON sheets.id=columns.sheet_id "
-            "WHERE sheets.name=? AND columns.name=?",
-            ("Valid temporal output", "selection"),
-        ).fetchone()
-        assert stored is not None
-    finally:
-        project.close()
+    project, _sheet_id, _row_id, anchor = _seed_project(make_project)
+    receipt = apply_write_plan(
+        project,
+        _temporal_write_plan(
+            _temporal_value("timeline_range", anchor),
+            sheet_name="Valid temporal output",
+        ),
+        plugin_id="temporal-test",
+        manifest_sha="sha256:" + "1" * 64,
+        declared_capabilities=["plugin:project_writes"],
+    )
+    assert receipt.counts == {"sheets": 1, "columns": 1, "rows": 1}
+    stored = project.db.execute(
+        "SELECT cells.value FROM cells "
+        "JOIN columns ON columns.id=cells.column_id "
+        "JOIN sheets ON sheets.id=columns.sheet_id "
+        "WHERE sheets.name=? AND columns.name=?",
+        ("Valid temporal output", "selection"),
+    ).fetchone()
+    assert stored is not None
 
 
 @pytest.mark.parametrize(
@@ -180,31 +169,28 @@ def test_plugin_write_plan_accepts_project_anchored_temporal_value(
     [(_missing_anchor, "timeline_not_found"), (_stale_anchor, "timeline_stale")],
 )
 def test_plugin_write_plan_rejects_invalid_temporal_anchor_with_zero_state(
-    tmp_path: Path,
+    make_project,
     bad_anchor: Any,
     reason: str,
 ) -> None:
-    project, _sheet_id, _row_id, anchor = _seed_project(tmp_path)
-    try:
-        before = {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("sheets", "columns", "rows", "cells", "ops")
-        }
-        with pytest.raises(WritePlanValidationError, match=reason):
-            apply_write_plan(
-                project,
-                _temporal_write_plan(
-                    _temporal_value("timeline_range", bad_anchor(anchor)),
-                    sheet_name="Rejected temporal output",
-                ),
-                plugin_id="temporal-test",
-                manifest_sha="sha256:" + "1" * 64,
-                declared_capabilities=["plugin:project_writes"],
-            )
-        after = {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("sheets", "columns", "rows", "cells", "ops")
-        }
-        assert after == before
-    finally:
-        project.close()
+    project, _sheet_id, _row_id, anchor = _seed_project(make_project)
+    before = {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in ("sheets", "columns", "rows", "cells", "ops")
+    }
+    with pytest.raises(WritePlanValidationError, match=reason):
+        apply_write_plan(
+            project,
+            _temporal_write_plan(
+                _temporal_value("timeline_range", bad_anchor(anchor)),
+                sheet_name="Rejected temporal output",
+            ),
+            plugin_id="temporal-test",
+            manifest_sha="sha256:" + "1" * 64,
+            declared_capabilities=["plugin:project_writes"],
+        )
+    after = {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in ("sheets", "columns", "rows", "cells", "ops")
+    }
+    assert after == before

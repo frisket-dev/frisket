@@ -205,7 +205,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -236,13 +236,13 @@ try:
         column_name = str(payload["column_name"])
         column_id = columns.get(column_name)
         if column_id is None:
-            column_id = project.add_column(sheet_id, column_name, "text", ai_generated=True)
+            column_id = project.add_column(sheet_id, column_name, "text", generated=True)
         op_id = project.append_change(
             producer_kind,
             {
                 "schema_version": "frisket.action.v2",
                 "kind": producer_kind,
-                "params": {"output_column": column_name},
+                "params": {"generated_column": column_name},
             },
             label=producer_kind,
         )
@@ -251,7 +251,7 @@ try:
             sheet_id,
             producer_kind,
             model="fixture/model",
-            params={"output_column": column_name},
+            params={"generated_column": column_name},
             total_rows=1,
             row_ids=[row_id],
         )
@@ -269,7 +269,8 @@ try:
             ],
         )
         run_store.finish_run(run_id)
-        run_store.point_column_at_run(op_id, column_id, run_id)
+        with write_transaction(project.db):
+            run_store.point_column_at_run(op_id, column_id, run_id)
         _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
         subject_kind = "cell_value"
         subject_ref = refs[row_id]

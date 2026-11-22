@@ -47,7 +47,7 @@ PROTECTED_TABLES = frozenset(
 TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
     "execution_attempts": (
         "src/frisket/execution/attempt.py",  # Mint, admit, claim, and explicit close.
-        "src/frisket/engine/store/output_claims.py",  # Fenced dead-writer recovery.
+        "src/frisket/engine/store/generated_column_claims.py",  # Fenced dead-writer recovery.
         "src/frisket/engine/executor/project_run_terminalization.py",  # Pending closure.
         "src/frisket/upgrades/project/domain_migration.py",  # Frozen stopped-work cutover.
     ),
@@ -102,7 +102,7 @@ RUN_FIELD_OWNERS: Mapping[str, tuple[str, ...]] = {
     "current_attempt_id": (
         _RUN_STORE,
         "src/frisket/execution/attempt.py",
-        "src/frisket/engine/store/output_claims.py",
+        "src/frisket/engine/store/generated_column_claims.py",
         _DOMAIN_MIGRATION,
     ),
     "cancel_requested_at": (_RUN_STORE, "src/frisket/engine/store/changes.py"),
@@ -127,8 +127,6 @@ HAND_WRITTEN_TRANSACTIONS = frozenset(
         "src/frisket/engine/store/execution_routes.py",
         # Deferred read-or-write scopes and staged garbage-collection commits.
         "src/frisket/engine/store/project_blobs.py",
-        # Savepoint scope that begins first when it is the outermost write.
-        "src/frisket/engine/store/result_generations.py",
         # Savepoint scopes around result and provider-fact batches.
         "src/frisket/engine/store/runs.py",
     }
@@ -155,7 +153,7 @@ EXPLICIT_CURSORS: Mapping[str, int] = {
     "src/frisket/engine/executor/temporal_extract_publication.py": 1,
     "src/frisket/engine/store/cells.py": 2,
     "src/frisket/engine/store/derived_updates.py": 1,
-    "src/frisket/engine/store/evidence.py": 1,
+    "src/frisket/engine/store/citations.py": 1,
     "src/frisket/features/graph/sheet_graph.py": 1,
     "src/frisket/server/feed_enqueue.py": 1,
     # The job queue's own database, not a project connection.
@@ -170,6 +168,8 @@ HANDOFF_OWNER = "src/frisket/server/thread_worker.py"
 _HANDOFF_CALLS = frozenset(
     {"to_thread", "run_in_threadpool", "run_in_executor", "run_sync"}
 )
+
+COMMIT_PARAM_SCOPE = "src/frisket"
 
 
 _IDENT = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_]\w*)'
@@ -492,6 +492,41 @@ def check_thread_handoffs(
     return problems
 
 
+def _commit_param_defs(path: Path) -> list[tuple[int, str]]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        if any(param.arg == "commit" for param in params):
+            hits.append((node.lineno, node.name))
+    return sorted(hits)
+
+
+def check_commit_parameters(
+    *,
+    root: Path,
+    scope: str = COMMIT_PARAM_SCOPE,
+    owner: str = TRANSACTION_OWNER,
+) -> list[str]:
+    problems: list[str] = []
+    for path in sorted((root / scope).rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        if relative == owner:
+            continue
+        problems.extend(
+            f"{relative}:{line}: function {name!r} defines a 'commit' parameter "
+            f"outside {owner}; split owning and *_in_transaction write paths"
+            for line, name in _commit_param_defs(path)
+        )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -519,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         else check_transaction_owners(root=args.root)
         + check_explicit_cursors(root=args.root)
         + check_thread_handoffs(root=args.root)
+        + check_commit_parameters(root=args.root)
     )
     for problem in problems:
         print(problem)

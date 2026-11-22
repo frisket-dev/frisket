@@ -117,7 +117,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   const unavailableLinks = useMemo(() => links.filter(link => !isExpectedLinkAvailable(link)), [links]);
   const runs = useMemo(() => [...currentRuns, ...otherRuns], [currentRuns, otherRuns]);
   const runChoices = useMemo(() => runs.filter(item => item.anchor.sheetId === sheet?.id).map(({ anchor, context }) => {
-    const link = availableLinks.find(item => item.action_id === context.draft.action_id && item.fields.some(field => context.output_columns.some(output => output.column_id === field.output_column_id)));
+    const link = availableLinks.find(item => item.action_id === context.draft.action_id && item.fields.some(field => context.generated_columns.some(output => output.column_id === field.generated_column_id)));
     return { anchor, group: context.draft.action_id.startsWith('media.') ? 'media' as const : 'rows' as const, label: entries?.find(item => item.kind === context.draft.action_id)?.title ?? context.draft.action_id,
       ...(link ? { expected: { sheetName: link.expected_sheet_name, rowCount: matchedCounts[link.id] ?? 0 } } : {}) };
   }), [runs, availableLinks, entries, matchedCounts, sheet?.id]);
@@ -130,14 +130,14 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   }), [entries, templates, sheet]);
   const joinSheets = useMemo(() => sheets.map(item => ({ id: Number(item.id), name: item.name, columns: item.columns.map(column => ({ id: Number(column.id), name: column.name })) })), [sheets]);
   const joinActions = useMemo(() => runs.map(({ anchor, context }) => ({ id: `${anchor.runId}:${anchor.columnId}`, actionId: context.draft.action_id,
-    label: `${entries?.find(item => item.kind === context.draft.action_id)?.title ?? context.draft.action_id} · ${context.output_columns.map(column => column.current_name).join(', ')} · ${context.sheet.name}`,
+    label: `${entries?.find(item => item.kind === context.draft.action_id)?.title ?? context.draft.action_id} · ${context.generated_columns.map(column => column.current_name).join(', ')} · ${context.sheet.name}`,
     targetSheetId: context.sheet.id,
-    outputs: context.output_columns.filter((column): column is typeof column & { column_id: number } => column.column_id !== null)
+    outputs: context.generated_columns.filter((column): column is typeof column & { column_id: number } => column.column_id !== null)
       .map(column => ({ id: column.column_id, name: column.current_name, logicalKey: column.logical_key }))
   })), [runs, entries]);
   const expectedColumns = useMemo<ExpectedGridColumn[]>(() => availableLinks.flatMap(link => link.fields.map(field => ({
     id: `expected:${link.id}:${field.expected_column_id}`, link_id: link.id,
-    expected_column_id: field.expected_column_id, output_column_id: field.output_column_id,
+    expected_column_id: field.expected_column_id, generated_column_id: field.generated_column_id,
     logical_key: field.logical_key, rule: field.rule, hidden: field.hidden || link.hidden, source: field.source,
     name: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id)?.name ?? field.logical_key,
     sourceColumn: sheets.find(item => Number(item.id) === link.expected_sheet_id)?.columns.find(column => Number(column.id) === field.expected_column_id),
@@ -148,7 +148,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
     if (cell?.source_row_id != null) await projectApi.editCells([{ rowId: String(cell.source_row_id), columnId: String(cell.source_column_id), value }]);
     else {
       const link = links.find(item => item.id === column.link_id);
-      const run = runs.find(item => item.context.draft.action_id === link?.action_id && item.context.output_columns.some(output => output.column_id === column.output_column_id));
+      const run = runs.find(item => item.context.draft.action_id === link?.action_id && item.context.generated_columns.some(output => output.column_id === column.generated_column_id));
       if (!run) throw new Error('The action for this expected answer is unavailable.');
       await api.saveExpectedAnswer({ basis: run.context.comparison_basis, link_id: column.link_id, row_id: Number(rowId), logical_key: column.logical_key, value: JSON.parse(JSON.stringify(value)) as JsonValue, rule: column.rule });
     }

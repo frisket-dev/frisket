@@ -12,6 +12,7 @@ import type {
   LocalEndpointInput,
   LocalEndpointPatch,
 } from "../../src/api/localProviders";
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const endpoint = {
   endpoint_id: "local-a1b2c3d4e5f6",
@@ -99,9 +100,14 @@ interface LocalProvidersApi {
 }
 
 class MappedContractError extends Error {
-  constructor(readonly status: number, readonly payload: unknown) {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(status: number, payload: unknown) {
     super(`mapped contract error ${status}`);
     this.name = "MappedContractError";
+    this.status = status;
+    this.payload = payload;
   }
 }
 
@@ -111,13 +117,6 @@ const errorFactory = (status: number, payload: unknown): Error =>
 async function localProvidersApi(): Promise<LocalProvidersApi> {
   const module = await import("../../src/api/localProviders");
   return module.createLocalProvidersApi(errorFactory);
-}
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 afterEach(() => vi.unstubAllGlobals());

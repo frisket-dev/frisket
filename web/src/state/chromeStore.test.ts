@@ -71,6 +71,8 @@ describe('createChromeStore', () => {
     expect(createChromeState(PROJECT_ID).discoverTab).toBe('Facets');
     localStorage.setItem(`frisket:discover-tab:${PROJECT_ID}`, 'some.plugin.panel');
     expect(createChromeState(PROJECT_ID).discoverTab).toBe('some.plugin.panel');
+    localStorage.setItem(`frisket:discover-tab:${PROJECT_ID}`, 'Watches');
+    expect(createChromeState(PROJECT_ID).discoverTab).toBe('Alerts');
   });
 
   it('discoverOpen: an explicit stored preference always wins over the width default', () => {

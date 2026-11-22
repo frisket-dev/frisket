@@ -84,7 +84,7 @@ def install(policy: object) -> None:
     child_fence = _load_sibling("_child_fence") if fence_args is not None else None
     netwall = _load_sibling("_netwall") if audit_netwall else None
     try:
-        if child_fence is not None:
+        if child_fence is not None and fence_args is not None:
             child_fence._frisket_fence_install(*fence_args)
         if netwall is not None:
             netwall.install()

@@ -7,7 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
 import { entityTableDraft } from '../../src/actions/entityTable';
 import type { ActionLaunchPrefill } from '../../src/actions/actionFormInitial';
-import { type ActionCatalogPayload, type GeneratedActionDraft,
+import { isGeneratedActionCatalogEntry, type ActionCatalogPayload, type GeneratedActionDraft,
   type RegisteredActionRequest, type V1Receipt } from '../../src/api/types';
 import { ApiError } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
@@ -25,7 +25,7 @@ function receipt(receiptId = 'receipt:clusters', overrides: Partial<V1Receipt> =
   return { schemaVersion: 'frisket.receipt.v1', receiptId, projectId: 'p',
     actionId: 'action:cluster', actionKind: 'cluster.values', runId: null, opIds: [1],
     idempotencyKey: null, paramsHash: null, status: 'completed', inputs: [], outputs: [],
-    providerUse: [], evidence: [], errors: [], ...overrides };
+    providerUse: [], records: [], errors: [], ...overrides };
 }
 
 describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', () => {
@@ -40,9 +40,12 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
     stores = createWorkspaceStores('p', createProjectApi('p'));
     vi.spyOn(stores.projectApi, 'getReceipt').mockImplementation(async (id) => receipt(id));
     vi.spyOn(stores.projectApi, 'listActionJobs').mockResolvedValue({ jobs: [] } as never);
+    const entitiesEntry = catalog.actions.find((entry) => entry.kind === 'resolve.entities');
+    if (!entitiesEntry || !isGeneratedActionCatalogEntry(entitiesEntry)) {
+      throw new Error('Missing generated resolve.entities entry');
+    }
     vi.spyOn(stores.projectApi, 'resolveActionParams').mockResolvedValue({
-      diagnostics: {}, logical_outputs: catalog.actions.find((entry) =>
-        entry.kind === 'resolve.entities')!.ui_hints.logical_outputs!,
+      diagnostics: {}, logical_outputs: entitiesEntry.ui_hints.logical_outputs,
     });
     stores.actionCatalog.store.set(() => ({
       status: 'ready', error: null, catalog,
@@ -97,9 +100,12 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
   });
 
   it.each([undefined, false])('displays PDF defaults without adding them to saved Params (%s)', async (renderPages) => {
-    const entry = catalog.actions.find((item) => item.kind === 'import.pdf')!;
+    const entry = catalog.actions.find((item) => item.kind === 'import.pdf');
+    if (!entry || !isGeneratedActionCatalogEntry(entry)) {
+      throw new Error('Missing generated import.pdf entry');
+    }
     vi.mocked(stores.projectApi.resolveActionParams).mockResolvedValue({
-      diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs!,
+      diagnostics: {}, logical_outputs: entry.ui_hints.logical_outputs,
     });
     const params = { source: { kind: 'file', path: '/illustrative.pdf' },
       ...(renderPages === undefined ? {} : { render_pages: renderPages }) };

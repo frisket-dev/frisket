@@ -47,7 +47,7 @@ export function RowSourceDocuments({
     return <p className="row-source-note" data-testid="row-source-documents-error">Source documents unavailable</p>;
   }
   const { payload } = state;
-  if (!payload.ancestry_found && payload.evidence_links.length === 0 && !payload.lineage_stale
+  if (!payload.ancestry_found && payload.citations.length === 0 && !payload.lineage_stale
     && payload.lineage_freshness !== 'checking' && payload.lineage_freshness !== 'unknown') return null;
 
   const openDocument = (document: RowSourceDocumentsPayload['documents'][number]) => {
@@ -77,9 +77,9 @@ export function RowSourceDocuments({
           {payload.lineage_freshness === 'checking' ? 'Checking source changes…' : 'Source changes have not been checked.'}
         </p>
       )}
-      {payload.evidence_links.length > 0 && (
+      {payload.citations.length > 0 && (
         <div className="row-source-evidence" data-testid="row-source-evidence">
-          {payload.evidence_links.map((link) => (
+          {payload.citations.map((link) => (
             <CitationChip
               key={link.stable_id}
               linkId={link.stable_id}
@@ -137,7 +137,7 @@ export function RowSourceDocuments({
           )}
         </>
       )}
-      {payload.ancestry_found && payload.documents.length === 0 && payload.evidence_links.length === 0 && (
+      {payload.ancestry_found && payload.documents.length === 0 && payload.citations.length === 0 && (
         <p className="row-source-note" data-testid="row-source-documents-empty">No readable source document found</p>
       )}
       {payload.unavailable_source_count > 0 && (

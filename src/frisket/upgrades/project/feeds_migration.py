@@ -6,10 +6,12 @@ import json
 import sqlite3
 from typing import Any
 
-from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST
+from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.upgrades.project._step import execute_ddl
+from frisket.upgrades.project.alerts_migration import ALERTS_TO_DIGEST
 
-FEEDS_TO_DIGEST = "frisket.schema.v1:c85debf6ee343fcbde2cb862d18a0544"
+FEEDS_FROM_DIGEST = ALERTS_TO_DIGEST
+FEEDS_TO_DIGEST = "frisket.schema.v1:b244ecfba8866da038149384c8c00697"
 
 _FEEDS_DDL = """
 CREATE TABLE IF NOT EXISTS feeds (
@@ -151,7 +153,7 @@ def _rewrite_receipt_body(body: str) -> str:
     action_kind = parsed.get("action_kind")
     if isinstance(action_kind, str) and action_kind in _ACTION_KIND_MAP:
         parsed["action_kind"] = _ACTION_KIND_MAP[action_kind]
-    for section in ("inputs", "outputs", "evidence"):
+    for section in ("inputs", "outputs", "records", "evidence"):
         items = parsed.get(section)
         if isinstance(items, list):
             for item in items:
@@ -237,35 +239,37 @@ def _migrate_notifications(db: sqlite3.Connection) -> None:
 
 
 def migrate_feeds(db: sqlite3.Connection) -> None:
-    if SCHEMA_DIGEST != FEEDS_TO_DIGEST:
-        raise BundleSchemaMismatch(
-            "Feeds migration endpoint needs updating for this build"
+    tables = {
+        str(row[0])
+        for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    if "sources" in tables:
+        execute_ddl(db, _FEEDS_DDL)
+        db.execute(
+            "INSERT INTO feeds ("
+            "id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
+            "last_checked_at, last_status, new_rows_total, created_at"
+            ") SELECT "
+            "id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
+            "last_checked_at, last_status, new_rows_total, created_at "
+            "FROM sources"
         )
-    execute_ddl(db, _FEEDS_DDL)
-    db.execute(
-        "INSERT INTO feeds ("
-        "id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
-        "last_checked_at, last_status, new_rows_total, created_at"
-        ") SELECT "
-        "id, name, kind, url, config, sheet_id, schedule, enabled, cursor, "
-        "last_checked_at, last_status, new_rows_total, created_at "
-        "FROM sources"
-    )
-    db.execute(
-        "INSERT INTO feed_checks ("
-        "id, feed_id, op_id, receipt_id, status, new_rows, skipped_rows, "
-        "changed_rows, revisions, error, cursor_before, cursor_after, "
-        "duration_ms, warning_count, cost_micro, summary_json, started_at, "
-        "finished_at"
-        ") SELECT "
-        "id, source_id, op_id, receipt_id, status, new_rows, skipped_rows, "
-        "changed_rows, revisions, error, cursor_before, cursor_after, "
-        "duration_ms, warning_count, cost_micro, summary_json, started_at, "
-        "finished_at "
-        "FROM source_runs"
-    )
-    db.execute("DROP TABLE source_runs")
-    db.execute("DROP TABLE sources")
+        if "source_runs" in tables:
+            db.execute(
+                "INSERT INTO feed_checks ("
+                "id, feed_id, op_id, receipt_id, status, new_rows, skipped_rows, "
+                "changed_rows, revisions, error, cursor_before, cursor_after, "
+                "duration_ms, warning_count, cost_micro, summary_json, started_at, "
+                "finished_at"
+                ") SELECT "
+                "id, source_id, op_id, receipt_id, status, new_rows, skipped_rows, "
+                "changed_rows, revisions, error, cursor_before, cursor_after, "
+                "duration_ms, warning_count, cost_micro, summary_json, started_at, "
+                "finished_at "
+                "FROM source_runs"
+            )
+            db.execute("DROP TABLE source_runs")
+        db.execute("DROP TABLE sources")
     _migrate_receipts(db)
     _migrate_notifications(db)
     violation = db.execute("PRAGMA foreign_key_check").fetchone()

@@ -173,6 +173,7 @@ def test_server_initializes_app_before_shared_queue_worker_and_exits_on_child_de
     assert config[2] == {
         "host": "0.0.0.0",
         "port": 9123,
+        "loop": "asyncio",
         "log_config": None,
         "proxy_headers": False,
     }

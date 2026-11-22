@@ -1,7 +1,7 @@
-"""Validation helpers for future notification producers.
+"""Candidate schema and validation helpers for notification producers.
 
-Stage 1 intentionally defines candidates only. Durable notification items,
-routes, channels, and delivery attempts belong to later lanes.
+Defines :class:`NotificationCandidate` and normalizes candidate payloads before
+``frisket.notifications.emit`` persists items and plans route deliveries.
 """
 
 from __future__ import annotations

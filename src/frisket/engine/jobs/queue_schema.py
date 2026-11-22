@@ -21,7 +21,7 @@ from frisket.engine.jobs.queue_provision import RUN_QUEUE_RUNTIME_ROLE
 from frisket.engine.worker_version import code_version
 
 
-QUEUE_SCHEMA_VERSION = 13
+QUEUE_SCHEMA_VERSION = 14
 QUEUE_SCHEMA_MIGRATION_LOCK_ID = 7_154_819_250_847_113_102
 QUEUE_SCHEMA_LEDGER = "frisket_queue_schema_migrations"
 STORAGE_RECONCILIATION_INDEX = "idx_jobs_storage_project_status_id"
@@ -47,7 +47,8 @@ _REQUIRED_COLUMNS = {
         "max_attempts",
         "available_at",
         "created_at",
-        "storage_org_id",
+        "organization_id",
+        "storage_organization_id",
         "project_id",
         "feed_id",
     ),
@@ -83,14 +84,14 @@ _REQUIRED_COLUMNS = {
         "authority_id",
         "job_id",
         "worker_id",
-        "storage_org_id",
+        "storage_organization_id",
         "project_id",
         "claimed_at",
     ),
     "search_preparation_batches": (
         "id",
         "workspace_root",
-        "storage_org_id",
+        "storage_organization_id",
         "project_id",
         "trigger_receipt_id",
         "import_ref",

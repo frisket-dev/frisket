@@ -57,13 +57,13 @@ function fixture(): ActionComparisonContext {
   };
   return {
     schema_version: 'frisket.action_compare_context.v1', available: true, reason: null,
-    limits: { max_sample_rows: 20, max_challengers: 3 }, baseline_mode: 'current_values',
+    limits: { max_sample_rows: 500, max_challengers: 19 }, baseline_mode: 'current_values',
     comparison_basis: { kind: 'run', run_id: 5, column_id: 30 }, draft,
     sheet: { id: 3, name: 'Cases' }, sample_row_ids: [10, 11], sample_fingerprint: 'fp',
     locked_params: ['source'],
     source_columns: [{ param: 'source', column_id: 2, name: 'body', column_type: 'text', format: null }],
     source_rows: { 10: { body: cell('First document') }, 11: { body: cell('Second document') } },
-    output_columns: [
+    generated_columns: [
       { logical_key: 'party', column_id: 30, current_name: 'party', column_type: 'text', format: null, hidden: false, schema: {} },
       { logical_key: 'note', column_id: 31, current_name: 'note', column_type: 'text', format: null, hidden: true, schema: {} },
     ],
@@ -163,7 +163,7 @@ describe('ActionCompareTab', () => {
 
   it('routes output cell and score clicks with their actual field', () => {
     const context = fixture();
-    context.output_columns[1].hidden = false;
+    context.generated_columns[1].hidden = false;
     const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const onOpenRow = vi.fn(); const onScoreClick = vi.fn();
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
@@ -176,7 +176,6 @@ describe('ActionCompareTab', () => {
 
   it('keeps boxed variant badges with compact score labels in the expected lens', () => {
     const context = fixture();
-    context.limits = { max_sample_rows: 20, max_challengers: 5 } as unknown as ActionComparisonContext['limits'];
     const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     for (let index = 0; index < 4; index += 1) session.addVariant();
     const state = session.getSnapshot();
@@ -245,8 +244,8 @@ describe('ActionCompareTab', () => {
     expect(grid.rowSelectionMode).toBe('multi');
     expect(grid.rowMarkers).toEqual({ kind: 'both', width: 40 });
     expect(grid.freezeColumns).toBe(1);
-    expect(grid.columns[0].width).toBe(140);
-    expect(grid.columns[1].width).toBe(170);
+    expect(grid.columns[0]).toMatchObject({ width: 140 });
+    expect(grid.columns[1]).toMatchObject({ width: 170 });
     expect(screen.getByTestId('action-compare-grid')).toHaveClass('grid-host');
     expect(grid.columns.map((column) => column.title)).toEqual([
       'body', 'party', 'party', 'party',
@@ -300,8 +299,8 @@ describe('ActionCompareTab', () => {
       'body', 'party', 'note', 'party', 'note', 'party', 'note',
     ]);
 
-    act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287));
-    expect(editor.props!.columns[0].width).toBe(287);
+    act(() => editor.props!.onColumnResize?.(editor.props!.columns[0], 287, 0, 287));
+    expect(editor.props!.columns[0]).toMatchObject({ width: 287 });
 
     const bChip = screen.getByTestId('action-compare-variant-B');
     fireEvent.click(within(bChip).getByRole('button', { name: 'Use settings from variant B' }));
@@ -422,8 +421,8 @@ describe('ActionCompareTab', () => {
         retrieval_revision: 4, truncated: true,
       },
     };
-    context.output_columns[0] = {
-      ...context.output_columns[0], column_type: 'json', semantic_type: 'entity_mentions',
+    context.generated_columns[0] = {
+      ...context.generated_columns[0], column_type: 'json', semantic_type: 'entity_mentions',
     };
     context.baseline_rows!['10']!.party = cell('unused', {
       state: 'value', value: { party: { name: 'Acme', roles: ['buyer', 'seller'] } },
@@ -463,7 +462,7 @@ describe('ActionCompareTab', () => {
     context.draft.output_names = {
       amount: 'amount', approved: 'approved', category: 'category',
     };
-    context.output_columns = [
+    context.generated_columns = [
       { logical_key: 'amount', column_id: 30, current_name: 'amount',
         column_type: 'number', format: null, hidden: false, schema: {} },
       { logical_key: 'approved', column_id: 31, current_name: 'approved',
@@ -471,7 +470,7 @@ describe('ActionCompareTab', () => {
       { logical_key: 'category', column_id: 32, current_name: 'category',
         column_type: 'category', format: null, hidden: false, schema: {} },
     ];
-    context.replacement_targets = context.output_columns.map((output) => ({
+    context.replacement_targets = context.generated_columns.map((output) => ({
       logical_key: output.logical_key,
       current_name: output.current_name,
       column_id: output.column_id!,

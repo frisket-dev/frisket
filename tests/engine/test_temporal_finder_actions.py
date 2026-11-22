@@ -22,14 +22,14 @@ from frisket.engine.executor.action_specs import PlacementPolicy, execution_spec
 from frisket.engine.jobs import RUN_PROJECT_KIND
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     BetweenUnits,
     BoundaryCandidate,
     EngineDefinition,
@@ -145,7 +145,7 @@ def test_topic_engine_runtime_availability_is_only_a_served_hint(
     available: bool,
     error_fragment: str | None,
 ) -> None:
-    import frisket.features.topic_segmentation.deep_tiling as deep_tiling
+    import frisket.topic_segmentation.deep_tiling as deep_tiling
     from frisket.actions.system import root_action_catalog_payload
     from frisket.server.action_catalog_hints import (
         action_catalog_payload_with_launcher_hints,
@@ -339,7 +339,7 @@ def test_visual_finder_queues_multi_row_map_and_keeps_row_errors(
             ).fetchone()["body"]
         )
     )
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     counts = evidence["map_rows_run_counts"]
     assert counts["failed_row_ids"] == [row_ids[1]]
     assert (counts["total_rows"], counts["completed_rows"], counts["failed_rows"]) == (
@@ -498,7 +498,7 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
         sheet_id, int(transcript_column["id"]), row_ids=[row_id]
     )
     evidence_link = project.db.execute(
-        "SELECT * FROM evidence_links WHERE row_id=? AND column_id=? "
+        "SELECT * FROM citations WHERE row_id=? AND column_id=? "
         "AND link_role='media_transcribe_temporal'",
         (row_id, int(transcript_column["id"])),
     ).fetchone()
@@ -519,8 +519,8 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
     assert resolved.transcript_run_id == transcribe_result.run_id
     evidence_spans = project.db.execute(
         "SELECT els.rank, sp.start_ms, sp.end_ms, sp.selector_json "
-        "FROM evidence_link_spans els JOIN source_spans sp ON sp.id=els.span_id "
-        "WHERE els.link_id=? ORDER BY els.rank",
+        "FROM citation_spans els JOIN source_spans sp ON sp.id=els.span_id "
+        "WHERE els.citation_id=? ORDER BY els.rank",
         (evidence_link["id"],),
     ).fetchall()
     assert [
@@ -556,7 +556,7 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
         return engine
 
     monkeypatch.setattr(
-        "frisket.features.topic_segmentation.engines.get_segmenter",
+        "frisket.topic_segmentation.engines.get_segmenter",
         exact_getter,
     )
     finder_result = _queue_action(
@@ -675,7 +675,7 @@ def _seed_timestamped_transcripts(
         sheet_id,
         "transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     op_id = project.append_change(
         "media.transcribe",
@@ -707,7 +707,8 @@ def _seed_timestamped_transcripts(
         ],
     )
     runs.finish_run(run_id)
-    runs.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(runs.db):
+        runs.point_column_at_run(op_id, transcript_column_id, run_id)
 
     span_refs = []
     for rank, (start_ms, end_ms, quote) in enumerate(
@@ -732,24 +733,25 @@ def _seed_timestamped_transcripts(
         transcript_column_id,
         row_ids=[row_ids[0]],
     )
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_ids[0]],
-        spans=span_refs,
-        sheet_id=sheet_id,
-        row_id=row_ids[0],
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-            "language": "en",
-        },
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_ids[0]],
+            spans=span_refs,
+            sheet_id=sheet_id,
+            row_id=row_ids[0],
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+                "language": "en",
+            },
+        )
     return sheet_id, row_ids, transcript_column_id, link
 
 
@@ -770,7 +772,7 @@ def test_topic_finder_uses_exact_engine_and_persists_ranges_and_provenance(
         return engine
 
     monkeypatch.setattr(
-        "frisket.features.topic_segmentation.engines.get_segmenter",
+        "frisket.topic_segmentation.engines.get_segmenter",
         exact_getter,
     )
     result = _queue_action(
@@ -875,7 +877,7 @@ def test_topic_finder_uses_exact_engine_and_persists_ranges_and_provenance(
             ).fetchone()["body"]
         )
     )
-    evidence = {item.ref["kind"]: item.ref for item in receipt.evidence}
+    evidence = {item.ref["kind"]: item.ref for item in receipt.records}
     analysis = evidence["topic_segmentation_analysis"]["rows"]
     assert [row["row_id"] for row in analysis] == [row_ids[0]]
     assert analysis[0]["engine_id"] == "texttiling"

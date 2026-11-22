@@ -158,7 +158,7 @@
         },
         {
           "kind": "hostCapability",
-          "id": "watch.run.open"
+          "id": "alert.check.open"
         }
       ]
     },
@@ -188,14 +188,14 @@
         },
         {
           "kind": "hostCapability",
-          "id": "watch.create",
+          "id": "alert.create",
           "optional": true
         }
       ]
     },
     {
       "schemaVersion": "frisket.workbench.panel.v1",
-      "id": "frisket.core.panel.watches",
+      "id": "frisket.core.panel.alerts",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
       "title": "Alerts",
@@ -211,19 +211,19 @@
       "requires": [
         {
           "kind": "hostCapability",
-          "id": "watch.list"
+          "id": "alert.list"
         },
         {
           "kind": "hostCapability",
-          "id": "watch.create"
+          "id": "alert.create"
         },
         {
           "kind": "hostCapability",
-          "id": "watch.run"
+          "id": "alert.check"
         },
         {
           "kind": "hostCapability",
-          "id": "watch.runs.list"
+          "id": "alert.checks.list"
         },
         {
           "kind": "hostCapability",

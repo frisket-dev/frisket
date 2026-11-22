@@ -21,7 +21,7 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("stories")
     story_col = project.add_column(sheet_id, "story")
-    topic_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    topic_col = project.add_column(sheet_id, "topic", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"story": f"story {index}"} for index in range(5)],
@@ -59,7 +59,8 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
             ],
         )
         RunResultStore(project).finish_run(run_id)
-        RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
+        with write_transaction(project.db):
+            RunResultStore(project).point_column_at_run(op_id, topic_col, run_id)
         project.db.execute(
             "INSERT INTO receipts (id, run_id, action_kind, action_id, "
             "idempotency_key, params_hash, status, body) "

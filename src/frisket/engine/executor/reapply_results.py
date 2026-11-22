@@ -28,11 +28,11 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 
 def _copy_citations(project, op_id: int, sheet_id: int) -> None:
     """Copy link ownership, not source spans or per-cell receipt payloads."""
-    from frisket.engine.store.evidence import copy_citations
+    from frisket.engine.store.citations import copy_citations
 
     links = project.db.execute(
         "SELECT link.id,copy.row_id AS target_row_id,copy.column_id AS target_column_id "
-        "FROM copied_result_outcomes copy JOIN evidence_links link "
+        "FROM copied_result_outcomes copy JOIN citations link "
         "ON link.run_id=copy.source_run_id AND link.row_id=copy.source_row_id "
         "AND link.column_id=copy.source_column_id WHERE copy.op_id=? "
         "AND (link.op_id IS NULL OR link.op_id=(SELECT op_id FROM runs WHERE id=copy.source_run_id)) ORDER BY link.id",
@@ -153,7 +153,7 @@ def reapply_results(project, project_id, bound):
                 }
                 if hidden.intersection(output_names.values()):
                     raise TypedMapRowsPlanError(
-                        "output_column_exists",
+                        "generated_column_exists",
                         "Reapply cannot replace hidden active output columns; choose a new name",
                     )
                 names, preconditions = resolve_row_output_targets(
@@ -170,14 +170,13 @@ def reapply_results(project, project_id, bound):
                             column["semantic_type"],
                         ) != (field.column_type, field.format, field.semantic_type):
                             raise TypedMapRowsPlanError(
-                                "output_column_exists",
+                                "generated_column_exists",
                                 "A partial copy requires a compatible output column; choose a new column",
                             )
-                op_id = project.append_change(
+                op_id = project.append_change_in_transaction(
                     "run.reapply",
                     {"action_kind": "run.reapply", "source_run_id": source},
                     label="Reapply saved execution results",
-                    commit=False,
                 )
                 changes = ChangeStore(project)
                 changes.start(op_id)
@@ -185,14 +184,13 @@ def reapply_results(project, project_id, bound):
                 for field in fields:
                     target = preconditions[names[field.key]]
                     if target is None:
-                        target = project.add_column(
+                        target = project.add_column_in_transaction(
                             scope.sheet_id,
                             names[field.key],
                             type=field.column_type,
-                            ai_generated=True,
+                            generated=True,
                             format=field.format,
                             semantic_type=field.semantic_type,
-                            commit=False,
                         )
                         created.append(target)
                     else:
@@ -212,7 +210,6 @@ def reapply_results(project, project_id, bound):
                                     key,
                                     value,
                                     op_id=op_id,
-                                    commit=False,
                                 )
                     targets[field.key] = target
                 info = json.loads(

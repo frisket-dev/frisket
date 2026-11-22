@@ -171,7 +171,7 @@ function adminJobActionMetadata(job: AdminJob): {
 function adminJobIdentity(job: AdminJob): string {
   const bits = [`queue item ${job.id}`];
   const refs = job.refs ?? {};
-  const organizationId = refString(refs, 'org_id');
+  const organizationId = refString(refs, 'organization_id');
   const projectId = refString(refs, 'project_id');
   const runId = refString(refs, 'run_id');
   const sourceId = refString(refs, 'source_id');
@@ -213,7 +213,7 @@ function copyAdminJob(job: AdminJob): void {
 function adminAuditSubject(event: AdminAuditEvent): string {
   if (event.object_type && event.object_id) return `${event.object_type} ${event.object_id}`;
   if (event.project_id != null) return `project ${String(event.project_id)}`;
-  if (event.org_id != null) return `organization ${String(event.org_id)}`;
+  if (event.organization_id != null) return `organization ${String(event.organization_id)}`;
   return event.source;
 }
 
@@ -225,8 +225,8 @@ function adminAuditActor(event: AdminAuditEvent): string {
 
 function adminAuditScope(event: AdminAuditEvent): string {
   const bits = [];
-  if (event.org_name || event.org_id != null) {
-    bits.push(event.org_name ?? `organization ${String(event.org_id)}`);
+  if (event.organization_name || event.organization_id != null) {
+    bits.push(event.organization_name ?? `organization ${String(event.organization_id)}`);
   }
   if (event.project_name || event.project_id != null) {
     bits.push(event.project_name ?? `project ${String(event.project_id)}`);
@@ -388,7 +388,7 @@ function AdminUsersPanel({
   error: string | null;
   onRefresh(): void;
 }) {
-  const organizations = users?.orgs ?? [];
+  const organizations = users?.organizations ?? [];
   const assignableRoles = users?.capabilities.assignable_roles ?? [];
   const magicLinkTtlMinutes = users?.capabilities.magic_link_ttl_minutes;
   const inviteTtlDays = users?.capabilities.invite_ttl_days;
@@ -401,11 +401,11 @@ function AdminUsersPanel({
   const activeOrganizationId = Number(selectedOrganizationId || defaultOrganizationId);
 
   const userRows = useMemo(
-    () => users?.orgs?.flatMap((organization) => organization.users.map((user) => ({ organization, user }))) ?? [],
+    () => users?.organizations?.flatMap((organization) => organization.users.map((user) => ({ organization, user }))) ?? [],
     [users],
   );
   const inviteRows = useMemo(
-    () => users?.orgs?.flatMap((organization) => (
+    () => users?.organizations?.flatMap((organization) => (
       organization.pending_invites.map((invite) => ({ organization, invite }))
     )) ?? [],
     [users],
@@ -733,11 +733,11 @@ function AdminAuditPanel({
   const [userFilter, setUserFilter] = useState('');
   const [action, setAction] = useState('');
   const events = auditLog?.events ?? [];
-  const organizations = auditLog?.filters?.orgs ?? [];
+  const organizations = auditLog?.filters?.organizations ?? [];
   const allProjects = auditLog?.filters?.projects ?? [];
   const actions = auditLog?.filters?.actions ?? [];
   const projects = organizationId
-    ? allProjects.filter((project) => String(project.org_id) === organizationId)
+    ? allProjects.filter((project) => String(project.organization_id) === organizationId)
     : allProjects;
 
   const currentFilters = (): AdminAuditFilters => ({
@@ -764,7 +764,7 @@ function AdminAuditPanel({
   const changeOrganization = (value: string) => {
     setOrganizationId(value);
     const selectedProject = allProjects.find((project) => project.project_id === projectId);
-    if (value && selectedProject && String(selectedProject.org_id) !== value) {
+    if (value && selectedProject && String(selectedProject.organization_id) !== value) {
       setProjectId('');
     }
   };
@@ -803,7 +803,7 @@ function AdminAuditPanel({
         >
           <option value="">All projects</option>
           {projects.map((project) => (
-            <option key={`${project.org_id}:${project.project_id}`} value={project.project_id}>
+            <option key={`${project.organization_id}:${project.project_id}`} value={project.project_id}>
               {project.name}
             </option>
           ))}

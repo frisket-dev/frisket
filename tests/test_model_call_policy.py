@@ -286,7 +286,6 @@ def test_project_key_overlay_reconstruction_retains_policy_and_provenance(
         asyncio.run(base.aclose())
         if "composed" in locals():
             asyncio.run(composed.aclose())
-        project.close()
 
     assert events == [
         ("prepare", "project_key", None),

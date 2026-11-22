@@ -23,7 +23,7 @@ def identity(sheet_id, row_id, field, fingerprint, expected, answer):
         "sheet_id": sheet_id,
         "row_id": row_id,
         "expected_column_id": field["expected_column_id"],
-        "output_column_id": field["output_column_id"],
+        "generated_column_id": field["generated_column_id"],
         "source_fingerprint": fingerprint,
         "expected_hash": value_hash(expected),
         "answer_hash": value_hash(answer),
@@ -81,7 +81,7 @@ def _variant(service, pid, project, context, request, variant):
     sheet_id = context["sheet"]["id"]
     source = variant["source"]
     action_id = context["draft"]["action_id"]
-    outputs = context["output_columns"]
+    outputs = context["generated_columns"]
     if source["kind"] == "current":
         rows = current_rows(project, sheet_id, outputs, row_ids)
         fingerprints = source_fingerprints(
@@ -112,7 +112,7 @@ def _variant(service, pid, project, context, request, variant):
                         for key in (
                             "sheet_id",
                             "action_id",
-                            "output_columns",
+                            "generated_columns",
                             "settings",
                             "rows",
                             "source_fingerprints",
@@ -126,7 +126,7 @@ def _variant(service, pid, project, context, request, variant):
             if (
                 chunk["sheet_id"] != sheet_id
                 or chunk["action_id"] != action_id
-                or _signature(chunk["output_columns"]) != _signature(outputs)
+                or _signature(chunk["generated_columns"]) != _signature(outputs)
             ):
                 raise RouteError(
                     409, "Comparison variant action or output schema changed"
@@ -178,7 +178,7 @@ def prepare(service, pid, request):
         raise RouteError(422, "Comparison rows must belong to the target sheet")
     outputs = [
         {key: item[key] for key in ("logical_key", "column_id", "current_name")}
-        for item in context["output_columns"]
+        for item in context["generated_columns"]
     ]
     link = None
     if request["link_id"] is not None:
@@ -190,7 +190,7 @@ def prepare(service, pid, request):
             raise RouteError(409, "Expected link belongs to another comparison")
         output_ids = {column["logical_key"]: column["column_id"] for column in outputs}
         if any(
-            output_ids.get(field["logical_key"]) != field["output_column_id"]
+            output_ids.get(field["logical_key"]) != field["generated_column_id"]
             for field in link["fields"]
         ):
             raise RouteError(409, "Expected link generated columns changed")
@@ -221,7 +221,7 @@ def prepare(service, pid, request):
         {
             "sheet_id": sheet_id,
             "action_id": context["draft"]["action_id"],
-            "output_columns": outputs,
+            "generated_columns": outputs,
             "row_ids": request["row_ids"],
             "link": link,
             "expected": expected,
@@ -247,7 +247,7 @@ def score_prepared(project, result, current_fingerprints):
             if str(row_id) in captured
             and captured[str(row_id)] != current_fingerprints.get(str(row_id))
         ]
-    for output in result["output_columns"]:
+    for output in result["generated_columns"]:
         key = output["logical_key"]
         field = fields.get(key)
         checked = sum(

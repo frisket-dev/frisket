@@ -195,7 +195,7 @@ class TeamConfig:
         )
         object.__setattr__(self, "base_url", canonical)
         redirect_uri = self.google_connection_redirect_uri or (
-            f"{canonical}/api/org/oauth/google/callback"
+            f"{canonical}/api/organization/oauth/google/callback"
         )
         redirect = urlparse(redirect_uri)
         if (
@@ -281,6 +281,8 @@ class TeamConfig:
                 ch not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for ch in provider
             ):
                 raise ValueError(f"invalid OIDC provider id: {provider!r}")
+            if not isinstance(definition, OIDCProviderConfig):
+                definition = OIDCProviderConfig.from_value(definition)
             definition.validate(provider)
 
 

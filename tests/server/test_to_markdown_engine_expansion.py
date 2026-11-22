@@ -183,17 +183,14 @@ def test_permissive_to_markdown_engines_carry_no_license_field():
 
 
 def test_chandra_listed_in_action_catalog(tmp_path):
-    from fastapi.testclient import TestClient
+    from helpers import make_client
 
-    from frisket.server.app import create_app
-
-    app = create_app(
-        tmp_path / "ws",
+    client = make_client(
+        tmp_path,
         router=ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         ),
     )
-    client = TestClient(app)
     entries = {
         entry["kind"]: entry
         for entry in client.get("/api/actions/v1/catalog").json()["actions"]
@@ -215,6 +212,7 @@ def _params_model():
 def test_every_declared_engine_validates_through_the_params_model():
     from frisket.contracts.action import TO_MARKDOWN_SYMBOLIC_ENGINES
 
+    assert TO_MARKDOWN_SYMBOLIC_ENGINES
     for engine in sorted(TO_MARKDOWN_SYMBOLIC_ENGINES):
         params = _params_model().model_validate({"source": "doc", "engine": engine})
         assert params.model_dump(mode="json")["engine"] == engine
@@ -224,7 +222,9 @@ def test_every_catalog_advertised_engine_validates_through_the_params_model():
     """The picker renders the catalog roster, so every advertised id must
     clear contract validation rather than bounce with
     invalid_to_markdown_engine."""
-    for entry in _to_markdown_engines():
+    entries = _to_markdown_engines()
+    assert entries
+    for entry in entries:
         params = _params_model().model_validate(
             {"source": "doc", "engine": entry["id"]}
         )
@@ -268,8 +268,7 @@ def test_estimate_only_prices_available_unbilled_engines_free(
     tmp_path, monkeypatch, engine, configured
 ):
     """Unavailable routes refuse; a configured gateway remains operator-borne."""
-    from fastapi.testclient import TestClient
-    from frisket.server.app import create_app
+    from helpers import make_client
 
     for name in ("DATALAB_API_KEY", "FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"):
         monkeypatch.delenv(name, raising=False)
@@ -279,7 +278,7 @@ def test_estimate_only_prices_available_unbilled_engines_free(
         else:
             monkeypatch.setenv("FRISKET_MODELS_URL", "http://models.invalid")
             monkeypatch.setenv("FRISKET_MODELS_TOKEN", "test-token")
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+    with make_client(tmp_path) as client:
         pid = client.post("/api/projects", json={"name": "Estimate"}).json()["id"]
         if engine in {"datalab", "docling", "chandra"}:
             route_response = client.patch(
@@ -321,6 +320,7 @@ def test_catalog_roster_carries_every_listed_table_engine_with_its_label():
     from frisket.contracts.actions.schemas._engines import TO_MARKDOWN_ENGINE_TABLE
 
     by_id = {e["id"]: e for e in _to_markdown_engines()}
+    assert TO_MARKDOWN_ENGINE_TABLE
     for decl in TO_MARKDOWN_ENGINE_TABLE:
         if not decl.listed:
             assert decl.id not in by_id

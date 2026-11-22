@@ -52,7 +52,7 @@ from frisket.contracts.action import (
     ImportRowsSource,
     Receipt,
     ReceiptIO,
-    ReceiptEvidence,
+    ReceiptRecord,
 )
 from frisket.contracts.actions.schemas.imports import validate_import_value
 from frisket.contracts.actions.schemas._base import canonical_column_type
@@ -203,7 +203,7 @@ def _table_replay_error(project: Project, receipt: Receipt) -> ActionError | Non
         return stale()
     if sheet["parent_sheet_id"] != sheet_ref.get("parent_sheet_id"):
         return stale()
-    for supporting_record in receipt.evidence:
+    for supporting_record in receipt.records:
         ref = supporting_record.ref
         if ref.get("kind") not in {
             "imported_blob",
@@ -1513,15 +1513,13 @@ def _projection_initial_values(readers, row, ordinal):
     return row
 
 
-def _list_output_ai_generated(list_reader, name, resolved_output_names):
+def _list_output_generated(list_reader, name, resolved_output_names):
     logical = next(
         (key for key, resolved in resolved_output_names.items() if resolved == name),
         name,
     )
     copied = {column.name: column for column in list_reader.copied_columns}.get(logical)
-    return (
-        copied.ai_generated if copied is not None else list_reader.source_ai_generated
-    )
+    return copied.generated if copied is not None else list_reader.source_generated
 
 
 def _perform_table_in_txn(
@@ -1605,12 +1603,12 @@ def _perform_table_in_txn(
                     type=column.type,
                     format=column.format,
                     hidden=column.hidden,
-                    ai_generated=any(
+                    generated=any(
                         column.name in reader.generated_columns()
                         for reader in projections
                     )
                     if projections
-                    else _list_output_ai_generated(
+                    else _list_output_generated(
                         list_reader, column.name, resolved_output_names
                     )
                     if list_reader is not None
@@ -1725,9 +1723,9 @@ def _perform_table_in_txn(
             ],
             ReceiptIO(name="materialized_rows", ref=rows_ref),
         ],
-        evidence=[
-            ReceiptEvidence(ref=write.lineage_parent_rows_ref),
-            ReceiptEvidence(ref=write.materialized_row_sources_ref),
+        records=[
+            ReceiptRecord(ref=write.lineage_parent_rows_ref),
+            ReceiptRecord(ref=write.materialized_row_sources_ref),
             *projection_evidence,
         ],
     )
@@ -1740,13 +1738,13 @@ def _perform_table_in_txn(
             op_id=write.op_id,
             receipt_id=receipt_id,
         )
-        receipt.evidence.extend(ReceiptEvidence(ref=ref) for ref in published)
+        receipt.records.extend(ReceiptRecord(ref=ref) for ref in published)
     if (matches := resolved.get("semantic_match_reader")) is not None:
-        receipt.evidence.extend(matches.publication_supporting_records(write, sources))
+        receipt.records.extend(matches.publication_supporting_records(write, sources))
     if (prior := resolved.get("reserved_receipt")) is not None:
-        receipt.evidence[:0] = prior.evidence
-        if not ReceiptStore(project).update_body_status(
-            receipt, require_status="running", commit=False
+        receipt.records[:0] = prior.records
+        if not ReceiptStore(project).update_body_status_in_transaction(
+            receipt, require_status="running"
         ):
             raise ActionJobTerminalizationError("table receipt completion did not land")
     else:

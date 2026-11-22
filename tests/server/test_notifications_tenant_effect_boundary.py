@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -70,9 +71,8 @@ def _seed_request(
     *,
     kind: str = "email",
 ) -> int:
-    bundle = root / str(key.storage_org_id) / f"{key.project_slug}.frisket"
-    project = Project.create(bundle, name=key.project_slug)
-    try:
+    bundle = root / str(key.storage_organization_id) / f"{key.project_slug}.frisket"
+    with closing(Project.create(bundle, name=key.project_slug)) as project:
         channel = project.create_notification_channel(
             kind=kind,
             name=f"{kind} channel",
@@ -83,11 +83,9 @@ def _seed_request(
             route_id=None,
             channel_id=int(channel["id"]),
             delivery_kind="test",
-            dedupe_key=f"delivery:{key.storage_org_id}",
+            dedupe_key=f"delivery:{key.storage_organization_id}",
         )
         return int(request["id"])
-    finally:
-        project.close()
 
 
 def _opener(_key: ProjectStorageKey, path: Path) -> Project:
@@ -98,7 +96,7 @@ def _payload(key: ProjectStorageKey, request_id: int) -> dict[str, Any]:
     return {
         CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
         "project_id": key.project_slug,
-        "storage_org_id": key.storage_org_id,
+        "storage_organization_id": key.storage_organization_id,
         "request_id": request_id,
     }
 
@@ -109,12 +107,12 @@ def test_runtime_factory_is_organization_bound_for_same_slug_projects(
 ) -> None:
     root = tmp_path / "projects"
     keys = [
-        ProjectStorageKey(storage_org_id=11, project_slug="same-slug"),
-        ProjectStorageKey(storage_org_id=22, project_slug="same-slug"),
+        ProjectStorageKey(storage_organization_id=11, project_slug="same-slug"),
+        ProjectStorageKey(storage_organization_id=22, project_slug="same-slug"),
     ]
     request_ids = [_seed_request(root, key) for key in keys]
     provider = _RecordingProvider()
-    guards = {key.storage_org_id: _RecordingGuard() for key in keys}
+    guards = {key.storage_organization_id: _RecordingGuard() for key in keys}
     factory_keys: list[ProjectStorageKey] = []
     monkeypatch.setenv("DELIVERY_SECRET", "poisoned-process-secret")
 
@@ -123,9 +121,9 @@ def test_runtime_factory_is_organization_bound_for_same_slug_projects(
         return NotificationDeliveryRuntime(
             provider_factory=lambda _channel: provider,
             secret_resolver=StaticNotificationSecretResolver(
-                {"env:DELIVERY_SECRET": f"tenant-{key.storage_org_id}-secret"}
+                {"env:DELIVERY_SECRET": f"tenant-{key.storage_organization_id}-secret"}
             ),
-            effect_guard=guards[key.storage_org_id],
+            effect_guard=guards[key.storage_organization_id],
         )
 
     registry = HandlerRegistry()
@@ -150,14 +148,14 @@ def test_runtime_factory_is_organization_bound_for_same_slug_projects(
     ]
     assert "poisoned-process-secret" not in json.dumps(provider.calls, default=str)
     for key in keys:
-        guard = guards[key.storage_org_id]
+        guard = guards[key.storage_organization_id]
         assert [effect.project_key for effect in guard.reserved] == [key]
         assert guard.finished == guard.reserved
 
 
 def test_completed_effect_replay_makes_no_second_provider_call(tmp_path: Path) -> None:
     root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=31, project_slug="replay")
+    key = ProjectStorageKey(storage_organization_id=31, project_slug="replay")
     request_id = _seed_request(root, key)
     provider = _RecordingProvider()
     runtime = NotificationDeliveryRuntime(
@@ -177,16 +175,13 @@ def test_completed_effect_replay_makes_no_second_provider_call(tmp_path: Path) -
     assert handler is not None
 
     handler(_payload(key, request_id), JobHandlerContext.without_job_row())
-    project = Project(root / "31" / "replay.frisket")
-    try:
+    with closing(Project(root / "31" / "replay.frisket")) as project:
         project.db.execute(
             "UPDATE notification_delivery_requests SET status='queued', "
             "provider_ref=NULL, sent_at=NULL WHERE id=?",
             (request_id,),
         )
         project.db.commit()
-    finally:
-        project.close()
 
     replay = handler(_payload(key, request_id), JobHandlerContext.without_job_row())
     assert replay == {"request_id": request_id, "status": "sent"}
@@ -215,7 +210,7 @@ class _SentThenLostProvider:
 
 def test_lease_reclaim_refuses_ambiguous_slack_second_send(tmp_path: Path) -> None:
     root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=41, project_slug="ambiguous")
+    key = ProjectStorageKey(storage_organization_id=41, project_slug="ambiguous")
     request_id = _seed_request(root, key, kind="slack")
     provider = _SentThenLostProvider()
     runtime = NotificationDeliveryRuntime(
@@ -243,8 +238,7 @@ def test_lease_reclaim_refuses_ambiguous_slack_second_send(tmp_path: Path) -> No
         "status": "reconciliation_required",
     }
     assert provider.calls == 1
-    project = Project(root / "41" / "ambiguous.frisket")
-    try:
+    with closing(Project(root / "41" / "ambiguous.frisket")) as project:
         request = project.public_notification_delivery_request(request_id)
         attempt = project.db.execute(
             "SELECT status, error FROM notification_delivery_attempts "
@@ -259,13 +253,11 @@ def test_lease_reclaim_refuses_ambiguous_slack_second_send(tmp_path: Path) -> No
         assert attempt["status"] == "reconciliation_required"
         assert "SECRET" not in persisted
         assert "token=leaked" not in persisted
-    finally:
-        project.close()
 
 
 def test_exhausted_job_recovery_preserves_ambiguous_effect(tmp_path: Path) -> None:
     root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=43, project_slug="exhausted")
+    key = ProjectStorageKey(storage_organization_id=43, project_slug="exhausted")
     request_id = _seed_request(root, key, kind="slack")
     provider = _SentThenLostProvider()
     registry = HandlerRegistry()
@@ -289,15 +281,12 @@ def test_exhausted_job_recovery_preserves_ambiguous_effect(tmp_path: Path) -> No
     with pytest.raises(_SimulatedProcessLoss):
         handler(_payload(key, request_id), JobHandlerContext.without_job_row())
 
-    project = Project(root / "43" / "exhausted.frisket")
-    try:
+    with closing(Project(root / "43" / "exhausted.frisket")) as project:
         project.db.execute(
             "UPDATE notification_delivery_requests SET job_id=99 WHERE id=?",
             (request_id,),
         )
         project.db.commit()
-    finally:
-        project.close()
 
     class _FailedQueue:
         def get(self, _job_id: int) -> Any:
@@ -314,16 +303,13 @@ def test_exhausted_job_recovery_preserves_ambiguous_effect(tmp_path: Path) -> No
         )
         == 1
     )
-    project = Project(root / "43" / "exhausted.frisket")
-    try:
+    with closing(Project(root / "43" / "exhausted.frisket")) as project:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "reconciliation_required"
         assert request["last_error"] == (
             "notification provider outcome is unknown; reconciliation required"
         )
         assert "SECRET" not in json.dumps(request, sort_keys=True, default=str)
-    finally:
-        project.close()
     assert provider.calls == 1
 
 
@@ -345,7 +331,7 @@ class _IdempotentSentThenLostProvider:
 
 def test_resend_retry_reuses_the_provider_idempotency_key(tmp_path: Path) -> None:
     root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=45, project_slug="idempotent")
+    key = ProjectStorageKey(storage_organization_id=45, project_slug="idempotent")
     request_id = _seed_request(root, key)
     provider = _IdempotentSentThenLostProvider()
     registry = HandlerRegistry()
@@ -377,7 +363,7 @@ def test_resend_retry_reuses_the_provider_idempotency_key(tmp_path: Path) -> Non
 
 def test_runtime_factory_error_drops_tenant_details(tmp_path: Path) -> None:
     root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=47, project_slug="factory")
+    key = ProjectStorageKey(storage_organization_id=47, project_slug="factory")
     request_id = _seed_request(root, key)
 
     def failing_factory(_key: ProjectStorageKey) -> NotificationDeliveryRuntime:
@@ -407,7 +393,7 @@ class _LeakingResolver:
 
 def test_resolver_exception_is_credential_free_in_public_state(tmp_path: Path) -> None:
     root = tmp_path / "projects"
-    key = ProjectStorageKey(storage_org_id=51, project_slug="resolver")
+    key = ProjectStorageKey(storage_organization_id=51, project_slug="resolver")
     request_id = _seed_request(root, key)
     provider = _RecordingProvider()
     registry = HandlerRegistry()
@@ -427,8 +413,7 @@ def test_resolver_exception_is_credential_free_in_public_state(tmp_path: Path) -
     assert result == {"request_id": request_id, "status": "failed"}
     assert provider.calls == []
 
-    project = Project(root / "51" / "resolver.frisket")
-    try:
+    with closing(Project(root / "51" / "resolver.frisket")) as project:
         request = project.public_notification_delivery_request(request_id)
         attempts = project.db.execute(
             "SELECT status, error, response_meta_json "
@@ -444,5 +429,3 @@ def test_resolver_exception_is_credential_free_in_public_state(tmp_path: Path) -
         assert "SECRET" not in persisted
         assert "token=leaked" not in persisted
         assert "hooks.example" not in persisted
-    finally:
-        project.close()

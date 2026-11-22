@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-from contextlib import closing
 
 import pytest
 from pydantic import BaseModel, Field
@@ -30,7 +29,6 @@ from frisket.actions.types import (
 from frisket.engine.executor import table_action
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
@@ -115,9 +113,7 @@ def test_static_staged_file_output_publishes_inferred_schema_and_replays(
         * 2
     )
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    refs = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
-    ]
+    refs = [item.ref for item in receipt.records if item.ref["kind"] == "imported_blob"]
     assert {(ref["row_id"], ref["column_id"]) for ref in refs} == {
         (row_id, column_id) for row_id in values
     }
@@ -166,9 +162,7 @@ def test_params_defined_columns_preserve_every_repeated_handle_occurrence(
     sheet = result.outputs[0].ref
     rows = project.visible_row_ids(sheet["sheet_id"])
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-    refs = [
-        item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
-    ]
+    refs = [item.ref for item in receipt.records if item.ref["kind"] == "imported_blob"]
     assert len(refs) == 4
     assert {(ref["row_id"], ref["column_id"]) for ref in refs} == {
         (row_id, column_id)
@@ -217,12 +211,12 @@ def test_equal_pdf_bytes_keep_separate_document_and_page_associations(
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     documents = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "imported_pdf_document"
     ]
     pages = [
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "imported_pdf_page_image"
     ]
     assert len(documents) == len(pages) == 2
@@ -237,7 +231,7 @@ def test_equal_pdf_bytes_keep_separate_document_and_page_associations(
         )
         assert ref["column_id"] == sheet["columns"]["Preview"]
         link = project.db.execute(
-            "SELECT row_id, column_id FROM evidence_links WHERE id=?",
+            "SELECT row_id, column_id FROM citations WHERE id=?",
             (ref["evidence_link_id"],),
         ).fetchone()
         assert tuple(link) == (ref["row_id"], ref["column_id"])
@@ -248,7 +242,7 @@ def test_equal_pdf_bytes_keep_separate_document_and_page_associations(
 @pytest.mark.parametrize("failure", ["forged", "foreign", "nested", "raw_cell"])
 @pytest.mark.parametrize("streamed", [False, True])
 def test_invalid_staged_file_never_publishes_sql(
-    tmp_path, monkeypatch, failure, streamed
+    project, monkeypatch, failure, streamed
 ):
     monkeypatch.setattr(table_action, "_TABLE_BATCH_SIZE", 1)
     with AdmittedImportBlobStager() as foreign:
@@ -291,23 +285,21 @@ def test_invalid_staged_file_never_publishes_sql(
                 ]
             },
         )
-        with closing(Project.create(tmp_path / "project")) as project:
-            result = run_typed_create_sheet_action(project, "p", bound)
-            assert result.status == "failed"
-            assert result.errors[0].code == "invalid_params"
-            for table in (
-                "sheets",
-                "columns",
-                "rows",
-                "cells",
-                "ops",
-                "receipts",
-                "blobs",
-                "source_artifacts",
-                "source_spans",
-                "evidence_links",
-            ):
-                assert (
-                    project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                    == 0
-                ), table
+        result = run_typed_create_sheet_action(project, "p", bound)
+        assert result.status == "failed"
+        assert result.errors[0].code == "invalid_params"
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "cells",
+            "ops",
+            "receipts",
+            "blobs",
+            "source_artifacts",
+            "source_spans",
+            "citations",
+        ):
+            assert (
+                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+            ), table

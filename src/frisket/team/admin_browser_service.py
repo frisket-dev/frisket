@@ -12,7 +12,7 @@ from frisket.team.http_helpers import iso_z
 from frisket.team.schema import (
     api_tokens,
     memberships,
-    orgs,
+    organizations,
     pending_invites,
     project_roles,
     record_audit,
@@ -44,12 +44,12 @@ class AdminMembershipConflict(AdminMembershipError):
 class AdminMembershipService:
     """One membership mutation authority shared by old and browser wires."""
 
-    def __init__(self, engine: sa.Engine, *, org_id: int):
+    def __init__(self, engine: sa.Engine, *, organization_id: int):
         self._engine = engine
-        self.org_id = org_id
+        self.organization_id = organization_id
 
     def require_organization(self, requested_organization_id: int) -> None:
-        if requested_organization_id != self.org_id:
+        if requested_organization_id != self.organization_id:
             raise AdminMembershipNotFound("organization not found")
 
     def _require_owner_in_transaction(
@@ -59,7 +59,7 @@ class AdminMembershipService:
             return
         role = cx.execute(
             sa.select(memberships.c.role).where(
-                memberships.c.org_id == self.org_id,
+                memberships.c.organization_id == self.organization_id,
                 memberships.c.user_id == int(actor["id"]),
             )
         ).scalar_one_or_none()
@@ -70,7 +70,9 @@ class AdminMembershipService:
         now = datetime.now(UTC)
         with self._engine.connect() as cx:
             organization = cx.execute(
-                sa.select(orgs.c.id, orgs.c.name).where(orgs.c.id == self.org_id)
+                sa.select(organizations.c.id, organizations.c.name).where(
+                    organizations.c.id == self.organization_id
+                )
             ).one()
             rows = cx.execute(
                 sa.select(
@@ -83,18 +85,18 @@ class AdminMembershipService:
                 .select_from(
                     users.join(memberships, memberships.c.user_id == users.c.id)
                 )
-                .where(memberships.c.org_id == self.org_id)
+                .where(memberships.c.organization_id == self.organization_id)
                 .order_by(users.c.email)
             ).all()
             invited = cx.execute(
                 sa.select(
                     pending_invites.c.email,
-                    pending_invites.c.org_id,
+                    pending_invites.c.organization_id,
                     pending_invites.c.role,
                     pending_invites.c.expires_at,
                 )
                 .where(
-                    pending_invites.c.org_id == self.org_id,
+                    pending_invites.c.organization_id == self.organization_id,
                     pending_invites.c.expires_at >= now,
                 )
                 .order_by(pending_invites.c.email)
@@ -106,7 +108,7 @@ class AdminMembershipService:
         members = {str(row.email) for row in rows}
         return {
             "schema_version": "frisket.admin_users.v1",
-            "orgs": [
+            "organizations": [
                 {
                     "id": int(organization.id),
                     "name": str(organization.name),
@@ -124,7 +126,7 @@ class AdminMembershipService:
                     "pending_invites": [
                         {
                             "email": str(row.email),
-                            "org_id": int(row.org_id),
+                            "organization_id": int(row.organization_id),
                             "role": str(row.role),
                             "expires_at": iso_z(row.expires_at),
                         }
@@ -153,12 +155,13 @@ class AdminMembershipService:
         if role not in {"owner", "member"}:
             raise AdminMembershipInvalid("role must be owner or member")
         with locked_transaction(
-            self._engine, lock_scope=("org-membership", self.org_id)
+            self._engine,
+            lock_scope=("organization-membership", self.organization_id),
         ) as cx:
             self._require_owner_in_transaction(cx, actor)
             current = cx.execute(
                 sa.select(memberships.c.role).where(
-                    memberships.c.org_id == self.org_id,
+                    memberships.c.organization_id == self.organization_id,
                     memberships.c.user_id == user_id,
                 )
             ).scalar_one_or_none()
@@ -168,7 +171,7 @@ class AdminMembershipService:
                 sa.select(sa.func.count())
                 .select_from(memberships)
                 .where(
-                    memberships.c.org_id == self.org_id,
+                    memberships.c.organization_id == self.organization_id,
                     memberships.c.role == "owner",
                 )
             ).scalar_one()
@@ -177,7 +180,7 @@ class AdminMembershipService:
             cx.execute(
                 memberships.update()
                 .where(
-                    memberships.c.org_id == self.org_id,
+                    memberships.c.organization_id == self.organization_id,
                     memberships.c.user_id == user_id,
                 )
                 .values(role=role)
@@ -185,8 +188,8 @@ class AdminMembershipService:
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=self.org_id,
-                action="org_member_role_set",
+                organization_id=self.organization_id,
+                action="organization_member_role_set",
                 detail=f"{user_id}:{role}",
             )
         return {
@@ -206,7 +209,8 @@ class AdminMembershipService:
             self.require_organization(requested_organization_id)
         clean_ref = user_ref.lower().strip()
         with locked_transaction(
-            self._engine, lock_scope=("org-membership", self.org_id)
+            self._engine,
+            lock_scope=("organization-membership", self.organization_id),
         ) as cx:
             self._require_owner_in_transaction(cx, actor)
             invite_revoked = False
@@ -217,7 +221,7 @@ class AdminMembershipService:
                 ).scalar_one_or_none()
                 revoked = cx.execute(
                     pending_invites.delete().where(
-                        pending_invites.c.org_id == self.org_id,
+                        pending_invites.c.organization_id == self.organization_id,
                         pending_invites.c.email == email,
                     )
                 )
@@ -226,8 +230,8 @@ class AdminMembershipService:
                     record_audit(
                         cx,
                         user_id=actor["id"],
-                        org_id=self.org_id,
-                        action="org_invite_revoked",
+                        organization_id=self.organization_id,
+                        action="organization_invite_revoked",
                         detail=email,
                     )
             else:
@@ -242,7 +246,7 @@ class AdminMembershipService:
                 if user_id is None
                 else cx.execute(
                     sa.select(memberships.c.role).where(
-                        memberships.c.org_id == self.org_id,
+                        memberships.c.organization_id == self.organization_id,
                         memberships.c.user_id == user_id,
                     )
                 ).scalar_one_or_none()
@@ -261,7 +265,7 @@ class AdminMembershipService:
                 sa.select(sa.func.count())
                 .select_from(memberships)
                 .where(
-                    memberships.c.org_id == self.org_id,
+                    memberships.c.organization_id == self.organization_id,
                     memberships.c.role == "owner",
                 )
             ).scalar_one()
@@ -269,14 +273,14 @@ class AdminMembershipService:
                 raise AdminMembershipConflict("cannot remove the last owner")
             cx.execute(
                 project_roles.delete().where(
-                    project_roles.c.org_id == self.org_id,
+                    project_roles.c.organization_id == self.organization_id,
                     project_roles.c.user_id == user_id,
                 )
             )
             cx.execute(
                 api_tokens.update()
                 .where(
-                    api_tokens.c.org_id == self.org_id,
+                    api_tokens.c.organization_id == self.organization_id,
                     api_tokens.c.user_id == user_id,
                     api_tokens.c.revoked_at.is_(None),
                 )
@@ -284,7 +288,7 @@ class AdminMembershipService:
             )
             cx.execute(
                 memberships.delete().where(
-                    memberships.c.org_id == self.org_id,
+                    memberships.c.organization_id == self.organization_id,
                     memberships.c.user_id == user_id,
                 )
             )
@@ -292,8 +296,8 @@ class AdminMembershipService:
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=self.org_id,
-                action="org_member_removed",
+                organization_id=self.organization_id,
+                action="organization_member_removed",
                 detail=str(user_id),
             )
         return {

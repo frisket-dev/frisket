@@ -1,6 +1,7 @@
 """Grouped refresh uses one paid execution and stable derived row identities."""
 
 import pytest
+from contextlib import closing
 
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.group_summary_action import run_typed_group_summary_action
@@ -69,7 +70,7 @@ def test_group_refresh_preserves_manual_and_retains_result_for_reapply(
         restore_pre_domain_schema(project.db)
         project.close()
         project = Project(tmp_path / "manual.frisket")
-    try:
+    with closing(project):
         seeded = _seed(project, tmp_path)
         router, adapter = _summary_router()
         original = run_typed_group_summary_action(
@@ -129,8 +130,6 @@ def test_group_refresh_preserves_manual_and_retains_result_for_reapply(
         assert project.get_values(sheet, summary)[row] == "My correction"
         assert project.undo() is not None
         assert project.get_values(sheet, summary)[row] == "My correction"
-    finally:
-        project.close()
 
 
 def test_empty_complete_group_refresh_hides_old_members_without_model_calls(
@@ -853,7 +852,7 @@ def test_group_final_receipt_failure_recovers_saved_groups_without_rebuying(
     ] == original_facts
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )

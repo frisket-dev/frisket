@@ -67,8 +67,8 @@ from frisket.team.observability_routes import sanitize_client_tree
 from frisket.team.schema import (
     client_errors,
     memberships,
-    org_env_vars,
-    org_keys,
+    organization_env_vars,
+    organization_keys,
     record_audit,
 )
 from frisket.team.secret_box import TeamSecretBox
@@ -95,7 +95,7 @@ def register_operational_routes(
     app: FastAPI,
     *,
     engine: sa.Engine,
-    org_id: int,
+    organization_id: int,
     require_user: Callable[..., dict[str, Any]],
     resolve_user: Callable[[Request], dict[str, Any] | None],
     membership_role: Callable[[int, int], str | None],
@@ -106,20 +106,20 @@ def register_operational_routes(
 ) -> None:
     def require_owner(request: Request) -> dict[str, Any]:
         user = require_user(request)
-        if membership_role(int(user["id"]), org_id) != "owner":
+        if membership_role(int(user["id"]), organization_id) != "owner":
             raise HTTPException(403, "organization owner required")
         return user
 
     def require_member(request: Request) -> dict[str, Any]:
         user = require_user(request)
-        if membership_role(int(user["id"]), org_id) is None:
+        if membership_role(int(user["id"]), organization_id) is None:
             raise HTTPException(403, "organization membership required")
         return user
 
     def require_owner_in_transaction(cx: sa.Connection, actor: dict[str, Any]) -> None:
         role = cx.execute(
             sa.select(memberships.c.role).where(
-                memberships.c.org_id == org_id,
+                memberships.c.organization_id == organization_id,
                 memberships.c.user_id == int(actor["id"]),
             )
         ).scalar_one_or_none()
@@ -127,11 +127,11 @@ def register_operational_routes(
             raise HTTPException(403, "organization owner required")
 
     @app.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         response_model=OrganizationKeySave,
         responses=http_error_responses(400, 401, 403, 422, 500),
     )
-    def set_org_key(
+    def set_organization_key(
         request: Request, body: OrganizationKeySaveRequest
     ) -> dict[str, str]:
         actor = require_owner(request)
@@ -146,72 +146,81 @@ def register_operational_routes(
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        with locked_transaction(engine, lock_scope=("org-key", org_id, provider)) as cx:
+        with locked_transaction(
+            engine, lock_scope=("organization-key", organization_id, provider)
+        ) as cx:
             require_owner_in_transaction(cx, actor)
             values = {"encrypted": secret_box.encrypt(value), "hint": key_hint(value)}
             atomic_upsert(
                 cx,
-                table=org_keys,
-                values={"org_id": org_id, "provider": provider, **values},
-                conflict_columns=("org_id", "provider"),
+                table=organization_keys,
+                values={
+                    "organization_id": organization_id,
+                    "provider": provider,
+                    **values,
+                },
+                conflict_columns=("organization_id", "provider"),
                 update_values=values,
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
-                action="org_key_set",
+                organization_id=organization_id,
+                action="organization_key_set",
                 detail=provider,
             )
         return {"provider": provider, "hint": key_hint(value)}
 
     @app.get(
-        "/api/org/keys",
+        "/api/organization/keys",
         response_model=OrganizationKeyList,
         responses=http_error_responses(401, 403, 500),
     )
-    def list_org_keys(request: Request) -> list[dict[str, str]]:
+    def list_organization_keys(request: Request) -> list[dict[str, str]]:
         require_member(request)
         with engine.connect() as cx:
             rows = cx.execute(
-                sa.select(org_keys.c.provider, org_keys.c.hint)
-                .where(org_keys.c.org_id == org_id)
-                .order_by(org_keys.c.provider)
+                sa.select(organization_keys.c.provider, organization_keys.c.hint)
+                .where(organization_keys.c.organization_id == organization_id)
+                .order_by(organization_keys.c.provider)
             ).all()
         return [dict(row._mapping) for row in rows]
 
     @app.delete(
-        "/api/org/keys/{provider}",
+        "/api/organization/keys/{provider}",
         response_model=OrganizationKeyDelete,
         responses=http_error_responses(400, 401, 403, 500),
     )
-    def delete_org_key(provider: str, request: Request) -> dict[str, bool]:
+    def delete_organization_key(provider: str, request: Request) -> dict[str, bool]:
         actor = require_owner(request)
         if provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
-        with locked_transaction(engine, lock_scope=("org-key", org_id, provider)) as cx:
+        with locked_transaction(
+            engine, lock_scope=("organization-key", organization_id, provider)
+        ) as cx:
             require_owner_in_transaction(cx, actor)
             result = cx.execute(
-                org_keys.delete().where(
-                    org_keys.c.org_id == org_id, org_keys.c.provider == provider
+                organization_keys.delete().where(
+                    organization_keys.c.organization_id == organization_id,
+                    organization_keys.c.provider == provider,
                 )
             )
             if result.rowcount:
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
-                    action="org_key_deleted",
+                    organization_id=organization_id,
+                    action="organization_key_deleted",
                     detail=provider,
                 )
         return {"deleted": bool(result.rowcount)}
 
     @app.post(
-        "/api/org/keys/validate",
+        "/api/organization/keys/validate",
         response_model=OrganizationKeyValidation,
         responses=http_error_responses(400, 401, 403, 404, 422, 500, 501),
     )
-    async def validate_org_key(
+    async def validate_organization_key(
         request: Request, body: OrganizationKeyValidationRequest
     ) -> dict[str, Any]:
         actor = require_owner(request)
@@ -224,9 +233,9 @@ def register_operational_routes(
         else:
             with engine.connect() as cx:
                 encrypted = cx.execute(
-                    sa.select(org_keys.c.encrypted).where(
-                        org_keys.c.org_id == org_id,
-                        org_keys.c.provider == provider,
+                    sa.select(organization_keys.c.encrypted).where(
+                        organization_keys.c.organization_id == organization_id,
+                        organization_keys.c.provider == provider,
                     )
                 ).scalar_one_or_none()
             if encrypted is None:
@@ -238,8 +247,8 @@ def register_operational_routes(
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
-                action="org_key_validation_requested",
+                organization_id=organization_id,
+                action="organization_key_validation_requested",
                 detail=provider,
             )
         try:
@@ -266,12 +275,12 @@ def register_operational_routes(
         }
 
     @app.post(
-        "/api/org/env",
+        "/api/organization/env",
         response_model=OrganizationEnvSave,
         response_model_exclude_unset=True,
         responses=http_error_responses(400, 401, 403, 422, 500),
     )
-    def set_org_env_var(
+    def set_organization_env_var(
         request: Request, body: OrganizationEnvSaveRequest
     ) -> dict[str, str]:
         actor = require_owner(request)
@@ -284,48 +293,50 @@ def register_operational_routes(
             )
         if not value:
             raise HTTPException(400, "environment variable value must not be empty")
-        with locked_transaction(engine, lock_scope=("org-env", org_id, name)) as cx:
+        with locked_transaction(
+            engine, lock_scope=("organization-env", organization_id, name)
+        ) as cx:
             require_owner_in_transaction(cx, actor)
             values = {"encrypted": secret_box.encrypt(value), "hint": key_hint(value)}
             atomic_upsert(
                 cx,
-                table=org_env_vars,
-                values={"org_id": org_id, "name": name, **values},
-                conflict_columns=("org_id", "name"),
+                table=organization_env_vars,
+                values={"organization_id": organization_id, "name": name, **values},
+                conflict_columns=("organization_id", "name"),
                 update_values=values,
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
-                action="org_env_set",
+                organization_id=organization_id,
+                action="organization_env_set",
                 detail=name,
             )
         return {"name": name, "hint": key_hint(value)}
 
     @app.get(
-        "/api/org/env",
+        "/api/organization/env",
         response_model=OrganizationEnvList,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 500),
     )
-    def list_org_env_vars(request: Request) -> list[dict[str, str]]:
+    def list_organization_env_vars(request: Request) -> list[dict[str, str]]:
         require_member(request)
         with engine.connect() as cx:
             rows = cx.execute(
-                sa.select(org_env_vars.c.name, org_env_vars.c.hint).where(
-                    org_env_vars.c.org_id == org_id
-                )
+                sa.select(
+                    organization_env_vars.c.name, organization_env_vars.c.hint
+                ).where(organization_env_vars.c.organization_id == organization_id)
             ).all()
         return [dict(row._mapping) for row in rows]
 
     @app.delete(
-        "/api/org/env/{name}",
+        "/api/organization/env/{name}",
         response_model=OrganizationEnvDelete,
         response_model_exclude_unset=True,
         responses=http_error_responses(400, 401, 403, 500),
     )
-    def delete_org_env_var(name: str, request: Request) -> dict[str, bool]:
+    def delete_organization_env_var(name: str, request: Request) -> dict[str, bool]:
         actor = require_owner(request)
         canonical = name.strip().upper()
         if not _ENV_NAME_RE.fullmatch(canonical):
@@ -335,20 +346,21 @@ def register_operational_routes(
                 400, "this environment variable is managed by Models gateway"
             )
         with locked_transaction(
-            engine, lock_scope=("org-env", org_id, canonical)
+            engine, lock_scope=("organization-env", organization_id, canonical)
         ) as cx:
             require_owner_in_transaction(cx, actor)
             result = cx.execute(
-                org_env_vars.delete().where(
-                    org_env_vars.c.org_id == org_id, org_env_vars.c.name == canonical
+                organization_env_vars.delete().where(
+                    organization_env_vars.c.organization_id == organization_id,
+                    organization_env_vars.c.name == canonical,
                 )
             )
             if result.rowcount:
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
-                    action="org_env_deleted",
+                    organization_id=organization_id,
+                    action="organization_env_deleted",
                     detail=canonical,
                 )
         return {"deleted": bool(result.rowcount)}
@@ -360,12 +372,12 @@ def register_operational_routes(
     # with no organization analogue.
 
     @app.get(
-        "/api/org/local-endpoints",
+        "/api/organization/local-endpoints",
         response_model=LocalEndpointCatalog,
         response_model_exclude_unset=True,
         responses=team_model_http_error_responses(401, 403, 500),
     )
-    def list_org_local_endpoints(request: Request) -> dict[str, Any]:
+    def list_organization_local_endpoints(request: Request) -> dict[str, Any]:
         require_member(request)
         env = dict(os.environ)
         config, _notes = resolve_env_local_endpoint(env)
@@ -395,14 +407,14 @@ def register_operational_routes(
         # Owner re-check + audit are atomic together; the enqueue runs against
         # the run-queue engine (a different database) and cannot join it.
         with locked_transaction(
-            engine, lock_scope=("org-local-model-pull", org_id)
+            engine, lock_scope=("organization-local-model-pull", organization_id)
         ) as cx:
             require_owner_in_transaction(cx, actor)
             target = f"{canonical}@{endpoint_origin}" if endpoint_origin else canonical
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action=audit_action,
                 detail=target,
             )
@@ -447,12 +459,12 @@ def register_operational_routes(
         }
 
     @app.post(
-        "/api/org/models/pull",
+        "/api/organization/models/pull",
         status_code=202,
         response_model=TeamModelPullStartResponse,
         responses=team_model_http_error_responses(400, 401, 403, 409, 422, 500, 503),
     )
-    def post_org_models_pull(
+    def post_organization_models_pull(
         request: Request,
         body: TeamArtifactPullRequest,
     ) -> dict[str, Any]:
@@ -564,12 +576,12 @@ def register_operational_routes(
         )
 
     @app.post(
-        "/api/org/models/setup",
+        "/api/organization/models/setup",
         status_code=202,
         response_model=TeamModelPullStartResponse,
         responses=team_model_http_error_responses(400, 401, 403, 409, 422, 500, 503),
     )
-    def setup_org_model_engine(
+    def setup_organization_model_engine(
         request: Request, body: TeamEngineSetupRequest
     ) -> dict[str, Any]:
         """Owner-gated, audited start for an allowlisted local engine bundle."""
@@ -604,22 +616,22 @@ def register_operational_routes(
         )
 
     @app.get(
-        "/api/org/models/pulls",
+        "/api/organization/models/pulls",
         response_model=TeamModelPullListResponse,
         responses=team_model_http_error_responses(401, 403, 500),
     )
-    def list_org_model_pulls(request: Request) -> dict[str, Any]:
+    def list_organization_model_pulls(request: Request) -> dict[str, Any]:
         require_member(request)
         queue_engine = workspace.queue.engine
         rows = model_pull_store.list_recent(queue_engine, str(workspace.root), limit=20)
         return {"pulls": [model_pull_store.to_dto(r, allow_remove=False) for r in rows]}
 
     @app.get(
-        "/api/org/models/pulls/{pull_id}",
+        "/api/organization/models/pulls/{pull_id}",
         response_model=TeamModelPull,
         responses=team_model_http_error_responses(401, 403, 404, 422, 500),
     )
-    def get_org_model_pull(pull_id: int, request: Request) -> dict[str, Any]:
+    def get_organization_model_pull(pull_id: int, request: Request) -> dict[str, Any]:
         require_member(request)
         queue_engine = workspace.queue.engine
         row = model_pull_store.get(queue_engine, pull_id)
@@ -634,12 +646,14 @@ def register_operational_routes(
         return model_pull_store.to_dto(row, allow_remove=False)
 
     @app.post(
-        "/api/org/models/pulls/{pull_id}/cancel",
+        "/api/organization/models/pulls/{pull_id}/cancel",
         status_code=202,
         response_model=TeamModelPull,
         responses=team_model_http_error_responses(401, 403, 404, 409, 422, 500),
     )
-    def cancel_org_model_pull(pull_id: int, request: Request) -> dict[str, Any]:
+    def cancel_organization_model_pull(
+        pull_id: int, request: Request
+    ) -> dict[str, Any]:
         actor = require_owner(request)
         queue_engine = workspace.queue.engine
         row = model_pull_store.get(queue_engine, pull_id)
@@ -652,7 +666,7 @@ def register_operational_routes(
                 },
             )
         with locked_transaction(
-            engine, lock_scope=("org-local-model-pull", org_id)
+            engine, lock_scope=("organization-local-model-pull", organization_id)
         ) as cx:
             require_owner_in_transaction(cx, actor)
         # The queue-level mutation runs AFTER the owner-gated lock releases
@@ -675,7 +689,9 @@ def register_operational_routes(
             # `queue.cancel`. A job id that does not belong to THIS org/kind
             # is refused atomically by the WHERE clause itself.
             cancel_succeeded = workspace.queue.cancel_scoped(
-                row.job_id, org_id=str(org_id), kind=MODEL_PULL_KIND
+                row.job_id,
+                organization_id=str(organization_id),
+                kind=MODEL_PULL_KIND,
             )
             if cancel_succeeded:
                 model_pull_store.request_cancel(queue_engine, pull_id)
@@ -701,12 +717,12 @@ def register_operational_routes(
                 },
             )
         with locked_transaction(
-            engine, lock_scope=("org-local-model-pull", org_id)
+            engine, lock_scope=("organization-local-model-pull", organization_id)
         ) as cx:
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="model_pull_cancelled",
                 detail=f"{pull_id}:{row.model_ref}",
             )
@@ -735,7 +751,7 @@ def register_operational_routes(
                 sa.select(sa.func.count())
                 .select_from(client_errors)
                 .where(
-                    client_errors.c.org_id == org_id,
+                    client_errors.c.organization_id == organization_id,
                     identity_filter,
                     client_errors.c.created_at >= now - timedelta(minutes=1),
                 )
@@ -744,13 +760,13 @@ def register_operational_routes(
                 raise HTTPException(429, "client error report rate limit exceeded")
             cx.execute(
                 client_errors.delete().where(
-                    client_errors.c.org_id == org_id,
+                    client_errors.c.organization_id == organization_id,
                     client_errors.c.created_at < now - timedelta(days=30),
                 )
             )
             inserted = cx.execute(
                 client_errors.insert().values(
-                    org_id=org_id,
+                    organization_id=organization_id,
                     user_id=user["id"] if user else None,
                     source=sanitize_text(body.source, limit=80),
                     severity=sanitize_text(body.severity, limit=40),
@@ -769,7 +785,7 @@ def register_operational_routes(
             keep = (
                 cx.execute(
                     sa.select(client_errors.c.id)
-                    .where(client_errors.c.org_id == org_id)
+                    .where(client_errors.c.organization_id == organization_id)
                     .order_by(client_errors.c.id.desc())
                     .limit(5000)
                 )
@@ -779,7 +795,8 @@ def register_operational_routes(
             if keep:
                 cx.execute(
                     client_errors.delete().where(
-                        client_errors.c.org_id == org_id, client_errors.c.id < min(keep)
+                        client_errors.c.organization_id == organization_id,
+                        client_errors.c.id < min(keep),
                     )
                 )
         return ClientErrorAccepted.model_validate(

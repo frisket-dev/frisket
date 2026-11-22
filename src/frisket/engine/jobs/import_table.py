@@ -316,9 +316,9 @@ def _project_payload(
     }
     claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
     if isinstance(claimed, ProjectStorageKey):
-        result["storage_org_id"] = claimed.storage_org_id
+        result["storage_organization_id"] = claimed.storage_organization_id
     if isinstance(context.trusted_job_organization_id, int):
-        result["org_id"] = context.trusted_job_organization_id
+        result["organization_id"] = context.trusted_job_organization_id
     return result
 
 

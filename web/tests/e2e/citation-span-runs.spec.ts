@@ -47,7 +47,7 @@ import wave
 import io
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.citations import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -60,14 +60,14 @@ try:
     run_store = RunResultStore(project)
     sheet_id = project.add_sheet("Hearings")
     source_column_id = project.add_column(sheet_id, "Source", "file")
-    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", ai_generated=True)
+    transcript_column_id = project.add_column(sheet_id, "Transcript", "text", generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "hearing.wav"}], {"Source": source_column_id})[0]
     op_id = project.append_change(
         "media.transcribe",
         {
             "schema_version": "frisket.action.v2",
             "kind": "media.transcribe",
-            "params": {"output_column": "Transcript"},
+            "params": {"generated_column": "Transcript"},
         },
         label="transcribe hearing",
     )
@@ -76,7 +76,7 @@ try:
         sheet_id,
         "media.transcribe",
         model="local/faster_whisper",
-        params={"output_column": "Transcript"},
+        params={"generated_column": "Transcript"},
         total_rows=1,
         row_ids=[row_id],
     )
@@ -94,7 +94,8 @@ try:
         ],
     )
     run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, transcript_column_id, run_id)
+    with write_transaction(project.db):
+        run_store.point_column_at_run(op_id, transcript_column_id, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, transcript_column_id, row_ids=[row_id])
     transcript_ref = refs[row_id]
 

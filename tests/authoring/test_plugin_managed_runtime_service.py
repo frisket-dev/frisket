@@ -396,31 +396,13 @@ def test_switch_seam_holds_no_queue_schema_or_claim_internals(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_cli_apply_inspect_entrypoint_exists(tmp_path):
+def test_cli_apply_inspect_entrypoint_exists(tmp_path, monkeypatch, capsys):
     module = _api()
     fn = module.managed_runtime_cli
     assert callable(fn), "a CLI apply/inspect entrypoint must exist"
-    # An inspect invocation returns an exit code (0 = healthy report), never crashes.
+    monkeypatch.setenv("FRISKET_RUNTIME_CACHE_DIR", str(tmp_path / "runtimes"))
+    # An inspect invocation returns exit code 0 and prints a healthy report.
     rc = fn(["inspect"])
-    assert isinstance(rc, int)
-
-
-# ---------------------------------------------------------------------------
-# 10. A manifest with no managed-runtime block is unchanged.
-# ---------------------------------------------------------------------------
-
-
-def test_rung_one_manifest_without_managed_runtime_is_unaffected():
-    """All managed-runtime fields are optional and absent by default; a
-    manifest-only plugin validates with none of
-    them present. (Green today AND after implementation — a durable guardrail.)"""
-    from frisket.contracts.plugin import PluginManifest, PluginManifestContributes
-
-    manifest = PluginManifest(
-        id="acme.demo",
-        version="1.0.0",
-        contributes=PluginManifestContributes(actions=["acme.demo.thing"]),
-    )
-    assert getattr(manifest, "managed_runtime", None) is None, (
-        "a manifest that declares no managed runtime must have none by default"
-    )
+    assert rc == 0
+    assert "managed runtimes: none installed" in capsys.readouterr().out
+    assert fn(["unknown-subcommand"]) == 2

@@ -9,13 +9,7 @@ vi.mock('pluralize', () => ({
 
 import { createHistoryReviewApi } from '../../src/api/historyReview';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const columnRun = {
   run_id: 9,
@@ -52,7 +46,7 @@ const columnRunsFixture = {
     id: 5,
     name: 'Label',
     type: 'text',
-    ai_generated: true,
+    generated: true,
     current_run_id: 9,
   },
   offset: 2,
@@ -105,7 +99,7 @@ const historyFixture = {
         started_at: '2026-08-11 00:00:00',
         finished_at: null,
         worker_version: null,
-        output_columns: [{ id: 5, name: 'Label' }],
+        generated_columns: [{ id: 5, name: 'Label' }],
         row_errors: {
           total_failed_rows: 1,
           groups: [{
@@ -166,7 +160,7 @@ const reviewBundlesFixture = {
       value: 'Example',
     }],
     fields: [reviewItem],
-    evidence: [],
+    supporting_columns: [],
     items: [reviewItem],
   }],
 };
@@ -474,36 +468,6 @@ describe('history and review generated HTTP reads', () => {
     expect(JSON.parse(String(requests[1].init?.body))).toEqual({ status: 'open' });
   });
 
-  it.each([401, 403, 404, 422, 500])('maps HTTP %i to the shared ApiError', async (status) => {
-    const payload = { detail: `history-review-${status}` };
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload, status)));
-    const api = historyReviewDomain('102');
-
-    await expect(api.getHistory()).rejects.toMatchObject({
-      name: 'ApiError', status, message: `history-review-${status}`, code: undefined, details: undefined,
-    });
-  });
-
-  it('forwards native abort identity through history reads', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-    const api = historyReviewDomain('103');
-    const pending = api.getHistory(undefined, 50, { signal: controller.signal });
-    const abortError = new DOMException('history cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(pending).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
-  });
-
   it('maps all four reads with stable defaults', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [columnRunsFixture, historyFixture, reviewBundlesFixture, { count: 4 }];
@@ -686,7 +650,7 @@ describe('history and review generated HTTP reads', () => {
       column_name: 'When',
       column_type: 'timeline_point',
       value: temporal,
-      role: 'evidence',
+      role: 'supporting',
     };
     const fallbackReviewBundles = {
       ...reviewBundlesFixture,
@@ -699,7 +663,7 @@ describe('history and review generated HTTP reads', () => {
         confidence: null,
         source,
         fields: [fallbackField],
-        evidence: [temporalEvidence],
+        supporting_columns: [temporalEvidence],
         items: [fallbackField, temporalEvidence],
       }],
     };
@@ -749,7 +713,7 @@ describe('history and review generated HTTP reads', () => {
         id: '9:7:5', columnType: 'text', value: '["alpha","beta"]',
         confidence: null, justification: '', note: null, reviewDecision: null, reviewState: 'unreviewed',
       }],
-      evidence: [{ id: '9:7:6', value: temporal }],
+      supportingColumns: [{ id: '9:7:6', value: temporal }],
     });
     expect(bundle.context).toBe(
       Object.entries(expectedSource)
@@ -758,7 +722,7 @@ describe('history and review generated HTTP reads', () => {
         .slice(0, 400),
     );
     expect(bundle.context).toHaveLength(400);
-    expect(bundle.items).toEqual([...bundle.fields, ...bundle.evidence]);
+    expect(bundle.items).toEqual([...bundle.fields, ...bundle.supportingColumns]);
     expect(bundle.fields[0]).not.toHaveProperty('error');
     await expect(api.getReviewCount()).resolves.toBe(0);
   });

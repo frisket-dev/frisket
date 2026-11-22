@@ -68,7 +68,7 @@ class TeamOAuthConnectionService:
     def connect_google_account(
         self,
         *,
-        org_id: int,
+        organization_id: int,
         user_id: int,
         external_subject: str,
         refresh_token: str,
@@ -95,7 +95,7 @@ class TeamOAuthConnectionService:
         with self._engine.begin() as cx:
             existing = cx.execute(
                 sa.select(oauth_connections.c.id).where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == "google",
                     oauth_connections.c.connection_id == connection_id,
                 )
@@ -103,7 +103,7 @@ class TeamOAuthConnectionService:
             if existing is None:
                 cx.execute(
                     oauth_connections.insert().values(
-                        org_id=org_id,
+                        organization_id=organization_id,
                         provider="google",
                         connection_id=connection_id,
                         created_at=now,
@@ -117,11 +117,14 @@ class TeamOAuthConnectionService:
                     .values(**values)
                 )
             record_audit(
-                cx, user_id=user_id, org_id=org_id, action="oauth_connection_google"
+                cx,
+                user_id=user_id,
+                organization_id=organization_id,
+                action="oauth_connection_google",
             )
             row = cx.execute(
                 sa.select(oauth_connections).where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == "google",
                     oauth_connections.c.connection_id == connection_id,
                 )
@@ -129,10 +132,10 @@ class TeamOAuthConnectionService:
         return self._metadata(row)
 
     def list_connections(
-        self, org_id: int, *, provider: str | None = None
+        self, organization_id: int, *, provider: str | None = None
     ) -> list[dict[str, Any]]:
         query = sa.select(oauth_connections).where(
-            oauth_connections.c.org_id == org_id,
+            oauth_connections.c.organization_id == organization_id,
             oauth_connections.c.revoked_at.is_(None),
         )
         if provider:
@@ -147,7 +150,7 @@ class TeamOAuthConnectionService:
 
     def connection(
         self,
-        org_id: int,
+        organization_id: int,
         provider: str,
         connection_id: str,
         *,
@@ -165,7 +168,7 @@ class TeamOAuthConnectionService:
         with self._engine.connect() as cx:
             row = cx.execute(
                 sa.select(oauth_connections).where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == provider,
                     oauth_connections.c.connection_id == connection_id,
                     oauth_connections.c.revoked_at.is_(None),
@@ -179,7 +182,12 @@ class TeamOAuthConnectionService:
         return out
 
     def revoke_connection(
-        self, org_id: int, provider: str, connection_id: str, *, user_id: int
+        self,
+        organization_id: int,
+        provider: str,
+        connection_id: str,
+        *,
+        user_id: int,
     ) -> bool:
         provider = provider.strip().lower()
         connection_id = connection_id.strip()
@@ -189,7 +197,7 @@ class TeamOAuthConnectionService:
             result = cx.execute(
                 oauth_connections.update()
                 .where(
-                    oauth_connections.c.org_id == org_id,
+                    oauth_connections.c.organization_id == organization_id,
                     oauth_connections.c.provider == provider,
                     oauth_connections.c.connection_id == connection_id,
                     oauth_connections.c.revoked_at.is_(None),
@@ -201,7 +209,7 @@ class TeamOAuthConnectionService:
                 record_audit(
                     cx,
                     user_id=user_id,
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action=f"oauth_connection_revoked:{provider}",
                 )
         return revoked
@@ -257,7 +265,7 @@ def register_oauth_connection_routes(
     injected = google_connection_exchange is not None
 
     @app.get(
-        "/api/org/oauth/connections",
+        "/api/organization/oauth/connections",
         response_model=OAuthConnectionList,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 500),
@@ -267,21 +275,23 @@ def register_oauth_connection_routes(
     ) -> dict[str, Any]:
         user = require_browser_user(request)
         return {
-            "connections": service.list_connections(user["org_id"], provider=provider)
+            "connections": service.list_connections(
+                user["organization_id"], provider=provider
+            )
         }
 
-    @app.delete("/api/org/oauth/connections/{provider}/{connection_id}")
+    @app.delete("/api/organization/oauth/connections/{provider}/{connection_id}")
     def revoke_oauth_connection(
         request: Request, provider: str, connection_id: str
     ) -> dict[str, bool]:
         user = require_browser_user(request)
         return {
             "revoked": service.revoke_connection(
-                user["org_id"], provider, connection_id, user_id=user["id"]
+                user["organization_id"], provider, connection_id, user_id=user["id"]
             )
         }
 
-    @app.get("/api/org/oauth/google/start")
+    @app.get("/api/organization/oauth/google/start")
     def google_connection_start(request: Request) -> Response:
         user = require_browser_user(request)
         if not _configured(config, require_secret=False, injected=injected):
@@ -314,12 +324,12 @@ def register_oauth_connection_routes(
             httponly=True,
             secure=config.secure_cookies,
             samesite="lax",
-            path="/api/org/oauth",
+            path="/api/organization/oauth",
             max_age=600,
         )
         return response
 
-    @app.get("/api/org/oauth/google/callback")
+    @app.get("/api/organization/oauth/google/callback")
     async def google_connection_callback(
         request: Request, code: str = "", state: str = "", error: str = ""
     ) -> Response:
@@ -364,7 +374,7 @@ def register_oauth_connection_routes(
             if isinstance(value, str) and value.strip()
         ]
         service.connect_google_account(
-            org_id=user["org_id"],
+            organization_id=user["organization_id"],
             user_id=user["id"],
             external_subject=subject,
             external_email=str(connected.get("external_email") or "").strip() or None,
@@ -373,7 +383,9 @@ def register_oauth_connection_routes(
             token_type=str(connected.get("token_type") or "Bearer"),
         )
         response = RedirectResponse("/?connected=google_sheets", status_code=302)
-        response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+        response.delete_cookie(
+            OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+        )
         return response
 
     return service
@@ -389,13 +401,17 @@ def _configured(config: TeamConfig, *, require_secret: bool, injected: bool) -> 
 
 def _error_response(body: str) -> HTMLResponse:
     response = HTMLResponse(body, status_code=400)
-    response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+    response.delete_cookie(
+        OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+    )
     return response
 
 
 def _callback_json_error(status_code: int, detail: str) -> JSONResponse:
     response = JSONResponse({"detail": detail}, status_code=status_code)
-    response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+    response.delete_cookie(
+        OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+    )
     return response
 
 
@@ -403,7 +419,9 @@ def _callback_http_error(exc: HTTPException) -> JSONResponse:
     response = JSONResponse(
         {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
     )
-    response.delete_cookie(OAUTH_CONNECTION_STATE_COOKIE, path="/api/org/oauth")
+    response.delete_cookie(
+        OAUTH_CONNECTION_STATE_COOKIE, path="/api/organization/oauth"
+    )
     return response
 
 

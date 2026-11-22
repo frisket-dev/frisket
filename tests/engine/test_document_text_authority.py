@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
@@ -14,12 +13,12 @@ from frisket.engine.store.document_text import (
     ensure_document_text_role,
     resolve_document_text_selection,
 )
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import PreparedContentRef
@@ -32,9 +31,9 @@ _OTHER_BLOB = "sha256:" + "2" * 64
 
 
 def _project_with_selection(
-    tmp_path: Path, *, source_type: str = "file", page: int | None = None
+    make_project, *, source_type: str = "file", page: int | None = None
 ) -> tuple[Project, int, int, int, int]:
-    project = Project.create(tmp_path / "document-text.frisket")
+    project = make_project("document-text")
     sheet_id = project.add_sheet("Documents")
     source_column_id = project.add_column(sheet_id, "File", type=source_type)
     text_column_id = project.add_column(sheet_id, "Text", type="text")
@@ -54,7 +53,7 @@ def _project_with_selection(
         source_column_id=source_column_id,
         text_column_id=text_column_id,
     )
-    op_id = project.append_change("document.prepare", commit=False)
+    op_id = project.append_change_in_transaction("document.prepare")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -86,99 +85,91 @@ def _project_with_selection(
 
 @pytest.mark.parametrize("source_type", ["file", "image"])
 def test_resolves_exact_fresh_prepared_selection(
-    tmp_path: Path, source_type: str
+    make_project, source_type: str
 ) -> None:
     project, sheet_id, row_id, source_column_id, text_column_id = (
-        _project_with_selection(tmp_path, source_type=source_type)
+        _project_with_selection(make_project, source_type=source_type)
     )
-    try:
-        selection = resolve_document_text_selection(
-            project, (sheet_id, row_id, source_column_id)
-        )
-        assert selection is not None
-        assert selection.text_cell == (sheet_id, row_id, text_column_id)
-        assert selection.prepared_ref_id == selection.provenance_ref_id
-        assert selection.source_blob_hash == _BLOB
-        assert selection.source_page_number is None
-    finally:
-        project.close()
+    selection = resolve_document_text_selection(
+        project, (sheet_id, row_id, source_column_id)
+    )
+    assert selection is not None
+    assert selection.text_cell == (sheet_id, row_id, text_column_id)
+    assert selection.prepared_ref_id == selection.provenance_ref_id
+    assert selection.source_blob_hash == _BLOB
+    assert selection.source_page_number is None
 
 
 def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     project, sheet_id, row_id, source_column_id, text_column_id = (
-        _project_with_selection(tmp_path)
+        _project_with_selection(make_project)
     )
-    try:
-        original = resolve_document_text_selection(
+    original = resolve_document_text_selection(
+        project, (sheet_id, row_id, source_column_id)
+    )
+    assert original is not None
+
+    project.db.execute("BEGIN IMMEDIATE")
+    edit_op_id = project.append_change_in_transaction("edit")
+    insert_edits(
+        project.db,
+        op_id=edit_op_id,
+        edits=[EditCellWrite(row_id, text_column_id, "human correction")],
+    )
+    project.db.commit()
+    corrected = resolve_document_text_selection(
+        project, (sheet_id, row_id, source_column_id)
+    )
+    assert corrected is not None
+    assert corrected.prepared_ref_id is None
+    assert corrected.provenance_ref_id == original.provenance_ref_id
+
+    project.db.execute("BEGIN IMMEDIATE")
+    second_edit = project.append_change_in_transaction("edit")
+    insert_edits(
+        project.db,
+        op_id=second_edit,
+        edits=[EditCellWrite(row_id, text_column_id, "second correction")],
+    )
+    project.db.commit()
+    assert (
+        resolve_document_text_selection(
             project, (sheet_id, row_id, source_column_id)
-        )
-        assert original is not None
-
-        project.db.execute("BEGIN IMMEDIATE")
-        edit_op_id = project.append_change("edit", commit=False)
-        insert_edits(
-            project.db,
-            op_id=edit_op_id,
-            edits=[EditCellWrite(row_id, text_column_id, "human correction")],
-        )
-        project.db.commit()
-        corrected = resolve_document_text_selection(
+        ).provenance_ref_id
+        == original.provenance_ref_id
+    )
+    assert project.undo() == second_edit
+    assert (
+        project.get_values(sheet_id, text_column_id, [row_id])[row_id]
+        == "human correction"
+    )
+    assert project.redo() == second_edit
+    assert (
+        resolve_document_text_selection(
             project, (sheet_id, row_id, source_column_id)
-        )
-        assert corrected is not None
-        assert corrected.prepared_ref_id is None
-        assert corrected.provenance_ref_id == original.provenance_ref_id
+        ).provenance_ref_id
+        == original.provenance_ref_id
+    )
 
-        project.db.execute("BEGIN IMMEDIATE")
-        second_edit = project.append_change("edit", commit=False)
-        insert_edits(
-            project.db,
-            op_id=second_edit,
-            edits=[EditCellWrite(row_id, text_column_id, "second correction")],
-        )
-        project.db.commit()
-        assert (
-            resolve_document_text_selection(
-                project, (sheet_id, row_id, source_column_id)
-            ).provenance_ref_id
-            == original.provenance_ref_id
-        )
-        assert project.undo() == second_edit
-        assert (
-            project.get_values(sheet_id, text_column_id, [row_id])[row_id]
-            == "human correction"
-        )
-        assert project.redo() == second_edit
-        assert (
-            resolve_document_text_selection(
-                project, (sheet_id, row_id, source_column_id)
-            ).provenance_ref_id
-            == original.provenance_ref_id
-        )
-
-        project.db.execute("BEGIN IMMEDIATE")
-        source_edit_op_id = project.append_change("edit", commit=False)
-        insert_edits(
-            project.db,
-            op_id=source_edit_op_id,
-            edits=[
-                EditCellWrite(
-                    row_id,
-                    source_column_id,
-                    {"blob": _OTHER_BLOB, "mime": "application/pdf"},
-                )
-            ],
-        )
-        project.db.commit()
-        with pytest.raises(DocumentTextUnavailable) as exc:
-            resolve_document_text_selection(
-                project, (sheet_id, row_id, source_column_id)
+    project.db.execute("BEGIN IMMEDIATE")
+    source_edit_op_id = project.append_change_in_transaction("edit")
+    insert_edits(
+        project.db,
+        op_id=source_edit_op_id,
+        edits=[
+            EditCellWrite(
+                row_id,
+                source_column_id,
+                {"blob": _OTHER_BLOB, "mime": "application/pdf"},
             )
-        assert exc.value.reason == "selection_stale_or_missing"
-    finally:
-        project.close()
+        ],
+    )
+    project.db.commit()
+    with pytest.raises(DocumentTextUnavailable) as exc:
+        resolve_document_text_selection(project, (sheet_id, row_id, source_column_id))
+    assert exc.value.reason == "selection_stale_or_missing"
 
 
 def test_role_lookup_precedes_source_validation_and_hidden_never_falls_back(
@@ -235,40 +226,40 @@ def test_role_rejects_cross_sheet_and_conflicting_pairs(make_project) -> None:
 
 
 def test_generation_snapshots_role_and_failed_replacement_preserves_success(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     project, sheet_id, row_id, source_column_id, text_column_id = (
-        _project_with_selection(tmp_path)
+        _project_with_selection(make_project)
     )
-    try:
-        # Remove the setup edit so generated heads are the selected authority.
-        project.db.execute("DELETE FROM edits WHERE column_id=?", (text_column_id,))
-        project.db.execute(
-            "DELETE FROM document_text_manual_pins WHERE text_column_id=?",
-            (text_column_id,),
-        )
-        project.db.commit()
-        ref_id = int(
-            project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[0]
-        )
+    # Remove the setup edit so generated heads are the selected authority.
+    project.db.execute("DELETE FROM edits WHERE column_id=?", (text_column_id,))
+    project.db.execute(
+        "DELETE FROM document_text_manual_pins WHERE text_column_id=?",
+        (text_column_id,),
+    )
+    project.db.commit()
+    ref_id = int(
+        project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[0]
+    )
 
-        def start(label: str):
-            op_id = project.append_change("media.ocr", {"output": "Text"}, label=label)
-            run_id = RunResultStore(project).start_run(
-                op_id,
-                sheet_id,
-                "media.ocr",
-                row_ids=[row_id],
-                total_rows=1,
-            )
-            authority = run_writer_authority_fixture(
-                project, run_id, output_column_ids={text_column_id}
-            )
-            return op_id, run_id, authority
+    def start(label: str):
+        op_id = project.append_change("media.ocr", {"output": "Text"}, label=label)
+        run_id = RunResultStore(project).start_run(
+            op_id,
+            sheet_id,
+            "media.ocr",
+            row_ids=[row_id],
+            total_rows=1,
+        )
+        authority = run_writer_authority_fixture(
+            project, run_id, output_column_ids={text_column_id}
+        )
+        return op_id, run_id, authority
 
-        generations = ResultGenerationStore(project)
-        first_op, first_run, first_authority = start("first")
-        assert first_authority.claim_token is not None
+    generations = ResultGenerationStore(project)
+    first_op, first_run, first_authority = start("first")
+    assert first_authority.claim_token is not None
+    with write_transaction(generations.db):
         first_binding = generations.declare(
             first_run,
             text_column_id,
@@ -277,39 +268,40 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             write_mode="create",
             claim_token=first_authority.claim_token,
         )
-        assert first_binding.document_text_authority is True
-        RunResultStore(project).write_results(
-            first_run,
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": text_column_id,
-                    "value": PreparedContentRef(ref_id),
-                    "publication_effect": "publish_value",
-                }
-            ],
-            **first_authority.kwargs(),
-        )
+    assert first_binding.document_text_authority is True
+    RunResultStore(project).write_results(
+        first_run,
+        [
+            {
+                "row_id": row_id,
+                "column_id": text_column_id,
+                "value": PreparedContentRef(ref_id),
+                "publication_effect": "publish_value",
+            }
+        ],
+        **first_authority.kwargs(),
+    )
+    with write_transaction(generations.db):
         generations.seal(
             first_run,
             [text_column_id],
             claim_token=first_authority.claim_token,
             terminal_disposition="completed",
         )
+    with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(first_op, text_column_id, first_run)
-        with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
-                claim_token=first_authority.claim_token
-            )
-
-        _second_op, second_run, second_authority = start("failed replacement")
-        assert second_authority.claim_token is not None
-        # Availability can change after planning.  The durable designation must
-        # still snapshot the failure-preserving publication policy.
-        project.db.execute(
-            "UPDATE columns SET hidden=1 WHERE id=?", (source_column_id,)
+    with write_transaction(project.db):
+        GeneratedColumnClaimStore(project).release(
+            claim_token=first_authority.claim_token
         )
-        project.db.commit()
+
+    _second_op, second_run, second_authority = start("failed replacement")
+    assert second_authority.claim_token is not None
+    # Availability can change after planning.  The durable designation must
+    # still snapshot the failure-preserving publication policy.
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (source_column_id,))
+    project.db.commit()
+    with write_transaction(generations.db):
         second_binding = generations.declare(
             second_run,
             text_column_id,
@@ -318,48 +310,48 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
             write_mode="replace_scope",
             claim_token=second_authority.claim_token,
         )
-        assert second_binding.document_text_authority is True
-        RunResultStore(project).write_results(
-            second_run,
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": text_column_id,
-                    "error": "OCR failed",
-                    "error_code": "model_error",
-                    "outcome": "model_error",
-                    "publication_effect": "publish_error",
-                }
-            ],
-            **second_authority.kwargs(),
-        )
+    assert second_binding.document_text_authority is True
+    RunResultStore(project).write_results(
+        second_run,
+        [
+            {
+                "row_id": row_id,
+                "column_id": text_column_id,
+                "error": "OCR failed",
+                "error_code": "model_error",
+                "outcome": "model_error",
+                "publication_effect": "publish_error",
+            }
+        ],
+        **second_authority.kwargs(),
+    )
+    with write_transaction(generations.db):
         generations.seal(
             second_run,
             [text_column_id],
             claim_token=second_authority.claim_token,
             terminal_disposition="failed",
         )
-        head = project.db.execute(
-            "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
-            (row_id, text_column_id),
-        ).fetchone()
-        assert head is not None and int(head[0]) == first_run
+    head = project.db.execute(
+        "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
+        (row_id, text_column_id),
+    ).fetchone()
+    assert head is not None and int(head[0]) == first_run
 
-        # Role metadata can change only by raw/migration maintenance today;
-        # projection repair still follows each generation's immutable policy.
-        project.db.execute(
-            "DELETE FROM document_text_column_roles WHERE source_column_id=?",
-            (source_column_id,),
-        )
-        project.db.commit()
+    # Role metadata can change only by raw/migration maintenance today;
+    # projection repair still follows each generation's immutable policy.
+    project.db.execute(
+        "DELETE FROM document_text_column_roles WHERE source_column_id=?",
+        (source_column_id,),
+    )
+    project.db.commit()
+    with write_transaction(generations.db):
         generations.rebuild_heads([text_column_id])
-        rebuilt = project.db.execute(
-            "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
-            (row_id, text_column_id),
-        ).fetchone()
-        assert rebuilt is not None and int(rebuilt[0]) == first_run
-    finally:
-        project.close()
+    rebuilt = project.db.execute(
+        "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
+        (row_id, text_column_id),
+    ).fetchone()
+    assert rebuilt is not None and int(rebuilt[0]) == first_run
 
 
 @pytest.mark.parametrize(
@@ -367,24 +359,24 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
 )
 @pytest.mark.parametrize("deferred", [False, True])
 def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
-    tmp_path: Path, source_type: str, page: object, deferred: bool
+    make_project, source_type: str, page: object, deferred: bool
 ) -> None:
     project, sheet_id, row_id, source_id, text_id = _project_with_selection(
-        tmp_path, source_type=source_type
+        make_project, source_type=source_type
     )
-    try:
-        previous_ref = project.db.execute(
-            "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
-            (text_id,),
-        ).fetchone()[0]
-        op_id = project.append_change("media.ocr")
-        run_id = RunResultStore(project).start_run(
-            op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
-        )
-        authority = run_writer_authority_fixture(
-            project, run_id, output_column_ids={text_id}
-        )
-        generations = ResultGenerationStore(project)
+    previous_ref = project.db.execute(
+        "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+        (text_id,),
+    ).fetchone()[0]
+    op_id = project.append_change("media.ocr")
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
+    )
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={text_id}
+    )
+    generations = ResultGenerationStore(project)
+    with write_transaction(generations.db):
         generations.declare(
             run_id,
             text_id,
@@ -394,62 +386,59 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
             defer_publication=deferred,
             claim_token=authority.claim_token,
         )
-        project.db.execute("BEGIN IMMEDIATE")
-        edit_op = project.append_change("edit", commit=False)
-        insert_edits(
-            project.db,
-            op_id=edit_op,
-            edits=[EditCellWrite(row_id, source_id, {"blob": _BLOB, "page": page})],
-        )
-        project.db.commit()
-        with pytest.raises(DocumentTextUnavailable):
-            resolve_document_text_selection(project, (sheet_id, row_id, source_id))
-        result = [
-            {
-                "row_id": row_id,
-                "column_id": text_id,
-                "value": PreparedContentRef(previous_ref),
-                "publication_effect": "publish_value",
-            }
-        ]
-        if deferred:
-            RunResultStore(project).write_results(run_id, result, **authority.kwargs())
-            with pytest.raises(DocumentTextPublicationRefused):
+    project.db.execute("BEGIN IMMEDIATE")
+    edit_op = project.append_change_in_transaction("edit")
+    insert_edits(
+        project.db,
+        op_id=edit_op,
+        edits=[EditCellWrite(row_id, source_id, {"blob": _BLOB, "page": page})],
+    )
+    project.db.commit()
+    with pytest.raises(DocumentTextUnavailable):
+        resolve_document_text_selection(project, (sheet_id, row_id, source_id))
+    result = [
+        {
+            "row_id": row_id,
+            "column_id": text_id,
+            "value": PreparedContentRef(previous_ref),
+            "publication_effect": "publish_value",
+        }
+    ]
+    if deferred:
+        RunResultStore(project).write_results(run_id, result, **authority.kwargs())
+        with pytest.raises(DocumentTextPublicationRefused):
+            with write_transaction(generations.db):
                 generations.seal(
                     run_id,
                     [text_id],
                     claim_token=authority.claim_token,
                     terminal_disposition="completed",
                 )
-        else:
-            with pytest.raises(DocumentTextPublicationRefused):
-                RunResultStore(project).write_results(
-                    run_id, result, **authority.kwargs()
-                )
-        # The saved Text is an edit, which a later run never hides.
-        assert (
-            project.db.execute(
-                "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
-                (text_id,),
-            ).fetchone()[0]
-            == previous_ref
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?", (text_id,)
-            ).fetchone()[0]
-            == 0
-        )
-        from frisket.engine.store.op_log import step_operation
+    else:
+        with pytest.raises(DocumentTextPublicationRefused):
+            RunResultStore(project).write_results(run_id, result, **authority.kwargs())
+    # The saved Text is an edit, which a later run never hides.
+    assert (
+        project.db.execute(
+            "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+            (text_id,),
+        ).fetchone()[0]
+        == previous_ref
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?", (text_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    from frisket.engine.store.op_log import step_operation
 
-        with project.transaction_scope():
-            step_operation(project, "revert", change_id=op_id)
-        assert (
-            project.db.execute(
-                "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
-                (text_id,),
-            ).fetchone()[0]
-            == previous_ref
-        )
-    finally:
-        project.close()
+    with project.transaction_scope():
+        step_operation(project, "revert", change_id=op_id)
+    assert (
+        project.db.execute(
+            "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+            (text_id,),
+        ).fetchone()[0]
+        == previous_ref
+    )

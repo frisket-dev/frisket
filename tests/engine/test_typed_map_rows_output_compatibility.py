@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.executor.actions import run_action_spec
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -78,7 +79,8 @@ def test_whole_column_replacement_repairs_an_incompatible_semantic_type(ner_proj
     column = next(
         column for column in project.columns(sheet) if column["name"] == "mentions"
     )
-    project.set_column_semantic_type(int(column["id"]), "incompatible")
+    with write_transaction(project.db):
+        project.set_column_semantic_type(int(column["id"]), "incompatible")
 
     replacement = run_action_spec(
         project,
@@ -100,7 +102,8 @@ def test_selected_row_replacement_refuses_an_incompatible_semantic_type(ner_proj
     column = next(
         column for column in project.columns(sheet) if column["name"] == "mentions"
     )
-    project.set_column_semantic_type(int(column["id"]), "incompatible")
+    with write_transaction(project.db):
+        project.set_column_semantic_type(int(column["id"]), "incompatible")
 
     replacement = run_action_spec(
         project,
@@ -114,4 +117,4 @@ def test_selected_row_replacement_refuses_an_incompatible_semantic_type(ner_proj
     )
 
     assert replacement.status == "failed"
-    assert replacement.errors[0].code == "output_column_exists"
+    assert replacement.errors[0].code == "generated_column_exists"

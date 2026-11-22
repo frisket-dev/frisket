@@ -2,11 +2,11 @@ import { httpContract, type HttpContractSuccessResponse, type RequestOptions } f
 import type { MediaProxyStatus, OrganizationEnvInfo } from './types';
 
 type OrganizationEnvSaveWire =
-  HttpContractSuccessResponse<'outer.set_org_env_var.post'>;
+  HttpContractSuccessResponse<'outer.set_organization_env_var.post'>;
 type OrganizationEnvDeleteWire =
-  HttpContractSuccessResponse<'outer.delete_org_env_var.delete'>;
+  HttpContractSuccessResponse<'outer.delete_organization_env_var.delete'>;
 type OrganizationMediaProxyStatusWire =
-  HttpContractSuccessResponse<'outer.org_media_proxy_status.get'>;
+  HttpContractSuccessResponse<'outer.organization_media_proxy_status.get'>;
 
 function discardEnvSave(wire: OrganizationEnvSaveWire): void {
   void wire;
@@ -28,7 +28,7 @@ export function createOrganizationOperationsApi() {
   return {
     listOrganizationEnvVars(options: RequestOptions = {}): Promise<OrganizationEnvInfo[]> {
       return httpContract(
-        'outer.list_org_env_vars.get',
+        'outer.list_organization_env_vars.get',
         {
           signal: options.signal,
         },
@@ -37,7 +37,7 @@ export function createOrganizationOperationsApi() {
 
     setOrganizationEnvVar(name: string, value: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
-        'outer.set_org_env_var.post',
+        'outer.set_organization_env_var.post',
         {
           body: { name, value },
           signal: options.signal,
@@ -48,7 +48,7 @@ export function createOrganizationOperationsApi() {
 
     deleteOrganizationEnvVar(name: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
-        'outer.delete_org_env_var.delete',
+        'outer.delete_organization_env_var.delete',
         {
           pathParams: { name },
           signal: options.signal,
@@ -61,7 +61,7 @@ export function createOrganizationOperationsApi() {
      *  Local tier (no organization identity) 404s — callers branch on ApiError.status. */
     getMediaProxyStatus(options: RequestOptions = {}): Promise<MediaProxyStatus> {
       return httpContract(
-        'outer.org_media_proxy_status.get',
+        'outer.organization_media_proxy_status.get',
         {
           signal: options.signal,
         },

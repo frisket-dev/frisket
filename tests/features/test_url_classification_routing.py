@@ -7,7 +7,7 @@ import pytest
 from frisket.server.action_catalog_hints import (
     project_action_catalog_launcher_hints,
 )
-from frisket.features.url_classification import (
+from frisket.url_classification import (
     classify_url,
     is_supported_ytdlp_media_url,
 )
@@ -51,7 +51,6 @@ def test_ops_media_input_url_accepts_arbitrary_http_url(
         asyncio.run(run())
     finally:
         stager.close()
-        project.close()
     assert seen == [value]
 
 
@@ -72,7 +71,7 @@ def test_ops_media_input_url_accepts_arbitrary_http_url(
     ],
 )
 def test_url_routing_and_explicit_admission_share_syntax(url):
-    from frisket.features.url_classification.matchers import normalize_url
+    from frisket.url_classification.matchers import normalize_url
 
     assert is_http_url(url) == (normalize_url(url) is not None)
 
@@ -108,7 +107,7 @@ def test_youtube_watch_and_short_route_to_single_video_download() -> None:
 
 
 def test_plugin_matcher_can_opt_into_automatic_ytdlp_routing() -> None:
-    from frisket.features.url_classification import (
+    from frisket.url_classification import (
         UrlMatcher,
         register_matcher,
         unregister_matcher,

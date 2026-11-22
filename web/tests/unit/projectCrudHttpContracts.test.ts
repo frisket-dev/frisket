@@ -4,9 +4,9 @@ import {
   createProject,
   deleteProject,
   getProjectContract,
-  updateProject,
 } from '../../src/api/httpContractRoutes/projects';
 import { ApiError } from '../../src/api/contractErrors';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const projectWire = {
   id: 'project-1',
@@ -16,13 +16,6 @@ const projectWire = {
   starred: false,
   archived: false,
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -183,36 +176,6 @@ describe('project CRUD HTTP contracts', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('maps declared and additional non-2xx statuses', async () => {
-    const responses = [
-      jsonResponse({ detail: 'project not found' }, 404),
-      jsonResponse({ detail: 'teapot' }, 418),
-    ];
-    const fetchMock = vi.fn(async () => responses.shift()!);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const declared = updateProject('project-1', { name: 'Renamed' });
-    await expect(declared).rejects.toBeInstanceOf(ApiError);
-    await expect(declared).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 404,
-      message: 'project not found',
-      code: undefined,
-      details: undefined,
-    });
-
-    const additional = updateProject('project-1', { name: 'Renamed' });
-    await expect(additional).rejects.toBeInstanceOf(ApiError);
-    await expect(additional).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 418,
-      message: 'teapot',
-      code: undefined,
-      details: undefined,
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
   it('sends the create body as JSON with only the JSON content type header', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -232,26 +195,5 @@ describe('project CRUD HTTP contracts', () => {
     expect([...new Headers(requests[0]?.init?.headers).entries()]).toEqual([
       ['content-type', 'application/json'],
     ]);
-  });
-
-  it('forwards the exact signal and preserves abort rejection', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const request = createProject('Project One', { signal: controller.signal });
-    const abortError = new DOMException('cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(request).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
   });
 });

@@ -32,7 +32,7 @@ def _copy_into_existing(work):
         {"source_run_id": original.run_id},
         output_names={"answer": "Copy"},
         replace_existing=True,
-        expected_output_columns={"Copy": target},
+        expected_generated_columns={"Copy": target},
     )
     assert copied.status == "completed", copied.errors
     op = project.op_cursor
@@ -57,6 +57,7 @@ def test_reapplied_grid_exposes_retained_result_through_response_contract(work):
         row_id: {"run_id": original.run_id, "row_id": row_id, "column_id": source}
         for row_id in rows
     }
+    assert response.rows
     for row in response.rows:
         ref = row.meta[str(target)].current_value_ref
         assert ref.column_id == target
@@ -153,7 +154,7 @@ def test_reapply_explicit_replacement_checks_selected_column_identity(work):
         {"source_run_id": original.run_id},
         output_names={"answer": "Copy"},
         replace_existing=True,
-        expected_output_columns={"Copy": target + 1000},
+        expected_generated_columns={"Copy": target + 1000},
         key="stale-replacement",
     )
     assert result.status == "failed"

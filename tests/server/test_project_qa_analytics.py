@@ -8,7 +8,6 @@ import threading
 import pytest
 
 import frisket.querysets as querysets
-from frisket.engine.store import Project
 from frisket.server.services import project_qa_analytics, project_qa_query
 from frisket.server.services.project_qa_query import (
     AnalyticsRequest,
@@ -19,8 +18,8 @@ from frisket.server.services.project_qa_query import (
 )
 
 
-def _seed(tmp_path):
-    project = Project.create(tmp_path / "analytics.frisket", name="analytics")
+def _seed(make_project):
+    project = make_project("analytics")
     sheet = project.add_sheet("contracts")
     columns = {
         "supplier": project.add_column(sheet, "supplier"),
@@ -63,8 +62,8 @@ def _seed(tmp_path):
     return project, sheet, columns, rows
 
 
-def test_grouped_metrics_filter_scope_having_sort_and_percent(tmp_path):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_grouped_metrics_filter_scope_having_sort_and_percent(make_project):
+    project, sheet, columns, rows = _seed(make_project)
     request = AnalyticsRequest.model_validate(
         {
             "sheet_id": sheet,
@@ -132,8 +131,8 @@ def test_grouped_metrics_filter_scope_having_sort_and_percent(tmp_path):
     project.close()
 
 
-def test_scalar_quality_is_reported_once_per_referenced_column(tmp_path):
-    project, sheet, columns, _rows = _seed(tmp_path)
+def test_scalar_quality_is_reported_once_per_referenced_column(make_project):
+    project, sheet, columns, _rows = _seed(make_project)
     result = evaluate_analytics(
         project,
         {
@@ -188,8 +187,8 @@ def test_scalar_quality_is_reported_once_per_referenced_column(tmp_path):
     project.close()
 
 
-def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
-    project, sheet, columns, _rows = _seed(tmp_path)
+def test_having_is_numeric_and_denominator_precedes_group_filtering(make_project):
+    project, sheet, columns, _rows = _seed(make_project)
     with pytest.raises(ValueError, match="numeric"):
         AnalyticsRequest.model_validate(
             {
@@ -434,8 +433,8 @@ def test_grouped_float_overflow_hidden_by_having_and_in_denominator_fails(make_p
     project.close()
 
 
-def test_date_bucket_and_missing_locator_are_backend_generated(tmp_path):
-    project, sheet, columns, _rows = _seed(tmp_path)
+def test_date_bucket_and_missing_locator_are_backend_generated(make_project):
+    project, sheet, columns, _rows = _seed(make_project)
     request = AnalyticsRequest.model_validate(
         {
             "sheet_id": sheet,
@@ -544,8 +543,8 @@ def test_relative_date_filter_is_anchored_for_results_and_group_replay(
     assert replayed["total"] == result["groups"][0]["metrics"]["rows"] == 2
 
 
-def test_value_missing_and_invalid_locators_replay_through_ordinary_query(tmp_path):
-    project, sheet, columns, _rows = _seed(tmp_path)
+def test_value_missing_and_invalid_locators_replay_through_ordinary_query(make_project):
+    project, sheet, columns, _rows = _seed(make_project)
     project.add_rows(sheet, [{"amount": "not-a-number"}], {"amount": columns["amount"]})
     result = evaluate_analytics(
         project,
@@ -794,8 +793,8 @@ def test_boolean_filter_literals_used_by_ask_tool_guidance(
     )
 
 
-def test_analytics_rejects_plugin_filter_and_non_numeric_sum(tmp_path):
-    project, sheet, columns, _rows = _seed(tmp_path)
+def test_analytics_rejects_plugin_filter_and_non_numeric_sum(make_project):
+    project, sheet, columns, _rows = _seed(make_project)
     bad_filter = AnalyticsRequest.model_validate(
         {
             "sheet_id": sheet,
@@ -839,8 +838,8 @@ def test_analytics_rejects_plugin_filter_and_non_numeric_sum(tmp_path):
     project.close()
 
 
-def test_analytics_file_scope_cannot_filter_or_metric_another_column(tmp_path):
-    project, sheet, columns, rows = _seed(tmp_path)
+def test_analytics_file_scope_cannot_filter_or_metric_another_column(make_project):
+    project, sheet, columns, rows = _seed(make_project)
     request = AnalyticsRequest.model_validate(
         {
             "sheet_id": sheet,
@@ -862,33 +861,30 @@ def test_analytics_file_scope_cannot_filter_or_metric_another_column(tmp_path):
     project.close()
 
 
-def test_group_drilldown_retains_filter_on_same_date_column(tmp_path):
-    project, sheet, columns, rows = _seed(tmp_path)
-    try:
-        scope = {"kind": "sheet", "sheet_id": sheet}
-        result = evaluate_analytics(
-            project,
-            {
-                "sheet_id": sheet,
-                "filter": {"awarded": {"gte": "2026-01-02"}},
-                "groups": [{"column_id": columns["awarded"], "bucket": "month"}],
-                "metrics": [{"id": "rows", "kind": "count"}],
-            },
-            scope,
-        )
-        january = next(
-            g for g in result["groups"] if g["group"][0].get("value") == "2026-01"
-        )
-        replayed = evaluate_query(
-            project,
-            {
-                "kind": "sheet.filter",
-                "scope": scope,
-                "filter": january["locator"]["filter"],
-            },
-            scope,
-        )
-        assert replayed["total"] == january["metrics"]["rows"] == 2
-        assert set(replayed["row_ids"]) == set(rows[1:3])
-    finally:
-        project.close()
+def test_group_drilldown_retains_filter_on_same_date_column(make_project):
+    project, sheet, columns, rows = _seed(make_project)
+    scope = {"kind": "sheet", "sheet_id": sheet}
+    result = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "filter": {"awarded": {"gte": "2026-01-02"}},
+            "groups": [{"column_id": columns["awarded"], "bucket": "month"}],
+            "metrics": [{"id": "rows", "kind": "count"}],
+        },
+        scope,
+    )
+    january = next(
+        g for g in result["groups"] if g["group"][0].get("value") == "2026-01"
+    )
+    replayed = evaluate_query(
+        project,
+        {
+            "kind": "sheet.filter",
+            "scope": scope,
+            "filter": january["locator"]["filter"],
+        },
+        scope,
+    )
+    assert replayed["total"] == january["metrics"]["rows"] == 2
+    assert set(replayed["row_ids"]) == set(rows[1:3])

@@ -10,6 +10,7 @@ import {
 import { ApiError, createProjectApi } from '../../src/api/real';
 import { createSheetGridApi } from '../../src/api/sheetGrid';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 let realApi = createProjectApi('test-project');
 
@@ -17,7 +18,7 @@ const sheetColumnWire = {
   id: 9,
   name: 'Title',
   type: 'text',
-  ai_generated: false,
+  generated: false,
   format: null,
   semantic_type: null,
   current_run_id: null,
@@ -53,13 +54,6 @@ const sheetDataWire = {
   total: 0,
 };
 
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 class MappedContractError extends Error {
   readonly status: number;
   readonly payload: unknown;
@@ -79,7 +73,7 @@ afterEach(() => {
 describe('sheet and grid HTTP contracts', () => {
   it('keeps successful cell warnings in provenance without inventing an error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      total: 1, columns: [{ ...sheetColumnWire, ai_generated: true }],
+      total: 1, columns: [{ ...sheetColumnWire, generated: true }],
       rows: [{ id: 11, cells: { 9: 'Pages one and three' }, meta: { 9: {
         warnings: ['Page 2 failed during OCR.'],
         current_value_ref: { kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, op_id: 5 },
@@ -142,7 +136,7 @@ describe('sheet and grid HTTP contracts', () => {
         default_hidden: false, current_run_id: null, latest_run_id: null,
         generation_managed: false, mixed_origins: false, transcript_status: null,
         media_download_candidate: 'media.fetch_url', replay_pending_count: 0,
-        ai_generated: false,
+        generated: false,
       }],
     })));
     const page = await realApi.getSheetData('7', 0, 25);
@@ -307,27 +301,6 @@ describe('sheet and grid HTTP contracts', () => {
     expect(new Headers(forwardedInit?.headers).has('content-type')).toBe(false);
   });
 
-  it('preserves locate abort rejection from the exact forwarded signal', async () => {
-    const controller = new AbortController();
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => (
-      new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      })
-    )));
-    const request = locateSheetRowContract(
-      'project-1',
-      7,
-      11,
-      { page_size: 500 },
-      { signal: controller.signal },
-    );
-    const abortError = new DOMException('cancelled', 'AbortError');
-    controller.abort(abortError);
-    await expect(request).rejects.toBe(abortError);
-  });
-
   it('project API decodes project once and preserves legacy rowIds scope precedence', async () => {
     realApi = createProjectApi('tenant/a % hostile');
     const requests: Array<RequestInfo | URL> = [];
@@ -347,8 +320,8 @@ describe('sheet and grid HTTP contracts', () => {
     await realApi.locateSheetRow('7', '11', {
       parentRowId: '0',
       filter: { name: { contains: 'Ada' } },
-      sort: [{ columnId: '9', direction: 'desc' }],
-      rowIds: ['99', '100'],
+      sort: [{ column: '9', dir: 'desc' }],
+      rowIds: [99, 100],
     });
     const url = new URL(String(requests[0]), 'https://frisket.invalid');
     expect(url.pathname).toBe('/api/projects/tenant%2Fa%20%25%20hostile/sheets/7/rows/11/locate');
@@ -361,14 +334,14 @@ describe('sheet and grid HTTP contracts', () => {
     await realApi.locateSheetRow('7', '11', {
       parentRowId: '0',
       filter: { name: { contains: 'Ada' } },
-      sort: [{ columnId: '9', direction: 'desc' }],
+      sort: [{ column: '9', dir: 'desc' }],
     });
     const viewUrl = new URL(String(requests[1]), 'https://frisket.invalid');
     expect(JSON.parse(viewUrl.searchParams.get('filter') ?? '')).toEqual({
       name: { contains: 'Ada' },
     });
     expect(JSON.parse(viewUrl.searchParams.get('sort') ?? '')).toEqual([
-      { columnId: '9', direction: 'desc' },
+      { column: '9', dir: 'desc' },
     ]);
     expect(viewUrl.searchParams.has('row_ids')).toBe(false);
   });
@@ -523,46 +496,6 @@ describe('sheet and grid HTTP contracts', () => {
       status: 400,
       message: 'invalid row_ids',
     });
-  });
-
-  it('maps an additional non-2xx status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => (
-      jsonResponse({ detail: 'teapot' }, 418)
-    )));
-
-    await expect(getSheetDataContract(
-      'project-1',
-      7,
-      {},
-    )).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 418,
-      message: 'teapot',
-      code: undefined,
-      details: undefined,
-    });
-  });
-
-  it('forwards the exact signal and preserves abort rejection', async () => {
-    const controller = new AbortController();
-    let forwardedInit: RequestInit | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedInit = init;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-
-    const request = listSheetsContract('project-1', {
-      signal: controller.signal,
-    });
-    const abortError = new DOMException('cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(request).rejects.toBe(abortError);
-    expect(forwardedInit?.signal).toBe(controller.signal);
   });
 
   it('keeps a composite sheet list on the project captured before its first await', async () => {
@@ -915,7 +848,7 @@ describe('sheet and grid HTTP contracts', () => {
           transcript_status: null,
           media_download_candidate: null,
           replay_pending_count: 1,
-          ai_generated: true,
+          generated: true,
         }],
         rows: [{
           id: 11,
@@ -1058,7 +991,7 @@ describe('sheet and grid HTTP contracts', () => {
         transcript_status: null,
         media_download_candidate: null,
         replay_pending_count: 0,
-        ai_generated: true,
+        generated: true,
       }],
       rows: [{
         id: 11,

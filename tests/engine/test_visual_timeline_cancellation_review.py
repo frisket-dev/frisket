@@ -6,7 +6,7 @@ import pytest
 
 from frisket.actions.types import ColumnRef
 from frisket.engine.executor.visual_cuts_read import AdmittedVisualCutsReader
-from frisket.engine.store import evidence
+from frisket.engine.store import citations as evidence
 from test_visual_cuts_reader import source as source, _bind
 
 

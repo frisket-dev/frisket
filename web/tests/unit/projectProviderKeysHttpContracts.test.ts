@@ -29,6 +29,7 @@ import { createProjectProviderKeysApi } from '../../src/api/projectProviderKeys'
 import { ReplayModeBanner } from '../../src/components/ReplayModeBanner';
 import { EditionModuleProvider } from '../../src/editions/module';
 import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const renderBanner = () => render(
   createElement(EditionModuleProvider, {
@@ -64,13 +65,6 @@ const validation = {
 };
 
 const deletion = { ok: true, deleted: true, provider: 'open/ai +%' };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => {
   cleanup();

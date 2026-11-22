@@ -10,6 +10,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 WEB = REPO / "web"
 SRC = WEB / "src"
+E2E_TESTS = WEB / "tests" / "e2e"
+UNIT_TESTS = WEB / "tests" / "unit"
 
 RAW_ESTIMATE_COST = re.compile(
     r"[A-Za-z_$][A-Za-z_$0-9]*[Ee]stimate[A-Za-z_$0-9]*\??\.cost\b"
@@ -18,13 +20,39 @@ RAW_ESTIMATE_COST = re.compile(
 WIRE_COST_PROJECTION = re.compile(r"^\s*cost: estimate\.cost,$")
 NATIVE_SELECT = re.compile(r"<select\b")
 NATIVE_SELECT_ESCAPE = re.compile(r'data-native-select-escape="([^"]+)"')
+PAGE_ROUTE_CALL = re.compile(r"\bpage\.route\s*\(")
+REAL_E2E_BACKEND_CALL = re.compile(
+    r"\b(?:createProject|importCsv|openProject|projectIdByName|listSheets|seed[A-Z][A-Za-z0-9_]*)\s*\("
+    r"|\bpage\.request\b"
+    r"|\brequest\.(?:get|post|put|patch|delete)\s*\("
+)
+LOCAL_JSON_RESPONSE = re.compile(
+    r"^\s*(?:async\s+)?function\s+jsonResponse\b|^\s*const\s+jsonResponse\s*=",
+    re.MULTILINE,
+)
+
+# Shrink-only allowlist of legacy 100%-route-mocked Playwright specs.
+# New UI-only tests belong in Vitest component tests, not Playwright E2E.
+PURE_MOCKED_E2E_ALLOWLIST = frozenset(
+    {
+        "tests/e2e/admin-debug-errors.spec.ts",
+    }
+)
+
+# Shrink-only allowlist of *HttpContracts.test.ts files that still define a local
+# jsonResponse helper instead of importing tests/support/httpContractTestHelpers.
+HTTP_CONTRACT_JSON_RESPONSE_ALLOWLIST = frozenset(
+    {
+        "tests/unit/alertsHttpContracts.test.ts",
+        "tests/unit/projectFeedReadsHttpContracts.test.ts",
+    }
+)
 
 # PanelSelect deliberately retains a native select as its semantic/form trigger.
-# Two older rich controls retain hidden mirrors for selectOption()/toHaveValue()
+# An older rich control retains a hidden mirror for selectOption()/toHaveValue()
 # compatibility. Keeping the exact file + reason pairs here makes an exception a
 # reviewed design-system decision rather than a copyable inline suppression.
 NATIVE_SELECT_ESCAPES = {
-    "src/components/EnginePicker.tsx": "engine-picker-mirror",
     "src/components/PanelPrimitives.tsx": "segmented-toggle-mirror",
     "src/components/PanelSelect.tsx": "panel-select-trigger",
 }
@@ -82,7 +110,10 @@ def raw_cost_failures() -> list[str]:
                 continue
             if rel == "src/actions/estimatedCost.ts":
                 continue
-            if rel == "src/api/actionEstimateValidation.ts" and WIRE_COST_PROJECTION.match(line):
+            if (
+                rel == "src/api/actionEstimateValidation.ts"
+                and WIRE_COST_PROJECTION.match(line)
+            ):
                 continue
             failures.append(
                 f"{path.relative_to(REPO)}:{lineno}: a surface reads an estimate "
@@ -106,12 +137,10 @@ def native_select_failures() -> list[str]:
             match = NATIVE_SELECT_ESCAPE.search(line)
             reason = match.group(1) if match else None
             allowed_reason = NATIVE_SELECT_ESCAPES.get(rel)
-            if reason == allowed_reason:
+            if allowed_reason is not None and reason == allowed_reason:
                 continue
             escape_help = (
-                f"; unrecognized escape {reason!r}"
-                if reason is not None
-                else ""
+                f"; unrecognized escape {reason!r}" if reason is not None else ""
             )
             failures.append(
                 f"{path.relative_to(REPO)}:{lineno}: native <select> is forbidden; "
@@ -171,6 +200,42 @@ def token_failures() -> list[str]:
     return failures
 
 
+def pure_mocked_e2e_failures() -> list[str]:
+    failures: list[str] = []
+    if not E2E_TESTS.exists():
+        return failures
+    for path in sorted(E2E_TESTS.rglob("*.spec.ts")):
+        rel = path.relative_to(WEB).as_posix()
+        if rel in PURE_MOCKED_E2E_ALLOWLIST:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if PAGE_ROUTE_CALL.search(source) and not REAL_E2E_BACKEND_CALL.search(source):
+            failures.append(
+                f"{path.relative_to(REPO)}: Playwright E2E spec intercepts routes with "
+                "page.route() but makes no real backend calls; write a Vitest component/unit "
+                "test instead"
+            )
+    return failures
+
+
+def http_contract_json_response_failures() -> list[str]:
+    failures: list[str] = []
+    if not UNIT_TESTS.exists():
+        return failures
+    for path in sorted(UNIT_TESTS.glob("*HttpContracts.test.ts")):
+        rel = path.relative_to(WEB).as_posix()
+        if rel in HTTP_CONTRACT_JSON_RESPONSE_ALLOWLIST:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if LOCAL_JSON_RESPONSE.search(source):
+            failures.append(
+                f"{path.relative_to(REPO)}: local jsonResponse() helper is forbidden in "
+                "*HttpContracts.test.ts; import jsonResponse from "
+                "../support/httpContractTestHelpers"
+            )
+    return failures
+
+
 def check_raw_cost_regex_non_vacuous() -> str | None:
     """Guard against a silently weakened RAW_ESTIMATE_COST regex."""
     positives = [
@@ -198,12 +263,38 @@ def check_native_select_regex_non_vacuous() -> str | None:
     return None
 
 
+def check_pure_mocked_e2e_regex_non_vacuous() -> str | None:
+    mocked = "await page.route('**/api/me', (r) => r.fulfill({ status: 200 }));"
+    real = "const pid = await createProject(page.request, 'p'); await page.route('**/api/x', fn);"
+    if not (
+        PAGE_ROUTE_CALL.search(mocked) and not REAL_E2E_BACKEND_CALL.search(mocked)
+    ):
+        return "pure-mocked E2E detector no longer flags a page.route()-only spec"
+    if not REAL_E2E_BACKEND_CALL.search(real):
+        return "REAL_E2E_BACKEND_CALL no longer recognizes a real-backend E2E spec"
+    return None
+
+
+def check_http_contract_json_response_regex_non_vacuous() -> str | None:
+    if not LOCAL_JSON_RESPONSE.search(
+        "function jsonResponse(payload: unknown): Response {"
+    ):
+        return "LOCAL_JSON_RESPONSE no longer matches a local function jsonResponse("
+    if LOCAL_JSON_RESPONSE.search(
+        "import { jsonResponse } from '../support/httpContractTestHelpers';"
+    ):
+        return "LOCAL_JSON_RESPONSE now matches the shared helper import"
+    return None
+
+
 def main() -> int:
     self_check_failures = [
         failure
         for failure in (
             check_raw_cost_regex_non_vacuous(),
             check_native_select_regex_non_vacuous(),
+            check_pure_mocked_e2e_regex_non_vacuous(),
+            check_http_contract_json_response_regex_non_vacuous(),
         )
         if failure is not None
     ]
@@ -214,7 +305,13 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    failures = raw_cost_failures() + native_select_failures() + token_failures()
+    failures = (
+        raw_cost_failures()
+        + native_select_failures()
+        + token_failures()
+        + pure_mocked_e2e_failures()
+        + http_contract_json_response_failures()
+    )
     if failures:
         print("web source hygiene lint failed:", file=sys.stderr)
         for failure in failures:

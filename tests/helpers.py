@@ -10,6 +10,7 @@ one `sys.modules["conftest"]` slot.
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.writer_fence import WriterFence
 
 import importlib.util
 import io
@@ -78,21 +79,19 @@ def replace_test_source_cell(
 
     def write() -> int:
         if target_db is project.db:
-            op_id = project.append_change(
+            op_id = project.append_change_in_transaction(
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
                 label=label,
-                commit=False,
             )
         else:
-            from frisket.engine.store.op_log import append_change
+            from frisket.engine.store.op_log import append_change_in_transaction
 
-            op_id = append_change(
+            op_id = append_change_in_transaction(
                 SimpleNamespace(db=target_db),
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
                 label=label,
-                commit=False,
             )
         producer_id = create_base_cell_producer(
             target_db,
@@ -133,11 +132,10 @@ def initialize_test_source_cells(
         for row_id, column_id, value in cells
     ]
     with write_transaction(project.db):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "test.source.initialize",
             {"count": len(writes)},
             label=label,
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             project.db,
@@ -170,11 +168,10 @@ def replace_test_source_cells(
     for write in writes:
         by_column.setdefault(write.column_id, []).append(write)
     with write_transaction(project.db):
-        op_id = project.append_change(
+        op_id = project.append_change_in_transaction(
             "test.source.update",
             {"count": len(writes)},
             label=label,
-            commit=False,
         )
         producer_id = create_base_cell_producer(
             project.db,
@@ -199,21 +196,22 @@ class RunWriterAuthorityFixture:
     writer_attempt_id: str
     claim_token: str | None
     claimless_direct_effect: bool
+    run_id: int | None = None
+
+    def fence(self) -> WriterFence:
+        return WriterFence(
+            run_id=self.run_id,
+            writer_attempt_id=self.writer_attempt_id,
+            claim_token=self.claim_token,
+            claimless_direct_effect=self.claimless_direct_effect,
+            authorized_attempt_id=self.writer_attempt_id,
+        )
 
     def kwargs(self) -> dict[str, Any]:
-        return {
-            "writer_attempt_id": self.writer_attempt_id,
-            "claim_token": self.claim_token,
-            "claimless_direct_effect": self.claimless_direct_effect,
-            "authorized_attempt_id": self.writer_attempt_id,
-        }
+        return {"fence": self.fence()}
 
     def terminal_kwargs(self) -> dict[str, Any]:
-        return {
-            "writer_attempt_id": self.writer_attempt_id,
-            "claim_token": self.claim_token,
-            "claimless_direct_effect": self.claimless_direct_effect,
-        }
+        return {"fence": self.fence()}
 
 
 def run_writer_authority_fixture(
@@ -232,7 +230,7 @@ def run_writer_authority_fixture(
     direct-effect contract.
     """
 
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     column_ids = {int(column_id) for column_id in output_column_ids}
     if claimless_direct_effect and column_ids:
@@ -278,7 +276,7 @@ def run_writer_authority_fixture(
         project.db.commit()
 
     active_claims = project.db.execute(
-        "SELECT claim_token, column_id FROM output_column_claims "
+        "SELECT claim_token, column_id FROM generated_column_claims "
         "WHERE run_id=? AND status='active' ORDER BY claim_token, column_id",
         (int(run_id),),
     ).fetchall()
@@ -287,7 +285,7 @@ def run_writer_authority_fixture(
             raise AssertionError(
                 "claimless test authority cannot reuse a claimed output run"
             )
-        return RunWriterAuthorityFixture(attempt_id, None, True)
+        return RunWriterAuthorityFixture(attempt_id, None, True, run_id=int(run_id))
 
     by_token: dict[str, set[int]] = {}
     for claim in active_claims:
@@ -298,7 +296,9 @@ def run_writer_authority_fixture(
         )
     for token, claimed_ids in by_token.items():
         if column_ids <= claimed_ids:
-            return RunWriterAuthorityFixture(attempt_id, token, False)
+            return RunWriterAuthorityFixture(
+                attempt_id, token, False, run_id=int(run_id)
+            )
     if active_claims:
         raise AssertionError(
             "fixture run already has an active claim that does not cover "
@@ -322,7 +322,7 @@ def run_writer_authority_fixture(
 
     token = f"output-claim:test-store-writer:{uuid.uuid4().hex}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=int(run["sheet_id"]),
             output_names=[str(column["name"]) for column in columns],
             action_kind=str(run["action_kind"]),
@@ -332,12 +332,12 @@ def run_writer_authority_fixture(
         )
         if conflict is not None or len(claims) != len(column_ids):
             raise AssertionError("could not acquire exact test output authority")
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=token,
             run_id=int(run_id),
             expected_output_names=[str(column["name"]) for column in columns],
         )
-    return RunWriterAuthorityFixture(attempt_id, token, False)
+    return RunWriterAuthorityFixture(attempt_id, token, False, run_id=int(run_id))
 
 
 def write_claimed_test_results(
@@ -384,7 +384,7 @@ def write_claimed_test_results(
         run_id,
         output_column_ids=output_column_ids,
     )
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     try:
         assert authority.claim_token is not None
@@ -418,33 +418,34 @@ def write_claimed_test_results(
                 if origin_run_ids
                 else None
             )
-            generations.declare(
-                int(run_id),
-                column_id,
-                output_role=(
-                    base_binding.output_role
-                    if base_binding is not None
-                    else (output_roles or {}).get(column_id, str(column["name"]))
-                ),
-                compatibility_key=(
-                    base_binding.compatibility_key
-                    if base_binding is not None
-                    else _compatibility_key(
-                        field={
-                            "name": str(column["name"]),
-                            "column_type": str(column["type"]),
-                            "semantic_type": column["semantic_type"],
-                            "format": column["format"],
-                        }
-                    )
-                ),
-                write_mode=(
-                    "replace_scope"
-                    if generations.is_generation_managed(column_id)
-                    else "create"
-                ),
-                claim_token=authority.claim_token,
-            )
+            with write_transaction(project.db):
+                generations.declare(
+                    int(run_id),
+                    column_id,
+                    output_role=(
+                        base_binding.output_role
+                        if base_binding is not None
+                        else (output_roles or {}).get(column_id, str(column["name"]))
+                    ),
+                    compatibility_key=(
+                        base_binding.compatibility_key
+                        if base_binding is not None
+                        else _compatibility_key(
+                            field={
+                                "name": str(column["name"]),
+                                "column_type": str(column["type"]),
+                                "semantic_type": column["semantic_type"],
+                                "format": column["format"],
+                            }
+                        )
+                    ),
+                    write_mode=(
+                        "replace_scope"
+                        if generations.is_generation_managed(column_id)
+                        else "create"
+                    ),
+                    claim_token=authority.claim_token,
+                )
         published_batch: list[dict[str, Any]] = []
         for item in batch:
             published = dict(item)
@@ -464,25 +465,22 @@ def write_claimed_test_results(
             **authority.kwargs(),
             **kwargs,
         )
-        generations.seal(
-            int(run_id),
-            output_column_ids,
-            claim_token=authority.claim_token,
-            terminal_disposition="completed",
-        )
+        with write_transaction(project.db):
+            generations.seal(
+                int(run_id),
+                output_column_ids,
+                claim_token=authority.claim_token,
+                terminal_disposition="completed",
+            )
     except BaseException:
-        OutputColumnClaimStore(project).finish_current_writer(
-            run_id=run_id,
-            writer_attempt_id=authority.writer_attempt_id,
-            claim_token=authority.claim_token,
+        GeneratedColumnClaimStore(project).finish_current_writer(
+            fence=authority.fence(),
             attempt_state="halted",
         )
         raise
     project.db.commit()
-    OutputColumnClaimStore(project).finish_current_writer(
-        run_id=run_id,
-        writer_attempt_id=authority.writer_attempt_id,
-        claim_token=authority.claim_token,
+    GeneratedColumnClaimStore(project).finish_current_writer(
+        fence=authority.fence(),
         attempt_state="effected",
     )
 

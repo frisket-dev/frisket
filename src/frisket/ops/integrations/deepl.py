@@ -85,6 +85,16 @@ def _raise_for_status(status: int, body: dict[str, Any] | None = None) -> None:
         )
 
 
+def _sum_billed_characters(translations: list[Any]) -> int | None:
+    counters: list[int] = []
+    for item in translations:
+        count = item.get("billed_characters") if isinstance(item, dict) else None
+        if type(count) is not int or count < 0:
+            return None
+        counters.append(count)
+    return sum(counters)
+
+
 async def deepl_translate(
     http: httpx.AsyncClient,
     api_key: str,
@@ -130,12 +140,7 @@ async def deepl_translate(
         and isinstance(translations, list)
         and translations
     ):
-        counters = [
-            item.get("billed_characters") if isinstance(item, dict) else None
-            for item in translations
-        ]
-        if all(type(count) is int and count >= 0 for count in counters):
-            billed_characters = sum(counters)
+        billed_characters = _sum_billed_characters(translations)
     try:
         _raise_for_status(
             response.status_code, body if isinstance(body, dict) else None

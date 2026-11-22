@@ -48,14 +48,14 @@ function reviewBundle(sheetId: number) {
       role: 'field',
       chore: true,
     }],
-    evidence: [],
+    supporting_columns: [],
   };
   return { ...bundle, items: bundle.fields };
 }
 
 function nerTextPayload(sheetId: number) {
   return {
-    schema_version: 'frisket.evidence_viewer.v1',
+    schema_version: 'frisket.citation_viewer.v1',
     link: {
       id: 91,
       stable_id: NER_LINK_ID,
@@ -152,9 +152,9 @@ function sourceAudioPayload(sheetId: number) {
       text_context: null,
       spans: [
         { ...payload.artifacts[0].spans[0], span_kind: 'temporal', selector: { kind: 'temporal', start_ms: 0, end_ms: 1500 },
-          clip_url: '/api/projects/local/evidence/spans/span:cedar-first/clip', run_index: 0 },
+          clip_url: '/api/projects/local/citations/spans/span:cedar-first/clip', run_index: 0 },
         { ...payload.artifacts[0].spans[1], span_kind: 'temporal', selector: { kind: 'temporal', start_ms: 1500, end_ms: 4000 },
-          clip_url: '/api/projects/local/evidence/spans/span:cedar-second/clip', run_index: 0 },
+          clip_url: '/api/projects/local/citations/spans/span:cedar-second/clip', run_index: 0 },
       ],
       runs: [{ index: 0, start_ms: 0, end_ms: 4000, span_ids: ['span:cedar-first', 'span:cedar-second'], clip_url: null }],
     }],
@@ -181,16 +181,16 @@ async function wireReviewRendering(page: Page, pid: string, sheetId: number) {
     schema_version: 'frisket.review_bundles_page.v1', offset: 0, limit: 25, total: 1,
     has_more: false, next_offset: null, bundles: [reviewBundle(sheetId)],
   } }));
-  await page.route(`**/api/projects/${pid}/cells/1/2/evidence`, (route) => route.fulfill({ json: {
-    schema_version: 'frisket.cell_evidence.v1', sheet_id: sheetId, row_id: 1, column_id: 2,
+  await page.route(`**/api/projects/${pid}/cells/1/2/citations`, (route) => route.fulfill({ json: {
+    schema_version: 'frisket.cell_citations.v1', sheet_id: sheetId, row_id: 1, column_id: 2,
     current_value_ref: { kind: 'run_result', run_id: 901 }, stale_count: 0,
     links: [{ id: 91, stable_id: NER_LINK_ID, export_ref: NER_LINK_ID,
-      status: 'active', role: 'primary_support', evidence_kind: 'audio', span_count: 2, artifact_count: 1,
-      snippet: 'Cedar Bridge', viewer_href: `/evidence/${NER_LINK_ID}` }],
+      status: 'active', role: 'primary_support', citation_kind: 'audio', span_count: 2, artifact_count: 1,
+      snippet: 'Cedar Bridge', viewer_href: `/citations/${NER_LINK_ID}` }],
   } }));
-  await page.route(`**/api/projects/${pid}/evidence/links/${encodeURIComponent(NER_LINK_ID)}/viewer`, (route) =>
+  await page.route(`**/api/projects/${pid}/citations/${encodeURIComponent(NER_LINK_ID)}/viewer`, (route) =>
     route.fulfill({ json: nerTextPayload(sheetId) }));
-  await page.route(`**/api/projects/${pid}/evidence/links/${encodeURIComponent(AUDIO_LINK_ID)}/viewer`, (route) =>
+  await page.route(`**/api/projects/${pid}/citations/${encodeURIComponent(AUDIO_LINK_ID)}/viewer`, (route) =>
     route.fulfill({ json: sourceAudioPayload(sheetId) }));
 }
 

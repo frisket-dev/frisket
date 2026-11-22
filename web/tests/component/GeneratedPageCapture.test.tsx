@@ -4,15 +4,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { encodeSavedActionSpec, decodeSavedActionSpec } from '../../src/actions/savedActionSpec';
-import { isGeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
+import { isGeneratedActionCatalogEntry, type ActionParamResolution, type GeneratedActionCatalogEntry, type GeneratedActionDraft, type JsonValue } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { columnDef } from '../support/domainFixtures';
 
 const catalog = servedActionCatalog();
-const entry = catalog.actions.find((item) => item.kind === 'web.capture_page');
-if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing typed capture catalog');
+const entry: GeneratedActionCatalogEntry = (() => {
+  const item = catalog.actions.find((candidate) => candidate.kind === 'web.capture_page');
+  if (!item || !isGeneratedActionCatalogEntry(item)) throw new Error('Missing typed capture catalog');
+  return item;
+})();
 const template = generatedActionTemplateFromCatalogEntry(entry)!;
 const sheet = sheetMeta([
   columnDef({ id: '1', name: 'url', type: 'link' }),
@@ -22,7 +25,7 @@ afterEach(cleanup);
 
 function form(initialDraft?: GeneratedActionDraft) {
   const onExecute = vi.fn();
-  const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }) => ({
+  const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }): Promise<ActionParamResolution> => ({
     diagnostics: {}, creates_sheet: params.output_mode === 'links',
     logical_outputs: params.output_mode === 'links'
       ? [{ key: 'url', column_type: 'link' }, { key: 'anchor_text', column_type: 'text' },
@@ -39,7 +42,7 @@ async function run() {
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   fireEvent.click(screen.getByTestId('generated-action-run'));
 }
-function saved(params: Record<string, unknown>, output_names: Record<string, string>, sheet_name?: string) {
+function saved(params: Record<string, JsonValue>, output_names: Record<string, string>, sheet_name?: string) {
   const draft: GeneratedActionDraft = { action_id: 'web.capture_page',
     scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [4, 6] }, params, output_names,
     ...(sheet_name ? { sheet_name } : {}) };

@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
@@ -62,7 +62,7 @@ from frisket.contracts.action import (
     ActionOutput,
     ActionResult,
     Receipt,
-    ReceiptEvidence,
+    ReceiptRecord,
     ReceiptIO,
 )
 from frisket.engine.executor.action_families.exports import (
@@ -653,12 +653,12 @@ def _export_column_tables_receipt(
             )
         ],
         outputs=[ReceiptIO(name="column_tables", ref=artifact_ref)],
-        evidence=[
-            ReceiptEvidence(
+        records=[
+            ReceiptRecord(
                 ref={"kind": "column_tables_export_manifest", **manifest},
                 retention="pinned",
             ),
-            ReceiptEvidence(ref=summary, retention="pinned"),
+            ReceiptRecord(ref=summary, retention="pinned"),
         ],
         exports=[artifact_ref],
     )
@@ -865,11 +865,7 @@ class _ColumnTablesExportCapability:
             arguments = ExportColumnTablesParams(
                 sheet_id=sheet_id,
                 column_id=column_id,
-                destination=(
-                    destination.model_dump(mode="python")
-                    if isinstance(destination, BaseModel)
-                    else destination
-                ),
+                destination=destination,
                 group_by=group_by,
                 exclude_columns=exclude_columns,
                 name_template=name_template,

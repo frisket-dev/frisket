@@ -118,10 +118,10 @@ def test_trigger_ref_only_jobs_stay_attributed_to_their_feed(
         "feed_check_id": 3,
     }
     alert_job = queue.enqueue(
-        "watch.evaluate",
+        "alert.evaluate",
         {
             "project_id": project_id,
-            "watch_id": 1,
+            "alert_id": 1,
             "index_id": "ix",
             "trigger_ref": trigger_ref,
             "dedupe_key": "watch-1",

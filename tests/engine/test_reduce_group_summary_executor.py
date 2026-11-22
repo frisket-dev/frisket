@@ -332,7 +332,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert columns["group"]["type"] == "text"
     assert columns["rows"]["type"] == "integer"
     assert columns["summary"]["type"] == "text"
-    assert columns["summary"]["ai_generated"] == 1
+    assert columns["summary"]["generated"] == 1
     assert columns["summary"]["current_run_id"] == result.run_id
 
     summary_rows = [
@@ -413,7 +413,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "materialized_column",
         "reduce_summary_output_column",
     }
-    assert {item.ref["kind"] for item in receipt.evidence} >= {
+    assert {item.ref["kind"] for item in receipt.records} >= {
         "reduce_group_summary_groups",
         "reduce_group_summary_output_roles",
         "reduce_group_summary_model_calls",
@@ -421,7 +421,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     }
     group_ref = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref["kind"] == "reduce_group_summary_groups"
     )
     assert group_ref["groups"] == [
@@ -707,7 +707,7 @@ def test_model_child_sheet_stale_resolved_rows_repauses_before_provider_call(
                 (env.seeded["sheet_id"],),
             ).fetchall()
         }
-        env.project.add_rows(
+        env.project.add_rows_in_transaction(
             env.seeded["sheet_id"],
             [
                 {
@@ -886,7 +886,7 @@ def test_unknown_live_call_cost_never_becomes_exact_zero_in_receipt(
         assert receipt.provider_use[0]["cost_actual"] is None
         run_counts = next(
             item.ref
-            for item in receipt.evidence
+            for item in receipt.records
             if item.ref["kind"] == "reduce_group_summary_run_counts"
         )
         assert run_counts["cost_actual"] is None
@@ -1318,7 +1318,7 @@ def test_grouped_action_preserves_injected_composition_through_model_rows(
             project, router, ExecutionCompositionContext.direct()
         ),
         facts=CompositionFacts(
-            edition="cloud", org_id="funding-org", funding=ByokZero()
+            edition="cloud", organization_id="funding-org", funding=ByokZero()
         ),
         credential_use_context=credentials,
         limits=limits,

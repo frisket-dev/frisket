@@ -133,7 +133,7 @@ async def _search_with_purchase(
                         "max_results": kwargs.get("max_results", 6),
                     },
                     estimated_cost_usd=estimate.estimated_cost_usd,
-                    quote=estimate,
+                    estimate=estimate,
                 ),
                 policy=policy,
                 dispatch=dispatch,

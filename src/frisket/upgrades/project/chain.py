@@ -1,6 +1,7 @@
 """Single historical project conversion boundary; current runtime stays outside."""
 
 from __future__ import annotations
+from collections.abc import Callable
 import sqlite3
 from pathlib import Path
 from frisket.review_predicate import (
@@ -50,14 +51,40 @@ from frisket.upgrades.project.action_submissions_migration import (
     ACTION_SUBMISSIONS_STEP,
 )
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST, migrate_domain
+from frisket.upgrades.project.consent_estimate_migration import (
+    CONSENT_ESTIMATE_TO_DIGEST,
+)
 from frisket.upgrades.project.edit_precedence_migration import (
     COPY_PRECEDENCE_TO_DIGEST,
     EDIT_PRECEDENCE_TO_DIGEST,
     apply_edit_precedence,
 )
+from frisket.upgrades.project.alerts_migration import (
+    ALERTS_FROM_DIGEST,
+    ALERTS_TO_DIGEST,
+    migrate_alerts,
+)
+from frisket.upgrades.project.citations_migration import (
+    CITATIONS_TO_DIGEST,
+    migrate_citations,
+)
 from frisket.upgrades.project.feeds_migration import (
+    FEEDS_FROM_DIGEST,
     FEEDS_TO_DIGEST,
     migrate_feeds,
+)
+from frisket.upgrades.project.generated_columns_migration import (
+    GENERATED_COLUMNS_FROM_DIGEST,
+    GENERATED_COLUMNS_TO_DIGEST,
+    apply_generated_columns_migration,
+)
+from frisket.upgrades.project.receipt_records_migration import (
+    RECEIPT_RECORDS_TO_DIGEST,
+    apply_receipt_records,
+)
+from frisket.upgrades.project.research_pause_migration import (
+    RESEARCH_PAUSE_TO_DIGEST,
+    apply_research_pause,
 )
 
 
@@ -151,7 +178,11 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     )
     for step in _STEPS_BEFORE_PREPARED_CONTENT:
         run_step(db, *step)
-    run_rebuild_step(db, *PREPARED_CONTENT_STEP, bundle_path=bundle_path)
+    prepared_from, prepared_to, prepared_payload = PREPARED_CONTENT_STEP
+    assert callable(prepared_payload)
+    run_rebuild_step(
+        db, prepared_from, prepared_to, prepared_payload, bundle_path=bundle_path
+    )
     for step in _STEPS_BEFORE_DOMAIN:
         run_step(db, *step)
     migrate_domain(db)
@@ -159,9 +190,46 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     run_step(
         db, EDIT_PRECEDENCE_TO_DIGEST, COPY_PRECEDENCE_TO_DIGEST, apply_edit_precedence
     )
-    run_rebuild_step(
+    run_step(
         db,
         COPY_PRECEDENCE_TO_DIGEST,
+        CONSENT_ESTIMATE_TO_DIGEST,
+        ("ALTER TABLE consents RENAME COLUMN quote_json TO estimate_json",),
+    )
+    # Keep `CURRENT_CHAIN_TIP_DIGEST` in `upgrades.project._tip` aligned with
+    # the final step's destination digest whenever appending a new step.
+    run_step(
+        db, CONSENT_ESTIMATE_TO_DIGEST, RESEARCH_PAUSE_TO_DIGEST, apply_research_pause
+    )
+    run_rebuild_step(
+        db,
+        RESEARCH_PAUSE_TO_DIGEST,
+        CITATIONS_TO_DIGEST,
+        migrate_citations,
+        bundle_path=bundle_path,
+    )
+    run_step(
+        db,
+        CITATIONS_TO_DIGEST,
+        RECEIPT_RECORDS_TO_DIGEST,
+        apply_receipt_records,
+    )
+    run_step(
+        db,
+        GENERATED_COLUMNS_FROM_DIGEST,
+        GENERATED_COLUMNS_TO_DIGEST,
+        apply_generated_columns_migration,
+    )
+    run_rebuild_step(
+        db,
+        ALERTS_FROM_DIGEST,
+        ALERTS_TO_DIGEST,
+        migrate_alerts,
+        bundle_path=bundle_path,
+    )
+    run_rebuild_step(
+        db,
+        FEEDS_FROM_DIGEST,
         FEEDS_TO_DIGEST,
         migrate_feeds,
         bundle_path=bundle_path,
@@ -358,7 +426,7 @@ def _rebuild_active_columns(db: sqlite3.Connection) -> None:
             )
 
 
-_ACTIVE_COLUMNS_STEP: SchemaStep = (
+_ACTIVE_COLUMNS_STEP: tuple[str, str, Callable[[sqlite3.Connection], None]] = (
     _ACTIVE_COLUMNS_FROM_DIGEST,
     _ACTIVE_COLUMNS_TO_DIGEST,
     _rebuild_active_columns,

@@ -8,12 +8,13 @@ const sheet: SheetMeta = {
   name: 'Stories',
   rowCount: 200,
   columns: [
-    { id: '11', name: 'headline', type: 'text', ai_generated: false },
-    { id: '12', name: 'body', type: 'text', ai_generated: false },
-    { id: '13', name: 'ignored', type: 'text', ai_generated: false },
+    { id: '11', name: 'headline', type: 'text' },
+    { id: '12', name: 'body', type: 'text' },
+    { id: '13', name: 'ignored', type: 'text' },
   ],
   citedColumnIds: [],
   annotatedTextColumnIds: [],
+  documentTextColumnIds: [],
 };
 
 function row(index: number, headline: string | null, body: string | null): Row {

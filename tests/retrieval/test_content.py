@@ -9,7 +9,7 @@ from frisket.retrieval.content import (
     ImageSurface,
     PreparedDocumentSurface,
     PreparedPageExtent,
-    TextChunkRecipe,
+    TextSliceSpec,
     TextSurface,
     TranscriptChunkRecipe,
     TranscriptSegment,
@@ -48,7 +48,7 @@ def _text_surface(text: str, *, version: int = 7) -> TextSurface:
 
 def test_text_chunks_use_unicode_codepoint_offsets_overlap_and_exact_tail() -> None:
     surface = _text_surface("A🙂BCDEFG")
-    recipe = TextChunkRecipe(max_codepoints=4, overlap_codepoints=1)
+    recipe = TextSliceSpec(max_codepoints=4, overlap_codepoints=1)
 
     produced = produce_text(surface, recipe, max_parts=10)
 
@@ -67,7 +67,7 @@ def test_text_chunks_prefer_a_nearby_paragraph_boundary_under_the_hard_limit() -
     text = "First paragraph.\n\nSecond paragraph carries on."
     produced = produce_text(
         _text_surface(text),
-        TextChunkRecipe(max_codepoints=22, overlap_codepoints=3),
+        TextSliceSpec(max_codepoints=22, overlap_codepoints=3),
         max_parts=10,
     )
 
@@ -82,7 +82,7 @@ def test_text_chunks_prefer_a_nearby_paragraph_boundary_under_the_hard_limit() -
 
 def test_text_batches_resume_to_the_same_parts_and_reject_wrong_identity() -> None:
     surface = _text_surface("abcdefghijk")
-    recipe = TextChunkRecipe(max_codepoints=5, overlap_codepoints=2)
+    recipe = TextSliceSpec(max_codepoints=5, overlap_codepoints=2)
     complete = produce_text(surface, recipe, max_parts=20)
 
     first = produce_text(surface, recipe, max_parts=1)
@@ -107,14 +107,14 @@ def test_text_batches_resume_to_the_same_parts_and_reject_wrong_identity() -> No
     with pytest.raises(ValueError, match="cursor does not belong"):
         produce_text(
             surface,
-            TextChunkRecipe(max_codepoints=6, overlap_codepoints=2),
+            TextSliceSpec(max_codepoints=6, overlap_codepoints=2),
             max_parts=1,
             cursor=first.continuation,
         )
 
 
 def test_blank_text_has_complete_zero_part_coverage() -> None:
-    produced = produce_text(_text_surface(" \n\t "), TextChunkRecipe(), max_parts=2)
+    produced = produce_text(_text_surface(" \n\t "), TextSliceSpec(), max_parts=2)
 
     assert produced.items == ()
     assert produced.continuation is None
@@ -148,7 +148,7 @@ def test_prepared_document_uses_existing_page_extents_without_reconversion() -> 
 
     produced = produce_prepared_document(
         surface,
-        TextChunkRecipe(max_codepoints=8, overlap_codepoints=2),
+        TextSliceSpec(max_codepoints=8, overlap_codepoints=2),
         max_parts=10,
     )
 
@@ -325,7 +325,7 @@ def test_production_honors_cancellation_between_parts() -> None:
     with pytest.raises(asyncio.CancelledError):
         produce_text(
             _text_surface("abcdefgh"),
-            TextChunkRecipe(max_codepoints=2, overlap_codepoints=0),
+            TextSliceSpec(max_codepoints=2, overlap_codepoints=0),
             max_parts=10,
             cancelled=cancelled,
         )
@@ -334,4 +334,4 @@ def test_production_honors_cancellation_between_parts() -> None:
 @pytest.mark.parametrize("max_parts", [0, -1, True])
 def test_batch_bound_must_be_a_positive_integer(max_parts: int) -> None:
     with pytest.raises((TypeError, ValueError), match="max_parts"):
-        produce_text(_text_surface("abc"), TextChunkRecipe(), max_parts=max_parts)
+        produce_text(_text_surface("abc"), TextSliceSpec(), max_parts=max_parts)

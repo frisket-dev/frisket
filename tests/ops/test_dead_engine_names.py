@@ -67,6 +67,7 @@ def test_dead_names_are_gone_from_every_acceptance_surface(
     names = symbolic_engine_names(table)
     contract_aliases = alias_map(table)
     execution_aliases = execution_alias_map(table)
+    assert dead
     for spelling in dead:
         assert spelling not in names, f"dead name {spelling!r} regained acceptance"
         assert spelling not in symbolic

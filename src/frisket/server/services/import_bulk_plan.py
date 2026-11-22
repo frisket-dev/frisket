@@ -175,7 +175,11 @@ class BulkPlanLifecycle:
                 manifest.get("outputs"),
                 manifest.get("files"),
             )
-            if not all(isinstance(x, list) for x in (questions, outputs, staged)):
+            if (
+                not isinstance(questions, list)
+                or not isinstance(outputs, list)
+                or not isinstance(staged, list)
+            ):
                 raise ImportBulkRouteError(404, "bulk import plan not found")
             self.validate_decisions(questions, decisions)
             claim = open_lock_file(plan / ".claim.lock")

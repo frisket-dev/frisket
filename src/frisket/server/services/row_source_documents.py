@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.engine.store.evidence import list_row_citations
+from frisket.engine.store.citations import list_row_citations
 from frisket.engine.store.staleness import sheet_freshness
 from frisket.engine.store.consumed_sources import row_input_state
 
@@ -32,7 +32,7 @@ def request_row_source_freshness(
     runs = project.db.execute(
         "SELECT DISTINCT head.origin_run_id FROM effective_current_cells head "
         "JOIN columns col ON col.id=head.column_id "
-        "WHERE head.row_id=? AND head.origin_run_id IS NOT NULL AND col.ai_generated=1",
+        "WHERE head.row_id=? AND head.origin_run_id IS NOT NULL AND col.generated=1",
         (row_id,),
     ).fetchall()
     states.extend(
@@ -73,7 +73,7 @@ def resolve_row_source_documents(
         lineage_freshness = "checking"
     lineage_stale = lineage_freshness == "stale"
 
-    evidence_links: list[dict[str, Any]] = []
+    citations: list[dict[str, Any]] = []
     seen_citations: set[str] = set()
     documents: list[dict[str, Any]] = []
     document_locations: dict[str, tuple[int, int]] = {}
@@ -87,7 +87,7 @@ def resolve_row_source_documents(
         sheet_id=requested_sheet_id,
         row_id=row_id,
         project_id=project_id,
-        out=evidence_links,
+        out=citations,
         seen=seen_citations,
     )
 
@@ -135,7 +135,7 @@ def resolve_row_source_documents(
                     sheet_id=source_sheet_id,
                     row_id=source_row_id,
                     project_id=project_id,
-                    out=evidence_links,
+                    out=citations,
                     seen=seen_citations,
                 )
                 or truncated
@@ -166,7 +166,7 @@ def resolve_row_source_documents(
         "lineage_freshness": lineage_freshness,
         "unavailable_source_count": len(unavailable_sources),
         "truncated": truncated,
-        "evidence_links": evidence_links,
+        "citations": citations,
         "documents": documents,
     }
 

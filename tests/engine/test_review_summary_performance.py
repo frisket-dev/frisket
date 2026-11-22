@@ -95,9 +95,9 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
     """Exercise the production-sized query shape without timing assertions."""
     project = make_project("review-summary-shape")
     sheet_id = project.add_sheet("Visible")
-    answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
-    support_id = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
-    find_confidence_id = project.add_column(sheet_id, "confidence", ai_generated=True)
+    answer_id = project.add_column(sheet_id, "answer", generated=True)
+    support_id = project.add_column(sheet_id, "answer_confidence", generated=True)
+    find_confidence_id = project.add_column(sheet_id, "confidence", generated=True)
     row_ids = project.add_rows(sheet_id, [{} for _ in range(600)], {})
 
     first_run_id = _publish_managed_results(
@@ -212,7 +212,7 @@ def test_history_listing_prepares_only_paged_dirty_saved_runs(
 
     project = make_project("historical-review")
     sheet = project.add_sheet("Rows")
-    column = project.add_column(sheet, "answer", ai_generated=True)
+    column = project.add_column(sheet, "answer", generated=True)
     rows = project.add_rows(sheet, [{}], {})
     runs = [
         _publish_managed_results(

@@ -158,10 +158,10 @@ describe('preview grid interactions', () => {
       rowIndexes: [0, 1],
       cachedAnchors: [{ index: 0, rowId: '1' }, { index: 1, rowId: '2' }],
     });
-    expect(editor.props?.gridSelection.rows.toArray()).toEqual([0, 1]);
-    expect(editor.props?.gridSelection.current).toBeUndefined();
+    expect(editor.props?.gridSelection?.rows.toArray()).toEqual([0, 1]);
+    expect(editor.props?.gridSelection?.current).toBeUndefined();
 
-    act(() => grid.onVisibleRegionChanged?.({ x: 0, y: 3, width: 1, height: 2 }));
+    act(() => grid.onVisibleRegionChanged?.({ x: 0, y: 3, width: 1, height: 2 }, 0, 0, {}));
     expect(visibleRowsChanged).not.toHaveBeenCalled();
   });
 
@@ -207,17 +207,16 @@ describe('preview grid interactions', () => {
   });
 
   it.each([
-    ['map.summarize', 'Summarize', {}, 'Summarize'],
-    ['media.transcribe', 'Transcribe', {}, 'Transcribe'],
-    ['media.transcribe', 'Transcribe', { group_label: 'Interview transcript' }, 'Interview transcript'],
-  ])('labels document text neutrally and %s with its public title or explicit label', async (actionKind, actionName, spec, expectedLabel) => {
+    ['map.summarize', 'Summarize', 'Summarize'],
+    ['media.transcribe', 'Transcribe', 'Transcribe'],
+  ])('labels document text neutrally and %s with its public title', async (actionKind, actionName, expectedLabel) => {
     const ordinaryRun: ColumnRun = {
       runId: '43',
       actionKind,
       actionName,
       model: 'local',
       status: 'completed',
-      spec,
+      spec: {},
       totalRows: 2,
       completedRows: 2,
       failedRows: 0,
@@ -287,7 +286,7 @@ describe('preview grid interactions', () => {
 
 it('renders projected expected values in the ordinary grid and routes edits to their source', async () => {
   const target = { ...sheet, columns: [columnDef({ id: '10', name: 'Answer', type: 'text', format: 'markdown' })] };
-  const expected = { id: 'expected:4:20', link_id: 4, expected_column_id: 20, output_column_id: 10,
+  const expected = { id: 'expected:4:20', link_id: 4, expected_column_id: 20, generated_column_id: 10,
     logical_key: 'answer', name: 'answer', rule: 'exact' as const, hidden: false, source: 'import' as const, sourceColumn: columnDef({ id: '20', name: 'answer', type: 'text' }) };
   const cell = { value: 'verified', source_row_id: 50, source_column_id: 20, checked: true };
   const project = vi.fn().mockResolvedValue({ links: [], columns: [expected], rows: { '1': { [expected.id]: cell }, '2': { [expected.id]: { ...cell, source_row_id: null, value: null, checked: false } } } });
@@ -305,7 +304,7 @@ it('renders projected expected values in the ordinary grid and routes edits to t
 
 it.each(['request failure', 'unavailable link'] as const)('shows a read-only unavailable cell after %s and retries on data refresh', async (failure) => {
   const target = { ...sheet, columns: [columnDef({ id: '10', name: 'Answer', type: 'text' })] };
-  const expected = { id: 'expected:4:20', link_id: 4, expected_column_id: 20, output_column_id: 10,
+  const expected = { id: 'expected:4:20', link_id: 4, expected_column_id: 20, generated_column_id: 10,
     logical_key: 'answer', name: 'answer', rule: 'exact' as const, hidden: false, source: 'import' as const };
   const expectedColumns = [expected];
   const cell = { value: 'restored', source_row_id: 50, source_column_id: 20, checked: true };

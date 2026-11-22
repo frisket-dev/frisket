@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
-import type { ActionCatalogEntry, ActionCatalogPayload, GeneratedActionRequest } from '../../src/api/types';
+import type { ActionCatalogEntry, ActionCatalogPayload, ActionParamResolution, GeneratedActionRequest } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
@@ -177,7 +177,7 @@ describe('generated Resolve host/body boundary', () => {
   it('surfaces continuous server diagnostics through the host', async () => {
     vi.spyOn(api, 'columnValuesPreview').mockResolvedValue(columnPreview);
     mount('resolve.substitute');
-    vi.mocked(api.resolveActionParams).mockImplementation(async ({ params }) => ({
+    vi.mocked(api.resolveActionParams).mockImplementation(async ({ params }): Promise<ActionParamResolution> => ({
       diagnostics: Object.keys(params.mapping as object ?? {}).length
         ? { mapping: { ok: false, message: 'Mapping is no longer valid.' } } : {},
       logical_outputs: [{ key: 'cleaned', column_type: 'text' }],

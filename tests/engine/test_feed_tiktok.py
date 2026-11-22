@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import sys
-from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
 
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from frisket.feeds.runtime import (
     FeedCheckContext,
     get_feed_checker,
@@ -138,7 +136,7 @@ def test_provider_errors_are_redacted_and_empty_profile_is_valid():
     assert result.items == []
 
 
-def test_poll_materializes_and_deduplicates_through_normal_source_host(tmp_path):
+def test_poll_materializes_and_deduplicates_through_normal_source_host(project):
     previous = get_feed_checker("tiktok_profile")
     listings = iter(
         [
@@ -150,54 +148,48 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(tmp_path)
         TikTokProfileFeedChecker(lambda *a, **kw: next(listings)), replace=True
     )
     try:
-        with closing(Project.create(tmp_path / "tiktok")) as project:
 
-            def poll(ref, key):
-                result = run_action_spec(
-                    project,
-                    {
-                        "action_id": "feed.poll",
-                        "scope": {"kind": "project"},
-                        "params": {"feed": ref},
-                        "idempotency_key": key,
-                    },
-                    project_id="tiktok-test",
-                )
-                assert result.status == "completed", result
-                return result
+        def poll(ref, key):
+            result = run_action_spec(
+                project,
+                {
+                    "action_id": "feed.poll",
+                    "scope": {"kind": "project"},
+                    "params": {"feed": ref},
+                    "idempotency_key": key,
+                },
+                project_id="tiktok-test",
+            )
+            assert result.status == "completed", result
+            return result
 
-            first = poll(source(), "tiktok-first")
-            source_id = next(
-                output.ref["feed_id"]
-                for output in first.outputs
-                if output.kind == "feed"
-            )
-            sheet = next(
-                output.sheet_id for output in first.outputs if output.kind == "sheet"
-            )
-            assert len(project.visible_row_ids(sheet)) == 1
-            second = poll(source_id, "tiktok-second")
-            assert (
-                next(
-                    output.sheet_id
-                    for output in second.outputs
-                    if output.kind == "sheet"
-                )
-                == sheet
-            )
-            assert len(project.visible_row_ids(sheet)) == 2
-            columns = {c["name"]: c for c in project.columns(sheet)}
-            assert list(
-                project.get_values(sheet, columns["video_id"]["id"]).values()
-            ) == ["1234567890", "1234567891"]
-            assert columns["source_url"]["default_hidden"] == 0
-            assert columns["video_id"]["default_hidden"] == 1
-            assert (
-                project.db.execute(
-                    "SELECT name FROM feeds WHERE id=?", (source_id,)
-                ).fetchone()[0]
-                == "Example newsroom"
-            )
+        first = poll(source(), "tiktok-first")
+        source_id = next(
+            output.ref["feed_id"] for output in first.outputs if output.kind == "feed"
+        )
+        sheet = next(
+            output.sheet_id for output in first.outputs if output.kind == "sheet"
+        )
+        assert len(project.visible_row_ids(sheet)) == 1
+        second = poll(source_id, "tiktok-second")
+        assert (
+            next(output.sheet_id for output in second.outputs if output.kind == "sheet")
+            == sheet
+        )
+        assert len(project.visible_row_ids(sheet)) == 2
+        columns = {c["name"]: c for c in project.columns(sheet)}
+        assert list(project.get_values(sheet, columns["video_id"]["id"]).values()) == [
+            "1234567890",
+            "1234567891",
+        ]
+        assert columns["source_url"]["default_hidden"] == 0
+        assert columns["video_id"]["default_hidden"] == 1
+        assert (
+            project.db.execute(
+                "SELECT name FROM feeds WHERE id=?", (source_id,)
+            ).fetchone()[0]
+            == "Example newsroom"
+        )
     finally:
         assert previous is not None
         register_feed_checker(previous, replace=True)

@@ -271,7 +271,7 @@ def test_typed_execution_publishes_and_replays_timestamped_transcript(
     receipt = ReceiptStore(ctx.project).parsed_by_id(result.receipt_id)
     assert any(
         item.ref.get("kind") == "media_transcribe_temporal_evidence_link"
-        for item in receipt.evidence
+        for item in receipt.records
     )
     replay = run_action_spec(ctx.project, body, project_id="audio")
     assert replay.status == "completed", replay.errors

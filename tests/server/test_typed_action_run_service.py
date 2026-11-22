@@ -213,7 +213,7 @@ def test_typed_action_fences_a_replaced_output_target_at_reservation(
         **_template_request(sheet_id, row_ids),
         "idempotency_key": "typed-template@replace-original",
         "replace_existing": True,
-        "expected_output_columns": {"display_name": original_id},
+        "expected_generated_columns": {"display_name": original_id},
     }
     accepted = service.run_action("typed-actions", replacement)
     assert accepted.status_code == 200, accepted.payload

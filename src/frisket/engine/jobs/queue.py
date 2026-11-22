@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, overload
+from typing import Any, TypedDict, overload
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -44,7 +44,6 @@ from filelock import FileLock
 
 from frisket.project_identity import ProjectStorageKey
 from frisket.redaction import redact_stored_error
-from frisket.engine.worker_version import code_version
 
 LOG = logging.getLogger("frisket.jobs.queue")
 
@@ -109,13 +108,13 @@ def claimed_project_root(
     claim's organization id is its per-organization subdirectory.
     """
     if workspace_root_storage_organization_id is None:
-        return Path(workspace_root) / str(claimed.storage_org_id)
-    if claimed.storage_org_id == workspace_root_storage_organization_id:
+        return Path(workspace_root) / str(claimed.storage_organization_id)
+    if claimed.storage_organization_id == workspace_root_storage_organization_id:
         return Path(workspace_root)
     raise ValueError(
-        f"claimed storage identity (org {claimed.storage_org_id}) does "
-        "not belong to this registration's org-scoped storage root "
-        f"(org {workspace_root_storage_organization_id})"
+        f"claimed storage identity (organization {claimed.storage_organization_id}) does "
+        "not belong to this registration's organization-scoped storage root "
+        f"(organization {workspace_root_storage_organization_id})"
     )
 
 
@@ -138,7 +137,7 @@ def claimed_project_location(
     threaded from the composition root, never inferred from the path). It
     states that ``workspace_root`` IS the storage directory of exactly that
     organization (the hosted per-organization ``Workspace`` roots at
-    ``FRISKET_DATA_DIR/projects/<org_id>``), so a matching claim resolves the
+    ``FRISKET_DATA_DIR/projects/<organization_id>``), so a matching claim resolves the
     slug directly under the root — appending the claim's organization id there would
     double-nest to ``<org>/<org>/<slug>.frisket`` — and a claim for any OTHER
     organization fails closed rather than resolving into the wrong tenant's directory.
@@ -215,14 +214,33 @@ def _mapping(value: object) -> Mapping[str, object]:
 TerminalizationHook = Callable[..., None]
 
 
-def _job_refs(kind: str, payload: Mapping[str, object] | None) -> dict[str, object]:
+_JobRefs = TypedDict(
+    "_JobRefs",
+    {
+        "organization_id": str | None,
+        "storage_organization_id": int | None,
+        "project_id": str | None,
+        "run_id": int | None,
+        "source_id": int | None,
+        "sheet_id": int | None,
+        "row_id": int | None,
+        "receipt_id": str | None,
+        "action_kind": str | None,
+        "trace_id": str | None,
+        "workspace_root": str | None,
+        "dedupe_key": str | None,
+    },
+)
+
+
+def _job_refs(kind: str, payload: Mapping[str, object] | None) -> _JobRefs:
     data = payload or {}
     spec = _mapping(data.get("spec"))
     # Normalize every supported feed-reference spelling at enqueue time.
     trigger_ref = _mapping(data.get("trigger_ref"))
     return {
-        "org_id": _coerce_str(data.get("org_id")),
-        "storage_org_id": _coerce_int(data.get("storage_org_id")),
+        "organization_id": _coerce_str(data.get("organization_id")),
+        "storage_organization_id": _coerce_int(data.get("storage_organization_id")),
         "project_id": _coerce_str(data.get("project_id")),
         "run_id": _coerce_int(data.get("run_id")),
         "feed_id": _coerce_int(
@@ -247,30 +265,31 @@ def normalize_queue_organization_id(value: object) -> int | None:
     positive integer organization identity; a value that cannot be one raises so a
     malformed identity fails closed rather than normalizing into some tenant's
     keys. Mirrors ProjectStorageKey's fail-closed identity validation and the
-    ``int(org_id)`` the credential seam (jobs/runs.resolve_run_keys) performs.
+    ``int(organization_id)`` the credential seam (jobs/runs.resolve_run_keys) performs.
 
     ONE definition, minted here and applied at BOTH ends of the job's life:
     ``enqueue`` validates the identity a caller claims, and ``Worker._execute``
     re-validates the persisted column before resolving credentials against it.
-    It used to exist only at the claim end, so a malformed funding identity was
-    accepted at enqueue and only terminal-failed a claim later, with the work
-    silently lost in between.
     """
     if value is None or value == "":
         return None
     if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise ValueError(f"queue org_id must be an int or numeric str, got {value!r}")
+        raise ValueError(
+            f"queue organization_id must be an int or numeric str, got {value!r}"
+        )
     try:
-        org_id = int(value)  # non-numeric str -> fail closed
+        organization_id = int(value)  # non-numeric str -> fail closed
     except ValueError as exc:
         # Name the knob: a bare "invalid literal for int()" says nothing about
         # which identity refused or where to fix it.
         raise ValueError(
-            f"queue org_id must be an int or numeric str, got {value!r}"
+            f"queue organization_id must be an int or numeric str, got {value!r}"
         ) from exc
-    if org_id < 1:
-        raise ValueError(f"queue org_id must be a positive integer, got {org_id!r}")
-    return org_id
+    if organization_id < 1:
+        raise ValueError(
+            f"queue organization_id must be a positive integer, got {organization_id!r}"
+        )
+    return organization_id
 
 
 def _validate_cloud_attribution(
@@ -283,19 +302,20 @@ def _validate_cloud_attribution(
     enqueue these same kinds with no organization at all — never reach it.
 
     Two facts, deliberately not merged (they diverge on a hosted tenant
-    sub-app, where ``org_id`` is the FUNDING account and ``storage_org_id`` is
-    the DATA OWNER — see a downstream composition's tenant-app builder):
+    sub-app, where ``organization_id`` is the FUNDING account and
+    ``storage_organization_id`` is the DATA OWNER — see a downstream
+    composition's tenant-app builder):
 
-    * ``storage_org_id`` is the tenancy label. It is what makes a
+    * ``storage_organization_id`` is the tenancy label. It is what makes a
       ``project_id`` sensitive — the organization whose directory the bundle lives in —
       so it is what per-tenant surfaces filter on, and it is REQUIRED here.
-    * ``org_id`` is who pays and whose BYOK keys resolve. Background work
+    * ``organization_id`` is who pays and whose BYOK keys resolve. Background work
       minted by the engine (source polls, alert evaluations, digests,
       deliveries) legitimately has no funding account in scope, so it is
       OPTIONAL — but a value that IS claimed must be a well-formed identity.
 
     A job with no ``project_id`` is not thereby exempt: it must either carry a
-    ``storage_org_id`` (tenant-scoped work that happens not to name a bundle)
+    ``storage_organization_id`` (tenant-scoped work that happens not to name a bundle)
     or declare ``server_scoped`` (work owned by the workspace itself).
     """
     server_scoped = body.get(SERVER_SCOPED_JOB_PAYLOAD_KEY) is True
@@ -306,27 +326,31 @@ def _validate_cloud_attribution(
                 f"{SERVER_SCOPED_JOB_PAYLOAD_KEY}=True was set alongside "
                 f"project_id={refs['project_id']!r}"
             )
-        raw_storage_organization_id = body.get("storage_org_id")
+        raw_storage_organization_id = body.get("storage_organization_id")
         if raw_storage_organization_id is None:
             raise ValueError(
-                "hosted project jobs require first-class storage_org_id identity"
+                "hosted project jobs require first-class storage_organization_id identity"
             )
         # Validate the raw payload value, not a coerced one: ProjectStorageKey
         # rejects bool/float/str fail-closed so a malformed identity can never
         # normalize into tenant 1 or persist a row a worker can't route safely.
+        if not isinstance(raw_storage_organization_id, int) or isinstance(
+            raw_storage_organization_id, bool
+        ):
+            raise ValueError("storage_organization_id must be a positive integer")
         ProjectStorageKey(
-            storage_org_id=raw_storage_organization_id,
+            storage_organization_id=raw_storage_organization_id,
             project_slug=str(refs["project_id"]),
         )
-    elif refs["storage_org_id"] is None and not server_scoped:
+    elif refs["storage_organization_id"] is None and not server_scoped:
         raise ValueError(
-            "hosted jobs require an owner: carry a storage_org_id, or set "
+            "hosted jobs require an owner: carry a storage_organization_id, or set "
             f"{SERVER_SCOPED_JOB_PAYLOAD_KEY}=True to declare this job owned "
             "by the server/workspace rather than by a tenant"
         )
     # Whatever funding account the caller claims is validated at the mint site,
     # so a malformed one is refused here rather than terminal-failing a claim.
-    normalize_queue_organization_id(body.get("org_id"))
+    normalize_queue_organization_id(body.get("organization_id"))
 
 
 def _validate_ref_lookup(
@@ -334,7 +358,7 @@ def _validate_ref_lookup(
     *,
     statuses: tuple[str, ...],
     project_id: str | None,
-    storage_org_id: int | None,
+    storage_organization_id: int | None,
     feed_id: int | None,
     sheet_id: int | None,
     row_id: int | None,
@@ -350,7 +374,7 @@ def _validate_ref_lookup(
         or dedupe_key is not None
     ) and project_id is None:
         raise ValueError("find_job_by_refs requires project_id for scoped refs")
-    if storage_org_id is not None and project_id is None:
+    if storage_organization_id is not None and project_id is None:
         raise ValueError(
             "find_job_by_refs requires project_id for storage identity scope"
         )
@@ -385,8 +409,8 @@ class Job:
     finished_at: datetime | None
     result: dict | None
     error: str | None
-    org_id: str | None = None
-    storage_org_id: int | None = None
+    organization_id: str | None = None
+    storage_organization_id: int | None = None
     project_id: str | None = None
     run_id: int | None = None
     feed_id: int | None = None
@@ -397,20 +421,16 @@ class Job:
     trace_id: str | None = None
     workspace_root: str | None = None
     dedupe_key: str | None = None
-    # Version fields are diagnostic/legacy metadata only; never gate claims.
-    code_version: str | None = None
-    claimed_code_version: str | None = None
-    version_mismatch_requeues: int = 0
     # Lease recovery may create overlapping claims; acknowledge this exact token.
     handler_authority_id: str | None = None
 
     @property
     def project_storage_key(self) -> ProjectStorageKey | None:
         """Trusted physical project identity carried by queue columns."""
-        if self.storage_org_id is None or self.project_id is None:
+        if self.storage_organization_id is None or self.project_id is None:
             return None
         return ProjectStorageKey(
-            storage_org_id=self.storage_org_id,
+            storage_organization_id=self.storage_organization_id,
             project_slug=self.project_id,
         )
 
@@ -596,8 +616,8 @@ jobs_table = sa.Table(
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("kind", sa.String, nullable=False),
     sa.Column("payload", sa.Text, nullable=False, default="{}", server_default="{}"),
-    sa.Column("org_id", sa.String),
-    sa.Column("storage_org_id", sa.Integer),
+    sa.Column("organization_id", sa.String),
+    sa.Column("storage_organization_id", sa.Integer),
     sa.Column("project_id", sa.String),
     sa.Column("run_id", sa.Integer),
     sa.Column("feed_id", sa.Integer),
@@ -608,15 +628,6 @@ jobs_table = sa.Table(
     sa.Column("trace_id", sa.String),
     sa.Column("workspace_root", sa.String),
     sa.Column("dedupe_key", sa.String),
-    sa.Column("code_version", sa.String),
-    sa.Column("claimed_code_version", sa.String),
-    sa.Column(
-        "version_mismatch_requeues",
-        sa.Integer,
-        nullable=False,
-        default=0,
-        server_default=sa.text("0"),
-    ),
     sa.Column(
         "status", sa.String, nullable=False, default="queued", server_default="queued"
     ),
@@ -639,7 +650,7 @@ jobs_table = sa.Table(
     sa.Index("idx_jobs_project_status_id", "project_id", "status", sa.desc("id")),
     sa.Index(
         "idx_jobs_storage_project_status_id",
-        "storage_org_id",
+        "storage_organization_id",
         "project_id",
         "status",
         sa.desc("id"),
@@ -676,7 +687,7 @@ jobs_table = sa.Table(
 sa.Index(
     "uq_jobs_active_dedupe",
     jobs_table.c.kind,
-    sa.func.coalesce(jobs_table.c.storage_org_id, -1),
+    sa.func.coalesce(jobs_table.c.storage_organization_id, -1),
     jobs_table.c.project_id,
     jobs_table.c.dedupe_key,
     unique=True,
@@ -705,12 +716,12 @@ job_handler_authorities_table = sa.Table(
     sa.Column("authority_id", sa.String, primary_key=True),
     sa.Column("job_id", sa.Integer, nullable=False),
     sa.Column("worker_id", sa.String, nullable=False),
-    sa.Column("storage_org_id", sa.Integer),
+    sa.Column("storage_organization_id", sa.Integer),
     sa.Column("project_id", sa.String),
     sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=False),
     sa.Index(
         "idx_job_handler_authorities_project",
-        "storage_org_id",
+        "storage_organization_id",
         "project_id",
     ),
     sa.Index("idx_job_handler_authorities_worker", "worker_id"),
@@ -805,8 +816,8 @@ class JobQueue:
             finished_at=_parse(row.finished_at),
             result=json.loads(row.result) if row.result else None,
             error=row.error,
-            org_id=row.org_id,
-            storage_org_id=row.storage_org_id,
+            organization_id=row.organization_id,
+            storage_organization_id=row.storage_organization_id,
             project_id=row.project_id,
             run_id=row.run_id,
             feed_id=row.feed_id,
@@ -817,9 +828,6 @@ class JobQueue:
             trace_id=row.trace_id,
             workspace_root=row.workspace_root,
             dedupe_key=row.dedupe_key,
-            code_version=row.code_version,
-            claimed_code_version=row.claimed_code_version,
-            version_mismatch_requeues=row.version_mismatch_requeues or 0,
         )
 
     def enqueue(
@@ -842,8 +850,8 @@ class JobQueue:
                     jobs_table.insert().values(
                         kind=kind,
                         payload=json.dumps(body),
-                        org_id=refs["org_id"],
-                        storage_org_id=refs["storage_org_id"],
+                        organization_id=refs["organization_id"],
+                        storage_organization_id=refs["storage_organization_id"],
                         project_id=refs["project_id"],
                         run_id=refs["run_id"],
                         feed_id=refs["feed_id"],
@@ -854,7 +862,6 @@ class JobQueue:
                         trace_id=refs["trace_id"],
                         workspace_root=refs["workspace_root"],
                         dedupe_key=refs["dedupe_key"],
-                        code_version=code_version(),
                         status="queued",
                         attempts=0,
                         max_attempts=max_attempts,
@@ -871,7 +878,7 @@ class JobQueue:
                 kind,
                 statuses=("queued", "running"),
                 project_id=str(refs["project_id"]),
-                storage_org_id=refs["storage_org_id"],
+                storage_organization_id=refs["storage_organization_id"],
                 workspace_root=(
                     str(refs["workspace_root"])
                     if kind in WORKSPACE_SCOPED_REF_KINDS
@@ -889,14 +896,11 @@ class JobQueue:
         worker_id: str,
         *,
         lease_seconds: float = 60.0,
-        worker_version: str | None = None,
     ) -> Job | None:
         """Atomically take an available queued job, deferring background search work.
 
         FIFO holds within each class. Marks it running, increments ``attempts``,
-        stamps the lease. ``worker_version``
-        is diagnostic metadata supplied by a worker; direct queue users retain
-        the queue process's current identity by default."""
+        stamps the lease."""
         now = self._clock()
         authority_id = uuid.uuid4().hex
         c = jobs_table.c
@@ -904,7 +908,7 @@ class JobQueue:
         if self._cloud_storage:
             # Cloud project jobs without physical identity remain unclaimable.
             claim_filters.append(
-                sa.or_(c.project_id.is_(None), c.storage_org_id.isnot(None))
+                sa.or_(c.project_id.is_(None), c.storage_organization_id.isnot(None))
             )
         # Postgres uses row locks; SQLite serializes claims with BEGIN IMMEDIATE.
         select_next = (
@@ -916,7 +920,7 @@ class JobQueue:
                 sa.case(
                     (
                         c.kind.in_(
-                            (SEARCH_INDEX_KIND, SOURCE_VERIFY_KIND, "watch.evaluate")
+                            (SEARCH_INDEX_KIND, SOURCE_VERIFY_KIND, "alert.evaluate")
                         ),
                         1,
                     ),
@@ -943,7 +947,6 @@ class JobQueue:
                         locked_at=now,
                         lease_expires_at=now + timedelta(seconds=lease_seconds),
                         started_at=sa.func.coalesce(c.started_at, now),
-                        claimed_code_version=worker_version or code_version(),
                     )
                 )
                 row = cx.execute(sa.select(jobs_table).where(c.id == jid)).first()
@@ -954,7 +957,7 @@ class JobQueue:
                         authority_id=authority_id,
                         job_id=jid,
                         worker_id=worker_id,
-                        storage_org_id=row.storage_org_id,
+                        storage_organization_id=row.storage_organization_id,
                         project_id=row.project_id,
                         claimed_at=now,
                     )
@@ -1095,7 +1098,7 @@ class JobQueue:
         self,
         project_id: str,
         *,
-        storage_org_id: int | None,
+        storage_organization_id: int | None,
     ) -> bool:
         """Whether executable code still owns this exact project key.
 
@@ -1107,7 +1110,7 @@ class JobQueue:
                 cx.execute(
                     sa.select(c.authority_id)
                     .where(
-                        c.storage_org_id == storage_org_id,
+                        c.storage_organization_id == storage_organization_id,
                         c.project_id == project_id,
                     )
                     .limit(1)
@@ -1290,7 +1293,11 @@ class JobQueue:
         return True
 
     def _cancel_impl(
-        self, job_id: int, *, org_id: str | None = None, kind: str | None = None
+        self,
+        job_id: int,
+        *,
+        organization_id: str | None = None,
+        kind: str | None = None,
     ) -> tuple[bool, str | None]:
         """Shared cancel implementation behind ``cancel``/``cancel_scoped``/
         ``cancel_with_report``: one atomic read-then-write transaction that
@@ -1301,8 +1308,8 @@ class JobQueue:
         when nothing matched (missing job, or a status the filter refuses)."""
         c = jobs_table.c
         scope_filters = [c.id == job_id]
-        if org_id is not None:
-            scope_filters.append(c.org_id == org_id)
+        if organization_id is not None:
+            scope_filters.append(c.organization_id == organization_id)
         if kind is not None:
             scope_filters.append(c.kind == kind)
         cancellable = sa.or_(
@@ -1406,14 +1413,14 @@ class JobQueue:
         cancelled, previous_status = self._cancel_impl(job_id)
         return CancelResult(cancelled=cancelled, previous_status=previous_status)
 
-    def cancel_scoped(self, job_id: int, *, org_id: str, kind: str) -> bool:
+    def cancel_scoped(self, job_id: int, *, organization_id: str, kind: str) -> bool:
         """Same as :meth:`cancel`, but the WHERE clause additionally requires
-        ``org_id`` AND ``kind`` to match exactly -- an atomic, single
+        ``organization_id`` AND ``kind`` to match exactly -- an atomic, single
         transaction gate rather than a separate authorization read followed
         by a plain ``cancel()``. A wrong organization or wrong kind refuses (``False``)
         exactly like a missing or already-terminal job."""
         cancelled, _previous_status = self._cancel_impl(
-            job_id, org_id=org_id, kind=kind
+            job_id, organization_id=organization_id, kind=kind
         )
         return cancelled
 
@@ -1617,18 +1624,20 @@ class JobQueue:
             ).first()
         return self._job(row) if row else None
 
-    def get_scoped(self, job_id: int, *, org_id: str, kind: str) -> Job | None:
+    def get_scoped(self, job_id: int, *, organization_id: str, kind: str) -> Job | None:
         """Same as :meth:`get`, but the WHERE clause additionally requires
-        ``org_id`` AND ``kind`` to match exactly: a caller-scoped org/kind
-        read, never fetch-then-
-        authorize. Returns ``None`` for a wrong organization, a wrong kind, or a
-        missing job -- all three look identical to the caller, which is the
-        point (no oracle for "the job exists but isn't yours")."""
+        ``organization_id`` AND ``kind`` to match exactly: a caller-scoped
+        organization/kind read, never fetch-then-authorize. Returns ``None``
+        for a wrong organization, a wrong kind, or a missing job -- all three
+        look identical to the caller, which is the point (no oracle for "the
+        job exists but isn't yours")."""
         c = jobs_table.c
         with self.engine.connect() as cx:
             row = cx.execute(
                 sa.select(jobs_table).where(
-                    c.id == job_id, c.org_id == org_id, c.kind == kind
+                    c.id == job_id,
+                    c.organization_id == organization_id,
+                    c.kind == kind,
                 )
             ).first()
         return self._job(row) if row else None
@@ -1647,7 +1656,7 @@ class JobQueue:
         *,
         statuses: tuple[str, ...] = ("queued", "running"),
         project_id: str | None = None,
-        storage_org_id: int | None = None,
+        storage_organization_id: int | None = None,
         feed_id: int | None = None,
         sheet_id: int | None = None,
         row_id: int | None = None,
@@ -1661,7 +1670,7 @@ class JobQueue:
             kind,
             statuses=statuses,
             project_id=project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             feed_id=feed_id,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -1674,8 +1683,8 @@ class JobQueue:
             q = q.where(c.status.in_(statuses))
         if project_id is not None:
             q = q.where(c.project_id == project_id)
-        if storage_org_id is not None:
-            q = q.where(c.storage_org_id == storage_org_id)
+        if storage_organization_id is not None:
+            q = q.where(c.storage_organization_id == storage_organization_id)
         if feed_id is not None:
             q = q.where(c.feed_id == feed_id)
         if sheet_id is not None:
@@ -1697,7 +1706,7 @@ class JobQueue:
         project_id: str,
         run_id: int,
         *,
-        storage_org_id: int | None = None,
+        storage_organization_id: int | None = None,
     ) -> Job | None:
         c = jobs_table.c
         clauses = [
@@ -1705,8 +1714,8 @@ class JobQueue:
             c.project_id == project_id,
             c.run_id == run_id,
         ]
-        if storage_org_id is not None:
-            clauses.append(c.storage_org_id == storage_org_id)
+        if storage_organization_id is not None:
+            clauses.append(c.storage_organization_id == storage_organization_id)
         with self.engine.connect() as cx:
             row = cx.execute(
                 sa.select(jobs_table).where(*clauses).order_by(c.id.desc()).limit(1)
@@ -1717,7 +1726,7 @@ class JobQueue:
         self,
         project_id: str,
         *,
-        storage_org_id: int | None = None,
+        storage_organization_id: int | None = None,
         status: str | None = None,
         limit: int = 100,
         kind: str | None = None,
@@ -1738,8 +1747,8 @@ class JobQueue:
             .order_by(c.id.desc())
             .limit(limit)
         )
-        if storage_org_id is not None:
-            q = q.where(c.storage_org_id == storage_org_id)
+        if storage_organization_id is not None:
+            q = q.where(c.storage_organization_id == storage_organization_id)
         if status:
             q = q.where(c.status == status)
         if kind:
@@ -1759,8 +1768,9 @@ class JobQueue:
             rows = cx.execute(
                 sa.select(c.status, sa.func.count()).group_by(c.status)
             ).fetchall()
-        out = dict.fromkeys(STATUSES, 0)
-        out.update(dict(rows))
+        out: dict[str, int] = {status: 0 for status in STATUSES}
+        for status, count in rows:
+            out[str(status)] = int(count)
         return out
 
     def close(self) -> None:

@@ -21,7 +21,7 @@ const query = (model: string | null): HttpSelectorChoicesQuery => ({
 
 function response(choiceId: string): HttpSelectorChoicesResponse {
   return {
-    schema_version: 'frisket.selector_choices.v2',
+    schema_version: 'frisket.selector_choices.v3',
     project_id: 'project-a',
     subject: { kind: 'project_ask' },
     depends_on: [],
@@ -30,7 +30,7 @@ function response(choiceId: string): HttpSelectorChoicesResponse {
     groups: [],
     orphaned_current: null,
     cloud_setup: null,
-  } as HttpSelectorChoicesResponse;
+  };
 }
 
 function pull(overrides: Partial<ModelPullDto> = {}): ModelPullDto {
@@ -79,10 +79,11 @@ function responseWithPull(modelPull: ModelPullDto | null): HttpSelectorChoicesRe
         processing_destination: { kind: 'local', label: 'This computer' }, resolved_target: null,
         is_current: true, is_default: true, can_author: true, can_run: modelPull === null,
         status: modelPull === null ? 'ready' : 'working', blocker: null,
-        active_operation: modelPull, model_card_url: null, setup, configuration_actions: [],
+        active_operation: modelPull, model_card_url: null, execution_route: null,
+        route_selection: null, setup, configuration_actions: [],
       }],
     }],
-  } as HttpSelectorChoicesResponse;
+  };
 }
 
 function responseWithConfigurationPull(modelPull: ModelPullDto): HttpSelectorChoicesResponse {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     get_source_artifact,
     mark_citations_stale_for_cell_refs,
     merge_artifact_metadata,
@@ -17,8 +17,9 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.writer_fence import WriterFence
 
 
 def _ocr_token_granularity_metadata(read):
@@ -147,14 +148,14 @@ def write_ocr_citations(
     }
     if not reads or not ocr_columns:
         return
-    OutputColumnClaimStore.require_current_writer(
-        project.db,
+    fence = WriterFence(
         run_id=run_id,
         writer_attempt_id=writer_attempt_id,
         claim_token=claim_token,
     )
+    GeneratedColumnClaimStore.require_current_writer(project.db, fence=fence)
     receipt_id = project.db.execute(
-        "SELECT DISTINCT receipt_id FROM output_column_claims "
+        "SELECT DISTINCT receipt_id FROM generated_column_claims "
         "WHERE run_id=? AND claim_token=? AND status='active'",
         (run_id, claim_token),
     ).fetchone()[0]
@@ -181,7 +182,7 @@ def write_ocr_citations(
             continue
         if (
             project.db.execute(
-                "SELECT 1 FROM evidence_links WHERE run_id=? AND row_id=? AND column_id=? "
+                "SELECT 1 FROM citations WHERE run_id=? AND row_id=? AND column_id=? "
                 "AND link_role='media_ocr_grounding' LIMIT 1",
                 (run_id, row_id, column_id),
             ).fetchone()
@@ -332,7 +333,5 @@ def write_ocr_citations(
                 "evidence_link_id": link["id"],
                 "stable_id": link["stable_id"],
             },
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
+            fence=fence,
         )

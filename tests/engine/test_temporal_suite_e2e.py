@@ -23,7 +23,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import TimelineLease, resolve_timeline
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
     record_source_span,
@@ -146,7 +146,7 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         sheet_id,
         "transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     with write_transaction(project.db):
         blob_hash = project.add_blob_from_path(
@@ -195,11 +195,12 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         ],
     )
     runs.finish_run(transcript_run_id)
-    runs.point_column_at_run(
-        transcript_op_id,
-        transcript_column_id,
-        transcript_run_id,
-    )
+    with write_transaction(runs.db):
+        runs.point_column_at_run(
+            transcript_op_id,
+            transcript_column_id,
+            transcript_run_id,
+        )
 
     # Resolving the cell persists the canonical immutable presentation clock.
     lease = resolve_timeline(
@@ -238,23 +239,24 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         transcript_column_id,
         row_ids=[row_id],
     )
-    evidence_link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=span_refs,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=transcript_run_id,
-        op_id=transcript_op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-        },
-    )
+    with write_transaction(project.db):
+        evidence_link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=span_refs,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=transcript_run_id,
+            op_id=transcript_op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+            },
+        )
     return _SeededMedia(
         sheet_id=sheet_id,
         row_id=row_id,
@@ -291,7 +293,7 @@ def _assert_projected_evidence(
     expected_source_link_stable_id: str,
 ) -> None:
     link = project.db.execute(
-        "SELECT * FROM evidence_links WHERE sheet_id=? AND row_id=? "
+        "SELECT * FROM citations WHERE sheet_id=? AND row_id=? "
         "AND column_id=? AND link_role='temporal_transcript_projection' "
         "AND status='active'",
         (sheet_id, row_id, transcript_column_id),
@@ -304,8 +306,8 @@ def _assert_projected_evidence(
     assert metadata["semantic_type"] == "timestamped_transcript"
     assert metadata["source_evidence_link_stable_id"] == expected_source_link_stable_id
     spans = project.db.execute(
-        "SELECT sp.* FROM evidence_link_spans els "
-        "JOIN source_spans sp ON sp.id=els.span_id WHERE els.link_id=? "
+        "SELECT sp.* FROM citation_spans els "
+        "JOIN source_spans sp ON sp.id=els.span_id WHERE els.citation_id=? "
         "ORDER BY els.rank",
         (int(link["id"]),),
     ).fetchall()
@@ -363,7 +365,7 @@ def test_extract_range_real_media_inherits_timeline_and_transcript(
     assert receipt is not None
     lineage = next(
         item.ref
-        for item in receipt.evidence
+        for item in receipt.records
         if item.ref.get("kind") == "derived_temporal_artifact"
     )
     assert clip_value["blob"] == lineage["blob_hash"]
@@ -448,7 +450,7 @@ def test_extract_range_real_media_inherits_timeline_and_transcript(
     } == {"start_ms": 1_000, "end_ms": 2_000, "metadata": {}}
     assert any(
         evidence.ref.get("kind") == "temporal_transcript_projection"
-        for evidence in receipt.evidence
+        for evidence in receipt.records
     )
 
 
@@ -593,7 +595,7 @@ def test_split_real_media_creates_child_rows_with_inherited_provenance(
         "column.transcript",
         "materialized_rows",
     }
-    evidence_kinds = [evidence.ref.get("kind") for evidence in receipt.evidence]
+    evidence_kinds = [evidence.ref.get("kind") for evidence in receipt.records]
     assert evidence_kinds.count("temporal_materialized_clip") == 3
     assert evidence_kinds.count("derived_temporal_artifact") == 3
     assert evidence_kinds.count("temporal_transcript_projection") == 3
@@ -657,7 +659,7 @@ def test_split_stage_failure_publishes_no_partial_children_or_lineage(
             "blob_derivations",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
             "artifact_timeline_segments",
         )
     }

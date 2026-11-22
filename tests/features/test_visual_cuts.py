@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import scenedetect
 
-from frisket.features.temporal.visual_cuts import detect_visual_cuts, visual_cuts_value
+from frisket.temporal.visual_cuts import detect_visual_cuts, visual_cuts_value
 
 
 class _Timecode:

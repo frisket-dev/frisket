@@ -79,8 +79,12 @@ def _refresh(
     }
 
 
-def _build(tmp_path: Path) -> tuple[Project, int, int, int, list[int]]:
-    project = Project.create(tmp_path / "refresh.frisket", name="Refresh")
+def _build(target: Path | Any) -> tuple[Project, int, int, int, list[int]]:
+    project = (
+        Project.create(target / "refresh.frisket", name="Refresh")
+        if isinstance(target, Path)
+        else target("refresh")
+    )
     run_action_spec(project, _seed_parent(), project_id="p-ref")
     parent_id = int(
         project.db.execute("SELECT id FROM sheets WHERE name='Filings'").fetchone()[
@@ -118,87 +122,81 @@ def _child_vendors(project: Project, child_id: int) -> list[Any]:
     return list(project.get_values(child_id, col).values())
 
 
-def test_refresh_replaces_rows_in_place_preserving_identity(tmp_path: Path) -> None:
-    project, parent_id, col_id, child_id, row_ids = _build(tmp_path)
-    try:
-        assert _child_vendors(project, child_id) == ["Acme", "Globex", "Initech"]
-        # Edit the parent JSON list -> child is now stale.
-        run_action_spec(
-            project,
-            {
-                "action_id": "cell.edit",
-                "scope": {"kind": "project"},
-                "params": {
-                    "edits": [
-                        {
-                            "row_id": row_ids[0],
-                            "column_id": col_id,
-                            "value": [{"vendor": "Acme"}, {"vendor": "RENAMED"}],
-                        }
-                    ]
-                },
-                "idempotency_key": "refresh_edit@v1",
+def test_refresh_replaces_rows_in_place_preserving_identity(make_project) -> None:
+    project, parent_id, col_id, child_id, row_ids = _build(make_project)
+    assert _child_vendors(project, child_id) == ["Acme", "Globex", "Initech"]
+    # Edit the parent JSON list -> child is now stale.
+    run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {
+                        "row_id": row_ids[0],
+                        "column_id": col_id,
+                        "value": [{"vendor": "Acme"}, {"vendor": "RENAMED"}],
+                    }
+                ]
             },
-            project_id="p-ref",
-        )
-        assert compute_sync_states(project)[child_id]["sync_state"] == "stale"
+            "idempotency_key": "refresh_edit@v1",
+        },
+        project_id="p-ref",
+    )
+    assert compute_sync_states(project)[child_id]["sync_state"] == "stale"
 
-        result = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="sheet_refresh:c:1"),
-            project_id="p-ref",
-        )
-        assert result.status == "completed", [e.model_dump() for e in result.errors]
-        # Same sheet identity (id preserved), rows re-materialized from live parent.
-        still = int(
-            project.db.execute("SELECT id FROM sheets WHERE name='Vendors'").fetchone()[
-                "id"
-            ]
-        )
-        assert still == child_id
-        assert _child_vendors(project, child_id) == ["Acme", "RENAMED", "Initech"]
-        # The newly consumed source capture proves the refreshed output current.
-        assert compute_sync_states(project)[child_id]["sync_state"] == "synced"
-        watermark = project.db.execute(
-            "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
+    result = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="sheet_refresh:c:1"),
+        project_id="p-ref",
+    )
+    assert result.status == "completed", [e.model_dump() for e in result.errors]
+    # Same sheet identity (id preserved), rows re-materialized from live parent.
+    still = int(
+        project.db.execute("SELECT id FROM sheets WHERE name='Vendors'").fetchone()[
+            "id"
+        ]
+    )
+    assert still == child_id
+    assert _child_vendors(project, child_id) == ["Acme", "RENAMED", "Initech"]
+    # The newly consumed source capture proves the refreshed output current.
+    assert compute_sync_states(project)[child_id]["sync_state"] == "synced"
+    watermark = project.db.execute(
+        "SELECT last_verified_op_cursor FROM sheets WHERE id=?", (child_id,)
+    ).fetchone()[0]
+    assert watermark is None
+
+
+def test_refresh_is_idempotent_on_replay(make_project) -> None:
+    project, parent_id, col_id, child_id, row_ids = _build(make_project)
+    first = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="sheet_refresh:c:same"),
+        project_id="p-ref",
+    )
+    assert first.status == "completed"
+    ops_after_first = int(
+        project.db.execute(
+            "SELECT COUNT(*) FROM ops WHERE kind='sheet.refresh'"
         ).fetchone()[0]
-        assert watermark is None
-    finally:
-        project.close()
-
-
-def test_refresh_is_idempotent_on_replay(tmp_path: Path) -> None:
-    project, parent_id, col_id, child_id, row_ids = _build(tmp_path)
-    try:
-        first = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="sheet_refresh:c:same"),
-            project_id="p-ref",
-        )
-        assert first.status == "completed"
-        ops_after_first = int(
+    )
+    replay = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="sheet_refresh:c:same"),
+        project_id="p-ref",
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    # Replay served from the receipt -> no second refresh op.
+    assert (
+        int(
             project.db.execute(
                 "SELECT COUNT(*) FROM ops WHERE kind='sheet.refresh'"
             ).fetchone()[0]
         )
-        replay = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="sheet_refresh:c:same"),
-            project_id="p-ref",
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        # Replay served from the receipt -> no second refresh op.
-        assert (
-            int(
-                project.db.execute(
-                    "SELECT COUNT(*) FROM ops WHERE kind='sheet.refresh'"
-                ).fetchone()[0]
-            )
-            == ops_after_first
-        )
-    finally:
-        project.close()
+        == ops_after_first
+    )
 
 
 def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
@@ -219,7 +217,7 @@ def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
     before_columns = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            "SELECT id, name, type, generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
             (child_id,),
         )
     ]
@@ -256,7 +254,7 @@ def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
     after_columns = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            "SELECT id, name, type, generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
             (child_id,),
         )
     ]
@@ -377,18 +375,15 @@ def test_refresh_updates_parent_context_and_preserves_column_ids(
     ]
 
 
-def test_refresh_of_root_sheet_is_unsupported(tmp_path: Path) -> None:
-    project, parent_id, _, _, _ = _build(tmp_path)
-    try:
-        result = run_action_spec(
-            project,
-            _refresh(sheet_id=parent_id, key="sheet_refresh:root:1"),
-            project_id="p-ref",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "refresh_root_sheet_unsupported"
-    finally:
-        project.close()
+def test_refresh_of_root_sheet_is_unsupported(make_project) -> None:
+    project, parent_id, _, _, _ = _build(make_project)
+    result = run_action_spec(
+        project,
+        _refresh(sheet_id=parent_id, key="sheet_refresh:root:1"),
+        project_id="p-ref",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "refresh_root_sheet_unsupported"
 
 
 def test_unkeyed_refresh_retains_enrichment_history_without_guessing_new_row_identity(
@@ -488,256 +483,230 @@ def test_unkeyed_refresh_retains_enrichment_history_without_guessing_new_row_ide
     )
 
 
-def test_refresh_support_matches_the_runtime_admission(tmp_path: Path) -> None:
-    project, parent_id, _, child_id, _ = _build(tmp_path)
-    try:
-        unsupported_op = project.append_change(
-            "media.extract_document",
-            {"action_id": "media.extract_document"},
-        )
-        snapshot_id = project.add_sheet(
-            "Extracted once",
-            parent_sheet_id=parent_id,
-            parent_op_id=unsupported_op,
-        )
-        project.db.commit()
+def test_refresh_support_matches_the_runtime_admission(make_project) -> None:
+    project, parent_id, _, child_id, _ = _build(make_project)
+    unsupported_op = project.append_change(
+        "media.extract_document",
+        {"action_id": "media.extract_document"},
+    )
+    snapshot_id = project.add_sheet(
+        "Extracted once",
+        parent_sheet_id=parent_id,
+        parent_op_id=unsupported_op,
+    )
+    project.db.commit()
 
-        assert sheet_supports_refresh(project, parent_id) is False
-        assert sheet_supports_refresh(project, child_id) is True
-        assert sheet_supports_refresh(project, snapshot_id) is False
-    finally:
-        project.close()
+    assert sheet_supports_refresh(project, parent_id) is False
+    assert sheet_supports_refresh(project, child_id) is True
+    assert sheet_supports_refresh(project, snapshot_id) is False
 
 
 def test_refresh_refuses_unsupported_model_op_without_cost_prompt(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, parent_id, _, _, _ = _build(tmp_path)
-    try:
-        # Historical provider work does not authorize unsupported rematerialization.
-        op_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
-        project.db.execute(
-            "INSERT INTO runs (op_id, sheet_id, action_kind, status, model, cost_estimate) "
-            "VALUES (?, ?, 'reduce.group_summary', 'completed', 'stub/model', 0.42)",
-            (op_id, parent_id),
-        )
-        model_child = project.add_sheet(
-            "Summary", parent_sheet_id=parent_id, parent_op_id=op_id, commit=False
-        )
-        project.db.commit()
+    project, parent_id, _, _, _ = _build(make_project)
+    # Historical provider work does not authorize unsupported rematerialization.
+    op_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
+    project.db.execute(
+        "INSERT INTO runs (op_id, sheet_id, action_kind, status, model, cost_estimate) "
+        "VALUES (?, ?, 'reduce.group_summary', 'completed', 'stub/model', 0.42)",
+        (op_id, parent_id),
+    )
+    model_child = project.add_sheet_in_transaction(
+        "Summary", parent_sheet_id=parent_id, parent_op_id=op_id
+    )
+    project.db.commit()
 
-        before = tuple(project.db.iterdump())
-        refused = run_action_spec(
-            project,
-            _refresh(sheet_id=model_child, key="sheet_refresh:m:1"),
-            project_id="p-ref",
-        )
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "refresh_unsupported"
-        assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
+    before = tuple(project.db.iterdump())
+    refused = run_action_spec(
+        project,
+        _refresh(sheet_id=model_child, key="sheet_refresh:m:1"),
+        project_id="p-ref",
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "refresh_unsupported"
+    assert tuple(project.db.iterdump()) == before
 
 
 @pytest.mark.parametrize("confirmation", [None, "0" * 64])
 @pytest.mark.parametrize("historical_cost", [0.42, 0.0, None])
 def test_list_refresh_ignores_historical_model_cost(
-    tmp_path: Path, monkeypatch, confirmation, historical_cost
+    make_project, monkeypatch, confirmation, historical_cost
 ) -> None:
     from frisket.execution import pricing_policy
 
-    project, _, col_id, child_id, row_ids = _build(tmp_path)
-    try:
-        parent_op_id = project.db.execute(
-            "SELECT parent_op_id FROM sheets WHERE id=?", (child_id,)
-        ).fetchone()[0]
-        project.db.execute(
-            "INSERT INTO runs "
-            "(op_id, sheet_id, action_kind, status, model, total_rows, cost_estimate) "
-            "VALUES (?, ?, 'derive.table_from_list', 'completed', 'stub/model', 3, ?)",
-            (parent_op_id, child_id, historical_cost),
-        )
-        project.db.commit()
-        edited = run_action_spec(
-            project,
-            {
-                "action_id": "cell.edit",
-                "scope": {"kind": "project"},
-                "params": {
-                    "edits": [
-                        {
-                            "row_id": row_ids[0],
-                            "column_id": col_id,
-                            "value": [{"vendor": "CHANGED"}],
-                        }
-                    ]
-                },
-                "idempotency_key": "historical-cost-edit",
+    project, _, col_id, child_id, row_ids = _build(make_project)
+    parent_op_id = project.db.execute(
+        "SELECT parent_op_id FROM sheets WHERE id=?", (child_id,)
+    ).fetchone()[0]
+    project.db.execute(
+        "INSERT INTO runs "
+        "(op_id, sheet_id, action_kind, status, model, total_rows, cost_estimate) "
+        "VALUES (?, ?, 'derive.table_from_list', 'completed', 'stub/model', 3, ?)",
+        (parent_op_id, child_id, historical_cost),
+    )
+    project.db.commit()
+    edited = run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {
+                        "row_id": row_ids[0],
+                        "column_id": col_id,
+                        "value": [{"vendor": "CHANGED"}],
+                    }
+                ]
             },
-            project_id="p-ref",
-        )
-        assert edited.status == "completed", edited.errors
-        historical_runs = tuple(project.db.execute("SELECT * FROM runs"))
-        model_calls = tuple(project.db.execute("SELECT * FROM model_calls"))
+            "idempotency_key": "historical-cost-edit",
+        },
+        project_id="p-ref",
+    )
+    assert edited.status == "completed", edited.errors
+    historical_runs = tuple(project.db.execute("SELECT * FROM runs"))
+    model_calls = tuple(project.db.execute("SELECT * FROM model_calls"))
 
-        def forbid_pricing():
-            pytest.fail("deterministic refresh must not consult model pricing")
+    def forbid_pricing():
+        pytest.fail("deterministic refresh must not consult model pricing")
 
-        monkeypatch.setattr(pricing_policy, "default_pricing_policy", forbid_pricing)
-        request = _refresh(
-            sheet_id=child_id, key="historical-cost", confirmation=confirmation
-        )
-        refreshed = run_action_spec(project, request, project_id="p-ref")
-        assert refreshed.status == "completed", refreshed.errors
-        assert refreshed.outputs[0].sheet_id == child_id
-        assert _child_vendors(project, child_id) == ["CHANGED", "Initech"]
-        assert tuple(project.db.execute("SELECT * FROM runs")) == historical_runs
-        assert tuple(project.db.execute("SELECT * FROM model_calls")) == model_calls
-        after = tuple(project.db.iterdump())
-        replay = run_action_spec(project, request, project_id="p-ref")
-        assert replay.receipt_id == refreshed.receipt_id
-        assert tuple(project.db.iterdump()) == after
-    finally:
-        project.close()
+    monkeypatch.setattr(pricing_policy, "default_pricing_policy", forbid_pricing)
+    request = _refresh(
+        sheet_id=child_id, key="historical-cost", confirmation=confirmation
+    )
+    refreshed = run_action_spec(project, request, project_id="p-ref")
+    assert refreshed.status == "completed", refreshed.errors
+    assert refreshed.outputs[0].sheet_id == child_id
+    assert _child_vendors(project, child_id) == ["CHANGED", "Initech"]
+    assert tuple(project.db.execute("SELECT * FROM runs")) == historical_runs
+    assert tuple(project.db.execute("SELECT * FROM model_calls")) == model_calls
+    after = tuple(project.db.iterdump())
+    replay = run_action_spec(project, request, project_id="p-ref")
+    assert replay.receipt_id == refreshed.receipt_id
+    assert tuple(project.db.iterdump()) == after
 
 
-def test_refresh_lease_blocks_concurrent_refresh(tmp_path: Path) -> None:
-    project, parent_id, col_id, child_id, row_ids = _build(tmp_path)
-    try:
-        # Simulate an in-flight refresh by planting a live (unexpired) lease.
-        future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+def test_refresh_lease_blocks_concurrent_refresh(make_project) -> None:
+    project, parent_id, col_id, child_id, row_ids = _build(make_project)
+    # Simulate an in-flight refresh by planting a live (unexpired) lease.
+    future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    project.db.execute(
+        "UPDATE sheets SET refresh_claim_token='other', "
+        "refresh_lease_expires_at=? WHERE id=?",
+        (future, child_id),
+    )
+    project.db.commit()
+
+    busy = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="sheet_refresh:c:busy"),
+        project_id="p-ref",
+    )
+    assert busy.status == "failed"
+    assert busy.errors[0].code == "sheet_refresh_busy"
+
+
+def test_refresh_multiparent_sheet_is_unsupported(make_project) -> None:
+    project, parent_id, col_id, child_id, row_ids = _build(make_project)
+    # Attach a materialized_row_sources membership row so the child looks
+    # multi-parent (join/resolve/reduce semantics).
+    child_row = int(
         project.db.execute(
-            "UPDATE sheets SET refresh_claim_token='other', "
-            "refresh_lease_expires_at=? WHERE id=?",
-            (future, child_id),
-        )
-        project.db.commit()
+            "SELECT id FROM rows WHERE sheet_id=? LIMIT 1", (child_id,)
+        ).fetchone()["id"]
+    )
+    source_row = row_ids[0]
+    op_id = project.append_change("join.semantic", {"sheet_id": child_id})
+    project.db.execute(
+        "INSERT INTO materialized_row_sources "
+        "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
+        "VALUES (?, ?, ?, ?, 'edge_source')",
+        (child_row, source_row, parent_id, op_id),
+    )
+    project.db.commit()
 
-        busy = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="sheet_refresh:c:busy"),
-            project_id="p-ref",
-        )
-        assert busy.status == "failed"
-        assert busy.errors[0].code == "sheet_refresh_busy"
-    finally:
-        project.close()
-
-
-def test_refresh_multiparent_sheet_is_unsupported(tmp_path: Path) -> None:
-    project, parent_id, col_id, child_id, row_ids = _build(tmp_path)
-    try:
-        # Attach a materialized_row_sources membership row so the child looks
-        # multi-parent (join/resolve/reduce semantics).
-        child_row = int(
-            project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=? LIMIT 1", (child_id,)
-            ).fetchone()["id"]
-        )
-        source_row = row_ids[0]
-        op_id = project.append_change("join.semantic", {"sheet_id": child_id})
-        project.db.execute(
-            "INSERT INTO materialized_row_sources "
-            "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "
-            "VALUES (?, ?, ?, ?, 'edge_source')",
-            (child_row, source_row, parent_id, op_id),
-        )
-        project.db.commit()
-
-        result = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="sheet_refresh:mp:1"),
-            project_id="p-ref",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "refresh_unsupported"
-    finally:
-        project.close()
+    result = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="sheet_refresh:mp:1"),
+        project_id="p-ref",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "refresh_unsupported"
 
 
-def test_complete_empty_list_refresh_hides_generated_rows_and_undo_restores(tmp_path):
-    project, parent, source, child, _ = _build(tmp_path)
-    try:
-        old_rows = project.visible_row_ids(child)
-        edited = run_action_spec(
-            project,
-            {
-                "action_id": "cell.edit",
-                "scope": {"kind": "project"},
-                "params": {
-                    "edits": [
-                        {"row_id": row_id, "column_id": source, "value": []}
-                        for row_id in project.visible_row_ids(parent)
-                    ]
-                },
-                "idempotency_key": "empty-lists",
+def test_complete_empty_list_refresh_hides_generated_rows_and_undo_restores(
+    make_project,
+):
+    project, parent, source, child, _ = _build(make_project)
+    old_rows = project.visible_row_ids(child)
+    edited = run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {"row_id": row_id, "column_id": source, "value": []}
+                    for row_id in project.visible_row_ids(parent)
+                ]
             },
-            project_id="p-ref",
-        )
-        assert edited.status == "completed", edited.errors
-        result = run_action_spec(
-            project, _refresh(sheet_id=child, key="empty-refresh"), project_id="p-ref"
-        )
-        assert result.status == "completed", result.errors
-        assert project.visible_row_ids(child) == []
-        project.undo()
-        assert project.visible_row_ids(child) == old_rows
-    finally:
-        project.close()
+            "idempotency_key": "empty-lists",
+        },
+        project_id="p-ref",
+    )
+    assert edited.status == "completed", edited.errors
+    result = run_action_spec(
+        project, _refresh(sheet_id=child, key="empty-refresh"), project_id="p-ref"
+    )
+    assert result.status == "completed", result.errors
+    assert project.visible_row_ids(child) == []
+    project.undo()
+    assert project.visible_row_ids(child) == old_rows
 
 
-def test_pending_list_result_is_not_observed_as_empty_refresh(tmp_path):
+def test_pending_list_result_is_not_observed_as_empty_refresh(make_project):
     from frisket.engine.store.result_generations import ResultGenerationStore
     from test_result_generation_store import _start_claimed_run, _declare
 
-    project, parent, source, child, _ = _build(tmp_path)
-    try:
-        old_rows = project.visible_row_ids(child)
-        run = _start_claimed_run(
-            project,
-            sheet_id=parent,
-            output_column_id=source,
-            row_ids=project.visible_row_ids(parent),
-            label="pending lists",
-            replace_existing=True,
-        )
-        _declare(
-            ResultGenerationStore(project), run, source, write_mode="replace_scope"
-        )
-        result = run_action_spec(
-            project, _refresh(sheet_id=child, key="pending-refresh"), project_id="p-ref"
-        )
-        assert result.status == "failed", result.errors
-        assert result.errors[0].details["reason"] == "upstream_unavailable"
-        assert project.visible_row_ids(child) == old_rows
-    finally:
-        project.close()
+    project, parent, source, child, _ = _build(make_project)
+    old_rows = project.visible_row_ids(child)
+    run = _start_claimed_run(
+        project,
+        sheet_id=parent,
+        output_column_id=source,
+        row_ids=project.visible_row_ids(parent),
+        label="pending lists",
+        replace_existing=True,
+    )
+    _declare(ResultGenerationStore(project), run, source, write_mode="replace_scope")
+    result = run_action_spec(
+        project, _refresh(sheet_id=child, key="pending-refresh"), project_id="p-ref"
+    )
+    assert result.status == "failed", result.errors
+    assert result.errors[0].details["reason"] == "upstream_unavailable"
+    assert project.visible_row_ids(child) == old_rows
 
 
 @pytest.mark.parametrize("retirement", ["no_order", "history_floor"])
-def test_historical_refresh_setup_must_be_recreated(tmp_path, retirement):
-    project, parent, column, child, rows = _build(tmp_path)
+def test_historical_refresh_setup_must_be_recreated(make_project, retirement):
+    project, parent, column, child, rows = _build(make_project)
     original_child_rows = project.visible_row_ids(child)
-    try:
-        parent_op = project.db.execute(
-            "SELECT parent_op_id FROM sheets WHERE id=?", (child,)
-        ).fetchone()[0]
-        if retirement == "no_order":
-            project.db.execute(
-                "UPDATE ops SET change_order=NULL WHERE id=?", (parent_op,)
-            )
-        else:
-            project.db.execute(
-                "INSERT OR REPLACE INTO meta(key,value) VALUES ('domain_history_floor',?)",
-                (str(parent_op),),
-            )
-        project.db.commit()
-        assert not sheet_supports_refresh(project, child)
-        result = run_action_spec(
-            project, _refresh(sheet_id=child, key="retired-refresh"), project_id="p-ref"
+    parent_op = project.db.execute(
+        "SELECT parent_op_id FROM sheets WHERE id=?", (child,)
+    ).fetchone()[0]
+    if retirement == "no_order":
+        project.db.execute("UPDATE ops SET change_order=NULL WHERE id=?", (parent_op,))
+    else:
+        project.db.execute(
+            "INSERT OR REPLACE INTO meta(key,value) VALUES ('domain_history_floor',?)",
+            (str(parent_op),),
         )
-        assert result.status == "failed"
-        assert result.errors[0].code == "historical_refresh_unavailable"
-        assert project.visible_row_ids(child) == original_child_rows
-    finally:
-        project.close()
+    project.db.commit()
+    assert not sheet_supports_refresh(project, child)
+    result = run_action_spec(
+        project, _refresh(sheet_id=child, key="retired-refresh"), project_id="p-ref"
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "historical_refresh_unavailable"
+    assert project.visible_row_ids(child) == original_child_rows

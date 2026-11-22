@@ -21,8 +21,8 @@ import sqlalchemy as sa
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from frisket.local_provider_config import ENV_VAR
 from frisket.ops import media_proxy as media_proxy_config
-from frisket.server.provider_config import ENV_VAR
 from frisket.team.control_plane import ORGANIZATION_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.http_helpers import invite_http_error
@@ -38,8 +38,8 @@ from frisket.team.operator_service import OperatorTokenError, OperatorTokenServi
 from frisket.team.readiness import runtime_identity
 from frisket.team.schema import (
     memberships,
-    org_keys,
-    orgs,
+    organization_keys,
+    organizations,
     pending_invites,
     record_audit,
     users,
@@ -75,7 +75,7 @@ def register_admin_api_routes(
     app: FastAPI,
     *,
     engine: sa.Engine,
-    org_id: int,
+    organization_id: int,
     invites: InviteService,
     auth: IdentityAuthService,
     operator_service: OperatorTokenService,
@@ -98,7 +98,7 @@ def register_admin_api_routes(
             return
         role = cx.execute(
             sa.select(memberships.c.role).where(
-                memberships.c.org_id == org_id,
+                memberships.c.organization_id == organization_id,
                 memberships.c.user_id == int(actor["id"]),
             )
         ).scalar_one_or_none()
@@ -110,10 +110,12 @@ def register_admin_api_routes(
         actor = require_operator(request)
         with engine.connect() as cx:
             row = cx.execute(
-                sa.select(orgs.c.name, orgs.c.display_name).where(orgs.c.id == org_id)
+                sa.select(organizations.c.name, organizations.c.display_name).where(
+                    organizations.c.id == organization_id
+                )
             ).one()
         return {
-            "org": row.display_name or row.name,
+            "organization": row.display_name or row.name,
             "server_version": runtime_identity()["package_version"],
             "token_label": actor.get("operator_label"),
         }
@@ -160,13 +162,15 @@ def register_admin_api_routes(
         clean_role = body.role.lower().strip()
         if clean_role not in InviteService.ORGANIZATION_ROLES:
             raise HTTPException(400, "role must be member or owner")
-        with locked_transaction(engine, lock_scope=("org-membership", org_id)) as cx:
+        with locked_transaction(
+            engine, lock_scope=("organization-membership", organization_id)
+        ) as cx:
             require_owner_in_transaction(cx, actor)
             member = cx.execute(
                 sa.select(users.c.id, memberships.c.role)
                 .join(memberships, memberships.c.user_id == users.c.id)
                 .where(
-                    memberships.c.org_id == org_id,
+                    memberships.c.organization_id == organization_id,
                     users.c.email == clean_email,
                 )
             ).first()
@@ -175,7 +179,7 @@ def register_admin_api_routes(
                     sa.select(sa.func.count())
                     .select_from(memberships)
                     .where(
-                        memberships.c.org_id == org_id,
+                        memberships.c.organization_id == organization_id,
                         memberships.c.role == "owner",
                     )
                 ).scalar_one()
@@ -188,7 +192,7 @@ def register_admin_api_routes(
                 cx.execute(
                     memberships.update()
                     .where(
-                        memberships.c.org_id == org_id,
+                        memberships.c.organization_id == organization_id,
                         memberships.c.user_id == member.id,
                     )
                     .values(role=clean_role)
@@ -196,15 +200,15 @@ def register_admin_api_routes(
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
-                    action="org_member_role_set",
+                    organization_id=organization_id,
+                    action="organization_member_role_set",
                     detail=f"{member.id}:{clean_role}",
                 )
                 return {"email": clean_email, "role": clean_role, "status": "active"}
             invited = cx.execute(
                 pending_invites.update()
                 .where(
-                    pending_invites.c.org_id == org_id,
+                    pending_invites.c.organization_id == organization_id,
                     pending_invites.c.email == clean_email,
                 )
                 .values(role=clean_role)
@@ -214,8 +218,8 @@ def register_admin_api_routes(
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
-                action="org_invite_set",
+                organization_id=organization_id,
+                action="organization_invite_set",
                 detail=f"{clean_email}:{clean_role}",
             )
             return {"email": clean_email, "role": clean_role, "status": "invited"}
@@ -226,7 +230,7 @@ def register_admin_api_routes(
         try:
             raw = create_password_reset(
                 engine,
-                org_id=org_id,
+                organization_id=organization_id,
                 email=email,
                 actor_user_id=int(actor["id"]),
             )
@@ -242,8 +246,8 @@ def register_admin_api_routes(
         require_admin(request)
         with engine.connect() as cx:
             rows = cx.execute(
-                sa.select(org_keys.c.provider, org_keys.c.hint).where(
-                    org_keys.c.org_id == org_id
+                sa.select(organization_keys.c.provider, organization_keys.c.hint).where(
+                    organization_keys.c.organization_id == organization_id
                 )
             ).all()
         stored = {str(row.provider): str(row.hint) for row in rows}
@@ -273,21 +277,25 @@ def register_admin_api_routes(
         if not value.strip():
             raise HTTPException(400, "provider key must not be empty")
         with locked_transaction(
-            engine, lock_scope=("org-key", org_id, clean_provider)
+            engine, lock_scope=("organization-key", organization_id, clean_provider)
         ) as cx:
             values = {"encrypted": secret_box.encrypt(value), "hint": key_hint(value)}
             atomic_upsert(
                 cx,
-                table=org_keys,
-                values={"org_id": org_id, "provider": clean_provider, **values},
-                conflict_columns=("org_id", "provider"),
+                table=organization_keys,
+                values={
+                    "organization_id": organization_id,
+                    "provider": clean_provider,
+                    **values,
+                },
+                conflict_columns=("organization_id", "provider"),
                 update_values=values,
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
-                action="org_key_set",
+                organization_id=organization_id,
+                action="organization_key_set",
                 detail=clean_provider,
             )
         return {"provider": clean_provider, "hint": key_hint(value)}
@@ -316,11 +324,13 @@ def register_admin_api_routes(
             validated = media_proxy_config.write_media_proxy(data_dir, body.url)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        with locked_transaction(engine, lock_scope=("media-proxy", org_id)) as cx:
+        with locked_transaction(
+            engine, lock_scope=("media-proxy", organization_id)
+        ) as cx:
             record_audit(
                 cx,
                 user_id=actor["id"],
-                org_id=org_id,
+                organization_id=organization_id,
                 action="media_proxy_set",
                 detail=validated.url,
             )
@@ -334,11 +344,13 @@ def register_admin_api_routes(
         )
         media_proxy_config.write_media_proxy(data_dir, None)
         if had_admin_value:
-            with locked_transaction(engine, lock_scope=("media-proxy", org_id)) as cx:
+            with locked_transaction(
+                engine, lock_scope=("media-proxy", organization_id)
+            ) as cx:
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
+                    organization_id=organization_id,
                     action="media_proxy_cleared",
                     detail="",
                 )
@@ -360,20 +372,20 @@ def register_admin_api_routes(
         if clean_provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         with locked_transaction(
-            engine, lock_scope=("org-key", org_id, clean_provider)
+            engine, lock_scope=("organization-key", organization_id, clean_provider)
         ) as cx:
             result = cx.execute(
-                org_keys.delete().where(
-                    org_keys.c.org_id == org_id,
-                    org_keys.c.provider == clean_provider,
+                organization_keys.delete().where(
+                    organization_keys.c.organization_id == organization_id,
+                    organization_keys.c.provider == clean_provider,
                 )
             )
             if result.rowcount:
                 record_audit(
                     cx,
                     user_id=actor["id"],
-                    org_id=org_id,
-                    action="org_key_deleted",
+                    organization_id=organization_id,
+                    action="organization_key_deleted",
                     detail=clean_provider,
                 )
         return {"deleted": bool(result.rowcount)}

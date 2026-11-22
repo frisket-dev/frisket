@@ -7,10 +7,11 @@ from typing import Any
 from frisket.actions.semantic_join_types import SemanticJoinMatch
 from frisket.actions.types import Outcome, SheetColumnRef
 from frisket.ai.embeddings.analytics import (
+    OnFreshTexts,
     cosine_similarity,
     encode_project_legacy_texts_async,
 )
-from frisket.ai.embeddings.backends import embedder_is_remote
+from frisket.ai.embeddings.backends import EmbeddingResult, embedder_is_remote
 from frisket.ops.base import ActionContext
 from frisket.engine.executor.embedding_batches import (
     record_embedding_batch,
@@ -18,6 +19,13 @@ from frisket.engine.executor.embedding_batches import (
 )
 
 _UNBOUND_SOURCE = object()
+
+
+def _on_fresh_batch(ctx: ActionContext, model_id: str) -> OnFreshTexts:
+    def _record(batch: EmbeddingResult, texts: list[str]) -> None:
+        record_embedding_batch(ctx, model_id, batch, texts)
+
+    return _record
 
 
 class AdmittedSemanticMatcher:
@@ -66,9 +74,7 @@ class AdmittedSemanticMatcher:
                 before_fresh_batch=lambda texts: refuse_missing_paid_vectors(
                     ctx, model_id, texts
                 ),
-                on_fresh_batch=lambda batch, texts: record_embedding_batch(
-                    ctx, model_id, batch, texts
-                ),
+                on_fresh_batch=_on_fresh_batch(ctx, model_id),
             )
             self._candidates = [
                 (row_id, text, vector)
@@ -130,9 +136,7 @@ class BoundSemanticMatcher:
                     before_fresh_batch=lambda texts: refuse_missing_paid_vectors(
                         self._ctx, model_id, texts
                     ),
-                    on_fresh_batch=lambda batch, texts: record_embedding_batch(
-                        self._ctx, model_id, batch, texts
-                    ),
+                    on_fresh_batch=_on_fresh_batch(self._ctx, model_id),
                 )
             )[0]
             best_row, best_value, vector = max(

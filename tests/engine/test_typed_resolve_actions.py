@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,7 +14,7 @@ from frisket.engine.executor.column_transform_action import (
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from helpers import replace_test_source_cell
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "typed-resolve-actions"
@@ -177,38 +176,35 @@ def test_text_resolve_transforms_publish_one_atomic_column(
     ],
 )
 def test_fill_missing_preserves_zero_and_widens_only_when_needed(
-    tmp_path: Path,
+    make_project,
     source_type: str,
     values: list[Any],
     params: dict[str, Any],
     expected_type: str,
     expected: list[Any],
 ) -> None:
-    project = Project.create(tmp_path / f"{source_type}.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        column_id = project.add_column(sheet_id, "source", type=source_type)
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"source": value} for value in values],
-            {"source": column_id},
-        )
-        result = run_action_spec(
-            project,
-            _request("resolve.fill_missing", sheet_id, params, key="fill"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        assert _output_values(project, sheet_id, row_ids, "cleaned") == (
-            expected_type,
-            expected,
-        )
-        op = project.db.execute(
-            "SELECT label FROM ops WHERE id=?", (result.op_ids[0],)
-        ).fetchone()
-        assert op is not None and op["label"] == "fill source → cleaned"
-    finally:
-        project.close()
+    project = make_project(source_type)
+    sheet_id = project.add_sheet("data")
+    column_id = project.add_column(sheet_id, "source", type=source_type)
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"source": value} for value in values],
+        {"source": column_id},
+    )
+    result = run_action_spec(
+        project,
+        _request("resolve.fill_missing", sheet_id, params, key="fill"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    assert _output_values(project, sheet_id, row_ids, "cleaned") == (
+        expected_type,
+        expected,
+    )
+    op = project.db.execute(
+        "SELECT label FROM ops WHERE id=?", (result.op_ids[0],)
+    ).fetchone()
+    assert op is not None and op["label"] == "fill source → cleaned"
 
 
 def test_fill_missing_does_not_repair_an_invalid_typed_source_value(
@@ -264,12 +260,12 @@ def test_output_collision_and_active_claim_are_atomic(text_project) -> None:
             project_id=PROJECT_ID,
         )
         assert collision.status == "failed"
-        assert collision.errors[0].code == "output_column_exists"
+        assert collision.errors[0].code == "generated_column_exists"
         assert called is False
         assert _counts(project) == collision_before
 
         with write_transaction(project.db):
-            _claims, conflict = OutputColumnClaimStore(project).acquire(
+            _claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["claimed"],
                 action_kind="test.blocker",
@@ -288,7 +284,7 @@ def test_output_collision_and_active_claim_are_atomic(text_project) -> None:
             project_id=PROJECT_ID,
         )
         assert claimed.status == "failed"
-        assert claimed.errors[0].code == "output_column_busy"
+        assert claimed.errors[0].code == "generated_column_busy"
         assert called is False
         assert _counts(project) == claim_before
     finally:
@@ -330,7 +326,9 @@ def test_handler_and_receipt_failure_roll_back_every_write(
         raise RuntimeError("receipt failed")
 
     monkeypatch.setattr(
-        column_transform_action.ReceiptStore, "update_body_status", fail_insert
+        column_transform_action.ReceiptStore,
+        "update_body_status_in_transaction",
+        fail_insert,
     )
     receipt_result = run_action_spec(
         project,
@@ -697,7 +695,7 @@ def test_active_hidden_output_is_not_replaced(text_project):
         ),
         project_id=PROJECT_ID,
     )
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert _counts(project) == before
 
 
@@ -733,7 +731,7 @@ def test_fill_does_not_wait_for_or_fill_failed_and_pending_sources(make_project)
 
     project = make_project("pending-fill")
     sheet = project.add_sheet("data")
-    column = project.add_column(sheet, "source", type="text", ai_generated=True)
+    column = project.add_column(sheet, "source", type="text", generated=True)
     rows = project.add_rows(sheet, [{}, {}, {}], {})
     producer = _start_claimed_run(
         project,

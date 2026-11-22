@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { skillsApi } from "../../src/api/skills";
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const skill = {
   id: "skill/1",
@@ -12,13 +13,6 @@ const skill = {
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: "2026-10-01T00:00:00Z",
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();

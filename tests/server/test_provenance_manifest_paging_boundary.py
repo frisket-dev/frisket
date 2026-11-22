@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
 
 
@@ -24,9 +22,8 @@ def _assert_no_recipe_keys(value: object) -> None:
 
 
 def _seed_provenance_history(
-    tmp_path: Path,
+    client: TestClient,
 ) -> tuple[TestClient, str, list[int], list[str]]:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Provenance paging"}
     ).json()["id"]
@@ -88,9 +85,9 @@ def _seed_provenance_history(
 
 
 def test_provenance_manifest_returns_bounded_run_and_receipt_pages(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, run_ids, receipt_ids = _seed_provenance_history(tmp_path)
+    client, project_id, run_ids, receipt_ids = _seed_provenance_history(client)
 
     response = client.get(
         f"/api/projects/{project_id}/provenance",

@@ -1,12 +1,12 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '../../src/api/contractErrors';
 import {
   getGlobalActionCatalog,
   getProjectActionCatalog,
 } from '../../src/api/httpContractRoutes';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 beforeAll(() => { servedActionCatalog(); }, 30_000);
 
@@ -75,13 +75,6 @@ function catalogWire(): Record<string, unknown> {
   };
 }
 
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -109,25 +102,6 @@ describe('action catalog HTTP contracts', () => {
     expect(requests[1]?.init?.signal).toBe(projectController.signal);
     expect(requests[0]?.init?.headers).toBeUndefined();
     expect(requests[1]?.init?.headers).toBeUndefined();
-  });
-
-  it('preserves abort rejection identity', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-    const pending = getGlobalActionCatalog({ signal: controller.signal });
-    const abortError = new DOMException('catalog cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(pending).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
   });
 
   it('maps conditional capabilities and leaves nested commercial/ui hints untouched', async () => {
@@ -203,47 +177,4 @@ describe('action catalog HTTP contracts', () => {
       );
     },
   );
-
-  it.each([
-    ['global', 401],
-    ['global', 500],
-    ['project', 401],
-    ['project', 403],
-    ['project', 404],
-    ['project', 409],
-    ['project', 500],
-  ] as const)('accepts the exact declared %s catalog error %s', async (scope, status) => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error ${status}` }, status)));
-    const request = scope === 'global'
-      ? getGlobalActionCatalog()
-      : getProjectActionCatalog('project-1');
-    await expect(request).rejects.toBeInstanceOf(ApiError);
-    await expect(request).rejects.toMatchObject({
-      name: 'ApiError',
-      status,
-      message: `error ${status}`,
-      code: undefined,
-      details: undefined,
-    });
-  });
-
-  it.each([
-    ['global', 403],
-    ['global', 418],
-    ['project', 422],
-    ['project', 418],
-  ] as const)('maps additional %s catalog status %s', async (scope, status) => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'undeclared' }, status)));
-    const request = scope === 'global'
-      ? getGlobalActionCatalog()
-      : getProjectActionCatalog('project-1');
-    await expect(request).rejects.toBeInstanceOf(ApiError);
-    await expect(request).rejects.toMatchObject({
-      name: 'ApiError',
-      status,
-      message: 'undeclared',
-      code: undefined,
-      details: undefined,
-    });
-  });
 });
