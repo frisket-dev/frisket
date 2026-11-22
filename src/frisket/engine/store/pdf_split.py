@@ -194,7 +194,10 @@ class PdfSplitWriter(StreamingSheetWriter):
                 (self._op_id,),
             )
             sessions = ImportSessionStore(self.project)
-            sessions.discard_setup(sessions.get(self._session_id))
+            assert self._session_id is not None
+            session = sessions.get(self._session_id)
+            assert session is not None
+            sessions.discard_setup(session)
 
     def finalize_session(
         self, *, expected_cursor: int, keep_cancelled: bool = False
@@ -330,6 +333,7 @@ class PdfSplitWriter(StreamingSheetWriter):
                 ),
             )
             if blob_plan is not None:
+                assert self._op_id is not None
                 publish_import_blobs(
                     self.project,
                     blob_plan.bind_row_ordinals(row_ids),

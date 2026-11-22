@@ -66,7 +66,10 @@ def fetch_feed_text(url: str, *, timeout: float = 20.0) -> str:
                     seen += 1
                     if seen > 5:
                         raise IngestError("too many redirects")
-                    nxt = str(resp.next_request.url)
+                    next_request = resp.next_request
+                    if next_request is None:
+                        raise IngestError("redirect response missing target")
+                    nxt = str(next_request.url)
                     if not url_is_safe(nxt):
                         raise IngestError(f"blocked redirect target: {nxt}")
                     current = nxt

@@ -318,6 +318,7 @@ class StreamingSheetWriter:
                         ],
                     }
                 )
+                assert stored_receipt is not None
                 if not receipt_store.update_body_status_in_transaction(
                     receipt, require_status=stored_receipt.status
                 ):
@@ -514,6 +515,7 @@ class StreamingSheetWriter:
                         ],
                     }
                 )
+                assert stored_receipt is not None
                 if not receipt_store.update_body_status_in_transaction(
                     receipt, require_status=stored_receipt.status
                 ):
@@ -833,6 +835,7 @@ class StreamingSheetWriter:
             receipt, require_status="running"
         ):
             raise ImportSessionConflict("import receipt cancellation lost its CAS")
+        assert self._op_id is not None
         ChangeStore(self.project).close(self._op_id)
         db.execute("UPDATE changes SET barrier=0 WHERE id=?", (self._op_id,))
         ImportSessionStore(self.project).remove(session)

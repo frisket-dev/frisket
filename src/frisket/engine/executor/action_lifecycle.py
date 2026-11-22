@@ -244,7 +244,7 @@ def _run_in_txn_idempotent_perform(
     project_id: str,
     params_hash: str,
     perform_fn: Callable[..., ActionResult],
-    result_from_existing_fn: Callable[..., ActionResult] | None = None,
+    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
     exception_error_fn: Callable[[_ActionExecutionEnvelope], ActionError] | None = None,
     cleanup_resolved_fn: Callable[[Any], None] | None = None,
     post_commit_fn: Callable[[Any], None] | None = None,
@@ -431,8 +431,11 @@ def _run_plain_action_body(
         if isinstance(resolved, ActionError):
             return ActionCtx(project_id, action.kind).failed(resolved)
 
+    plain_perform_in_txn_fn = spec.plain_perform_in_txn_fn
+    assert plain_perform_in_txn_fn is not None
+
     def _perform(cur: Any, *, action_id: str, receipt_id: str) -> ActionResult:
-        return spec.plain_perform_in_txn_fn(
+        return plain_perform_in_txn_fn(
             project,
             cur,
             action,
@@ -444,6 +447,7 @@ def _run_plain_action_body(
             resolved=resolved,
         )
 
+    existing_fn = spec.result_from_existing_fn
     return _run_in_txn_idempotent_perform(
         project,
         action,
@@ -455,12 +459,8 @@ def _run_plain_action_body(
         post_commit_fn=spec.plain_post_commit_fn,
         persist_failure=spec.plain_persist_failure,
         result_from_existing_fn=(
-            (
-                lambda *args, **kwargs: spec.result_from_existing_fn(
-                    *args, params=params, **kwargs
-                )
-            )
-            if spec.result_from_existing_fn is not None
+            (lambda *args, **kwargs: existing_fn(*args, params=params, **kwargs))
+            if existing_fn is not None
             else None
         ),
         resolved=resolved,
@@ -503,12 +503,14 @@ def _run_reserved_maprunner_action_spec(
     map_runner_factory: _MapRunnerFactory,
 ) -> ActionResult:
     """The reserved-maprunner preset: fill the core seams, then run the core."""
-    cost_gate_error_fn = None
+    cost_gate_error_fn: Callable[[CostGate], ActionError] | None = None
     if spec.cost_gate_error_fn is not None:
         cost_gate_error_spec_fn = spec.cost_gate_error_fn
 
-        def cost_gate_error_fn(exc: CostGate) -> ActionError:
+        def _cost_gate_error(exc: CostGate) -> ActionError:
             return cost_gate_error_spec_fn(action, exc)
+
+        cost_gate_error_fn = _cost_gate_error
 
     core_spec = _ActionCoreSpec(
         kind=spec.kind,
@@ -569,7 +571,7 @@ def resolve_maprunner_runner_spec(
     *,
     runner_spec_fn: Callable[[Any], dict[str, Any]],
     resolve_fn: Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError],
-    precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None],
+    precheck_fn: Callable[..., ActionError | None],
     program_fn: Callable[[Any, dict[str, Any]], ActionProgram | ActionError | None]
     | None = None,
 ) -> (

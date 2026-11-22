@@ -51,13 +51,13 @@ from frisket.execution.resolver import (
     resolve,
 )
 from frisket.execution.targets import CAPABILITY_GEOCODE, CAPABILITY_LLM
+from frisket.local_provider_config import ENV_VAR
 from frisket.project_settings import read_project_settings
 from frisket.server.action_catalog_hints import (
     project_action_catalog_payload_with_launcher_hints,
 )
 from frisket.server.embedding_catalog import embedding_provider_catalog_payload
 from frisket.server.provider_config import (
-    ENV_VAR,
     PROVIDER_LABELS,
     build_provider_catalog,
 )

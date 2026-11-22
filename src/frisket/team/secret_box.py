@@ -15,11 +15,11 @@ from frisket.team.config import TeamConfig
 
 class TeamSecretBox:
     def __init__(self, config: TeamConfig):
-        self._key = (
-            config.secrets_master_key.encode("utf-8")
-            if config.secrets_master_key
-            else load_or_create_secret_key(config.secrets_key_file)
-        )
+        if config.secrets_master_key:
+            self._key = config.secrets_master_key.encode("utf-8")
+        else:
+            assert config.secrets_key_file is not None
+            self._key = load_or_create_secret_key(config.secrets_key_file)
 
     def encrypt(self, value: str) -> str:
         return encrypt_secret(value, master_key=self._key)

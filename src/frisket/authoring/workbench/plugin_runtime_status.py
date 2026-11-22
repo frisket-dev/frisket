@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import quote
 
 from frisket.authoring.plugin_registry import RuntimeBindingSpec, default_registry
@@ -135,8 +136,13 @@ def composition_policy_permits_catalog_entry(
     )
 
 
+class _ProjectDbReader(Protocol):
+    @property
+    def db(self) -> sqlite3.Connection: ...
+
+
 def workspace_permits_plugin(
-    project: Project,
+    project: _ProjectDbReader,
     plugin_id: str,
     *,
     catalog_entry: dict[str, Any] | None | object = _CATALOG_ENTRY_UNSET,
@@ -205,7 +211,7 @@ class AdmittedPlugin:
 
 
 def _resolve_admit_install_state(
-    project: Project,
+    project: _ProjectDbReader,
     plugin_id: str,
     install_state: dict[str, Any] | None | object,
 ) -> dict[str, Any] | None:
@@ -217,7 +223,7 @@ def _resolve_admit_install_state(
 
 
 def admit_project_plugin(
-    project: Project,
+    project: _ProjectDbReader,
     plugin_id: str,
     *,
     install_states: frozenset[str] | None = frozenset({"enabled"}),
@@ -1141,7 +1147,7 @@ def _workbench_plugin_install_states(project: Project) -> dict[str, dict[str, An
 
 
 def _workbench_plugin_install_state(
-    project: Project, *, plugin_id: str
+    project: _ProjectDbReader, *, plugin_id: str
 ) -> dict[str, Any] | None:
     row = project.db.execute(
         f"SELECT {_PROJECT_INSTALL_COLUMNS} "

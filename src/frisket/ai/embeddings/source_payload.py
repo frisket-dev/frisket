@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
-
-from frisket.engine.store import Project
+from typing import Any, Protocol
 
 from .spaces import canonical_json
+
+
+class _SourcePayloadReader(Protocol):
+    def columns(self, sheet_id: int, include_hidden: bool = False) -> list[Any]: ...
+
+    def get_values(
+        self, sheet_id: int, column_id: int, row_ids: list[int] | None = None
+    ) -> dict[int, Any]: ...
 
 
 # Media column types whose cell is a blob envelope / URI, not embeddable text.
@@ -39,7 +45,7 @@ def source_hash(policy_hash: str | None, pairs: list[list[Any]]) -> str:
 
 
 def _media_source_ref(
-    project: Project, column: str, column_type: str, value: Any
+    project: _SourcePayloadReader, column: str, column_type: str, value: Any
 ) -> dict[str, Any] | None:
     """Resolve a media cell to a blob-backed ref. The hash basis is the blob CONTENT
     digest (envelope ``blob``) or the URI — NOT the stringified envelope — so editing
@@ -80,7 +86,7 @@ def _media_source_ref(
 
 
 def build_source_payloads(
-    project: Project,
+    project: _SourcePayloadReader,
     index: Any,
     source_columns: list[str],
     row_ids: list[int],
@@ -151,7 +157,7 @@ def build_source_payloads(
 
 
 def source_hash_for_row(
-    project: Project,
+    project: _SourcePayloadReader,
     index: Any,
     source_columns: list[str],
     row_id: int,

@@ -802,6 +802,7 @@ def claim(
             except StaleAttemptWriter as exc:
                 raise AttemptClaimRefused("stale_head", str(exc)) from exc
         elif claimless_direct_effect:
+            assert run_id is not None
             if output_column_ids:
                 raise AttemptClaimRefused(
                     "stale_head",
@@ -814,6 +815,7 @@ def claim(
                     "and cannot dispatch as a claimless direct effect",
                 )
         else:
+            assert run_id is not None
             if not isinstance(claim_token, str) or not claim_token:
                 raise AttemptClaimRefused(
                     "stale_head",
@@ -862,12 +864,14 @@ def claim(
                 raise AttemptClaimRefused(
                     "stale_head", "this receipt already has a dispatching attempt"
                 ) from exc
+            assert run_id is not None
             raise _one_dispatch_refusal(db, run_id) from exc
         if updated.rowcount != 1:
             if receipt_id is not None:
                 raise AttemptClaimRefused(
                     "stale_head", "this receipt already has a dispatching attempt"
                 )
+            assert run_id is not None
             raise _one_dispatch_refusal(db, run_id)
         if run_id is not None:
             db.execute(
@@ -1117,13 +1121,17 @@ def attempt_settlement(
             "charge_usd": None,
             "unsettleable": "metering_reclaimed",
         }
-    if terminal_status not in {"running", "completed", "failed", "cancelled"}:
-        return {
-            "price_card_version": price_card_version,
-            "terminal_status": terminal_status,
-            "charge_usd": None,
-            "unsettleable": "run_terminal_status_missing",
-        }
+    settled_status: Literal["running", "completed", "failed", "cancelled"]
+    match terminal_status:
+        case "running" | "completed" | "failed" | "cancelled":
+            settled_status = terminal_status
+        case _:
+            return {
+                "price_card_version": price_card_version,
+                "terminal_status": terminal_status,
+                "charge_usd": None,
+                "unsettleable": "run_terminal_status_missing",
+            }
     calls = project.db.execute(
         "SELECT row_id, units, provider_cost_usd FROM model_calls WHERE attempt_id=? "
         "ORDER BY created_at, rowid",
@@ -1175,7 +1183,7 @@ def attempt_settlement(
         metered_units=metered,
         provider_costs=[call["provider_cost_usd"] for call in settlement_calls],
         price_card_version=price_card_version,
-        terminal_status=terminal_status,
+        terminal_status=settled_status,
         all_rows_cancelled=all_rows_cancelled,
     )
     if row_mode != "estimated_successful_rows":

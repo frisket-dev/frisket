@@ -12,6 +12,7 @@ from frisket.contracts.query_spec import (
     normalize_manual_text_terms,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.redaction import redact_text
 from frisket.retrieval.contracts import (
     BindingRevision,
@@ -159,7 +160,7 @@ def _embedding_query_binding(
 
 
 def current_embedding_query_binding(
-    project: Project, index_id: str
+    project: Project | ProjectReadSnapshot, index_id: str
 ) -> EmbeddingQueryBinding | None:
     metadata = EmbeddingStore(project)
     index = metadata.get_index(index_id)
@@ -202,7 +203,7 @@ def _threshold(query: dict[str, Any]) -> float | None:
 
 
 def _load_index(
-    project: Project, query: dict[str, Any]
+    project: Project | ProjectReadSnapshot, query: dict[str, Any]
 ) -> tuple[Any, Any, dict[str, Any], DescriptorEmbeddingSpace]:
     index_id = query.get("embedding_index_id")
     if not isinstance(index_id, str) or not index_id.strip():
@@ -324,7 +325,7 @@ def prepared_similarity_request(
 
 
 def resolve_embedding_similarity(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     query: dict[str, Any],
     *,
     gateway: Any = None,
@@ -471,7 +472,7 @@ def validate_row_cell_anchor(project: Any, index: Any, anchor: dict[str, Any]) -
 
 
 def _row_anchor(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     retrieval: RetrievalStore,
     *,
     index: Any,
@@ -550,7 +551,7 @@ def _row_anchor(
 
 
 def _manual_query(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     retrieval: RetrievalStore,
     *,
     index: Any,
@@ -603,6 +604,7 @@ def _manual_query(
                 "the index provider policy must allow remote query embedding",
                 field="anchor.text",
             )
+        assert isinstance(accounting_project, Project)
         if accounting_project.effective_network_policy() == "off":
             raise SimilarityError(
                 "network_disabled",
@@ -663,6 +665,7 @@ def _manual_query(
                 field="anchor.text",
             ) from exc
         if provider_kind in REMOTE_PROVIDER_KINDS:
+            assert isinstance(accounting_project, Project)
             _persist_manual_text_provider_call(
                 accounting_project, result, input_count=len(fresh_inputs)
             )

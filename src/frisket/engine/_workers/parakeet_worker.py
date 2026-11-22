@@ -235,7 +235,8 @@ def _load_audio(path: str, np: Any) -> Any:
     with av.open(path) as container:
         stream = next(item for item in container.streams if item.type == "audio")
         for frame in container.decode(stream):
-            chunks.extend(item.to_ndarray() for item in resampler.resample(frame))
+            if isinstance(frame, av.AudioFrame):
+                chunks.extend(item.to_ndarray() for item in resampler.resample(frame))
         chunks.extend(item.to_ndarray() for item in resampler.resample(None))
     if not chunks:
         raise RuntimeError("no audio stream decoded")

@@ -170,6 +170,7 @@ class AttemptAuthority:
                     "stale_head", "receipt attempt requires its running reservation"
                 )
         else:
+            assert run_id is not None
             abandon_stale_dispatching_attempts(self.project, run_id)
         identity = attempt_identity(program, spec)
         attempt_id, seq = open_attempt(
@@ -560,11 +561,11 @@ class AttemptAuthority:
         from frisket.ops.base import ActionProgramInvocationHalt
         from frisket.engine.store.execution_routes import RouteStore
 
-        store = (
-            RouteStore.for_receipt(self.project, receipt_id)
-            if receipt_id is not None
-            else RouteStore.for_run(self.project, run_id)
-        )
+        if receipt_id is not None:
+            store = RouteStore.for_receipt(self.project, receipt_id)
+        else:
+            assert run_id is not None
+            store = RouteStore.for_run(self.project, run_id)
         try:
             persisted_head = store.head()
         except Exception as exc:  # noqa: BLE001 — normalized durable failure
@@ -1021,11 +1022,11 @@ def admit_routed(
         raise TypeError("admit_routed requires a full ExecutionComposition")
 
     _attempt_owner(run_id, receipt_id)
-    store = (
-        RouteStore.for_receipt(project, receipt_id)
-        if receipt_id is not None
-        else RouteStore.for_run(project, run_id)
-    )
+    if receipt_id is not None:
+        store = RouteStore.for_receipt(project, receipt_id)
+    else:
+        assert run_id is not None
+        store = RouteStore.for_run(project, run_id)
     head = store.head() if persisted_head is ... else persisted_head
     if head is None:
         raise ExecutionRouteVerificationFailed(

@@ -19,6 +19,7 @@ from frisket.actions.core import ModelRowsEvaluationContext
 
 from frisket.contracts.action import (
     ActionError,
+    ActionIdentity,
     ActionResult,
     Receipt,
 )
@@ -76,7 +77,7 @@ class QueuedV1ActionEntry:
     params_model: type[BaseModel]
     reserve_action: Callable[..., dict[str, Any] | ActionResult]
     reserve_action_in_transaction: Callable[..., dict[str, Any] | ActionResult]
-    requires_atomic_publication: Callable[[BaseModel], bool]
+    requires_atomic_publication: Callable[..., bool]
     cleanup_reservation: Callable[..., None]
     mark_runner_spec: Callable[..., dict[str, Any]]
     mark_prepared: Callable[..., None]
@@ -886,7 +887,8 @@ def queued_v1_terminal_receipt_transition(
     if stored is not None:
         receipt_id = stored.id
         action_kind = stored.action_kind
-        action_id = stored.action_id
+        if stored.action_id is not None:
+            action_id = stored.action_id
         try:
             receipt = stored.parsed()
         except Exception:
@@ -1009,7 +1011,7 @@ def queued_v1_terminal_receipt_transition(
             or f"project-run terminalization {terminalization.disposition}"
         )
     action_result = ActionResult(
-        action={"kind": action_kind, "action_id": action_id},
+        action=ActionIdentity(kind=action_kind, action_id=action_id),
         status=status,
         project_id=project_id,
         run_id=run_id,

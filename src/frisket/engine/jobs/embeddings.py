@@ -443,7 +443,7 @@ def register_embedding_refresh_handler(
         return len(alert_jobs)
 
     def _action_job_executor(
-        project: Project, env: ActionJobEnvelope, *, execution: Any = None
+        project: Project, envelope: ActionJobEnvelope, *, execution: Any = None
     ) -> ActionResult:
         from frisket.engine.executor.action_families.embeddings import (
             run_index_refresh_action_job,
@@ -451,7 +451,7 @@ def register_embedding_refresh_handler(
 
         result = run_index_refresh_action_job(
             project,
-            env,
+            envelope,
             router=router,
             embedding_gateway=gateway,
             execution=execution,
@@ -462,7 +462,7 @@ def register_embedding_refresh_handler(
             if index_id:
                 _enqueue_dependent_alerts(
                     project,
-                    project_id=env.project_id,
+                    project_id=envelope.project_id,
                     project_root=root,
                     # The worker routed this job to its claimed physical project,
                     # so read the storage organization from that claimed location as a

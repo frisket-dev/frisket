@@ -17,7 +17,11 @@ import route_adapter_cache
 from frisket.engine.store import Project
 from frisket.testing import ensure_isolated_llm_cache
 from deployment_env_helpers import _deployment_env_names
-from helpers import make_client, replay_router
+from helpers import make_client, off_router, replay_router
+from http_test_helpers import (
+    install_audio_consent_gateway_env,
+    stub_audio_transcription_engine,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHECKLOG = ROOT / ".frisket" / "check-runs.jsonl"
@@ -163,6 +167,24 @@ def pricing_refresh_lifecycle() -> None:
 def replay_client(tmp_path: Path) -> TestClient:
     """Server client wired to the committed cache in replay_strict mode."""
     return make_client(tmp_path, router=replay_router())
+
+
+@pytest.fixture
+def off_client(tmp_path: Path) -> TestClient:
+    """Server client wired to a cache-disabled local-tier router."""
+    return make_client(tmp_path, router=off_router())
+
+
+@pytest.fixture
+def audio_consent_gateway_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live, routed, claim-bearing models-gateway target for consent pins."""
+    install_audio_consent_gateway_env(monkeypatch)
+
+
+@pytest.fixture
+def audio_transcribe_engine_stub(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Stub the transcription engine boundary while keeping route binding real."""
+    return stub_audio_transcription_engine(monkeypatch)
 
 
 @pytest.fixture(scope="session")

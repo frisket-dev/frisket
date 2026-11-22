@@ -116,6 +116,7 @@ def test_manual_edit_after_start_beats_older_late_publication(make_project):
 def test_partial_runs_keep_untouched_cells_without_carry_forward(
     tmp_path_factory, updates
 ):
+    assert updates
     # Fresh DB for each generated example; the oracle does not use product reads.
     directory = tmp_path_factory.mktemp("change-sequence")
     project, sheet, column, rows = _seed_project(directory)

@@ -33,20 +33,11 @@ LOCAL_JSON_RESPONSE = re.compile(
 
 # Shrink-only allowlist of legacy 100%-route-mocked Playwright specs.
 # New UI-only tests belong in Vitest component tests, not Playwright E2E.
-PURE_MOCKED_E2E_ALLOWLIST = frozenset(
-    {
-        "tests/e2e/admin-debug-errors.spec.ts",
-    }
-)
+PURE_MOCKED_E2E_ALLOWLIST: frozenset[str] = frozenset()
 
 # Shrink-only allowlist of *HttpContracts.test.ts files that still define a local
 # jsonResponse helper instead of importing tests/support/httpContractTestHelpers.
-HTTP_CONTRACT_JSON_RESPONSE_ALLOWLIST = frozenset(
-    {
-        "tests/unit/alertsHttpContracts.test.ts",
-        "tests/unit/projectFeedReadsHttpContracts.test.ts",
-    }
-)
+HTTP_CONTRACT_JSON_RESPONSE_ALLOWLIST: frozenset[str] = frozenset()
 
 # PanelSelect deliberately retains a native select as its semantic/form trigger.
 # An older rich control retains a hidden mirror for selectOption()/toHaveValue()

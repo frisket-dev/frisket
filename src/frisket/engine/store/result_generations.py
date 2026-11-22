@@ -16,7 +16,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells_from_key_table,
 )
 from frisket.engine.store.search_index_work import enqueue_dirty_scope
-from frisket.engine.store.prepared_content import decode_logical_value
+from frisket.engine.store.prepared_content import SQLiteValue, decode_logical_value
 from frisket.engine.store.document_text import (
     document_text_generation_authority,
     document_text_result_eligibility_sql,
@@ -98,7 +98,7 @@ def decode_published_result_value(
     db: sqlite3.Connection,
     publication_effect: str,
     value_kind: str | None,
-    stored_value: object,
+    stored_value: SQLiteValue,
 ) -> Any:
     """Decode one exact result without null/error fallback semantics."""
 

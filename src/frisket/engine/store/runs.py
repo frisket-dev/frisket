@@ -1747,8 +1747,15 @@ class RunResultStore:
         writer_attempt_id: str | None,
         batch: list[dict[str, Any]],
     ) -> sqlite3.Row:
-        from frisket.execution.attempt import require_receipt_attempt_writer
+        from frisket.execution.attempt import (
+            StaleAttemptWriter,
+            require_receipt_attempt_writer,
+        )
 
+        if writer_attempt_id is None:
+            raise StaleAttemptWriter(
+                "receipt accounting requires its active admitted writer"
+            )
         attempt = require_receipt_attempt_writer(
             self.project, receipt_id, writer_attempt_id
         )
@@ -2180,7 +2187,7 @@ class RunResultStore:
             self._attempt_for_fact_write(run_id, owner_attempt_id)
             from frisket.execution.attempt import require_returned_attempt
 
-            require_returned_attempt(self.project, run_id, owner_attempt_id)
+            require_returned_attempt(self.project, run_id, writer_attempt_id)
         rows: list[tuple[Any, ...]] = []
         candidate_calls: list[dict[str, Any]] = []
         fact_attempt_id = self._attempt_for_fact_write(
@@ -2276,11 +2283,11 @@ class RunResultStore:
                 epoch_id = self._route_epoch_for_call(call)
                 if epoch_id is None and capability in self._ROUTED_FACT_CAPABILITIES:
                     if run_has_route is None:
-                        run_has_route = (
-                            receipt_attempt["head_route_id"] is not None
-                            if receipt_attempt is not None
-                            else self._run_has_persisted_route(fact_run_id)
-                        )
+                        if receipt_attempt is not None:
+                            run_has_route = receipt_attempt["head_route_id"] is not None
+                        else:
+                            assert fact_run_id is not None
+                            run_has_route = self._run_has_persisted_route(fact_run_id)
                     if run_has_route:
                         raise RuntimeError(
                             "route-epoch invariant: run "

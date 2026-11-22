@@ -218,6 +218,9 @@ class Project:
         *,
         blob_store: ProjectBlobStore | None = None,
         maintenance: bool = False,
+        notification_channel_resolver: (
+            notifications.NotificationChannelResolver | None
+        ) = None,
     ):
         self.path = Path(bundle_path)
         self.db_path = self.path / "project.db"
@@ -234,6 +237,7 @@ class Project:
         self._connections: weakref.WeakSet[_ThreadConnection] = weakref.WeakSet()
         self._connections_lock = threading.Lock()
         self._closed = False
+        self.set_notification_channel_resolver(notification_channel_resolver)
         _ = self.db  # open the creating thread's connection eagerly
         try:
             bundle_open.open_bundle(self, maintenance=maintenance)
@@ -640,6 +644,7 @@ class Project:
     ensure_default_in_app_notification_channel = (
         notifications.ensure_default_in_app_notification_channel
     )
+    set_notification_channel_resolver = notifications.set_notification_channel_resolver
     notification_channel = notifications.notification_channel
     notification_channels = notifications.notification_channels
     update_notification_channel = notifications.update_notification_channel

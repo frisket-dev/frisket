@@ -7,18 +7,14 @@ publish(saved_action_id)/import(save_action) flows build on it directly via
 """
 
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import re
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from frisket.ai.llm import ModelRouter
 from frisket.authoring.action_registry import REMOVED_ACTION_KEYS
-from frisket.server.app import create_app
 from frisket.server import schemas
 from frisket.server.services import saved_actions
 from frisket.server.services.action_registry import (
@@ -28,19 +24,6 @@ from frisket.server.services.action_registry import (
 
 
 RECIPE_RE = re.compile(r"recipe", re.IGNORECASE)
-
-
-def _client(tmp_path) -> TestClient:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
-    return TestClient(
-        create_app(
-            workspace,
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
-    )
 
 
 def _recipe_hits(value: Any, path: str = "$", depth: int = 0) -> list[str]:
@@ -87,9 +70,9 @@ def _publishable_saved_action_spec() -> dict[str, Any]:
 
 
 def test_v1_saved_actions_can_publish_by_saved_id_without_legacy_save_routes(
-    tmp_path,
+    off_client,
 ) -> None:
-    client = _client(tmp_path)
+    client = off_client
     workspace = client.app.state.workspace
     entry = workspace.save_action(
         "Beat classifier",
@@ -131,8 +114,8 @@ def test_v1_saved_actions_can_publish_by_saved_id_without_legacy_save_routes(
     assert stored == artifact
 
 
-def test_saved_action_boundaries_refuse_removed_wire_spellings(tmp_path) -> None:
-    client = _client(tmp_path)
+def test_saved_action_boundaries_refuse_removed_wire_spellings(off_client) -> None:
+    client = off_client
     workspace = client.app.state.workspace
     service = ActionRegistryService(workspace)
     for removed_key in sorted(REMOVED_ACTION_KEYS):
@@ -156,9 +139,8 @@ def test_saved_action_boundaries_refuse_removed_wire_spellings(tmp_path) -> None
     assert workspace.action_registry.list()["artifacts"] == []
 
 
-def test_saved_action_and_legacy_recipe_routes_absent_from_openapi(tmp_path) -> None:
-    client = _client(tmp_path)
-    openapi = client.get("/openapi.json").json()
+def test_saved_action_and_legacy_recipe_routes_absent_from_openapi(off_client) -> None:
+    openapi = off_client.get("/openapi.json").json()
     assert "/api/recipes/save" not in openapi["paths"]
     assert "/api/recipes/saved" not in openapi["paths"]
     assert "/api/actions/v1/saved-actions" not in openapi["paths"]
