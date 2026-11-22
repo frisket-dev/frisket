@@ -29,7 +29,7 @@ from .blob_backend import (
     sha256_blob_path,
     validate_blob_digest,
 )
-from .extraction_cache import delete_extraction_cache_for_blobs
+from .extraction_cache_store import delete_extraction_cache_for_blobs
 from .value_codec import decode_stored_value
 
 

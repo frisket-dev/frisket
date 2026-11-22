@@ -12,7 +12,9 @@ from collections.abc import Iterable
 from contextlib import contextmanager
 from itertools import islice
 from typing import Any
-from frisket.engine.store.extraction_cache import delete_extraction_cache_for_blobs
+from frisket.engine.store.extraction_cache_store import (
+    delete_extraction_cache_for_blobs,
+)
 from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 PURGE_SCHEMA_SQL = """
