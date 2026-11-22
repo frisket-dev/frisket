@@ -14,6 +14,7 @@ class ActionDraftScope(WireModel):
     kind: Literal["sheet_rows"]
     sheet_id: int = Field(gt=0)
     row_ids: list[Annotated[int, Field(gt=0)]] | None = None
+    view_id: int | None = Field(default=None, gt=0)
 
 
 class ActionDraft(WireModel):

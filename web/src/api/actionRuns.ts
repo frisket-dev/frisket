@@ -347,13 +347,20 @@ class ActionRunsApi {
     rowIds?: number[],
     /** Echo the promise set shown by the 402 being confirmed. */
     consentedPromiseSetHash?: string,
+    /** Saved View scope (run.backfill view_id): backfill only newly matching
+     *  rows in this saved View. Mutually exclusive with rowIds. */
+    viewId?: number,
   ): Promise<BackfillResult> {
     const spec = this.v1ActionSession.registeredActionSpec({
       action_id: 'run.backfill',
       scope: {
         kind: 'sheet_rows',
         sheet_id: Number(sheetId),
-        ...(rowIds === undefined ? {} : { row_ids: rowIds }),
+        ...(rowIds !== undefined
+          ? { row_ids: rowIds }
+          : viewId !== undefined
+            ? { view_id: viewId }
+            : {}),
       },
       params: { column: columnName },
       output_names: {},

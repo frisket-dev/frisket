@@ -304,9 +304,9 @@ def queued_v1_action_request(
             assert bound is not None
             from frisket.actions.types import SheetRows
 
-            if (
-                isinstance(bound.request.scope, SheetRows)
-                and bound.request.scope.selection is not None
+            if isinstance(bound.request.scope, SheetRows) and (
+                bound.request.scope.selection is not None
+                or bound.request.scope.view_id is not None
             ):
                 from .selection_scope import (
                     freeze_action_selection,

@@ -48,6 +48,7 @@ from frisket.contracts.actions.schemas._base import (
     StrictPositiveInt,
     StrictString,
     V1_COLUMN_TYPE_ALIASES,
+    ViewSelector,
     canonical_column_type,
 )
 
@@ -132,6 +133,7 @@ __all__ = [
     "StrictPositiveInt",
     "StrictString",
     "V1_COLUMN_TYPE_ALIASES",
+    "ViewSelector",
     "canonical_column_type",
     "TemporalColumnSelection",
     "TemporalDraftPoint",

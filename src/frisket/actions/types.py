@@ -2198,12 +2198,16 @@ class SheetRows(BaseModel):
     sheet_id: int = Field(gt=0, strict=True)
     row_ids: tuple[StrictInt, ...] | None = None
     selection: ViewSelection | None = None
+    view_id: int | None = Field(default=None, gt=0, strict=True)
 
     @model_validator(mode="after")
     def _selection_scope(self):
+        provided = sum(
+            value is not None for value in (self.row_ids, self.selection, self.view_id)
+        )
+        if provided > 1:
+            raise ValueError("Use only one of row_ids, selection, or view_id, not both")
         if self.selection is not None:
-            if self.row_ids is not None:
-                raise ValueError("Use selection or row_ids, not both")
             scope = self.selection.scope
             if scope.kind != "sheet" or scope.sheet_id != self.sheet_id:
                 raise ValueError("Action selection must target the action sheet")

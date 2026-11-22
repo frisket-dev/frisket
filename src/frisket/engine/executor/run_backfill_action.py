@@ -49,9 +49,14 @@ from frisket.engine.executor.map_rows_action import (
     typed_program_from_runner_spec,
     typed_request_hash,
 )
+from frisket.engine.executor.selection_scope import (
+    evaluate_sheet_selection_row_ids,
+    evaluate_sheet_view_row_ids,
+)
 from frisket.engine.runner.validation import action_program_for_spec
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
+from frisket.engine.views.specs import SelectionUnavailable
 
 
 class BackfillRefused(Exception):
@@ -96,6 +101,12 @@ def _resolve(
         sheet_id=scope.sheet_id,
         column=column.name,
         row_ids=list(scope.row_ids) if scope.row_ids is not None else None,
+        view_id=scope.view_id,
+        selection=(
+            scope.selection.model_dump(mode="json", exclude_none=True)
+            if scope.selection is not None
+            else None
+        ),
         confirmation=bound.request.confirmation,
     )
     if isinstance(resolved, ActionError):
@@ -114,6 +125,41 @@ def _resolve(
         tuple(resolved["unrun_row_ids"]),
         json.dumps(spec, sort_keys=True, separators=(",", ":")),
     )
+
+
+def _resolve_retry_requested_rows(
+    project: Project, scope: SheetRows, original_rows: set[int]
+) -> set[int]:
+    if scope.view_id is None and scope.selection is None:
+        return (
+            original_rows.intersection(project.visible_row_ids(scope.sheet_id))
+            if scope.row_ids is None
+            else set(scope.row_ids)
+        )
+    try:
+        if scope.view_id is not None:
+            matched = evaluate_sheet_view_row_ids(
+                project, sheet_id=scope.sheet_id, view_id=scope.view_id
+            )
+        else:
+            assert scope.selection is not None
+            matched = evaluate_sheet_selection_row_ids(
+                project,
+                sheet_id=scope.sheet_id,
+                selection=scope.selection.model_dump(mode="json", exclude_none=True),
+            )
+    except SelectionUnavailable as exc:
+        raise BackfillRefused(
+            ActionError(
+                code=exc.code,
+                message=str(exc),
+                action_kind="run.retry",
+                field="scope.view_id"
+                if scope.view_id is not None
+                else "scope.selection",
+            )
+        ) from exc
+    return original_rows.intersection(matched)
 
 
 def _resolve_retry(
@@ -147,11 +193,7 @@ def _resolve_retry(
             )
         )
     original_rows = set(RunResultStore(project).run_row_scope(root_id))
-    requested = (
-        original_rows.intersection(project.visible_row_ids(scope.sheet_id))
-        if scope.row_ids is None
-        else set(scope.row_ids)
-    )
+    requested = _resolve_retry_requested_rows(project, scope, original_rows)
     if not requested.issubset(original_rows):
         raise ValueError("Retry cannot expand the original execution cohort")
     bindings = ResultGenerationStore(project).bindings_for_run(root_id)

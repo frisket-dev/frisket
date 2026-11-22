@@ -21,7 +21,7 @@ interface RunScopeFooterProps {
   runOnScopeSelect?: boolean;
   /** Omitted keeps the ordinary all/selected choice. Catalog-generated forms
    * pass their server-owned row-scope policy directly. */
-  allowedScopes?: readonly ('all_rows' | 'exact_membership')[];
+  allowedScopes?: readonly ('all_rows' | 'exact_membership' | 'view')[];
   /** An exact view/lens may intentionally contain zero rows. */
   allowEmptySelection?: boolean;
   primaryButtonType?: 'button' | 'submit';
@@ -31,6 +31,7 @@ interface RunScopeFooterProps {
   primaryTestId?: string;
   allScopeLabel?: string;
   selectedScopeLabel?: string;
+  selectedScopeDetail?: string;
   showAllScopeOption?: boolean;
   showSelectedScopeOption?: boolean;
   menuItems?: readonly {
@@ -42,6 +43,8 @@ interface RunScopeFooterProps {
   }[];
   backfillTargetName?: string | null;
   backfillHasGaps?: boolean;
+  backfillLabel?: string;
+  backfillDetail?: string;
   onBackfill?(targetColumnName: string): void;
   canRun: boolean;
   canPreview?: boolean;
@@ -72,11 +75,14 @@ export function RunScopeFooter({
   primaryTestId,
   allScopeLabel = 'Run all',
   selectedScopeLabel = 'Run on selected',
+  selectedScopeDetail,
   showAllScopeOption = true,
   showSelectedScopeOption = true,
   menuItems = [],
   backfillTargetName = null,
   backfillHasGaps = false,
+  backfillLabel = 'Re-run failed/missing rows',
+  backfillDetail,
   onBackfill,
   canRun,
   canPreview = canRun,
@@ -90,7 +96,7 @@ export function RunScopeFooter({
   onRun,
 }: RunScopeFooterProps) {
   const allAllowed = allowedScopes.includes('all_rows');
-  const selectedAllowed = allowedScopes.includes('exact_membership');
+  const selectedAllowed = allowedScopes.includes('exact_membership') || allowedScopes.includes('view');
   const [localScope, setLocalScope] = useState<'all' | 'selected'>(
     selectedAllowed && selectedCount > 0 ? 'selected' : 'all',
   );
@@ -114,7 +120,7 @@ export function RunScopeFooter({
     : selectedAllowed && (selectedCount > 0 || allowEmptySelection);
   const hasScopeChoice = allAllowed && selectedAllowed;
   const hasVisibleScopeChoice = hasScopeChoice
-    && (showAllScopeOption || (showSelectedScopeOption && selectedCount > 0));
+    && (showAllScopeOption || (showSelectedScopeOption && (selectedCount > 0 || allowEmptySelection)));
   const hasScopeMenu = hasVisibleScopeChoice || Boolean(onBackfill) || menuItems.length > 0;
   const canBackfill = Boolean(onBackfill && backfillTargetName && backfillHasGaps);
   const backfillTitle = !backfillTargetName
@@ -213,7 +219,7 @@ export function RunScopeFooter({
                 <span className="menu-item-name">{allScopeLabel}</span>
                 <span className="muted">{rowCount.toLocaleString()} rows</span>
               </button>}
-              {hasScopeChoice && showSelectedScopeOption && selectedCount > 0 && <button
+              {hasScopeChoice && showSelectedScopeOption && (selectedCount > 0 || allowEmptySelection) && <button
                 type="button"
                 className="menu-item"
                 data-active={effectiveScope === 'selected'}
@@ -222,7 +228,7 @@ export function RunScopeFooter({
               >
                 <span className="menu-item-name">{selectedScopeLabel}</span>
                 <span className="muted">
-                  {selectedCount.toLocaleString()} selected
+                  {selectedScopeDetail ?? `${selectedCount.toLocaleString()} selected`}
                 </span>
               </button>}
               {menuItems.map((item) => <button
@@ -255,11 +261,11 @@ export function RunScopeFooter({
                     toggleRef.current?.focus();
                   }}
                 >
-                  <span className="menu-item-name">Re-run failed/missing rows</span>
+                  <span className="menu-item-name">{backfillLabel}</span>
                   <span className="muted">
                     {backfillTargetName
                       ? backfillHasGaps
-                        ? `Missing cells in ${backfillTargetName}`
+                        ? backfillDetail ?? `Missing cells in ${backfillTargetName}`
                         : 'No failed or missing rows'
                       : 'Target an existing generated column'}
                   </span>

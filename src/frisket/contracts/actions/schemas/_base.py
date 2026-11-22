@@ -119,8 +119,13 @@ class ExactMembershipSelector(ContractModel):
     membership: ExactRowMembership
 
 
+class ViewSelector(ContractModel):
+    kind: Literal["view"]
+    view_id: StrictPersistedId
+
+
 SheetRowSelector = Annotated[
-    AllRowsSelector | ExactMembershipSelector,
+    AllRowsSelector | ExactMembershipSelector | ViewSelector,
     Field(discriminator="kind"),
 ]
 
@@ -130,15 +135,18 @@ class SheetRowScope(ContractModel):
     selector: SheetRowSelector
 
 
+SheetRowSelectorKind = Literal["all_rows", "exact_membership", "view"]
+
+
 class SheetRowScopePolicy(ContractModel):
     kind: Literal["sheet_rows"] = "sheet_rows"
-    selectors: list[Literal["all_rows", "exact_membership"]] = Field(min_length=1)
+    selectors: list[SheetRowSelectorKind] = Field(min_length=1)
 
     @field_validator("selectors")
     @classmethod
     def _unique_selectors(
-        cls, selectors: list[Literal["all_rows", "exact_membership"]]
-    ) -> list[Literal["all_rows", "exact_membership"]]:
+        cls, selectors: list[SheetRowSelectorKind]
+    ) -> list[SheetRowSelectorKind]:
         if len(selectors) != len(set(selectors)):
             raise ValueError("row scope selectors must be unique")
         return selectors
@@ -146,9 +154,7 @@ class SheetRowScopePolicy(ContractModel):
 
 class ProjectScopePolicy(ContractModel):
     kind: Literal["project"] = "project"
-    selectors: list[Literal["all_rows", "exact_membership"]] = Field(
-        default_factory=list, max_length=0
-    )
+    selectors: list[SheetRowSelectorKind] = Field(default_factory=list, max_length=0)
 
 
 class ActionSpec(ContractModel):

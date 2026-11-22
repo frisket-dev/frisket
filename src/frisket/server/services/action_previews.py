@@ -24,6 +24,7 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
     bound_typed_program_request_from_runner_spec,
 )
+from frisket.engine.executor.selection_scope import resolve_action_selection
 from frisket.actions.types import (
     IndexCreator,
     IndexRefresher,
@@ -47,6 +48,7 @@ from frisket.engine.runner.validation import (
 )
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
+from frisket.engine.views.specs import SelectionUnavailable
 from frisket.server.route_errors import RouteError
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.pricing_policy import default_pricing_policy
@@ -298,6 +300,7 @@ class ActionPreviewService:
                     }
 
                 if capabilities in ((FindScanner,), (GroupSummarizer,)):
+                    typed = resolve_action_selection(get_project(), typed)
                     prepare = (
                         prepare_find_action
                         if capabilities == (FindScanner,)
@@ -356,6 +359,21 @@ class ActionPreviewService:
             except ActionPreviewRouteError:
                 raise
             except (KeyError, TypeError, ValueError) as exc:
+                if isinstance(exc, SelectionUnavailable):
+                    raise ActionPreviewRouteError(
+                        400,
+                        ActionError(
+                            code=exc.code,
+                            message=str(exc),
+                            action_kind=typed.action.action_id,
+                            field=(
+                                "scope.view_id"
+                                if exc.code in {"view_not_found", "view_sheet_mismatch"}
+                                else "scope"
+                            ),
+                        ).model_dump(mode="json"),
+                        bare_json=True,
+                    ) from exc
                 raise _action_error(400, str(exc)) from exc
 
         if typed_plan is None and backfill_plan is None:

@@ -1281,7 +1281,7 @@ export interface ActionCatalogPolicy {
 
 interface SheetRowScopePolicy {
   kind: 'sheet_rows';
-  selectors: Array<'all_rows' | 'exact_membership'>;
+  selectors: Array<'all_rows' | 'exact_membership' | 'view'>;
 }
 
 interface ProjectScopePolicy {
@@ -1565,6 +1565,7 @@ type RegisteredSheetRowsScope = Record<string, JsonValue> & {
   sheet_id: number;
   row_ids?: number[];
   selection?: ViewSelection;
+  view_id?: number;
 };
 
 type RegisteredProjectScope = Record<string, JsonValue> & {
@@ -1606,6 +1607,7 @@ function hasRegisteredActionDraftShape(candidate: unknown): candidate is Registe
       scope.kind === 'sheet_rows'
       && typeof scope.sheet_id === 'number'
       && (scope.row_ids === undefined || Array.isArray(scope.row_ids))
+      && (scope.view_id === undefined || typeof scope.view_id === 'number')
     );
   return typeof candidate.action_id === 'string'
     && validScope

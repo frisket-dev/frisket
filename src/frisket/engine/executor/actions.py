@@ -29,7 +29,9 @@ from frisket.contracts.action import (
 from frisket.engine.executor import action_inventory as _runtime_inventory
 from frisket.engine.executor import action_lifecycle as _runtime_lifecycle
 from frisket.engine.executor import action_support as _runtime_support
+from frisket.engine.executor.run_backfill_action import supports_typed_backfill_action
 from frisket.engine.store import Project
+from frisket.engine.views.specs import SelectionUnavailable
 from frisket.engine.runner.preview import PREVIEW_MAX_ROWS
 from frisket.engine.runner.validation import (
     InvalidTargetRows,
@@ -306,11 +308,18 @@ def resolve_map_preview(
                     admission=False,
                 )
         except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            field = getattr(exc, "field", None)
+            if isinstance(exc, SelectionUnavailable) and field is None:
+                field = (
+                    "scope.view_id"
+                    if exc.code in {"view_not_found", "view_sheet_mismatch"}
+                    else "scope"
+                )
             return ActionError(
                 code=getattr(exc, "code", "invalid_action_request"),
                 message=str(exc),
                 action_kind=str(data["action_id"]),
-                field=getattr(exc, "field", None),
+                field=field,
                 details=dict(getattr(exc, "details", {})),
             )
         preview_scope = _resolve_bounded_preview_scope(
@@ -565,15 +574,30 @@ def run_action_spec(
             return _runtime_support._failed_result(
                 project_id=project_id, action_kind=typed.action.action_id, error=refusal
             )
-        typed = resolve_action_selection(project, typed, replay_before_resolution=True)
+        if not supports_typed_backfill_action(typed.action.definition.run):
+            typed = resolve_action_selection(
+                project, typed, replay_before_resolution=True
+            )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _runtime_support._failed_result(
             project_id=project_id,
             action_kind=str(data.get("action_id", "unknown")),
             error=ActionError(
-                code="invalid_action_request",
+                code=(
+                    exc.code
+                    if isinstance(exc, SelectionUnavailable)
+                    else "invalid_action_request"
+                ),
                 message=str(exc),
                 action_kind=str(data.get("action_id", "unknown")),
+                field=(
+                    "scope.view_id"
+                    if isinstance(exc, SelectionUnavailable)
+                    and exc.code in {"view_not_found", "view_sheet_mismatch"}
+                    else "scope"
+                    if isinstance(exc, SelectionUnavailable)
+                    else None
+                ),
             ),
         )
     from frisket.engine.executor.import_update_admission import (
@@ -669,7 +693,6 @@ def run_action_spec(
         )
         from frisket.engine.executor.run_backfill_action import (
             run_typed_backfill_action,
-            supports_typed_backfill_action,
         )
         from frisket.engine.executor.temporal_extract_action import (
             run_typed_temporal_extract_action,

@@ -173,6 +173,7 @@ _ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = frozenset(
         # Selection is represented exactly by run_id + row_id.  A backfill may
         # spell its delta differently while asking the same row operation.
         "row_ids",
+        "row_scope",
     }
 )
 _CLOUD_ROW_EFFECT_IDENTITY_IGNORED_SPEC_KEYS = (

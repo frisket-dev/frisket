@@ -2609,7 +2609,7 @@ type HttpActionCatalog_IdempotencyPolicy = ({
 
 type HttpActionCatalog_ProjectScopePolicy = ({
   "kind"?: ("project") & (string);
-  "selectors"?: (Array<("all_rows" | "exact_membership") & (string)>);
+  "selectors"?: (Array<("all_rows" | "exact_membership" | "view") & (string)>);
 });
 
 type HttpActionCatalog_RetryPolicy = ({
@@ -2620,7 +2620,7 @@ type HttpActionCatalog_RetryPolicy = ({
 
 type HttpActionCatalog_SheetRowScopePolicy = ({
   "kind"?: ("sheet_rows") & (string);
-  "selectors": (Array<("all_rows" | "exact_membership") & (string)>);
+  "selectors": (Array<("all_rows" | "exact_membership" | "view") & (string)>);
 });
 
 export type HttpActionCatalog = ({
@@ -2670,6 +2670,7 @@ type HttpActionCompareContextRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpActionCompareContextRequest_JsonValue = JsonValue;
@@ -2781,6 +2782,7 @@ type HttpActionCompareContextResponse_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpActionCompareContextResponse_JsonValue = JsonValue;
@@ -2877,6 +2879,7 @@ type HttpActionComparePreviewRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpActionComparePreviewRequest_JsonValue = JsonValue;
@@ -2950,6 +2953,7 @@ type HttpActionHistoryDetail_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpActionHistoryDetail_ActionHistoryDraft = ({
@@ -5949,6 +5953,7 @@ type HttpComparisonCaptureRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpComparisonCaptureRequest_CurrentVariantRef = ({
@@ -6512,6 +6517,7 @@ type HttpEvaluationCellRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpEvaluationCellRequest_CurrentVariantRef = ({
@@ -6577,6 +6583,7 @@ type HttpEvaluationJudgmentRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpEvaluationJudgmentRequest_CurrentVariantRef = ({
@@ -6643,6 +6650,7 @@ type HttpEvaluationRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpEvaluationRequest_CurrentVariantRef = ({
@@ -6831,6 +6839,7 @@ type HttpExpectedAnswerRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpExpectedAnswerRequest_JsonValue = JsonValue;
@@ -13109,6 +13118,7 @@ type HttpReviewedRunRevision_ReviewedRunScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids": (Array<(number)>);
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 export type HttpReviewedRunRevision = ({
@@ -14325,6 +14335,7 @@ type HttpShelfSaveRequest_ActionDraftScope = ({
   "kind": ("sheet_rows") & (string);
   "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
+  "view_id"?: (((number)) | ((null)));
 });
 
 type HttpShelfSaveRequest_CurrentVariantRef = ({

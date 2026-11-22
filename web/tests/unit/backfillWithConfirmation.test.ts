@@ -130,4 +130,22 @@ describe('backfillWithConfirmation', () => {
     ).rejects.toThrow('backend exploded');
     expect(requestConfirmation).not.toHaveBeenCalled();
   });
+
+  it('threads viewId through both initial attempt and confirmed resubmit', async () => {
+    const spy = vi
+      .spyOn(api, 'backfillColumn')
+      .mockRejectedValueOnce(new ConfirmationRequiredError({
+        cost: 2.0,
+        rows: 3,
+        promise_set_hash: 'view-backfill-hash',
+      }, 'Backfill 3 view rows', 'model_cost'))
+      .mockResolvedValueOnce(result({ filled: 3, runId: 'run-view-bf-1' }));
+    const requestConfirmation = vi.fn(async () => true);
+
+    const out = await backfillWithConfirmation(api, requestConfirmation, 'sheet-1', 'extracted', undefined, 19);
+
+    expect(out).toEqual(result({ filled: 3, runId: 'run-view-bf-1' }));
+    expect(spy).toHaveBeenNthCalledWith(1, 'sheet-1', 'extracted', false, undefined, undefined, 19);
+    expect(spy).toHaveBeenNthCalledWith(2, 'sheet-1', 'extracted', true, undefined, 'view-backfill-hash', 19);
+  });
 });

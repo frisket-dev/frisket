@@ -417,8 +417,16 @@ def _apply_action_envelope_to_runner_spec(
         selector = action.row_scope.selector
         if selector.kind == "exact_membership":
             runner_spec["row_ids"] = list(selector.membership.row_ids)
+            runner_spec.pop("row_scope", None)
+        elif selector.kind == "view":
+            runner_spec["row_scope"] = {
+                "kind": "view",
+                "view_id": int(selector.view_id),
+            }
+            runner_spec.pop("row_ids", None)
         else:
             runner_spec.pop("row_ids", None)
+            runner_spec.pop("row_scope", None)
     if _replace_existing_from_output_intent(action):
         runner_spec["overwrite"] = True
     return runner_spec

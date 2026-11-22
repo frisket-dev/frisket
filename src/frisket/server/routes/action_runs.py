@@ -60,6 +60,7 @@ def register_action_run_routes(
     @app.get(
         "/api/projects/{pid}/actions/history/{history_id}",
         response_model=ActionHistoryDetail,
+        response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 404, 422),
     )
     def action_history_detail(pid: str, history_id: str) -> ActionHistoryDetail:

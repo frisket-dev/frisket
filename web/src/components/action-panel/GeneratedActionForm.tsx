@@ -215,6 +215,8 @@ export interface GeneratedActionFormProps {
   title?: string;
   sheet: SheetMeta | null;
   selectedRowIds?: string[];
+  viewId?: number | null;
+  viewName?: string | null;
   viewSelection?: ViewSelection | null;
   hasExactRowScopeInitializer?: boolean;
   initialSourceColumn?: string;
@@ -234,7 +236,7 @@ export interface GeneratedActionFormProps {
   onNavigateToAction?(actionKind: string, sourceColumn?: string): void;
   sampleColumnValues?(columnId: string): string[];
   onOpenDiagnose?(): void;
-  onBackfill?: (targetColumnName: string) => void;
+  onBackfill?: (targetColumnName: string, rowIds?: number[], viewId?: number) => void;
   onMaterializePdfTables?(intent: PdfTablesMaterializeIntent): void;
   onExportPdfTables?(intent: PdfTablesExportIntent): void;
   onOpenOcrCompare?(target: OcrCompareTarget): void;
@@ -542,6 +544,8 @@ function GeneratedActionFormContents({
   title,
   sheet,
   selectedRowIds = EMPTY_ROW_IDS,
+  viewId = null,
+  viewName = null,
   viewSelection = null,
   hasExactRowScopeInitializer = false,
   initialSourceColumn,
@@ -633,15 +637,16 @@ function GeneratedActionFormContents({
   const [renameProblem, setRenameProblem] = useState<string | null>(null);
   const sheetId = sheet ? Number(sheet.id) : null;
   const projectScoped = isProjectScopedAction(catalogEntry, createsSheet);
-  const allowedScopes = catalogEntry.row_scope_policy == null
-    ? ['all_rows', 'exact_membership'] as const
+  const allowedScopes: readonly ('all_rows' | 'exact_membership' | 'view')[] = catalogEntry.row_scope_policy == null
+    ? ['all_rows', 'exact_membership']
     : catalogEntry.row_scope_policy.kind === 'sheet_rows'
       ? catalogEntry.row_scope_policy.selectors
       : [];
+  const hasViewScope = (viewId !== null || viewSelection !== null) && scopeSelectedRowIds.length === 0;
   const defaultScope = launchMode
     ? 'all'
-    : ((hasExactRowScopeInitializer || viewSelection !== null || scopeSelectedRowIds.length > 0)
-      && allowedScopes.includes('exact_membership') ? 'selected' : 'all');
+    : ((hasExactRowScopeInitializer || hasViewScope || scopeSelectedRowIds.length > 0)
+      && (allowedScopes.includes('exact_membership') || allowedScopes.includes('view')) ? 'selected' : 'all');
   // A selection that appears or clears under an open launch moves the scope
   // to its new default without remounting the form, so edits survive.
   const [scopeChoice, setScopeChoice] = useState<{ forDefault: 'all' | 'selected'; scope: 'all' | 'selected' }>(
@@ -651,21 +656,24 @@ function GeneratedActionFormContents({
     setScopeChoice({ forDefault: defaultScope, scope });
   }, [defaultScope]);
   const effectiveRunScope = runScope === 'selected'
-    && allowedScopes.includes('exact_membership')
-    && (scopeSelectedRowIds.length > 0 || viewSelection !== null || hasExactRowScopeInitializer)
+    && (allowedScopes.includes('exact_membership') || allowedScopes.includes('view'))
+    && (scopeSelectedRowIds.length > 0 || hasViewScope || hasExactRowScopeInitializer)
     ? 'selected' : allowedScopes.includes('all_rows') ? 'all' : 'selected';
-  const selectedScopeSummary = viewSelection && scopeSelectedRowIds.length === 0 ? 'Current view' : `${scopeSelectedRowIds.length.toLocaleString()} selected ${
-    scopeSelectedRowIds.length === 1 ? 'row' : 'rows'}`;
   const scopeFor = useCallback((scope: 'all' | 'selected'): GeneratedActionRequest['scope'] => {
     if (savedTableScope) return savedTableScope;
     if (projectScoped) return { kind: 'project' };
     if (sheetId === null) throw new Error('A row action requires a source sheet.');
     return {
       kind: 'sheet_rows', sheet_id: sheetId,
-      ...(scope === 'selected' ? viewSelection && scopeSelectedRowIds.length === 0
-        ? { selection: viewSelection } : { row_ids: scopeSelectedRowIds.map(Number) } : {}),
+      ...(scope === 'selected'
+        ? scopeSelectedRowIds.length === 0 && viewId !== null
+          ? { view_id: viewId }
+          : scopeSelectedRowIds.length === 0 && viewSelection !== null
+            ? { selection: viewSelection }
+            : { row_ids: scopeSelectedRowIds.map(Number) }
+        : {}),
     };
-  }, [savedTableScope, projectScoped, sheetId, scopeSelectedRowIds, viewSelection]);
+  }, [savedTableScope, projectScoped, sheetId, scopeSelectedRowIds, viewId, viewSelection]);
   const requestScope = useMemo(() => scopeFor(effectiveRunScope), [scopeFor, effectiveRunScope]);
   const [draft, setDraft] = useState<CanonicalDraft>(() =>
     initialParams(catalogEntry, actionTemplate, columns, initialSourceColumn, initialDraft, initialPrompt));
@@ -1241,7 +1249,20 @@ function GeneratedActionFormContents({
   const billingLabel = displayedEstimate?.billing_label?.trim() || null;
   const estimateWarning = displayedEstimate?.warning?.trim() || null;
   const estimateRowCount = displayedEstimate?.rows
-    ?? (sheet ? effectiveRunScope === 'selected' ? viewSelection ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
+    ?? (sheet ? effectiveRunScope === 'selected' ? hasViewScope ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
+  const viewEstimateRows = effectiveRunScope === 'selected'
+    && !previousEstimate
+    && displayedEstimate?.rows !== undefined
+    ? displayedEstimate.rows
+    : null;
+  const viewScopeLabel = viewName ? `view “${viewName}”` : 'current view';
+  const selectedScopeSummary = hasViewScope
+    ? viewEstimateRows !== null
+      ? `${viewEstimateRows.toLocaleString()} ${viewEstimateRows === 1 ? 'row' : 'rows'} in ${viewScopeLabel}`
+      : viewName
+        ? `View: ${viewName}`
+        : 'Current view'
+    : `${scopeSelectedRowIds.length.toLocaleString()} selected ${scopeSelectedRowIds.length === 1 ? 'row' : 'rows'}`;
   const generatedColumnCount = dynamicOutputs && resolvedIdentity !== resolutionIdentity ? 0 : outputs.length;
 
   const primaryOutputName = outputs[0] ? outputNames[outputs[0].key]?.trim() : '';
@@ -1256,11 +1277,23 @@ function GeneratedActionFormContents({
         version.version > best.version ? version : best
       ))
     : null;
-  const backfillHasGaps = latestBackfillVersion?.status === 'partial';
+  const backfillHasGaps = latestBackfillVersion?.status === 'partial'
+    || (viewId !== null && backfillTargetColumn !== null);
+  const handleBackfill = useMemo(
+    () => (
+      onBackfill
+        ? (targetColumnName: string) => {
+            if (viewId !== null) onBackfill(targetColumnName, undefined, viewId);
+            else onBackfill(targetColumnName);
+          }
+        : undefined
+    ),
+    [onBackfill, viewId],
+  );
 
   const submit = async (scope: 'all' | 'selected', intent: 'preview' | 'run') => {
     if (!canRun || launchPending || submissionInFlight.current || (!projectScoped && scope === 'selected'
-      && scopeSelectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
+      && scopeSelectedRowIds.length === 0 && !hasExactRowScopeInitializer && !hasViewScope)) return;
     const request = {
       ...estimateDraft,
       scope: scopeFor(scope),
@@ -1553,19 +1586,32 @@ function GeneratedActionFormContents({
           ? effectiveRunScope === 'selected'
             ? selectedScopeSummary
             : `All ${(sheet?.rowCount ?? 0).toLocaleString()} rows`
-          : undefined}
+          : effectiveRunScope === 'selected' && hasViewScope
+            ? selectedScopeSummary
+            : undefined}
         scope={runScope} onScopeChange={setRunScope}
         showPreview={launchMode?.kind !== 'compare-setup'}
         runOnScopeSelect={launchMode?.kind !== 'compare-setup' && (Boolean(launchMode)
           || catalogEntry.cost_policy?.requires_confirmation !== true
           || (estimateState.identity === estimateIdentity && displayedUsd === 0))}
         allowedScopes={launchMode?.kind === 'compare-setup' ? ['all_rows'] : allowedScopes}
-        allowEmptySelection={hasExactRowScopeInitializer}
+        allowEmptySelection={hasExactRowScopeInitializer || hasViewScope}
         primaryButtonType={editComparePrimary ? 'button' : 'submit'}
         onPrimary={editComparePrimary && onCompare
           ? () => onCompare(estimateDraft) : undefined}
         allScopeLabel={replacementLaunch ? 'Replace all rows' : 'Run all'}
-        selectedScopeLabel={replacementLaunch ? 'Replace selected rows' : 'Run on selected'}
+        selectedScopeLabel={hasViewScope
+          ? replacementLaunch
+            ? 'Replace view rows'
+            : viewName
+              ? `Run on “${viewName}”`
+              : 'Run on this view'
+          : replacementLaunch ? 'Replace selected rows' : 'Run on selected'}
+        selectedScopeDetail={hasViewScope
+          ? viewEstimateRows !== null
+            ? `${viewEstimateRows.toLocaleString()} ${viewEstimateRows === 1 ? 'row' : 'rows'}`
+            : 'Current view'
+          : undefined}
         showAllScopeOption={launchMode?.kind !== 'compare-setup' && (!launchMode || editComparePrimary || effectiveRunScope === 'selected')}
         menuItems={[
           ...(!launchMode && onCompare ? [{ id: 'compare', label: 'Compare…',
@@ -1577,7 +1623,11 @@ function GeneratedActionFormContents({
         ]}
         backfillTargetName={backfillTargetColumn?.name ?? null}
         backfillHasGaps={backfillHasGaps}
-        onBackfill={onBackfill}
+        backfillLabel={viewId !== null ? 'Backfill new rows in view' : undefined}
+        backfillDetail={viewId !== null && backfillTargetColumn
+          ? `New or failed rows in ${backfillTargetColumn.name}`
+          : undefined}
+        onBackfill={handleBackfill}
         running={running} runningLabel={runningLabel}
         primaryTestId={customization?.primaryTestId}
         disabledReason={resolved.runtime_setup ? 'Set up browser tools before running.' : !catalogAccepted ? 'The action catalog is refreshing.'

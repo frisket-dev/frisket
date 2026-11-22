@@ -111,8 +111,8 @@ export function useWorkspaceActionController({
   // Cost-gate cancellation must not mutate or error.
 
   const runColumnBackfill = useCallback(
-    (sheetId: string, targetColumnName: string, rowIds?: number[]) =>
-      backfillWithConfirmation(projectApi, requestCostConfirmation, sheetId, targetColumnName, rowIds)
+    (sheetId: string, targetColumnName: string, rowIds?: number[], viewId?: number) =>
+      backfillWithConfirmation(projectApi, requestCostConfirmation, sheetId, targetColumnName, rowIds, viewId)
         .then((result) => {
           if (result) afterBackfill(result.runId);
         })
@@ -121,9 +121,9 @@ export function useWorkspaceActionController({
   );
 
   const runActionBackfill = useCallback(
-    (targetColumnName: string, rowIds?: number[]) => {
+    (targetColumnName: string, rowIds?: number[], viewId?: number) => {
       if (!sheet) return Promise.resolve();
-      return runColumnBackfill(sheet.id, targetColumnName, rowIds);
+      return runColumnBackfill(sheet.id, targetColumnName, rowIds, viewId);
     },
     [runColumnBackfill, sheet],
   );

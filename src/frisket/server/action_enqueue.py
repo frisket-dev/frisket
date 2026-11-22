@@ -40,6 +40,7 @@ from frisket.engine.executor.queued_actions import (
     queued_v1_action_request,
     queued_v1_job_payload,
 )
+from frisket.engine.views.specs import SelectionUnavailable
 from frisket.engine.jobs.queue import (
     ACTION_RUN_KIND,
     JobQueue,
@@ -785,9 +786,21 @@ def queue_v1_action_run(
                 project_id=project_id,
                 action_kind=kind,
                 error=ActionError(
-                    code="invalid_action_request",
+                    code=(
+                        exc.code
+                        if isinstance(exc, SelectionUnavailable)
+                        else "invalid_action_request"
+                    ),
                     message=str(exc),
                     action_kind=kind,
+                    field=(
+                        "scope.view_id"
+                        if isinstance(exc, SelectionUnavailable)
+                        and exc.code in {"view_not_found", "view_sheet_mismatch"}
+                        else "scope"
+                        if isinstance(exc, SelectionUnavailable)
+                        else None
+                    ),
                 ),
             )
         if isinstance(envelope, ActionResult):
